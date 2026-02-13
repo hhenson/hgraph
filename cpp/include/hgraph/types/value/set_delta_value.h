@@ -25,8 +25,8 @@ namespace hgraph::value {
  * This is an owning value class (copies the delta sets).
  */
 struct SetDeltaValue {
-    PlainValue _added;
-    PlainValue _removed;
+    Value _added;
+    Value _removed;
     const TypeMeta* _element_type{nullptr};
     const TypeMeta* _set_schema{nullptr};
 
@@ -41,8 +41,8 @@ struct SetDeltaValue {
         : _element_type(element_type) {
         if (_element_type) {
             _set_schema = TypeRegistry::instance().set(_element_type).build();
-            _added = PlainValue(_set_schema);
-            _removed = PlainValue(_set_schema);
+            _added = Value(_set_schema);
+            _removed = Value(_set_schema);
             _added.emplace();
             _removed.emplace();
         }
@@ -56,8 +56,8 @@ struct SetDeltaValue {
         : _element_type(element_type) {
         if (_element_type) {
             _set_schema = TypeRegistry::instance().set(_element_type).build();
-            _added = PlainValue(_set_schema);
-            _removed = PlainValue(_set_schema);
+            _added = Value(_set_schema);
+            _removed = Value(_set_schema);
             _added.emplace();
             _removed.emplace();
 
@@ -73,7 +73,7 @@ struct SetDeltaValue {
         }
     }
 
-    // Move-only (PlainValue has unique ownership)
+    // Move-only (Value has unique ownership)
     SetDeltaValue(SetDeltaValue&&) noexcept = default;
     SetDeltaValue& operator=(SetDeltaValue&&) noexcept = default;
     SetDeltaValue(const SetDeltaValue&) = delete;

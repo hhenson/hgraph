@@ -16,35 +16,35 @@ namespace hgraph
 
     /**
      * Non-templated evaluation clock for TsdMapNode.
-     * Stores key as PlainValue and uses TypeMeta for Python conversion.
+     * Stores key as Value and uses TypeMeta for Python conversion.
      */
     struct MapNestedEngineEvaluationClock : NestedEngineEvaluationClock
     {
         MapNestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock,
-                                       value::PlainValue key, tsd_map_node_ptr nested_node);
+                                       value::Value key, tsd_map_node_ptr nested_node);
 
         void update_next_scheduled_evaluation_time(engine_time_t next_time) override;
 
-        const value::PlainValue& key() const { return _key; }
+        const value::Value& key() const { return _key; }
 
         [[nodiscard]] nb::object py_key() const override;
 
       private:
-        value::PlainValue _key;
+        value::Value _key;
     };
 
     /**
-     * Non-templated TsdMapNode using PlainValue for type-erased key storage.
+     * Non-templated TsdMapNode using Value for type-erased key storage.
      * Uses TypeMeta for Python conversions.
      */
     struct TsdMapNode : NestedNode
     {
-        // Use PlainValue for type-erased key storage
-        using key_graph_map_type = std::unordered_map<value::PlainValue, graph_s_ptr,
-                                                      PlainValueHash, PlainValueEqual>;
-        using key_time_map_type = std::unordered_map<value::PlainValue, engine_time_t,
-                                                     PlainValueHash, PlainValueEqual>;
-        using key_set_type = std::unordered_set<value::PlainValue, PlainValueHash, PlainValueEqual>;
+        // Use Value for type-erased key storage
+        using key_graph_map_type = std::unordered_map<value::Value, graph_s_ptr,
+                                                      ValueHash, ValueEqual>;
+        using key_time_map_type = std::unordered_map<value::Value, engine_time_t,
+                                                     ValueHash, ValueEqual>;
+        using key_set_type = std::unordered_set<value::Value, ValueHash, ValueEqual>;
 
         static inline std::string KEYS_ARG = "__keys__";
         static inline std::string _KEY_ARG = "__key_arg__";
@@ -53,7 +53,7 @@ namespace hgraph
                    graph_builder_s_ptr nested_graph_builder, const std::unordered_map<std::string, int64_t> &input_node_ids,
                    int64_t output_node_id, const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg);
 
-        // Non-copyable due to move-only PlainValue members
+        // Non-copyable due to move-only Value members
         TsdMapNode(const TsdMapNode&) = delete;
         TsdMapNode& operator=(const TsdMapNode&) = delete;
 

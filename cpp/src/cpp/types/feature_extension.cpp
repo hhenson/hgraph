@@ -61,7 +61,7 @@ namespace hgraph {
 
     void FeatureOutputExtensionValue::update(const nb::handle& key) {
         if (!_key_type) return;
-        value::PlainValue key_val(_key_type);
+        value::Value key_val(_key_type);
         key_val.from_python(nb::cast<nb::object>(key));
         update(key_val.view());
     }

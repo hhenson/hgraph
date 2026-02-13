@@ -23,7 +23,6 @@ This document provides the high-level design overview for the new time-series in
 | 05_TSOUTPUT_TSINPUT.md | TSOutput, TSInput, paths, ViewData |
 | 06_ACCESS_PATTERNS.md | Reading, writing, iteration patterns |
 | 07_DELTA.md | DeltaView, DeltaValue, change tracking |
-| 08_SCHEMA_INTEGRATION.md | Python HgTypeMetaData to C++ schema integration |
 
 ## Key Data Structures
 

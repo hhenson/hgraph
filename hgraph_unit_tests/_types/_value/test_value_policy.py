@@ -1,7 +1,7 @@
 """
 Value API surface regression tests.
 
-The Value layer now exposes a single owning type (`PlainValue`) with typed-null
+The Value layer now exposes a single owning type (`Value`) with typed-null
 semantics. Policy-specific variants are intentionally not exposed.
 """
 
@@ -12,7 +12,7 @@ value = _hgraph.value
 
 
 def test_plain_value_is_exposed():
-    assert hasattr(value, "PlainValue")
+    assert hasattr(value, "Value")
 
 
 def test_policy_value_variants_not_exposed():
@@ -24,7 +24,7 @@ def test_policy_value_variants_not_exposed():
 def test_plain_value_typed_null_roundtrip():
     int_schema = value.scalar_type_meta_int64()
 
-    v = value.PlainValue(int_schema)
+    v = value.Value(int_schema)
     assert not v.has_value()
     assert not v.valid()
     assert v.schema is int_schema
@@ -45,7 +45,7 @@ def test_plain_value_typed_null_roundtrip():
 def test_plain_value_schema_and_python_ctor():
     int_schema = value.scalar_type_meta_int64()
 
-    v = value.PlainValue(int_schema, 456)
+    v = value.Value(int_schema, 456)
     assert v.has_value()
     assert v.valid()
     assert v.schema is int_schema
@@ -55,7 +55,7 @@ def test_plain_value_schema_and_python_ctor():
 def test_plain_value_emplace_and_reset():
     int_schema = value.scalar_type_meta_int64()
 
-    v = value.PlainValue(int_schema)
+    v = value.Value(int_schema)
     assert not v.has_value()
 
     v.emplace()

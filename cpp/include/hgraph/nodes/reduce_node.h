@@ -20,16 +20,16 @@ namespace hgraph {
      * Non-templated: uses Value/TypeMeta for type-erased key handling.
      */
     struct ReduceNode final : NestedNode {
-        // Use PlainValue for type-erased key storage (same as TSD)
-        using key_map_type = std::unordered_map<value::PlainValue, std::tuple<int64_t, int64_t>,
-                                                 PlainValueHash, PlainValueEqual>;
+        // Use Value for type-erased key storage (same as TSD)
+        using key_map_type = std::unordered_map<value::Value, std::tuple<int64_t, int64_t>,
+                                                 ValueHash, ValueEqual>;
 
         ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                    nb::dict scalars,
                    graph_builder_s_ptr nested_graph_builder, const std::tuple<int64_t, int64_t> &input_node_ids,
                    int64_t output_node_id);
 
-        // Non-copyable due to move-only PlainValue members
+        // Non-copyable due to move-only Value members
         ReduceNode(const ReduceNode&) = delete;
         ReduceNode& operator=(const ReduceNode&) = delete;
 
@@ -47,7 +47,7 @@ namespace hgraph {
 
         int64_t output_node_id() const;
 
-        // Returns Python dict for inspection (converts PlainValue keys to Python)
+        // Returns Python dict for inspection (converts Value keys to Python)
         nb::dict py_bound_node_indexes() const;
 
         const std::vector<std::tuple<int64_t, int64_t> > &free_node_indexes() const;

@@ -20,7 +20,7 @@ _hgraph = pytest.importorskip("hgraph._hgraph")
 value = _hgraph.value  # Value types are in the value submodule
 
 # Convenience aliases to avoid variable shadowing
-PlainValue = value.PlainValue
+Value = value.Value
 TypeRegistry = value.TypeRegistry
 TypeKind = value.TypeKind
 
@@ -30,9 +30,9 @@ TypeKind = value.TypeKind
 # =============================================================================
 
 def make_int_value(val):
-    """Create a PlainValue containing an int."""
+    """Create a Value containing an int."""
     int_schema = value.scalar_type_meta_int64()
-    v = PlainValue(int_schema)
+    v = Value(int_schema)
 
     v.emplace()
     v.set_int(val)
@@ -40,9 +40,9 @@ def make_int_value(val):
 
 
 def make_double_value(val):
-    """Create a PlainValue containing a double."""
+    """Create a Value containing a double."""
     double_schema = value.scalar_type_meta_double()
-    v = PlainValue(double_schema)
+    v = Value(double_schema)
 
     v.emplace()
     v.set_double(val)
@@ -50,9 +50,9 @@ def make_double_value(val):
 
 
 def make_string_value(val):
-    """Create a PlainValue containing a string."""
+    """Create a Value containing a string."""
     string_schema = value.scalar_type_meta_string()
-    v = PlainValue(string_schema)
+    v = Value(string_schema)
 
     v.emplace()
     v.set_string(val)
@@ -60,9 +60,9 @@ def make_string_value(val):
 
 
 def make_bool_value(val):
-    """Create a PlainValue containing a bool."""
+    """Create a Value containing a bool."""
     bool_schema = value.scalar_type_meta_bool()
-    v = PlainValue(bool_schema)
+    v = Value(bool_schema)
 
     v.emplace()
     v.set_bool(val)
@@ -296,7 +296,7 @@ def test_deep_visit_list(dynamic_int_list_schema):
     """Visits each element with index path."""
     deep_visit, _, _ = get_traversal_functions()
 
-    v = PlainValue(dynamic_int_list_schema)
+    v = Value(dynamic_int_list_schema)
 
     v.emplace()
     lv = v.as_list()
@@ -327,7 +327,7 @@ def test_count_leaves_list(dynamic_int_list_schema):
     """List of N scalars has N leaves."""
     _, count_leaves, _ = get_traversal_functions()
 
-    v = PlainValue(dynamic_int_list_schema)
+    v = Value(dynamic_int_list_schema)
 
     v.emplace()
     lv = v.as_list()
@@ -346,7 +346,7 @@ def test_deep_visit_empty_list(dynamic_int_list_schema):
     """Empty list has 0 leaves."""
     deep_visit, count_leaves, _ = get_traversal_functions()
 
-    v = PlainValue(dynamic_int_list_schema)
+    v = Value(dynamic_int_list_schema)
 
     v.emplace()
     # List is empty by default
@@ -368,7 +368,7 @@ def test_collect_leaf_paths_list(dynamic_int_list_schema):
     """collect_leaf_paths returns index paths for list elements."""
     _, _, collect_leaf_paths = get_traversal_functions()
 
-    v = PlainValue(dynamic_int_list_schema)
+    v = Value(dynamic_int_list_schema)
 
     v.emplace()
     lv = v.as_list()
@@ -392,7 +392,7 @@ def test_deep_visit_bundle(simple_bundle_schema):
     """Visits each field with field name path."""
     deep_visit, _, _ = get_traversal_functions()
 
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -419,7 +419,7 @@ def test_count_leaves_bundle(simple_bundle_schema):
     """Bundle with N scalar fields has N leaves."""
     _, count_leaves, _ = get_traversal_functions()
 
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -436,7 +436,7 @@ def test_collect_leaf_paths_bundle(simple_bundle_schema):
     """Returns correct field paths for bundle."""
     _, _, collect_leaf_paths = get_traversal_functions()
 
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -457,7 +457,7 @@ def test_deep_visit_point_bundle(point_schema):
     """Visits Point bundle fields correctly."""
     deep_visit, _, _ = get_traversal_functions()
 
-    v = PlainValue(point_schema)
+    v = Value(point_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -485,7 +485,7 @@ def test_deep_visit_nested_bundles(nested_bundle_schema):
     """Traverses through nested bundles."""
     deep_visit, _, _ = get_traversal_functions()
 
-    v = PlainValue(nested_bundle_schema)
+    v = Value(nested_bundle_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -512,13 +512,13 @@ def test_deep_visit_list_of_bundles(list_of_bundles_schema):
     """Traverses list containing bundles."""
     deep_visit, count_leaves, _ = get_traversal_functions()
 
-    v = PlainValue(list_of_bundles_schema)
+    v = Value(list_of_bundles_schema)
 
     v.emplace()
     lv = v.as_list()
 
     # Create and add first point
-    point1 = PlainValue(lv.element_type())
+    point1 = Value(lv.element_type())
     point1.emplace()
     p1 = point1.as_bundle()
     p1.at_name_mut("x").set_int(1)
@@ -526,7 +526,7 @@ def test_deep_visit_list_of_bundles(list_of_bundles_schema):
     lv.push_back(point1.view())
 
     # Create and add second point
-    point2 = PlainValue(lv.element_type())
+    point2 = Value(lv.element_type())
     point2.emplace()
     p2 = point2.as_bundle()
     p2.at_name_mut("x").set_int(3)
@@ -556,7 +556,7 @@ def test_deep_visit_bundle_with_list(bundle_with_list_schema):
     """Traverses bundle containing list."""
     deep_visit, count_leaves, _ = get_traversal_functions()
 
-    v = PlainValue(bundle_with_list_schema)
+    v = Value(bundle_with_list_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -589,7 +589,7 @@ def test_deep_visit_deeply_nested(deeply_nested_schema):
     """5+ levels deep works correctly."""
     deep_visit, count_leaves, collect_leaf_paths = get_traversal_functions()
 
-    v = PlainValue(deeply_nested_schema)
+    v = Value(deeply_nested_schema)
 
     v.emplace()
     # Navigate to the nested structure and populate it
@@ -602,13 +602,13 @@ def test_deep_visit_deeply_nested(deeply_nested_schema):
     elem_type = items.element_type()
 
     # Create and add an element
-    elem1 = PlainValue(elem_type)
+    elem1 = Value(elem_type)
     elem1.emplace()
     elem1.as_bundle().at_name_mut("deep").set_int(999)
     items.push_back(elem1.view())
 
     # Create and add another element
-    elem2 = PlainValue(elem_type)
+    elem2 = Value(elem_type)
     elem2.emplace()
     elem2.as_bundle().at_name_mut("deep").set_int(888)
     items.push_back(elem2.view())
@@ -642,7 +642,7 @@ def test_path_accuracy_nested(nested_bundle_schema):
     """Paths accurately reflect structure."""
     _, _, collect_leaf_paths = get_traversal_functions()
 
-    v = PlainValue(nested_bundle_schema)
+    v = Value(nested_bundle_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -672,7 +672,7 @@ def test_deep_visit_set(int_set_schema):
     """Visits each set element."""
     deep_visit, count_leaves, _ = get_traversal_functions()
 
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -699,7 +699,7 @@ def test_deep_visit_map(string_int_map_schema):
     """Visits each key and value in map."""
     deep_visit, count_leaves, _ = get_traversal_functions()
 
-    v = PlainValue(string_int_map_schema)
+    v = Value(string_int_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -733,7 +733,7 @@ def test_count_leaves_empty_set(int_set_schema):
     """Empty set has 0 leaves."""
     _, count_leaves, _ = get_traversal_functions()
 
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     # Set is empty by default
@@ -746,7 +746,7 @@ def test_count_leaves_empty_map(string_int_map_schema):
     """Empty map has 0 leaves."""
     _, count_leaves, _ = get_traversal_functions()
 
-    v = PlainValue(string_int_map_schema)
+    v = Value(string_int_map_schema)
 
     v.emplace()
     # Map is empty by default
@@ -774,7 +774,7 @@ def test_collect_leaf_paths_nested(nested_bundle_schema):
     """Nested structure returns all paths."""
     _, _, collect_leaf_paths = get_traversal_functions()
 
-    v = PlainValue(nested_bundle_schema)
+    v = Value(nested_bundle_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -796,20 +796,20 @@ def test_collect_leaf_paths_list_of_bundles(list_of_bundles_schema):
     """collect_leaf_paths works with list of bundles."""
     _, _, collect_leaf_paths = get_traversal_functions()
 
-    v = PlainValue(list_of_bundles_schema)
+    v = Value(list_of_bundles_schema)
 
     v.emplace()
     lv = v.as_list()
 
     # Add two points
-    point1 = PlainValue(lv.element_type())
+    point1 = Value(lv.element_type())
     point1.emplace()
     p1 = point1.as_bundle()
     p1.at_name_mut("x").set_int(1)
     p1.at_name_mut("y").set_int(2)
     lv.push_back(point1.view())
 
-    point2 = PlainValue(lv.element_type())
+    point2 = Value(lv.element_type())
     point2.emplace()
     p2 = point2.as_bundle()
     p2.at_name_mut("x").set_int(3)
@@ -830,13 +830,13 @@ def test_collect_leaf_paths_empty_containers(dynamic_int_list_schema, int_set_sc
     """Empty containers return empty path list."""
     _, _, collect_leaf_paths = get_traversal_functions()
 
-    empty_list = PlainValue(dynamic_int_list_schema)
+    empty_list = Value(dynamic_int_list_schema)
 
     empty_list.emplace()
-    empty_set = PlainValue(int_set_schema)
+    empty_set = Value(int_set_schema)
 
     empty_set.emplace()
-    empty_map = PlainValue(string_int_map_schema)
+    empty_map = Value(string_int_map_schema)
 
     empty_map.emplace()
     assert len(collect_leaf_paths(empty_list.view())) == 0
@@ -867,7 +867,7 @@ def test_deep_visit_order_deterministic(simple_bundle_schema):
     """Traversal order is deterministic for same structure."""
     deep_visit, _, _ = get_traversal_functions()
 
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -895,7 +895,7 @@ def test_count_leaves_matches_visited_count(nested_bundle_schema):
     """count_leaves matches number of callback invocations."""
     deep_visit, count_leaves, _ = get_traversal_functions()
 
-    v = PlainValue(nested_bundle_schema)
+    v = Value(nested_bundle_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -919,7 +919,7 @@ def test_collect_leaf_paths_matches_count(bundle_with_list_schema):
     """collect_leaf_paths returns same count as count_leaves."""
     _, count_leaves, collect_leaf_paths = get_traversal_functions()
 
-    v = PlainValue(bundle_with_list_schema)
+    v = Value(bundle_with_list_schema)
 
     v.emplace()
     bv = v.as_bundle()

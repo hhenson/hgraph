@@ -564,14 +564,14 @@ class TestValueSystemIntegration:
     """Tests for using cpp_type with the Value system."""
 
     def test_create_value_with_cpp_type(self):
-        """Can create PlainValue using cpp_type."""
+        """Can create Value using cpp_type."""
         _skip_if_no_cpp()
         value = _get_value_module()
 
         meta = HgTypeMetaData.parse_type(int)
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
+        v = value.Value(cpp_type)
         assert v is not None
         assert v.schema is cpp_type
 
@@ -583,7 +583,7 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(int)
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
+        v = value.Value(cpp_type)
         v.from_python(42)
         result = v.view().to_python()
 
@@ -597,7 +597,7 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(float)
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
+        v = value.Value(cpp_type)
         v.from_python(3.14159)
         result = v.view().to_python()
 
@@ -611,7 +611,7 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(str)
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
+        v = value.Value(cpp_type)
         v.from_python("hello world")
         result = v.view().to_python()
 
@@ -626,7 +626,7 @@ class TestValueSystemIntegration:
         cpp_type = meta.cpp_type
 
         test_dt = datetime(2024, 6, 15, 10, 30, 45)
-        v = value.PlainValue(cpp_type)
+        v = value.Value(cpp_type)
         v.from_python(test_dt)
         result = v.view().to_python()
 
@@ -641,7 +641,7 @@ class TestValueSystemIntegration:
         cpp_type = meta.cpp_type
 
         test_date = date(2024, 6, 15)
-        v = value.PlainValue(cpp_type)
+        v = value.Value(cpp_type)
         v.from_python(test_date)
         result = v.view().to_python()
 
@@ -655,7 +655,7 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(MyEnum)
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
+        v = value.Value(cpp_type)
         v.from_python(MyEnum.A)
         result = v.view().to_python()
 
@@ -669,7 +669,7 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(Tuple[int, ...])
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
+        v = value.Value(cpp_type)
         v.from_python([1, 2, 3, 4, 5])
         result = v.view().to_python()
 
@@ -683,7 +683,7 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(Dict[str, int])
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
+        v = value.Value(cpp_type)
         v.from_python({"a": 1, "b": 2, "c": 3})
         result = v.view().to_python()
 
@@ -697,7 +697,7 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(Set[int])
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
+        v = value.Value(cpp_type)
         v.from_python({1, 2, 3})
         result = v.view().to_python()
 

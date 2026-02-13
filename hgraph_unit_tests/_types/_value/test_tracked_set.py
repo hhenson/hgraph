@@ -9,7 +9,7 @@ try:
         TrackedSetStorage,
         TrackedSetView,
         SetDeltaValue,
-        PlainValue,
+        Value,
         value,
     )
 except ImportError:
@@ -44,7 +44,7 @@ class TestTrackedSetStorage:
         storage = TrackedSetStorage(int_element_type)
 
         # Add element
-        elem = PlainValue(int_element_type)
+        elem = Value(int_element_type)
         elem.from_python(42)
         assert storage.add(elem.view())
 
@@ -59,7 +59,7 @@ class TestTrackedSetStorage:
         """Test adding duplicate element returns false."""
         storage = TrackedSetStorage(int_element_type)
 
-        elem = PlainValue(int_element_type)
+        elem = Value(int_element_type)
         elem.from_python(42)
 
         # First add succeeds
@@ -71,7 +71,7 @@ class TestTrackedSetStorage:
         """Test removing elements with delta tracking."""
         storage = TrackedSetStorage(int_element_type)
 
-        elem = PlainValue(int_element_type)
+        elem = Value(int_element_type)
         elem.from_python(42)
 
         # Add and clear deltas
@@ -91,7 +91,7 @@ class TestTrackedSetStorage:
         """Test removing nonexistent element returns false."""
         storage = TrackedSetStorage(int_element_type)
 
-        elem = PlainValue(int_element_type)
+        elem = Value(int_element_type)
         elem.from_python(42)
 
         assert not storage.remove(elem.view())
@@ -100,7 +100,7 @@ class TestTrackedSetStorage:
         """Test add after remove in same cycle (un-removes)."""
         storage = TrackedSetStorage(int_element_type)
 
-        elem = PlainValue(int_element_type)
+        elem = Value(int_element_type)
         elem.from_python(42)
 
         # Add, clear deltas, then remove
@@ -119,7 +119,7 @@ class TestTrackedSetStorage:
         """Test remove after add in same cycle (un-adds)."""
         storage = TrackedSetStorage(int_element_type)
 
-        elem = PlainValue(int_element_type)
+        elem = Value(int_element_type)
         elem.from_python(42)
 
         # Add then remove in same cycle
@@ -135,7 +135,7 @@ class TestTrackedSetStorage:
         """Test clear_deltas removes delta tracking."""
         storage = TrackedSetStorage(int_element_type)
 
-        elem = PlainValue(int_element_type)
+        elem = Value(int_element_type)
         elem.from_python(42)
 
         storage.add(elem.view())
@@ -152,7 +152,7 @@ class TestTrackedSetStorage:
 
         # Add elements
         for i in range(3):
-            elem = PlainValue(int_element_type)
+            elem = Value(int_element_type)
             elem.from_python(i)
             storage.add(elem.view())
 
@@ -164,7 +164,7 @@ class TestTrackedSetStorage:
         # All should be removed
         assert storage.empty()
         # Check one element was tracked as removed
-        elem = PlainValue(int_element_type)
+        elem = Value(int_element_type)
         elem.from_python(0)
         assert storage.was_removed(elem.view())
 
@@ -174,7 +174,7 @@ class TestTrackedSetStorage:
 
         # Add elements
         for i in [1, 2, 3]:
-            elem = PlainValue(int_element_type)
+            elem = Value(int_element_type)
             elem.from_python(i)
             storage.add(elem.view())
 
@@ -193,7 +193,7 @@ class TestTrackedSetView:
         """Test TrackedSetView provides read access."""
         storage = TrackedSetStorage(int_element_type)
 
-        elem = PlainValue(int_element_type)
+        elem = Value(int_element_type)
         elem.from_python(42)
         storage.add(elem.view())
 
@@ -207,7 +207,7 @@ class TestTrackedSetView:
         storage = TrackedSetStorage(int_element_type)
         view = TrackedSetView(storage)
 
-        elem = PlainValue(int_element_type)
+        elem = Value(int_element_type)
         elem.from_python(42)
         view.add(elem.view())
 
@@ -219,7 +219,7 @@ class TestTrackedSetView:
         storage = TrackedSetStorage(int_element_type)
 
         for i in [1, 2]:
-            elem = PlainValue(int_element_type)
+            elem = Value(int_element_type)
             elem.from_python(i)
             storage.add(elem.view())
 
@@ -241,16 +241,16 @@ class TestSetDeltaValue:
     def test_from_views(self, int_element_type, int_set_schema):
         """Test SetDeltaValue construction from views."""
         # Create sets for added and removed
-        added_set = PlainValue(int_set_schema)
+        added_set = Value(int_set_schema)
 
         added_set.emplace()
-        removed_set = PlainValue(int_set_schema)
+        removed_set = Value(int_set_schema)
 
         removed_set.emplace()
         # Add elements
-        elem1 = PlainValue(int_element_type)
+        elem1 = Value(int_element_type)
         elem1.from_python(1)
-        elem2 = PlainValue(int_element_type)
+        elem2 = Value(int_element_type)
         elem2.from_python(2)
 
         added_set.view().as_set().add(elem1.view())
@@ -269,14 +269,14 @@ class TestSetDeltaValue:
     def test_to_python(self, int_element_type, int_set_schema):
         """Test SetDeltaValue to_python conversion."""
         # Create sets
-        added_set = PlainValue(int_set_schema)
+        added_set = Value(int_set_schema)
 
         added_set.emplace()
-        elem = PlainValue(int_element_type)
+        elem = Value(int_element_type)
         elem.from_python(42)
         added_set.view().as_set().add(elem.view())
 
-        removed_set = PlainValue(int_set_schema)
+        removed_set = Value(int_set_schema)
 
         removed_set.emplace()
         # Create delta

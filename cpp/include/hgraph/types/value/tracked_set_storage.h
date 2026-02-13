@@ -22,9 +22,9 @@ namespace hgraph::value {
  * same element type.
  */
 struct TrackedSetStorage {
-    PlainValue _value;            // Current set contents
-    PlainValue _added;            // Elements added this cycle
-    PlainValue _removed;          // Elements removed this cycle
+    Value _value;            // Current set contents
+    Value _added;            // Elements added this cycle
+    Value _removed;          // Elements removed this cycle
     const TypeMeta* _element_type{nullptr};
     const TypeMeta* _set_schema{nullptr};  // Cached set schema
 
@@ -40,9 +40,9 @@ struct TrackedSetStorage {
         : _element_type(element_type) {
         if (_element_type) {
             _set_schema = TypeRegistry::instance().set(_element_type).build();
-            _value = PlainValue(_set_schema);
-            _added = PlainValue(_set_schema);
-            _removed = PlainValue(_set_schema);
+            _value = Value(_set_schema);
+            _added = Value(_set_schema);
+            _removed = Value(_set_schema);
             _value.emplace();
             _added.emplace();
             _removed.emplace();

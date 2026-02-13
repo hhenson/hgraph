@@ -9,13 +9,13 @@
 namespace hgraph {
 
     /**
-     * @brief Hash functor for PlainValue with transparent lookup support.
+     * @brief Hash functor for Value with transparent lookup support.
      * Enables heterogeneous lookup with View keys.
      */
-    struct PlainValueHash {
+    struct ValueHash {
         using is_transparent = void;  // Enable heterogeneous lookup
 
-        size_t operator()(const value::PlainValue& v) const {
+        size_t operator()(const value::Value& v) const {
             return v.has_value() ? v.hash() : 0u;
         }
 
@@ -25,21 +25,21 @@ namespace hgraph {
     };
 
     /**
-     * @brief Equality functor for PlainValue with transparent lookup support.
+     * @brief Equality functor for Value with transparent lookup support.
      * Enables heterogeneous comparison with View keys.
      */
-    struct PlainValueEqual {
+    struct ValueEqual {
         using is_transparent = void;  // Enable heterogeneous lookup
 
-        bool operator()(const value::PlainValue& a, const value::PlainValue& b) const {
+        bool operator()(const value::Value& a, const value::Value& b) const {
             return a.equals(b);
         }
 
-        bool operator()(const value::PlainValue& a, const value::View& b) const {
+        bool operator()(const value::Value& a, const value::View& b) const {
             return a.equals(b);
         }
 
-        bool operator()(const value::View& a, const value::PlainValue& b) const {
+        bool operator()(const value::View& a, const value::Value& b) const {
             return b.equals(a);
         }
 
@@ -180,8 +180,8 @@ namespace hgraph {
     /**
      * @brief Non-templated FeatureOutputExtension using type-erased key storage.
      *
-     * This class manages feature outputs keyed by type-erased PlainValue keys.
-     * Uses std::unordered_map with PlainValue keys (NOT the Value Map type) to
+     * This class manages feature outputs keyed by type-erased Value keys.
+     * Uses std::unordered_map with Value keys (NOT the Value Map type) to
      * properly handle non-trivially-copyable FeatureOutputRequestTracker objects.
      *
      * Usage:
@@ -191,8 +191,8 @@ namespace hgraph {
      */
     struct FeatureOutputExtensionValue {
         using feature_fn = std::function<void(const TimeSeriesOutput &, TimeSeriesOutput &, const value::View &)>;
-        using outputs_map_type = std::unordered_map<value::PlainValue, FeatureOutputRequestTracker,
-                                                     PlainValueHash, PlainValueEqual>;
+        using outputs_map_type = std::unordered_map<value::Value, FeatureOutputRequestTracker,
+                                                     ValueHash, ValueEqual>;
 
         FeatureOutputExtensionValue(time_series_output_ptr owning_output_,
                                      output_builder_s_ptr output_builder_,

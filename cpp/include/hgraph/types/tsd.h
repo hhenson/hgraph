@@ -17,7 +17,7 @@
 
 namespace hgraph
 {
-    // PlainValueHash and PlainValueEqual are defined in feature_extension.h
+    // ValueHash and ValueEqual are defined in feature_extension.h
 
     // TSDKeyObserver: Used to track additions and removals of parent keys.
     // Since the TSD is dynamic, the inputs associated with an output need to be updated when a key is added or removed
@@ -92,11 +92,11 @@ namespace hgraph
         // Non-templated key set - access keys via Value API with elem.as<K>()
         using key_set_type        = TimeSeriesSetOutput;
 
-        // Storage types using PlainValue for type-erased key storage
-        using map_type = std::unordered_map<value::PlainValue, value_type, PlainValueHash, PlainValueEqual>;
-        using reverse_map_type = std::unordered_map<TimeSeriesOutput*, value::PlainValue>;
+        // Storage types using Value for type-erased key storage
+        using map_type = std::unordered_map<value::Value, value_type, ValueHash, ValueEqual>;
+        using reverse_map_type = std::unordered_map<TimeSeriesOutput*, value::Value>;
         // Removed items stores pair<value, was_valid> to preserve validity state from before clearing
-        using removed_items_map_type = std::unordered_map<value::PlainValue, std::pair<value_type, bool>, PlainValueHash, PlainValueEqual>;
+        using removed_items_map_type = std::unordered_map<value::Value, std::pair<value_type, bool>, ValueHash, ValueEqual>;
         using item_iterator       = typename map_type::iterator;
         using const_item_iterator = typename map_type::const_iterator;
 
@@ -249,7 +249,7 @@ namespace hgraph
         const value::TypeMeta* _key_type{nullptr};  // Key type schema for Value-based access
         std::shared_ptr<key_set_type> _key_set;
 
-        // Storage using PlainValue keys (type-erased)
+        // Storage using Value keys (type-erased)
         map_type _ts_values;
         reverse_map_type _ts_values_to_keys;
         map_type _modified_items;
@@ -277,10 +277,10 @@ namespace hgraph
         using key_set_type        = TimeSeriesSetInput;
         using key_set_type_ptr    = std::shared_ptr<key_set_type>;
 
-        // Storage types using PlainValue for type-erased key storage
-        using map_type = std::unordered_map<value::PlainValue, value_type, PlainValueHash, PlainValueEqual>;
-        using removed_map_type = std::unordered_map<value::PlainValue, std::pair<value_type, bool>, PlainValueHash, PlainValueEqual>;
-        using reverse_map_type = std::unordered_map<TimeSeriesInput*, value::PlainValue>;
+        // Storage types using Value for type-erased key storage
+        using map_type = std::unordered_map<value::Value, value_type, ValueHash, ValueEqual>;
+        using removed_map_type = std::unordered_map<value::Value, std::pair<value_type, bool>, ValueHash, ValueEqual>;
+        using reverse_map_type = std::unordered_map<TimeSeriesInput*, value::Value>;
         using item_iterator       = typename map_type::iterator;
         using const_item_iterator = typename map_type::const_iterator;
 
@@ -414,7 +414,7 @@ namespace hgraph
         const value::TypeMeta* _key_type{nullptr};  // Key type schema for Value-based access
         key_set_type_ptr _key_set;
 
-        // Storage using PlainValue keys (type-erased)
+        // Storage using Value keys (type-erased)
         map_type _ts_values;
         reverse_map_type _ts_values_to_keys;
         map_type _modified_items;

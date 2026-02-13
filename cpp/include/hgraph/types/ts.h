@@ -20,7 +20,7 @@ namespace hgraph {
     };
 
     /**
-     * @brief Non-templated time series value output using PlainValue storage.
+     * @brief Non-templated time series value output using Value storage.
      *
      * This class stores values using the Value type system.
      * The TypeMeta* schema defines the value type at runtime instead of compile time.
@@ -52,6 +52,8 @@ namespace hgraph {
         [[nodiscard]] const value::TypeMeta* schema() const { return _value.schema(); }
 
         // Lifecycle
+        void mark_modified() override;
+        void mark_modified(engine_time_t modified_time) override;
         void mark_invalid() override;
         void copy_from_output(const TimeSeriesOutput& output) override;
         void copy_from_input(const TimeSeriesInput& input) override;
@@ -62,7 +64,7 @@ namespace hgraph {
         VISITOR_SUPPORT()
 
     private:
-        value::PlainValue _value;  // Type-erased storage
+        value::Value _value;  // Type-erased storage
         nb::object _py_cached_value;  // Preserve source Python object shape (e.g., frozenset vs set)
     };
 

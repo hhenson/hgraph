@@ -64,7 +64,7 @@ namespace hgraph
             _length += 1;
             if (_length > _size) {
                 _has_removed_value = true;
-                _removed_value = value::PlainValue::copy(_buffer[_start]);
+                _removed_value = value::Value::copy(_buffer[_start]);
                 auto weak_self = weak_from_this();
                 owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
                     if (auto self = weak_self.lock()) {
@@ -136,7 +136,7 @@ namespace hgraph
         _buffer.clear();
         _buffer.reserve(o._buffer.size());
         for (const auto& v : o._buffer) {
-            _buffer.push_back(value::PlainValue::copy(v));
+            _buffer.push_back(value::Value::copy(v));
         }
         _times = o._times;
         _start = o._start;
@@ -260,7 +260,7 @@ namespace hgraph
     void TimeSeriesTimeWindowOutput::_roll() const {
         auto tm = owning_graph()->evaluation_time() - _size;
         if (!_times.empty() && _times.front() < tm) {
-            std::vector<value::PlainValue> removed;
+            std::vector<value::Value> removed;
             while (!_times.empty() && _times.front() < tm) {
                 _times.pop_front();
                 removed.push_back(std::move(_buffer.front()));
@@ -353,7 +353,7 @@ namespace hgraph
     void TimeSeriesTimeWindowOutput::apply_result(const nb::object& value) {
         if (!value.is_valid() || value.is_none()) return;
         try {
-            value::PlainValue v(_element_type);
+            value::Value v(_element_type);
             v.emplace();
             _element_type->ops().from_python(v.data(), value, _element_type);
             _buffer.push_back(std::move(v));
@@ -388,7 +388,7 @@ namespace hgraph
         auto &o = dynamic_cast<const TimeSeriesTimeWindowOutput &>(output);
         _buffer.clear();
         for (const auto& v : o._buffer) {
-            _buffer.push_back(value::PlainValue::copy(v));
+            _buffer.push_back(value::Value::copy(v));
         }
         _times = o._times;
         _size = o._size;

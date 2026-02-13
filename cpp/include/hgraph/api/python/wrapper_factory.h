@@ -106,10 +106,10 @@ namespace hgraph
     // time series values appropriately using the provided control block.
     // All functions return nb::list - wrap with nb::iter() in __iter__ methods.
 
-    // Helper to convert a key to Python object - handles PlainValue specially
+    // Helper to convert a key to Python object - handles Value specially
     template <typename K>
     nb::object key_to_python(const K& key) {
-        if constexpr (std::is_same_v<std::decay_t<K>, value::PlainValue>) {
+        if constexpr (std::is_same_v<std::decay_t<K>, value::Value>) {
             return key.to_python();
         } else {
             return nb::cast(key);

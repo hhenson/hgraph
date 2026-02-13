@@ -80,28 +80,28 @@ namespace hgraph
 
     bool TimeSeriesSetOutput::py_contains(const nb::object& item) const {
         if (!_element_type || item.is_none()) return false;
-        value::PlainValue temp(_element_type);
+        value::Value temp(_element_type);
         temp.from_python(item);
         return _storage.contains(value::View(temp.view()));
     }
 
     bool TimeSeriesSetOutput::py_was_added(const nb::object& item) const {
         if (!_element_type || item.is_none()) return false;
-        value::PlainValue temp(_element_type);
+        value::Value temp(_element_type);
         temp.from_python(item);
         return _storage.was_added(value::View(temp.view()));
     }
 
     bool TimeSeriesSetOutput::py_was_removed(const nb::object& item) const {
         if (!_element_type || item.is_none()) return false;
-        value::PlainValue temp(_element_type);
+        value::Value temp(_element_type);
         temp.from_python(item);
         return _storage.was_removed(value::View(temp.view()));
     }
 
     void TimeSeriesSetOutput::py_add(const nb::object& item) {
         if (!_element_type || item.is_none()) return;
-        value::PlainValue temp(_element_type);
+        value::Value temp(_element_type);
         temp.from_python(item);
         if (_storage.add(value::View(temp.view()))) {
             if (_storage.size() == 1) {
@@ -114,7 +114,7 @@ namespace hgraph
 
     void TimeSeriesSetOutput::py_remove(const nb::object& item) {
         if (!_element_type || item.is_none()) return;
-        value::PlainValue temp(_element_type);
+        value::Value temp(_element_type);
         temp.from_python(item);
         if (_storage.remove(value::View(temp.view()))) {
             _contains_ref_outputs.update(item);
@@ -384,7 +384,7 @@ namespace hgraph
     time_series_value_output_s_ptr TimeSeriesSetOutput::get_contains_output(const nb::object &item,
                                                                              const nb::object &requester) {
         // Convert Python object to Value for the lookup
-        value::PlainValue key_val(_element_type);
+        value::Value key_val(_element_type);
         key_val.from_python(item);
         return std::dynamic_pointer_cast<TimeSeriesValueOutput>(
             _contains_ref_outputs.create_or_increment(key_val.view(), static_cast<void*>(requester.ptr())));
@@ -392,7 +392,7 @@ namespace hgraph
 
     void TimeSeriesSetOutput::release_contains_output(const nb::object &item, const nb::object &requester) {
         // Convert Python object to Value for the lookup
-        value::PlainValue key_val(_element_type);
+        value::Value key_val(_element_type);
         key_val.from_python(item);
         _contains_ref_outputs.release(key_val.view(), static_cast<void*>(requester.ptr()));
     }

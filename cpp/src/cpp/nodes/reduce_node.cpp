@@ -214,7 +214,7 @@ namespace hgraph {
 
                     // CRITICAL: Save the key and position BEFORE modifying the map, as modifying the map
                     // may invalidate the iterator or cause a rehash
-                    value::PlainValue max_key = max_it->first.view().clone();  // Clone the key (PlainValue is move-only)
+                    value::Value max_key = max_it->first.view().clone();  // Clone the key (Value is move-only)
                     auto max_ndx = max_it->second;
 
                     // Match Python: only swap if max is in a HIGHER layer
@@ -364,8 +364,8 @@ namespace hgraph {
     }
 
     void ReduceNode::bind_key_to_node(const value::View &key, const std::tuple<int64_t, int64_t> &ndx) {
-        // Store key as PlainValue (owned copy)
-        bound_node_indexes_[value::PlainValue(key)] = ndx;
+        // Store key as Value (owned copy)
+        bound_node_indexes_[value::Value(key)] = ndx;
 
         auto [node_id, side] = ndx;
         auto nodes = get_node(node_id);
@@ -460,7 +460,7 @@ namespace hgraph {
         auto* tsd = const_cast<ReduceNode*>(this)->ts();
         const auto* key_schema = tsd->key_type_meta();
         for (const auto& [key, ndx] : bound_node_indexes_) {
-            // Convert PlainValue key to Python using TypeMeta
+            // Convert Value key to Python using TypeMeta
             nb::object py_key = key_schema->ops().to_python(key.data(), key_schema);
             result[py_key] = nb::make_tuple(std::get<0>(ndx), std::get<1>(ndx));
         }

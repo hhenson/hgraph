@@ -21,7 +21,7 @@
 namespace hgraph
 {
     MapNestedEngineEvaluationClock::MapNestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock,
-                                                                   value::PlainValue key,
+                                                                   value::Value key,
                                                                    tsd_map_node_ptr nested_node)
         : NestedEngineEvaluationClock(engine_evaluation_clock, static_cast<NestedNode *>(nested_node)),
           _key(std::move(key)) {}
@@ -86,7 +86,7 @@ namespace hgraph
 
     void TsdMapNode::do_stop() {
         // Collect all keys first (can't erase while iterating)
-        std::vector<value::PlainValue> keys;
+        std::vector<value::Value> keys;
         keys.reserve(active_graphs_.size());
         for (const auto &[k, _] : active_graphs_) {
             keys.push_back(k.view().clone());

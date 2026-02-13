@@ -15,7 +15,7 @@ value = _hgraph.value  # Value types are in the value submodule
 
 # Import types from the C++ extension
 try:
-    Value = value.PlainValue
+    Value = value.Value
     ValueView = value.ValueView
     TypeRegistry = value.TypeRegistry
 except AttributeError:

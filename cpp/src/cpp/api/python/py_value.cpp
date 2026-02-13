@@ -359,7 +359,7 @@ static void register_view(nb::module_& m) {
         .def("hash", &View::hash, "Compute the hash of the value")
         .def("to_string", &View::to_string, "Convert the value to a string")
         .def("to_python", &View::to_python, "Convert the value to a Python object")
-        .def("clone", [](const View& self) -> PlainValue {
+        .def("clone", [](const View& self) -> Value {
             return self.clone();
         }, "Create a deep copy of this value")
 
@@ -552,10 +552,10 @@ static void register_indexed_view(nb::module_& m) {
         .def("__len__", &IndexedView::size)
         .def("set", static_cast<void (IndexedView::*)(size_t, const View&)>(&IndexedView::set),
             "index"_a, "value"_a, "Set element at index from a view")
-        // Overload: set from PlainValue (auto-extract view)
-        .def("set", [](IndexedView& self, size_t index, const PlainValue& value) {
+        // Overload: set from Value (auto-extract view)
+        .def("set", [](IndexedView& self, size_t index, const Value& value) {
             self.set(index, View(value.view()));
-        }, "index"_a, "value"_a, "Set element at index from a PlainValue")
+        }, "index"_a, "value"_a, "Set element at index from a Value")
         .def("__iter__", [](IndexedView& self) {
             nb::list result;
             for (size_t i = 0; i < self.size(); ++i) {
@@ -574,8 +574,8 @@ static void register_tuple_views(nb::module_& m) {
         "Mutable view for tuple types")
         .def("element_type", &TupleView::element_type, "index"_a, nb::rv_policy::reference,
             "Get the type of element at index")
-        // Overload: set from PlainValue (must come before generic object version)
-        .def("set", [](TupleView& self, size_t index, const PlainValue& value) {
+        // Overload: set from Value (must come before generic object version)
+        .def("set", [](TupleView& self, size_t index, const Value& value) {
             if (index >= self.size()) {
                 throw std::out_of_range("Tuple index out of range");
             }
@@ -585,7 +585,7 @@ static void register_tuple_views(nb::module_& m) {
                 throw std::runtime_error("Type mismatch: value type doesn't match tuple element type");
             }
             self.set(index, View(value.view()));
-        }, "index"_a, "value"_a, "Set element at index from PlainValue (with type checking)")
+        }, "index"_a, "value"_a, "Set element at index from Value (with type checking)")
         // Auto-wrapping set from Python native object with type checking
         .def("set", [](TupleView& self, size_t index, const nb::object& py_value) {
             if (index >= self.size()) {
@@ -594,7 +594,7 @@ static void register_tuple_views(nb::module_& m) {
             // Get the expected element type at this index
             const TypeMeta* elem_type = self.element_type(index);
             // Create a temporary Value of the correct type
-            PlainValue temp(elem_type);
+            Value temp(elem_type);
             // Convert from Python - this will throw if types are incompatible
             temp.from_python(py_value);
             // Set using the view
@@ -628,7 +628,7 @@ static void register_bundle_views(nb::module_& m) {
                 throw std::runtime_error("Field not found: " + name);
             }
             const TypeMeta* field_type = self.schema()->fields[idx].type;
-            PlainValue temp(field_type);
+            Value temp(field_type);
             temp.from_python(py_value);
             self.set(name, View(temp.view()));
         }, "name"_a, "value"_a, "Set field by name from Python object (auto-wrap)")
@@ -925,7 +925,7 @@ static void register_map_views(nb::module_& m) {
             if (!self.contains(key)) {
                 // Create a default-constructed value of the value type
                 const TypeMeta* val_type = self.value_type();
-                PlainValue default_val(val_type);
+                Value default_val(val_type);
                 default_val.emplace();
                 self.set(key, View(default_val.view()));
             }
@@ -1253,11 +1253,11 @@ static void register_traversal_functions(nb::module_& m) {
 }
 
 // ============================================================================
-// PlainValue (Value) Binding
+// Value (Value) Binding
 // ============================================================================
 
-static void register_plain_value(nb::module_& m) {
-    nb::class_<PlainValue>(m, "PlainValue",
+static void register_value(nb::module_& m) {
+    nb::class_<Value>(m, "Value",
         "Owning type-erased value storage")
         // Constructors from scalars
         .def(nb::init<int64_t>(), "value"_a, "Construct from int64")
@@ -1271,8 +1271,8 @@ static void register_plain_value(nb::module_& m) {
         .def(nb::init<const TypeMeta*>(), "schema"_a,
             "Construct from type schema (typed-null value)")
         // Construct from schema and Python object
-        .def("__init__", [](PlainValue* self, const TypeMeta* schema, const nb::object& src) {
-            new (self) PlainValue(schema);
+        .def("__init__", [](Value* self, const TypeMeta* schema, const nb::object& src) {
+            new (self) Value(schema);
             self->from_python(src);
         }, "schema"_a, "value"_a,
             "Construct from type schema and initialize from Python object")
@@ -1281,104 +1281,104 @@ static void register_plain_value(nb::module_& m) {
             "Construct by copying from a view")
 
         // Validity
-        .def("valid", &PlainValue::valid, "Check if the Value contains data")
-        .def("has_value", &PlainValue::has_value, "Check whether data is present")
-        .def("__bool__", &PlainValue::has_value, "Boolean conversion (has value)")
-        .def_prop_ro("schema", &PlainValue::schema, nb::rv_policy::reference,
+        .def("valid", &Value::valid, "Check if the Value contains data")
+        .def("has_value", &Value::has_value, "Check whether data is present")
+        .def("__bool__", &Value::has_value, "Boolean conversion (has value)")
+        .def_prop_ro("schema", &Value::schema, nb::rv_policy::reference,
             "Get the type schema")
 
         // View access (Design Doc Section 6.2)
-        .def("view", static_cast<ValueView (PlainValue::*)()>(&PlainValue::view),
+        .def("view", static_cast<ValueView (Value::*)()>(&Value::view),
             "Get a mutable view of the data")
 
         // Specialized view access (Design Doc Section 6.2)
-        .def("as_tuple", static_cast<TupleView (PlainValue::*)()>(&PlainValue::as_tuple),
+        .def("as_tuple", static_cast<TupleView (Value::*)()>(&Value::as_tuple),
             "Get as a tuple view (mutable)")
-        .def("as_bundle", static_cast<BundleView (PlainValue::*)()>(&PlainValue::as_bundle),
+        .def("as_bundle", static_cast<BundleView (Value::*)()>(&Value::as_bundle),
             "Get as a bundle view (mutable)")
-        .def("as_list", static_cast<ListView (PlainValue::*)()>(&PlainValue::as_list),
+        .def("as_list", static_cast<ListView (Value::*)()>(&Value::as_list),
             "Get as a list view (mutable)")
-        .def("as_set", static_cast<SetView (PlainValue::*)()>(&PlainValue::as_set),
+        .def("as_set", static_cast<SetView (Value::*)()>(&Value::as_set),
             "Get as a set view (mutable)")
-        .def("as_map", static_cast<MapView (PlainValue::*)()>(&PlainValue::as_map),
+        .def("as_map", static_cast<MapView (Value::*)()>(&Value::as_map),
             "Get as a map view (mutable)")
 
         // Typed access - explicit getters (Design Doc Section 7)
-        .def("as_int", [](PlainValue& self) { return self.checked_as<int64_t>(); },
+        .def("as_int", [](Value& self) { return self.checked_as<int64_t>(); },
             "Get the value as int64 (throws if type mismatch)")
-        .def("as_double", [](PlainValue& self) { return self.checked_as<double>(); },
+        .def("as_double", [](Value& self) { return self.checked_as<double>(); },
             "Get the value as double (throws if type mismatch)")
-        .def("as_bool", [](PlainValue& self) { return self.checked_as<bool>(); },
+        .def("as_bool", [](Value& self) { return self.checked_as<bool>(); },
             "Get the value as bool (throws if type mismatch)")
-        .def("as_string", [](PlainValue& self) -> std::string {
+        .def("as_string", [](Value& self) -> std::string {
             return self.checked_as<std::string>();
         }, "Get the value as string (throws if type mismatch)")
 
         // Typed setters
-        .def("set_int", [](PlainValue& self, int64_t value) {
+        .def("set_int", [](Value& self, int64_t value) {
             self.as<int64_t>() = value;
         }, "value"_a, "Set the value as int64")
-        .def("set_double", [](PlainValue& self, double value) {
+        .def("set_double", [](Value& self, double value) {
             self.as<double>() = value;
         }, "value"_a, "Set the value as double")
-        .def("set_bool", [](PlainValue& self, bool value) {
+        .def("set_bool", [](Value& self, bool value) {
             self.as<bool>() = value;
         }, "value"_a, "Set the value as bool")
-        .def("set_string", [](PlainValue& self, const std::string& value) {
+        .def("set_string", [](Value& self, const std::string& value) {
             self.as<std::string>() = value;
         }, "value"_a, "Set the value as string")
 
         // Operations
-        .def("equals", static_cast<bool (PlainValue::*)(const View&) const>(
-            &PlainValue::equals), "other"_a, "Check equality with a view")
-        .def("hash", &PlainValue::hash, "Compute the hash")
-        .def("to_string", &PlainValue::to_string, "Convert to string")
+        .def("equals", static_cast<bool (Value::*)(const View&) const>(
+            &Value::equals), "other"_a, "Check equality with a view")
+        .def("hash", &Value::hash, "Compute the hash")
+        .def("to_string", &Value::to_string, "Convert to string")
 
         // Python interop (Design Doc Section 6.2)
-        .def("to_python", &PlainValue::to_python, "Convert to a Python object")
-        .def("from_python", [](PlainValue& self, nb::handle src) {
+        .def("to_python", &Value::to_python, "Convert to a Python object")
+        .def("from_python", [](Value& self, nb::handle src) {
             self.from_python(nb::borrow<nb::object>(src));
         }, nb::arg("src").none(), "Set the value from a Python object")
-        .def("reset", &PlainValue::reset, "Reset to typed-null (preserves schema)")
-        .def("emplace", &PlainValue::emplace, "Default-construct the value for the schema")
+        .def("reset", &Value::reset, "Reset to typed-null (preserves schema)")
+        .def("emplace", &Value::emplace, "Default-construct the value for the schema")
 
         // Static copy method
-        .def_static("copy", static_cast<PlainValue (*)(const PlainValue&)>(&PlainValue::copy),
+        .def_static("copy", static_cast<Value (*)(const Value&)>(&Value::copy),
             "other"_a, "Create a copy of a Value")
-        .def_static("copy_view", static_cast<PlainValue (*)(const View&)>(
-            &PlainValue::copy), "view"_a, "Create a copy from a view")
+        .def_static("copy_view", static_cast<Value (*)(const View&)>(
+            &Value::copy), "view"_a, "Create a copy from a view")
 
         // Python special methods
-        .def("__eq__", [](const PlainValue& self, const View& other) {
+        .def("__eq__", [](const Value& self, const View& other) {
             return self.equals(other);
         }, nb::is_operator())
-        .def("__hash__", &PlainValue::hash)
-        .def("__str__", &PlainValue::to_string)
-        .def("__repr__", [](const PlainValue& self) {
-            if (!self.valid()) return std::string("PlainValue(invalid)");
-            return "PlainValue(" + self.to_string() + ")";
+        .def("__hash__", &Value::hash)
+        .def("__str__", &Value::to_string)
+        .def("__repr__", [](const Value& self) {
+            if (!self.valid()) return std::string("Value(invalid)");
+            return "Value(" + self.to_string() + ")";
         })
 
         // Path-based Navigation (User Guide Section 10)
-        .def("navigate", [](const PlainValue& self, const std::string& path_str) {
+        .def("navigate", [](const Value& self, const std::string& path_str) {
             return navigate(self.view(), path_str);
         }, "path"_a,
             "Navigate through the value using a path string.\n\n"
             "Returns the View at the path destination.\n"
             "Throws if navigation fails.")
-        .def("try_navigate", [](const PlainValue& self, const std::string& path_str)
+        .def("try_navigate", [](const Value& self, const std::string& path_str)
             -> std::optional<View> {
             return try_navigate(self.view(), path_str);
         }, "path"_a,
             "Try to navigate through the value using a path string.\n\n"
             "Returns the View at the destination, or None on failure.")
-        .def("navigate_mut", [](PlainValue& self, const std::string& path_str) {
+        .def("navigate_mut", [](Value& self, const std::string& path_str) {
             return navigate_mut(self.view(), path_str);
         }, "path"_a,
             "Navigate through the mutable value using a path string.\n\n"
             "Returns the ValueView at the path destination.\n"
             "Throws if navigation fails.")
-        .def("try_navigate_mut", [](PlainValue& self, const std::string& path_str)
+        .def("try_navigate_mut", [](Value& self, const std::string& path_str)
             -> std::optional<ValueView> {
             return try_navigate_mut(self.view(), path_str);
         }, "path"_a,
@@ -1430,7 +1430,7 @@ void value_register_with_nanobind(nb::module_& m) {
     register_queue_views(value_mod);
 
     // Register Value classes
-    register_plain_value(value_mod);
+    register_value(value_mod);
 
     // Register path-based access utilities
     register_path_element(value_mod);
@@ -1438,7 +1438,7 @@ void value_register_with_nanobind(nb::module_& m) {
     register_traversal_functions(value_mod);
 
     // Also export the main types at the module level for convenience
-    m.attr("PlainValue") = value_mod.attr("PlainValue");
+    m.attr("Value") = value_mod.attr("Value");
     m.attr("ValueView") = value_mod.attr("ValueView");
     m.attr("TypeRegistry") = value_mod.attr("TypeRegistry");
     m.attr("TypeMeta") = value_mod.attr("TypeMeta");

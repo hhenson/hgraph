@@ -62,7 +62,7 @@ def test_queue_max_capacity():
 
     # Bounded queue
     bounded_schema = registry.queue(int_schema).max_capacity(10).build()
-    bounded_v = value.PlainValue(bounded_schema)
+    bounded_v = value.Value(bounded_schema)
 
     bounded_v.emplace()
     bounded_q = bounded_v.view().as_queue()
@@ -71,7 +71,7 @@ def test_queue_max_capacity():
 
     # Unbounded queue
     unbounded_schema = registry.queue(int_schema).build()
-    unbounded_v = value.PlainValue(unbounded_schema)
+    unbounded_v = value.Value(unbounded_schema)
 
     unbounded_v.emplace()
     unbounded_q = unbounded_v.view().as_queue()
@@ -87,7 +87,7 @@ def test_queue_initially_empty():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
@@ -104,12 +104,12 @@ def test_push_back_single():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
 
-    elem = value.PlainValue(42)
+    elem = value.Value(42)
     q.push(elem.view())
 
     assert q.size() == 1
@@ -124,13 +124,13 @@ def test_push_back_multiple():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
 
     for i in range(5):
-        elem = value.PlainValue(i * 10)
+        elem = value.Value(i * 10)
         q.push(elem.view())
 
     assert q.size() == 5
@@ -146,14 +146,14 @@ def test_pop_front():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
 
     # Push 3 elements: 10, 20, 30
     for val in [10, 20, 30]:
-        elem = value.PlainValue(val)
+        elem = value.Value(val)
         q.push(elem.view())
 
     assert q.size() == 3
@@ -178,7 +178,7 @@ def test_pop_front_empty_raises():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
@@ -195,14 +195,14 @@ def test_fifo_order():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
 
     # Push 1, 2, 3, 4, 5
     for i in range(1, 6):
-        elem = value.PlainValue(i)
+        elem = value.Value(i)
         q.push(elem.view())
 
     # Pop should return 1, 2, 3, 4, 5 in order
@@ -221,13 +221,13 @@ def test_front_and_back():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
 
     for i in [10, 20, 30, 40]:
-        elem = value.PlainValue(i)
+        elem = value.Value(i)
         q.push(elem.view())
 
     assert q.front().as_int() == 10  # Oldest
@@ -242,28 +242,28 @@ def test_bounded_queue_eviction():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(3).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
 
     # Push 1, 2, 3 - queue is now full
     for i in [1, 2, 3]:
-        elem = value.PlainValue(i)
+        elem = value.Value(i)
         q.push(elem.view())
 
     assert q.size() == 3
     assert list(e.as_int() for e in q) == [1, 2, 3]
 
     # Push 4 - evicts 1
-    elem = value.PlainValue(4)
+    elem = value.Value(4)
     q.push(elem.view())
 
     assert q.size() == 3
     assert list(e.as_int() for e in q) == [2, 3, 4]
 
     # Push 5 - evicts 2
-    elem = value.PlainValue(5)
+    elem = value.Value(5)
     q.push(elem.view())
 
     assert q.size() == 3
@@ -278,14 +278,14 @@ def test_unbounded_queue_grows():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).build()  # Unbounded
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
 
     # Push many elements - should grow
     for i in range(100):
-        elem = value.PlainValue(i)
+        elem = value.Value(i)
         q.push(elem.view())
 
     assert q.size() == 100
@@ -303,13 +303,13 @@ def test_clear():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
 
     for i in range(5):
-        elem = value.PlainValue(i)
+        elem = value.Value(i)
         q.push(elem.view())
 
     assert q.size() == 5
@@ -327,20 +327,20 @@ def test_push_after_clear():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
 
     # Initial push
     for i in range(3):
-        elem = value.PlainValue(i)
+        elem = value.Value(i)
         q.push(elem.view())
 
     q.clear()
 
     # Push after clear
-    elem = value.PlainValue(100)
+    elem = value.Value(100)
     q.push(elem.view())
 
     assert q.size() == 1
@@ -355,14 +355,14 @@ def test_iteration():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
 
     values = [10, 20, 30, 40, 50]
     for val in values:
-        elem = value.PlainValue(val)
+        elem = value.Value(val)
         q.push(elem.view())
 
     result = [e.as_int() for e in q]
@@ -377,17 +377,17 @@ def test_equal_queues():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
-    v1 = value.PlainValue(queue_schema)
+    v1 = value.Value(queue_schema)
 
     v1.emplace()
-    v2 = value.PlainValue(queue_schema)
+    v2 = value.Value(queue_schema)
 
     v2.emplace()
     q1 = v1.view().as_queue()
     q2 = v2.view().as_queue()
 
     for val in [1, 2, 3]:
-        elem = value.PlainValue(val)
+        elem = value.Value(val)
         q1.push(elem.view())
         q2.push(elem.view())
 
@@ -402,21 +402,21 @@ def test_unequal_queues():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
-    v1 = value.PlainValue(queue_schema)
+    v1 = value.Value(queue_schema)
 
     v1.emplace()
-    v2 = value.PlainValue(queue_schema)
+    v2 = value.Value(queue_schema)
 
     v2.emplace()
     q1 = v1.view().as_queue()
     q2 = v2.view().as_queue()
 
     for val in [1, 2, 3]:
-        elem = value.PlainValue(val)
+        elem = value.Value(val)
         q1.push(elem.view())
 
     for val in [1, 2, 4]:  # Different
-        elem = value.PlainValue(val)
+        elem = value.Value(val)
         q2.push(elem.view())
 
     assert not v1.view().equals(v2.view())
@@ -430,17 +430,17 @@ def test_hash_consistency():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
-    v1 = value.PlainValue(queue_schema)
+    v1 = value.Value(queue_schema)
 
     v1.emplace()
-    v2 = value.PlainValue(queue_schema)
+    v2 = value.Value(queue_schema)
 
     v2.emplace()
     q1 = v1.view().as_queue()
     q2 = v2.view().as_queue()
 
     for val in [1, 2, 3]:
-        elem = value.PlainValue(val)
+        elem = value.Value(val)
         q1.push(elem.view())
         q2.push(elem.view())
 
@@ -455,13 +455,13 @@ def test_to_python_returns_list():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
 
     for val in [10, 20, 30]:
-        elem = value.PlainValue(val)
+        elem = value.Value(val)
         q.push(elem.view())
 
     py_list = v.view().to_python()
@@ -478,7 +478,7 @@ def test_from_python():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     v.view().from_python([1, 2, 3, 4, 5])
@@ -496,7 +496,7 @@ def test_from_python_truncates_to_max_capacity():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(3).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     v.view().from_python([1, 2, 3, 4, 5])  # More than capacity
@@ -515,7 +515,7 @@ def test_element_type():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
@@ -531,7 +531,7 @@ def test_is_queue():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     assert v.view().is_queue() == True
@@ -547,13 +547,13 @@ def test_to_string():
     int_schema = value.scalar_type_meta_int64()
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
-    v = value.PlainValue(queue_schema)
+    v = value.Value(queue_schema)
 
     v.emplace()
     q = v.view().as_queue()
 
     for val in [1, 2, 3]:
-        elem = value.PlainValue(val)
+        elem = value.Value(val)
         q.push(elem.view())
 
     s = v.view().to_string()

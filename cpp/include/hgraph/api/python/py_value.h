@@ -21,7 +21,7 @@ namespace hgraph {
  * - TypeRegistry (singleton accessor)
  * - TypeMeta (read-only schema descriptor)
  * - TypeKind enum
- * - Value class (PlainValue)
+ * - Value class (Value)
  * - View classes (View, ValueView)
  * - Specialized views (TupleView, BundleView, ListView, SetView, MapView)
  *

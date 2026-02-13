@@ -15,7 +15,7 @@ _hgraph = pytest.importorskip("hgraph._hgraph")
 value = _hgraph.value  # Value types are in the value submodule
 
 # Convenience aliases to avoid variable shadowing
-PlainValue = value.PlainValue
+Value = value.Value
 TypeRegistry = value.TypeRegistry
 TypeKind = value.TypeKind
 
@@ -77,9 +77,9 @@ def int_string_map_schema(type_registry, int_schema, string_schema):
 # =============================================================================
 
 def make_int_value(val):
-    """Create a PlainValue containing an int."""
+    """Create a Value containing an int."""
     int_schema = value.scalar_type_meta_int64()
-    v = PlainValue(int_schema)
+    v = Value(int_schema)
 
     v.emplace()
     v.set_int(val)
@@ -87,9 +87,9 @@ def make_int_value(val):
 
 
 def make_double_value(val):
-    """Create a PlainValue containing a double."""
+    """Create a Value containing a double."""
     double_schema = value.scalar_type_meta_double()
-    v = PlainValue(double_schema)
+    v = Value(double_schema)
 
     v.emplace()
     v.set_double(val)
@@ -97,9 +97,9 @@ def make_double_value(val):
 
 
 def make_string_value(val):
-    """Create a PlainValue containing a string."""
+    """Create a Value containing a string."""
     string_schema = value.scalar_type_meta_string()
-    v = PlainValue(string_schema)
+    v = Value(string_schema)
 
     v.emplace()
     v.set_string(val)
@@ -132,7 +132,7 @@ def test_set_schema_element_type(int_set_schema, int_schema):
 
 def test_create_set_value(int_set_schema):
     """Set value can be created from schema."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     assert v.valid()
@@ -140,7 +140,7 @@ def test_create_set_value(int_set_schema):
 
 def test_set_initially_empty(int_set_schema):
     """Set is initially empty."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -155,7 +155,7 @@ def test_set_initially_empty(int_set_schema):
 
 def test_set_insert_native_type(int_set_schema):
     """SetView.insert() with View."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -169,7 +169,7 @@ def test_set_insert_native_type(int_set_schema):
 
 def test_set_insert_returns_true_for_new(int_set_schema):
     """SetView.insert() returns True for new elements."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -181,7 +181,7 @@ def test_set_insert_returns_true_for_new(int_set_schema):
 
 def test_set_insert_returns_false_for_existing(int_set_schema):
     """SetView.insert() returns False for existing elements."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -194,7 +194,7 @@ def test_set_insert_returns_false_for_existing(int_set_schema):
 
 def test_set_insert_duplicates_dont_increase_size(int_set_schema):
     """Inserting duplicate elements doesn't increase size."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -210,7 +210,7 @@ def test_set_insert_duplicates_dont_increase_size(int_set_schema):
 
 def test_set_insert_with_value(int_set_schema):
     """SetView.insert(View) works with explicit wrapping."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -223,7 +223,7 @@ def test_set_insert_with_value(int_set_schema):
 
 def test_set_insert_strings(string_set_schema):
     """Set of strings can be populated."""
-    v = PlainValue(string_set_schema)
+    v = Value(string_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -241,7 +241,7 @@ def test_set_insert_strings(string_set_schema):
 
 def test_set_contains_native_type(int_set_schema):
     """SetView.contains() with View."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -255,7 +255,7 @@ def test_set_contains_native_type(int_set_schema):
 
 def test_set_contains_returns_false_for_missing(int_set_schema):
     """SetView.contains() returns False for missing elements."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -268,7 +268,7 @@ def test_set_contains_returns_false_for_missing(int_set_schema):
 
 def test_set_contains_with_value_view(int_set_schema):
     """SetView.contains(View) works."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -285,7 +285,7 @@ def test_set_contains_with_value_view(int_set_schema):
 
 def test_set_erase_native_type(int_set_schema):
     """SetView.erase() with View."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -302,7 +302,7 @@ def test_set_erase_native_type(int_set_schema):
 
 def test_set_erase_returns_true_for_existing(int_set_schema):
     """SetView.erase() returns True for existing elements."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -315,7 +315,7 @@ def test_set_erase_returns_true_for_existing(int_set_schema):
 
 def test_set_erase_returns_false_for_missing(int_set_schema):
     """SetView.erase() returns False for missing elements."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -332,7 +332,7 @@ def test_set_erase_returns_false_for_missing(int_set_schema):
 
 def test_set_clear(int_set_schema):
     """SetView.clear() removes all elements."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -349,7 +349,7 @@ def test_set_clear(int_set_schema):
 
 def test_set_size(int_set_schema):
     """SetView.size() returns correct count."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -365,7 +365,7 @@ def test_set_size(int_set_schema):
 
 def test_set_empty(int_set_schema):
     """SetView.empty() returns correct value."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -383,7 +383,7 @@ def test_set_empty(int_set_schema):
 
 def test_set_iteration(int_set_schema):
     """Set elements can be iterated."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -434,7 +434,7 @@ def test_map_schema_value_type(string_double_map_schema, double_schema):
 
 def test_create_map_value(string_double_map_schema):
     """Map value can be created from schema."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     assert v.valid()
@@ -442,7 +442,7 @@ def test_create_map_value(string_double_map_schema):
 
 def test_map_initially_empty(string_double_map_schema):
     """Map is initially empty."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -457,7 +457,7 @@ def test_map_initially_empty(string_double_map_schema):
 
 def test_map_set_native_types(string_double_map_schema):
     """MapView.set() with View key and value."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -470,7 +470,7 @@ def test_map_set_native_types(string_double_map_schema):
 
 def test_map_set_overwrites_existing(string_double_map_schema):
     """MapView.set() overwrites existing key."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -491,7 +491,7 @@ def test_map_set_overwrites_existing(string_double_map_schema):
 
 def test_map_set_with_value(string_double_map_schema):
     """MapView.set() works with explicit Value wrapping."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -508,7 +508,7 @@ def test_map_set_with_value(string_double_map_schema):
 
 def test_map_at_native_type(string_double_map_schema):
     """MapView.at() with View key."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -524,7 +524,7 @@ def test_map_at_native_type(string_double_map_schema):
 
 def test_map_at_with_value_view(string_double_map_schema):
     """MapView.at(View) works."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -540,7 +540,7 @@ def test_map_at_with_value_view(string_double_map_schema):
 
 def test_map_operator_bracket_read(string_double_map_schema):
     """MapView operator[] provides read access."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -556,7 +556,7 @@ def test_map_operator_bracket_read(string_double_map_schema):
 
 def test_map_operator_bracket_write(string_double_map_schema):
     """MapView operator[] allows write access via set()."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -576,7 +576,7 @@ def test_map_operator_bracket_write(string_double_map_schema):
 
 def test_map_operator_bracket_inserts_default(string_double_map_schema):
     """MapView operator[] inserts default if key missing."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -593,7 +593,7 @@ def test_map_operator_bracket_inserts_default(string_double_map_schema):
 
 def test_map_contains_native_type(string_double_map_schema):
     """MapView.contains() with View key."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -608,7 +608,7 @@ def test_map_contains_native_type(string_double_map_schema):
 
 def test_map_contains_returns_false_for_missing(string_double_map_schema):
     """MapView.contains() returns False for missing keys."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -623,7 +623,7 @@ def test_map_contains_returns_false_for_missing(string_double_map_schema):
 
 def test_const_map_view_contains(string_double_map_schema):
     """Read-only MapView.contains() works."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -643,7 +643,7 @@ def test_const_map_view_contains(string_double_map_schema):
 
 def test_map_insert_returns_true_for_new(string_double_map_schema):
     """MapView.insert() returns True for new keys."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -655,7 +655,7 @@ def test_map_insert_returns_true_for_new(string_double_map_schema):
 
 def test_map_insert_returns_false_for_existing(string_double_map_schema):
     """MapView.insert() returns False for existing keys."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -668,7 +668,7 @@ def test_map_insert_returns_false_for_existing(string_double_map_schema):
 
 def test_map_insert_doesnt_overwrite(string_double_map_schema):
     """MapView.insert() doesn't overwrite existing value."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -691,7 +691,7 @@ def test_map_insert_doesnt_overwrite(string_double_map_schema):
 
 def test_map_erase_native_type(string_double_map_schema):
     """MapView.erase() with View key."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -717,7 +717,7 @@ def test_map_erase_native_type(string_double_map_schema):
 
 def test_map_erase_returns_true_for_existing(string_double_map_schema):
     """MapView.erase() returns True for existing keys."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -733,7 +733,7 @@ def test_map_erase_returns_true_for_existing(string_double_map_schema):
 
 def test_map_erase_returns_false_for_missing(string_double_map_schema):
     """MapView.erase() returns False for missing keys."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -755,7 +755,7 @@ def test_map_erase_returns_false_for_missing(string_double_map_schema):
 
 def test_map_clear(string_double_map_schema):
     """MapView.clear() removes all entries."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -776,7 +776,7 @@ def test_map_clear(string_double_map_schema):
 
 def test_map_size(string_double_map_schema):
     """MapView.size() returns correct count."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -805,7 +805,7 @@ def test_map_size(string_double_map_schema):
 
 def test_map_iteration_key_value_pairs(string_double_map_schema):
     """Map entries can be iterated as key-value pairs."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -824,7 +824,7 @@ def test_map_iteration_key_value_pairs(string_double_map_schema):
 
 def test_map_keys_iteration(string_double_map_schema):
     """Map keys can be iterated separately - returns KeySetView."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -849,7 +849,7 @@ def test_map_keys_iteration(string_double_map_schema):
 
 def test_set_insert_wrong_type_raises(int_set_schema):
     """Inserting wrong type raises error."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -860,7 +860,7 @@ def test_set_insert_wrong_type_raises(int_set_schema):
 
 def test_non_set_value_as_set_raises():
     """Getting set view from non-set value raises error."""
-    v = PlainValue(42)
+    v = Value(42)
 
     with pytest.raises((TypeError, RuntimeError)):
         _ = v.as_set()
@@ -872,7 +872,7 @@ def test_non_set_value_as_set_raises():
 
 def test_is_set_on_set_value(int_set_schema):
     """is_set() returns True for set values."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     assert v.view().is_set()
@@ -880,7 +880,7 @@ def test_is_set_on_set_value(int_set_schema):
 
 def test_is_set_on_scalar_value():
     """is_set() returns False for scalar values."""
-    v = PlainValue(42)
+    v = Value(42)
     assert not v.view().is_set()
 
 
@@ -900,7 +900,7 @@ def test_try_as_set_on_non_set_value():
 
 def test_map_at_missing_key_raises(string_double_map_schema):
     """Accessing missing key with at() raises error."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -916,7 +916,7 @@ def test_map_at_missing_key_raises(string_double_map_schema):
 
 def test_map_set_wrong_key_type_raises(string_double_map_schema):
     """Setting with wrong key type raises error."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -927,7 +927,7 @@ def test_map_set_wrong_key_type_raises(string_double_map_schema):
 
 def test_map_set_wrong_value_type_raises(string_double_map_schema):
     """Setting with wrong value type raises error."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -938,7 +938,7 @@ def test_map_set_wrong_value_type_raises(string_double_map_schema):
 
 def test_non_map_value_as_map_raises():
     """Getting map view from non-map value raises error."""
-    v = PlainValue(42)
+    v = Value(42)
 
     with pytest.raises((TypeError, RuntimeError)):
         _ = v.as_map()
@@ -950,7 +950,7 @@ def test_non_map_value_as_map_raises():
 
 def test_is_map_on_map_value(string_double_map_schema):
     """is_map() returns True for map values."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     assert v.view().is_map()
@@ -958,7 +958,7 @@ def test_is_map_on_map_value(string_double_map_schema):
 
 def test_is_map_on_scalar_value():
     """is_map() returns False for scalar values."""
-    v = PlainValue(42)
+    v = Value(42)
     assert not v.view().is_map()
 
 
@@ -992,11 +992,11 @@ def test_cloned_set_is_independent(int_set_schema):
 
 def test_set_equals_same_values(int_set_schema):
     """Sets with same values are equal."""
-    v1 = PlainValue(int_set_schema)
+    v1 = Value(int_set_schema)
 
     v1.emplace()
     sv1 = v1.as_set()
-    v2 = PlainValue(int_set_schema)
+    v2 = Value(int_set_schema)
 
     v2.emplace()
     sv2 = v2.as_set()
@@ -1013,11 +1013,11 @@ def test_set_equals_same_values(int_set_schema):
 
 def test_set_not_equals_different_values(int_set_schema):
     """Sets with different values are not equal."""
-    v1 = PlainValue(int_set_schema)
+    v1 = Value(int_set_schema)
 
     v1.emplace()
     sv1 = v1.as_set()
-    v2 = PlainValue(int_set_schema)
+    v2 = Value(int_set_schema)
 
     v2.emplace()
     sv2 = v2.as_set()
@@ -1039,7 +1039,7 @@ def test_set_not_equals_different_values(int_set_schema):
 
 def test_clone_map(string_double_map_schema):
     """Map can be cloned."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -1054,7 +1054,7 @@ def test_clone_map(string_double_map_schema):
 
 def test_cloned_map_is_independent(string_double_map_schema):
     """Cloned map is independent of original."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -1078,11 +1078,11 @@ def test_cloned_map_is_independent(string_double_map_schema):
 
 def test_map_equals_same_entries(string_double_map_schema):
     """Maps with same entries are equal."""
-    v1 = PlainValue(string_double_map_schema)
+    v1 = Value(string_double_map_schema)
 
     v1.emplace()
     mv1 = v1.as_map()
-    v2 = PlainValue(string_double_map_schema)
+    v2 = Value(string_double_map_schema)
 
     v2.emplace()
     mv2 = v2.as_map()
@@ -1097,11 +1097,11 @@ def test_map_equals_same_entries(string_double_map_schema):
 
 def test_map_not_equals_different_values(string_double_map_schema):
     """Maps with different values are not equal."""
-    v1 = PlainValue(string_double_map_schema)
+    v1 = Value(string_double_map_schema)
 
     v1.emplace()
     mv1 = v1.as_map()
-    v2 = PlainValue(string_double_map_schema)
+    v2 = Value(string_double_map_schema)
 
     v2.emplace()
     mv2 = v2.as_map()
@@ -1121,7 +1121,7 @@ def test_map_not_equals_different_values(string_double_map_schema):
 
 def test_set_to_python(int_set_schema):
     """Set can be converted to Python set."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -1141,7 +1141,7 @@ def test_set_to_python(int_set_schema):
 
 def test_set_from_python(int_set_schema):
     """Set can be populated from Python set."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     py_set = {10, 20, 30}
@@ -1153,7 +1153,7 @@ def test_set_from_python(int_set_schema):
 
 def test_set_from_python_rejects_none_element(int_set_schema):
     """Set.from_python rejects None elements (set members are non-null)."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     with pytest.raises(RuntimeError, match="None elements"):
@@ -1166,7 +1166,7 @@ def test_set_from_python_rejects_none_element(int_set_schema):
 
 def test_map_to_python(string_double_map_schema):
     """Map can be converted to Python dict."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -1185,7 +1185,7 @@ def test_map_to_python(string_double_map_schema):
 
 def test_map_from_python(string_double_map_schema):
     """Map can be populated from Python dict."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     py_dict = {"apple": 1.50, "banana": 2.25}
@@ -1197,7 +1197,7 @@ def test_map_from_python(string_double_map_schema):
 
 def test_map_from_python_none_value_preserves_key_as_null(string_double_map_schema):
     """Map values can be None while keys remain present."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     v.from_python({"apple": None, "banana": 2.25})
@@ -1214,7 +1214,7 @@ def test_map_from_python_none_value_preserves_key_as_null(string_double_map_sche
 
 def test_map_from_python_rejects_none_key(string_double_map_schema):
     """Map.from_python rejects None keys (map keys are non-null)."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     with pytest.raises(RuntimeError, match="None keys"):
@@ -1227,7 +1227,7 @@ def test_map_from_python_rejects_none_key(string_double_map_schema):
 
 def test_set_to_string(int_set_schema):
     """Set can be converted to string representation."""
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -1245,7 +1245,7 @@ def test_set_to_string(int_set_schema):
 
 def test_map_to_string(string_double_map_schema):
     """Map can be converted to string representation."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -1264,7 +1264,7 @@ def test_map_to_string(string_double_map_schema):
 
 def test_map_keys_returns_key_set_view(string_double_map_schema):
     """Map.keys() returns a KeySetView object."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -1284,7 +1284,7 @@ def test_map_keys_returns_key_set_view(string_double_map_schema):
 
 def test_keyset_size(string_double_map_schema):
     """KeySetView.size() returns the number of keys."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -1304,7 +1304,7 @@ def test_keyset_size(string_double_map_schema):
 
 def test_keyset_empty(string_double_map_schema):
     """KeySetView.empty() returns True for empty map."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     cmv = v.view().as_map()
@@ -1316,7 +1316,7 @@ def test_keyset_empty(string_double_map_schema):
 
 def test_keyset_contains(string_double_map_schema):
     """KeySetView.contains() checks for key existence."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -1336,7 +1336,7 @@ def test_keyset_contains(string_double_map_schema):
 
 def test_keyset_dunder_contains(string_double_map_schema):
     """KeySetView supports 'in' operator via __contains__."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -1355,7 +1355,7 @@ def test_keyset_dunder_contains(string_double_map_schema):
 
 def test_keyset_element_type(string_double_map_schema):
     """KeySetView.element_type() returns the key type."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     cmv = v.view().as_map()
@@ -1370,7 +1370,7 @@ def test_keyset_element_type(string_double_map_schema):
 
 def test_keyset_iteration(string_double_map_schema):
     """KeySetView can be iterated to get keys."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -1395,7 +1395,7 @@ def test_keyset_iteration(string_double_map_schema):
 def test_keyset_same_interface_as_constsetview(int_set_schema, string_double_map_schema):
     """KeySetView has the same interface as read-only SetView operations."""
     # Create a set
-    set_v = PlainValue(int_set_schema)
+    set_v = Value(int_set_schema)
 
     set_v.emplace()
     sv = set_v.as_set()
@@ -1404,7 +1404,7 @@ def test_keyset_same_interface_as_constsetview(int_set_schema, string_double_map
     const_set = set_v.view().as_set()
 
     # Create a map and get its key set
-    map_v = PlainValue(string_double_map_schema)
+    map_v = Value(string_double_map_schema)
 
     map_v.emplace()
     mv = map_v.as_map()
@@ -1422,7 +1422,7 @@ def test_keyset_same_interface_as_constsetview(int_set_schema, string_double_map
 
 def test_keyset_mutable_map_keys(string_double_map_schema):
     """MapView.keys() also returns KeySetView."""
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -1443,7 +1443,7 @@ def test_keyset_mutable_map_keys(string_double_map_schema):
 def test_set_large_insert_performance(int_set_schema):
     """Set insert remains fast with many elements (O(1) amortized)."""
     import time
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -1463,7 +1463,7 @@ def test_set_large_insert_performance(int_set_schema):
 def test_set_large_contains_performance(int_set_schema):
     """Set contains remains fast with many elements (O(1))."""
     import time
-    v = PlainValue(int_set_schema)
+    v = Value(int_set_schema)
 
     v.emplace()
     sv = v.as_set()
@@ -1490,7 +1490,7 @@ def test_set_large_contains_performance(int_set_schema):
 def test_map_large_set_performance(string_double_map_schema):
     """Map set operations remain fast with many elements (O(1) amortized)."""
     import time
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()
@@ -1511,7 +1511,7 @@ def test_map_large_set_performance(string_double_map_schema):
 def test_map_large_get_performance(string_double_map_schema):
     """Map get operations remain fast with many elements (O(1))."""
     import time
-    v = PlainValue(string_double_map_schema)
+    v = Value(string_double_map_schema)
 
     v.emplace()
     mv = v.as_map()

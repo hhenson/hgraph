@@ -182,7 +182,7 @@ namespace hgraph
     void TimeSeriesDictOutputImpl::_clear_key_tracking() { _ts_values_to_keys.clear(); }
 
     void TimeSeriesDictOutputImpl::_add_key_value(const value::View &key, const value_type &value) {
-        // Store PlainValue key in reverse map
+        // Store Value key in reverse map
         _ts_values_to_keys.emplace(const_cast<TimeSeriesOutput *>(static_cast<const TimeSeriesOutput *>(value.get())),
                                    key.clone());
     }
@@ -371,7 +371,7 @@ namespace hgraph
         auto &other = dynamic_cast<const TimeSeriesDictOutputImpl &>(output);
 
         // Build list of keys to remove
-        std::vector<value::PlainValue> to_remove;
+        std::vector<value::Value> to_remove;
         for (auto elem : key_set().value_view()) {
             // Check if key is NOT in other's key set
             if (!other.key_set().contains(elem)) {
@@ -388,7 +388,7 @@ namespace hgraph
         auto &dict_input = dynamic_cast<const TimeSeriesDictInputImpl &>(input);
 
         // Remove keys that are in output but NOT in input (matching Python: self.key_set.value - input.key_set.value)
-        std::vector<value::PlainValue> to_remove;
+        std::vector<value::Value> to_remove;
         for (auto elem : key_set().value_view()) {
             // Check if key is NOT in input's key set
             if (!dict_input.key_set().contains(elem)) {
@@ -396,7 +396,7 @@ namespace hgraph
             }
         }
         for (const auto &k : to_remove) { erase(k.view()); }
-        // Iterate PlainValue-keyed map
+        // Iterate Value-keyed map
         for (const auto &[pv_key, v_input] : dict_input.value()) {
             get_or_create(pv_key.view())->copy_from_input(*v_input);
         }
@@ -847,7 +847,7 @@ namespace hgraph
 
         if (value->parent_input().get() == this) {
             if (value->active()) { value->make_passive(); }
-            // Use emplace instead of insert for move-only PlainValue keys
+            // Use emplace instead of insert for move-only Value keys
             _removed_items.emplace(key.clone(), std::make_pair(value, was_valid));
 
             auto it_ = _modified_items.find(key);
@@ -857,7 +857,7 @@ namespace hgraph
             // if (!has_peer()) { value->un_bind_output(false); }
         } else {
             // Transplanted input - put it back and unbind it
-            // Use emplace instead of insert for move-only PlainValue keys
+            // Use emplace instead of insert for move-only Value keys
             _ts_values.emplace(key.clone(), value);
             _add_key_value(key, value);
             value->un_bind_output(true);
@@ -929,7 +929,7 @@ namespace hgraph
         if (!_ts_values.empty()) {
             _removed_items.clear();
             for (const auto &[pv_key, value] : _ts_values) {
-                // Clone the PlainValue key and use emplace (copy constructor is deleted)
+                // Clone the Value key and use emplace (copy constructor is deleted)
                 _removed_items.emplace(pv_key.view().clone(), std::make_pair(value, value->valid()));
             }
             _ts_values.clear();
@@ -943,7 +943,7 @@ namespace hgraph
                 if (value->parent_input().get() != this) {
                     // Transplanted items - un-bind and put back
                     value->un_bind_output(unbind_refs);
-                    // Use emplace instead of insert for move-only PlainValue keys
+                    // Use emplace instead of insert for move-only Value keys
                     _ts_values.emplace(pv_key.view().clone(), value);
                     _add_key_value(pv_key.view(), value);
                 } else {
@@ -1027,14 +1027,14 @@ namespace hgraph
     void TimeSeriesDictInputImpl::_clear_key_tracking() { _ts_values_to_keys.clear(); }
 
     void TimeSeriesDictInputImpl::_add_key_value(const value::View &key, const value_type &value) {
-        // Store PlainValue key in reverse map - use emplace for move-only PlainValue
+        // Store Value key in reverse map - use emplace for move-only Value
         _ts_values_to_keys.emplace(const_cast<TimeSeriesInput *>(value.get()), key.clone());
     }
 
     void TimeSeriesDictInputImpl::_key_updated(const value::View &key) {
         auto it = _ts_values.find(key);
         if (it != _ts_values.end()) {
-            // Use insert_or_assign for move-only PlainValue keys
+            // Use insert_or_assign for move-only Value keys
             _modified_items.insert_or_assign(key.clone(), it->second);
         } else {
             throw nb::key_error("Key not found in TSD");
@@ -1136,7 +1136,7 @@ namespace hgraph
         // For non-peered inputs that are active, make the newly created item active too
         // This ensures proper notification chain for fast non-peer TSD scenarios
         if (!has_peer() and active()) { item->make_active(); }
-        // Use emplace with cloned key for move-only PlainValue storage
+        // Use emplace with cloned key for move-only Value storage
         _ts_values.emplace(key_view.clone(), item);
         _add_key_value(key_view, item);
         return item;  // Return the created item
@@ -1147,7 +1147,7 @@ namespace hgraph
         key_set().add(key_view);
 
         auto item{_ts_builder->make_instance(this)};
-        // Use emplace with cloned key for move-only PlainValue storage
+        // Use emplace with cloned key for move-only Value storage
         _ts_values.emplace(key_view.clone(), item);
 
         _add_key_value(key_view, item);

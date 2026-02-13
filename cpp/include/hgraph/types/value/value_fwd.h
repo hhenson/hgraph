@@ -74,9 +74,6 @@ class MapView;
 /// Owning value storage
 class Value;
 
-/// Common alias used in the C++ runtime API
-using PlainValue = Value;
-
 // ============================================================================
 // Type Registry Forward Declarations
 // ============================================================================

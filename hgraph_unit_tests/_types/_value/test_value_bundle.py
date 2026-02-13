@@ -15,7 +15,7 @@ _hgraph = pytest.importorskip("hgraph._hgraph")
 value = _hgraph.value  # Value types are in the value submodule
 
 # Convenience aliases
-PlainValue = value.PlainValue
+Value = value.Value
 TypeRegistry = value.TypeRegistry
 TypeKind = value.TypeKind
 
@@ -157,7 +157,7 @@ def test_empty_bundle_allowed(type_registry):
 
 def test_create_bundle_value_from_schema(simple_bundle_schema):
     """Value can be created from bundle schema."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     assert v.valid()
@@ -165,7 +165,7 @@ def test_create_bundle_value_from_schema(simple_bundle_schema):
 
 def test_bundle_value_has_correct_schema(simple_bundle_schema):
     """Bundle value reports correct schema."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     assert v.schema == simple_bundle_schema
@@ -173,7 +173,7 @@ def test_bundle_value_has_correct_schema(simple_bundle_schema):
 
 def test_bundle_view_set_by_name_with_native_types(simple_bundle_schema):
     """BundleView.set(name, value) auto-wraps native types."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -189,7 +189,7 @@ def test_bundle_view_set_by_name_with_native_types(simple_bundle_schema):
 
 def test_bundle_view_set_via_at_name_mut(simple_bundle_schema):
     """BundleView.at_name_mut() returns mutable view for setting values."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -205,7 +205,7 @@ def test_bundle_view_set_via_at_name_mut(simple_bundle_schema):
 
 def test_bundle_view_set_by_index(simple_bundle_schema):
     """BundleView field access by index."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -219,7 +219,7 @@ def test_bundle_view_set_by_index(simple_bundle_schema):
 
 def test_const_bundle_view_at_by_name(simple_bundle_schema):
     """View.as_bundle() provides read access."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -236,7 +236,7 @@ def test_const_bundle_view_at_by_name(simple_bundle_schema):
 
 def test_bundle_has_field(simple_bundle_schema):
     """has_field() returns True for existing fields."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     cbv = v.view().as_bundle()
@@ -249,7 +249,7 @@ def test_bundle_has_field(simple_bundle_schema):
 
 def test_bundle_field_index_lookup(simple_bundle_schema):
     """field_index() returns correct index for field name."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     cbv = v.view().as_bundle()
@@ -261,7 +261,7 @@ def test_bundle_field_index_lookup(simple_bundle_schema):
 
 def test_nested_bundle_access(nested_bundle_schema):
     """Nested bundle fields can be accessed."""
-    v = PlainValue(nested_bundle_schema)
+    v = Value(nested_bundle_schema)
 
     v.emplace()
     bv = v.as_bundle()
@@ -279,7 +279,7 @@ def test_nested_bundle_access(nested_bundle_schema):
 
 def test_bundle_access_nonexistent_field_raises(simple_bundle_schema):
     """Accessing non-existent field raises error."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     cbv = v.view().as_bundle()
@@ -290,7 +290,7 @@ def test_bundle_access_nonexistent_field_raises(simple_bundle_schema):
 
 def test_bundle_equals_same_values(simple_bundle_schema):
     """Bundles with same values are equal."""
-    v1 = PlainValue(simple_bundle_schema)
+    v1 = Value(simple_bundle_schema)
 
     v1.emplace()
     bv1 = v1.as_bundle()
@@ -298,7 +298,7 @@ def test_bundle_equals_same_values(simple_bundle_schema):
     bv1.at_name_mut("y").set_double(3.14)
     bv1.at_name_mut("name").set_string("test")
 
-    v2 = PlainValue(simple_bundle_schema)
+    v2 = Value(simple_bundle_schema)
 
     v2.emplace()
     bv2 = v2.as_bundle()
@@ -311,13 +311,13 @@ def test_bundle_equals_same_values(simple_bundle_schema):
 
 def test_bundle_not_equals_different_values(simple_bundle_schema):
     """Bundles with different values are not equal."""
-    v1 = PlainValue(simple_bundle_schema)
+    v1 = Value(simple_bundle_schema)
 
     v1.emplace()
     bv1 = v1.as_bundle()
     bv1.at_name_mut("x").set_int(42)
 
-    v2 = PlainValue(simple_bundle_schema)
+    v2 = Value(simple_bundle_schema)
 
     v2.emplace()
     bv2 = v2.as_bundle()
@@ -328,7 +328,7 @@ def test_bundle_not_equals_different_values(simple_bundle_schema):
 
 def test_bundle_from_python_none_field_round_trips_as_null(simple_bundle_schema):
     """Bundle fields accept None as a null state and preserve schema."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
 
     v.emplace()
     v.from_python({"x": 10, "y": None, "name": "origin"})

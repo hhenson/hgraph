@@ -20,7 +20,14 @@ namespace hgraph {
         if (_py_cached_value.is_valid()) {
             return _py_cached_value;
         }
-        return _value.to_python();
+        auto py = _value.to_python();
+        // Canonicalize set-schema values to frozenset when no source-shape cache exists.
+        // This aligns TS[frozenset[T]] read behavior with Python runtime and avoids
+        // treating full set snapshots as delta iterables in TSS conversion paths.
+        if (schema() && schema()->kind == value::TypeKind::Set && nb::isinstance<nb::set>(py)) {
+            return nb::frozenset(py);
+        }
+        return py;
     }
 
     nb::object TimeSeriesValueOutput::py_delta_value() const {
@@ -34,7 +41,7 @@ namespace hgraph {
         }
         _value.from_python(value);
         _py_cached_value = value;
-        mark_modified();
+        BaseTimeSeriesOutput::mark_modified();
     }
 
     void TimeSeriesValueOutput::apply_result(const nb::object& value) {
@@ -50,8 +57,18 @@ namespace hgraph {
         }
     }
 
+    void TimeSeriesValueOutput::mark_modified() {
+        _py_cached_value = nb::object();
+        BaseTimeSeriesOutput::mark_modified();
+    }
+
+    void TimeSeriesValueOutput::mark_modified(engine_time_t modified_time) {
+        _py_cached_value = nb::object();
+        BaseTimeSeriesOutput::mark_modified(modified_time);
+    }
+
     void TimeSeriesValueOutput::mark_invalid() {
-        _value = value::PlainValue(schema());  // Reset to typed-null
+        _value = value::Value(schema());  // Reset to typed-null
         _py_cached_value = nb::object();
         BaseTimeSeriesOutput::mark_invalid();
     }
@@ -67,7 +84,7 @@ namespace hgraph {
             }
             _value.view().copy_from(other->_value.view());
             _py_cached_value = other->_py_cached_value.is_valid() ? other->_py_cached_value : nb::object();
-            mark_modified();
+            BaseTimeSeriesOutput::mark_modified();
         } else {
             mark_invalid();
         }
@@ -85,7 +102,7 @@ namespace hgraph {
             _value.view().copy_from(other->value());
             const auto& source = other->value_output();
             _py_cached_value = source._py_cached_value.is_valid() ? source._py_cached_value : nb::object();
-            mark_modified();
+            BaseTimeSeriesOutput::mark_modified();
         } else {
             mark_invalid();
         }
@@ -100,7 +117,7 @@ namespace hgraph {
     }
 
     void TimeSeriesValueOutput::reset_value() {
-        _value = value::PlainValue(schema());
+        _value = value::Value(schema());
         _py_cached_value = nb::object();
     }
 

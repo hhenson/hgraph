@@ -19,7 +19,7 @@
 namespace hgraph {
     // MeshNestedEngineEvaluationClock implementation
     MeshNestedEngineEvaluationClock::MeshNestedEngineEvaluationClock(
-        EngineEvaluationClock::ptr engine_evaluation_clock, value::PlainValue key,
+        EngineEvaluationClock::ptr engine_evaluation_clock, value::Value key,
         mesh_node_ptr nested_node)
         : NestedEngineEvaluationClock(std::move(engine_evaluation_clock),
                                       static_cast<NestedNode*>(nested_node)),
@@ -50,7 +50,7 @@ namespace hgraph {
         if (next_time == let &&
             (rank == node_->current_eval_rank_ ||
              (node_->current_eval_graph_.has_value() &&
-              PlainValueEqual{}(node_->current_eval_graph_.value(), _key)))) {
+              ValueEqual{}(node_->current_eval_graph_.value(), _key)))) {
             return;
         }
 
@@ -175,7 +175,7 @@ namespace hgraph {
 
         // 2. Process pending keys (keys added due to dependencies)
         if (!this->pending_keys_.empty()) {
-            std::vector<value::PlainValue> pending_copy;
+            std::vector<value::Value> pending_copy;
             pending_copy.reserve(pending_keys_.size());
             for (const auto& k : pending_keys_) {
                 pending_copy.push_back(k.view().clone());
@@ -195,7 +195,7 @@ namespace hgraph {
 
         // 3. Process graphs to remove
         if (!graphs_to_remove_.empty()) {
-            std::vector<value::PlainValue> to_remove;
+            std::vector<value::Value> to_remove;
             to_remove.reserve(graphs_to_remove_.size());
             for (const auto& k : graphs_to_remove_) {
                 to_remove.push_back(k.view().clone());
@@ -340,7 +340,7 @@ namespace hgraph {
             TsdMapNode::un_wire_graph(key, graph);
 
             // Ensure cleanup happens even if stop_component throws (matches Python try-finally pattern)
-            value::PlainValue key_copy = key.clone();  // Clone for lambda capture
+            value::Value key_copy = key.clone();  // Clone for lambda capture
             auto cleanup = make_scope_exit([this, key_copy = std::move(key_copy)]() mutable {
                 auto rank_it = active_graphs_rank_.find(key_copy.view());
                 if (rank_it != active_graphs_rank_.end()) {
@@ -354,7 +354,7 @@ namespace hgraph {
                 // Remove any re-rank requests involving this key
                 re_rank_requests_.erase(std::remove_if(re_rank_requests_.begin(), re_rank_requests_.end(),
                                                        [&key_copy](const auto &pair) {
-                                                           return PlainValueEqual{}(pair.first, key_copy);
+                                                           return ValueEqual{}(pair.first, key_copy);
                                                        }),
                                         re_rank_requests_.end());
             });
@@ -411,7 +411,7 @@ namespace hgraph {
     }
 
     void MeshNode::re_rank(const value::View &key, const value::View &depends_on,
-                           std::vector<value::PlainValue> re_rank_stack) {
+                           std::vector<value::Value> re_rank_stack) {
         auto key_rank_it = active_graphs_rank_.find(key);
         auto dep_rank_it = active_graphs_rank_.find(depends_on);
         if (key_rank_it == active_graphs_rank_.end() || dep_rank_it == active_graphs_rank_.end()) {
@@ -445,14 +445,14 @@ namespace hgraph {
                     // Check for cycles
                     bool found_cycle = false;
                     for (const auto& stack_item : re_rank_stack) {
-                        if (PlainValueEqual{}(stack_item, k)) {
+                        if (ValueEqual{}(stack_item, k)) {
                             found_cycle = true;
                             break;
                         }
                     }
 
                     if (found_cycle) {
-                        std::vector<value::PlainValue> cycle;
+                        std::vector<value::Value> cycle;
                         for (const auto& item : re_rank_stack) { cycle.push_back(item.view().clone()); }
                         cycle.push_back(key.clone());
                         cycle.push_back(k.view().clone());
@@ -470,7 +470,7 @@ namespace hgraph {
                                                              this->signature().wiring_path_name, node_label, cycle_str));
                     }
 
-                    std::vector<value::PlainValue> new_stack;
+                    std::vector<value::Value> new_stack;
                     for (const auto& item : re_rank_stack) { new_stack.push_back(item.view().clone()); }
                     new_stack.push_back(key.clone());
                     re_rank(k.view(), key, std::move(new_stack));

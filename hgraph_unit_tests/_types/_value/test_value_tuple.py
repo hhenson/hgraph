@@ -15,7 +15,7 @@ _hgraph = pytest.importorskip("hgraph._hgraph")
 value = _hgraph.value  # Value types are in the value submodule
 
 # Convenience aliases to avoid variable shadowing
-PlainValue = value.PlainValue
+Value = value.Value
 TypeRegistry = value.TypeRegistry
 TypeKind = value.TypeKind
 
@@ -138,7 +138,7 @@ def test_single_element_tuple_schema(single_element_tuple_schema):
 # Tuple TypeOps now implemented
 def test_create_tuple_value_from_schema(simple_tuple_schema):
     """Value can be created from tuple schema."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     assert v.valid()
@@ -147,7 +147,7 @@ def test_create_tuple_value_from_schema(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_value_has_correct_schema(simple_tuple_schema):
     """Tuple value reports correct schema."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     assert v.schema == simple_tuple_schema
@@ -156,7 +156,7 @@ def test_tuple_value_has_correct_schema(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_get_tuple_view(simple_tuple_schema):
     """Can get TupleView from tuple Value."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -166,7 +166,7 @@ def test_get_tuple_view(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_view_size(simple_tuple_schema):
     """TupleView reports correct size."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -176,7 +176,7 @@ def test_tuple_view_size(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_view_set_by_index(simple_tuple_schema):
     """TupleView allows setting elements by index."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -193,20 +193,20 @@ def test_tuple_view_set_by_index(simple_tuple_schema):
 
 
 def test_tuple_view_set_with_value(simple_tuple_schema):
-    """TupleView allows setting elements with PlainValue."""
-    v = PlainValue(simple_tuple_schema)
+    """TupleView allows setting elements with Value."""
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
 
-    tv.set(0, PlainValue(100))
+    tv.set(0, Value(100))
     assert tv[0].as_int() == 100
 
 
 # Tuple TypeOps now implemented
 def test_tuple_view_operator_bracket_read(simple_tuple_schema):
     """TupleView operator[] provides read access."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -220,7 +220,7 @@ def test_tuple_view_operator_bracket_read(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_view_operator_bracket_write(simple_tuple_schema):
     """TupleView operator[] provides write access via at().set_*()."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -236,7 +236,7 @@ def test_tuple_view_operator_bracket_write(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_view_at_method(simple_tuple_schema):
     """TupleView at() method provides element access."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -249,7 +249,7 @@ def test_tuple_view_at_method(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_const_tuple_view_read_access(simple_tuple_schema):
     """View.as_tuple() provides read-only access."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -268,7 +268,7 @@ def test_const_tuple_view_read_access(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_element_type_access(simple_tuple_schema, int_schema, string_schema, double_schema):
     """TupleView element_type() returns type at position."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     ctv = v.view().as_tuple()
@@ -285,7 +285,7 @@ def test_tuple_element_type_access(simple_tuple_schema, int_schema, string_schem
 # Tuple TypeOps now implemented
 def test_tuple_iteration_by_index(simple_tuple_schema):
     """Tuple elements can be iterated by index."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -306,7 +306,7 @@ def test_tuple_iteration_by_index(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_range_based_iteration(homogeneous_tuple_schema):
     """Tuple supports range-based iteration."""
-    v = PlainValue(homogeneous_tuple_schema)
+    v = Value(homogeneous_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -328,7 +328,7 @@ def test_tuple_range_based_iteration(homogeneous_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_index_out_of_bounds(simple_tuple_schema):
     """Accessing index beyond tuple size raises error."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     ctv = v.view().as_tuple()
@@ -339,7 +339,7 @@ def test_tuple_index_out_of_bounds(simple_tuple_schema):
 
 def test_tuple_negative_index_raises(simple_tuple_schema):
     """Negative index access via at() raises error (at() doesn't support negative indices)."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     ctv = v.view().as_tuple()
@@ -351,7 +351,7 @@ def test_tuple_negative_index_raises(simple_tuple_schema):
 
 def test_tuple_set_wrong_type_raises(simple_tuple_schema):
     """Setting element with wrong type raises error."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -364,7 +364,7 @@ def test_tuple_set_wrong_type_raises(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_as_wrong_view_type_raises(simple_tuple_schema):
     """Getting wrong view type raises error."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     # Tuple should not be convertible to list view directly
@@ -376,7 +376,7 @@ def test_tuple_as_wrong_view_type_raises(simple_tuple_schema):
 def test_non_tuple_value_as_tuple_raises():
     """Getting tuple view from non-tuple value raises error."""
     # Create a scalar value
-    v = PlainValue(42)
+    v = Value(42)
 
     with pytest.raises((TypeError, RuntimeError)):
         _ = v.as_tuple()
@@ -389,7 +389,7 @@ def test_non_tuple_value_as_tuple_raises():
 # Tuple TypeOps now implemented
 def test_is_tuple_on_tuple_value(simple_tuple_schema):
     """is_tuple() returns True for tuple values."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     assert v.view().is_tuple()
@@ -397,14 +397,14 @@ def test_is_tuple_on_tuple_value(simple_tuple_schema):
 
 def test_is_tuple_on_scalar_value():
     """is_tuple() returns False for scalar values."""
-    v = PlainValue(42)
+    v = Value(42)
     assert not v.view().is_tuple()
 
 
 # Tuple TypeOps now implemented
 def test_is_bundle_on_tuple_value(simple_tuple_schema):
     """is_bundle() returns False for tuple values."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     assert not v.view().is_bundle()
@@ -412,7 +412,7 @@ def test_is_bundle_on_tuple_value(simple_tuple_schema):
 
 def test_try_as_tuple_on_tuple_value(simple_tuple_schema):
     """try_as_tuple() returns view for tuple values."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     result = v.view().try_as_tuple()
@@ -421,7 +421,7 @@ def test_try_as_tuple_on_tuple_value(simple_tuple_schema):
 
 def test_try_as_tuple_on_non_tuple_value():
     """try_as_tuple() returns None for non-tuple values."""
-    v = PlainValue(42)
+    v = Value(42)
     result = v.view().try_as_tuple()
     assert result is None
 
@@ -433,7 +433,7 @@ def test_try_as_tuple_on_non_tuple_value():
 # Tuple TypeOps now implemented
 def test_tuple_has_no_named_access(simple_tuple_schema):
     """Tuple does not support named field access."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -451,7 +451,7 @@ def test_tuple_has_no_named_access(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_access_by_index_only(simple_tuple_schema):
     """Tuple only supports index-based access."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -468,7 +468,7 @@ def test_tuple_access_by_index_only(simple_tuple_schema):
 
 def test_clone_tuple_value(simple_tuple_schema):
     """Tuple values can be cloned."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -488,7 +488,7 @@ def test_clone_tuple_value(simple_tuple_schema):
 
 def test_cloned_tuple_is_independent(simple_tuple_schema):
     """Cloned tuple is independent of original."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -512,7 +512,7 @@ def test_cloned_tuple_is_independent(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_equals_same_values(simple_tuple_schema):
     """Tuples with same values are equal."""
-    v1 = PlainValue(simple_tuple_schema)
+    v1 = Value(simple_tuple_schema)
 
     v1.emplace()
     tv1 = v1.as_tuple()
@@ -520,7 +520,7 @@ def test_tuple_equals_same_values(simple_tuple_schema):
     tv1.at(1).set_string("hello")
     tv1.at(2).set_double(3.14)
 
-    v2 = PlainValue(simple_tuple_schema)
+    v2 = Value(simple_tuple_schema)
 
     v2.emplace()
     tv2 = v2.as_tuple()
@@ -534,7 +534,7 @@ def test_tuple_equals_same_values(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_not_equals_different_values(simple_tuple_schema):
     """Tuples with different values are not equal."""
-    v1 = PlainValue(simple_tuple_schema)
+    v1 = Value(simple_tuple_schema)
 
     v1.emplace()
     tv1 = v1.as_tuple()
@@ -542,7 +542,7 @@ def test_tuple_not_equals_different_values(simple_tuple_schema):
     tv1.at(1).set_string("hello")
     tv1.at(2).set_double(3.14)
 
-    v2 = PlainValue(simple_tuple_schema)
+    v2 = Value(simple_tuple_schema)
 
     v2.emplace()
     tv2 = v2.as_tuple()
@@ -560,7 +560,7 @@ def test_tuple_not_equals_different_values(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_to_python(simple_tuple_schema):
     """Tuple can be converted to Python object."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
@@ -581,7 +581,7 @@ def test_tuple_to_python(simple_tuple_schema):
 # Tuple TypeOps now implemented
 def test_tuple_from_python(simple_tuple_schema):
     """Tuple can be populated from Python object."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     py_tuple = (42, "hello", 3.14)
@@ -595,7 +595,7 @@ def test_tuple_from_python(simple_tuple_schema):
 
 def test_tuple_from_python_none_element_round_trips_as_null(simple_tuple_schema):
     """Tuple elements accept None as null state and preserve element schema."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     v.from_python((42, None, 3.14))
@@ -614,7 +614,7 @@ def test_tuple_from_python_none_element_round_trips_as_null(simple_tuple_schema)
 # Tuple TypeOps now implemented
 def test_tuple_to_string(simple_tuple_schema):
     """Tuple can be converted to string representation."""
-    v = PlainValue(simple_tuple_schema)
+    v = Value(simple_tuple_schema)
 
     v.emplace()
     tv = v.as_tuple()
