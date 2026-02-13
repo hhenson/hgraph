@@ -14,135 +14,44 @@ Type-erased owning container for any value conforming to a TypeMeta.
 ### Structure
 
 ```cpp
-class Value {
-    // TODO: Define fields
-
-    // TypeMeta* meta_;    // Schema describing the value
-    // void* data_;        // Owned memory
+template<typename Policy>
+class Value : private PolicyStorage<Policy> {
+    ValueStorage _storage;          // Owns payload memory (SBO + heap fallback)
+    const TypeMeta* _schema{nullptr}; // Schema identity (independent of payload presence)
 
 public:
-    // Construction
-    // Value(TypeMeta* meta);                    // Default construct
-    // Value(TypeMeta* meta, const void* src);   // Copy construct
+    Value() = default;                      // invalid (no schema)
+    explicit Value(const TypeMeta* schema); // typed-null by default
+
+    // Explicit copy model (copy ctor/assign disabled)
+    static Value copy(const Value& other);
+
+    // Top-level nullability
+    bool has_value() const;
+    void reset();   // typed-null, schema preserved
+    void emplace(); // construct payload for current schema
 
     // Access
-    // void* data();
-    // const void* data() const;
-    // TypeMeta* meta() const;
-
-    // View creation
-    // View view();
-    // View view() const;
+    const TypeMeta* schema() const;
+    void* data();             // throws std::bad_optional_access when top-level null
+    const void* data() const; // throws std::bad_optional_access when top-level null
 };
 ```
 
 ### Memory Management
 
-**Design Principle**: Value semantics for users, RAII internally.
+**Design Principle**: value semantics for users, RAII internally, explicit null state.
 
-**Allocation**:
-- Schema (TypeMeta) provides `size()` and `alignment()` for the value's memory requirements
-- Value allocates a contiguous memory block of the required size on construction
-- Memory is allocated once at construction, not resized
+1. Payload memory is owned by `ValueStorage`.
+2. `ValueStorage` uses SBO (`24` bytes, align `8`) and heap fallback.
+3. Type lifecycle is delegated through `type_ops` (`construct/destroy/copy/move`).
+4. Top-level nullability is represented by payload presence (`_storage.has_value()`), not by altering schema identity.
+5. Nested nullability is represented by per-node validity masks:
+   - Bundle/Tuple: per-field bitmap
+   - List: per-element bitmap
+   - Map values: per-slot bitmap
 
-**Initialization**:
-- Vtable method `type_ops::default_construct(data_, meta_)` initializes the allocated memory
-- For compound types, this recursively initializes all child values
-- For containers (List, Dict, Set), this initializes the container structure (not elements)
-
-**Destruction**:
-- Vtable method `type_ops::destruct(data_, meta_)` cleans up the value
-- For compound types, recursively destructs children
-- For containers, destructs all elements then the container structure
-- Value then deallocates the memory block
-
-```cpp
-class Value {
-    TypeMeta* meta_;
-    void* data_;
-
-public:
-    explicit Value(TypeMeta* meta) : meta_(meta) {
-        data_ = allocate(meta_->size(), meta_->alignment());
-        meta_->ops()->default_construct(data_, meta_);
-    }
-
-    Value(TypeMeta* meta, const void* src) : meta_(meta) {
-        data_ = allocate(meta_->size(), meta_->alignment());
-        meta_->ops()->copy_construct(data_, src, meta_);
-    }
-
-    ~Value() {
-        meta_->ops()->destruct(data_, meta_);
-        deallocate(data_);
-    }
-
-    // Move semantics transfer ownership
-    Value(Value&& other) noexcept
-        : meta_(other.meta_), data_(other.data_) {
-        other.data_ = nullptr;
-    }
-
-    // Copy uses vtable
-    Value(const Value& other) : Value(other.meta_, other.data_) {}
-};
-```
-
-**Lightweight SBO (Small Buffer Optimization)**:
-
-For primitive types that fit within a pointer (8 bytes on 64-bit), store the value directly in the `data_` field itself - no heap allocation needed.
-
-| Type | Storage | Notes |
-|------|---------|-------|
-| bool | inline | 1 byte, stored in data_ |
-| int8_t, uint8_t | inline | 1 byte |
-| int16_t, uint16_t | inline | 2 bytes |
-| int32_t, uint32_t | inline | 4 bytes |
-| int64_t, uint64_t | inline | 8 bytes |
-| float | inline | 4 bytes |
-| double | inline | 8 bytes |
-| nb::object | inline | Python object (pointer-sized) |
-| Everything else | heap | Compounds, containers, strings, etc. |
-
-```cpp
-class Value {
-    TypeMeta* meta_;
-    union {
-        void* heap_data_;      // For heap-allocated values
-        uint64_t inline_data_; // For primitives (reinterpret as needed)
-    };
-
-    bool is_inline() const {
-        return meta_->size() <= sizeof(void*) && meta_->is_primitive();
-    }
-
-public:
-    void* data() {
-        return is_inline() ? reinterpret_cast<void*>(&inline_data_) : heap_data_;
-    }
-
-    explicit Value(TypeMeta* meta) : meta_(meta) {
-        if (is_inline()) {
-            inline_data_ = 0;  // Zero-initialize
-            meta_->ops()->default_construct(&inline_data_, meta_);
-        } else {
-            heap_data_ = allocate(meta_->size(), meta_->alignment());
-            meta_->ops()->default_construct(heap_data_, meta_);
-        }
-    }
-
-    ~Value() {
-        if (is_inline()) {
-            meta_->ops()->destruct(&inline_data_, meta_);
-        } else {
-            meta_->ops()->destruct(heap_data_, meta_);
-            deallocate(heap_data_);
-        }
-    }
-};
-```
-
-This keeps allocation overhead zero for the most common scalar types while maintaining uniform access through `data()`.
+This design keeps the in-process layout compact and efficient while preserving Arrow-compatible validity semantics.
 
 ## View
 
@@ -155,16 +64,10 @@ Type-erased non-owning reference to data. Provides read/write access to a value 
 class View {
     void* data_;              // Borrowed pointer to data
     const TypeMeta* schema_;  // Type schema
-    Value* owner_;            // Owning Value (for lifetime tracking)
-    Path path_;               // Path from owner root to this position
 
 public:
     // Schema access
     const TypeMeta& schema() const;
-
-    // Owner and path access
-    Value& owner();
-    const Path& path() const;
 
     // Size (for composites)
     size_t size() const;
@@ -185,26 +88,7 @@ public:
 
 ### View Owner and Path
 
-Every View maintains a reference to its **owning Value** and the **path** traversed to reach it:
-
-```cpp
-Value point(point_schema);
-point.at("x").set<double>(1.0);
-
-// Get a nested view
-View x_view = point.view().at("x");
-
-// Access owner and path
-Value& owner = x_view.owner();        // Reference to 'point'
-const Path& path = x_view.path();     // Path: ["x"]
-std::string path_str = path.to_string();  // "x"
-
-// Deeper nesting
-Value nested(nested_schema);
-View deep = nested.view().at("a").at(0).at("b");
-// deep.path() → ["a", 0, "b"]
-// deep.owner() → reference to 'nested'
-```
+Owner/path metadata exists for some internal traversal utilities, but it is **not** currently a locked user-facing contract for the Value/View surface. The stable public contract is data/schema access through `View` and kind-specific wrappers.
 
 ### Kind-Specific Wrappers
 

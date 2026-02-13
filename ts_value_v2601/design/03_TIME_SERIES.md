@@ -1089,10 +1089,11 @@ TSValue (4 parallel Values)
 │   ├── SetStorage (as_set() returns reference)
 │   │   └── KeySet
 │   │       ├── keys_[]        ──► Arrow key column
-│   │       ├── generations_[] ──► Validity bitmap
+│   │       ├── alive_ bits    ──► key liveness bitmap
 │   │       └── observers_ ────────┬──────┬──────┐
 │   └── ValueArray                 │      │      │
-│       └── values_[]      ──► Arrow value column│
+│       ├── values_[]      ──► Arrow value column│
+│       └── validity_ bits ──► value null bitmap │
 │                                  │      │      │
 ├── time_: tuple[engine_time_t, var_list] ◄──────┤
 │   ├── container_time                           │
@@ -1161,7 +1162,7 @@ engine_time_t* times = tsd.times_.data();
 | Lazy clearing via time_ | No explicit begin_tick(); delta auto-clears when current_time > last_delta_clear_time_ |
 | SlotObserver protocol | Decouples TS extensions from core storage; each owns its memory |
 | Slot-based delta tracking | Zero-copy during tick; slots reference live KeySet data |
-| No tombstoning in KeySet | Generation handles liveness; delta tracks slots |
+| No tombstoning in KeySet | KeySet liveness bits handle alive/dead slots; delta tracks slots |
 | Composition over inheritance | Enables toll-free casting; clear ownership |
 | Parallel arrays by slot index | All extensions use same slot index; zero translation |
 

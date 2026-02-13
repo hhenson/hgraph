@@ -535,7 +535,7 @@ public:
 | **Observer pattern** | DeltaTracker observes KeySet; decoupled from core storage |
 | **Slot indices, not copies** | Slots are stable; can read key data via KeySet until slot reused |
 | **Add/remove cancellation** | Efficient handling of add-then-remove or remove-then-add in same tick |
-| **No tombstoning in KeySet** | Generation handles liveness; DeltaTracker handles delta |
+| **No tombstoning in KeySet** | KeySet liveness bits handle alive/dead slots; DeltaTracker handles delta |
 | **ts_ops layer concern** | Delta tracking is time-series semantics, not value-layer storage |
 
 #### Lifecycle
@@ -547,12 +547,12 @@ public:
 
 #### Accessing Removed Key Data
 
-Since KeySet doesn't tombstone (removed slots are marked dead via generation=0), the key data remains accessible until the slot is reused:
+Since KeySet doesn't tombstone (removed slots are marked dead in liveness bits), the key data remains accessible until the slot is reused:
 
 ```cpp
 // Safe to read key data during same tick as removal
 for (size_t slot : delta_tracker.removed()) {
-    // Key data still valid at slot (generation=0 but data not overwritten yet)
+    // Key data still present at slot (not alive, but not yet overwritten)
     const void* key = key_set.key_at(slot);
     // Use key data...
 }
@@ -782,10 +782,10 @@ if (needs_persistence) {
 | **Two delta forms** | Computed (ephemeral, zero-copy) for evaluation; DeltaValue (persistent, owned) for serialization |
 | **DeltaView unifies both** | Consumers use same interface regardless of backing |
 | **DeltaTracker as SlotObserver** | Decouples delta tracking from core storage; ts_ops layer concern |
-| **No tombstoning in KeySet** | Generation handles liveness; DeltaTracker handles delta |
+| **No tombstoning in KeySet** | KeySet liveness bits handle alive/dead slots; DeltaTracker handles delta |
 | **Slot indices in computed delta** | Stable references; can read key/value data until slot reused |
 | **Add/remove cancellation** | Efficient; no redundant entries for add-then-remove in same tick |
-| **SoA storage for DeltaValue** | Keys/values in parallel vectors; toll-free Arrow conversion |
+| **SoA storage for DeltaValue** | Keys/values in parallel vectors; efficient Arrow export where layout permits |
 | **Removed includes values** | Required for user queries; optional for apply operations |
 | **Materialize on demand** | Only copy data when persistence is needed |
 | **delta_ops vtable** | Same operations work for computed and stored via polymorphism |
