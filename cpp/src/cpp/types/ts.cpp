@@ -20,14 +20,7 @@ namespace hgraph {
         if (_py_cached_value.is_valid()) {
             return _py_cached_value;
         }
-        auto py = _value.to_python();
-        // Canonicalize set-schema values to frozenset when no source-shape cache exists.
-        // This aligns TS[frozenset[T]] read behavior with Python runtime and avoids
-        // treating full set snapshots as delta iterables in TSS conversion paths.
-        if (schema() && schema()->kind == value::TypeKind::Set && nb::isinstance<nb::set>(py)) {
-            return nb::frozenset(py);
-        }
-        return py;
+        return _value.to_python();
     }
 
     nb::object TimeSeriesValueOutput::py_delta_value() const {

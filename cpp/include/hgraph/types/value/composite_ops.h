@@ -1266,7 +1266,7 @@ struct SetOps {
                 result.add(elem_type->ops().to_python(*it, elem_type));
             }
         }
-        return result;
+        return nb::frozenset(result);
     }
 
     static void from_python(void* dst, const nb::object& src, const TypeMeta* schema) {
