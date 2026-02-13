@@ -288,6 +288,27 @@ def test_tsb_via_tsb_wrapper_cpp_type():
     assert result.field_count == 2
 
 
+def test_tsb_with_ref_field_cpp_type():
+    _skip_if_no_cpp()
+    import hgraph._hgraph as _hgraph
+    from hgraph._types._tsb_type import TimeSeriesSchema
+    from hgraph._types._ts_type import TS
+    from hgraph._types._ref_type import REF
+
+    class MySchema(TimeSeriesSchema):
+        ref_value: REF[TS[int]]
+        price: TS[float]
+
+    meta = HgTypeMetaData.parse_type(MySchema)
+    result = meta.cpp_type
+    assert result is not None
+    assert result.kind == _hgraph.TSKind.TSB
+    assert result.field_count == 2
+    field_names = [f.name for f in result.fields]
+    assert "ref_value" in field_names
+    assert "price" in field_names
+
+
 def test_tsb_field_names():
     _skip_if_no_cpp()
     from hgraph._types._tsb_type import TimeSeriesSchema
@@ -322,6 +343,9 @@ def test_ref_ts_int_cpp_type():
     result = meta.cpp_type
     assert result is not None
     assert result.kind == _hgraph.TSKind.REF
+    assert result.element_ts is ts_int.cpp_type
+    assert result.value_type is not None
+    assert result.value_type.name == "TimeSeriesReference"
 
 
 # ============================================================================
@@ -361,6 +385,9 @@ def test_ref_nested_tsd_cpp_type():
     result = meta.cpp_type
     assert result is not None
     assert result.kind == _hgraph.TSKind.REF
+    assert result.element_ts is tsd.cpp_type
+    assert result.value_type is not None
+    assert result.value_type.name == "TimeSeriesReference"
 
 
 # ============================================================================
