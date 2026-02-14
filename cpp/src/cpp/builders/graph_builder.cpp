@@ -108,9 +108,11 @@ namespace hgraph
             // Determine the source output
             TSOutput* src_output = nullptr;
             if (edge.output_path.size() == 1 && edge.output_path[0] == ERROR_PATH) {
-                continue;  // TODO: Handle error output binding
+                src_output = src_node->ts_error_output();
+                if (!src_output) continue;  // No error output on this node
             } else if (edge.output_path.size() == 1 && edge.output_path[0] == STATE_PATH) {
-                continue;  // TODO: Handle recordable state binding
+                src_output = src_node->ts_recordable_state();
+                if (!src_output) continue;  // No recordable state on this node
             } else {
                 src_output = src_node->ts_output();
             }

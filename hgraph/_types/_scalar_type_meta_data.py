@@ -701,14 +701,13 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
 
     @property
     def cpp_type(self):
-        """Get the C++ TypeMeta for this dynamic tuple type (tuple[T, ...]).
-
-        Uses opaque nb::object storage to preserve Python semantics (e.g. None elements).
-        Typed C++ dynamic list storage cannot represent None in typed slots.
-        """
+        """Get the C++ TypeMeta for this dynamic tuple type (tuple[T, ...])."""
         if not self.is_resolved:
             raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
-        return self._make_cpp_type(lambda h: h.value.get_scalar_type_meta(object))
+        element_cpp = self.element_type.cpp_type
+        if element_cpp is None:
+            return None
+        return self._make_cpp_type(lambda h: h.value.get_dynamic_list_type_meta(element_cpp))
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         tp_ = type(tp)

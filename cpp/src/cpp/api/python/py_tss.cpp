@@ -157,7 +157,14 @@ namespace hgraph
         if (!output) {
             throw std::runtime_error("get_contains_output: cannot resolve TSOutput");
         }
-        TSView elem = output->get_contains_view(key_val.const_view(), requester.ptr(), output_view().current_time());
+        // When the resolved TSOutput is a TSD (key_set derived from TSD), pass the TSS meta
+        // so ContainsTracking knows to use key_set semantics instead of direct TSS access.
+        const TSMeta* tss_meta = nullptr;
+        if (output->ts_meta() && output->ts_meta()->kind == TSKind::TSD) {
+            tss_meta = view().view_data().meta;  // The TSS meta from our key_set view
+        }
+        TSView elem = output->get_contains_view(key_val.const_view(), requester.ptr(),
+                                                 output_view().current_time(), tss_meta);
         TSOutputView out_view(std::move(elem), nullptr);
         return nb::cast(static_cast<PyTimeSeriesOutput*>(new FeatureBoolOutput(std::move(out_view))),
                         nb::rv_policy::take_ownership);

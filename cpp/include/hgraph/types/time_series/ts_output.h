@@ -188,7 +188,8 @@ public:
      * @param current_time The current engine time
      * @return TSView for the TS[bool] element tracking this key
      */
-    TSView get_contains_view(const value::View& key, void* requester, engine_time_t current_time);
+    TSView get_contains_view(const value::View& key, void* requester, engine_time_t current_time,
+                             const TSMeta* tss_meta = nullptr);
 
     /**
      * @brief Release a contains tracking subscription.

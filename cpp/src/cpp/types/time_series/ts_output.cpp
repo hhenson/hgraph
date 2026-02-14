@@ -14,6 +14,8 @@
 #include <hgraph/types/value/map_storage.h>
 #include <hgraph/types/value/key_set.h>
 #include <hgraph/types/value/value.h>
+#include <hgraph/types/node.h>
+#include <hgraph/types/graph.h>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -31,6 +33,7 @@ struct ContainsTracking : Notifiable {
     };
 
     TSOutput* owner_;
+    const TSMeta* explicit_tss_meta_{nullptr};  // Non-null when owner is TSD (key_set case)
     std::unordered_map<size_t, Tracker> trackers_;
     std::unordered_set<size_t> pending_removal_;
     engine_time_t last_cleanup_time_{MIN_DT};
@@ -38,7 +41,8 @@ struct ContainsTracking : Notifiable {
     std::unique_ptr<TSValue> tsd_;
     const TSMeta* meta_{nullptr};
 
-    explicit ContainsTracking(TSOutput* owner) : owner_(owner) {}
+    explicit ContainsTracking(TSOutput* owner, const TSMeta* tss_meta = nullptr)
+        : owner_(owner), explicit_tss_meta_(tss_meta) {}
 
     ~ContainsTracking() override {
         if (registered_obs_) {
@@ -53,12 +57,27 @@ struct ContainsTracking : Notifiable {
         return meta->value_type->element_type;
     }
 
+    /// Get the effective TSS meta — either explicit (TSD key_set case) or from owner
+    const TSMeta* get_tss_meta(engine_time_t current_time) const {
+        if (explicit_tss_meta_) return explicit_tss_meta_;
+        return owner_->view(current_time).ts_meta();
+    }
+
+    /// Get the TSS set view for containment checks.
+    /// When owner is TSD, gets the key_set view; otherwise gets owner's TSS view directly.
+    TSSView get_set_view(engine_time_t current_time) const {
+        auto output_view = owner_->view(current_time);
+        if (explicit_tss_meta_) {
+            // Owner is TSD — get key_set from dict view
+            return output_view.ts_view().as_dict().key_set();
+        }
+        return output_view.ts_view().as_set();
+    }
+
     void init(engine_time_t current_time) {
         if (meta_) return;
 
-        auto output_view = owner_->view(current_time);
-        const auto* tss_meta = output_view.ts_meta();
-
+        const auto* tss_meta = get_tss_meta(current_time);
         const auto* elem_type = get_element_type(tss_meta);
         auto& registry = TSTypeRegistry::instance();
         auto& cache = TSMetaSchemaCache::instance();
@@ -66,7 +85,12 @@ struct ContainsTracking : Notifiable {
         meta_ = registry.tsd(elem_type, registry.ts(cache.bool_meta()));
         tsd_ = std::make_unique<TSValue>(meta_);
 
-        auto observer_schema = cache.get_observer_schema(tss_meta);
+        // Subscribe to the correct observer list.
+        // For TSD key_set: use the TSD container observer (first element of observer tuple)
+        // which fires on key add/remove.
+        auto output_view = owner_->view(current_time);
+        const auto* owner_meta = output_view.ts_meta();
+        auto observer_schema = cache.get_observer_schema(owner_meta);
         auto observer_tuple = value::View(
             output_view.ts_view().view_data().observer_data, observer_schema);
         registered_obs_ = static_cast<ObserverList*>(
@@ -94,7 +118,7 @@ struct ContainsTracking : Notifiable {
         init(current_time);
         process_pending_removals(current_time);
 
-        const auto* tss_meta = owner_->ts_meta();
+        const auto* tss_meta = get_tss_meta(current_time);
         const auto* elem_type = get_element_type(tss_meta);
         size_t key_hash = elem_type->ops->hash(key.data(), elem_type);
 
@@ -105,8 +129,8 @@ struct ContainsTracking : Notifiable {
         if (tracker_it == trackers_.end()) {
             TSView elem_ts = dict_view.create(key);
 
-            auto output_view = owner_->view(current_time);
-            bool present = output_view.ts_view().as_set().contains(key);
+            auto set_view = get_set_view(current_time);
+            bool present = set_view.contains(key);
             auto* bool_meta = TSMetaSchemaCache::instance().bool_meta();
             value::View bool_view(&present, bool_meta);
             elem_ts.set_value(bool_view);
@@ -125,7 +149,7 @@ struct ContainsTracking : Notifiable {
     void release(const value::View& key, void* requester) {
         if (trackers_.empty()) return;
 
-        const auto* tss_meta = owner_->ts_meta();
+        const auto* tss_meta = get_tss_meta(MIN_DT);
         const auto* elem_type = get_element_type(tss_meta);
         size_t key_hash = elem_type->ops->hash(key.data(), elem_type);
 
@@ -138,12 +162,11 @@ struct ContainsTracking : Notifiable {
         }
     }
 
-    // Notifiable callback — fired when TSS content changes
+    // Notifiable callback — fired when TSS/TSD content changes
     void notify(engine_time_t time) override {
         if (trackers_.empty() || !tsd_) return;
 
-        auto output_view = owner_->view(time);
-        auto set_view = output_view.ts_view().as_set();
+        auto set_view = get_set_view(time);
         auto dict_view = tsd_->ts_view(time).as_dict();
         auto* bool_meta = TSMetaSchemaCache::instance().bool_meta();
 
@@ -267,15 +290,24 @@ void AlternativeStructuralObserver::on_insert(size_t slot) {
 }
 
 void AlternativeStructuralObserver::on_erase(size_t slot) {
-    // An element was removed from the native at this slot
-    // Clean up the corresponding element in the alternative
+    // An element was removed from the native at this slot.
+    // For REF alternatives (e.g., TSD[K, REF[TS[V]]]), we must update the
+    // alternative element's TSReference to empty and notify observers, rather
+    // than removing the element entirely. This matches Python's behavior where
+    // _ref_ts_feature.update(key) sets the ref to empty on key removal, which
+    // allows subscribers (e.g., _ref in tsd_get_item_default) to see the change.
 
     if (!output_ || !alt_) return;
 
-    // Get native and alternative views at setup time
-    engine_time_t setup_time = MIN_DT;
-    TSView native_view = output_->native_value().ts_view(setup_time);
-    TSView alt_view = alt_->ts_view(setup_time);
+    // Get current evaluation time from the owning node's graph
+    engine_time_t current_time = MIN_DT;
+    if (output_->owning_node() && output_->owning_node()->graph()) {
+        current_time = output_->owning_node()->graph()->evaluation_time();
+    }
+
+    // Get native and alternative views
+    TSView native_view = output_->native_value().ts_view(current_time);
+    TSView alt_view = alt_->ts_view(current_time);
 
     // Extract key from native MapStorage (key data still valid during erase callback)
     const ViewData& native_vd = native_view.view_data();
@@ -283,8 +315,35 @@ void AlternativeStructuralObserver::on_erase(size_t slot) {
     const void* key_data = native_storage->key_at_slot(slot);
     value::View key_view(key_data, native_meta_->key_type);
 
-    // Remove from alternative by key
-    alt_view.as_dict().remove(key_view);
+    // Check if this is a REF alternative (target element is REF kind)
+    if (target_meta_->element_ts && target_meta_->element_ts->kind == TSKind::REF) {
+        // Update the alternative element's TSReference to empty rather than removing
+        TSDView alt_dict = alt_view.as_dict();
+        if (alt_dict.contains(key_view)) {
+            TSView alt_elem = alt_dict.at(key_view);
+            if (alt_elem) {
+                // Set TSReference to empty
+                void* value_data = alt_elem.view_data().value_data;
+                if (value_data) {
+                    auto* ref_ptr = static_cast<TSReference*>(value_data);
+                    *ref_ptr = TSReference();  // empty
+                }
+                // Mark element as modified at current time
+                auto* elem_time = static_cast<engine_time_t*>(alt_elem.view_data().time_data);
+                if (elem_time) {
+                    *elem_time = current_time;
+                }
+                // Notify the element's observers so subscribers see the change
+                if (alt_elem.view_data().observer_data) {
+                    auto* observers = static_cast<ObserverList*>(alt_elem.view_data().observer_data);
+                    observers->notify_modified(current_time);
+                }
+            }
+        }
+    } else {
+        // Non-REF alternative: remove from alternative by key (original behavior)
+        alt_view.as_dict().remove(key_view);
+    }
 }
 
 
@@ -378,9 +437,10 @@ TSOutput::~TSOutput() {
     delete static_cast<ContainsTracking*>(contains_tracking_);
 }
 
-TSView TSOutput::get_contains_view(const value::View& key, void* requester, engine_time_t current_time) {
+TSView TSOutput::get_contains_view(const value::View& key, void* requester, engine_time_t current_time,
+                                   const TSMeta* tss_meta) {
     if (!contains_tracking_) {
-        contains_tracking_ = new ContainsTracking(this);
+        contains_tracking_ = new ContainsTracking(this, tss_meta);
     }
     return static_cast<ContainsTracking*>(contains_tracking_)->get_view(key, requester, current_time);
 }

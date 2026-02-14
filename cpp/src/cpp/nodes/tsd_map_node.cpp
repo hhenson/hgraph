@@ -401,6 +401,34 @@ namespace hgraph {
             nec->reset_next_scheduled_evaluation_time();
         }
 
+        // Refresh forwarded_target pointers before evaluation.
+        // When multiple inner graphs are created in one tick, each dict_create may resize
+        // the TSD's internal VarLists (observer, time, link), invalidating pointers that were
+        // captured in previously-wired inner graphs' forwarded_targets.
+        // Re-lookup the TSD element to get current (post-resize) pointers.
+        if (output_node_id_ >= 0 && ts_output()) {
+            auto inner_node = inner_graph->nodes()[output_node_id_];
+            if (inner_node->ts_output() && inner_node->ts_output()->is_forwarded()) {
+                auto time = graph()->evaluation_time();
+                ViewData outer_data = ts_output()->native_value().make_view_data();
+                // Clear link_data to prevent child_by_key from delegating through REFLink.
+                // We want to navigate the local TSD storage, not the linked target.
+                outer_data.link_data = nullptr;
+                TSView elem_view = outer_data.ops->child_by_key(outer_data, key, time);
+                if (elem_view.view_data().valid()) {
+                    ViewData elem_vd = elem_view.view_data();
+                    LinkTarget& ft = inner_node->ts_output()->forwarded_target();
+                    ft.value_data = elem_vd.value_data;
+                    ft.time_data = elem_vd.time_data;
+                    ft.observer_data = elem_vd.observer_data;
+                    ft.delta_data = elem_vd.delta_data;
+                    ft.link_data = elem_vd.link_data;
+                    ft.ops = elem_vd.ops;
+                    ft.meta = elem_vd.meta;
+                }
+            }
+        }
+
         // Explicitly schedule the output stub so it evaluates during this inner graph pass.
         // The output stub's REF input is TS→REF (non-peered, set up by graph_builder's deferred
         // binding path), which does NOT subscribe to the compute node's output observer list.
