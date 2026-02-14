@@ -444,6 +444,29 @@ class PythonTimeSeriesListReferenceInput(PythonTimeSeriesReferenceInput, Generic
         # Only iterate if items were already created (don't force creation)
         return iter(self._items) if self._items else iter([])
 
+    def clone_binding(self, other: TimeSeriesReferenceInput):
+        # Ensure list items exist when cloning from another list reference input
+        # that already expanded its children.
+        self.un_bind_output()
+        if other.output:
+            self.bind_output(other.output)
+        elif other._items:
+            if self._items is None:
+                if self._value_builder is None:
+                    raise RuntimeError("REF[TSL] value_builder not set by builder")
+                self._items = [
+                    self._value_builder.make_instance(owning_input=self)
+                    for _ in range(self._size)
+                ]
+            for o, s in zip(other._items, self._items):
+                s.clone_binding(o)
+        elif other.value:
+            self._value = other.value
+            if self.owning_node.is_started:
+                self._sample_time = self.owning_graph.evaluation_clock.evaluation_time
+                if self.active:
+                    self.notify(self._sample_time)
+
 
 @dataclass
 class PythonTimeSeriesBundleReferenceInput(PythonTimeSeriesReferenceInput, Generic[TIME_SERIES_TYPE]):
