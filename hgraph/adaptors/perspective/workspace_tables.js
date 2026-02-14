@@ -777,8 +777,8 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
                     };
                 }
             } else {
-                table_desc.index = native_index;
-                table_desc.native_index = native_index;
+                table_desc.index = native_index || table_desc.index;
+                table_desc.native_index = native_index || table_desc.native_index;
 
                 if (!('values' in table_desc)) {
                         table_desc.values = Object.keys(schema);

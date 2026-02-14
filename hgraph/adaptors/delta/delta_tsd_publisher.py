@@ -89,7 +89,7 @@ def tsd_to_frame_batched_ts(tsd: TSD[SCALAR, TS[SCHEMA]],
                             flush_period: TS[timedelta],
                             schema_type: Type[SCHEMA] = AUTO_RESOLVE) -> TS[Frame[TimeExtended[SCHEMA]]]:
     table = to_table(tsd)
-    flush = schedule(flush_period, initial_delay=True)
+    flush = schedule(flush_period, initial_delay=True, use_wall_clock=True)
     batched_table = batch_table(table, max_rows=max_rows, flush=flush)
     return table_from_simple_tsd_to_frame(batched_table, extract_table_schema_raw_type(schema_type).keys, schema_type)
 

@@ -1,3 +1,4 @@
+from time import sleep
 from typing import cast
 
 from hgraph import (
@@ -17,6 +18,7 @@ from hgraph import (
     KEYABLE_SCALAR,
     if_,
     TSB,
+    switch_,
 )
 from hgraph._impl._operators._tss_operators import contains_tss
 from hgraph.test import eval_node
@@ -185,3 +187,51 @@ def test_free_bundle_ref():
         return ref_signal(combine[TSB[AB]](a=a, b=b))
 
     assert eval_node(g, a=[1, 2], b=[3, 4]) == [True, None]
+    
+    
+def test_free_bundle_ref_in_switch():
+    from hgraph import TimeSeriesSchema
+
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[int]
+
+    @graph
+    def g(s: TS[bool], a: TS[int], b: TS[int]) -> TSB[AB]:
+        from hgraph import combine
+
+        bun = combine[TSB[AB]](a=if_(s, a).true, b=b)
+
+        return switch_(s, {
+                True: lambda b: b,
+                False: lambda b: combine[TSB[AB]](a=1, b=2)
+            }, bun)
+
+    assert eval_node(g, s=[False, True, False, True], a=[1, 2, 3, 4], b=[-1, -2, -3, -4]) == [
+        {"a": 1, "b": 2},
+        {"a": 2, "b": -2},
+        {"a": 1, "b": 2},
+        {"a": 4, "b": -4},
+        ]
+    
+    
+def test_free_tsl_ref_in_switch():
+    from hgraph import TimeSeriesSchema
+
+    @graph
+    def g(s: TS[bool], a: TS[int], b: TS[int]) -> TSL[TS[int], Size[2]]:
+        from hgraph import combine
+
+        bun = combine[TSL](if_(s, a).true, b)
+
+        return switch_(s, {
+                True: lambda b: b,
+                False: lambda b: combine[TSL](1, 2)
+            }, bun)
+
+    assert eval_node(g, s=[False, True, False, True], a=[1, 2, 3, 4], b=[-1, -2, -3, -4]) == [
+        {0: 1, 1: 2},
+        {0: 2, 1: -2},
+        {0: 1, 1: 2},
+        {0: 4, 1: -4},
+        ]

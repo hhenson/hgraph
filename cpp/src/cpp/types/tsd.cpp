@@ -927,7 +927,6 @@ namespace hgraph
         key_set().un_bind_output(unbind_refs);
 
         if (!_ts_values.empty()) {
-            _removed_items.clear();
             for (const auto &[pv_key, value] : _ts_values) {
                 // Clone the Value key and use emplace (copy constructor is deleted)
                 _removed_items.emplace(pv_key.view().clone(), std::make_pair(value, value->valid()));
@@ -955,6 +954,7 @@ namespace hgraph
         output_t().remove_key_observer(this);
         if (has_peer()) {
             BaseTimeSeriesInput::do_un_bind_output(unbind_refs);
+            _has_peer = false;
         } else {
             reset_output();
         }
@@ -1002,6 +1002,7 @@ namespace hgraph
             auto instance = value;
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification(
                 [builder, instance]() { builder->release_instance(instance.get()); });
+            instance->un_bind_output(true);
         }
 
         _removed_items.clear();

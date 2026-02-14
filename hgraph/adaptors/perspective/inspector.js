@@ -1,5 +1,6 @@
 export async function setupInspectorTable(){
     for (const g of document.querySelectorAll("perspective-viewer[table='inspector'] perspective-viewer-datagrid")){
+        const model = g.model;
         const table = g.shadowRoot.querySelector("regular-table")
 
         if (table.dataset.inspector_events_set_up) continue;
@@ -24,11 +25,19 @@ export async function setupInspectorTable(){
         const get_selected_row = () => {
             return table.dataset.selected_row ? parseInt(table.dataset.selected_row) : null;
         }
-        const set_selected_row = (row) => {
+        const set_selected_row = async (row) => {
             if (row === null){
                 delete table.dataset.selected_row;
             } else {
+                table.dataset.selection_type = "row";
                 table.dataset.selected_row = row;
+
+                const ids = await fetchData("id", row, "id", row + 1);
+                const id = ids.id[0];
+
+                table.dataset.selection_meta = JSON.stringify({ row_header: [id], column_header: [] });
+                table.dataset.selection_values = JSON.stringify({ id: id });
+                table.dataset.selection_names = JSON.stringify(['id']);
             }
         }
 
@@ -49,22 +58,28 @@ export async function setupInspectorTable(){
             }
         })
 
+        async function fetchData(x0, y0, x1, y1) {
+            const view = model._view;
+            const dims = await view.dimensions()
+            const cols = await view.column_paths();
+            const data = await view.to_columns_string({
+                start_row: y0, 
+                end_row: y1 === -1 ? dims.num_view_rows : y1, 
+                start_col: typeof(x0) === 'string' ? cols.indexOf(x0) : x0, 
+                end_col: x1 === -1 ? dims.num_view_columns : typeof(x1) === 'string' ? cols.indexOf(x1) + 1 : x1, 
+                id: true
+            });
+            const columns = JSON.parse(data);
+            return columns;
+        }
+
         async function targetInfo(target) {
             const meta = table.getMeta(target);
             const default_columns = new Number("{{len(mgr.get_table('inspector').schema())}}");
-            let stuff = await table._view_cache.view(0, meta.y, default_columns, meta.y + 1);
-            if (stuff.num_columns !== default_columns){
-                stuff = await table._view_cache.view(0, meta.y, stuff.num_columns, meta.y + 1);
-            }
-            const row = Object.assign(...stuff.column_headers.map((k, i) => ({[k]: stuff.metadata[i][0]})));
-            console.log("event target is: " + meta + " row is: " + row);
-            return [meta, stuff, row]
-        }
-
-        async function tableSize(target) {
-            const meta = table.getMeta(target);
-            const stuff = await table._view_cache.view(0, meta.y, new Number("{{len(mgr.get_table('inspector').schema())}}"), meta.y + 1);
-            return [stuff.num_columns, stuff.num_rows];
+            let data = await fetchData(0, meta.y, -1, meta.y + 1);
+            const row = Object.fromEntries(Object.entries(data).map(([k, v]) => [k, v[0]]));
+            console.log("event target is: ", meta, " row is: ", row);
+            return [meta, row]
         }
 
         async function fetch_alert(url) {
@@ -78,16 +93,13 @@ export async function setupInspectorTable(){
             }
         }
 
-        async function lookForRow(table, stuff, id) {
-            const id_col = stuff.column_headers.findIndex((c) => {
-                return c[0] === 'id'
-            });
-            const ids = await table._view_cache.view(id_col, 0, id_col + 1, stuff.num_rows);
-            let row_num = ids.metadata[0].indexOf(id);
+        async function lookForRow(table, id) {
+            const ids = await fetchData("id", 0, "id", -1);
+            let row_num = ids.id.indexOf(id);
             if (row_num === -1) {
-                window.setTimeout(async () => { lookForRow(table, stuff, id); }, 250);
+                window.setTimeout(async () => { lookForRow(table, id); }, 250);
             } else {
-                await table.scrollToCell(0, row_num - 1, ids.num_columns, row_num + 1);
+                await table.scrollToCell(0, row_num - 1, 1, row_num + 1);
                 set_selected_row(row_num);
             }
         }
@@ -96,7 +108,7 @@ export async function setupInspectorTable(){
             event.stopPropagation()
 
             if (event.target.tagName === "TD") {
-                const [meta, stuff, row] = await targetInfo(event.target);
+                const [meta, row] = await targetInfo(event.target);
 
                 if (meta.column_header[0] === 'X'){
                     event.target.style.cursor = "progress";
@@ -124,7 +136,7 @@ export async function setupInspectorTable(){
                             REF_HISTORY.push(new_row);
                             REF_HISTORY_POS = -1;
 
-                            window.setTimeout(async () => { lookForRow(table, stuff, new_row) }, 250);
+                            window.setTimeout(async () => { lookForRow(table, new_row) }, 250);
                         } else {
                             const msg = await reply.text();
                             console.error(msg);
@@ -142,7 +154,7 @@ export async function setupInspectorTable(){
             event.stopPropagation()
 
             if (event.target.tagName === "TD") {
-                const [meta, stuff, row] = await targetInfo(event.target);
+                const [meta, row] = await targetInfo(event.target);
 
                 if (meta.column_header[0] === 'value') {
                     event.target.style.cursor = "";
@@ -161,7 +173,7 @@ export async function setupInspectorTable(){
                     topLevelSearch = true
                     searchRow = table.children[0].children[1].children[0]
                 }
-                const [meta, stuff, row] = await targetInfo(
+                const [meta, row] = await targetInfo(
                     searchRow.tagName == 'TD' ? searchRow : searchRow.children[0]
                 );
                 const search = document.createElement("input");
@@ -181,9 +193,9 @@ export async function setupInspectorTable(){
                                 new URLSearchParams({q: search}).toString(),
                                 {cache: "no-store"});
                         } else {
-                            const names = await table._view_cache.view(findNameCol(), 0, findNameCol() + 1, stuff.num_rows);
-                            for (let i = get_selected_row() === null ? 0: get_selected_row(); i < names.metadata[0].length; i++){
-                                if (names.metadata[0][i].includes(search)){
+                            const names = (await fetchData("name", 0, "name", -1)).name;
+                            for (let i = get_selected_row() === null ? 0: get_selected_row(); i < names.length; i++){
+                                if (names[i].includes(search)){
                                     table.scrollToCell(0, i - 1, names.num_columns, i + 1)
                                     break;
                                 }
@@ -233,19 +245,19 @@ export async function setupInspectorTable(){
                             table.focus();
                             SEARCH_TERM = null;
                         } else if (event.key === "ArrowDown") {
-                            const names = await table._view_cache.view(findNameCol(), 0, findNameCol() + 1, stuff.num_rows);
-                            for (let i = get_selected_row() === null ? 0: get_selected_row() + 1; i < names.metadata[0].length; i++){
-                                if (names.metadata[0][i].includes(search)){
-                                    table.scrollToCell(0, i - 1, names.num_columns, i + 1)
+                            const names = (await fetchData("name", 0, "name", -1)).name;
+                            for (let i = get_selected_row() === null ? 0: get_selected_row() + 1; i < names.length; i++){
+                                if (names[i].includes(search)){
+                                    table.scrollToCell(0, i - 1, 1, i + 1)
                                     set_selected_row(i);
                                     break;
                                 }
                             }
                         } else if (event.key === "ArrowUp") {
-                            const names = await table._view_cache.view(findNameCol(), 0, findNameCol() + 1, stuff.num_rows);
-                            for (let i = get_selected_row() === null ? stuff.num_rows - 1: get_selected_row() - 1; i >= 0; i--){
-                                if (names.metadata[0][i].includes(search)){
-                                    table.scrollToCell(0, i - 1, names.num_columns, i + 1)
+                            const names = (await fetchData("name", 0, "name", -1)).name;
+                            for (let i = get_selected_row() === null ? table._nrows : get_selected_row() - 1; i >= 0; i--){
+                                if (names[i].includes(search)){
+                                    table.scrollToCell(0, i - 1, 1, i + 1)
                                     set_selected_row(i);
                                     break;
                                 }
@@ -278,7 +290,7 @@ export async function setupInspectorTable(){
             if (event.key === "Enter") {
                 const searchRow = table.querySelector(".highlight");
                 if (searchRow) {
-                    const [meta, stuff, row] = await targetInfo(
+                    const [meta, row] = await targetInfo(
                         searchRow.tagName == 'TD' ? searchRow : searchRow.children[0]
                     );
 
@@ -291,22 +303,18 @@ export async function setupInspectorTable(){
             }
             if (event.key === "ArrowLeft" && event.ctrlKey) {
                 const searchRow = table.children[0].children[1].children[0];
-                const [meta, stuff, row] = await targetInfo(searchRow.children[0]);
-
                 if (REF_HISTORY.length > 0 && -REF_HISTORY_POS < REF_HISTORY.length){
                     REF_HISTORY_POS -= 1;
                     const id = REF_HISTORY[REF_HISTORY.length + REF_HISTORY_POS];
-                    lookForRow(table, stuff, id);
+                    lookForRow(table, id);
                 }
             }
             if (event.key === "ArrowRight" && event.ctrlKey) {
                 const searchRow = table.children[0].children[1].children[0];
-                const [meta, stuff, row] = await targetInfo(searchRow.children[0]);
-
                 if (REF_HISTORY.length > 0) {
                     REF_HISTORY_POS = REF_HISTORY_POS == 0 ? -1 : REF_HISTORY_POS + 1;
                     const id = REF_HISTORY[REF_HISTORY.length + REF_HISTORY_POS];
-                    lookForRow(table, stuff, id);
+                    lookForRow(table, id);
                 }
             }
         });
@@ -315,7 +323,7 @@ export async function setupInspectorTable(){
             event.stopPropagation()
 
             if (event.target.tagName === "TD") {
-                const [meta, stuff, row] = await targetInfo(event.target);
+                const [meta, row] = await targetInfo(event.target);
 
                 if (meta.column_header[0] === 'name'){
                     if (row.X === '+') {

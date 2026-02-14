@@ -142,7 +142,7 @@ class RealTimeEvaluationClock(BaseEvaluationClock):
             next_alarm_time = self._alarms[0][0]
             if now >= next_alarm_time:  # Alarm is due
                 t, name = self._alarms.pop(0)
-                next_scheduled_time = self.evaluation_time + MIN_TD
+                next_scheduled_time = min(next_scheduled_time, max(now, self.evaluation_time + MIN_TD))
                 if (callback := self._alarms_cb.pop((t, name), None)) is not None:
                     callback(next_scheduled_time)
             elif next_scheduled_time > next_alarm_time:

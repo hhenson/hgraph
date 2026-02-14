@@ -1,10 +1,10 @@
-from typing import TypeVar
+from typing import TypeVar, Tuple
 
 import polars as pl
 import operator as operators
 
 from hgraph import DEFAULT, OUT, SCALAR, Type, operator, add_, and_, div_, eq_, filter_, floordiv_, ge_, gt_, le_, lt_, \
-    mul_, or_, sub_, TSD_OUT, REMOVE
+    mul_, or_, sub_, TSD_OUT, REMOVE, HgTupleFixedScalarType
 from hgraph._types import (
     TS,
     Frame,
@@ -115,11 +115,42 @@ def filter_exp_seq(ts: TS[Frame[COMPOUND_SCALAR]], predicate: tuple[pl.Expr, ...
     return ts.value.filter(predicate)
 
 
-@compute_node(resolvers={KEYABLE_SCALAR: lambda m, by: m[COMPOUND_SCALAR].py_type.__meta_data_schema__[by]})
+@operator
 def group_by(
+    ts: TS[Frame[COMPOUND_SCALAR]], by: SCALAR, _output: TSD_OUT[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]] = None
+) -> TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]:
+    ...
+
+
+@compute_node(
+    overloads=group_by,
+    resolvers={
+        KEYABLE_SCALAR: lambda m, by: m[COMPOUND_SCALAR].py_type.__meta_data_schema__[by]
+    },
+)
+def group_by_single(
     ts: TS[Frame[COMPOUND_SCALAR]], by: str, _output: TSD_OUT[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]] = None
 ) -> TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]:
     out = {k: v for (k,), v in ts.value.group_by(by)}
+    for k in _output.valid_keys():
+        if k not in out:
+            out[k] = REMOVE
+    return out
+
+
+def tuple_resolver(m, by):
+    schema = m[COMPOUND_SCALAR].py_type.__meta_data_schema__
+    if by.__class__ is tuple:
+        return HgTupleFixedScalarType((schema[b] for b in by))
+
+
+@compute_node(overloads=group_by, resolvers={KEYABLE_SCALAR: tuple_resolver})
+def group_by_tuple(
+    ts: TS[Frame[COMPOUND_SCALAR]],
+    by: Tuple[str, ...],
+    _output: TSD_OUT[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]] = None
+) -> TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]:
+    out = dict(ts.value.group_by(by))
     for k in _output.valid_keys():
         if k not in out:
             out[k] = REMOVE
@@ -151,5 +182,8 @@ def ungroup_with_key(
 
 @compute_node
 def sorted_(ts: TS[Frame[COMPOUND_SCALAR]], by: str, descending: bool = False) -> TS[Frame[COMPOUND_SCALAR]]:
-    if not ts.value.is_empty():
-        return ts.value.sort(by, descending=descending)
+    ts = ts.value
+    if len(ts) < 2:
+        return ts
+    else:
+        return ts.sort(by, descending=descending)

@@ -24,17 +24,25 @@ rolling_window = window
 
 @operator
 def rolling_average(
-    ts: TS[NUMBER], period: INT_OR_TIME_DELTA, min_window_period: INT_OR_TIME_DELTA = None
+    ts: TS[NUMBER],
+    period: INT_OR_TIME_DELTA,
+    min_window_period: INT_OR_TIME_DELTA = None,
+    on_wall_clock: bool = False,
 ) -> TS[float]:
     """
     Computes the rolling average of the time-series.
     This will either average by the number of ticks or by the time-delta.
+    If a timedelta is passed, on_wall_clock determines if the schedule is on the wall clock or on engine time (default)
     """
 
 
 @graph(overloads=rolling_average)
 def rolling_average_p_int(
-    ts: TS[NUMBER], period: int, min_window_period: int = None, _tp: type[NUMBER] = AUTO_RESOLVE
+    ts: TS[NUMBER],
+    period: int,
+    min_window_period: int = None,
+    on_wall_clock: bool = False,
+    _tp: type[NUMBER] = AUTO_RESOLVE,
 ) -> TS[float]:
     from hgraph import if_then_else, count, cast_, default
 
@@ -54,11 +62,15 @@ def rolling_average_p_int(
 
 @graph(overloads=rolling_average)
 def rolling_average_p_time_delta(
-    ts: TS[NUMBER], period: timedelta, min_window_period: timedelta = None, _tp: type[NUMBER] = AUTO_RESOLVE
+    ts: TS[NUMBER],
+    period: timedelta,
+    min_window_period: timedelta = None,
+    on_wall_clock: bool = False,
+    _tp: type[NUMBER] = AUTO_RESOLVE,
 ) -> TS[float]:
     from hgraph import if_then_else, count, cast_, const
 
-    lagged_ts = lag(ts, period)
+    lagged_ts = lag(ts, period, on_wall_clock=on_wall_clock)
     current_value = sum_(ts)
     delayed_value = sum_(lagged_ts)
 

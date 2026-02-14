@@ -48,10 +48,11 @@ def sample(signal: SIGNAL, ts: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
 
 
 @operator
-def lag(ts: TIME_SERIES_TYPE, period: INT_OR_TIME_DELTA) -> TIME_SERIES_TYPE:
+def lag(ts: TIME_SERIES_TYPE, period: INT_OR_TIME_DELTA, on_wall_clock: bool = False) -> TIME_SERIES_TYPE:
     """
     Delays the delivery of an input by the period specified. This period can either be a number of ticks
-    or a time-delta.
+    or a time-delta.  In the case of a timedelta, on_wall_clock determines if the schedule is on the wall clock or
+    on engine time
 
     When a time-delta is specified the value will be scheduled to be delivered at the receipt time + period.
     """
@@ -59,13 +60,19 @@ def lag(ts: TIME_SERIES_TYPE, period: INT_OR_TIME_DELTA) -> TIME_SERIES_TYPE:
 
 @operator
 def schedule(
-    delay: timedelta, *, start: datetime = None, initial_delay: bool = True, max_ticks: int = sys.maxsize
+    delay: timedelta,
+    *,
+    start: datetime = None,
+    initial_delay: bool = True,
+    max_ticks: int = sys.maxsize,
+    on_wall_clock: bool = False,
 ) -> TS[bool]:
     """
     Generates regular ticks in the graph that tick at the specified delay. For example,
     ``schedule(timedelta(seconds=3))`` will produce a time series of type TS[bool] that will tick True every three
     seconds. The initial_delay parameter specifies whether the first tick should be delayed by the delay time or not and
-    max_ticks specifies the maximum number of ticks to produce.
+    max_ticks specifies the maximum number of ticks to produce.  on_wall_clock indicates if the wall clock time is to
+    be used for the schedule.  The default is to use engine time.
     """
 
 

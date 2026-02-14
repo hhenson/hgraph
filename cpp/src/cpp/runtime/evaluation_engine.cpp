@@ -284,7 +284,7 @@ namespace hgraph {
                 // Extract the alarm key before erasing to avoid redundant copy
                 auto alarm_key = std::move(*it);
                 _alarms.erase(it);
-                next_scheduled_time = std::max(next_scheduled_time, evaluation_time() + MIN_TD);
+                next_scheduled_time = std::min(next_scheduled_time, std::max(now, evaluation_time() + MIN_TD));
 
                 auto cb = _alarm_callbacks.find(alarm_key);
                 if (cb != _alarm_callbacks.end()) {

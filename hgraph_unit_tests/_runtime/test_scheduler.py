@@ -3,7 +3,9 @@ from datetime import timedelta, datetime
 
 from frozendict import frozendict
 
+from ace.adaptors.perspective.user_table import sample
 from hgraph import (
+    EvaluationClock,
     compute_node,
     TS,
     SCHEDULER,
@@ -87,19 +89,20 @@ def test_tagged_scheduler():
 
 
 @compute_node
-def my_scheduler_realtime(ts: TS[int], tag: str = None, _scheduler: SCHEDULER = None) -> TS[int]:
+def my_scheduler_realtime(ts: TS[int], tag: str = None, _scheduler: SCHEDULER = None, _clock: EvaluationClock = None) -> TS[tuple[int, datetime]]:
     if ts.modified:
         _scheduler.schedule(MIN_TD * ts.value, tag, on_wall_clock=True)
-        return ts.value
+        return ts.value, _clock.now
     if _scheduler.is_scheduled_now:
-        return -1
+        _scheduler.schedule(MIN_TD * ts.value, tag, on_wall_clock=True)
+        return -1, _clock.now
 
 
+@sink_node
+def sleep(s: SIGNAL, seconds: float):
+    time.sleep(seconds)
+    
 def test_wall_clock_scheduler():
-    @sink_node
-    def sleep(s: SIGNAL, seconds: float):
-        time.sleep(seconds)
-
     @graph
     def g():
         record(my_scheduler_realtime(100000, "TAG"))
@@ -113,7 +116,25 @@ def test_wall_clock_scheduler():
         evaluate_graph(g, config)
         values = get_recorded_value()
 
-    assert [v[1] for v in values] == [100000, -1]
+    assert [v[1][0] for v in values][:2] == [100000, -1]
     assert values[0][0] == now
     assert values[1][0] >= now + timedelta(milliseconds=42)  # we will expect to accumulate 100/7*3 = 42.8ms lag
     assert values[1][0] < now + timedelta(milliseconds=107)
+    
+    
+def test_wall_clock_scheduler_reschedule():
+    @graph
+    def g():
+        record(my_scheduler_realtime(sample(schedule(timedelta(milliseconds=50), initial_delay=False, max_ticks=2), 100000), "TAG"))
+
+    now = datetime.utcnow()
+    with GlobalState():
+        run_graph(g, run_mode=EvaluationMode.REAL_TIME, start_time=now, end_time=now + timedelta(milliseconds=350), __trace__=True)
+        values = get_recorded_value()
+
+    assert [v[1][0] for v in values][:3] == [100000, 100000, -1]
+    assert values[0][0] == now
+    assert values[1][0] >= now + timedelta(milliseconds=50)  # we will expect to accumulate 100/7*3 = 42.8ms lag
+    assert values[1][0] < now + timedelta(milliseconds=60)
+    assert values[2][1][1] >= values[1][1][1] + timedelta(milliseconds=90)  # we will expect to accumulate 100/7*3 = 42.8ms lag
+    assert values[2][1][1] < values[1][1][1] + timedelta(milliseconds=110)

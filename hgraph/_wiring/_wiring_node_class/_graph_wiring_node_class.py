@@ -361,7 +361,7 @@ class WiringGraphContext:
                         interface, impl, kwargs = item
                     else:
                         clients = [
-                            node.wiring_path_name
+                            node.wiring_path_name + (f".{node.label}" if node.label else f".{node.resolved_signature.name}")
                             for s, p, t, node, _ in self._service_clients
                             if s == service and p == path and t == type_map
                         ]

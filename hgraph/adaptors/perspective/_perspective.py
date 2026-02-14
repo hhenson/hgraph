@@ -78,9 +78,9 @@ class PerspectiveTableUpdatesHandler:
 
 
 class PerspectiveTablesManager:
-    def __init__(self, host_server_tables=True, table_config_file=(), table_configs=(), view_config_file=(), **kwargs):
+    def __init__(self, host_server_tables=True, table_config_file=(), table_configs=None, view_config_file=(), **kwargs):
         self._host_server_tables = host_server_tables
-        self._table_configs = table_configs
+        self._table_configs = table_configs or {}
         self._table_config_files = (
             table_config_file if isinstance(table_config_file, (list, tuple)) else [table_config_file]
         )
@@ -140,7 +140,7 @@ class PerspectiveTablesManager:
             with open(c, "r") as f:
                 json.load(f)  # check if it is valid json
 
-        for c in self._table_configs:
+        for c in self._table_configs.values():
             json.loads(c)  # check if it is valid json
 
     def is_new_api(self):
@@ -407,9 +407,14 @@ class PerspectiveTablesManager:
         for file in self._table_config_files:
             with open(file, "r") as f:
                 config |= json.load(f)
-        for c in self._table_configs:
+        for c in self._table_configs.values():
             config |= json.loads(c)
         return config
+
+    def add_table_configs(self, table_configs: dict):
+        for c in table_configs.values():
+            json.loads(c)  # check if it is valid json
+        self._table_configs |= table_configs
 
     def get_view_names(self):
         return list(self._views.keys())

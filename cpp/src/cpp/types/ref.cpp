@@ -500,7 +500,7 @@ namespace hgraph
         return TimeSeriesReference::make();
     }
 
-    bool TimeSeriesListReferenceInput::bound() const { return TimeSeriesReferenceInput::bound() || !_items.has_value(); }
+    bool TimeSeriesListReferenceInput::bound() const { return TimeSeriesReferenceInput::bound() || _items.has_value(); }
 
     bool TimeSeriesListReferenceInput::modified() const {
         if (!(TimeSeriesReferenceInput::modified())) {
@@ -556,6 +556,13 @@ namespace hgraph
         }
     }
 
+    void TimeSeriesListReferenceInput::un_bind_output(bool unbind_refs) {
+        TimeSeriesReferenceInput::un_bind_output(unbind_refs);
+        if (_items.has_value()) {
+            for (auto &item : *_items) { item->un_bind_output(unbind_refs); }
+        }
+    }
+
     std::vector<TimeSeriesReferenceInput::s_ptr> &TimeSeriesListReferenceInput::items() {
         return _items.has_value() ? *_items : empty_items;
     }
@@ -604,7 +611,7 @@ namespace hgraph
                                                                    std::vector<InputBuilder::ptr> value_builders, size_t size)
         : TimeSeriesReferenceInput(parent_input), _value_builders(std::move(value_builders)), _size(size) {}
 
-    bool TimeSeriesBundleReferenceInput::bound() const { return TimeSeriesReferenceInput::bound() || !_items.has_value(); }
+    bool TimeSeriesBundleReferenceInput::bound() const { return TimeSeriesReferenceInput::bound() || _items.has_value(); }
 
     bool TimeSeriesBundleReferenceInput::modified() const {
         if (!(TimeSeriesReferenceInput::modified())) {
@@ -657,6 +664,13 @@ namespace hgraph
                 set_sample_time(owning_graph()->evaluation_time());
                 if (active()) { notify(sample_time()); }
             }
+        }
+    }
+
+    void TimeSeriesBundleReferenceInput::un_bind_output(bool unbind_refs) {
+        TimeSeriesReferenceInput::un_bind_output(unbind_refs);
+        if (_items.has_value()) {
+            for (auto &item : *_items) { item->un_bind_output(unbind_refs); }
         }
     }
 

@@ -68,7 +68,7 @@ class InspectorState(CompoundScalar):
     tick_data: dict = field(default_factory=dict)
     perf_data: dict = field(default_factory=dict)
     
-    track_detailed_performance: bool = False
+    track_detailed_performance: bool = True
     detailed_perf_data: dict = field(default_factory=lambda: defaultdict(list))
     detailed_perf_data_time: datetime = datetime.utcnow()
     detailed_perf_data_node_times = dict()
