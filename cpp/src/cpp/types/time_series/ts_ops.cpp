@@ -630,9 +630,30 @@ bool modified(const ViewData& vd, engine_time_t current_time) {
 }
 
 bool valid(const ViewData& vd) {
+    // Peered REF input is always valid (Python: PythonTimeSeriesReferenceInput.valid = True always).
+    // Must check BEFORE delegation because delegation would resolve to the output's REF data,
+    // which returns False for empty REFs (below). But peered REF inputs need to be valid
+    // regardless of emptiness so that consumer nodes are scheduled.
+    if (vd.meta && vd.meta->kind == TSKind::REF) {
+        if (auto* lt = get_active_link_target(vd)) {
+            if (lt->meta && lt->meta->kind == TSKind::REF) {
+                return true;  // Peered REF input — always valid
+            }
+        } else if (auto* rl = get_active_link(vd)) {
+            if (rl->target().meta && rl->target().meta->kind == TSKind::REF) {
+                return true;  // Peered REF input — always valid
+            }
+        }
+    }
     auto [result, target] = resolve_delegation_target_with_ref(vd, MIN_DT);
     if (result == DelegateResult::DELEGATED) return target.ops->valid(target);
     if (result == DelegateResult::REF_UNRESOLVED) return false;
+    // For REF outputs (no links), check that the TSReference is non-empty.
+    // Matches Python: REF output valid = has_output (non-empty ref).
+    if (vd.meta && vd.meta->kind == TSKind::REF && vd.value_data) {
+        auto* ref = static_cast<const TSReference*>(vd.value_data);
+        if (ref->is_empty()) return false;
+    }
     return last_modified_time(vd) != MIN_DT;
 }
 
@@ -1541,6 +1562,13 @@ nb::object delta_to_python(const ViewData& vd) {
                             ViewData target_vd = make_view_data_from_link_target(*lt, vd.path.child(i));
                             if (target_vd.ops->valid(target_vd) &&
                                 target_vd.ops->modified(target_vd, current_time)) {
+                                // Python TSB delta_value filters by ts.valid which for REF returns
+                                // has_output (False for empty refs). Match that here.
+                                if (target_vd.meta && target_vd.meta->kind == TSKind::REF &&
+                                    target_vd.value_data) {
+                                    auto* ref = static_cast<const TSReference*>(target_vd.value_data);
+                                    if (ref->is_empty()) continue;
+                                }
                                 nb::object field_val = target_vd.ops->delta_to_python(target_vd);
                                 if (!field_val.is_none()) {
                                     result[field_name] = field_val;
@@ -1553,6 +1581,12 @@ nb::object delta_to_python(const ViewData& vd) {
                             ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(i));
                             if (target_vd.ops->valid(target_vd) &&
                                 target_vd.ops->modified(target_vd, current_time)) {
+                                // Same REF emptiness check for REFLink path
+                                if (target_vd.meta && target_vd.meta->kind == TSKind::REF &&
+                                    target_vd.value_data) {
+                                    auto* ref = static_cast<const TSReference*>(target_vd.value_data);
+                                    if (ref->is_empty()) continue;
+                                }
                                 nb::object field_val = target_vd.ops->delta_to_python(target_vd);
                                 if (!field_val.is_none()) {
                                     result[field_name] = field_val;
@@ -1597,6 +1631,15 @@ nb::object delta_to_python(const ViewData& vd) {
             bool field_modified = (ft >= bundle_time);
 
             if (field_valid && field_modified) {
+                // Python TSB delta_value filters by ts.valid which for REF returns
+                // has_output (False for empty refs). Match that here.
+                if (field_meta && field_meta->kind == TSKind::REF) {
+                    value::View field_value = value_tuple.at(i);
+                    if (field_value.valid()) {
+                        auto* ref = static_cast<const TSReference*>(field_value.data());
+                        if (ref->is_empty()) continue;
+                    }
+                }
                 value::View field_value = value_tuple.at(i);
                 if (field_value.valid()) {
                     result[field_name] = field_value.to_python();
