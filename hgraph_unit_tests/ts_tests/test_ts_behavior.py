@@ -36,6 +36,7 @@ from hgraph import (
     TIME_SERIES_TYPE,
     pass_through_node,
     SIGNAL,
+    if_,
     switch_,
 )
 from hgraph.test import eval_node
@@ -325,6 +326,31 @@ def test_bind_unbind_sample_time_ordering_active_input():
         (True, MIN_ST, 1),
         (True, MIN_ST + MIN_TD, 10),
         (True, MIN_ST + 2 * MIN_TD, 1),
+    ]
+
+
+def test_bind_unbind_to_empty_branch_updates_active_input_once_per_transition():
+    """Test bind edges notify once while unbind-to-empty does not emit a spurious tick."""
+    @compute_node
+    def observe(ts: TS[int]) -> TS[tuple]:
+        return ts.bound, ts.modified, ts.value if ts.valid else None
+
+    @graph
+    def g(bind: TS[bool], a: TS[int]) -> TS[tuple]:
+        return observe(if_(bind, a).true)
+
+    result = eval_node(
+        g,
+        bind=[True, None, False, None, True],
+        a=[1, None, None, None, None],
+    )
+
+    assert result == [
+        (True, True, 1),
+        None,
+        None,
+        None,
+        (True, True, 1),
     ]
 
 

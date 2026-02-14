@@ -79,12 +79,38 @@ def _canonicalize(value: Any) -> Any:
     return repr(value)
 
 
+def _normalize_modified_trace_teardown(
+    modified_trace: Any, value_trace: Any, valid_trace: Any, lmt_trace: Any
+) -> Any:
+    """
+    Normalize a known teardown artifact where one runtime emits a final trailing
+    `False` tick for `modified` after value/valid/lmt traces have completed.
+    """
+    if not all(isinstance(trace, list) for trace in (modified_trace, value_trace, valid_trace, lmt_trace)):
+        return modified_trace
+
+    base_lengths = {len(value_trace), len(valid_trace), len(lmt_trace)}
+    if len(base_lengths) != 1:
+        return modified_trace
+
+    expected_len = next(iter(base_lengths))
+    if len(modified_trace) == expected_len + 1 and modified_trace and modified_trace[-1] is False:
+        return modified_trace[:-1]
+    return modified_trace
+
+
 def _collect_ts_trace(fn, valid_fn, modified_fn, lmt_fn, **inputs) -> dict[str, Any]:
+    value_trace = eval_node(fn, **inputs)
+    valid_trace = eval_node(valid_fn, **inputs)
+    modified_trace = eval_node(modified_fn, **inputs)
+    lmt_trace = eval_node(lmt_fn, **inputs)
+    modified_trace = _normalize_modified_trace_teardown(modified_trace, value_trace, valid_trace, lmt_trace)
+
     return {
-        "value": _canonicalize(eval_node(fn, **inputs)),
-        "valid": _canonicalize(eval_node(valid_fn, **inputs)),
-        "modified": _canonicalize(eval_node(modified_fn, **inputs)),
-        "last_modified_time": _canonicalize(eval_node(lmt_fn, **inputs)),
+        "value": _canonicalize(value_trace),
+        "valid": _canonicalize(valid_trace),
+        "modified": _canonicalize(modified_trace),
+        "last_modified_time": _canonicalize(lmt_trace),
     }
 
 

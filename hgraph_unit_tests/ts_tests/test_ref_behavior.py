@@ -275,6 +275,40 @@ def test_ref_unbind_notifies_active_input_once():
     assert call_count[0] == 3
 
 
+def test_ref_unbind_notifies_active_input_once_for_tsl_ref():
+    """Test REF[TSL] unbind/rebind transitions notify active input exactly once per transition."""
+    call_count = [0]
+
+    @compute_node
+    def make_ref(bind: TS[bool], ref: REF[TSL[TS[int], SIZE]]) -> REF[TSL[TS[int], SIZE]]:
+        return ref.value if bind.value else TimeSeriesReference.make()
+
+    @compute_node
+    def observe_ref(ref: REF[TSL[TS[int], SIZE]]) -> TS[tuple]:
+        call_count[0] += 1
+        value = ref.value
+        return ref.valid, ref.modified, value.is_empty if value else True
+
+    @graph
+    def g(bind: TS[bool], ts: TSL[TS[int], Size[2]]) -> TS[tuple]:
+        return observe_ref(make_ref(bind, ts))
+
+    result = eval_node(
+        g,
+        bind=[True, None, False, None, True],
+        ts=[(1, 2), None, None, None, None],
+    )
+
+    assert result == [
+        (True, True, False),
+        None,
+        (True, True, True),
+        None,
+        (True, True, False),
+    ]
+    assert call_count[0] == 3
+
+
 # =============================================================================
 # REF WITH DIFFERENT TIME-SERIES TYPES
 # =============================================================================

@@ -414,6 +414,30 @@ def test_tsd_rebind_reports_old_removed_and_new_added():
     assert result[2] == {"x": 10, "y": 20, "a": REMOVE, "b": REMOVE}
 
 
+def test_tsd_rebind_reports_old_removed_and_new_added_through_map():
+    """Test rebind bridge semantics are preserved through map-derived TSD branches."""
+    @compute_node
+    def get_delta(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return tsd.delta_value if tsd.modified else None
+
+    @graph
+    def g(select_left: TS[bool], left: TSD[str, TS[int]], right: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        left_mapped = map_(lambda x: x + 100, left)
+        right_mapped = map_(lambda x: x + 1000, right)
+        return get_delta(switch_(select_left, {True: lambda l, r: l, False: lambda l, r: r}, left_mapped, right_mapped))
+
+    result = eval_node(
+        g,
+        select_left=[True, None, False],
+        left=[{"a": 1, "b": 2}, {"b": 3}, None],
+        right=[{"x": 10}, None, {"y": 20}],
+    )
+
+    assert result[0] == {"a": 101, "b": 102}
+    assert result[1] == {"b": 103}
+    assert result[2] == {"x": 1010, "y": 1020, "a": REMOVE, "b": REMOVE}
+
+
 def test_tsd_rebind_reentry_safety_multitick():
     """Test repeated rebinds do not leak stale _prev_output state across ticks."""
     @compute_node

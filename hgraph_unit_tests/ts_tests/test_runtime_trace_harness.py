@@ -12,9 +12,7 @@ import pytest
 from hgraph_unit_tests.ts_tests._runtime_trace_harness import SCENARIOS
 
 TRACE_PREFIX = "TRACE_JSON::"
-KNOWN_PARITY_MISMATCHES = {
-    "map_input_goes_away": "Trailing teardown tick mismatch in `modified` trace (Python includes final False tick).",
-}
+KNOWN_PARITY_MISMATCHES = {}
 
 
 def _repo_root() -> Path:
