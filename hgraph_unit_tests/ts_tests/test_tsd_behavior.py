@@ -36,6 +36,7 @@ from hgraph import (
     K,
     map_,
     feedback,
+    switch_,
 )
 from hgraph.test import eval_node
 
@@ -144,6 +145,35 @@ def test_key_set_removes_keys():
     result = eval_node(g, [{"a": 1}, {"a": REMOVE}])
     assert frozenset(result[0].added) == {"a"}
     assert frozenset(result[1].removed) == {"a"}
+
+
+def test_key_set_coherence_after_clear_and_reinsert():
+    """Test key_set and modified_items remain coherent after clear and reinsert."""
+    @compute_node
+    def snapshot(tsd: TSD[str, TS[int]]) -> TS[tuple]:
+        live = tuple(sorted(tsd.key_set.values()))
+        added = tuple(sorted(tsd.key_set.added()))
+        removed = tuple(sorted(tsd.key_set.removed()))
+        modified = tuple(sorted(k for k, _ in tsd.modified_items()))
+        return live, added, removed, modified
+
+    result = eval_node(
+        snapshot,
+        [
+            {"a": 1, "b": 2},
+            {"a": REMOVE, "b": REMOVE},
+            {"a": 3},
+            {"a": REMOVE},
+            {"a": 4, "c": 5},
+        ],
+    )
+    assert result == [
+        (("a", "b"), ("a", "b"), (), ("a", "b")),
+        ((), (), ("a", "b"), ()),
+        (("a",), ("a",), (), ("a",)),
+        ((), (), ("a",), ()),
+        (("a", "c"), ("a", "c"), (), ("a", "c")),
+    ]
 
 
 # =============================================================================
@@ -360,6 +390,54 @@ def test_add_then_update():
         return _output.delta_value if _output.modified else None
 
     assert eval_node(add_then_update, [1, 2, 3]) == [{"a": 1}, {"a": 2}, {"a": 3}]
+
+
+def test_tsd_rebind_reports_old_removed_and_new_added():
+    """Test rebind bridge emits removes from old source and adds from new source."""
+    @compute_node
+    def get_delta(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return tsd.delta_value if tsd.modified else None
+
+    @graph
+    def g(select_left: TS[bool], left: TSD[str, TS[int]], right: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return get_delta(switch_(select_left, {True: lambda l, r: l, False: lambda l, r: r}, left, right))
+
+    result = eval_node(
+        g,
+        select_left=[True, None, False],
+        left=[{"a": 1, "b": 2}, {"b": 3}, None],
+        right=[{"x": 10}, None, {"y": 20}],
+    )
+
+    assert result[0] == {"a": 1, "b": 2}
+    assert result[1] == {"b": 3}
+    assert result[2] == {"x": 10, "y": 20, "a": REMOVE, "b": REMOVE}
+
+
+def test_tsd_rebind_reentry_safety_multitick():
+    """Test repeated rebinds do not leak stale _prev_output state across ticks."""
+    @compute_node
+    def get_delta(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return tsd.delta_value if tsd.modified else None
+
+    @graph
+    def g(select_left: TS[bool], left: TSD[str, TS[int]], right: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return get_delta(switch_(select_left, {True: lambda l, r: l, False: lambda l, r: r}, left, right))
+
+    result = eval_node(
+        g,
+        select_left=[True, False, True, False, True],
+        left=[{"a": 1}, None, None, None, None],
+        right=[{"x": 10}, None, None, None, None],
+    )
+
+    assert result == [
+        {"a": 1},
+        {"x": 10, "a": REMOVE},
+        {"a": 1, "x": REMOVE},
+        {"x": 10, "a": REMOVE},
+        {"a": 1, "x": REMOVE},
+    ]
 
 
 # =============================================================================
