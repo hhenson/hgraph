@@ -36,6 +36,7 @@ from hgraph import (
     TIME_SERIES_TYPE,
     pass_through_node,
     SIGNAL,
+    switch_,
 )
 from hgraph.test import eval_node
 
@@ -303,6 +304,28 @@ def test_passive_input_no_trigger():
 
     # Only trigger causes evaluation, data is passive
     assert eval_node(passive_test, [True, None, True], [1, 2, None]) == [1, None, 2]
+
+
+def test_bind_unbind_sample_time_ordering_active_input():
+    """Test bind/rebind updates sample-time ordering for active inputs."""
+    @compute_node
+    def observe(ts: TS[int]) -> TS[tuple]:
+        return ts.modified, ts.last_modified_time, ts.value if ts.valid else None
+
+    @graph
+    def g(select_a: TS[bool], a: TS[int], b: TS[int]) -> TS[tuple]:
+        return observe(switch_(select_a, {True: lambda l, r: l, False: lambda l, r: r}, a, b))
+
+    assert eval_node(
+        g,
+        select_a=[True, False, True],
+        a=[1, None, None],
+        b=[10, None, None],
+    ) == [
+        (True, MIN_ST, 1),
+        (True, MIN_ST + MIN_TD, 10),
+        (True, MIN_ST + 2 * MIN_TD, 1),
+    ]
 
 
 # =============================================================================

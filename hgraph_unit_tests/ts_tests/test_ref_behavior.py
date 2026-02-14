@@ -241,6 +241,40 @@ def test_bind_to_tsl_output():
     assert result == [{0: 1, 1: 2}, {0: 3}, {1: 5}]
 
 
+def test_ref_unbind_notifies_active_input_once():
+    """Test unbinding REF triggers one active-input notification."""
+    call_count = [0]
+
+    @compute_node
+    def make_ref(bind: TS[bool], ref: REF[TS[int]]) -> REF[TS[int]]:
+        return ref.value if bind.value else TimeSeriesReference.make()
+
+    @compute_node
+    def observe_ref(ref: REF[TS[int]]) -> TS[tuple]:
+        call_count[0] += 1
+        value = ref.value
+        return ref.valid, ref.modified, value.is_empty if value else True
+
+    @graph
+    def g(bind: TS[bool], ts: TS[int]) -> TS[tuple]:
+        return observe_ref(make_ref(bind, ts))
+
+    result = eval_node(
+        g,
+        bind=[True, None, False, None, True],
+        ts=[1, None, None, None, None],
+    )
+
+    assert result == [
+        (True, True, False),
+        None,
+        (True, True, True),
+        None,
+        (True, True, False),
+    ]
+    assert call_count[0] == 3
+
+
 # =============================================================================
 # REF WITH DIFFERENT TIME-SERIES TYPES
 # =============================================================================
@@ -506,6 +540,57 @@ def test_merge_with_tsd():
         ts2=[{-1: -1}, {-2: -2}, {-3: -3, -1: REMOVE}, {-4: -4}],
     )
     assert result == [{1: 1, 2: 2}, None, {-2: -2, -3: -3, 1: REMOVE, 2: REMOVE}, {-4: -4}]
+
+
+def test_ref_switch_toggle_stability_set_and_dict():
+    """Test repeated REF source toggles remain stable for set and dict deltas."""
+    @compute_node
+    def merge_ref(index: TS[int], ts: TSL[REF[TIME_SERIES_TYPE], SIZE]) -> REF[TIME_SERIES_TYPE]:
+        from typing import cast
+        return cast(REF, ts[index.value].value)
+
+    @graph
+    def g_set(index: TS[int], ts1: TSS[int], ts2: TSS[int]) -> REF[TSS[int]]:
+        return merge_ref(index, TSL.from_ts(ts1, ts2))
+
+    @graph
+    def g_dict(index: TS[int], ts1: TSD[int, TS[int]], ts2: TSD[int, TS[int]]) -> REF[TSD[int, TS[int]]]:
+        return merge_ref(index, TSL.from_ts(ts1, ts2))
+
+    set_result = eval_node(
+        g_set,
+        index=[0, 1, 0, 1, 0],
+        ts1=[{1, 2}, None, None, None, None],
+        ts2=[{10, 20}, None, None, None, None],
+    )
+    assert [frozenset(v.added) for v in set_result] == [
+        frozenset({1, 2}),
+        frozenset({10, 20}),
+        frozenset({1, 2}),
+        frozenset({10, 20}),
+        frozenset({1, 2}),
+    ]
+    assert [frozenset(v.removed) for v in set_result] == [
+        frozenset(),
+        frozenset({1, 2}),
+        frozenset({10, 20}),
+        frozenset({1, 2}),
+        frozenset({10, 20}),
+    ]
+
+    dict_result = eval_node(
+        g_dict,
+        index=[0, 1, 0, 1, 0],
+        ts1=[{1: 1, 2: 2}, None, None, None, None],
+        ts2=[{10: 10, 20: 20}, None, None, None, None],
+    )
+    assert dict_result == [
+        {1: 1, 2: 2},
+        {10: 10, 20: 20, 1: REMOVE, 2: REMOVE},
+        {1: 1, 2: 2, 10: REMOVE, 20: REMOVE},
+        {10: 10, 20: 20, 1: REMOVE, 2: REMOVE},
+        {1: 1, 2: 2, 10: REMOVE, 20: REMOVE},
+    ]
 
 
 # =============================================================================
