@@ -3,7 +3,6 @@ from datetime import timedelta, datetime
 
 from frozendict import frozendict
 
-from ace.adaptors.perspective.user_table import sample
 from hgraph import (
     EvaluationClock,
     compute_node,
@@ -21,7 +20,7 @@ from hgraph import (
     SIGNAL,
     schedule,
     evaluate_graph,
-    GraphConfiguration,
+    GraphConfiguration, run_graph, sample,
 )
 from hgraph import const
 from hgraph.test import eval_node
