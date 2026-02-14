@@ -535,6 +535,7 @@ namespace hgraph
                 if (!tag.has_value()) { throw std::runtime_error("Can't schedule an alarm without a tag"); }
                 auto        tag_{tag.value()};
                 std::string alarm_tag = fmt::format("{}:{}", reinterpret_cast<std::uintptr_t>(this), tag_);
+                if (_alarm_tags.contains(alarm_tag)) { clock->cancel_alarm(alarm_tag); }
                 clock->set_alarm(when, alarm_tag, [this, tag_](engine_time_t et) { _on_alarm(et, tag_); });
                 _alarm_tags[alarm_tag] = when;
                 return;
