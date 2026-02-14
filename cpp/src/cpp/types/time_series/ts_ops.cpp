@@ -5259,13 +5259,15 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         value::Value<> key_val(key_tm);
         key_val.view().from_python(py_key);
 
-        if (val_tm) {
-            // Scalar element: use value-level conversion + dict_set
+        if (val_tm && elem_ts->kind != TSKind::TSS) {
+            // Scalar-like element: use value-level conversion + dict_set
+            // Note: TSS has non-null val_tm but needs TS-level from_python because its
+            // value-level from_python (Tuple.from_python) doesn't handle Python sets.
             value::Value<> elem_val(val_tm);
             elem_val.view().from_python(py_val);
             dict_set(vd, key_val.view(), elem_val.view(), current_time);
         } else {
-            // Composite element (TSB, TSD, TSL): create slot, then use TS-level from_python
+            // TSS or element without val_tm (TSB): create slot, use TS-level from_python
             TSView elem_view = dict_create(vd, key_val.view(), current_time);
             ViewData elem_vd = elem_view.view_data();
             get_ts_ops(elem_ts)->from_python(elem_vd, py_val, current_time);
