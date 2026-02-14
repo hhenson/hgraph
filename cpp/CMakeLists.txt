@@ -321,6 +321,17 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/tsb.h
         include/hgraph/types/tsl.h
         include/hgraph/types/tsw.h
+        include/hgraph/types/time_series/link_target.h
+        include/hgraph/types/time_series/ref_link.h
+        include/hgraph/types/time_series/ts_input.h
+        include/hgraph/types/time_series/ts_meta.h
+        include/hgraph/types/time_series/ts_meta_schema_cache.h
+        include/hgraph/types/time_series/ts_ops.h
+        include/hgraph/types/time_series/ts_output.h
+        include/hgraph/types/time_series/ts_type_registry.h
+        include/hgraph/types/time_series/ts_value.h
+        include/hgraph/types/time_series/ts_view.h
+        include/hgraph/types/time_series/view_data.h
         include/hgraph/python/chrono.h
         include/hgraph/python/format.h
         include/hgraph/python/global_state.h

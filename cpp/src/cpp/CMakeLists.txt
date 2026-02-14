@@ -17,6 +17,7 @@ set(HGRAPH_SOURCES
         api/python/py_tsw.cpp
         api/python/py_value.cpp
         api/python/py_ts_type_registry.cpp
+        api/python/py_ts_runtime_internal.cpp
         api/python/wrapper_factory.cpp
         builders/builder.cpp
         builders/graph_builder.cpp
@@ -107,7 +108,16 @@ set(HGRAPH_SOURCES
         types/tsw.cpp
         types/value/type_registry.cpp
         types/value/type_meta_bindings.cpp
+        types/time_series/link_target.cpp
+        types/time_series/ref_link.cpp
+        types/time_series/ts_input.cpp
+        types/time_series/ts_meta_schema_cache.cpp
+        types/time_series/ts_ops.cpp
+        types/time_series/ts_output.cpp
         types/time_series/ts_type_registry.cpp
+        types/time_series/ts_value.cpp
+        types/time_series/ts_view.cpp
+        types/time_series/view_data.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp

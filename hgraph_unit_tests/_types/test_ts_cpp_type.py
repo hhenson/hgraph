@@ -129,6 +129,8 @@ def test_signal_cpp_type():
     result = meta.cpp_type
     assert result is not None
     assert result.kind == _hgraph.TSKind.SIGNAL
+    assert result.value_type is not None
+    assert result.value_type is _hgraph.value.scalar_type_meta_bool()
 
 
 def test_signal_singleton():
@@ -227,6 +229,7 @@ def test_tsw_tick_based_cpp_type():
     result = meta.cpp_type
     assert result is not None
     assert result.kind == _hgraph.TSKind.TSW
+    assert result.value_type is not None
     assert not result.is_duration_based
     assert result.period == 10
     assert result.min_period == 5
@@ -246,6 +249,7 @@ def test_tsw_duration_based_cpp_type():
     result = meta.cpp_type
     assert result is not None
     assert result.kind == _hgraph.TSKind.TSW
+    assert result.value_type is not None
     assert result.is_duration_based
 
 

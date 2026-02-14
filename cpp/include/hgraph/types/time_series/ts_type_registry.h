@@ -197,6 +197,7 @@ private:
 
     std::vector<std::unique_ptr<char[]>> field_names_;
     std::vector<std::unique_ptr<TSBFieldInfo[]>> field_arrays_;
+    std::vector<std::unique_ptr<nb::object>> python_types_;
 
     // ========== Helper Methods ==========
 

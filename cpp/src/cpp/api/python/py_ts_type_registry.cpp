@@ -63,47 +63,50 @@ static void register_ts_meta(nb::module_& m) {
             return self.value_type;
         }, nb::rv_policy::reference, "Value type (for TS, TSS, TSW)")
         .def_prop_ro("key_type", [](const TSMeta& self) {
-            return self.key_type;
+            return self.key_type();
         }, nb::rv_policy::reference, "Key type (for TSD)")
         .def_prop_ro("element_ts", [](const TSMeta& self) {
-            return self.element_ts;
+            return self.element_ts();
         }, nb::rv_policy::reference, "Element TS schema (for TSD value, TSL, REF)")
 
-        .def_ro("fixed_size", &TSMeta::fixed_size, "Fixed size (for TSL, 0=dynamic)")
+        .def_prop_ro("fixed_size", [](const TSMeta& self) {
+            return self.fixed_size();
+        }, "Fixed size (for TSL, 0=dynamic)")
 
-        .def_ro("is_duration_based", &TSMeta::is_duration_based,
-            "True if duration-based window (for TSW)")
+        .def_prop_ro("is_duration_based", [](const TSMeta& self) {
+            return self.is_duration_based();
+        }, "True if duration-based window (for TSW)")
         .def_prop_ro("period", [](const TSMeta& self) -> size_t {
-            return self.is_duration_based ? 0 : self.window.tick.period;
+            return self.period();
         }, "Tick period (for tick-based TSW)")
         .def_prop_ro("min_period", [](const TSMeta& self) -> size_t {
-            return self.is_duration_based ? 0 : self.window.tick.min_period;
+            return self.min_period();
         }, "Minimum tick period (for tick-based TSW)")
         .def_prop_ro("time_range", [](const TSMeta& self) {
-            return self.is_duration_based ? self.window.duration.time_range
-                                          : engine_time_delta_t{0};
+            return self.time_range();
         }, "Time range (for duration-based TSW)")
         .def_prop_ro("min_time_range", [](const TSMeta& self) {
-            return self.is_duration_based ? self.window.duration.min_time_range
-                                          : engine_time_delta_t{0};
+            return self.min_time_range();
         }, "Minimum time range (for duration-based TSW)")
 
-        .def_ro("field_count", &TSMeta::field_count, "Number of fields (for TSB)")
+        .def_prop_ro("field_count", [](const TSMeta& self) {
+            return self.field_count();
+        }, "Number of fields (for TSB)")
         .def_prop_ro("bundle_name", [](const TSMeta& self) {
-            return self.bundle_name ? std::string(self.bundle_name) : std::string();
+            return self.bundle_name() ? std::string(self.bundle_name()) : std::string();
         }, "Bundle schema name (for TSB)")
         .def_prop_ro("fields", [](const TSMeta& self) {
             std::vector<const TSBFieldInfo*> result;
-            if (self.fields && self.field_count > 0) {
-                result.reserve(self.field_count);
-                for (size_t i = 0; i < self.field_count; ++i) {
-                    result.push_back(&self.fields[i]);
+            if (self.fields() && self.field_count() > 0) {
+                result.reserve(self.field_count());
+                for (size_t i = 0; i < self.field_count(); ++i) {
+                    result.push_back(&self.fields()[i]);
                 }
             }
             return result;
         }, nb::rv_policy::reference_internal, "Field metadata (for TSB)")
         .def_prop_ro("python_type", [](const TSMeta& self) {
-            return self.python_type;
+            return self.python_type();
         }, "Python type for reconstruction (for TSB)")
 
         .def("is_collection", &TSMeta::is_collection, "True if TSS, TSD, TSL, or TSB")

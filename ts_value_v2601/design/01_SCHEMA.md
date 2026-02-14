@@ -645,10 +645,10 @@ struct TSMeta {
 Operations for time-series types are retrieved via the `get_ts_ops()` function rather than being stored inline in TSMeta. This separation keeps TSMeta lightweight and allows different ops implementations for TSW variants.
 
 ```cpp
-// Get ops by TSKind (for TSW, returns scalar_ops)
+// Get ops by TSKind (for TSW, returns implementation default TSW table)
 const ts_ops* get_ts_ops(TSKind kind);
 
-// Get ops by TSMeta (for TSW, selects based on is_duration_based)
+// Get ops by TSMeta (for TSW, may select tick/duration specialization)
 const ts_ops* get_ts_ops(const TSMeta* meta);
 
 // Usage
@@ -707,6 +707,8 @@ TSInput input{ts_meta, node_ptr};
 
 The `ts_ops` structure provides the operations vtable for time-series types. Unlike `type_ops` which may be stored inline, `ts_ops` is retrieved via the `get_ts_ops()` function based on the TSMeta.
 
+Status note (2026-02-14): by-kind `ts_ops` compaction is implemented in the current scaffolding runtime. Common operations are shared, and window/set/dict families are stored in tagged kind-specific extensions.
+
 ```cpp
 /**
  * Operations vtable for time-series types.
@@ -744,10 +746,9 @@ struct ts_ops {
     void (*from_python)(ViewData& vd, const nb::object& src, engine_time_t current_time);
 
     // ========== Navigation ==========
-    TSView (*child_at)(const ViewData& vd, size_t index, engine_time_t current_time);
-    TSView (*child_by_name)(const ViewData& vd, const std::string& name, engine_time_t current_time);
-    TSView (*child_by_key)(const ViewData& vd, const value::View& key, engine_time_t current_time);
-    size_t (*child_count)(const ViewData& vd);
+    // No top-level navigation slots.
+    // TSL/TSB navigation is provided via kind-specific at()/size() extensions.
+    // Generic TSView fallback navigation remains schema-guided.
 
     // ========== Observer Management ==========
     value::View (*observer)(const ViewData& vd);
@@ -761,37 +762,69 @@ struct ts_ops {
     // ========== Input Active State Management ==========
     void (*set_active)(ViewData& vd, value::View active_view, bool active, TSInput* input);
 
-    // ========== Kind-Specific Operations ==========
-    // Window operations (nullptr for non-TSW)
-    const engine_time_t* (*window_value_times)(const ViewData& vd);
-    size_t (*window_value_times_count)(const ViewData& vd);
-    engine_time_t (*window_first_modified_time)(const ViewData& vd);
-    bool (*window_has_removed_value)(const ViewData& vd);
-    value::View (*window_removed_value)(const ViewData& vd);
-    size_t (*window_removed_value_count)(const ViewData& vd);
-    size_t (*window_size)(const ViewData& vd);
-    size_t (*window_min_size)(const ViewData& vd);
-    size_t (*window_length)(const ViewData& vd);
+    // ========== Kind-Specific Operations (Compacted) ==========
+    TSKind kind;
 
-    // Set operations (nullptr for non-TSS)
-    bool (*set_add)(ViewData& vd, const value::View& elem, engine_time_t current_time);
-    bool (*set_remove)(ViewData& vd, const value::View& elem, engine_time_t current_time);
-    void (*set_clear)(ViewData& vd, engine_time_t current_time);
+    struct ts_window_ops {
+        const engine_time_t* (*value_times)(const ViewData& vd);
+        size_t (*value_times_count)(const ViewData& vd);
+        engine_time_t (*first_modified_time)(const ViewData& vd);
+        bool (*has_removed_value)(const ViewData& vd);
+        value::View (*removed_value)(const ViewData& vd);
+        size_t (*removed_value_count)(const ViewData& vd);
+        size_t (*size)(const ViewData& vd);
+        size_t (*min_size)(const ViewData& vd);
+        size_t (*length)(const ViewData& vd);
+    };
 
-    // Dict operations (nullptr for non-TSD)
-    bool (*dict_remove)(ViewData& vd, const value::View& key, engine_time_t current_time);
-    TSView (*dict_create)(ViewData& vd, const value::View& key, engine_time_t current_time);
-    TSView (*dict_set)(ViewData& vd, const value::View& key, const value::View& value, engine_time_t current_time);
+    struct ts_set_ops {
+        bool (*add)(ViewData& vd, const value::View& elem, engine_time_t current_time);
+        bool (*remove)(ViewData& vd, const value::View& elem, engine_time_t current_time);
+        void (*clear)(ViewData& vd, engine_time_t current_time);
+    };
+
+    struct ts_dict_ops {
+        bool (*remove)(ViewData& vd, const value::View& key, engine_time_t current_time);
+        TSView (*create)(ViewData& vd, const value::View& key, engine_time_t current_time);
+        TSView (*set)(ViewData& vd, const value::View& key, const value::View& value, engine_time_t current_time);
+    };
+
+    struct ts_list_ops {
+        TSView (*at)(const ViewData& vd, size_t index, engine_time_t current_time);
+        size_t (*size)(const ViewData& vd);
+    };
+
+    struct ts_bundle_ops {
+        TSView (*at)(const ViewData& vd, size_t index, engine_time_t current_time);
+        TSView (*at_name)(const ViewData& vd, std::string_view name, engine_time_t current_time);
+        size_t (*size)(const ViewData& vd);
+    };
+
+    union specific_ops {
+        struct { uint8_t reserved; } none;
+        ts_window_ops window;
+        ts_set_ops set;
+        ts_dict_ops dict;
+        ts_list_ops list;
+        ts_bundle_ops bundle;
+    } specific;
+
+    const ts_window_ops* window_ops() const;
+    const ts_set_ops* set_ops() const;
+    const ts_dict_ops* dict_ops() const;
+    const ts_list_ops* list_ops() const;
+    const ts_bundle_ops* bundle_ops() const;
 };
 
-// Get ops by TSKind (for TSW, returns scalar_ops)
+// Get ops by TSKind (for TSW, returns implementation default TSW table)
 const ts_ops* get_ts_ops(TSKind kind);
 
-// Get ops by TSMeta (for TSW, selects based on is_duration_based)
+// Get ops by TSMeta (for TSW, may select tick/duration specialization)
 const ts_ops* get_ts_ops(const TSMeta* meta);
 ```
 
 **Note**: The ops pointer is obtained via `get_ts_ops(meta)` and stored in `ViewData` during view construction. This allows different implementations for TSW variants (tick-based vs duration-based windows).
+`TSView` exposes typed wrapper conversion (`try_as_window/set/dict/list/bundle`, `as_*`) similar to value-layer typed views.
 
 ### Parallel Value Structures
 

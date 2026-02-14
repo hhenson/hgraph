@@ -6,6 +6,19 @@ Time series extend values with temporal semantics:
 - **TSValue**: Owns time-series data with modification tracking
 - **TSView**: Provides time-aware access to time-series data
 
+### Status Note (2026-02-14)
+
+For the current phase-2 scaffolding runtime, schema contracts are sourced from active code/tests:
+- `cpp/include/hgraph/types/time_series/ts_meta.h`
+- `cpp/src/cpp/types/time_series/ts_type_registry.cpp`
+- `hgraph_unit_tests/_types/test_ts_cpp_type.py`
+
+Current implementation snapshot (pending design sign-off, not locked):
+- `TSMeta.value_type` for `TSW` is the element scalar type `T` (for example `float`).
+- `TSMeta.value_type` for `SIGNAL` is `bool`.
+
+Design target for full cutover remains `TSW -> WindowStorage[T]` and `SIGNAL -> void` (pure tick).
+
 ## TSMeta Schema Generation
 
 When a TSMeta is created, it generates five parallel schemas from the core TS type:
