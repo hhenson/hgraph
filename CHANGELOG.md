@@ -1580,3 +1580,14 @@ Version 0.5.11
 * Multiple bug fixes
 * Some performance corrections
 * Uses type-erased structure for keys and TS values.
+
+Version 0.5.12
+--------------
+
+* Numerous small bug fixes.
+
+Version 0.5.13
+--------------
+
+* Additional bug fixes to both C++ and Python code.
+* Move to a newer structure for type erased value, introduction of C++ ts schema elements.
