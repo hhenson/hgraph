@@ -12,6 +12,7 @@ from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictSca
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
 from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
+from hgraph._types._type_meta_data import cpp_type_property
 from hgraph._types._scalar_types import CompoundScalar
 from hgraph._types._tsb_type import TimeSeriesSchema
 
@@ -109,6 +110,16 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             return HgTypeMetaData.parse_type(s)
         else:
             return HgTypeMetaData.parse_type(Dict[str, object])
+
+    @cpp_type_property
+    def cpp_type(self, _hgraph):
+        fields = []
+        for name, ts_meta in self.meta_data_schema.items():
+            ts_cpp = ts_meta.cpp_type
+            if ts_cpp is None:
+                return None
+            fields.append((name, ts_cpp))
+        return _hgraph.TSTypeRegistry.instance().tsb(fields, self.py_type.__name__, self.py_type)
 
     @property
     def has_references(self) -> bool:
@@ -217,6 +228,14 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
 
     def scalar_type(self) -> "HgScalarTypeMetaData":
         return self.bundle_schema_tp.scalar_type()
+
+    @property
+    def cpp_type(self):
+        if not self.is_resolved:
+            return None
+        if isinstance(self.bundle_schema_tp, HgTimeSeriesSchemaTypeMetaData):
+            return self.bundle_schema_tp.cpp_type
+        return None
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:

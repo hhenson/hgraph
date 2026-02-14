@@ -14,7 +14,13 @@ namespace hgraph {
         : TimeSeriesValueOutputBase(parent), _value(schema) {}
 
     nb::object TimeSeriesValueOutput::py_value() const {
-        return valid() ? _value.to_python() : nb::none();
+        if (!valid()) {
+            return nb::none();
+        }
+        if (_py_cached_value.is_valid()) {
+            return _py_cached_value;
+        }
+        return _value.to_python();
     }
 
     nb::object TimeSeriesValueOutput::py_delta_value() const {
@@ -27,7 +33,8 @@ namespace hgraph {
             return;
         }
         _value.from_python(value);
-        mark_modified();
+        _py_cached_value = value;
+        BaseTimeSeriesOutput::mark_modified();
     }
 
     void TimeSeriesValueOutput::apply_result(const nb::object& value) {
@@ -43,8 +50,19 @@ namespace hgraph {
         }
     }
 
+    void TimeSeriesValueOutput::mark_modified() {
+        _py_cached_value = nb::object();
+        BaseTimeSeriesOutput::mark_modified();
+    }
+
+    void TimeSeriesValueOutput::mark_modified(engine_time_t modified_time) {
+        _py_cached_value = nb::object();
+        BaseTimeSeriesOutput::mark_modified(modified_time);
+    }
+
     void TimeSeriesValueOutput::mark_invalid() {
-        _value = value::CachedValue(schema());  // Reset to default
+        _value = value::Value(schema());  // Reset to typed-null
+        _py_cached_value = nb::object();
         BaseTimeSeriesOutput::mark_invalid();
     }
 
@@ -54,8 +72,12 @@ namespace hgraph {
             throw std::runtime_error("TimeSeriesValueOutput::copy_from_output: type mismatch");
         }
         if (other->valid()) {
-            _value.view().copy_from(other->_value.const_view());
-            mark_modified();
+            if (!_value.has_value()) {
+                _value.emplace();
+            }
+            _value.view().copy_from(other->_value.view());
+            _py_cached_value = other->_py_cached_value.is_valid() ? other->_py_cached_value : nb::object();
+            BaseTimeSeriesOutput::mark_modified();
         } else {
             mark_invalid();
         }
@@ -67,8 +89,13 @@ namespace hgraph {
             throw std::runtime_error("TimeSeriesValueOutput::copy_from_input: type mismatch");
         }
         if (other->valid()) {
+            if (!_value.has_value()) {
+                _value.emplace();
+            }
             _value.view().copy_from(other->value());
-            mark_modified();
+            const auto& source = other->value_output();
+            _py_cached_value = source._py_cached_value.is_valid() ? source._py_cached_value : nb::object();
+            BaseTimeSeriesOutput::mark_modified();
         } else {
             mark_invalid();
         }
@@ -83,7 +110,8 @@ namespace hgraph {
     }
 
     void TimeSeriesValueOutput::reset_value() {
-        _value = value::CachedValue(schema());
+        _value = value::Value(schema());
+        _py_cached_value = nb::object();
     }
 
     // ============================================================================
@@ -98,7 +126,7 @@ namespace hgraph {
         return dynamic_cast<const TimeSeriesValueOutput&>(*output());
     }
 
-    value::ConstValueView TimeSeriesValueInput::value() const {
+    value::View TimeSeriesValueInput::value() const {
         return value_output().value();
     }
 

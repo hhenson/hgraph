@@ -9,41 +9,41 @@
 namespace hgraph {
 
     /**
-     * @brief Hash functor for PlainValue with transparent lookup support.
-     * Enables heterogeneous lookup with ConstValueView keys.
+     * @brief Hash functor for Value with transparent lookup support.
+     * Enables heterogeneous lookup with View keys.
      */
-    struct PlainValueHash {
+    struct ValueHash {
         using is_transparent = void;  // Enable heterogeneous lookup
 
-        size_t operator()(const value::PlainValue& v) const {
-            return v.hash();
+        size_t operator()(const value::Value& v) const {
+            return v.has_value() ? v.hash() : 0u;
         }
 
-        size_t operator()(const value::ConstValueView& v) const {
+        size_t operator()(const value::View& v) const {
             return v.hash();
         }
     };
 
     /**
-     * @brief Equality functor for PlainValue with transparent lookup support.
-     * Enables heterogeneous comparison with ConstValueView keys.
+     * @brief Equality functor for Value with transparent lookup support.
+     * Enables heterogeneous comparison with View keys.
      */
-    struct PlainValueEqual {
+    struct ValueEqual {
         using is_transparent = void;  // Enable heterogeneous lookup
 
-        bool operator()(const value::PlainValue& a, const value::PlainValue& b) const {
-            return a.equals(b.const_view());
-        }
-
-        bool operator()(const value::PlainValue& a, const value::ConstValueView& b) const {
+        bool operator()(const value::Value& a, const value::Value& b) const {
             return a.equals(b);
         }
 
-        bool operator()(const value::ConstValueView& a, const value::PlainValue& b) const {
+        bool operator()(const value::Value& a, const value::View& b) const {
+            return a.equals(b);
+        }
+
+        bool operator()(const value::View& a, const value::Value& b) const {
             return b.equals(a);
         }
 
-        bool operator()(const value::ConstValueView& a, const value::ConstValueView& b) const {
+        bool operator()(const value::View& a, const value::View& b) const {
             if (!a.valid() || !b.valid()) return false;
             return a.hash() == b.hash() && a.schema() == b.schema();
         }
@@ -104,15 +104,15 @@ namespace hgraph::value {
             new (dst) Tracker{};
         }
 
-        static void destruct(void* obj, const TypeMeta*) {
+        static void destroy(void* obj, const TypeMeta*) {
             static_cast<Tracker*>(obj)->~Tracker();
         }
 
-        static void copy_assign(void* dst, const void* src, const TypeMeta*) {
+        static void copy(void* dst, const void* src, const TypeMeta*) {
             *static_cast<Tracker*>(dst) = *static_cast<const Tracker*>(src);
         }
 
-        static void move_assign(void* dst, void* src, const TypeMeta*) {
+        static void move(void* dst, void* src, const TypeMeta*) {
             *static_cast<Tracker*>(dst) = std::move(*static_cast<Tracker*>(src));
         }
 
@@ -147,32 +147,21 @@ namespace hgraph::value {
             throw std::runtime_error("Cannot construct FeatureOutputRequestTracker from Python");
         }
 
-        static constexpr TypeOps make_ops() {
-            return TypeOps{
-                &construct,
-                &destruct,
-                &copy_assign,
-                &move_assign,
-                &move_construct,
-                &equals,
-                &to_string,
-                &to_python,
-                &from_python,
-                &hash,
-                &less_than,
-                nullptr,  // size
-                nullptr,  // get_at
-                nullptr,  // set_at
-                nullptr,  // get_field
-                nullptr,  // set_field
-                nullptr,  // contains
-                nullptr,  // insert
-                nullptr,  // erase
-                nullptr,  // map_get
-                nullptr,  // map_set
-                nullptr,  // resize
-                nullptr,  // clear
-            };
+        static type_ops make_ops() {
+            type_ops ops{};
+            ops.construct = &construct;
+            ops.destroy = &destroy;
+            ops.copy = &copy;
+            ops.move = &move;
+            ops.move_construct = &move_construct;
+            ops.equals = &equals;
+            ops.hash = &hash;
+            ops.to_string = &to_string;
+            ops.to_python = &to_python;
+            ops.from_python = &from_python;
+            ops.kind = TypeKind::Atomic;
+            ops.specific.atomic = {&less_than};
+            return ops;
         }
     };
 
@@ -191,19 +180,19 @@ namespace hgraph {
     /**
      * @brief Non-templated FeatureOutputExtension using type-erased key storage.
      *
-     * This class manages feature outputs keyed by type-erased PlainValue keys.
-     * Uses std::unordered_map with PlainValue keys (NOT the Value Map type) to
+     * This class manages feature outputs keyed by type-erased Value keys.
+     * Uses std::unordered_map with Value keys (NOT the Value Map type) to
      * properly handle non-trivially-copyable FeatureOutputRequestTracker objects.
      *
      * Usage:
      * - Create with key_type to specify the key schema
-     * - Call create_or_increment/release with ConstValueView keys
-     * - Call update with ConstValueView keys when values change
+     * - Call create_or_increment/release with View keys
+     * - Call update with View keys when values change
      */
     struct FeatureOutputExtensionValue {
-        using feature_fn = std::function<void(const TimeSeriesOutput &, TimeSeriesOutput &, const value::ConstValueView &)>;
-        using outputs_map_type = std::unordered_map<value::PlainValue, FeatureOutputRequestTracker,
-                                                     PlainValueHash, PlainValueEqual>;
+        using feature_fn = std::function<void(const TimeSeriesOutput &, TimeSeriesOutput &, const value::View &)>;
+        using outputs_map_type = std::unordered_map<value::Value, FeatureOutputRequestTracker,
+                                                     ValueHash, ValueEqual>;
 
         FeatureOutputExtensionValue(time_series_output_ptr owning_output_,
                                      output_builder_s_ptr output_builder_,
@@ -214,18 +203,18 @@ namespace hgraph {
         /**
          * @brief Get or create a feature output for the given key.
          *
-         * @param key The key as a ConstValueView
+         * @param key The key as a View
          * @param requester Opaque pointer to track the requester
          * @return Reference to the output shared_ptr
          */
-        time_series_output_s_ptr& create_or_increment(const value::ConstValueView& key, const void *requester);
+        time_series_output_s_ptr& create_or_increment(const value::View& key, const void *requester);
 
         /**
          * @brief Update the feature output for a key.
          *
-         * @param key The key as a ConstValueView
+         * @param key The key as a View
          */
-        void update(const value::ConstValueView& key);
+        void update(const value::View& key);
 
         /**
          * @brief Update from Python object key.
@@ -237,10 +226,10 @@ namespace hgraph {
         /**
          * @brief Release a requester's interest in a key.
          *
-         * @param key The key as a ConstValueView
+         * @param key The key as a View
          * @param requester The requester to release
          */
-        void release(const value::ConstValueView& key, const void *requester);
+        void release(const value::View& key, const void *requester);
 
         /**
          * @brief Check if there are any outputs.

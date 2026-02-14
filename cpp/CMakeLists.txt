@@ -134,6 +134,51 @@ else ()
     message(STATUS "Found fmt via Conan/system: ${fmt_DIR}")
 endif ()
 
+# sul::dynamic_bitset - header-only library for dynamic bitsets (used by KeySet)
+find_package(dynamic_bitset CONFIG QUIET)
+if (NOT dynamic_bitset_FOUND)
+    message(STATUS "dynamic_bitset not found via find_package, using FetchContent")
+    include(FetchContent)
+    FetchContent_Declare(
+        dynamic_bitset
+        GIT_REPOSITORY https://github.com/pinam45/dynamic_bitset.git
+        GIT_TAG v1.2.0
+    )
+    FetchContent_MakeAvailable(dynamic_bitset)
+else ()
+    message(STATUS "Found dynamic_bitset via Conan/system: ${dynamic_bitset_DIR}")
+endif ()
+
+# nanoarrow - Arrow C Data Interface utilities (bitmap helpers, schema/array interop)
+find_package(nanoarrow CONFIG QUIET)
+if (NOT TARGET nanoarrow::nanoarrow)
+    message(STATUS "nanoarrow not found via find_package, using FetchContent")
+    include(FetchContent)
+    set(NANOARROW_BUILD_TESTS OFF CACHE BOOL "Disable nanoarrow tests" FORCE)
+    set(NANOARROW_BUILD_BENCHMARKS OFF CACHE BOOL "Disable nanoarrow benchmarks" FORCE)
+    set(NANOARROW_IPC OFF CACHE BOOL "Disable nanoarrow IPC extension" FORCE)
+    FetchContent_Declare(
+        nanoarrow
+        GIT_REPOSITORY https://github.com/apache/arrow-nanoarrow.git
+        GIT_TAG apache-arrow-nanoarrow-0.7.0
+    )
+    FetchContent_MakeAvailable(nanoarrow)
+else ()
+    message(STATUS "Found nanoarrow via Conan/system: ${nanoarrow_DIR}")
+endif ()
+
+if (TARGET nanoarrow::nanoarrow)
+    set(HGRAPH_NANOARROW_TARGET nanoarrow::nanoarrow)
+elseif (TARGET nanoarrow)
+    set(HGRAPH_NANOARROW_TARGET nanoarrow)
+elseif (TARGET nanoarrow::nanoarrow_static)
+    set(HGRAPH_NANOARROW_TARGET nanoarrow::nanoarrow_static)
+elseif (TARGET nanoarrow_static)
+    set(HGRAPH_NANOARROW_TARGET nanoarrow_static)
+else ()
+    message(FATAL_ERROR "nanoarrow target not found after dependency resolution")
+endif ()
+message(STATUS "Using nanoarrow target: ${HGRAPH_NANOARROW_TARGET}")
 
 # backward-cpp via package or FetchContent (optional)
 if (HGRAPH_WITH_BACKWARD)

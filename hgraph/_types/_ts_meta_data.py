@@ -10,6 +10,7 @@ from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._type_meta_data import ParseError
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 from hgraph._types._tsb_meta_data import HgTimeSeriesTypeMetaData
+from hgraph._types._type_meta_data import cpp_type_property
 
 
 class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
@@ -56,6 +57,11 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
 
     def scalar_type(self) -> "HgScalarTypeMetaData":
         return self.value_scalar_tp
+
+    @cpp_type_property
+    def cpp_type(self, _hgraph):
+        v = self.value_scalar_tp.cpp_type
+        return v and _hgraph.TSTypeRegistry.instance().ts(v)
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:

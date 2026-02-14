@@ -80,13 +80,13 @@ namespace hgraph {
         VISITOR_SUPPORT()
 
     private:
-        std::vector<value::PlainValue> _buffer{};
+        std::vector<value::Value> _buffer{};
         std::vector<engine_time_t> _times{};
         size_t _size{0};
         size_t _min_size{0};
         size_t _start{0};
         size_t _length{0};
-        value::PlainValue _removed_value{};
+        value::Value _removed_value{};
         bool _has_removed_value{false};
         const value::TypeMeta* _element_type{nullptr};
     };
@@ -155,12 +155,12 @@ namespace hgraph {
         void _roll() const; // mutable operation to clean up old items
         void _reset_removed_values();
 
-        mutable std::deque<value::PlainValue> _buffer;
+        mutable std::deque<value::Value> _buffer;
         mutable std::deque<engine_time_t> _times;
         engine_time_delta_t _size{};
         engine_time_delta_t _min_size{};
         mutable bool _ready{false};
-        mutable std::vector<value::PlainValue> _removed_values;
+        mutable std::vector<value::Value> _removed_values;
         const value::TypeMeta* _element_type{nullptr};
     };
 

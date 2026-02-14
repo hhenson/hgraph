@@ -4,7 +4,7 @@
  * @file value_view.h
  * @brief Non-owning view classes for the Value type system.
  *
- * Views provide access to Value data without ownership. ConstValueView provides
+ * Views provide access to Value data without ownership. View provides
  * read-only access, while ValueView provides mutable access. Both support:
  *
  * - Type kind queries (is_scalar, is_bundle, is_list, etc.)
@@ -26,33 +26,25 @@
 namespace hgraph::value {
 
 // Forward declarations for specialized views
-class ConstTupleView;
 class TupleView;
-class ConstBundleView;
 class BundleView;
-class ConstListView;
 class ListView;
-class ConstSetView;
 class SetView;
-class ConstMapView;
 class MapView;
-class ConstCyclicBufferView;
 class CyclicBufferView;
-class ConstQueueView;
 class QueueView;
 
 // Forward declaration for Value (used in clone)
-template<typename Policy>
 class Value;
 
 // ============================================================================
-// ConstValueView - Non-owning Const View
+// View - Non-owning Const View
 // ============================================================================
 
 /**
- * @brief Non-owning const view into a Value.
+ * @brief Non-owning read-only view into a Value.
  *
- * ConstValueView provides read-only access to value data. It stores a pointer
+ * View provides read-only access to value data. It stores a pointer
  * to the data and the type schema. Views are lightweight and should be passed
  * by value.
  *
@@ -60,12 +52,12 @@ class Value;
  * Operations on invalid views have undefined behavior in release builds;
  * debug builds assert validity.
  */
-class ConstValueView {
+class View {
 public:
     // ========== Construction ==========
 
     /// Default constructor - creates an invalid view
-    ConstValueView() noexcept = default;
+    View() noexcept = default;
 
     /**
      * @brief Construct a view from data and schema.
@@ -73,14 +65,14 @@ public:
      * @param data Pointer to the value data
      * @param schema The type schema
      */
-    ConstValueView(const void* data, const TypeMeta* schema) noexcept
+    View(const void* data, const TypeMeta* schema) noexcept
         : _data(data), _schema(schema) {}
 
     /// Copy constructor
-    ConstValueView(const ConstValueView&) noexcept = default;
+    View(const View&) noexcept = default;
 
     /// Copy assignment
-    ConstValueView& operator=(const ConstValueView&) noexcept = default;
+    View& operator=(const View&) noexcept = default;
 
     // ========== Validity ==========
 
@@ -117,7 +109,7 @@ public:
      * @return true if the type kind is Scalar
      */
     [[nodiscard]] bool is_scalar() const noexcept {
-        return valid() && _schema->kind == TypeKind::Scalar;
+        return valid() && _schema->kind == TypeKind::Atomic;
     }
 
     /**
@@ -266,43 +258,43 @@ public:
      * @brief Try to convert to a tuple view.
      * @return The tuple view, or nullopt if not a tuple
      */
-    [[nodiscard]] std::optional<ConstTupleView> try_as_tuple() const;
+    [[nodiscard]] std::optional<TupleView> try_as_tuple() const;
 
     /**
      * @brief Try to convert to a bundle view.
      * @return The bundle view, or nullopt if not a bundle
      */
-    [[nodiscard]] std::optional<ConstBundleView> try_as_bundle() const;
+    [[nodiscard]] std::optional<BundleView> try_as_bundle() const;
 
     /**
      * @brief Try to convert to a list view.
      * @return The list view, or nullopt if not a list
      */
-    [[nodiscard]] std::optional<ConstListView> try_as_list() const;
+    [[nodiscard]] std::optional<ListView> try_as_list() const;
 
     /**
      * @brief Try to convert to a set view.
      * @return The set view, or nullopt if not a set
      */
-    [[nodiscard]] std::optional<ConstSetView> try_as_set() const;
+    [[nodiscard]] std::optional<SetView> try_as_set() const;
 
     /**
      * @brief Try to convert to a map view.
      * @return The map view, or nullopt if not a map
      */
-    [[nodiscard]] std::optional<ConstMapView> try_as_map() const;
+    [[nodiscard]] std::optional<MapView> try_as_map() const;
 
     /**
      * @brief Try to convert to a cyclic buffer view.
      * @return The cyclic buffer view, or nullopt if not a cyclic buffer
      */
-    [[nodiscard]] std::optional<ConstCyclicBufferView> try_as_cyclic_buffer() const;
+    [[nodiscard]] std::optional<CyclicBufferView> try_as_cyclic_buffer() const;
 
     /**
      * @brief Try to convert to a queue view.
      * @return The queue view, or nullopt if not a queue
      */
-    [[nodiscard]] std::optional<ConstQueueView> try_as_queue() const;
+    [[nodiscard]] std::optional<QueueView> try_as_queue() const;
 
     // ========== Specialized View Conversions (Throwing) ==========
 
@@ -311,49 +303,49 @@ public:
      * @return The tuple view
      * @throws std::runtime_error if not a tuple
      */
-    [[nodiscard]] ConstTupleView as_tuple() const;
+    [[nodiscard]] TupleView as_tuple() const;
 
     /**
      * @brief Convert to a bundle view.
      * @return The bundle view
      * @throws std::runtime_error if not a bundle
      */
-    [[nodiscard]] ConstBundleView as_bundle() const;
+    [[nodiscard]] BundleView as_bundle() const;
 
     /**
      * @brief Convert to a list view.
      * @return The list view
      * @throws std::runtime_error if not a list
      */
-    [[nodiscard]] ConstListView as_list() const;
+    [[nodiscard]] ListView as_list() const;
 
     /**
      * @brief Convert to a set view.
      * @return The set view
      * @throws std::runtime_error if not a set
      */
-    [[nodiscard]] ConstSetView as_set() const;
+    [[nodiscard]] SetView as_set() const;
 
     /**
      * @brief Convert to a map view.
      * @return The map view
      * @throws std::runtime_error if not a map
      */
-    [[nodiscard]] ConstMapView as_map() const;
+    [[nodiscard]] MapView as_map() const;
 
     /**
      * @brief Convert to a cyclic buffer view.
      * @return The cyclic buffer view
      * @throws std::runtime_error if not a cyclic buffer
      */
-    [[nodiscard]] ConstCyclicBufferView as_cyclic_buffer() const;
+    [[nodiscard]] CyclicBufferView as_cyclic_buffer() const;
 
     /**
      * @brief Convert to a queue view.
      * @return The queue view
      * @throws std::runtime_error if not a queue
      */
-    [[nodiscard]] ConstQueueView as_queue() const;
+    [[nodiscard]] QueueView as_queue() const;
 
     // ========== Raw Access ==========
 
@@ -375,10 +367,10 @@ public:
      * @param other The view to compare against
      * @return true if the values are equal
      */
-    [[nodiscard]] bool equals(const ConstValueView& other) const {
+    [[nodiscard]] bool equals(const View& other) const {
         if (!valid() || !other.valid()) return false;
         if (_schema != other._schema) return false;
-        return _schema->ops->equals(_data, other._data, _schema);
+        return _schema->ops().equals(_data, other._data, _schema);
     }
 
     /**
@@ -389,10 +381,10 @@ public:
      */
     [[nodiscard]] size_t hash() const {
         assert(valid() && "hash() on invalid view");
-        if (!_schema->ops->hash) {
+        if (!_schema->ops().hash) {
             throw std::runtime_error("Type is not hashable");
         }
-        return _schema->ops->hash(_data, _schema);
+        return _schema->ops().hash(_data, _schema);
     }
 
     /**
@@ -401,7 +393,7 @@ public:
      */
     [[nodiscard]] std::string to_string() const {
         assert(valid() && "to_string() on invalid view");
-        return _schema->ops->to_string(_data, _schema);
+        return _schema->ops().to_string(_data, _schema);
     }
 
     // ========== Python Interop ==========
@@ -412,7 +404,7 @@ public:
      */
     [[nodiscard]] nb::object to_python() const {
         assert(valid() && "to_python() on invalid view");
-        return _schema->ops->to_python(_data, _schema);
+        return _schema->ops().to_python(_data, _schema);
     }
 
     // ========== Clone ==========
@@ -425,8 +417,7 @@ public:
      *
      * @return A new Value containing a copy of this data
      */
-    template<typename Policy = NoCache>
-    [[nodiscard]] Value<Policy> clone() const;
+    [[nodiscard]] Value clone() const;
 
 protected:
     const void* _data{nullptr};
@@ -440,11 +431,11 @@ protected:
 /**
  * @brief Non-owning mutable view into a Value.
  *
- * ValueView extends ConstValueView with mutable access. It stores both a
+ * ValueView extends View with mutable access. It stores both a
  * const and mutable pointer to the same data, allowing inheritance of const
  * operations while adding mutable ones.
  */
-class ValueView : public ConstValueView {
+class ValueView : public View {
 public:
     // ========== Construction ==========
 
@@ -458,7 +449,16 @@ public:
      * @param schema The type schema
      */
     ValueView(void* data, const TypeMeta* schema) noexcept
-        : ConstValueView(data, schema), _mutable_data(data) {}
+        : View(data, schema), _mutable_data(data) {}
+
+    /**
+     * @brief Construct a read-only ValueView from a base View.
+     *
+     * This keeps APIs that return ValueView usable for read flows while
+     * preventing mutation through this wrapper.
+     */
+    explicit ValueView(const View& view) noexcept
+        : View(view), _mutable_data(const_cast<void*>(view.data())), _mutable_access(false) {}
 
     /// Copy constructor
     ValueView(const ValueView&) noexcept = default;
@@ -477,7 +477,7 @@ public:
     }
 
     // Bring const version into scope
-    using ConstValueView::data;
+    using View::data;
 
     // ========== Mutable Scalar Type Access ==========
 
@@ -489,13 +489,14 @@ public:
      */
     template<typename T>
     [[nodiscard]] T& as() {
+        require_mutable("as<T>");
         assert(valid() && "as<T>() on invalid view");
         assert(is_scalar_type<T>() && "as<T>() type mismatch");
         return *static_cast<T*>(_mutable_data);
     }
 
     // Bring const version into scope
-    using ConstValueView::as;
+    using View::as;
 
     /**
      * @brief Try to get the value as type T (mutable).
@@ -505,11 +506,14 @@ public:
      */
     template<typename T>
     [[nodiscard]] T* try_as() noexcept {
+        if (!_mutable_access) {
+            return nullptr;
+        }
         return is_scalar_type<T>() ? static_cast<T*>(_mutable_data) : nullptr;
     }
 
     // Bring const version into scope
-    using ConstValueView::try_as;
+    using View::try_as;
 
     /**
      * @brief Get the value as type T (throwing, mutable).
@@ -520,6 +524,7 @@ public:
      */
     template<typename T>
     [[nodiscard]] T& checked_as() {
+        require_mutable("checked_as<T>");
         if (!valid()) {
             throw std::runtime_error("checked_as<T>() on invalid view");
         }
@@ -530,7 +535,7 @@ public:
     }
 
     // Bring const version into scope
-    using ConstValueView::checked_as;
+    using View::checked_as;
 
     // ========== Specialized Mutable View Conversions (Safe) ==========
 
@@ -637,14 +642,15 @@ public:
      * @param other The source view
      * @throws std::runtime_error if schemas don't match
      */
-    void copy_from(const ConstValueView& other) {
+    void copy_from(const View& other) {
+        require_mutable("copy_from");
         if (!valid() || !other.valid()) {
             throw std::runtime_error("copy_from with invalid view");
         }
         if (_schema != other.schema()) {
             throw std::runtime_error("copy_from schema mismatch");
         }
-        _schema->ops->copy_assign(_mutable_data, other.data(), _schema);
+        _schema->ops().copy(_mutable_data, other.data(), _schema);
     }
 
     // ========== Python Interop ==========
@@ -655,46 +661,29 @@ public:
      * @param src The Python object
      */
     void from_python(const nb::object& src) {
+        require_mutable("from_python");
         assert(valid() && "from_python() on invalid view");
-        _schema->ops->from_python(_mutable_data, src, _schema);
-    }
-
-    // ========== Root Tracking ==========
-
-    // NOTE(type-safety): The set_root/root methods use void* for type erasure,
-    // which loses the Policy template parameter type information. If set_root<PolicyA>()
-    // is called and root<PolicyB>() is later called with a different policy,
-    // undefined behavior results. Users must ensure Policy consistency.
-
-    /**
-     * @brief Set the root Value for notification chains.
-     *
-     * This is used for TSValue to track modifications to nested views.
-     *
-     * @warning The Policy type must match between set_root and root calls.
-     *
-     * @param root Pointer to the owning Value
-     */
-    template<typename Policy = NoCache>
-    void set_root(Value<Policy>* root) {
-        _root = static_cast<void*>(root);
+        _schema->ops().from_python(_mutable_data, src, _schema);
     }
 
     /**
-     * @brief Get the root Value.
-     *
-     * @warning The Policy type must match the Policy used in set_root.
-     *
-     * @return Pointer to the owning Value, or nullptr
+     * @brief Check if this view has mutable access rights.
      */
-    template<typename Policy = NoCache>
-    [[nodiscard]] Value<Policy>* root() const {
-        return static_cast<Value<Policy>*>(_root);
+    [[nodiscard]] bool is_mutable() const noexcept {
+        return _mutable_access;
     }
+
+protected:
+    void require_mutable(const char* op) const {
+        if (!_mutable_access) {
+            throw std::runtime_error(std::string("ValueView::") + op + " requires mutable access");
+        }
+    }
+
+    void* _mutable_data{nullptr};
 
 private:
-    void* _mutable_data{nullptr};
-    void* _root{nullptr};  // Optional, for notification chains
+    bool _mutable_access{true};
 };
 
 // ============================================================================
@@ -704,14 +693,14 @@ private:
 /**
  * @brief Equality comparison for views.
  */
-inline bool operator==(const ConstValueView& lhs, const ConstValueView& rhs) {
+inline bool operator==(const View& lhs, const View& rhs) {
     return lhs.equals(rhs);
 }
 
 /**
  * @brief Inequality comparison for views.
  */
-inline bool operator!=(const ConstValueView& lhs, const ConstValueView& rhs) {
+inline bool operator!=(const View& lhs, const View& rhs) {
     return !lhs.equals(rhs);
 }
 

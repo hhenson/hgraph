@@ -108,14 +108,14 @@ struct CyclicBufferOps {
             // Construct all elements in the buffer (they may be overwritten later)
             for (size_t i = 0; i < storage->capacity; ++i) {
                 void* elem_ptr = static_cast<char*>(storage->data) + i * elem_size;
-                if (elem_type->ops && elem_type->ops->construct) {
-                    elem_type->ops->construct(elem_ptr, elem_type);
+                if (elem_type->ops().construct) {
+                    elem_type->ops().construct(elem_ptr, elem_type);
                 }
             }
         }
     }
 
-    static void destruct(void* obj, const TypeMeta* schema) {
+    static void destroy(void* obj, const TypeMeta* schema) {
         auto* storage = static_cast<CyclicBufferStorage*>(obj);
         const TypeMeta* elem_type = schema->element_type;
         size_t elem_size = elem_type ? elem_type->size : 0;
@@ -124,8 +124,8 @@ struct CyclicBufferOps {
         if (storage->data && elem_type) {
             for (size_t i = 0; i < storage->capacity; ++i) {
                 void* elem_ptr = static_cast<char*>(storage->data) + i * elem_size;
-                if (elem_type->ops && elem_type->ops->destruct) {
-                    elem_type->ops->destruct(elem_ptr, elem_type);
+                if (elem_type->ops().destroy) {
+                    elem_type->ops().destroy(elem_ptr, elem_type);
                 }
             }
             std::free(storage->data);
@@ -133,7 +133,7 @@ struct CyclicBufferOps {
         storage->~CyclicBufferStorage();
     }
 
-    static void copy_assign(void* dst, const void* src, const TypeMeta* schema) {
+    static void copy(void* dst, const void* src, const TypeMeta* schema) {
         auto* dst_storage = static_cast<CyclicBufferStorage*>(dst);
         auto* src_storage = static_cast<const CyclicBufferStorage*>(src);
         const TypeMeta* elem_type = schema->element_type;
@@ -144,16 +144,16 @@ struct CyclicBufferOps {
         dst_storage->head = src_storage->head;
 
         // Copy all elements (physical layout)
-        if (elem_type && elem_type->ops && elem_type->ops->copy_assign) {
+        if (elem_type && elem_type->ops().copy) {
             for (size_t i = 0; i < src_storage->capacity; ++i) {
                 void* dst_elem = static_cast<char*>(dst_storage->data) + i * elem_size;
                 const void* src_elem = static_cast<const char*>(src_storage->data) + i * elem_size;
-                elem_type->ops->copy_assign(dst_elem, src_elem, elem_type);
+                elem_type->ops().copy(dst_elem, src_elem, elem_type);
             }
         }
     }
 
-    static void move_assign(void* dst, void* src, const TypeMeta* schema) {
+    static void move(void* dst, void* src, const TypeMeta* schema) {
         auto* dst_storage = static_cast<CyclicBufferStorage*>(dst);
         auto* src_storage = static_cast<CyclicBufferStorage*>(src);
         const TypeMeta* elem_type = schema->element_type;
@@ -163,8 +163,8 @@ struct CyclicBufferOps {
         if (dst_storage->data && elem_type) {
             for (size_t i = 0; i < dst_storage->capacity; ++i) {
                 void* elem_ptr = static_cast<char*>(dst_storage->data) + i * elem_size;
-                if (elem_type->ops && elem_type->ops->destruct) {
-                    elem_type->ops->destruct(elem_ptr, elem_type);
+                if (elem_type->ops().destroy) {
+                    elem_type->ops().destroy(elem_ptr, elem_type);
                 }
             }
             std::free(dst_storage->data);
@@ -211,8 +211,8 @@ struct CyclicBufferOps {
         for (size_t i = 0; i < storage_a->size; ++i) {
             const void* elem_a = get_element_ptr_const(a, i, schema);
             const void* elem_b = get_element_ptr_const(b, i, schema);
-            if (elem_type && elem_type->ops && elem_type->ops->equals) {
-                if (!elem_type->ops->equals(elem_a, elem_b, elem_type)) {
+            if (elem_type && elem_type->ops().equals) {
+                if (!elem_type->ops().equals(elem_a, elem_b, elem_type)) {
                     return false;
                 }
             }
@@ -228,8 +228,8 @@ struct CyclicBufferOps {
         for (size_t i = 0; i < storage->size; ++i) {
             if (i > 0) result += ", ";
             const void* elem_ptr = get_element_ptr_const(obj, i, schema);
-            if (elem_type && elem_type->ops && elem_type->ops->to_string) {
-                result += elem_type->ops->to_string(elem_ptr, elem_type);
+            if (elem_type && elem_type->ops().to_string) {
+                result += elem_type->ops().to_string(elem_ptr, elem_type);
             } else {
                 result += "<null>";
             }
@@ -248,8 +248,8 @@ struct CyclicBufferOps {
         // Return elements in logical order (re-centered)
         for (size_t i = 0; i < storage->size; ++i) {
             const void* elem_ptr = get_element_ptr_const(obj, i, schema);
-            if (elem_type && elem_type->ops && elem_type->ops->to_python) {
-                result.append(elem_type->ops->to_python(elem_ptr, elem_type));
+            if (elem_type && elem_type->ops().to_python) {
+                result.append(elem_type->ops().to_python(elem_ptr, elem_type));
             } else {
                 result.append(nb::none());
             }
@@ -282,8 +282,8 @@ struct CyclicBufferOps {
             size_t physical = to_physical_index(storage, insert_pos);
             void* elem_ptr = static_cast<char*>(storage->data) + physical * elem_size;
 
-            if (elem_type && elem_type->ops && elem_type->ops->from_python) {
-                elem_type->ops->from_python(elem_ptr, seq[i], elem_type);
+            if (elem_type && elem_type->ops().from_python) {
+                elem_type->ops().from_python(elem_ptr, seq[i], elem_type);
             }
         }
     }
@@ -298,8 +298,8 @@ struct CyclicBufferOps {
         // Hash elements in logical order
         for (size_t i = 0; i < storage->size; ++i) {
             const void* elem_ptr = get_element_ptr_const(obj, i, schema);
-            if (elem_type && elem_type->ops && elem_type->ops->hash) {
-                size_t elem_hash = elem_type->ops->hash(elem_ptr, elem_type);
+            if (elem_type && elem_type->ops().hash) {
+                size_t elem_hash = elem_type->ops().hash(elem_ptr, elem_type);
                 result ^= elem_hash + 0x9e3779b9 + (result << 6) + (result >> 2);
             }
         }
@@ -315,7 +315,7 @@ struct CyclicBufferOps {
 
     // ========== Indexable Operations ==========
 
-    static const void* get_at(const void* obj, size_t index, const TypeMeta* schema) {
+    static const void* at(const void* obj, size_t index, const TypeMeta* schema) {
         auto* storage = static_cast<const CyclicBufferStorage*>(obj);
         if (index >= storage->size) {
             throw std::out_of_range("CyclicBuffer index out of range");
@@ -330,8 +330,8 @@ struct CyclicBufferOps {
         }
         void* elem_ptr = get_element_ptr(obj, index, schema);
         const TypeMeta* elem_type = schema->element_type;
-        if (elem_type && elem_type->ops && elem_type->ops->copy_assign) {
-            elem_type->ops->copy_assign(elem_ptr, value, elem_type);
+        if (elem_type && elem_type->ops().copy) {
+            elem_type->ops().copy(elem_ptr, value, elem_type);
         }
     }
 
@@ -344,7 +344,7 @@ struct CyclicBufferOps {
      * If the buffer is full, overwrites the oldest element (at head)
      * and advances the head pointer.
      */
-    static void push_back(void* obj, const void* value, const TypeMeta* schema) {
+    static void push(void* obj, const void* value, const TypeMeta* schema) {
         auto* storage = static_cast<CyclicBufferStorage*>(obj);
         const TypeMeta* elem_type = schema->element_type;
         size_t elem_size = elem_type ? elem_type->size : 0;
@@ -353,18 +353,33 @@ struct CyclicBufferOps {
             // Buffer not full: add at end
             size_t physical = to_physical_index(storage, storage->size);
             void* elem_ptr = static_cast<char*>(storage->data) + physical * elem_size;
-            if (elem_type && elem_type->ops && elem_type->ops->copy_assign) {
-                elem_type->ops->copy_assign(elem_ptr, value, elem_type);
+            if (elem_type && elem_type->ops().copy) {
+                elem_type->ops().copy(elem_ptr, value, elem_type);
             }
             storage->size++;
         } else {
             // Buffer full: overwrite oldest (at head), advance head
             void* elem_ptr = static_cast<char*>(storage->data) + storage->head * elem_size;
-            if (elem_type && elem_type->ops && elem_type->ops->copy_assign) {
-                elem_type->ops->copy_assign(elem_ptr, value, elem_type);
+            if (elem_type && elem_type->ops().copy) {
+                elem_type->ops().copy(elem_ptr, value, elem_type);
             }
             storage->head = (storage->head + 1) % storage->capacity;
         }
+    }
+
+    /**
+     * @brief Remove the front (oldest) element from the cyclic buffer.
+     *
+     * @throws std::out_of_range if the buffer is empty
+     */
+    static void pop(void* obj, const TypeMeta* schema) {
+        auto* storage = static_cast<CyclicBufferStorage*>(obj);
+        if (storage->size == 0) {
+            throw std::out_of_range("pop_front on empty CyclicBuffer");
+        }
+        // Advance head, reduce size
+        storage->head = (storage->head + 1) % storage->capacity;
+        storage->size--;
     }
 
     /**
@@ -394,34 +409,22 @@ struct CyclicBufferOps {
         return storage->size == storage->capacity;
     }
 
-    /// Get the operations vtable for cyclic buffers
-    static const TypeOps* ops() {
-        static const TypeOps cyclic_buffer_ops = {
-            &construct,
-            &destruct,
-            &copy_assign,
-            &move_assign,
-            &move_construct,
-            &equals,
-            &to_string,
-            &to_python,
-            &from_python,
-            &hash,
-            nullptr,   // less_than (cyclic buffers not ordered)
-            &size,
-            &get_at,
-            &set_at,
-            nullptr,   // get_field (not a bundle)
-            nullptr,   // set_field (not a bundle)
-            nullptr,   // contains (not a set)
-            nullptr,   // insert (not a set)
-            nullptr,   // erase (not a set)
-            nullptr,   // map_get (not a map)
-            nullptr,   // map_set (not a map)
-            nullptr,   // resize (fixed capacity)
-            &clear,
-        };
-        return &cyclic_buffer_ops;
+    /// Build the type_ops for cyclic buffers
+    static type_ops make_ops() {
+        type_ops ops{};
+        ops.construct = &construct;
+        ops.destroy = &destroy;
+        ops.copy = &copy;
+        ops.move = &move;
+        ops.move_construct = &move_construct;
+        ops.equals = &equals;
+        ops.hash = &hash;
+        ops.to_string = &to_string;
+        ops.to_python = &to_python;
+        ops.from_python = &from_python;
+        ops.kind = TypeKind::CyclicBuffer;
+        ops.specific.cyclic_buffer = {&size, &at, &set_at, &push, &pop, &clear, &capacity};
+        return ops;
     }
 };
 

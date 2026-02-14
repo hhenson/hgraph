@@ -5,8 +5,8 @@
  * @brief Type metadata structures for the Value type system.
  *
  * TypeMeta describes the schema of a type: its size, alignment, kind,
- * capabilities, and type-erased operations. The TypeOps structure provides
- * function pointers for performing operations on type-erased data.
+ * capabilities, and type-erased operations. The type_ops structure provides
+ * common function pointers plus a kind-tagged union of kind-specific ops.
  */
 
 #include <hgraph/types/value/value_fwd.h>
@@ -34,15 +34,14 @@ namespace hgraph::value {
  * what operations are available and how the data is laid out.
  */
 enum class TypeKind : uint8_t {
-    Scalar,        ///< Atomic values: int, double, bool, string, datetime, etc.
+    Atomic,        ///< Atomic values: int, double, bool, string, datetime, etc.
     Tuple,         ///< Indexed heterogeneous collection (unnamed, positional access only)
     Bundle,        ///< Named field collection (struct-like, index + name access)
     List,          ///< Indexed homogeneous collection (dynamic size)
     Set,           ///< Unordered unique elements
     Map,           ///< Key-value pairs
     CyclicBuffer,  ///< Fixed-size circular buffer (re-centers on read)
-    Queue,         ///< FIFO queue with optional max capacity
-    Ref            ///< Reference to another time-series (future)
+    Queue          ///< FIFO queue with optional max capacity
 };
 
 // ============================================================================
@@ -109,106 +108,275 @@ struct BundleFieldInfo {
 };
 
 // ============================================================================
-// Type Operations Virtual Table
+// Kind-Specific Operation Sub-Structures
+// ============================================================================
+
+/// Operations specific to Atomic types
+struct atomic_ops_t {
+    bool (*less_than)(const void* a, const void* b, const TypeMeta* schema);
+};
+
+/// Operations specific to Bundle types (named fields, index + name access)
+struct bundle_ops_t {
+    size_t (*size)(const void* obj, const TypeMeta* schema);
+    const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
+    void (*set_at)(void* obj, size_t index, const void* value, const TypeMeta* schema);
+    const void* (*get_field)(const void* obj, const char* name, const TypeMeta* schema);
+    void (*set_field)(void* obj, const char* name, const void* value, const TypeMeta* schema);
+};
+
+/// Operations specific to Tuple types (positional access only)
+struct tuple_ops_t {
+    size_t (*size)(const void* obj, const TypeMeta* schema);
+    const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
+    void (*set_at)(void* obj, size_t index, const void* value, const TypeMeta* schema);
+};
+
+/// Operations specific to List types (dynamic homogeneous collection)
+struct list_ops_t {
+    size_t (*size)(const void* obj, const TypeMeta* schema);
+    const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
+    void (*set_at)(void* obj, size_t index, const void* value, const TypeMeta* schema);
+    void (*resize)(void* obj, size_t new_size, const TypeMeta* schema);
+    void (*clear)(void* obj, const TypeMeta* schema);
+};
+
+/// Operations specific to Set types (unique unordered elements)
+struct set_ops_t {
+    size_t (*size)(const void* obj, const TypeMeta* schema);
+    const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
+    bool (*contains)(const void* obj, const void* element, const TypeMeta* schema);
+    void (*add)(void* obj, const void* element, const TypeMeta* schema);
+    void (*remove)(void* obj, const void* element, const TypeMeta* schema);
+    void (*clear)(void* obj, const TypeMeta* schema);
+};
+
+/// Operations specific to Map types (key-value pairs)
+struct map_ops_t {
+    size_t (*size)(const void* obj, const TypeMeta* schema);
+    bool (*contains)(const void* obj, const void* key, const TypeMeta* schema);
+    const void* (*at)(const void* obj, const void* key, const TypeMeta* schema);
+    void (*set_item)(void* obj, const void* key, const void* value, const TypeMeta* schema);
+    void (*remove)(void* obj, const void* key, const TypeMeta* schema);
+    void (*clear)(void* obj, const TypeMeta* schema);
+};
+
+/// Operations specific to CyclicBuffer types (fixed-size circular buffer)
+/// Has all queue ops plus ordinal set_at for indexed writes.
+struct cyclic_buffer_ops_t {
+    size_t (*size)(const void* obj, const TypeMeta* schema);
+    const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
+    void (*set_at)(void* obj, size_t index, const void* value, const TypeMeta* schema);
+    void (*push)(void* obj, const void* value, const TypeMeta* schema);
+    void (*pop)(void* obj, const TypeMeta* schema);
+    void (*clear)(void* obj, const TypeMeta* schema);
+    size_t (*capacity)(const void* obj, const TypeMeta* schema);
+};
+
+/// Operations specific to Queue types (FIFO with optional max capacity)
+struct queue_ops_t {
+    size_t (*size)(const void* obj, const TypeMeta* schema);
+    const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
+    void (*push)(void* obj, const void* value, const TypeMeta* schema);
+    void (*pop)(void* obj, const TypeMeta* schema);
+    void (*clear)(void* obj, const TypeMeta* schema);
+    size_t (*max_capacity)(const void* obj, const TypeMeta* schema);
+};
+
+// ============================================================================
+// Type Operations — Tagged Union
 // ============================================================================
 
 /**
  * @brief Type-erased operations for a type.
  *
- * This structure contains function pointers for all operations that can
- * be performed on a type. Not all operations are supported by all types;
- * unsupported operations are set to nullptr.
+ * Contains 10 common function pointers (required for all types) plus a
+ * TypeKind-tagged union of kind-specific operations. Stored by value in
+ * TypeMeta to eliminate pointer indirection.
+ *
+ * Common ops are accessed directly as function pointers:
+ *   schema->ops().construct(dst, schema)
+ *
+ * Kind-specific ops are accessed via dispatch methods:
+ *   schema->ops().size(obj, schema)    // dispatches to the right sub-struct
  */
-struct TypeOps {
-    // ========== Core Operations (required for all types) ==========
+struct type_ops {
+    // ========== Common Operations (required for all types) ==========
 
-    /// Default construct a value at dst
     void (*construct)(void* dst, const TypeMeta* schema);
-
-    /// Destruct a value at obj
-    void (*destruct)(void* obj, const TypeMeta* schema);
-
-    /// Copy assign from src to dst (both must be valid)
-    void (*copy_assign)(void* dst, const void* src, const TypeMeta* schema);
-
-    /// Move assign from src to dst
-    void (*move_assign)(void* dst, void* src, const TypeMeta* schema);
-
-    /// Move construct a value at dst from src (placement new with move semantics)
-    /// This is used when dst is uninitialized memory and src should be moved into it
+    void (*destroy)(void* obj, const TypeMeta* schema);
+    void (*copy)(void* dst, const void* src, const TypeMeta* schema);
+    void (*move)(void* dst, void* src, const TypeMeta* schema);
     void (*move_construct)(void* dst, void* src, const TypeMeta* schema);
-
-    /// Check equality of two values
     bool (*equals)(const void* a, const void* b, const TypeMeta* schema);
-
-    /// Convert value to string representation
+    size_t (*hash)(const void* obj, const TypeMeta* schema);
     std::string (*to_string)(const void* obj, const TypeMeta* schema);
-
-    // ========== Python Interop ==========
-
-    /// Convert C++ value to Python object
     nb::object (*to_python)(const void* obj, const TypeMeta* schema);
-
-    /// Convert Python object to C++ value (dst must be constructed)
     void (*from_python)(void* dst, const nb::object& src, const TypeMeta* schema);
 
-    // ========== Hashable Operations (optional) ==========
+    // ========== Kind-Specific Tagged Union ==========
 
-    /// Compute hash of value (nullptr if not hashable)
-    size_t (*hash)(const void* obj, const TypeMeta* schema);
+    TypeKind kind;
 
-    // ========== Comparable Operations (optional) ==========
+    union {
+        atomic_ops_t atomic;
+        bundle_ops_t bundle;
+        tuple_ops_t tuple;
+        list_ops_t list;
+        set_ops_t set;
+        map_ops_t map;
+        cyclic_buffer_ops_t cyclic_buffer;
+        queue_ops_t queue;
+    } specific;
 
-    /// Less-than comparison (nullptr if not comparable)
-    bool (*less_than)(const void* a, const void* b, const TypeMeta* schema);
+    // ========== Dispatch Methods for Kind-Specific Operations ==========
 
-    // ========== Iterable Operations (optional) ==========
+    /// Get number of elements. Returns 0 for Atomic.
+    [[nodiscard]] size_t size(const void* obj, const TypeMeta* schema) const {
+        switch (kind) {
+            case TypeKind::Bundle:      return specific.bundle.size(obj, schema);
+            case TypeKind::Tuple:       return specific.tuple.size(obj, schema);
+            case TypeKind::List:        return specific.list.size(obj, schema);
+            case TypeKind::Set:         return specific.set.size(obj, schema);
+            case TypeKind::Map:         return specific.map.size(obj, schema);
+            case TypeKind::CyclicBuffer:return specific.cyclic_buffer.size(obj, schema);
+            case TypeKind::Queue:       return specific.queue.size(obj, schema);
+            default:                    return 0;
+        }
+    }
 
-    /// Get number of elements (nullptr if not iterable)
-    size_t (*size)(const void* obj, const TypeMeta* schema);
+    /// Whether this type supports size()
+    [[nodiscard]] bool has_size() const { return kind != TypeKind::Atomic; }
 
-    // ========== Indexable Operations (optional) ==========
+    /// Get element at index. Returns nullptr for unsupported kinds.
+    [[nodiscard]] const void* at(const void* obj, size_t index, const TypeMeta* schema) const {
+        switch (kind) {
+            case TypeKind::Bundle:      return specific.bundle.at(obj, index, schema);
+            case TypeKind::Tuple:       return specific.tuple.at(obj, index, schema);
+            case TypeKind::List:        return specific.list.at(obj, index, schema);
+            case TypeKind::Set:         return specific.set.at(obj, index, schema);
+            case TypeKind::CyclicBuffer:return specific.cyclic_buffer.at(obj, index, schema);
+            case TypeKind::Queue:       return specific.queue.at(obj, index, schema);
+            default:                    return nullptr;
+        }
+    }
 
-    /// Get element at index (nullptr if not indexable)
-    const void* (*get_at)(const void* obj, size_t index, const TypeMeta* schema);
+    /// Set element at index. No-op for unsupported kinds.
+    void set_at(void* obj, size_t index, const void* value, const TypeMeta* schema) const {
+        switch (kind) {
+            case TypeKind::Bundle:      specific.bundle.set_at(obj, index, value, schema); break;
+            case TypeKind::Tuple:       specific.tuple.set_at(obj, index, value, schema); break;
+            case TypeKind::List:        specific.list.set_at(obj, index, value, schema); break;
+            case TypeKind::CyclicBuffer:specific.cyclic_buffer.set_at(obj, index, value, schema); break;
+            default: break;
+        }
+    }
 
-    /// Set element at index (nullptr if not indexable)
-    void (*set_at)(void* obj, size_t index, const void* value, const TypeMeta* schema);
+    /// Push a value. Supported by CyclicBuffer and Queue.
+    void push(void* obj, const void* value, const TypeMeta* schema) const {
+        switch (kind) {
+            case TypeKind::CyclicBuffer:specific.cyclic_buffer.push(obj, value, schema); break;
+            case TypeKind::Queue:       specific.queue.push(obj, value, schema); break;
+            default: break;
+        }
+    }
 
-    // ========== Bundle Operations (optional) ==========
+    /// Whether this type supports push()
+    [[nodiscard]] bool has_push() const {
+        return kind == TypeKind::CyclicBuffer || kind == TypeKind::Queue;
+    }
 
-    /// Get field by name (nullptr if not a bundle)
-    const void* (*get_field)(const void* obj, const char* name, const TypeMeta* schema);
+    /// Remove the front element. Supported by CyclicBuffer and Queue.
+    void pop(void* obj, const TypeMeta* schema) const {
+        switch (kind) {
+            case TypeKind::CyclicBuffer:specific.cyclic_buffer.pop(obj, schema); break;
+            case TypeKind::Queue:       specific.queue.pop(obj, schema); break;
+            default: break;
+        }
+    }
 
-    /// Set field by name (nullptr if not a bundle)
-    void (*set_field)(void* obj, const char* name, const void* value, const TypeMeta* schema);
+    /// Whether this type supports pop()
+    [[nodiscard]] bool has_pop() const {
+        return kind == TypeKind::CyclicBuffer || kind == TypeKind::Queue;
+    }
 
-    // ========== Set Operations (optional) ==========
+    /// Get field by name (Bundle only). Returns nullptr for other kinds.
+    [[nodiscard]] const void* get_field(const void* obj, const char* name, const TypeMeta* schema) const {
+        if (kind == TypeKind::Bundle) return specific.bundle.get_field(obj, name, schema);
+        return nullptr;
+    }
 
-    /// Check if element is in set (nullptr if not a set)
-    bool (*contains)(const void* obj, const void* element, const TypeMeta* schema);
+    /// Set field by name (Bundle only). No-op for other kinds.
+    void set_field(void* obj, const char* name, const void* value, const TypeMeta* schema) const {
+        if (kind == TypeKind::Bundle) specific.bundle.set_field(obj, name, value, schema);
+    }
 
-    /// Insert element into set (nullptr if not a set)
-    void (*insert)(void* obj, const void* element, const TypeMeta* schema);
+    /// Check if element/key is contained. Returns false for unsupported kinds.
+    [[nodiscard]] bool contains(const void* obj, const void* element, const TypeMeta* schema) const {
+        switch (kind) {
+            case TypeKind::Set: return specific.set.contains(obj, element, schema);
+            case TypeKind::Map: return specific.map.contains(obj, element, schema);
+            default:            return false;
+        }
+    }
 
-    /// Remove element from set (nullptr if not a set)
-    void (*erase)(void* obj, const void* element, const TypeMeta* schema);
+    /// Add element (Set only). No-op for other kinds.
+    void add(void* obj, const void* element, const TypeMeta* schema) const {
+        if (kind == TypeKind::Set) specific.set.add(obj, element, schema);
+    }
 
-    // ========== Map Operations (optional) ==========
+    /// Remove element/key. No-op for unsupported kinds.
+    void remove(void* obj, const void* element, const TypeMeta* schema) const {
+        switch (kind) {
+            case TypeKind::Set: specific.set.remove(obj, element, schema); break;
+            case TypeKind::Map: specific.map.remove(obj, element, schema); break;
+            default: break;
+        }
+    }
 
-    /// Get value by key (nullptr if not a map)
-    const void* (*map_get)(const void* obj, const void* key, const TypeMeta* schema);
+    /// Get map value by key (Map only). Returns nullptr for other kinds.
+    [[nodiscard]] const void* map_at(const void* obj, const void* key, const TypeMeta* schema) const {
+        if (kind == TypeKind::Map) return specific.map.at(obj, key, schema);
+        return nullptr;
+    }
 
-    /// Set value by key (nullptr if not a map)
-    void (*map_set)(void* obj, const void* key, const void* value, const TypeMeta* schema);
+    /// Set map value by key (Map only). No-op for other kinds.
+    void set_item(void* obj, const void* key, const void* value, const TypeMeta* schema) const {
+        if (kind == TypeKind::Map) specific.map.set_item(obj, key, value, schema);
+    }
 
-    // ========== List Operations (optional) ==========
+    /// Resize collection (List only). No-op for other kinds.
+    void resize(void* obj, size_t new_size, const TypeMeta* schema) const {
+        if (kind == TypeKind::List) specific.list.resize(obj, new_size, schema);
+    }
 
-    /// Resize list (nullptr if not a resizable list)
-    void (*resize)(void* obj, size_t new_size, const TypeMeta* schema);
+    /// Whether this type supports resize()
+    [[nodiscard]] bool has_resize() const { return kind == TypeKind::List; }
 
-    /// Clear all elements (nullptr if not clearable)
-    void (*clear)(void* obj, const TypeMeta* schema);
+    /// Clear all elements. No-op for unsupported kinds.
+    void clear(void* obj, const TypeMeta* schema) const {
+        switch (kind) {
+            case TypeKind::List:        specific.list.clear(obj, schema); break;
+            case TypeKind::Set:         specific.set.clear(obj, schema); break;
+            case TypeKind::Map:         specific.map.clear(obj, schema); break;
+            case TypeKind::CyclicBuffer:specific.cyclic_buffer.clear(obj, schema); break;
+            case TypeKind::Queue:       specific.queue.clear(obj, schema); break;
+            default: break;
+        }
+    }
+
+    /// Whether this type supports clear()
+    [[nodiscard]] bool has_clear() const {
+        return kind == TypeKind::List || kind == TypeKind::Set ||
+               kind == TypeKind::Map || kind == TypeKind::CyclicBuffer ||
+               kind == TypeKind::Queue;
+    }
+
+    /// Less-than comparison (Atomic only). Returns false for other kinds.
+    [[nodiscard]] bool less_than(const void* a, const void* b, const TypeMeta* schema) const {
+        if (kind == TypeKind::Atomic) return specific.atomic.less_than(a, b, schema);
+        return false;
+    }
 };
 
 // ============================================================================
@@ -219,7 +387,7 @@ struct TypeOps {
  * @brief Complete metadata describing a type.
  *
  * TypeMeta is the schema for a type. It contains size/alignment information,
- * the type kind, capability flags, and a pointer to the operations vtable.
+ * the type kind, capability flags, and type-erased operations stored by value.
  * For composite types, it also contains element/field information.
  */
 struct TypeMeta {
@@ -227,7 +395,17 @@ struct TypeMeta {
     size_t alignment;         ///< Alignment requirement
     TypeKind kind;            ///< Type category
     TypeFlags flags;          ///< Capability flags
-    const TypeOps* ops;       ///< Type-erased operations vtable
+
+    // ========== Type-Erased Operations (stored by value) ==========
+
+    type_ops ops_;            ///< Operations for this type
+
+    /// Access the type operations
+    [[nodiscard]] const type_ops& ops() const { return ops_; }
+
+    // ========== Human-Readable Name ==========
+
+    const char* name{nullptr};         ///< Human-readable type name (owned by TypeRegistry string pool)
 
     // ========== Composite Type Information ==========
 
@@ -239,6 +417,35 @@ struct TypeMeta {
     // ========== Fixed-Size Collection Information ==========
 
     size_t fixed_size;                 ///< 0 = dynamic, >0 = fixed capacity
+
+    // ========== Static Lookup Methods ==========
+
+    /**
+     * @brief Look up a TypeMeta by name.
+     *
+     * @param type_name The human-readable type name (e.g., "int", "str", "bool")
+     * @return Pointer to the TypeMeta, or nullptr if not found
+     */
+    static const TypeMeta* get(const std::string& type_name);
+
+    /**
+     * @brief Look up a TypeMeta by C++ type.
+     *
+     * @tparam T The C++ type
+     * @return Pointer to the TypeMeta, or nullptr if not registered
+     */
+    template<typename T>
+    static const TypeMeta* get();
+
+    /**
+     * @brief Look up a TypeMeta from a Python type object.
+     *
+     * Requires GIL to be held by caller.
+     *
+     * @param py_type The Python type object
+     * @return Pointer to the TypeMeta, or nullptr if not found
+     */
+    static const TypeMeta* from_python_type(nb::handle py_type);
 
     // ========== Query Methods ==========
 
@@ -311,15 +518,15 @@ struct ScalarOps {
         new (dst) T{};
     }
 
-    static void destruct(void* obj, const TypeMeta*) {
+    static void destroy(void* obj, const TypeMeta*) {
         static_cast<T*>(obj)->~T();
     }
 
-    static void copy_assign(void* dst, const void* src, const TypeMeta*) {
+    static void copy(void* dst, const void* src, const TypeMeta*) {
         *static_cast<T*>(dst) = *static_cast<const T*>(src);
     }
 
-    static void move_assign(void* dst, void* src, const TypeMeta*) {
+    static void move(void* dst, void* src, const TypeMeta*) {
         *static_cast<T*>(dst) = std::move(*static_cast<T*>(src));
     }
 
@@ -361,33 +568,25 @@ struct ScalarOps {
         *static_cast<T*>(dst) = nb::cast<T>(src);
     }
 
-    /// Get the operations vtable for this scalar type
-    static constexpr TypeOps make_ops() {
-        return TypeOps{
-            &construct,
-            &destruct,
-            &copy_assign,
-            &move_assign,
-            &move_construct,
-            &equals,
-            &to_string,
-            &to_python,
-            &from_python,
-            &hash,
-            &less_than,
-            nullptr,  // size (not iterable)
-            nullptr,  // get_at (not indexable)
-            nullptr,  // set_at (not indexable)
-            nullptr,  // get_field (not bundle)
-            nullptr,  // set_field (not bundle)
-            nullptr,  // contains (not set)
-            nullptr,  // insert (not set)
-            nullptr,  // erase (not set)
-            nullptr,  // map_get (not map)
-            nullptr,  // map_set (not map)
-            nullptr,  // resize (not resizable)
-            nullptr,  // clear (not clearable)
-        };
+    /// Build the type_ops for this scalar type
+    static type_ops make_ops() {
+        type_ops ops{};
+        // Common ops
+        ops.construct = &construct;
+        ops.destroy = &destroy;
+        ops.copy = &copy;
+        ops.move = &move;
+        ops.move_construct = &move_construct;
+        ops.equals = &equals;
+        ops.hash = &hash;
+        ops.to_string = &to_string;
+        ops.to_python = &to_python;
+        ops.from_python = &from_python;
+        // Kind
+        ops.kind = TypeKind::Atomic;
+        // Atomic-specific ops
+        ops.specific.atomic = {&less_than};
+        return ops;
     }
 };
 

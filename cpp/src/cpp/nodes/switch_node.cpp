@@ -76,9 +76,9 @@ namespace hgraph {
         }
     }
 
-    bool SwitchNode::keys_equal(const value::ConstValueView& a, const value::ConstValueView& b) const {
+    bool SwitchNode::keys_equal(const value::View& a, const value::View& b) const {
         if (!a.valid() || !b.valid()) return false;
-        return _key_type->ops->equals(a.data(), b.data(), _key_type);
+        return _key_type->ops().equals(a.data(), b.data(), _key_type);
     }
 
     void SwitchNode::eval() {
@@ -98,7 +98,7 @@ namespace hgraph {
 
             // Check if key changed
             bool key_changed = !_active_key.has_value() ||
-                               !keys_equal(current_key_view, _active_key->const_view());
+                               !keys_equal(current_key_view, _active_key->view());
 
             if (_reload_on_ticked || key_changed) {
                 if (_active_key.has_value()) {
@@ -141,7 +141,7 @@ namespace hgraph {
                 new_node_id.push_back(-_count);
 
                 // Get key string for graph label
-                std::string key_str = _key_type->ops->to_string(_active_key->data(), _key_type);
+                std::string key_str = _key_type->ops().to_string(_active_key->data(), _key_type);
                 _active_graph = _active_graph_builder->make_instance(new_node_id, this, key_str);
 
                 // Set up evaluation engine
@@ -175,13 +175,13 @@ namespace hgraph {
     void SwitchNode::wire_graph(graph_s_ptr &graph) {
         if (!_active_key.has_value()) return;
 
-        auto active_key_view = _active_key->const_view();
+        auto active_key_view = _active_key->view();
 
         // For lookups, we use active_key_view if specific, otherwise fall back to defaults
 
         // Set recordable ID if needed
         if (!_recordable_id.empty()) {
-            std::string key_str = _key_type->ops->to_string(_active_key->data(), _key_type);
+            std::string key_str = _key_type->ops().to_string(_active_key->data(), _key_type);
             std::string full_id = fmt::format("{}[{}]", _recordable_id, key_str);
             set_parent_recordable_id(*graph, full_id);
         }
@@ -204,7 +204,7 @@ namespace hgraph {
                 if (arg == "key") {
                     // The key node is a Python stub whose eval function exposes a 'key' attribute.
                     auto &key_node = dynamic_cast<PythonNode &>(*node);
-                    nb::object py_key = _key_type->ops->to_python(_active_key->data(), _key_type);
+                    nb::object py_key = _key_type->ops().to_python(_active_key->data(), _key_type);
                     nb::setattr(key_node.eval_fn(), "key", py_key);
                 } else {
                     // Python expects REF wiring: clone binding from outer REF input to inner REF input 'ts'
@@ -239,7 +239,7 @@ namespace hgraph {
 
     void SwitchNode::unwire_graph(graph_s_ptr &graph) {
         if (_old_output != nullptr && _active_key.has_value()) {
-            auto active_key_view = _active_key->const_view();
+            auto active_key_view = _active_key->view();
 
             int output_node_id = -1;
             auto output_id_it = _output_node_ids->find(active_key_view);

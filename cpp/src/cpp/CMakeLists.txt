@@ -16,6 +16,7 @@ set(HGRAPH_SOURCES
         api/python/py_tss.cpp
         api/python/py_tsw.cpp
         api/python/py_value.cpp
+        api/python/py_ts_type_registry.cpp
         api/python/wrapper_factory.cpp
         builders/builder.cpp
         builders/graph_builder.cpp
@@ -106,6 +107,7 @@ set(HGRAPH_SOURCES
         types/tsw.cpp
         types/value/type_registry.cpp
         types/value/type_meta_bindings.cpp
+        types/time_series/ts_type_registry.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
@@ -118,7 +120,7 @@ add_definitions(-Dhgraph_EXPORTS)
 nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
-target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt ddvisitor)
+target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt ddvisitor dynamic_bitset ${HGRAPH_NANOARROW_TARGET})
 
 # Propagate HGRAPH_WITH_BACKWARD to the compiler for conditional compilation
 if (HGRAPH_WITH_BACKWARD)

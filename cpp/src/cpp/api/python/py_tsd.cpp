@@ -12,11 +12,12 @@ namespace hgraph
         return static_cast_impl<TimeSeriesDictOutputImpl>();
     }
 
-    value::Value<> PyTimeSeriesDictOutput::key_from_python(const nb::object &key) const {
+    value::Value PyTimeSeriesDictOutput::key_from_python(const nb::object &key) const {
         auto self = impl();
         const auto *key_schema = self->key_type_meta();
-        value::Value<> key_val(key_schema);
-        key_schema->ops->from_python(key_val.data(), key, key_schema);
+        value::Value key_val(key_schema);
+        key_val.emplace();
+        key_schema->ops().from_python(key_val.data(), key, key_schema);
         return key_val;
     }
 
@@ -28,24 +29,24 @@ namespace hgraph
         auto self = impl();
         if (get_key_set_id().is(item)) { return key_set(); }
         auto key_val = key_from_python(item);
-        return wrap_time_series(self->operator[](key_val.const_view()));
+        return wrap_time_series(self->operator[](key_val.view()));
     }
 
     nb::object PyTimeSeriesDictOutput::get(const nb::object &item, const nb::object &default_value) const {
         auto self = impl();
         auto key_val = key_from_python(item);
-        if (self->contains(key_val.const_view())) { return wrap_time_series(self->operator[](key_val.const_view())); }
+        if (self->contains(key_val.view())) { return wrap_time_series(self->operator[](key_val.view())); }
         return default_value;
     }
 
     nb::object PyTimeSeriesDictOutput::get_or_create(const nb::object &key) {
         auto key_val = key_from_python(key);
-        return wrap_time_series(impl()->get_or_create(key_val.const_view()));
+        return wrap_time_series(impl()->get_or_create(key_val.view()));
     }
 
     void PyTimeSeriesDictOutput::create(const nb::object &item) {
         auto key_val = key_from_python(item);
-        impl()->create(key_val.const_view());
+        impl()->create(key_val.view());
     }
 
     nb::object PyTimeSeriesDictOutput::iter() const {
@@ -54,7 +55,7 @@ namespace hgraph
 
     bool PyTimeSeriesDictOutput::contains(const nb::object &item) const {
         auto key_val = key_from_python(item);
-        return impl()->contains(key_val.const_view());
+        return impl()->contains(key_val.view());
     }
 
     nb::object PyTimeSeriesDictOutput::key_set() const {
@@ -96,7 +97,7 @@ namespace hgraph
 
     bool PyTimeSeriesDictOutput::was_modified(const nb::object &key) const {
         auto key_val = key_from_python(key);
-        return impl()->was_modified(key_val.const_view());
+        return impl()->was_modified(key_val.view());
     }
 
     nb::object PyTimeSeriesDictOutput::valid_keys() const {
@@ -141,7 +142,7 @@ namespace hgraph
 
     bool PyTimeSeriesDictOutput::was_added(const nb::object &key) const {
         auto key_val = key_from_python(key);
-        return impl()->was_added(key_val.const_view());
+        return impl()->was_added(key_val.view());
     }
 
     nb::object PyTimeSeriesDictOutput::removed_keys() const {
@@ -178,7 +179,7 @@ namespace hgraph
 
     bool PyTimeSeriesDictOutput::was_removed(const nb::object &key) const {
         auto key_val = key_from_python(key);
-        return impl()->was_removed(key_val.const_view());
+        return impl()->was_removed(key_val.view());
     }
 
     nb::object PyTimeSeriesDictOutput::key_from_value(const nb::object &value) const {
@@ -189,7 +190,7 @@ namespace hgraph
         try {
             auto key_view = impl()->key_from_ts(p);
             const auto *key_schema = impl()->key_type_meta();
-            return key_schema->ops->to_python(key_view.data(), key_schema);
+            return key_schema->ops().to_python(key_view.data(), key_schema);
         } catch (const std::exception &e) {
             return nb::none();
         }
@@ -232,11 +233,12 @@ namespace hgraph
         return static_cast_impl<TimeSeriesDictInputImpl>();
     }
 
-    value::Value<> PyTimeSeriesDictInput::key_from_python(const nb::object &key) const {
+    value::Value PyTimeSeriesDictInput::key_from_python(const nb::object &key) const {
         auto self = impl();
         const auto *key_schema = self->key_type_meta();
-        value::Value<> key_val(key_schema);
-        key_schema->ops->from_python(key_val.data(), key, key_schema);
+        value::Value key_val(key_schema);
+        key_val.emplace();
+        key_schema->ops().from_python(key_val.data(), key, key_schema);
         return key_val;
     }
 
@@ -248,24 +250,24 @@ namespace hgraph
         auto self = impl();
         if (get_key_set_id().is(item)) { return key_set(); }
         auto key_val = key_from_python(item);
-        return wrap_time_series(self->operator[](key_val.const_view()));
+        return wrap_time_series(self->operator[](key_val.view()));
     }
 
     nb::object PyTimeSeriesDictInput::get(const nb::object &item, const nb::object &default_value) const {
         auto self = impl();
         auto key_val = key_from_python(item);
-        if (self->contains(key_val.const_view())) { return wrap_time_series(self->operator[](key_val.const_view())); }
+        if (self->contains(key_val.view())) { return wrap_time_series(self->operator[](key_val.view())); }
         return default_value;
     }
 
     nb::object PyTimeSeriesDictInput::get_or_create(const nb::object &key) {
         auto key_val = key_from_python(key);
-        return wrap_time_series(impl()->get_or_create(key_val.const_view()));
+        return wrap_time_series(impl()->get_or_create(key_val.view()));
     }
 
     void PyTimeSeriesDictInput::create(const nb::object &item) {
         auto key_val = key_from_python(item);
-        impl()->create(key_val.const_view());
+        impl()->create(key_val.view());
     }
 
     nb::object PyTimeSeriesDictInput::iter() const {
@@ -274,7 +276,7 @@ namespace hgraph
 
     bool PyTimeSeriesDictInput::contains(const nb::object &item) const {
         auto key_val = key_from_python(item);
-        return impl()->contains(key_val.const_view());
+        return impl()->contains(key_val.view());
     }
 
     nb::object PyTimeSeriesDictInput::key_set() const {
@@ -316,7 +318,7 @@ namespace hgraph
 
     bool PyTimeSeriesDictInput::was_modified(const nb::object &key) const {
         auto key_val = key_from_python(key);
-        return impl()->was_modified(key_val.const_view());
+        return impl()->was_modified(key_val.view());
     }
 
     nb::object PyTimeSeriesDictInput::valid_keys() const {
@@ -361,7 +363,7 @@ namespace hgraph
 
     bool PyTimeSeriesDictInput::was_added(const nb::object &key) const {
         auto key_val = key_from_python(key);
-        return impl()->was_added(key_val.const_view());
+        return impl()->was_added(key_val.view());
     }
 
     nb::object PyTimeSeriesDictInput::removed_keys() const {
@@ -388,7 +390,7 @@ namespace hgraph
 
     bool PyTimeSeriesDictInput::was_removed(const nb::object &key) const {
         auto key_val = key_from_python(key);
-        return impl()->was_removed(key_val.const_view());
+        return impl()->was_removed(key_val.view());
     }
 
     nb::object PyTimeSeriesDictInput::key_from_value(const nb::object &value) const {
@@ -399,7 +401,7 @@ namespace hgraph
         try {
             auto key_view = impl()->key_from_ts(p);
             const auto *key_schema = impl()->key_type_meta();
-            return key_schema->ops->to_python(key_view.data(), key_schema);
+            return key_schema->ops().to_python(key_view.data(), key_schema);
         } catch (const std::exception &e) {
             return nb::none();
         }
@@ -418,12 +420,12 @@ namespace hgraph
 
     void PyTimeSeriesDictInput::on_key_added(const nb::object &key) {
         auto key_val = key_from_python(key);
-        impl()->on_key_added(key_val.const_view());
+        impl()->on_key_added(key_val.view());
     }
 
     void PyTimeSeriesDictInput::on_key_removed(const nb::object &key) {
         auto key_val = key_from_python(key);
-        impl()->on_key_removed(key_val.const_view());
+        impl()->on_key_removed(key_val.view());
     }
 
     // ===== Nanobind Registration =====

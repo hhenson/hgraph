@@ -17,19 +17,19 @@ namespace hgraph {
      * @brief Non-templated SwitchNodeBuilder using Value-based key storage.
      *
      * This builder creates SwitchNode instances with type-erased key storage.
-     * Keys are stored as PlainValue with heterogeneous lookup support.
+     * Keys are stored as Value with heterogeneous lookup support.
      * Maps are stored as shared_ptr and shared between builder and nodes.
      */
     struct SwitchNodeBuilder final : BaseNodeBuilder {
         using BaseNodeBuilder::BaseNodeBuilder;
 
-        // Map types using PlainValue keys with heterogeneous lookup
-        using graph_builders_map = std::unordered_map<value::PlainValue, graph_builder_s_ptr,
-                                                       PlainValueHash, PlainValueEqual>;
-        using input_node_ids_map = std::unordered_map<value::PlainValue, std::unordered_map<std::string, int>,
-                                                       PlainValueHash, PlainValueEqual>;
-        using output_node_ids_map = std::unordered_map<value::PlainValue, int,
-                                                        PlainValueHash, PlainValueEqual>;
+        // Map types using Value keys with heterogeneous lookup
+        using graph_builders_map = std::unordered_map<value::Value, graph_builder_s_ptr,
+                                                       ValueHash, ValueEqual>;
+        using input_node_ids_map = std::unordered_map<value::Value, std::unordered_map<std::string, int>,
+                                                       ValueHash, ValueEqual>;
+        using output_node_ids_map = std::unordered_map<value::Value, int,
+                                                        ValueHash, ValueEqual>;
 
         // Shared pointer types for maps (shared between builder and node instances)
         using graph_builders_map_ptr = std::shared_ptr<graph_builders_map>;

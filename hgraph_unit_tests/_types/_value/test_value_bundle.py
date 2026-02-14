@@ -15,7 +15,7 @@ _hgraph = pytest.importorskip("hgraph._hgraph")
 value = _hgraph.value  # Value types are in the value submodule
 
 # Convenience aliases
-PlainValue = value.PlainValue
+Value = value.Value
 TypeRegistry = value.TypeRegistry
 TypeKind = value.TypeKind
 
@@ -157,19 +157,25 @@ def test_empty_bundle_allowed(type_registry):
 
 def test_create_bundle_value_from_schema(simple_bundle_schema):
     """Value can be created from bundle schema."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
+
+    v.emplace()
     assert v.valid()
 
 
 def test_bundle_value_has_correct_schema(simple_bundle_schema):
     """Bundle value reports correct schema."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
+
+    v.emplace()
     assert v.schema == simple_bundle_schema
 
 
 def test_bundle_view_set_by_name_with_native_types(simple_bundle_schema):
     """BundleView.set(name, value) auto-wraps native types."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
+
+    v.emplace()
     bv = v.as_bundle()
 
     bv.set("x", 10)
@@ -183,7 +189,9 @@ def test_bundle_view_set_by_name_with_native_types(simple_bundle_schema):
 
 def test_bundle_view_set_via_at_name_mut(simple_bundle_schema):
     """BundleView.at_name_mut() returns mutable view for setting values."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
+
+    v.emplace()
     bv = v.as_bundle()
 
     bv.at_name_mut("x").set_int(10)
@@ -197,7 +205,9 @@ def test_bundle_view_set_via_at_name_mut(simple_bundle_schema):
 
 def test_bundle_view_set_by_index(simple_bundle_schema):
     """BundleView field access by index."""
-    v = PlainValue(simple_bundle_schema)
+    v = Value(simple_bundle_schema)
+
+    v.emplace()
     bv = v.as_bundle()
 
     bv.at(0).set_int(100)
@@ -208,14 +218,16 @@ def test_bundle_view_set_by_index(simple_bundle_schema):
 
 
 def test_const_bundle_view_at_by_name(simple_bundle_schema):
-    """ConstBundleView.at_name(name) provides read access."""
-    v = PlainValue(simple_bundle_schema)
+    """View.as_bundle() provides read access."""
+    v = Value(simple_bundle_schema)
+
+    v.emplace()
     bv = v.as_bundle()
     bv.at_name_mut("x").set_int(42)
     bv.at_name_mut("y").set_double(3.14)
     bv.at_name_mut("name").set_string("test")
 
-    cbv = v.const_view().as_bundle()
+    cbv = v.view().as_bundle()
 
     assert cbv.at_name("x").as_int() == 42
     assert abs(cbv["y"].as_double() - 3.14) < 1e-10
@@ -224,8 +236,10 @@ def test_const_bundle_view_at_by_name(simple_bundle_schema):
 
 def test_bundle_has_field(simple_bundle_schema):
     """has_field() returns True for existing fields."""
-    v = PlainValue(simple_bundle_schema)
-    cbv = v.const_view().as_bundle()
+    v = Value(simple_bundle_schema)
+
+    v.emplace()
+    cbv = v.view().as_bundle()
 
     assert cbv.has_field("x")
     assert cbv.has_field("y")
@@ -235,8 +249,10 @@ def test_bundle_has_field(simple_bundle_schema):
 
 def test_bundle_field_index_lookup(simple_bundle_schema):
     """field_index() returns correct index for field name."""
-    v = PlainValue(simple_bundle_schema)
-    cbv = v.const_view().as_bundle()
+    v = Value(simple_bundle_schema)
+
+    v.emplace()
+    cbv = v.view().as_bundle()
 
     assert cbv.field_index("x") == 0
     assert cbv.field_index("y") == 1
@@ -245,7 +261,9 @@ def test_bundle_field_index_lookup(simple_bundle_schema):
 
 def test_nested_bundle_access(nested_bundle_schema):
     """Nested bundle fields can be accessed."""
-    v = PlainValue(nested_bundle_schema)
+    v = Value(nested_bundle_schema)
+
+    v.emplace()
     bv = v.as_bundle()
 
     bv.at_name_mut("id").set_int(42)
@@ -261,8 +279,10 @@ def test_nested_bundle_access(nested_bundle_schema):
 
 def test_bundle_access_nonexistent_field_raises(simple_bundle_schema):
     """Accessing non-existent field raises error."""
-    v = PlainValue(simple_bundle_schema)
-    cbv = v.const_view().as_bundle()
+    v = Value(simple_bundle_schema)
+
+    v.emplace()
+    cbv = v.view().as_bundle()
 
     with pytest.raises((KeyError, RuntimeError)):
         _ = cbv.at_name("nonexistent")
@@ -270,29 +290,51 @@ def test_bundle_access_nonexistent_field_raises(simple_bundle_schema):
 
 def test_bundle_equals_same_values(simple_bundle_schema):
     """Bundles with same values are equal."""
-    v1 = PlainValue(simple_bundle_schema)
+    v1 = Value(simple_bundle_schema)
+
+    v1.emplace()
     bv1 = v1.as_bundle()
     bv1.at_name_mut("x").set_int(42)
     bv1.at_name_mut("y").set_double(3.14)
     bv1.at_name_mut("name").set_string("test")
 
-    v2 = PlainValue(simple_bundle_schema)
+    v2 = Value(simple_bundle_schema)
+
+    v2.emplace()
     bv2 = v2.as_bundle()
     bv2.at_name_mut("x").set_int(42)
     bv2.at_name_mut("y").set_double(3.14)
     bv2.at_name_mut("name").set_string("test")
 
-    assert v1.equals(v2.const_view())
+    assert v1.equals(v2.view())
 
 
 def test_bundle_not_equals_different_values(simple_bundle_schema):
     """Bundles with different values are not equal."""
-    v1 = PlainValue(simple_bundle_schema)
+    v1 = Value(simple_bundle_schema)
+
+    v1.emplace()
     bv1 = v1.as_bundle()
     bv1.at_name_mut("x").set_int(42)
 
-    v2 = PlainValue(simple_bundle_schema)
+    v2 = Value(simple_bundle_schema)
+
+    v2.emplace()
     bv2 = v2.as_bundle()
     bv2.at_name_mut("x").set_int(100)
 
-    assert not v1.equals(v2.const_view())
+    assert not v1.equals(v2.view())
+
+
+def test_bundle_from_python_none_field_round_trips_as_null(simple_bundle_schema):
+    """Bundle fields accept None as a null state and preserve schema."""
+    v = Value(simple_bundle_schema)
+
+    v.emplace()
+    v.from_python({"x": 10, "y": None, "name": "origin"})
+
+    bv = v.view().as_bundle()
+    assert bv["x"].as_int() == 10
+    assert not bv["y"].valid()
+    assert bv["name"].as_string() == "origin"
+    assert v.to_python() == {"x": 10, "y": None, "name": "origin"}

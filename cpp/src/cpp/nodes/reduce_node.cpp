@@ -59,7 +59,7 @@ namespace hgraph {
         if (tsd->valid()) {
             // Get all keys that are valid but NOT added (i.e., keys present before start)
             // This matches Python: keys = key_set.valid - key_set.added
-            std::vector<value::ConstValueView> keys;
+            std::vector<value::View> keys;
             auto &key_set = tsd->key_set();
             for (auto elem : key_set.value_view()) {
                 if (!key_set.was_added(elem)) {
@@ -96,6 +96,59 @@ namespace hgraph {
         // the possibility of growing the tree just to tear it down again)
         auto removed_keys = key_set.collect_removed();
         remove_nodes_from_views(removed_keys);
+
+        // When the upstream REF chain becomes empty (e.g. if_ switches to False),
+        // the cascading un_bind_output may not perfectly report all key removals
+        // through the key_set. Detect this by checking if the accessor's input is
+        // empty/unbound, and if so remove all bound keys.
+        // NOTE: We do NOT check individual key ref values - empty refs on individual
+        // keys are valid (e.g. when reduce lambda uses default() to handle them).
+        bool all_keys_stale = false;
+        if (!tsd->has_output()) {
+            all_keys_stale = true;
+        } else if (tsd->output()) {
+            auto tsd_output = tsd->output();
+            if (tsd_output->has_owning_node()) {
+                auto accessor_node = tsd_output->owning_node();
+                auto accessor_input = accessor_node->input();
+                if (accessor_input) {
+                    for (size_t i = 0; i < accessor_input->size(); ++i) {
+                        auto input_item = (*accessor_input)[i];
+                        if (auto ref_input = dynamic_cast<TimeSeriesReferenceInput*>(input_item.get())) {
+                            if (ref_input->value().is_empty()) {
+                                all_keys_stale = true;
+                                break;
+                            }
+                        }
+                        if (auto tsd_input = dynamic_cast<TimeSeriesDictInput*>(input_item.get())) {
+                            if (!tsd_input->has_output()) {
+                                all_keys_stale = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!bound_node_indexes_.empty()) {
+            std::vector<value::View> stale_keys;
+            if (all_keys_stale) {
+                for (const auto &[key, ndx] : bound_node_indexes_) {
+                    stale_keys.push_back(key.view());
+                }
+            } else {
+                // Also catch keys individually missing from the TSD
+                for (const auto &[key, ndx] : bound_node_indexes_) {
+                    if (!tsd->contains(key.view())) {
+                        stale_keys.push_back(key.view());
+                    }
+                }
+            }
+            if (!stale_keys.empty()) {
+                remove_nodes_from_views(stale_keys);
+            }
+        }
 
         auto added_keys = key_set.collect_added();
         add_nodes_from_views(added_keys);
@@ -134,7 +187,7 @@ namespace hgraph {
         return out_node->output();
     }
 
-    void ReduceNode::add_nodes_from_views(const std::vector<value::ConstValueView> &keys) {
+    void ReduceNode::add_nodes_from_views(const std::vector<value::View> &keys) {
         // Grow the tree upfront if needed, to avoid growing while binding
         // This ensures the tree structure is consistent before we start binding keys
         while (free_node_indexes_.size() < keys.size()) { grow_tree(); }
@@ -148,7 +201,7 @@ namespace hgraph {
         }
     }
 
-    void ReduceNode::remove_nodes_from_views(const std::vector<value::ConstValueView> &keys) {
+    void ReduceNode::remove_nodes_from_views(const std::vector<value::View> &keys) {
         for (const auto &key: keys) {
             if (auto it = bound_node_indexes_.find(key); it != bound_node_indexes_.end()) {
                 auto ndx = it->second;
@@ -161,7 +214,7 @@ namespace hgraph {
 
                     // CRITICAL: Save the key and position BEFORE modifying the map, as modifying the map
                     // may invalidate the iterator or cause a rehash
-                    value::PlainValue max_key = max_it->first.const_view().clone();  // Clone the key (PlainValue is move-only)
+                    value::Value max_key = max_it->first.view().clone();  // Clone the key (Value is move-only)
                     auto max_ndx = max_it->second;
 
                     // Match Python: only swap if max is in a HIGHER layer
@@ -310,9 +363,9 @@ namespace hgraph {
                   [](const auto &a, const auto &b) { return a > b; });
     }
 
-    void ReduceNode::bind_key_to_node(const value::ConstValueView &key, const std::tuple<int64_t, int64_t> &ndx) {
-        // Store key as PlainValue (owned copy)
-        bound_node_indexes_[value::PlainValue(key)] = ndx;
+    void ReduceNode::bind_key_to_node(const value::View &key, const std::tuple<int64_t, int64_t> &ndx) {
+        // Store key as Value (owned copy)
+        bound_node_indexes_[value::Value(key)] = ndx;
 
         auto [node_id, side] = ndx;
         auto nodes = get_node(node_id);
@@ -407,8 +460,8 @@ namespace hgraph {
         auto* tsd = const_cast<ReduceNode*>(this)->ts();
         const auto* key_schema = tsd->key_type_meta();
         for (const auto& [key, ndx] : bound_node_indexes_) {
-            // Convert PlainValue key to Python using TypeMeta
-            nb::object py_key = key_schema->ops->to_python(key.data(), key_schema);
+            // Convert Value key to Python using TypeMeta
+            nb::object py_key = key_schema->ops().to_python(key.data(), key_schema);
             result[py_key] = nb::make_tuple(std::get<0>(ndx), std::get<1>(ndx));
         }
         return result;

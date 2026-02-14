@@ -22,9 +22,9 @@ namespace hgraph::value {
  * same element type.
  */
 struct TrackedSetStorage {
-    PlainValue _value;            // Current set contents
-    PlainValue _added;            // Elements added this cycle
-    PlainValue _removed;          // Elements removed this cycle
+    Value _value;            // Current set contents
+    Value _added;            // Elements added this cycle
+    Value _removed;          // Elements removed this cycle
     const TypeMeta* _element_type{nullptr};
     const TypeMeta* _set_schema{nullptr};  // Cached set schema
 
@@ -40,9 +40,12 @@ struct TrackedSetStorage {
         : _element_type(element_type) {
         if (_element_type) {
             _set_schema = TypeRegistry::instance().set(_element_type).build();
-            _value = PlainValue(_set_schema);
-            _added = PlainValue(_set_schema);
-            _removed = PlainValue(_set_schema);
+            _value = Value(_set_schema);
+            _added = Value(_set_schema);
+            _removed = Value(_set_schema);
+            _value.emplace();
+            _added.emplace();
+            _removed.emplace();
         }
     }
 
@@ -55,12 +58,12 @@ struct TrackedSetStorage {
     // ========== View Accessors ==========
 
     /**
-     * @brief Get const view of current set value.
+     * @brief Get read-only view of current set value.
      * @return Empty invalid view if storage not initialized, otherwise set view.
      */
-    [[nodiscard]] ConstSetView value() const {
-        if (!_set_schema) return ConstSetView{};
-        return _value.const_view().as_set();
+    [[nodiscard]] SetView value() const {
+        if (!_set_schema) return SetView{};
+        return SetView(_value.view());
     }
 
     /**
@@ -75,21 +78,21 @@ struct TrackedSetStorage {
     }
 
     /**
-     * @brief Get const view of added elements.
+     * @brief Get read-only view of added elements.
      * @return Empty invalid view if storage not initialized, otherwise set view.
      */
-    [[nodiscard]] ConstSetView added() const {
-        if (!_set_schema) return ConstSetView{};
-        return _added.const_view().as_set();
+    [[nodiscard]] SetView added() const {
+        if (!_set_schema) return SetView{};
+        return SetView(_added.view());
     }
 
     /**
-     * @brief Get const view of removed elements.
+     * @brief Get read-only view of removed elements.
      * @return Empty invalid view if storage not initialized, otherwise set view.
      */
-    [[nodiscard]] ConstSetView removed() const {
-        if (!_set_schema) return ConstSetView{};
-        return _removed.const_view().as_set();
+    [[nodiscard]] SetView removed() const {
+        if (!_set_schema) return SetView{};
+        return SetView(_removed.view());
     }
 
     // ========== Size and State ==========
@@ -120,21 +123,21 @@ struct TrackedSetStorage {
     /**
      * @brief Check if element is in current set.
      */
-    [[nodiscard]] bool contains(const ConstValueView& elem) const {
+    [[nodiscard]] bool contains(const View& elem) const {
         return value().contains(elem);
     }
 
     /**
      * @brief Check if element was added this cycle.
      */
-    [[nodiscard]] bool was_added(const ConstValueView& elem) const {
+    [[nodiscard]] bool was_added(const View& elem) const {
         return added().contains(elem);
     }
 
     /**
      * @brief Check if element was removed this cycle.
      */
-    [[nodiscard]] bool was_removed(const ConstValueView& elem) const {
+    [[nodiscard]] bool was_removed(const View& elem) const {
         return removed().contains(elem);
     }
 
@@ -149,21 +152,21 @@ struct TrackedSetStorage {
      * @param elem The element to add
      * @return true if element was newly added, false if already present
      */
-    bool add(const ConstValueView& elem) {
+    bool add(const View& elem) {
         if (contains(elem)) {
             return false;  // Already in set
         }
 
         // Add to value
-        value().insert(elem);
+        value().add(elem);
 
         // Track delta: if it was removed this cycle, just un-remove it
         auto removed_view = _removed.view().as_set();
         if (removed_view.contains(elem)) {
-            removed_view.erase(elem);
+            removed_view.remove(elem);
         } else {
             // Otherwise track as newly added
-            _added.view().as_set().insert(elem);
+            _added.view().as_set().add(elem);
         }
         return true;
     }
@@ -177,21 +180,21 @@ struct TrackedSetStorage {
      * @param elem The element to remove
      * @return true if element was removed, false if not present
      */
-    bool remove(const ConstValueView& elem) {
+    bool remove(const View& elem) {
         if (!contains(elem)) {
             return false;  // Not in set
         }
 
         // Remove from value
-        value().erase(elem);
+        value().remove(elem);
 
         // Track delta: if it was added this cycle, just un-add it
         auto added_view = _added.view().as_set();
         if (added_view.contains(elem)) {
-            added_view.erase(elem);
+            added_view.remove(elem);
         } else {
             // Otherwise track as newly removed
-            _removed.view().as_set().insert(elem);
+            _removed.view().as_set().add(elem);
         }
         return true;
     }
@@ -218,7 +221,7 @@ struct TrackedSetStorage {
         for (auto elem : val) {
             // Only mark as removed if it wasn't added this cycle
             if (!added_view.contains(elem)) {
-                removed_view.insert(elem);
+                removed_view.add(elem);
             }
         }
         // Clear value and added
@@ -233,8 +236,8 @@ struct TrackedSetStorage {
      */
     template<typename T>
     [[nodiscard]] bool contains(const T& elem) const {
-        Value<> temp(elem);
-        return contains(temp.const_view());
+        Value temp(elem);
+        return contains(View(temp.view()));
     }
 
     /**
@@ -242,8 +245,8 @@ struct TrackedSetStorage {
      */
     template<typename T>
     bool add(const T& elem) {
-        Value<> temp(elem);
-        return add(temp.const_view());
+        Value temp(elem);
+        return add(View(temp.view()));
     }
 
     /**
@@ -251,8 +254,8 @@ struct TrackedSetStorage {
      */
     template<typename T>
     bool remove(const T& elem) {
-        Value<> temp(elem);
-        return remove(temp.const_view());
+        Value temp(elem);
+        return remove(View(temp.view()));
     }
 };
 

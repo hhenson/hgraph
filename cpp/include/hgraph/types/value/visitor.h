@@ -10,7 +10,7 @@
  * Key design principles:
  * - No static dependency on specific scalar types
  * - Dispatch based on TypeKind (Scalar, Tuple, Bundle, List, Set, Map, CyclicBuffer, Queue)
- * - Scalar values are passed as ConstValueView - caller can check type if needed
+ * - Scalar values are passed as View - caller can check type if needed
  * - Overloaded handlers combined into single visitor
  *
  * Reference: ts_design_docs/Value_USER_GUIDE.md Section 8
@@ -18,20 +18,20 @@
  * Usage:
  * @code
  * // Visit with type-specific handlers
- * std::string result = visit(value.const_view(),
- *     [](ConstValueView v) { return "scalar: " + v.to_string(); },
- *     [](ConstTupleView t) { return "tuple[" + std::to_string(t.size()) + "]"; },
- *     [](ConstBundleView b) { return "bundle"; },
- *     [](ConstListView l) { return "list"; },
- *     [](ConstSetView s) { return "set"; },
- *     [](ConstMapView m) { return "map"; }
+ * std::string result = visit(value.view(),
+ *     [](View v) { return "scalar: " + v.to_string(); },
+ *     [](TupleView t) { return "tuple[" + std::to_string(t.size()) + "]"; },
+ *     [](BundleView b) { return "bundle"; },
+ *     [](ListView l) { return "list"; },
+ *     [](SetView s) { return "set"; },
+ *     [](MapView m) { return "map"; }
  * );
  *
  * // Partial handlers with catch-all
- * std::string result = visit(value.const_view(),
- *     [](ConstListView l) { return "list[" + std::to_string(l.size()) + "]"; },
- *     [](ConstMapView m) { return "map"; },
- *     [](ConstValueView v) { return "other: " + v.to_string(); }  // catch-all
+ * std::string result = visit(value.view(),
+ *     [](ListView l) { return "list[" + std::to_string(l.size()) + "]"; },
+ *     [](MapView m) { return "map"; },
+ *     [](View v) { return "other: " + v.to_string(); }  // catch-all
  * );
  * @endcode
  */
@@ -67,16 +67,16 @@ overloaded(Fs...) -> overloaded<Fs...>;
  *
  * Combines handlers using the overloaded pattern and dispatches based on
  * TypeKind. Each handler should accept the appropriate view type:
- * - Scalar: ConstValueView (use is_scalar_type<T>() to check specific types)
- * - Tuple: ConstTupleView
- * - Bundle: ConstBundleView
- * - List: ConstListView
- * - Set: ConstSetView
- * - Map: ConstMapView
- * - CyclicBuffer: ConstCyclicBufferView
- * - Queue: ConstQueueView
+ * - Scalar: View (use is_scalar_type<T>() to check specific types)
+ * - Tuple: TupleView
+ * - Bundle: BundleView
+ * - List: ListView
+ * - Set: SetView
+ * - Map: MapView
+ * - CyclicBuffer: CyclicBufferView
+ * - Queue: QueueView
  *
- * A handler accepting ConstValueView can serve as a catch-all for unhandled types.
+ * A handler accepting View can serve as a catch-all for unhandled types.
  *
  * @tparam Handlers Callable types
  * @param view The value to visit
@@ -84,11 +84,11 @@ overloaded(Fs...) -> overloaded<Fs...>;
  * @return Result of the matching handler
  */
 template<typename... Handlers>
-auto visit(ConstValueView view, Handlers&&... handlers) {
+auto visit(View view, Handlers&&... handlers) {
     auto visitor = overloaded{std::forward<Handlers>(handlers)...};
 
     switch (view.schema()->kind) {
-        case TypeKind::Scalar:
+        case TypeKind::Atomic:
             return visitor(view);
         case TypeKind::Tuple:
             return visitor(view.as_tuple());
@@ -105,7 +105,7 @@ auto visit(ConstValueView view, Handlers&&... handlers) {
         case TypeKind::Queue:
             return visitor(view.as_queue());
         default:
-            return visitor(view);  // Fall back to ConstValueView handler
+            return visitor(view);  // Fall back to View handler
     }
 }
 
@@ -117,7 +117,7 @@ auto visit(ValueView view, Handlers&&... handlers) {
     auto visitor = overloaded{std::forward<Handlers>(handlers)...};
 
     switch (view.schema()->kind) {
-        case TypeKind::Scalar:
+        case TypeKind::Atomic:
             return visitor(view);
         case TypeKind::Tuple:
             return visitor(view.as_tuple());
@@ -147,9 +147,9 @@ auto visit(ValueView view, Handlers&&... handlers) {
  *
  * @code
  * auto result = match<std::string>(view,
- *     when<TypeKind::Scalar>([](ConstValueView v) { return v.to_string(); }),
- *     when<TypeKind::List>([](ConstListView l) { return "list"; }),
- *     otherwise([](ConstValueView) { return "other"; })
+ *     when<TypeKind::Atomic>([](View v) { return v.to_string(); }),
+ *     when<TypeKind::List>([](ListView l) { return "list"; }),
+ *     otherwise([](View) { return "other"; })
  * );
  * @endcode
  */
@@ -159,9 +159,9 @@ struct WhenCase {
     F handler;
 
     template<typename R>
-    bool try_match(ConstValueView view, R& result) const {
+    bool try_match(View view, R& result) const {
         if (view.schema()->kind == K) {
-            if constexpr (K == TypeKind::Scalar) {
+            if constexpr (K == TypeKind::Atomic) {
                 if constexpr (std::is_void_v<R>) {
                     handler(view);
                 } else {
@@ -226,7 +226,7 @@ struct OtherwiseCase {
     F handler;
 
     template<typename R>
-    bool try_match(ConstValueView view, R& result) const {
+    bool try_match(View view, R& result) const {
         if constexpr (std::is_void_v<R>) {
             handler(view);
         } else {
@@ -244,7 +244,7 @@ OtherwiseCase<F> otherwise(F&& handler) {
 namespace detail {
 
 template<typename R, typename Case, typename... Rest>
-bool try_match_cases(ConstValueView view, R& result, const Case& c, const Rest&... rest) {
+bool try_match_cases(View view, R& result, const Case& c, const Rest&... rest) {
     if (c.template try_match<R>(view, result)) {
         return true;
     }
@@ -260,7 +260,7 @@ bool try_match_cases(ConstValueView view, R& result, const Case& c, const Rest&.
  * @brief Match on a Value with when/otherwise cases.
  */
 template<typename R, typename... Cases>
-R match(ConstValueView view, const Cases&... cases) {
+R match(View view, const Cases&... cases) {
     R result{};
     if (!detail::try_match_cases<R>(view, result, cases...)) {
         throw std::runtime_error("match: no case matched for value type");
