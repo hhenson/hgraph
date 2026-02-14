@@ -301,6 +301,17 @@ namespace hgraph {
     void ComponentNode::do_stop() {
         if (m_active_graph_) {
             stop_component(*m_active_graph_);
+            // Unbind inner graph inputs to prevent dangling observer pointers
+            for (size_t ni = 0; ni < m_active_graph_->nodes().size(); ni++) {
+                auto& node = m_active_graph_->nodes()[ni];
+                if (node->ts_input()) {
+                    ViewData vd = node->ts_input()->value().make_view_data();
+                    vd.uses_link_target = true;
+                    if (vd.ops && vd.ops->unbind) {
+                        vd.ops->unbind(vd);
+                    }
+                }
+            }
         }
     }
 

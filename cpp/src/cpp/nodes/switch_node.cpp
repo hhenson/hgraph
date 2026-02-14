@@ -95,6 +95,21 @@ namespace hgraph {
                     }
 
                     stop_component(*_active_graph);
+
+                    // Unbind inner graph inputs BEFORE unwire/deferred release.
+                    // Inner nodes may have ActiveNotifiers subscribed to outer graph
+                    // observer lists — must unsubscribe to prevent dangling pointers.
+                    for (size_t ni = 0; ni < _active_graph->nodes().size(); ni++) {
+                        auto& node = _active_graph->nodes()[ni];
+                        if (node->ts_input()) {
+                            ViewData vd = node->ts_input()->value().make_view_data();
+                            vd.uses_link_target = true;
+                            if (vd.ops && vd.ops->unbind) {
+                                vd.ops->unbind(vd);
+                            }
+                        }
+                    }
+
                     unwire_graph(_active_graph);
 
                     // Schedule deferred release of the old graph
@@ -358,6 +373,17 @@ namespace hgraph {
     void SwitchNode::do_stop() {
         if (_active_graph) {
             stop_component(*_active_graph);
+            // Unbind inner graph inputs to prevent dangling observer pointers
+            for (size_t ni = 0; ni < _active_graph->nodes().size(); ni++) {
+                auto& node = _active_graph->nodes()[ni];
+                if (node->ts_input()) {
+                    ViewData vd = node->ts_input()->value().make_view_data();
+                    vd.uses_link_target = true;
+                    if (vd.ops && vd.ops->unbind) {
+                        vd.ops->unbind(vd);
+                    }
+                }
+            }
         }
     }
 

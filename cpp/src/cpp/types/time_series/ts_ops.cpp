@@ -343,7 +343,9 @@ struct REFBindingHelper : public Notifiable {
     void unsubscribe_from_ref_source() {
         if (subscribed_to_ref && ref_source.observer_data) {
             auto* obs = static_cast<ObserverList*>(ref_source.observer_data);
-            obs->remove_observer(this);
+            if (obs->is_alive()) {
+                obs->remove_observer(this);
+            }
             subscribed_to_ref = false;
         }
     }
@@ -351,9 +353,11 @@ struct REFBindingHelper : public Notifiable {
     void unsubscribe_from_resolved() {
         if (resolved_obs && owner->is_linked) {
             auto* obs = static_cast<ObserverList*>(resolved_obs);
-            obs->remove_observer(owner);  // time-accounting chain
-            if (owner->active_notifier.owning_input != nullptr) {
-                obs->remove_observer(&owner->active_notifier);  // node-scheduling chain
+            if (obs->is_alive()) {
+                obs->remove_observer(owner);  // time-accounting chain
+                if (owner->active_notifier.owning_input != nullptr) {
+                    obs->remove_observer(&owner->active_notifier);  // node-scheduling chain
+                }
             }
         }
         resolved_obs = nullptr;
@@ -546,7 +550,6 @@ struct REFBindingHelper : public Notifiable {
         if (resolved_obs) {
             auto* obs = static_cast<ObserverList*>(resolved_obs);
             obs->add_observer(owner);
-            // Resubscribe ActiveNotifier if input is active
             if (owner->active_notifier.owning_input != nullptr) {
                 obs->add_observer(&owner->active_notifier);
             }

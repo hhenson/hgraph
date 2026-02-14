@@ -121,6 +121,7 @@ namespace hgraph
                     int _eval_count = 0;
                     engine_time_t _last_time{};
                     int _same_time_count = 0;
+                    int _min_td_increment_count = 0;
                     while (clock->evaluation_time() < end_time) {
                         auto ct = clock->evaluation_time();
                         if (ct == _last_time) {
@@ -140,10 +141,41 @@ namespace hgraph
                                 throw std::runtime_error("Engine stuck: same evaluation time for >100 iterations");
                             }
                         } else {
+                            // Check if we advanced by exactly MIN_TD
+                            if (_last_time.time_since_epoch().count() > 0 &&
+                                (ct - _last_time) == MIN_TD) {
+                                _min_td_increment_count++;
+                                if (_min_td_increment_count > 1000) {
+                                    fprintf(stderr, "[ENGINE] MIN_TD loop: advanced by MIN_TD %d consecutive times at time=%lld\n",
+                                            _min_td_increment_count, (long long)ct.time_since_epoch().count());
+                                    // Dump scheduled nodes
+                                    auto& nodes = graph->nodes();
+                                    auto& sched = graph->schedule();
+                                    for (size_t i = 0; i < nodes.size(); ++i) {
+                                        if (sched[i] <= ct && sched[i].time_since_epoch().count() > 0) {
+                                            fprintf(stderr, "[ENGINE] node[%zu] scheduled at %lld (current=%lld): %s\n",
+                                                    i, (long long)sched[i].time_since_epoch().count(),
+                                                    (long long)ct.time_since_epoch().count(),
+                                                    nodes[i]->signature().signature().c_str());
+                                        }
+                                    }
+                                    // Also check next_scheduled_evaluation_time
+                                    fprintf(stderr, "[ENGINE] next_scheduled=%lld\n",
+                                            (long long)clock->next_scheduled_evaluation_time().time_since_epoch().count());
+                                    throw std::runtime_error("Engine stuck: MIN_TD increment loop for >1000 iterations");
+                                }
+                            } else {
+                                _min_td_increment_count = 0;
+                            }
                             _same_time_count = 0;
                             _last_time = ct;
                         }
                         _eval_count++;
+                        if (_eval_count % 500 == 0) {
+                            fprintf(stderr, "[ENGINE] eval_count=%d time=%lld min_td_count=%d same_count=%d\n",
+                                    _eval_count, (long long)ct.time_since_epoch().count(),
+                                    _min_td_increment_count, _same_time_count);
+                        }
                         _evaluate(*evaluationEngine, *graph);
                     }
                 }

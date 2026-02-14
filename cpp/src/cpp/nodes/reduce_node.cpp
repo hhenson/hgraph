@@ -238,6 +238,17 @@ namespace hgraph {
     void ReduceNode::do_stop() {
         if (nested_graph_) {
             stop_component(*nested_graph_);
+            // Unbind inner graph inputs to prevent dangling observer pointers
+            for (size_t ni = 0; ni < nested_graph_->nodes().size(); ni++) {
+                auto& node = nested_graph_->nodes()[ni];
+                if (node->ts_input()) {
+                    ViewData vd = node->ts_input()->value().make_view_data();
+                    vd.uses_link_target = true;
+                    if (vd.ops && vd.ops->unbind) {
+                        vd.ops->unbind(vd);
+                    }
+                }
+            }
         }
     }
 

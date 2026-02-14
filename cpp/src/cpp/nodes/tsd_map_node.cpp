@@ -162,6 +162,17 @@ namespace hgraph {
         for (auto it = active_graphs_.begin(); it != active_graphs_.end(); ) {
             auto key_view = it->first.const_view();
             auto& graph_ = it->second;
+            // Unbind inner graph inputs BEFORE un_wire_graph to prevent dangling observers
+            for (size_t ni = 0; ni < graph_->nodes().size(); ni++) {
+                auto& node = graph_->nodes()[ni];
+                if (node->ts_input()) {
+                    ViewData vd = node->ts_input()->value().make_view_data();
+                    vd.uses_link_target = true;
+                    if (vd.ops && vd.ops->unbind) {
+                        vd.ops->unbind(vd);
+                    }
+                }
+            }
             un_wire_graph(key_view, graph_);
             try {
                 stop_component(*graph_);
@@ -362,15 +373,10 @@ namespace hgraph {
 
         active_graphs_.erase(it);
 
-        un_wire_graph(key, graph_);
-
-        try {
-            stop_component(*graph_);
-        } catch (...) {}
-
-        // Unbind inputs of removed nodes AFTER stop but BEFORE dispose/release.
-        // This unsubscribes REFBindingHelpers from observer lists of surviving nodes,
-        // preventing dangling Notifiable* pointers. Same pattern as Graph::reduce_graph.
+        // Unbind inputs BEFORE un_wire_graph and stop. un_wire_graph calls dict_remove
+        // which notifies the TSD output's observer list. If inner graph nodes have
+        // ActiveNotifiers subscribed to the output (e.g., via LinkTarget/TSInput bindings),
+        // those must be unsubscribed first to prevent dangling Notifiable* pointers.
         for (size_t ni = 0; ni < graph_->nodes().size(); ni++) {
             auto& node = graph_->nodes()[ni];
             if (node->ts_input()) {
@@ -381,6 +387,12 @@ namespace hgraph {
                 }
             }
         }
+
+        un_wire_graph(key, graph_);
+
+        try {
+            stop_component(*graph_);
+        } catch (...) {}
 
         // Schedule deferred release
         auto builder = nested_graph_builder_;

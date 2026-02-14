@@ -397,6 +397,10 @@ TSView ShortPath::resolve(engine_time_t current_time) const {
             throw std::runtime_error("ShortPath::resolve() failed: node has no TSInput");
         }
         view = input->value().ts_view(current_time);
+        // TSInput's link storage contains LinkTargets, not REFLinks.
+        // make_view_data() doesn't set this flag, so set it here to ensure
+        // bundle_ops::child_at correctly interprets the link data.
+        view.view_data().uses_link_target = true;
     } else {
         // For outputs, the first index selects which TSOutput port:
         // 0 = ts_output_, 1 = ts_error_output_, 2 = ts_recordable_state_
