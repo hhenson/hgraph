@@ -50,6 +50,8 @@ namespace hgraph
         static inline std::string _KEY_ARG = "__key_arg__";
 
         TsdMapNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature, nb::dict scalars,
+                   const TSMeta* input_meta, const TSMeta* output_meta,
+                   const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
                    graph_builder_s_ptr nested_graph_builder, const std::unordered_map<std::string, int64_t> &input_node_ids,
                    int64_t output_node_id, const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg);
 

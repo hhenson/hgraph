@@ -4,6 +4,7 @@
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/ref_link.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_meta_schema_cache.h>
 #include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_view.h>
@@ -180,6 +181,76 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         "ops_has_bundle_for_kind",
         [](TSKind kind) { return get_ts_ops(kind)->bundle_ops() != nullptr; },
         "kind"_a);
+    test_mod.def(
+        "schema_value_meta",
+        [](const TSMeta* meta) -> const value::TypeMeta* {
+            if (meta == nullptr) {
+                return nullptr;
+            }
+            return TSMetaSchemaCache::instance().get(meta).value_schema;
+        },
+        "meta"_a,
+        nb::rv_policy::reference);
+    test_mod.def(
+        "schema_time_meta",
+        [](const TSMeta* meta) -> const value::TypeMeta* {
+            if (meta == nullptr) {
+                return nullptr;
+            }
+            return TSMetaSchemaCache::instance().get(meta).time_schema;
+        },
+        "meta"_a,
+        nb::rv_policy::reference);
+    test_mod.def(
+        "schema_observer_meta",
+        [](const TSMeta* meta) -> const value::TypeMeta* {
+            if (meta == nullptr) {
+                return nullptr;
+            }
+            return TSMetaSchemaCache::instance().get(meta).observer_schema;
+        },
+        "meta"_a,
+        nb::rv_policy::reference);
+    test_mod.def(
+        "schema_delta_meta",
+        [](const TSMeta* meta) -> const value::TypeMeta* {
+            if (meta == nullptr) {
+                return nullptr;
+            }
+            return TSMetaSchemaCache::instance().get(meta).delta_schema;
+        },
+        "meta"_a,
+        nb::rv_policy::reference);
+    test_mod.def(
+        "schema_link_meta",
+        [](const TSMeta* meta) -> const value::TypeMeta* {
+            if (meta == nullptr) {
+                return nullptr;
+            }
+            return TSMetaSchemaCache::instance().get(meta).link_schema;
+        },
+        "meta"_a,
+        nb::rv_policy::reference);
+    test_mod.def(
+        "schema_input_link_meta",
+        [](const TSMeta* meta) -> const value::TypeMeta* {
+            if (meta == nullptr) {
+                return nullptr;
+            }
+            return TSMetaSchemaCache::instance().get(meta).input_link_schema;
+        },
+        "meta"_a,
+        nb::rv_policy::reference);
+    test_mod.def(
+        "schema_active_meta",
+        [](const TSMeta* meta) -> const value::TypeMeta* {
+            if (meta == nullptr) {
+                return nullptr;
+            }
+            return TSMetaSchemaCache::instance().get(meta).active_schema;
+        },
+        "meta"_a,
+        nb::rv_policy::reference);
 
     nb::class_<TSOutput>(test_mod, "TSOutput")
         .def("__init__", [](TSOutput* self, const TSMeta* meta, size_t port_index) {
@@ -305,6 +376,13 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
 
     auto ts_output_view_cls = nb::class_<TSOutputView>(test_mod, "TSOutputView")
         .def("__bool__", [](const TSOutputView& self) { return static_cast<bool>(self); })
+        .def("__len__", &TSOutputView::child_count)
+        .def("__getitem__", [](const TSOutputView& self, size_t index) { return self.child_at(index); }, "index"_a,
+             nb::keep_alive<0, 1>())
+        .def("__getitem__", [](const TSOutputView& self, std::string_view name) { return self.child_by_name(name); },
+             "name"_a, nb::keep_alive<0, 1>())
+        .def("__getitem__", [](const TSOutputView& self, const value::View& key) { return self.child_by_key(key); },
+             "key"_a, nb::keep_alive<0, 1>())
         .def("fq_path_str", [](const TSOutputView& self) { return self.fq_path().to_string(); })
         .def("short_indices", [](const TSOutputView& self) { return self.short_path().indices; })
         .def("at", &TSOutputView::child_at, "index"_a, nb::keep_alive<0, 1>())
@@ -318,10 +396,24 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("set_value", &TSOutputView::set_value, "value"_a)
         .def("to_python", [](const TSOutputView& self) { return self.to_python(); })
         .def("delta_to_python", [](const TSOutputView& self) { return self.delta_to_python(); })
+        .def("py_value", [](const TSOutputView& self) { return self.to_python(); })
+        .def("py_delta_value", [](const TSOutputView& self) { return self.delta_to_python(); })
+        .def_prop_ro("value", [](const TSOutputView& self) { return self.to_python(); })
+        .def_prop_ro("delta_value", [](const TSOutputView& self) { return self.delta_to_python(); })
+        .def_prop_ro("valid", &TSOutputView::valid)
+        .def_prop_ro("all_valid", &TSOutputView::all_valid)
+        .def_prop_ro("modified", &TSOutputView::modified)
+        .def_prop_ro("last_modified_time", &TSOutputView::last_modified_time)
         .def("from_python", [](TSOutputView& self, const nb::object& value_obj) {
             self.from_python(value_obj);
         }, "value"_a)
-        .def("modified", [](const TSOutputView& self) { return self.as_ts_view().modified(); })
+        .def("apply_result", [](TSOutputView& self, const nb::object& value_obj) {
+            self.from_python(value_obj);
+        }, "value"_a)
+        .def("can_apply_result", [](const TSOutputView& self, const nb::object&) {
+            return static_cast<bool>(self);
+        }, "value"_a)
+        .def("invalidate", &TSOutputView::invalidate)
         .def("sampled", [](const TSOutputView& self) { return self.as_ts_view().sampled(); })
         .def("kind", [](const TSOutputView& self) { return self.as_ts_view().kind(); })
         .def("is_window", [](const TSOutputView& self) { return self.as_ts_view().is_window(); })
@@ -476,6 +568,13 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
 
     auto ts_input_view_cls = nb::class_<TSInputView>(test_mod, "TSInputView")
         .def("__bool__", [](const TSInputView& self) { return static_cast<bool>(self); })
+        .def("__len__", &TSInputView::child_count)
+        .def("__getitem__", [](const TSInputView& self, size_t index) { return self.child_at(index); }, "index"_a,
+             nb::keep_alive<0, 1>())
+        .def("__getitem__", [](const TSInputView& self, std::string_view name) { return self.child_by_name(name); },
+             "name"_a, nb::keep_alive<0, 1>())
+        .def("__getitem__", [](const TSInputView& self, const value::View& key) { return self.child_by_key(key); },
+             "key"_a, nb::keep_alive<0, 1>())
         .def("fq_path_str", [](const TSInputView& self) { return self.fq_path().to_string(); })
         .def("short_indices", [](const TSInputView& self) { return self.short_path().indices; })
         .def("at", &TSInputView::child_at, "index"_a, nb::keep_alive<0, 1>())
@@ -487,10 +586,21 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("child_by_key", &TSInputView::child_by_key, "key"_a, nb::keep_alive<0, 1>())
         .def("size", &TSInputView::child_count)
         .def("bind", &TSInputView::bind, "output"_a)
+        .def("bind_output", &TSInputView::bind, "output"_a)
         .def("unbind", &TSInputView::unbind)
+        .def("un_bind_output", [](TSInputView& self, bool) { self.unbind(); }, "unbind_refs"_a = true)
+        .def("start", []() {})
         .def("to_python", [](const TSInputView& self) { return self.to_python(); })
         .def("delta_to_python", [](const TSInputView& self) { return self.delta_to_python(); })
-        .def("modified", [](const TSInputView& self) { return self.as_ts_view().modified(); })
+        .def("py_value", [](const TSInputView& self) { return self.to_python(); })
+        .def("py_delta_value", [](const TSInputView& self) { return self.delta_to_python(); })
+        .def_prop_ro("value", [](const TSInputView& self) { return self.to_python(); })
+        .def_prop_ro("delta_value", [](const TSInputView& self) { return self.delta_to_python(); })
+        .def_prop_ro("valid", &TSInputView::valid)
+        .def_prop_ro("all_valid", &TSInputView::all_valid)
+        .def_prop_ro("modified", &TSInputView::modified)
+        .def_prop_ro("last_modified_time", &TSInputView::last_modified_time)
+        .def_prop_ro("has_peer", &TSInputView::is_bound)
         .def("sampled", [](const TSInputView& self) { return self.as_ts_view().sampled(); })
         .def("kind", [](const TSInputView& self) { return self.as_ts_view().kind(); })
         .def("is_window", [](const TSInputView& self) { return self.as_ts_view().is_window(); })
@@ -535,7 +645,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("has_dict_ops", [](const TSInputView& self) { return self.try_as_dict().has_value(); })
         .def("make_active", &TSInputView::make_active)
         .def("make_passive", &TSInputView::make_passive)
-        .def("active", &TSInputView::active)
+        .def_prop_ro("active", &TSInputView::active)
         .def("linked_target_indices", [](const TSInputView& self) {
             return linked_target_indices(self.as_ts_view());
         });

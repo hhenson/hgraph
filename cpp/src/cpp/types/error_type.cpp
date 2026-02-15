@@ -192,22 +192,36 @@ namespace hgraph {
             std::unordered_map<std::string, engine_time_t> input_last_modified_time;
 
             if (node->has_input()) {
-                for (const auto &[input_name, input]: node->input()->items()) {
-                    capture_input(active_inputs, *input, input_name, capture_values, depth);
+                auto et = node->cached_evaluation_time_ptr() != nullptr ? *node->cached_evaluation_time_ptr() : MIN_DT;
+                TSInputView root = node->input(et);
+                auto bundle = root.try_as_bundle();
 
-                    if (capture_values) {
-                        // Convert values to strings via Python's str() to avoid C++ cast issues (std::bad_cast)
-                        nb::str py_val_str = nb::str(input->py_value());
-                        std::string value_str = nb::cast<std::string>(py_val_str);
-                        size_t newline_pos = value_str.find('\n');
-                        if (newline_pos != std::string::npos) { value_str = value_str.substr(0, newline_pos); }
+                if (bundle.has_value() && bundle->ts_meta() != nullptr && bundle->ts_meta()->fields() != nullptr) {
+                    const auto *fields = bundle->ts_meta()->fields();
+                    const size_t field_count = bundle->count();
+                    for (size_t i = 0; i < field_count; ++i) {
+                        const char *field_name = fields[i].name;
+                        if (field_name == nullptr) {
+                            continue;
+                        }
 
-                        input_short_values[input_name] =
+                        TSInputView input = bundle->at(i);
+                        const std::string input_name{field_name};
+
+                        if (capture_values) {
+                            nb::str py_val_str = nb::str(input.to_python());
+                            std::string value_str = nb::cast<std::string>(py_val_str);
+                            size_t newline_pos = value_str.find('\n');
+                            if (newline_pos != std::string::npos) {
+                                value_str = value_str.substr(0, newline_pos);
+                            }
+
+                            input_short_values[input_name] =
                                 value_str.substr(0, 32) + (value_str.length() > 32 ? "..." : "");
-                        std::string delta_str = nb::cast<std::string>(nb::str(input->py_delta_value()));
-                        input_delta_values[input_name] = delta_str;
-                        input_values[input_name] = value_str;
-                        input_last_modified_time[input_name] = input->last_modified_time();
+                            input_delta_values[input_name] = nb::cast<std::string>(nb::str(input.delta_to_python()));
+                            input_values[input_name] = value_str;
+                            input_last_modified_time[input_name] = input.last_modified_time();
+                        }
                     }
                 }
             }

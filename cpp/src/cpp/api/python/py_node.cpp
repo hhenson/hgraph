@@ -119,26 +119,53 @@ namespace hgraph
     }
 
     nb::object PyNode::input() const {
-        auto inp = _impl->input();
-        return inp ? wrap_input(inp) : nb::none();
+        auto et = _impl->cached_evaluation_time_ptr() != nullptr ? *_impl->cached_evaluation_time_ptr() : MIN_DT;
+        auto in = _impl->input(et);
+        if (!in) {
+            return nb::none();
+        }
+        return nb::cast(in);
     }
 
     nb::dict PyNode::inputs() const {
         nb::dict d;
-        auto inp_ = _impl->input();
-        if (!inp_) { return d; }
-        for (const auto &key : inp_->schema().keys()) { d[key.c_str()] = wrap_input((*inp_)[key]); }
+        auto et = _impl->cached_evaluation_time_ptr() != nullptr ? *_impl->cached_evaluation_time_ptr() : MIN_DT;
+        auto root = _impl->input(et);
+        if (!root) {
+            return d;
+        }
+        auto bundle = root.try_as_bundle();
+        if (!bundle.has_value()) {
+            return d;
+        }
+        for (size_t i = 0; i < bundle->count(); ++i) {
+            const char *name = bundle->ts_meta()->fields()[i].name;
+            if (name != nullptr) {
+                d[name] = nb::cast(bundle->at(i));
+            }
+        }
         return d;
     }
 
     nb::tuple PyNode::start_inputs() const { return nb::tuple(nb::cast(_impl->start_inputs())); }
 
     nb::object PyNode::output() {
-        auto out = _impl->output();
-        return out ? wrap_output(out) : nb::none();
+        auto et = _impl->cached_evaluation_time_ptr() != nullptr ? *_impl->cached_evaluation_time_ptr() : MIN_DT;
+        auto out = _impl->output(et);
+        if (!out) {
+            return nb::none();
+        }
+        return nb::cast(out);
     }
 
-    nb::object PyNode::recordable_state() { return wrap_time_series(_impl->recordable_state()); }
+    nb::object PyNode::recordable_state() {
+        auto et = _impl->cached_evaluation_time_ptr() != nullptr ? *_impl->cached_evaluation_time_ptr() : MIN_DT;
+        auto state = _impl->recordable_state(et);
+        if (!state) {
+            return nb::none();
+        }
+        return nb::cast(state);
+    }
 
     nb::bool_ PyNode::has_recordable_state() const { return nb::bool_(_impl->has_recordable_state()); }
 
@@ -146,7 +173,14 @@ namespace hgraph
 
     nb::bool_ PyNode::has_scheduler() const { return nb::bool_(_impl->has_scheduler()); }
 
-    nb::object PyNode::error_output() { return wrap_output(_impl->error_output()); }
+    nb::object PyNode::error_output() {
+        auto et = _impl->cached_evaluation_time_ptr() != nullptr ? *_impl->cached_evaluation_time_ptr() : MIN_DT;
+        auto out = _impl->error_output(et);
+        if (!out) {
+            return nb::none();
+        }
+        return nb::cast(out);
+    }
 
     nb::bool_ PyNode::has_input() const { return nb::bool_(_impl->has_input()); }
 

@@ -8,6 +8,8 @@
 #include <hgraph/builders/builder.h>
 
 namespace hgraph {
+    struct TSMeta;
+
     struct NodeBuilder : Builder {
         NodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
                     std::optional<input_builder_s_ptr> input_builder_ = std::nullopt,
@@ -51,19 +53,28 @@ namespace hgraph {
 
         static void register_with_nanobind(nb::module_ &m);
 
+        [[nodiscard]] const TSMeta* input_meta() const;
+        [[nodiscard]] const TSMeta* output_meta() const;
+        [[nodiscard]] const TSMeta* error_output_meta() const;
+        [[nodiscard]] const TSMeta* recordable_state_meta() const;
+
         node_signature_s_ptr signature;
         nb::dict scalars;
         std::optional<input_builder_s_ptr> input_builder;
         std::optional<output_builder_s_ptr> output_builder;
         std::optional<output_builder_s_ptr> error_builder;
         std::optional<output_builder_s_ptr> recordable_state_builder;
+
+      private:
+        // Precomputed once at builder construction for fast node instantiation.
+        const TSMeta* _input_meta{nullptr};
+        const TSMeta* _output_meta{nullptr};
+        const TSMeta* _error_meta{nullptr};
+        const TSMeta* _recordable_state_meta{nullptr};
     };
 
     struct BaseNodeBuilder : NodeBuilder {
         using NodeBuilder::NodeBuilder;
-
-    protected:
-        void _build_inputs_and_outputs(node_ptr node) const;
     };
 } // namespace hgraph
 

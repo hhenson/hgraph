@@ -23,15 +23,15 @@ namespace hgraph {
      */
     struct BasePythonNode : Node {
         BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                       nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn);
+                       nb::dict scalars, const TSMeta* input_meta, const TSMeta* output_meta,
+                       const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
+                       nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn);
 
         void _initialise_kwargs();
 
         void _initialise_kwarg_inputs();
 
         void _initialise_state();
-
-        void reset_input(const time_series_bundle_input_s_ptr& value) override;
 
         VISITOR_SUPPORT()
 

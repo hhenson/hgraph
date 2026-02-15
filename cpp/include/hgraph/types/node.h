@@ -2,6 +2,8 @@
 #define NODE_H
 
 #include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 #include <memory>
@@ -190,7 +192,9 @@ namespace hgraph
         using ptr   = Node *;
         using s_ptr = std::shared_ptr<Node>;
 
-        Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars);
+        Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars,
+             const TSMeta* input_meta = nullptr, const TSMeta* output_meta = nullptr,
+             const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
         virtual void eval();
 
@@ -216,23 +220,21 @@ namespace hgraph
 
         void set_graph(graph_ptr value);
 
-        time_series_bundle_input_s_ptr &input();
-
-        const time_series_bundle_input_s_ptr &input() const;
+        [[nodiscard]] TSInputView input(engine_time_t current_time) const;
+        [[nodiscard]] TSInputView input() const;
 
         auto start_inputs() const { return _start_inputs; }
 
-        void set_input(const time_series_bundle_input_s_ptr &value);
+        [[nodiscard]] TSOutputView output(engine_time_t current_time) const;
+        [[nodiscard]] TSOutputView output() const;
 
-        virtual void reset_input(const time_series_bundle_input_s_ptr &value);
+        [[nodiscard]] TSOutputView error_output(engine_time_t current_time) const;
+        [[nodiscard]] TSOutputView error_output() const;
 
-        time_series_output_s_ptr &output();
+        bool has_error_output() const;
 
-        void set_output(const time_series_output_s_ptr &value);
-
-        time_series_bundle_output_s_ptr &recordable_state();
-
-        void set_recordable_state(const time_series_bundle_output_s_ptr &value);
+        [[nodiscard]] TSOutputView recordable_state(engine_time_t current_time) const;
+        [[nodiscard]] TSOutputView recordable_state() const;
 
         bool has_recordable_state() const;
 
@@ -241,10 +243,6 @@ namespace hgraph
         bool has_scheduler() const;
 
         void unset_scheduler();
-
-        time_series_output_s_ptr &error_output();
-
-        void set_error_output(const time_series_output_s_ptr &value);
 
         // Performance optimization: provide access to cached evaluation time pointer
         [[nodiscard]] const engine_time_t *cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
@@ -281,18 +279,14 @@ namespace hgraph
         node_signature_s_ptr            _signature;
         nb::dict                        _scalars;
         graph_ptr                       _graph;             // back-pointer, not owned
-        time_series_bundle_input_s_ptr  _input;             // owned
-        time_series_output_s_ptr        _output;            // owned
-        time_series_output_s_ptr        _error_output;      // owned
-        time_series_bundle_output_s_ptr _recordable_state;  // owned
-        NodeScheduler::s_ptr            _scheduler;         // owned
+        std::optional<TSInput>          _input;             // schema-driven endpoint
+        std::optional<TSOutput>         _output;            // schema-driven endpoint
+        std::optional<TSOutput>         _error_output;      // schema-driven endpoint
+        std::optional<TSOutput>         _recordable_state;  // schema-driven endpoint
+        NodeScheduler::s_ptr            _scheduler;           // owned
         // I am not a fan of this approach to managing the start inputs, but for now keep consistent with current code base in
         // Python.
         std::vector<time_series_reference_input_s_ptr> _start_inputs;  // owned
-
-        // Cache for these calculated values - not owned, just references
-        std::vector<time_series_input_ptr> _check_valid_inputs;
-        std::vector<time_series_input_ptr> _check_all_valid_inputs;
 
         // Performance optimization: Cache evaluation time pointer from graph
         // Set once when graph is assigned to node, never changes

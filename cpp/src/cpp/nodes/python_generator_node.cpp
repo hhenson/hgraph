@@ -6,6 +6,10 @@ namespace hgraph {
 
     void PythonGeneratorNode::do_eval() {
         auto et = graph()->evaluation_time();
+        auto output_view = output(et);
+        if (!output_view) {
+            throw std::runtime_error("PythonGeneratorNode requires TS output");
+        }
         auto next_time{MIN_DT};
         auto sentinel{nb::iterator::sentinel()};
         nb::object out;
@@ -43,13 +47,13 @@ namespace hgraph {
         // If next_time <= et then we are expecting to schedule the task.
         if (next_time > MIN_DT && next_time <= et) {
             // If we have a duplicate time, this will pick it up
-            if (output()->last_modified_time() == next_time) {
+            if (output_view.last_modified_time() == next_time) {
                 throw std::runtime_error(
                     fmt::format("Duplicate time produced by generator: [{:%FT%T%z}] - {}", next_time,
                                 nb::str(out).c_str()));
             }
             // If next_time is less than et we will schedule at et anyhow.
-            output()->apply_result(out);
+            output_view.from_python(out);
             next_value = nb::none();
             do_eval(); // We are going to apply now! Prepare next step
             return;
@@ -58,7 +62,7 @@ namespace hgraph {
         // If we get here, it may be that we are scheduled, let's see if there is anything pending delivery.
         if (next_value.is_valid() && !next_value.is_none()) {
             // There is, set the value and reset the next_value
-            output()->apply_result(next_value);
+            output_view.from_python(next_value);
             next_value = nb::none();
         }
 

@@ -3,23 +3,36 @@
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/tsb.h>
-#include <hgraph/types/time_series_type.h>
-#include <hgraph/types/ref.h>
 #include <hgraph/util/lifecycle.h>
 
 namespace hgraph {
+    namespace {
+        engine_time_t node_time(const Node &node) {
+            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
+                return *et;
+            }
+            auto g = node.graph();
+            return g != nullptr ? g->evaluation_time() : MIN_DT;
+        }
+    }  // namespace
+
     void TryExceptNode::wire_outputs() {
         if (m_output_node_id_ >= 0) {
             auto node = m_active_graph_->nodes()[m_output_node_id_];
-            // Python parity: set the outer REF 'out' to reference the inner node's existing output.
-            // Do NOT replace the inner node's output pointer.
-            // AB: why is this ^ ? I wrote a test taht fails because of this and made it set output to fix - see test_tsb_out_of_try_except
-            if (auto bundle = dynamic_cast<TimeSeriesBundleOutput *>(output().get())) {
-                auto out_ts = (*bundle)["out"]; // TimeSeriesOutput::ptr (expected TimeSeriesReferenceOutput)
-                node->set_output(out_ts);
+            auto outer_view = output(node_time(*this));
+            auto inner_view = node->output(node_time(*node));
+            if (!outer_view || !inner_view) {
+                return;
+            }
+
+            auto outer_bundle = outer_view.try_as_bundle();
+            if (outer_bundle.has_value()) {
+                auto out_ts = outer_bundle->field("out");
+                if (out_ts) {
+                    out_ts.as_ts_view().bind(inner_view.as_ts_view());
+                }
             } else {
-                // Non-bundle case (sink): nothing to wire here
+                outer_view.as_ts_view().bind(inner_view.as_ts_view());
             }
         }
     }
@@ -43,17 +56,23 @@ namespace hgraph {
             // Create a heap-allocated copy managed by nanobind
             auto error_ptr = nb::ref<NodeError>(new NodeError(err));
 
-            if (auto bundle = dynamic_cast<TimeSeriesBundleOutput *>(output().get())) {
+            auto out_view = output(node_time(*this));
+            if (!out_view) {
+                stop_component(*m_active_graph_);
+                return;
+            }
+            auto bundle = out_view.try_as_bundle();
+            if (bundle.has_value()) {
                 // Write to the 'exception' field of the bundle
-                auto exception_ts = (*bundle)["exception"];
+                auto exception_ts = bundle->field("exception");
                 try {
-                    exception_ts->py_set_value(nb::cast(error_ptr));
+                    exception_ts.from_python(nb::cast(error_ptr));
                 } catch (const std::exception &set_err) {
-                    exception_ts->py_set_value(nb::str(err.to_string().c_str()));
+                    exception_ts.from_python(nb::str(err.to_string().c_str()));
                 }
             } else {
                 // Sink case: direct TS[NodeError]
-                output()->py_set_value(nb::cast(error_ptr));
+                out_view.from_python(nb::cast(error_ptr));
             }
 
             // Stop the nested component to mirror Python try/except behavior

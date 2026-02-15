@@ -15,12 +15,34 @@ namespace hgraph {
     // Helper functions for checking time-series validity and extracting values
     // These need to handle TimeSeriesReference specially
 
-    static bool _get_ts_valid(const time_series_input_s_ptr &ts) {
-        if (!ts->valid()) {
+    namespace {
+        engine_time_t node_time(const Node &node) {
+            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
+                return *et;
+            }
+            auto g = node.graph();
+            return g != nullptr ? g->evaluation_time() : MIN_DT;
+        }
+
+        TSInputView node_input_field(Node &node, std::string_view name) {
+            auto root = node.input(node_time(node));
+            if (!root) {
+                return {};
+            }
+            auto bundle_opt = root.try_as_bundle();
+            if (!bundle_opt.has_value()) {
+                return {};
+            }
+            return bundle_opt->field(name);
+        }
+    }  // namespace
+
+    static bool _get_ts_valid(const TSInputView &ts) {
+        if (!ts || !ts.valid()) {
             return false;
         }
 
-        auto value = ts->py_value();
+        auto value = ts.to_python();
 
         // Check if it's a TimeSeriesReference using nanobind's isinstance
         // In Python: TimeSeriesReference.is_instance(value)
@@ -33,8 +55,8 @@ namespace hgraph {
         }
     }
 
-    static nb::object _get_ts_value(const time_series_input_s_ptr &ts) {
-        auto value = ts->py_value();
+    static nb::object _get_ts_value(const TSInputView &ts) {
+        auto value = ts.to_python();
 
         // Check if it's a TimeSeriesReference
         try {
@@ -51,9 +73,12 @@ namespace hgraph {
     }
 
     ComponentNode::ComponentNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                                 nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
+                                 nb::dict scalars, const TSMeta* input_meta, const TSMeta* output_meta,
+                                 const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
+                                 graph_builder_s_ptr nested_graph_builder,
                                  const std::unordered_map<std::string, int> &input_node_ids, int output_node_id)
-        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
+        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
+                     input_meta, output_meta, error_output_meta, recordable_state_meta),
           m_nested_graph_builder_(std::move(nested_graph_builder)), m_input_node_ids_(input_node_ids),
           m_output_node_id_(output_node_id), m_active_graph_(nullptr), m_last_evaluation_time_(std::nullopt) {
     }
@@ -110,10 +135,8 @@ namespace hgraph {
                 }
 
                 // Check all ts values are valid
-                // Use input() to get the bundle, then access individual inputs
-                auto input_bundle = input();
                 for (const auto &k: ts_values) {
-                    auto ts = (*input_bundle)[k];
+                    auto ts = node_input_field(*this, k);
                     if (!_get_ts_valid(ts)) {
                         return {id_, false}; // Not all inputs valid yet
                     }
@@ -122,12 +145,11 @@ namespace hgraph {
 
             // Build args map for formatting
             nb::dict args;
-            auto input_bundle = input();
             for (const auto &k: dependencies) {
                 if (scalars().contains(k)) {
                     args[k.c_str()] = scalars()[k.c_str()];
                 } else {
-                    args[k.c_str()] = _get_ts_value((*input_bundle)[k]);
+                    args[k.c_str()] = _get_ts_value(node_input_field(*this, k));
                 }
             }
 
@@ -175,23 +197,53 @@ namespace hgraph {
         initialise_component(*m_active_graph_);
 
         // Wire inputs
-        auto input_bundle = input();
+        auto outer_root = input(node_time(*this));
+        if (!outer_root) {
+            return;
+        }
+        auto outer_bundle_opt = outer_root.try_as_bundle();
+        if (!outer_bundle_opt.has_value()) {
+            return;
+        }
+
         for (const auto &[arg, node_ndx]: m_input_node_ids_) {
             auto node = m_active_graph_->nodes()[node_ndx];
             node->notify();
 
-            auto ts = (*input_bundle)[arg];
-            // Copy input with new parent
-            node->reset_input(node->input()->copy_with(node.get(), {ts->shared_from_this()}));
+            auto outer_view = outer_bundle_opt->field(arg);
+            if (!outer_view) {
+                continue;
+            }
 
-            // Re-parent the ts input
-            ts->re_parent(node->input().get());
+            auto inner_root = node->input(node_time(*node));
+            if (!inner_root) {
+                continue;
+            }
+
+            auto inner_bundle_opt = inner_root.try_as_bundle();
+            if (!inner_bundle_opt.has_value()) {
+                continue;
+            }
+
+            auto inner_ts = inner_bundle_opt->field("ts");
+            if (!inner_ts && inner_bundle_opt->count() > 0) {
+                inner_ts = inner_bundle_opt->at(0);
+            }
+            if (!inner_ts) {
+                continue;
+            }
+
+            inner_ts.as_ts_view().bind(outer_view.as_ts_view());
         }
 
         // Wire outputs
         if (m_output_node_id_ >= 0) {
             auto node = m_active_graph_->nodes()[m_output_node_id_];
-            node->set_output(output());
+            auto outer_view = output(node_time(*this));
+            auto inner_view = node->output(node_time(*node));
+            if (outer_view && inner_view) {
+                outer_view.as_ts_view().bind(inner_view.as_ts_view());
+            }
         }
 
         // Start if already started

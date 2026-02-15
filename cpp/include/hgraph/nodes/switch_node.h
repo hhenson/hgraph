@@ -1,7 +1,6 @@
 #ifndef SWITCH_NODE_H
 #define SWITCH_NODE_H
 
-#include "hgraph/types/ts.h"
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/feature_extension.h>
@@ -38,7 +37,8 @@ namespace hgraph {
         using output_node_ids_map_ptr = std::shared_ptr<output_node_ids_map>;
 
         SwitchNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                   nb::dict scalars,
+                   nb::dict scalars, const TSMeta* input_meta, const TSMeta* output_meta,
+                   const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
                    const value::TypeMeta* key_type,
                    graph_builders_map_ptr nested_graph_builders,
                    input_node_ids_map_ptr input_node_ids,
@@ -80,14 +80,11 @@ namespace hgraph {
         graph_builders_map_ptr _nested_graph_builders;
         input_node_ids_map_ptr _input_node_ids;
         output_node_ids_map_ptr _output_node_ids;
-        TimeSeriesValueInput *_key_ts{nullptr};
-
         bool _reload_on_ticked;
         graph_s_ptr _active_graph{};
         graph_builder_s_ptr _active_graph_builder{};
         std::optional<value::Value> _active_key;
         int64_t _count{0};
-        time_series_output_s_ptr _old_output{};
         graph_builder_s_ptr _default_graph_builder{nullptr};
         std::unordered_map<std::string, int> _default_input_node_ids;
         int _default_output_node_id{-1};

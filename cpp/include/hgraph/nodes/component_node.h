@@ -7,7 +7,8 @@
 namespace hgraph {
     struct ComponentNode final : NestedNode {
         ComponentNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                      nb::dict scalars,
+                      nb::dict scalars, const TSMeta* input_meta, const TSMeta* output_meta,
+                      const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
                       graph_builder_s_ptr nested_graph_builder,
                       const std::unordered_map<std::string, int> &input_node_ids,
                       int output_node_id);

@@ -4,12 +4,23 @@
 #include <hgraph/api/python/py_ref.h>
 #include <hgraph/nodes/context_node.h>
 #include <hgraph/python/global_keys.h>
+#include <hgraph/types/graph.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
 #include <nanobind/nanobind.h>
 
 namespace hgraph {
+    namespace {
+        engine_time_t node_time(const Node &node) {
+            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
+                return *et;
+            }
+            auto g = node.graph();
+            return g != nullptr ? g->evaluation_time() : MIN_DT;
+        }
+    }  // namespace
+
     void ContextStubSourceNode::do_start() {
         _subscribed_output = nullptr;
         notify();
@@ -118,14 +129,14 @@ namespace hgraph {
         }
 
         // Finally, set this node's own REF output to the captured value (may be None)
-        auto my_output = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
-        if (!my_output) {
-            throw std::runtime_error("ContextStubSourceNode: output is not a TimeSeriesReferenceOutput");
+        auto out_port = output(node_time(*this));
+        if (!out_port) {
+            throw std::runtime_error("ContextStubSourceNode: missing TS output");
         }
         if (value_ref.has_value()) {
-            my_output->set_value(*value_ref);
+            out_port.from_python(nb::cast(*value_ref));
         } else {
-            my_output->set_value(TimeSeriesReference::make());
+            out_port.from_python(nb::cast(TimeSeriesReference::make()));
         }
     }
 

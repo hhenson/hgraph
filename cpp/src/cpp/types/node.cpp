@@ -612,9 +612,27 @@ namespace hgraph
         _node->graph()->schedule_node(_node->node_ndx(), when);
     }
 
-    Node::Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars)
+    Node::Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars,
+               const TSMeta* input_meta, const TSMeta* output_meta,
+               const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
         : _node_ndx{node_ndx}, _owning_graph_id{std::move(owning_graph_id)}, _signature{std::move(signature)},
-          _scalars{std::move(scalars)} {}
+          _scalars{std::move(scalars)} {
+        if (input_meta != nullptr) {
+            _input.emplace(input_meta, this);
+        }
+
+        if (output_meta != nullptr) {
+            _output.emplace(output_meta, this, 0);
+        }
+
+        if (error_output_meta != nullptr) {
+            _error_output.emplace(error_output_meta, this, 1);
+        }
+
+        if (recordable_state_meta != nullptr) {
+            _recordable_state.emplace(recordable_state_meta, this, 2);
+        }
+    }
 
     void Node::notify(engine_time_t modified_time) {
         if (is_started() || is_starting()) {
@@ -673,44 +691,67 @@ namespace hgraph
         _cached_evaluation_time_ptr = _graph->cached_evaluation_time_ptr();
     }
 
-    time_series_bundle_input_s_ptr& Node::input() { return _input; }
-    const time_series_bundle_input_s_ptr& Node::input() const { return _input; }
-
-    void Node::set_input(const time_series_bundle_input_s_ptr& value) {
-        if (has_input()) { throw std::runtime_error("Input already set on node: " + _signature->signature()); }
-        reset_input(value);
+    TSInputView Node::input(engine_time_t current_time) const {
+        if (!_input.has_value()) {
+            return {};
+        }
+        return const_cast<TSInput &>(*_input).input_view(current_time);
     }
 
-    void Node::reset_input(const time_series_bundle_input_s_ptr& value) {
-        _input = value;
-        _check_all_valid_inputs.clear();
-        _check_valid_inputs.clear();
-        _check_valid_inputs.reserve(signature().valid_inputs.has_value() ? signature().valid_inputs->size()
-                                                                         : signature().time_series_inputs->size());
-        if (signature().valid_inputs.has_value()) {
-            for (const auto &key : std::views::all(*signature().valid_inputs)) { _check_valid_inputs.push_back((*input())[key].get()); }
-        } else {
-            for (const auto &key : std::views::elements<0>(*signature().time_series_inputs)) {
-                // Do not treat context inputs as required by default
-                bool is_context = signature().context_inputs.has_value() && signature().context_inputs->contains(key);
-                if (!is_context) { _check_valid_inputs.push_back((*input())[key].get()); }
-            }
-        }
-        if (signature().all_valid_inputs.has_value()) {
-            _check_all_valid_inputs.reserve(signature().all_valid_inputs->size());
-            for (const auto &key : *signature().all_valid_inputs) { _check_all_valid_inputs.push_back((*input())[key].get()); }
-        }
+    TSInputView Node::input() const {
+        auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
+        return input(et);
     }
 
-    time_series_output_s_ptr& Node::output() { return _output; }
+    bool Node::has_input() const {
+        return _input.has_value();
+    }
 
-    void Node::set_output(const time_series_output_s_ptr& value) { _output = value; }
+    TSOutputView Node::output(engine_time_t current_time) const {
+        if (!_output.has_value()) {
+            return {};
+        }
+        return const_cast<TSOutput &>(*_output).output_view(current_time);
+    }
 
-    time_series_bundle_output_s_ptr& Node::recordable_state() { return _recordable_state; }
+    TSOutputView Node::output() const {
+        auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
+        return output(et);
+    }
 
-    void Node::set_recordable_state(const time_series_bundle_output_s_ptr& value) { _recordable_state = value; }
+    bool Node::has_output() const {
+        return _output.has_value();
+    }
 
-    bool Node::has_recordable_state() const { return _recordable_state != nullptr; }
+    TSOutputView Node::error_output(engine_time_t current_time) const {
+        if (!_error_output.has_value()) {
+            return {};
+        }
+        return const_cast<TSOutput &>(*_error_output).output_view(current_time);
+    }
+
+    TSOutputView Node::error_output() const {
+        auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
+        return error_output(et);
+    }
+
+    bool Node::has_error_output() const {
+        return _error_output.has_value();
+    }
+
+    TSOutputView Node::recordable_state(engine_time_t current_time) const {
+        if (!_recordable_state.has_value()) {
+            return {};
+        }
+        return const_cast<TSOutput &>(*_recordable_state).output_view(current_time);
+    }
+
+    TSOutputView Node::recordable_state() const {
+        auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
+        return recordable_state(et);
+    }
+
+    bool Node::has_recordable_state() const { return _recordable_state.has_value(); }
 
     NodeScheduler::s_ptr& Node::scheduler() {
         if (_scheduler.get() == nullptr) { _scheduler = std::make_shared<NodeScheduler>(this); }
@@ -721,15 +762,7 @@ namespace hgraph
 
     void Node::unset_scheduler() { _scheduler.reset(); }
 
-    time_series_output_s_ptr& Node::error_output() { return _error_output; }
-
-    void Node::set_error_output(const time_series_output_s_ptr& value) { _error_output = value; }
-
     void Node::add_start_input(const time_series_reference_input_s_ptr& input) { _start_inputs.push_back(input); }
-
-    bool Node::has_input() const { return _input.get() != nullptr; }
-
-    bool Node::has_output() const { return _output.get() != nullptr; }
 
     std::string Node::repr() const {
         static auto none_str    = std::string("None");
@@ -795,7 +828,13 @@ namespace hgraph
             Node *node;
 
             ~Cleanup() {
-                if (node->has_input()) { node->input()->un_bind_output(true); }
+                if (node->has_input()) {
+                    auto et = node->_cached_evaluation_time_ptr != nullptr ? *node->_cached_evaluation_time_ptr : MIN_DT;
+                    auto in = node->input(et);
+                    if (in) {
+                        in.unbind();
+                    }
+                }
                 if (node->has_scheduler()) { node->scheduler()->reset(); }
             }
         } cleanup{this};
@@ -804,18 +843,34 @@ namespace hgraph
     }
 
     void Node::_initialise_inputs() {
-        if (signature().time_series_inputs.has_value()) {
-            for (auto &start_input : _start_inputs) {
-                start_input->start();  // Assuming start_input is some time series type with a start method
+        if (!signature().time_series_inputs.has_value()) {
+            return;
+        }
+
+        for (auto &start_input : _start_inputs) {
+            start_input->start();
+        }
+
+        auto root = input(_cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT);
+        if (!root) {
+            return;
+        }
+
+        auto bundle = root.try_as_bundle();
+        if (!bundle.has_value()) {
+            return;
+        }
+
+        const std::unordered_set<std::string> *active_inputs =
+            signature().active_inputs.has_value() ? &signature().active_inputs.value() : nullptr;
+
+        for (const auto &[arg, _] : *signature().time_series_inputs) {
+            if (active_inputs && !active_inputs->contains(arg)) {
+                continue;
             }
-            const std::unordered_set<std::string> *active_inputs =
-                signature().active_inputs.has_value() ? &signature().active_inputs.value() : nullptr;
-            for (size_t i = 0; i < signature().time_series_inputs->size(); ++i) {
-                // Apple does not yet support ranges::contains :(
-                if (!active_inputs ||
-                    (std::ranges::find(*active_inputs, signature().args[i]) != std::ranges::end(*active_inputs))) {
-                    (*input())[i]->make_active();  // Assuming `make_active` is a method of the `TimeSeriesInput` type
-                }
+            auto view = bundle->field(arg);
+            if (view) {
+                view.make_active();
             }
         }
     }
@@ -824,19 +879,53 @@ namespace hgraph
         bool scheduled{has_scheduler() ? _scheduler->is_scheduled_now() : false};
         bool should_eval{true};
 
-        if (has_input()) {
-            // Check validity of required inputs
-            should_eval = std::ranges::all_of(_check_valid_inputs, [](const auto &input_) { return input_->valid(); });
+        auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
+        TSInputView root = input(et);
+        if (root && signature().time_series_inputs.has_value()) {
+            auto bundle = root.try_as_bundle();
 
-            if (should_eval && signature().all_valid_inputs.has_value()) {
-                should_eval = std::ranges::all_of(_check_all_valid_inputs, [](const auto &input_) { return input_->all_valid(); });
-            }
+            if (!bundle.has_value()) {
+                should_eval = false;
+            } else {
+                if (signature().valid_inputs.has_value()) {
+                    for (const auto &name : *signature().valid_inputs) {
+                        auto view = bundle->field(name);
+                        if (!view || !view.valid()) {
+                            should_eval = false;
+                            break;
+                        }
+                    }
+                } else {
+                    for (const auto &[name, _] : *signature().time_series_inputs) {
+                        auto view = bundle->field(name);
+                        if (!view || !view.valid()) {
+                            should_eval = false;
+                            break;
+                        }
+                    }
+                }
 
-            // Check scheduler state
-            if (should_eval && _signature->uses_scheduler() && !scheduled) {
-                should_eval = !signature().time_series_inputs.has_value() ||
-                              std::ranges::any_of(input()->values(),
-                                                  [](const auto &input_) { return input_->modified() && input_->active(); });
+                if (should_eval && signature().all_valid_inputs.has_value()) {
+                    for (const auto &name : *signature().all_valid_inputs) {
+                        auto view = bundle->field(name);
+                        if (!view || !view.all_valid()) {
+                            should_eval = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (should_eval && _signature->uses_scheduler() && !scheduled) {
+                    bool any_modified = false;
+                    for (const auto &[name, _] : *signature().time_series_inputs) {
+                        auto view = bundle->field(name);
+                        if (view && view.modified() && view.active()) {
+                            any_modified = true;
+                            break;
+                        }
+                    }
+                    should_eval = any_modified;
+                }
             }
         }
 
@@ -844,47 +933,51 @@ namespace hgraph
             try {
                 do_eval();
             } catch (const NodeException &e) {
-                if (signature().capture_exception && error_output().get() != nullptr) {
+                if (signature().capture_exception && has_error_output()) {
                     // Route captured error to the node's error output instead of rethrowing
                     try {
                         auto ne{static_cast<const NodeException &>(e)};
                         auto error_ptr{nb::ref<NodeError>(new NodeError(ne))};
-                        error_output()->py_set_value(nb::cast(error_ptr));
+                        error_output(et).from_python(nb::cast(error_ptr));
                     } catch (const std::exception &set_err) {
                         // Fall back to setting a generic Python object (string) to avoid rethrow during error routing
-                        error_output()->py_set_value(nb::str(e.to_string().c_str()));
+                        error_output(et).from_python(nb::str(e.to_string().c_str()));
                     } catch (...) {
                         // As a last resort, set none to signal an error occurred without throwing
-                        error_output()->py_set_value(nb::none());
+                        error_output(et).from_python(nb::none());
                     }
                     return;  // Do not propagate
                 } else {
                     throw;  // already enriched
                 }
             } catch (const std::exception &e) {
-                if (signature().capture_exception && error_output().get() != nullptr) {
+                if (signature().capture_exception && has_error_output()) {
                     auto ne = NodeError::capture_error(e, *this, "During evaluation");
                     // Create a heap-allocated copy managed by nanobind
                     auto error_ptr = nb::ref<NodeError>(new NodeError(ne));
                     try {
-                        error_output()->py_set_value(nb::cast(error_ptr));
+                        error_output(et).from_python(nb::cast(error_ptr));
                     } catch (const std::exception &set_err) {
-                        error_output()->py_set_value(nb::str(ne.to_string().c_str()));
-                    } catch (...) { error_output()->py_set_value(nb::none()); }
+                        error_output(et).from_python(nb::str(ne.to_string().c_str()));
+                    } catch (...) {
+                        error_output(et).from_python(nb::none());
+                    }
                     return;  // swallow after routing
                 } else {
                     throw NodeException::capture_error(e, *this, "During evaluation");
                 }
             } catch (...) {
-                if (signature().capture_exception && error_output().get() != nullptr) {
+                if (signature().capture_exception && has_error_output()) {
                     auto ne = NodeError::capture_error(std::current_exception(), *this, "Unknown error during node evaluation");
                     // Create a heap-allocated copy managed by nanobind
                     auto error_ptr = nb::ref<NodeError>(new NodeError(ne));
                     try {
-                        error_output()->py_set_value(nb::cast(error_ptr));
+                        error_output(et).from_python(nb::cast(error_ptr));
                     } catch (const std::exception &set_err) {
-                        error_output()->py_set_value(nb::str(ne.to_string().c_str()));
-                    } catch (...) { error_output()->py_set_value(nb::none()); }
+                        error_output(et).from_python(nb::str(ne.to_string().c_str()));
+                    } catch (...) {
+                        error_output(et).from_python(nb::none());
+                    }
                     return;  // swallow after routing
                 } else {
                     throw NodeException::capture_error(std::current_exception(), *this, "Unknown error during node evaluation");

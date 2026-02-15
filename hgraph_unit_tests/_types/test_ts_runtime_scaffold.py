@@ -255,11 +255,11 @@ def test_leaf_kinds_active_toggle(meta_factory):
     ts_input = runtime.TSInput(meta)
     root = ts_input.input_view(MIN_DT)
 
-    assert not root.active()
+    assert not root.active
     root.make_active()
-    assert root.active()
+    assert root.active
     root.make_passive()
-    assert not root.active()
+    assert not root.active
 
 
 def test_input_view_scoped_active_state_is_recursive():
@@ -275,30 +275,30 @@ def test_input_view_scoped_active_state_is_recursive():
     inner_y = inner.child_by_name("y")
 
     assert not ts_input.active()
-    assert not root.active()
+    assert not root.active
     assert root.fq_path_str().endswith(":in")
     assert inner_x.fq_path_str().endswith(":in/inner/x")
 
     inner_x.make_active()
     assert ts_input.active()
-    assert root.active()
-    assert inner_x.active()
-    assert not left.active()
+    assert root.active
+    assert inner_x.active
+    assert not left.active
 
     inner_x.make_passive()
-    assert not inner_x.active()
+    assert not inner_x.active
     assert not ts_input.active()
 
     inner.make_active()
     assert ts_input.active()
-    assert inner.active()
-    assert inner_x.active()
-    assert inner_y.active()
+    assert inner.active
+    assert inner_x.active
+    assert inner_y.active
 
     inner.make_passive()
-    assert not inner.active()
-    assert not inner_x.active()
-    assert not inner_y.active()
+    assert not inner.active
+    assert not inner_x.active
+    assert not inner_y.active
     assert not ts_input.active()
 
 
@@ -314,15 +314,15 @@ def test_input_active_root_tracks_any_active_branch():
     left.make_active()
     right.make_active()
     assert ts_input.active()
-    assert root.active()
+    assert root.active
 
     left.make_passive()
     assert ts_input.active()
-    assert right.active()
+    assert right.active
 
     right.make_passive()
     assert not ts_input.active()
-    assert not root.active()
+    assert not root.active
 
 
 def test_tsl_fixed_child_scoped_active_updates_root_state():
@@ -335,14 +335,14 @@ def test_tsl_fixed_child_scoped_active_updates_root_state():
 
     mid.make_active()
     assert ts_input.active()
-    assert root.active()
-    assert not root.child_at(0).active()
-    assert root.child_at(1).active()
-    assert not root.child_at(2).active()
+    assert root.active
+    assert not root.child_at(0).active
+    assert root.child_at(1).active
+    assert not root.child_at(2).active
 
     mid.make_passive()
     assert not ts_input.active()
-    assert not root.active()
+    assert not root.active
 
 
 def test_alternative_binding_recurses_by_tsb_field_name():
@@ -435,7 +435,7 @@ def test_sampled_flag_propagates_to_child_views():
 
     assert root.sampled()
     assert child.sampled()
-    assert child.modified()
+    assert child.modified
 
 
 def test_get_ts_ops_dispatch_for_tsw_kind_and_meta_variants():
@@ -497,6 +497,139 @@ def test_get_ts_ops_by_kind_compaction_exposes_only_relevant_extensions():
     assert not runtime.ops_has_dict_for_kind(_hgraph.TSKind.TSB)
     assert not runtime.ops_has_list_for_kind(_hgraph.TSKind.TSB)
     assert runtime.ops_has_bundle_for_kind(_hgraph.TSKind.TSB)
+
+
+def test_schema_cache_scalar_contract_surfaces_all_parallel_schemas():
+    ts_meta = _ts_int_meta()
+
+    value_meta = runtime.schema_value_meta(ts_meta)
+    time_meta = runtime.schema_time_meta(ts_meta)
+    observer_meta = runtime.schema_observer_meta(ts_meta)
+    delta_meta = runtime.schema_delta_meta(ts_meta)
+    link_meta = runtime.schema_link_meta(ts_meta)
+    input_link_meta = runtime.schema_input_link_meta(ts_meta)
+    active_meta = runtime.schema_active_meta(ts_meta)
+
+    assert value_meta is ts_meta.value_type
+    assert time_meta is value.scalar_type_meta_datetime()
+    assert observer_meta is value.TypeMeta.get("object")
+    assert delta_meta is None
+    assert link_meta is value.TypeMeta.get("REFLink")
+    assert input_link_meta is value.TypeMeta.get("LinkTarget")
+    assert active_meta is value.scalar_type_meta_bool()
+
+
+def test_schema_cache_tsb_link_and_active_shapes_include_container_slot():
+    ts_int = _ts_int_meta()
+    bundle_meta = _tsb_meta("SchemaBundle", [("x", ts_int), ("y", ts_int)])
+
+    output_link = runtime.schema_link_meta(bundle_meta)
+    input_link = runtime.schema_input_link_meta(bundle_meta)
+    active = runtime.schema_active_meta(bundle_meta)
+
+    ref_link_meta = value.TypeMeta.get("REFLink")
+    link_target_meta = value.TypeMeta.get("LinkTarget")
+    bool_meta = value.scalar_type_meta_bool()
+
+    assert output_link.field_count == 3
+    assert output_link.fields[0].type is ref_link_meta
+    assert output_link.fields[1].type is ref_link_meta
+    assert output_link.fields[2].type is ref_link_meta
+
+    assert input_link.field_count == 3
+    assert input_link.fields[0].type is link_target_meta
+    assert input_link.fields[1].type is link_target_meta
+    assert input_link.fields[2].type is link_target_meta
+
+    assert active.field_count == 3
+    assert active.fields[0].type is bool_meta
+    assert active.fields[1].type is bool_meta
+    assert active.fields[2].type is bool_meta
+
+
+def test_schema_cache_tsl_link_shape_differs_for_fixed_and_dynamic_modes():
+    ts_int = _ts_int_meta()
+    fixed_meta = _registry().tsl(ts_int, 3)
+    dynamic_meta = _registry().tsl(ts_int, 0)
+
+    fixed_output_link = runtime.schema_link_meta(fixed_meta)
+    fixed_input_link = runtime.schema_input_link_meta(fixed_meta)
+    dynamic_output_link = runtime.schema_link_meta(dynamic_meta)
+    dynamic_input_link = runtime.schema_input_link_meta(dynamic_meta)
+
+    assert fixed_output_link.kind == value.TypeKind.List
+    assert fixed_output_link.fixed_size == 3
+    assert fixed_output_link.element_type is value.TypeMeta.get("REFLink")
+
+    assert fixed_input_link.kind == value.TypeKind.List
+    assert fixed_input_link.fixed_size == 3
+    assert fixed_input_link.element_type is value.TypeMeta.get("LinkTarget")
+
+    assert dynamic_output_link is value.TypeMeta.get("REFLink")
+    assert dynamic_input_link is value.TypeMeta.get("LinkTarget")
+
+
+def test_schema_cache_tsd_link_is_leaf_and_active_is_recursive():
+    tsd_meta = _tsd_meta(value.scalar_type_meta_string(), _ts_int_meta())
+
+    assert runtime.schema_link_meta(tsd_meta) is value.TypeMeta.get("REFLink")
+    assert runtime.schema_input_link_meta(tsd_meta) is value.TypeMeta.get("LinkTarget")
+
+    active = runtime.schema_active_meta(tsd_meta)
+    assert active.field_count == 2
+    assert active.fields[0].type is value.scalar_type_meta_bool()
+
+    child_collection = active.fields[1].type
+    assert child_collection.kind == value.TypeKind.List
+    assert child_collection.fixed_size == 0
+    assert child_collection.element_type is value.scalar_type_meta_bool()
+
+
+def test_schema_cache_delta_contract_for_tss_tsd_and_tsb_nested_shapes():
+    ts_int = _ts_int_meta()
+    key_type = value.scalar_type_meta_string()
+
+    tss_meta = _registry().tss(value.scalar_type_meta_int64())
+    tss_delta = runtime.schema_delta_meta(tss_meta)
+    assert tss_delta is not None
+    assert tss_delta.field_count == 2
+    assert tss_delta.fields[0].type is tss_meta.value_type
+    assert tss_delta.fields[1].type is tss_meta.value_type
+
+    tsd_scalar_meta = _tsd_meta(key_type, ts_int)
+    tsd_scalar_delta = runtime.schema_delta_meta(tsd_scalar_meta)
+    assert tsd_scalar_delta is not None
+    assert tsd_scalar_delta.field_count == 3
+    assert tsd_scalar_delta.fields[0].type.kind == value.TypeKind.Map
+    assert tsd_scalar_delta.fields[0].type.key_type is key_type
+    assert tsd_scalar_delta.fields[0].type.element_type is ts_int.value_type
+    assert tsd_scalar_delta.fields[1].type.kind == value.TypeKind.Set
+    assert tsd_scalar_delta.fields[1].type.element_type is key_type
+    assert tsd_scalar_delta.fields[2].type.kind == value.TypeKind.Set
+    assert tsd_scalar_delta.fields[2].type.element_type is key_type
+
+    tsd_nested_meta = _tsd_meta(key_type, tss_meta)
+    tsd_nested_delta = runtime.schema_delta_meta(tsd_nested_meta)
+    assert tsd_nested_delta is not None
+    assert tsd_nested_delta.field_count == 4
+    nested_children = tsd_nested_delta.fields[3].type
+    assert nested_children.kind == value.TypeKind.List
+    nested_child_delta = nested_children.element_type
+    assert nested_child_delta is not None
+    assert nested_child_delta.kind == tss_delta.kind
+    assert nested_child_delta.field_count == tss_delta.field_count
+    assert nested_child_delta.fields[0].type is tss_delta.fields[0].type
+    assert nested_child_delta.fields[1].type is tss_delta.fields[1].type
+
+    bundle_meta = _tsb_meta("DeltaBundle", [("scalar", ts_int), ("set_value", tss_meta)])
+    bundle_delta = runtime.schema_delta_meta(bundle_meta)
+    assert bundle_delta is not None
+    assert bundle_delta.field_count == 2
+    assert bundle_delta.fields[0].type is value.TypeMeta.get("object")
+    assert bundle_delta.fields[1].type.kind == tss_delta.kind
+    assert bundle_delta.fields[1].type.field_count == tss_delta.field_count
+    assert bundle_delta.fields[1].type.fields[0].type is tss_delta.fields[0].type
+    assert bundle_delta.fields[1].type.fields[1].type is tss_delta.fields[1].type
 
 
 @pytest.mark.parametrize(
