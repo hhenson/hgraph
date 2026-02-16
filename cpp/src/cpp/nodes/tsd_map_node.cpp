@@ -13,7 +13,6 @@
 #include <hgraph/util/scope.h>
 
 #include <optional>
-#include <cstdlib>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -81,14 +80,6 @@ namespace hgraph
             if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
                 ViewData bound_target{};
                 if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                    if (std::getenv("HGRAPH_DEBUG_MAP") != nullptr) {
-                        TSView target_view(bound_target, inner_any.current_time());
-                        fmt::print(stderr,
-                                   "[map-bind] REF resolved outer_kind={} target_kind={} target_path_len={}\n",
-                                   static_cast<int>(outer_meta->kind),
-                                   static_cast<int>(target_view.kind()),
-                                   bound_target.path.indices.size());
-                    }
                     inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
                     return;
                 }
@@ -497,30 +488,6 @@ namespace hgraph
             auto node = nested->nodes()[output_node_id_];
             auto inner = node->output(node_time(*node));
             if (outer && inner) {
-                if (std::getenv("HGRAPH_DEBUG_MAP") != nullptr) {
-                    auto in_root = node->input(node_time(*node));
-                    TSInputView in_ts{};
-                    if (in_root) {
-                        auto in_bundle = in_root.try_as_bundle();
-                        if (in_bundle.has_value()) {
-                            in_ts = in_bundle->field("ts");
-                            if (!in_ts && in_bundle->count() > 0) {
-                                in_ts = in_bundle->at(0);
-                            }
-                        }
-                    }
-                    fmt::print(stderr,
-                               "[map:{}] sync-node key={} node_sig={} in_ts={} in_valid={} in_bound={} in_py={} out_py={}\n",
-                               signature().wiring_path_name,
-                               key_repr(key, key_type_meta_),
-                               node->signature().name,
-                               static_cast<bool>(in_ts),
-                               in_ts ? in_ts.valid() : false,
-                               in_ts ? in_ts.is_bound() : false,
-                               in_ts ? nb::cast<std::string>(nb::repr(in_ts.to_python())) : std::string("<none>"),
-                               nb::cast<std::string>(nb::repr(inner.to_python())));
-                }
-
                 TSView inner_view = inner.as_ts_view();
                 ViewData resolved{};
                 if (resolve_bound_target_view_data(inner_view.view_data(), resolved)) {
@@ -528,19 +495,6 @@ namespace hgraph
                 }
 
                 auto outer_key = outer.create(key);
-                if (std::getenv("HGRAPH_DEBUG_MAP") != nullptr) {
-                    fmt::print(stderr,
-                               "[map:{}] sync key={} inner_mod={} inner_valid={} inner_delta={} outer_kind={} outer_key_kind={} outer_count={} outer={}\n",
-                               signature().wiring_path_name,
-                               key_repr(key, key_type_meta_),
-                               inner_view.modified(),
-                               inner_view.valid(),
-                               nb::cast<std::string>(nb::repr(inner_view.delta_to_python())),
-                               static_cast<int>(outer.as_ts_view().kind()),
-                               outer_key ? static_cast<int>(outer_key.as_ts_view().kind()) : -1,
-                               outer.count(),
-                               nb::cast<std::string>(nb::repr(outer.to_python())));
-                }
                 if (outer_key && inner_view.modified()) {
                     if (inner_view.valid()) {
                         outer_key.from_python(inner_view.delta_to_python());
@@ -632,27 +586,7 @@ namespace hgraph
                 } else {
                     outer_key_value = outer_ts.child_by_key(key);
                 }
-                if (std::getenv("HGRAPH_DEBUG_MAP") != nullptr) {
-                    fmt::print(stderr,
-                               "[map:{}] wire key={} arg={} outer_kind={} outer_key_value={} outer_key_valid={}\n",
-                               signature().wiring_path_name,
-                               key_repr(key, key_type_meta_),
-                               arg,
-                               outer_meta != nullptr ? static_cast<int>(outer_meta->kind) : -1,
-                               static_cast<bool>(outer_key_value),
-                               outer_key_value.valid());
-                }
                 bind_inner_from_outer(outer_key_value, inner_ts);
-                if (std::getenv("HGRAPH_DEBUG_MAP") != nullptr) {
-                    fmt::print(stderr,
-                               "[map:{}] wired key={} arg={} inner_bound={} inner_valid={} inner_py={}\n",
-                               signature().wiring_path_name,
-                               key_repr(key, key_type_meta_),
-                               arg,
-                               inner_ts.is_bound(),
-                               inner_ts.valid(),
-                               nb::cast<std::string>(nb::repr(inner_ts.to_python())));
-                }
             } else {
                 bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts);
             }
