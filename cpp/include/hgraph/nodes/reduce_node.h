@@ -34,7 +34,7 @@ namespace hgraph {
         ReduceNode(const ReduceNode&) = delete;
         ReduceNode& operator=(const ReduceNode&) = delete;
 
-        std::unordered_map<int, graph_s_ptr> &nested_graphs();
+        [[nodiscard]] std::unordered_map<int, graph_s_ptr> nested_graphs() const;
 
         TimeSeriesDictInputImpl::ptr ts();
 

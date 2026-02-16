@@ -17,9 +17,8 @@ namespace hgraph {
           nested_graph_builder_(std::move(nested_graph_builder)), input_node_ids_(input_node_ids),
           output_node_id_(output_node_id) {}
 
-    std::unordered_map<int, graph_s_ptr> &ReduceNode::nested_graphs() {
-        static std::unordered_map<int, graph_s_ptr> graphs;
-        graphs.clear();
+    std::unordered_map<int, graph_s_ptr> ReduceNode::nested_graphs() const {
+        std::unordered_map<int, graph_s_ptr> graphs;
         if (nested_graph_) {
             graphs.emplace(0, nested_graph_);
         }

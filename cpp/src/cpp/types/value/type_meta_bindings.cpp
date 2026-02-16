@@ -174,11 +174,18 @@ struct CompositeTypeKeyHash {
     }
 };
 
-// Cache for composite types
-std::unordered_map<CompositeTypeKey, const TypeMeta*, CompositeTypeKeyHash> g_composite_cache;
+struct TypeMetaBindingsState {
+    std::unordered_map<CompositeTypeKey, const TypeMeta*, CompositeTypeKeyHash> composite_cache;
+};
 
-// Registry mapping TypeMeta* to Python class for CompoundScalar reconstruction
-std::unordered_map<const TypeMeta*, nb::object> g_compound_scalar_registry;
+TypeMetaBindingsState& bindings_state() {
+    static TypeMetaBindingsState state;
+    return state;
+}
+
+// Global singleton cache for CompoundScalar class reconstruction metadata.
+// This is intentionally process-wide and keyed by canonical TypeMeta* identity.
+static std::unordered_map<const TypeMeta*, nb::object> g_compound_scalar_registry;
 
 } // anonymous namespace
 
@@ -399,15 +406,16 @@ static const TypeMeta* get_dict_type_meta(const TypeMeta* key_meta, const TypeMe
 
     // Check cache
     CompositeTypeKey cache_key{TypeKind::Map, value_meta, key_meta, {}};
-    auto it = g_composite_cache.find(cache_key);
-    if (it != g_composite_cache.end()) {
+    auto& state = bindings_state();
+    auto it = state.composite_cache.find(cache_key);
+    if (it != state.composite_cache.end()) {
         return it->second;
     }
 
     // Build new type
     auto& registry = TypeRegistry::instance();
     const TypeMeta* result = registry.map(key_meta, value_meta).build();
-    g_composite_cache[cache_key] = result;
+    state.composite_cache[cache_key] = result;
     return result;
 }
 
@@ -424,15 +432,16 @@ static const TypeMeta* get_set_type_meta(const TypeMeta* element_meta) {
 
     // Check cache
     CompositeTypeKey cache_key{TypeKind::Set, element_meta, nullptr, {}};
-    auto it = g_composite_cache.find(cache_key);
-    if (it != g_composite_cache.end()) {
+    auto& state = bindings_state();
+    auto it = state.composite_cache.find(cache_key);
+    if (it != state.composite_cache.end()) {
         return it->second;
     }
 
     // Build new type
     auto& registry = TypeRegistry::instance();
     const TypeMeta* result = registry.set(element_meta).build();
-    g_composite_cache[cache_key] = result;
+    state.composite_cache[cache_key] = result;
     return result;
 }
 
@@ -449,15 +458,16 @@ static const TypeMeta* get_dynamic_list_type_meta(const TypeMeta* element_meta) 
 
     // Check cache
     CompositeTypeKey cache_key{TypeKind::List, element_meta, nullptr, {}};
-    auto it = g_composite_cache.find(cache_key);
-    if (it != g_composite_cache.end()) {
+    auto& state = bindings_state();
+    auto it = state.composite_cache.find(cache_key);
+    if (it != state.composite_cache.end()) {
         return it->second;
     }
 
     // Build new type - mark as variadic tuple since this is tuple[T, ...]
     auto& registry = TypeRegistry::instance();
     const TypeMeta* result = registry.list(element_meta).as_variadic_tuple().build();
-    g_composite_cache[cache_key] = result;
+    state.composite_cache[cache_key] = result;
     return result;
 }
 
@@ -486,8 +496,9 @@ static const TypeMeta* get_tuple_type_meta(
         fields.emplace_back("$" + std::to_string(i), element_types[i]);
     }
     CompositeTypeKey cache_key{TypeKind::Tuple, nullptr, nullptr, fields};
-    auto it = g_composite_cache.find(cache_key);
-    if (it != g_composite_cache.end()) {
+    auto& state = bindings_state();
+    auto it = state.composite_cache.find(cache_key);
+    if (it != state.composite_cache.end()) {
         return it->second;
     }
 
@@ -500,7 +511,7 @@ static const TypeMeta* get_tuple_type_meta(
     }
 
     const TypeMeta* result = builder.build();
-    g_composite_cache[cache_key] = result;
+    state.composite_cache[cache_key] = result;
     return result;
 }
 
@@ -527,8 +538,9 @@ static const TypeMeta* get_bundle_type_meta(
 
     // Check cache - key is based on fields, not name
     CompositeTypeKey cache_key{TypeKind::Bundle, nullptr, nullptr, fields};
-    auto it = g_composite_cache.find(cache_key);
-    if (it != g_composite_cache.end()) {
+    auto& state = bindings_state();
+    auto it = state.composite_cache.find(cache_key);
+    if (it != state.composite_cache.end()) {
         return it->second;
     }
 
@@ -543,7 +555,7 @@ static const TypeMeta* get_bundle_type_meta(
     }
 
     const TypeMeta* result = builder.build();
-    g_composite_cache[cache_key] = result;
+    state.composite_cache[cache_key] = result;
     return result;
 }
 
@@ -573,8 +585,9 @@ static const TypeMeta* get_compound_scalar_type_meta(
 
     // Check cache - key is based on fields, not name
     CompositeTypeKey cache_key{TypeKind::Bundle, nullptr, nullptr, fields};
-    auto it = g_composite_cache.find(cache_key);
-    if (it != g_composite_cache.end()) {
+    auto& state = bindings_state();
+    auto it = state.composite_cache.find(cache_key);
+    if (it != state.composite_cache.end()) {
         // Already exists - just ensure the py_class is registered
         register_compound_scalar_class(it->second, py_class);
         return it->second;
@@ -642,7 +655,7 @@ static const TypeMeta* get_compound_scalar_type_meta(
         registry.register_named_bundle(type_name.value(), result);
     }
 
-    g_composite_cache[cache_key] = result;
+    state.composite_cache[cache_key] = result;
     return result;
 }
 
