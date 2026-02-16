@@ -26,6 +26,14 @@ enum class PortType : uint8_t {
 };
 
 /**
+ * Optional view projection mode used by runtime wiring.
+ */
+enum class ViewProjection : uint8_t {
+    NONE = 0,
+    TSD_KEY_SET = 1,
+};
+
+/**
  * Fully-qualified path element.
  */
 struct FQPathElement {
@@ -85,6 +93,7 @@ struct ViewData {
 
     bool sampled{false};
     bool uses_link_target{false};
+    ViewProjection projection{ViewProjection::NONE};
 
     const ts_ops* ops{nullptr};
     const TSMeta* meta{nullptr};

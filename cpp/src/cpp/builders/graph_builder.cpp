@@ -13,6 +13,43 @@ namespace hgraph
         constexpr int64_t ERROR_PATH = -1;
         constexpr int64_t STATE_PATH = -2;
         constexpr int64_t KEY_SET_PATH_ID = -3;
+
+        void bind_static_container_recursive(TSInputView input_view, TSOutputView output_view) {
+            if (!input_view || !output_view) {
+                return;
+            }
+
+            const TSMeta* input_meta = input_view.ts_meta();
+            const bool bind_parent =
+                !(input_meta != nullptr &&
+                  input_meta->kind == TSKind::TSL &&
+                  input_meta->fixed_size() > 0 &&
+                  input_meta->element_ts() != nullptr &&
+                  input_meta->element_ts()->kind == TSKind::REF);
+
+            if (bind_parent) {
+                input_view.bind(output_view);
+            }
+
+            if (input_meta == nullptr) {
+                return;
+            }
+
+            if (input_meta->kind == TSKind::TSB) {
+                const size_t n = input_meta->field_count();
+                for (size_t i = 0; i < n; ++i) {
+                    bind_static_container_recursive(input_view.child_at(i), output_view.child_at(i));
+                }
+                return;
+            }
+
+            if (input_meta->kind == TSKind::TSL && input_meta->fixed_size() > 0) {
+                const size_t n = input_meta->fixed_size();
+                for (size_t i = 0; i < n; ++i) {
+                    bind_static_container_recursive(input_view.child_at(i), output_view.child_at(i));
+                }
+            }
+        }
     }  // namespace
 
     bool _bind_ts_endpoint(node_ptr src_node, const std::vector<int64_t> &output_path,
@@ -35,9 +72,11 @@ namespace hgraph
         }
 
         for (int64_t index : normalized_output_path) {
-            // TSD key-set routing is represented as a synthetic path element in wiring.
-            // TS endpoints do not model key-set as a structural child yet.
             if (index == KEY_SET_PATH_ID) {
+                if (output_view.as_ts_view().kind() != TSKind::TSD) {
+                    return false;
+                }
+                output_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
                 continue;
             }
             if (index < 0) {
@@ -51,6 +90,10 @@ namespace hgraph
 
         for (int64_t index : input_path) {
             if (index == KEY_SET_PATH_ID) {
+                if (input_view.as_ts_view().kind() != TSKind::TSD) {
+                    return false;
+                }
+                input_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
                 continue;
             }
             if (index < 0) {
@@ -62,7 +105,18 @@ namespace hgraph
             }
         }
 
-        input_view.bind(output_view);
+        const TSMeta* input_meta = input_view.ts_meta();
+        if (input_meta != nullptr &&
+            (input_meta->kind == TSKind::TSB || (input_meta->kind == TSKind::TSL && input_meta->fixed_size() > 0))) {
+            const TSMeta* output_meta = output_view.ts_meta();
+            if (output_meta != nullptr && output_meta->kind == TSKind::REF) {
+                input_view.bind(output_view);
+            } else {
+                bind_static_container_recursive(input_view, output_view);
+            }
+        } else {
+            input_view.bind(output_view);
+        }
         return true;
     }
 

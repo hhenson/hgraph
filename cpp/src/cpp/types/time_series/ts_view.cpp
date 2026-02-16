@@ -220,7 +220,7 @@ nb::object TSView::delta_to_python() const {
     if (view_data_.ops == nullptr || view_data_.ops->delta_to_python == nullptr) {
         return nb::none();
     }
-    return view_data_.ops->delta_to_python(view_data_);
+    return view_data_.ops->delta_to_python(view_data_, current_time_);
 }
 
 void TSView::set_value(const value::View& src) {
@@ -252,20 +252,10 @@ void TSView::invalidate() {
 }
 
 TSView TSView::child_at(size_t index) const {
-    if (const ts_bundle_ops* bundle = resolve_bundle_ops(view_data_); bundle != nullptr && bundle->at != nullptr) {
-        return bundle->at(view_data_, index, current_time_);
-    }
-    if (const ts_list_ops* list = resolve_list_ops(view_data_); list != nullptr && list->at != nullptr) {
-        return list->at(view_data_, index, current_time_);
-    }
     return child_at_impl(view_data_, index, current_time_);
 }
 
 TSView TSView::child_by_name(std::string_view name) const {
-    if (const ts_bundle_ops* bundle = resolve_bundle_ops(view_data_);
-        bundle != nullptr && bundle->at_name != nullptr) {
-        return bundle->at_name(view_data_, name, current_time_);
-    }
     return child_by_name_impl(view_data_, name, current_time_);
 }
 
@@ -277,13 +267,6 @@ TSView TSView::child_by_key(const value::View& key) const {
 }
 
 size_t TSView::child_count() const {
-    if (const ts_bundle_ops* bundle = resolve_bundle_ops(view_data_);
-        bundle != nullptr && bundle->size != nullptr) {
-        return bundle->size(view_data_);
-    }
-    if (const ts_list_ops* list = resolve_list_ops(view_data_); list != nullptr && list->size != nullptr) {
-        return list->size(view_data_);
-    }
     return child_count_impl(view_data_);
 }
 
@@ -486,14 +469,14 @@ void TSView::bind(const TSView& target) {
     if (view_data_.ops == nullptr) {
         return;
     }
-    view_data_.ops->bind(view_data_, target.view_data_);
+    view_data_.ops->bind(view_data_, target.view_data_, current_time_);
 }
 
 void TSView::unbind() {
     if (view_data_.ops == nullptr) {
         return;
     }
-    view_data_.ops->unbind(view_data_);
+    view_data_.ops->unbind(view_data_, current_time_);
 }
 
 bool TSView::is_bound() const {
@@ -697,7 +680,8 @@ TSInputView TSInputView::child_by_name(std::string_view name) const {
 }
 
 TSInputView TSInputView::child_by_key(const value::View& key) const {
-    return TSInputView(owner_, ts_view_.child_by_key(key));
+    TSView selected = ts_view_.child_by_key(key);
+    return TSInputView(owner_, std::move(selected));
 }
 
 std::optional<TSWInputView> TSInputView::try_as_window() const {

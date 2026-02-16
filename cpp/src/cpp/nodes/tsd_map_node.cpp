@@ -1,14 +1,102 @@
+#include <fmt/format.h>
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/python_node.h>
 #include <hgraph/nodes/tsd_map_node.h>
 #include <hgraph/runtime/record_replay.h>
+#include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
+#include <hgraph/types/node.h>
+#include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/util/lifecycle.h>
 #include <hgraph/util/scope.h>
 
+#include <optional>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
 namespace hgraph
 {
+    namespace {
+        engine_time_t node_time(const Node &node) {
+            if (const auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
+                return *et;
+            }
+            auto g = node.graph();
+            return g != nullptr ? g->evaluation_time() : MIN_DT;
+        }
+
+        TSInputView node_input_field(Node &node, std::string_view name) {
+            auto root = node.input(node_time(node));
+            if (!root) {
+                return {};
+            }
+            auto bundle_opt = root.try_as_bundle();
+            if (!bundle_opt.has_value()) {
+                return {};
+            }
+            return bundle_opt->field(name);
+        }
+
+        TSInputView node_inner_ts_input(Node &node) {
+            auto root = node.input(node_time(node));
+            if (!root) {
+                return {};
+            }
+
+            auto bundle_opt = root.try_as_bundle();
+            if (!bundle_opt.has_value()) {
+                return {};
+            }
+
+            auto ts = bundle_opt->field("ts");
+            if (!ts && bundle_opt->count() > 0) {
+                ts = bundle_opt->at(0);
+            }
+            return ts;
+        }
+
+        std::string key_repr(const value::View &key, const value::TypeMeta *key_type_meta) {
+            if (!key.valid() || key_type_meta == nullptr) {
+                return "<invalid key>";
+            }
+            nb::object py_key = key_type_meta->ops().to_python(key.data(), key_type_meta);
+            return nb::cast<std::string>(nb::repr(py_key));
+        }
+
+        void bind_inner_from_outer(const TSView &outer_any, TSInputView inner_any) {
+            if (!inner_any) {
+                return;
+            }
+
+            if (!outer_any) {
+                inner_any.unbind();
+                return;
+            }
+
+            const TSMeta *outer_meta = outer_any.ts_meta();
+            if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
+                TimeSeriesReference ref = TimeSeriesReference::make();
+                value::View ref_view = outer_any.value();
+                if (ref_view.valid()) {
+                    ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
+                }
+                ref.bind_input(inner_any);
+                return;
+            }
+
+            ViewData bound_target{};
+            if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
+                inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+            } else {
+                inner_any.unbind();
+            }
+        }
+    }  // namespace
+
     MapNestedEngineEvaluationClock::MapNestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock,
                                                                    value::Value key,
                                                                    tsd_map_node_ptr nested_node)
@@ -16,20 +104,22 @@ namespace hgraph
           _key(std::move(key)) {}
 
     void MapNestedEngineEvaluationClock::update_next_scheduled_evaluation_time(engine_time_t next_time) {
-        NestedEngineEvaluationClock::update_next_scheduled_evaluation_time(next_time);
         auto &node_{*static_cast<TsdMapNode *>(node())};
         auto let = node_.last_evaluation_time();
         if ((let != MIN_DT && let >= next_time) || node_.is_stopping()) {
             return;
         }
+
         auto it{node_.scheduled_keys_.find(_key.view())};
         if (it == node_.scheduled_keys_.end() || it->second > next_time) {
             node_.scheduled_keys_.insert_or_assign(_key.view().clone(), next_time);
         }
+
+        NestedEngineEvaluationClock::update_next_scheduled_evaluation_time(next_time);
     }
 
     nb::object MapNestedEngineEvaluationClock::py_key() const {
-        auto* node_ = static_cast<TsdMapNode*>(node());
+        auto *node_ = static_cast<TsdMapNode *>(node());
         if (const auto *key_schema = node_->key_type_meta(); key_schema != nullptr) {
             return key_schema->ops().to_python(_key.data(), key_schema);
         }
@@ -37,8 +127,8 @@ namespace hgraph
     }
 
     TsdMapNode::TsdMapNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                           nb::dict scalars, const TSMeta* input_meta, const TSMeta* output_meta,
-                           const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
+                           nb::dict scalars, const TSMeta *input_meta, const TSMeta *output_meta,
+                           const TSMeta *error_output_meta, const TSMeta *recordable_state_meta,
                            graph_builder_s_ptr nested_graph_builder,
                            const std::unordered_map<std::string, int64_t> &input_node_ids, int64_t output_node_id,
                            const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg)
@@ -50,7 +140,7 @@ namespace hgraph
     nb::dict TsdMapNode::py_nested_graphs() const {
         nb::dict result;
         for (const auto &[key, graph] : active_graphs_) {
-            if (!key_type_meta_) {
+            if (key_type_meta_ == nullptr) {
                 continue;
             }
             nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
@@ -59,7 +149,7 @@ namespace hgraph
         return result;
     }
 
-    void TsdMapNode::enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)> &callback) const {
+    void TsdMapNode::enumerate_nested_graphs(const std::function<void(const graph_s_ptr &)> &callback) const {
         for (const auto &[_, graph] : active_graphs_) {
             if (graph) {
                 callback(graph);
@@ -68,22 +158,23 @@ namespace hgraph
     }
 
     void TsdMapNode::initialise() {
-        auto root = input(graph()->evaluation_time());
-        if (!root) {
+        auto keys_view = node_input_field(*this, KEYS_ARG);
+        const TSMeta *keys_meta = keys_view ? keys_view.ts_meta() : nullptr;
+        if (keys_meta == nullptr) {
             key_type_meta_ = nullptr;
             return;
         }
-        auto bundle = root.try_as_bundle();
-        if (!bundle.has_value()) {
+
+        // During TS migration, KEY_SET path binding is still represented by routing
+        // the owning TSD endpoint. Support both the intended TSS key-set shape and
+        // the current TSD fallback shape.
+        if (keys_meta->kind == TSKind::TSS) {
+            key_type_meta_ = keys_meta->value_type != nullptr ? keys_meta->value_type->element_type : nullptr;
+        } else if (keys_meta->kind == TSKind::TSD) {
+            key_type_meta_ = keys_meta->key_type();
+        } else {
             key_type_meta_ = nullptr;
-            return;
         }
-        auto keys_view = bundle->field(KEYS_ARG);
-        if (!keys_view || keys_view.ts_meta() == nullptr || keys_view.ts_meta()->kind != TSKind::TSS) {
-            key_type_meta_ = nullptr;
-            return;
-        }
-        key_type_meta_ = keys_view.ts_meta()->value_type;
     }
 
     void TsdMapNode::do_start() {
@@ -112,38 +203,280 @@ namespace hgraph
 
     void TsdMapNode::eval() {
         mark_evaluated();
-        throw std::runtime_error("TsdMapNode TS migration pending: legacy TimeSeriesInput/Output path removed");
-    }
 
-    TimeSeriesDictOutputImpl &TsdMapNode::tsd_output() {
-        throw std::runtime_error("TsdMapNode::tsd_output unavailable in TS runtime cutover");
-    }
+        auto keys_view = node_input_field(*this, KEYS_ARG);
+        if (keys_view && keys_view.modified()) {
+            value::View keys_delta = keys_view.delta_value();
+            if (!keys_delta.valid() || !keys_delta.is_tuple()) {
+                throw std::runtime_error("TsdMapNode expected tuple delta for __keys__");
+            }
 
-    void TsdMapNode::create_new_graph(const value::View &) {
-        throw std::runtime_error("TsdMapNode::create_new_graph pending TS migration");
-    }
+            auto delta_tuple = keys_delta.as_tuple();
+            size_t added_slot = 0;
+            size_t removed_slot = 1;
+            if (delta_tuple.size() >= 3 &&
+                delta_tuple.at(0).valid() && delta_tuple.at(0).is_map() &&
+                delta_tuple.at(1).valid() && delta_tuple.at(1).is_set() &&
+                delta_tuple.at(2).valid() && delta_tuple.at(2).is_set()) {
+                // TSD delta slots: (changed_values, added_keys, removed_keys, ...)
+                added_slot = 1;
+                removed_slot = 2;
+            }
 
-    void TsdMapNode::remove_graph(const value::View &key) {
-        if (auto it = active_graphs_.find(key); it != active_graphs_.end()) {
-            auto graph = it->second;
-            active_graphs_.erase(it);
-            auto cleanup = make_scope_exit([this, graph = std::move(graph)]() {
-                if (nested_graph_builder_) {
-                    nested_graph_builder_->release_instance(graph);
+            if (delta_tuple.size() > added_slot) {
+                value::View added_keys = delta_tuple.at(added_slot);
+                if (added_keys.valid() && added_keys.is_set()) {
+                    for (const auto key : added_keys.as_set()) {
+                        if (active_graphs_.find(key) == active_graphs_.end()) {
+                            create_new_graph(key);
+                        }
+                    }
                 }
-            });
-            stop_component(*graph);
+            }
+
+            if (delta_tuple.size() > removed_slot) {
+                value::View removed_keys = delta_tuple.at(removed_slot);
+                if (removed_keys.valid() && removed_keys.is_set()) {
+                    for (const auto key : removed_keys.as_set()) {
+                        if (auto it = active_graphs_.find(key); it != active_graphs_.end()) {
+                            remove_graph(key);
+                            if (auto sched_it = scheduled_keys_.find(key); sched_it != scheduled_keys_.end()) {
+                                scheduled_keys_.erase(sched_it);
+                            }
+                        } else {
+                            throw std::runtime_error(
+                                fmt::format("[{}] Key {} does not exist in active graphs", signature().wiring_path_name,
+                                            key_repr(key, key_type_meta_)));
+                        }
+                    }
+                }
+            }
+        }
+
+        key_time_map_type scheduled_keys;
+        std::swap(scheduled_keys, scheduled_keys_);
+
+        for (const auto &[k, dt] : scheduled_keys) {
+            if (dt < last_evaluation_time()) {
+                throw std::runtime_error(
+                    fmt::format("Scheduled time is in the past; last evaluation time: {}, scheduled time: {}, evaluation time: {}",
+                                last_evaluation_time(), dt, graph()->evaluation_time()));
+            }
+
+            const engine_time_t next_dt = (dt == last_evaluation_time()) ? evaluate_graph(k.view()) : dt;
+            if (next_dt != MAX_DT && next_dt > last_evaluation_time()) {
+                scheduled_keys_.insert_or_assign(k.view().clone(), next_dt);
+                graph()->schedule_node(node_ndx(), next_dt);
+            }
         }
     }
 
-    engine_time_t TsdMapNode::evaluate_graph(const value::View &) {
-        return MAX_DT;
+    TSDOutputView TsdMapNode::tsd_output(engine_time_t current_time) {
+        auto out = output(current_time);
+        if (!out) {
+            return {};
+        }
+
+        auto dict_opt = out.try_as_dict();
+        if (!dict_opt.has_value()) {
+            return {};
+        }
+        return *dict_opt;
     }
 
-    void TsdMapNode::un_wire_graph(const value::View &, graph_s_ptr &) {}
+    void TsdMapNode::create_new_graph(const value::View &key) {
+        if (key_type_meta_ == nullptr) {
+            throw std::runtime_error("TsdMapNode key type meta is not initialised");
+        }
 
-    void TsdMapNode::wire_graph(const value::View &, graph_s_ptr &) {
-        throw std::runtime_error("TsdMapNode::wire_graph pending TS migration");
+        nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
+        std::string key_str = nb::cast<std::string>(nb::repr(py_key));
+
+        auto child_owning_graph_id = node_id();
+        child_owning_graph_id.push_back(-static_cast<int64_t>(count_++));
+
+        auto graph_ = nested_graph_builder_->make_instance(child_owning_graph_id, this, key_str);
+        active_graphs_.emplace(key.clone(), graph_);
+
+        graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
+            graph()->evaluation_engine(),
+            std::make_shared<MapNestedEngineEvaluationClock>(graph()->evaluation_engine_clock().get(), key.clone(), this)));
+
+        initialise_component(*graph_);
+
+        if (!recordable_id_.empty()) {
+            set_parent_recordable_id(*graph_, fmt::format("{}[{}]", recordable_id_, key_str));
+        }
+
+        wire_graph(key, graph_);
+        start_component(*graph_);
+        scheduled_keys_.insert_or_assign(key.clone(), last_evaluation_time());
+    }
+
+    void TsdMapNode::remove_graph(const value::View &key) {
+        if (signature().capture_exception && has_error_output()) {
+            auto err_out = error_output(node_time(*this));
+            if (err_out) {
+                if (auto err_dict = err_out.try_as_dict(); err_dict.has_value()) {
+                    err_dict->remove(key);
+                }
+            }
+        }
+
+        if (auto it = active_graphs_.find(key); it != active_graphs_.end()) {
+            auto nested_graph = it->second;
+            active_graphs_.erase(it);
+
+            un_wire_graph(key, nested_graph);
+
+            auto builder = nested_graph_builder_;
+            auto engine = graph()->evaluation_engine();
+            auto cleanup = make_scope_exit([builder, engine, nested_graph]() mutable {
+                if (builder == nullptr) {
+                    return;
+                }
+                if (engine != nullptr) {
+                    engine->add_before_evaluation_notification([builder, nested_graph]() mutable {
+                        builder->release_instance(nested_graph);
+                    });
+                } else {
+                    builder->release_instance(nested_graph);
+                }
+            });
+            stop_component(*nested_graph);
+        }
+    }
+
+    engine_time_t TsdMapNode::evaluate_graph(const value::View &key) {
+        auto it = active_graphs_.find(key);
+        if (it == active_graphs_.end()) {
+            return MAX_DT;
+        }
+
+        auto &nested = it->second;
+        if (auto *nec = dynamic_cast<NestedEngineEvaluationClock *>(nested->evaluation_engine_clock().get())) {
+            nec->reset_next_scheduled_evaluation_time();
+        }
+
+        if (signature().capture_exception && has_error_output()) {
+            auto capture_nested_error = [&](const NodeError &node_error) {
+                auto err_out = error_output(node_time(*this));
+                if (!err_out) {
+                    return;
+                }
+                auto err_dict = err_out.try_as_dict();
+                if (!err_dict.has_value()) {
+                    return;
+                }
+
+                auto error_ts = err_dict->create(key);
+                auto error_ptr = nb::ref<NodeError>(new NodeError(node_error));
+                error_ts.from_python(nb::cast(error_ptr));
+            };
+
+            try {
+                nested->evaluate_graph();
+            } catch (const std::exception &e) {
+                auto msg = std::string("key: ") + key_repr(key, key_type_meta_);
+                capture_nested_error(NodeError::capture_error(e, *this, msg));
+            } catch (...) {
+                auto msg = std::string("key: ") + key_repr(key, key_type_meta_);
+                capture_nested_error(NodeError::capture_error(std::current_exception(), *this, msg));
+            }
+        } else {
+            nested->evaluate_graph();
+        }
+
+        auto next = nested->evaluation_engine_clock()->next_scheduled_evaluation_time();
+        if (auto *nec = dynamic_cast<NestedEngineEvaluationClock *>(nested->evaluation_engine_clock().get())) {
+            nec->reset_next_scheduled_evaluation_time();
+        }
+        return next;
+    }
+
+    void TsdMapNode::un_wire_graph(const value::View &key, graph_s_ptr &graph) {
+        for (const auto &[arg, node_ndx] : input_node_ids_) {
+            if (arg == key_arg_) {
+                continue;
+            }
+            if (multiplexed_args_.find(arg) == multiplexed_args_.end()) {
+                continue;
+            }
+
+            auto node = graph->nodes()[node_ndx];
+            auto inner_ts = node_inner_ts_input(*node);
+            if (!inner_ts) {
+                continue;
+            }
+
+            if (inner_ts.active()) {
+                inner_ts.make_passive();
+            }
+            inner_ts.unbind();
+        }
+
+        if (output_node_id_ >= 0) {
+            auto out = tsd_output(node_time(*this));
+            if (out) {
+                out.remove(key);
+            }
+        }
+    }
+
+    void TsdMapNode::wire_graph(const value::View &key, graph_s_ptr &graph) {
+        auto outer_root = input(node_time(*this));
+        std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
+
+        for (const auto &[arg, node_ndx] : input_node_ids_) {
+            auto node = graph->nodes()[node_ndx];
+            node->notify();
+
+            if (arg == key_arg_) {
+                auto &key_node = dynamic_cast<PythonNode &>(*node);
+                nb::object py_key = key_type_meta_ != nullptr
+                                        ? key_type_meta_->ops().to_python(key.data(), key_type_meta_)
+                                        : nb::none();
+                nb::setattr(key_node.eval_fn(), "key", py_key);
+                continue;
+            }
+
+            auto inner_ts = node_inner_ts_input(*node);
+            if (!inner_ts) {
+                continue;
+            }
+
+            if (!outer_bundle.has_value()) {
+                inner_ts.unbind();
+                continue;
+            }
+
+            auto outer_arg = outer_bundle->field(arg);
+            if (!outer_arg) {
+                inner_ts.unbind();
+                continue;
+            }
+
+            if (multiplexed_args_.find(arg) != multiplexed_args_.end()) {
+                TSView outer_key_value = outer_arg.as_ts_view().child_by_key(key);
+                bind_inner_from_outer(outer_key_value, inner_ts);
+            } else {
+                bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts);
+            }
+        }
+
+        if (output_node_id_ >= 0) {
+            auto node = graph->nodes()[output_node_id_];
+            auto inner_out = node->output(node_time(*node));
+            auto out = tsd_output(node_time(*this));
+            if (!inner_out || !out) {
+                return;
+            }
+
+            auto out_key = out.create(key);
+            if (out_key) {
+                out_key.as_ts_view().bind(inner_out.as_ts_view());
+            }
+        }
     }
 
     void register_tsd_map_with_nanobind(nb::module_ &m) {
@@ -152,7 +485,7 @@ namespace hgraph
 
         nb::class_<TsdMapNode, NestedNode>(m, "TsdMapNode")
             .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::s_ptr, nb::dict,
-                          const TSMeta*, const TSMeta*, const TSMeta*, const TSMeta*,
+                          const TSMeta *, const TSMeta *, const TSMeta *, const TSMeta *,
                           graph_builder_s_ptr, const std::unordered_map<std::string, int64_t> &, int64_t,
                           const std::unordered_set<std::string> &, const std::string &>(),
                  "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a,

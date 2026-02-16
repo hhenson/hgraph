@@ -168,19 +168,48 @@ bool any_active(const value::View& active_view) {
     return false;
 }
 
-void bind_fixed_tsl_recursive(const TSMeta* meta, TSView input_view, TSView output_view) {
-    input_view.bind(output_view);
-
-    if (meta == nullptr || meta->kind != TSKind::TSL || meta->fixed_size() == 0) {
+void bind_static_container_recursive(const TSMeta* meta, TSView input_view, TSView output_view) {
+    if (meta == nullptr || !input_view || !output_view) {
         return;
     }
 
-    const size_t n = meta->fixed_size();
-    for (size_t i = 0; i < n; ++i) {
-        bind_fixed_tsl_recursive(
-            meta->element_ts(),
-            input_view.child_at(i),
-            output_view.child_at(i));
+    const bool bind_parent =
+        !(meta->kind == TSKind::TSL &&
+          meta->fixed_size() > 0 &&
+          meta->element_ts() != nullptr &&
+          meta->element_ts()->kind == TSKind::REF);
+
+    if (bind_parent) {
+        input_view.bind(output_view);
+    }
+
+    switch (meta->kind) {
+        case TSKind::TSB:
+            if (meta->fields() == nullptr) {
+                return;
+            }
+            for (size_t i = 0; i < meta->field_count(); ++i) {
+                bind_static_container_recursive(
+                    meta->fields()[i].ts_type,
+                    input_view.child_at(i),
+                    output_view.child_at(i));
+            }
+            return;
+
+        case TSKind::TSL:
+            if (meta->fixed_size() == 0) {
+                return;
+            }
+            for (size_t i = 0; i < meta->fixed_size(); ++i) {
+                bind_static_container_recursive(
+                    meta->element_ts(),
+                    input_view.child_at(i),
+                    output_view.child_at(i));
+            }
+            return;
+
+        default:
+            return;
     }
 }
 
@@ -253,10 +282,16 @@ TSInputView TSInput::input_view(engine_time_t current_time, const TSMeta* schema
 
 void TSInput::bind(TSOutput& output, engine_time_t current_time) {
     TSView input_view = view(current_time);
-    TSView output_view = output.view(current_time, meta_);
+    TSView native_output_view = output.view(current_time);
+    const bool output_is_ref = native_output_view.ts_meta() != nullptr &&
+                               native_output_view.ts_meta()->kind == TSKind::REF;
+    TSView output_view = ((meta_ != nullptr && meta_->kind == TSKind::REF) || output_is_ref)
+                             ? native_output_view
+                             : output.view(current_time, meta_);
 
-    if (meta_ != nullptr && meta_->kind == TSKind::TSL && meta_->fixed_size() > 0) {
-        bind_fixed_tsl_recursive(meta_, input_view, output_view);
+    if (meta_ != nullptr && !output_is_ref &&
+        (meta_->kind == TSKind::TSB || (meta_->kind == TSKind::TSL && meta_->fixed_size() > 0))) {
+        bind_static_container_recursive(meta_, input_view, output_view);
     } else {
         input_view.bind(output_view);
     }

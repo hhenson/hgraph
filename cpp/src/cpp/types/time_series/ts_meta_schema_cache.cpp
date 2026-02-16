@@ -313,7 +313,10 @@ const TypeMeta* TSMetaSchemaCache::generate_link_schema_impl(const TSMeta* meta,
         case TSKind::TSL:
             if (meta->fixed_size() > 0) {
                 const TypeMeta* child_link = generate_link_schema_impl(meta->element_ts(), input_mode);
-                return registry.fixed_list(child_link, meta->fixed_size()).build();
+                auto builder = registry.tuple();
+                builder.add_element(leaf);  // container slot 0
+                builder.add_element(registry.fixed_list(child_link, meta->fixed_size()).build());
+                return builder.build();
             }
             return leaf;
 

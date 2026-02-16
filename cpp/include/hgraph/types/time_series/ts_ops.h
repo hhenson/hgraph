@@ -91,14 +91,14 @@ struct ts_ops {
     void (*invalidate)(ViewData& vd);
 
     nb::object (*to_python)(const ViewData& vd);
-    nb::object (*delta_to_python)(const ViewData& vd);
+    nb::object (*delta_to_python)(const ViewData& vd, engine_time_t current_time);
     void (*from_python)(ViewData& vd, const nb::object& src, engine_time_t current_time);
 
     value::View (*observer)(const ViewData& vd);
     void (*notify_observers)(ViewData& vd, engine_time_t current_time);
 
-    void (*bind)(ViewData& vd, const ViewData& target);
-    void (*unbind)(ViewData& vd);
+    void (*bind)(ViewData& vd, const ViewData& target, engine_time_t current_time);
+    void (*unbind)(ViewData& vd, engine_time_t current_time);
     bool (*is_bound)(const ViewData& vd);
 
     void (*set_active)(ViewData& vd, value::ValueView active_view, bool active, TSInput* input);
@@ -160,5 +160,17 @@ HGRAPH_EXPORT const ts_ops* default_ts_ops();
  */
 HGRAPH_EXPORT void store_to_link_target(LinkTarget& target, const ViewData& source);
 HGRAPH_EXPORT void store_to_ref_link(REFLink& target, const ViewData& source);
+HGRAPH_EXPORT bool resolve_bound_target_view_data(const ViewData& source, ViewData& out);
+
+/**
+ * Register/unregister a link observer against the process-global TS observer registry.
+ */
+HGRAPH_EXPORT void register_ts_link_observer(LinkTarget& observer);
+HGRAPH_EXPORT void unregister_ts_link_observer(LinkTarget& observer);
+
+/**
+ * Reset process-global TS link observer state between graph runs.
+ */
+HGRAPH_EXPORT void reset_ts_link_observers();
 
 }  // namespace hgraph

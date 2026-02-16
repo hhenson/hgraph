@@ -8,9 +8,14 @@
 #include <hgraph/builders/input_builder.h>
 #include <hgraph/builders/output_builder.h>
 #include <hgraph/types/base_time_series.h>
+#include <hgraph/types/time_series/view_data.h>
+
+#include <optional>
 
 namespace hgraph
 {
+    class TSInputView;
+
     struct HGRAPH_EXPORT TimeSeriesReference
     {
         enum class Kind : uint8_t { EMPTY = 0, BOUND = 1, UNBOUND = 2 };
@@ -34,15 +39,18 @@ namespace hgraph
         [[nodiscard]] const time_series_output_s_ptr         &output() const;
         [[nodiscard]] const std::vector<TimeSeriesReference> &items() const;
         [[nodiscard]] const TimeSeriesReference              &operator[](size_t ndx) const;
+        [[nodiscard]] const ViewData*                         bound_view() const noexcept;
 
         // Operations
         void                      bind_input(TimeSeriesInput &ts_input) const;
+        void                      bind_input(TSInputView &ts_input) const;
         bool                      operator==(const TimeSeriesReference &other) const;
         [[nodiscard]] std::string to_string() const;
 
         // Factory methods - use these to construct instances
         static TimeSeriesReference make();
         static TimeSeriesReference make(time_series_output_s_ptr output);
+        static TimeSeriesReference make(const ViewData& bound_view);
         static TimeSeriesReference make(std::vector<TimeSeriesReference> items);
         static TimeSeriesReference make(const std::vector<TimeSeriesReferenceInput*>& items);
         static TimeSeriesReference make(const std::vector<std::shared_ptr<TimeSeriesReferenceInput>>& items);
@@ -51,9 +59,11 @@ namespace hgraph
         // Private constructors - must use make() factory methods
         TimeSeriesReference() noexcept;                                        // Empty
         explicit TimeSeriesReference(time_series_output_s_ptr output);         // Bound
+        explicit TimeSeriesReference(ViewData bound_view);                     // Bound (TS view)
         explicit TimeSeriesReference(std::vector<TimeSeriesReference> items);  // Unbound
 
         Kind _kind;
+        std::optional<ViewData> _bound_view;
 
         // Union for the three variants - only one is active at a time
         union Storage {

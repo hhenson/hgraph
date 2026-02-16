@@ -93,7 +93,8 @@ namespace hgraph {
         throw std::runtime_error("MeshNode TS migration pending: legacy TimeSeriesInput/Output path removed");
     }
 
-    TimeSeriesDictOutputImpl &MeshNode::tsd_output() {
+    TSDOutputView MeshNode::tsd_output(engine_time_t current_time) {
+        (void)current_time;
         throw std::runtime_error("MeshNode::tsd_output unavailable in TS runtime cutover");
     }
 

@@ -20,6 +20,7 @@ struct HGRAPH_EXPORT LinkTarget : Notifiable {
     void* observer_data{nullptr};
     void* delta_data{nullptr};
     void* link_data{nullptr};
+    ViewProjection projection{ViewProjection::NONE};
     const ts_ops* ops{nullptr};
     const TSMeta* meta{nullptr};
 
@@ -28,6 +29,11 @@ struct HGRAPH_EXPORT LinkTarget : Notifiable {
     LinkTarget* parent_link{nullptr};
     Notifiable* active_notifier{nullptr};
     bool peered{false};
+    engine_time_t last_rebind_time{MIN_DT};
+    bool has_previous_target{false};
+    ViewData previous_target{};
+    bool has_resolved_target{false};
+    ViewData resolved_target{};
 
     LinkTarget() = default;
     ~LinkTarget() override = default;
@@ -37,12 +43,13 @@ struct HGRAPH_EXPORT LinkTarget : Notifiable {
     LinkTarget(LinkTarget&& other) noexcept;
     LinkTarget& operator=(LinkTarget&& other) noexcept;
 
-    void bind(const ViewData& target);
-    void unbind();
+    void bind(const ViewData& target, engine_time_t current_time = MIN_DT);
+    void unbind(engine_time_t current_time = MIN_DT);
 
     [[nodiscard]] bool valid() const { return is_linked; }
     [[nodiscard]] bool modified(engine_time_t current_time) const;
     [[nodiscard]] ViewData as_view_data(bool sampled = false) const;
+    [[nodiscard]] ViewData previous_view_data(bool sampled = false) const;
 
     void notify(engine_time_t et) override;
 
@@ -53,4 +60,3 @@ private:
 };
 
 }  // namespace hgraph
-

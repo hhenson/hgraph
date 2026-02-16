@@ -4,6 +4,8 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_ops.h>
+#include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/ts.h>
 #include <hgraph/types/ts_indexed.h>
 #include <hgraph/types/ts_signal.h>
@@ -15,20 +17,38 @@
 
 namespace hgraph
 {
+    namespace {
+        bool view_data_equals(const ViewData& lhs, const ViewData& rhs) {
+            return lhs.path.indices == rhs.path.indices &&
+                   lhs.value_data == rhs.value_data &&
+                   lhs.time_data == rhs.time_data &&
+                   lhs.observer_data == rhs.observer_data &&
+                   lhs.delta_data == rhs.delta_data &&
+                   lhs.link_data == rhs.link_data &&
+                   lhs.projection == rhs.projection &&
+                   lhs.ops == rhs.ops &&
+                   lhs.meta == rhs.meta;
+        }
+    }
+
     // ============================================================
     // TimeSeriesReference Implementation
     // ============================================================
 
     // Private constructors
-    TimeSeriesReference::TimeSeriesReference() noexcept : _kind(Kind::EMPTY) {
+    TimeSeriesReference::TimeSeriesReference() noexcept : _kind(Kind::EMPTY), _bound_view(std::nullopt) {
         // _storage.empty is already initialized
     }
 
-    TimeSeriesReference::TimeSeriesReference(time_series_output_s_ptr output) : _kind(Kind::BOUND) {
+    TimeSeriesReference::TimeSeriesReference(time_series_output_s_ptr output) : _kind(Kind::BOUND), _bound_view(std::nullopt) {
         new (&_storage.bound) time_series_output_s_ptr(std::move(output));
     }
 
-    TimeSeriesReference::TimeSeriesReference(std::vector<TimeSeriesReference> items) : _kind(Kind::UNBOUND) {
+    TimeSeriesReference::TimeSeriesReference(ViewData bound_view) : _kind(Kind::BOUND), _bound_view(std::move(bound_view)) {
+        new (&_storage.bound) time_series_output_s_ptr{};
+    }
+
+    TimeSeriesReference::TimeSeriesReference(std::vector<TimeSeriesReference> items) : _kind(Kind::UNBOUND), _bound_view(std::nullopt) {
         new (&_storage.unbound) std::vector<TimeSeriesReference>(std::move(items));
     }
 
@@ -72,6 +92,7 @@ namespace hgraph
     }
 
     void TimeSeriesReference::copy_from(const TimeSeriesReference &other) {
+        _bound_view = other._bound_view;
         switch (other._kind) {
             case Kind::EMPTY: break;
             case Kind::BOUND: new (&_storage.bound) time_series_output_s_ptr(other._storage.bound); break;
@@ -80,6 +101,7 @@ namespace hgraph
     }
 
     void TimeSeriesReference::move_from(TimeSeriesReference &&other) noexcept {
+        _bound_view = std::move(other._bound_view);
         switch (other._kind) {
             case Kind::EMPTY: break;
             case Kind::BOUND: new (&_storage.bound) time_series_output_s_ptr(std::move(other._storage.bound)); break;
@@ -90,6 +112,9 @@ namespace hgraph
     // Accessors with validation
     const time_series_output_s_ptr &TimeSeriesReference::output() const {
         if (_kind != Kind::BOUND) { throw std::runtime_error("TimeSeriesReference::output() called on non-bound reference"); }
+        if (_bound_view.has_value()) {
+            throw std::runtime_error("TimeSeriesReference::output() called on TSView-backed reference");
+        }
         return _storage.bound;
     }
 
@@ -99,6 +124,10 @@ namespace hgraph
     }
 
     const TimeSeriesReference &TimeSeriesReference::operator[](size_t ndx) const { return items()[ndx]; }
+
+    const ViewData* TimeSeriesReference::bound_view() const noexcept {
+        return _bound_view.has_value() ? &*_bound_view : nullptr;
+    }
 
     // Operations delegated by kind
     void TimeSeriesReference::bind_input(TimeSeriesInput &ts_input) const {
@@ -110,6 +139,9 @@ namespace hgraph
                 break;
             case Kind::BOUND:
                 {
+                    if (_bound_view.has_value()) {
+                        throw std::runtime_error("Cannot bind legacy TimeSeriesInput to TSView-backed reference");
+                    }
                     bool reactivate = false;
                     // Treat inputs previously bound via a reference as bound, so we unbind to generate correct deltas
                     if (ts_input.bound() && !ts_input.has_peer()) {
@@ -140,10 +172,62 @@ namespace hgraph
         }
     }
 
+    void TimeSeriesReference::bind_input(TSInputView &ts_input) const {
+        switch (_kind) {
+            case Kind::EMPTY:
+                ts_input.unbind();
+                return;
+
+            case Kind::BOUND:
+                {
+                    if (!_bound_view.has_value()) {
+                        throw std::runtime_error("Cannot bind TSInputView to legacy TimeSeriesOutput reference");
+                    }
+
+                    const bool reactivate = ts_input.active();
+                    if (ts_input.is_bound()) {
+                        if (reactivate) {
+                            ts_input.make_passive();
+                        }
+                        ts_input.unbind();
+                    }
+
+                    TSView target(*_bound_view, ts_input.current_time());
+                    ts_input.as_ts_view().bind(target);
+
+                    if (reactivate) {
+                        ts_input.make_active();
+                    }
+                    return;
+                }
+
+            case Kind::UNBOUND:
+                {
+                    const bool reactivate = ts_input.active();
+                    if (ts_input.is_bound()) {
+                        if (reactivate) {
+                            ts_input.make_passive();
+                        }
+                        ts_input.unbind();
+                    }
+
+                    for (size_t i = 0; i < _storage.unbound.size(); ++i) {
+                        TSInputView item = ts_input.child_at(i);
+                        _storage.unbound[i].bind_input(item);
+                    }
+
+                    if (reactivate) {
+                        ts_input.make_active();
+                    }
+                    return;
+                }
+        }
+    }
+
     bool TimeSeriesReference::has_output() const {
         switch (_kind) {
             case Kind::EMPTY: return false;
-            case Kind::BOUND: return true;
+            case Kind::BOUND: return _bound_view.has_value() || static_cast<bool>(_storage.bound);
             case Kind::UNBOUND: return false;
         }
         return false;
@@ -152,7 +236,12 @@ namespace hgraph
     bool TimeSeriesReference::is_valid() const {
         switch (_kind) {
             case Kind::EMPTY: return false;
-            case Kind::BOUND: return _storage.bound && _storage.bound->valid();
+            case Kind::BOUND:
+                if (_bound_view.has_value()) {
+                    const ViewData& vd = *_bound_view;
+                    return vd.ops != nullptr ? vd.ops->valid(vd) : false;
+                }
+                return _storage.bound && _storage.bound->valid();
             case Kind::UNBOUND:
                 return std::any_of(_storage.unbound.begin(), _storage.unbound.end(),
                                    [](const auto &item) { return item.is_valid(); });
@@ -165,7 +254,12 @@ namespace hgraph
 
         switch (_kind) {
             case Kind::EMPTY: return true;
-            case Kind::BOUND: return _storage.bound == other._storage.bound;
+            case Kind::BOUND:
+                if (_bound_view.has_value() || other._bound_view.has_value()) {
+                    return _bound_view.has_value() && other._bound_view.has_value() &&
+                           view_data_equals(*_bound_view, *other._bound_view);
+                }
+                return _storage.bound == other._storage.bound;
             case Kind::UNBOUND: return _storage.unbound == other._storage.unbound;
         }
         return false;
@@ -175,6 +269,12 @@ namespace hgraph
         switch (_kind) {
             case Kind::EMPTY: return "REF[<UnSet>]";
             case Kind::BOUND:
+                if (_bound_view.has_value()) {
+                    return fmt::format("REF[TSView:{}]", _bound_view->path.to_string());
+                }
+                if (!_storage.bound) {
+                    return "REF[<UnSet>]";
+                }
                 return fmt::format("REF[{}<{}>.output@{:p}]", _storage.bound->owning_node()->signature().name,
                                    fmt::join(_storage.bound->owning_node()->node_id(), ", "),
                                    const_cast<void *>(static_cast<const void *>(_storage.bound.get())));
@@ -198,6 +298,13 @@ namespace hgraph
         } else {
             return TimeSeriesReference(std::move(output));
         }
+    }
+
+    TimeSeriesReference TimeSeriesReference::make(const ViewData& bound_view) {
+        if (bound_view.meta == nullptr || bound_view.ops == nullptr) {
+            return make();
+        }
+        return TimeSeriesReference(bound_view);
     }
 
     TimeSeriesReference TimeSeriesReference::make(std::vector<TimeSeriesReference> items) {

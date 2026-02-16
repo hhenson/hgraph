@@ -1,6 +1,7 @@
 #include <hgraph/api/python/py_ref.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/ts_indexed.h>
 
@@ -34,18 +35,36 @@ namespace hgraph
                     }
                 },
                 "input_"_a)
+            .def(
+                "bind_input",
+                [](TimeSeriesReference &self, TSInputView &ts_input) {
+                    self.bind_input(ts_input);
+                },
+                "input_"_a)
             .def_prop_ro("has_output", &TimeSeriesReference::has_output)
             .def_prop_ro("is_empty", &TimeSeriesReference::is_empty)
             .def_prop_ro("is_bound", &TimeSeriesReference::is_bound)
             .def_prop_ro("is_unbound", &TimeSeriesReference::is_unbound)
             .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
-            .def_prop_ro("output", [](TimeSeriesReference &self) { return wrap_output(self.output()); })
+            .def_prop_ro("output", [](TimeSeriesReference &self) -> nb::object {
+                if (const ViewData* bound = self.bound_view(); bound != nullptr) {
+                    // Expose TSView-backed references as transient TSOutputView cursors so
+                    // Python REF operators can continue indexing via `ref.output[...]`.
+                    TSView view(*bound, MIN_DT);
+                    const engine_time_t current_time = view.last_modified_time();
+                    return nb::cast(TSOutputView(nullptr, TSView(*bound, current_time)));
+                }
+                return wrap_output(self.output());
+            })
             .def_prop_ro("items", &TimeSeriesReference::items)
             .def("__getitem__", &TimeSeriesReference::operator[])
             .def_static(
                 "make",
                 [](nb::object ts, nb::object items) -> TimeSeriesReference {
                     if (!ts.is_none()) {
+                        if (nb::isinstance<TSOutputView>(ts)) {
+                            return TimeSeriesReference::make(nb::cast<TSOutputView>(ts).as_ts_view().view_data());
+                        }
                         if (nb::isinstance<PyTimeSeriesOutput>(ts))
                             return TimeSeriesReference::make(unwrap_output(ts));
                         if (nb::isinstance<PyTimeSeriesReferenceInput>(ts))

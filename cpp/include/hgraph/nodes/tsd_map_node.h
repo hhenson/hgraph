@@ -82,7 +82,7 @@ namespace hgraph
 
         void do_eval() override {};
 
-        virtual TimeSeriesDictOutputImpl &tsd_output();
+        virtual TSDOutputView tsd_output(engine_time_t current_time);
 
         void create_new_graph(const value::View &key);
 

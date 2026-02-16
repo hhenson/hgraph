@@ -708,6 +708,9 @@ namespace hgraph
     }
 
     TSOutputView Node::output(engine_time_t current_time) const {
+        if (_output_override_node != nullptr && _output_override_node != this) {
+            return _output_override_node->output(current_time);
+        }
         if (!_output.has_value()) {
             return {};
         }
@@ -720,8 +723,12 @@ namespace hgraph
     }
 
     bool Node::has_output() const {
-        return _output.has_value();
+        return _output_override_node != nullptr || _output.has_value();
     }
+
+    void Node::set_output_override(node_ptr source_node) noexcept { _output_override_node = source_node; }
+
+    void Node::clear_output_override() noexcept { _output_override_node = nullptr; }
 
     TSOutputView Node::error_output(engine_time_t current_time) const {
         if (!_error_output.has_value()) {

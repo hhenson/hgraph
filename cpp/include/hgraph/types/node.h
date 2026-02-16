@@ -228,6 +228,11 @@ namespace hgraph
         [[nodiscard]] TSOutputView output(engine_time_t current_time) const;
         [[nodiscard]] TSOutputView output() const;
 
+        // Internal runtime hook for nested-node output rewrites (e.g. switch_/map_).
+        void set_output_override(node_ptr source_node) noexcept;
+        void clear_output_override() noexcept;
+        [[nodiscard]] node_ptr output_override_node() const noexcept { return _output_override_node; }
+
         [[nodiscard]] TSOutputView error_output(engine_time_t current_time) const;
         [[nodiscard]] TSOutputView error_output() const;
 
@@ -283,6 +288,7 @@ namespace hgraph
         std::optional<TSOutput>         _output;            // schema-driven endpoint
         std::optional<TSOutput>         _error_output;      // schema-driven endpoint
         std::optional<TSOutput>         _recordable_state;  // schema-driven endpoint
+        node_ptr                        _output_override_node{nullptr}; // delegate output writes/reads to another node
         NodeScheduler::s_ptr            _scheduler;           // owned
         // I am not a fan of this approach to managing the start inputs, but for now keep consistent with current code base in
         // Python.

@@ -88,8 +88,8 @@ namespace hgraph {
         graph_builder_s_ptr _default_graph_builder{nullptr};
         std::unordered_map<std::string, int> _default_input_node_ids;
         int _default_output_node_id{-1};
+        node_ptr _wired_output_node{nullptr};
         std::string _recordable_id;
-        bool _graph_reset{false};
     };
 
 } // namespace hgraph

@@ -8,6 +8,9 @@
 #include <hgraph/runtime/record_replay.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_ops.h>
+#include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/util/lifecycle.h>
 
 namespace hgraph {
@@ -89,6 +92,9 @@ namespace hgraph {
 
     void SwitchNode::dispose() {
         if (_active_graph != nullptr) {
+            unwire_graph(_active_graph);
+        }
+        if (_active_graph != nullptr) {
             _active_graph_builder->release_instance(_active_graph);
             _active_graph_builder = nullptr;
             _active_graph = nullptr;
@@ -108,8 +114,7 @@ namespace hgraph {
             return; // No key input or invalid
         }
 
-        // Track if we're switching graphs
-        _graph_reset = false;
+        bool graph_reset = false;
 
         // Check if key has been modified
         if (key_view.modified()) {
@@ -122,10 +127,7 @@ namespace hgraph {
 
             if (_reload_on_ticked || key_changed) {
                 if (_active_key.has_value()) {
-                    _graph_reset = true;
-                    // Invalidate current output so stale fields (e.g., TSB members) are cleared on branch switch
-                    auto out_port = output(node_time(*this));
-                    if (out_port) { out_port.invalidate(); }
+                    graph_reset = true;
                     stop_component(*_active_graph);
                     unwire_graph(_active_graph);
                     // Schedule deferred disposal via lambda capture
@@ -183,8 +185,10 @@ namespace hgraph {
                 nec->reset_next_scheduled_evaluation_time();
             }
             _active_graph->evaluate_graph();
-            // Reset output to None if graph was switched and output wasn't modified
-            if (_graph_reset) {
+
+            // Mirror Python switch behavior: on graph reset, if the nested graph did
+            // not produce a tick for this cycle then invalidate outer output.
+            if (graph_reset) {
                 auto out_view = output(node_time(*this));
                 if (out_view && !out_view.modified()) {
                     out_view.invalidate();
@@ -239,7 +243,24 @@ namespace hgraph {
                     if (!inner_any) {
                         continue;
                     }
-                    inner_any.as_ts_view().bind(outer_any.as_ts_view());
+
+                    const TSMeta* outer_meta = outer_any.ts_meta();
+                    if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
+                        TimeSeriesReference ref = TimeSeriesReference::make();
+                        value::View ref_view = outer_any.value();
+                        if (ref_view.valid()) {
+                            ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
+                        }
+                        ref.bind_input(inner_any);
+                        continue;
+                    }
+
+                    ViewData bound_target{};
+                    if (resolve_bound_target_view_data(outer_any.as_ts_view().view_data(), bound_target)) {
+                        inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+                    } else {
+                        inner_any.as_ts_view().unbind();
+                    }
                 }
             }
         }
@@ -255,33 +276,19 @@ namespace hgraph {
 
         if (output_node_id >= 0) {
             auto node = graph->nodes()[output_node_id];
-            auto outer_view = output(node_time(*this));
-            auto inner_view = node->output(node_time(*node));
-            if (outer_view && inner_view) {
-                outer_view.as_ts_view().bind(inner_view.as_ts_view());
+            if (node != nullptr) {
+                _wired_output_node = node.get();
+                _wired_output_node->set_output_override(this);
             }
         }
     }
 
     void SwitchNode::unwire_graph(graph_s_ptr &graph) {
-        if (_active_key.has_value()) {
-            auto active_key_view = _active_key->view();
-
-            int output_node_id = -1;
-            auto output_id_it = _output_node_ids->find(active_key_view);
-            if (output_id_it != _output_node_ids->end()) {
-                output_node_id = output_id_it->second;
-            } else if (_default_output_node_id >= 0) {
-                output_node_id = _default_output_node_id;
-            }
-
-            if (output_node_id >= 0) {
-                auto outer_output = output(node_time(*this));
-                if (outer_output) {
-                    outer_output.as_ts_view().unbind();
-                }
-            }
+        (void)graph;
+        if (_wired_output_node != nullptr) {
+            _wired_output_node->clear_output_override();
         }
+        _wired_output_node = nullptr;
     }
 
     std::unordered_map<int, graph_s_ptr> SwitchNode::nested_graphs() const {

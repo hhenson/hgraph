@@ -23,6 +23,16 @@ namespace hgraph {
      * - PythonGeneratorNode: Generator-based nodes
      */
     struct BasePythonNode : Node {
+        struct InputViewRef {
+            nb::object owner;
+            TSInputView* view{nullptr};
+        };
+
+        struct OutputViewRef {
+            nb::object owner;
+            TSOutputView* view{nullptr};
+        };
+
         BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                        nb::dict scalars, const TSMeta* input_meta, const TSMeta* output_meta,
                        const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
@@ -37,6 +47,8 @@ namespace hgraph {
         VISITOR_SUPPORT()
 
     protected:
+        void _index_kwarg_time_views();
+
         void do_eval() override;
 
         void do_start() override;
@@ -56,8 +68,8 @@ namespace hgraph {
         nb::callable _stop_fn;
 
         nb::kwargs _kwargs;
-        std::vector<TSInputView*> _kwarg_input_views;
-        std::vector<TSOutputView*> _kwarg_output_views;
+        std::vector<InputViewRef> _kwarg_input_views;
+        std::vector<OutputViewRef> _kwarg_output_views;
     };
 } // namespace hgraph
 

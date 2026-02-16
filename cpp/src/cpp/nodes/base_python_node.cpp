@@ -45,8 +45,6 @@ namespace hgraph
     void BasePythonNode::_initialise_kwargs() {
         // Assuming Injector and related types are properly defined, and scalars is a map-like container
         _kwargs = {};
-        _kwarg_input_views.clear();
-        _kwarg_output_views.clear();
 
         bool  has_injectables{signature().injectables != 0};
         auto *injectable_map = has_injectables ? &(*signature().injectable_inputs) : nullptr;
@@ -116,11 +114,6 @@ namespace hgraph
                     }
 
                     _kwargs[key_] = wrapped_value;
-                    if (auto* input_view = nb::inst_ptr<TSInputView>(_kwargs[key_]); input_view != nullptr) {
-                        _kwarg_input_views.push_back(input_view);
-                    } else if (auto* output_view = nb::inst_ptr<TSOutputView>(_kwargs[key_]); output_view != nullptr) {
-                        _kwarg_output_views.push_back(output_view);
-                    }
                     continue;
                 }
                 _kwargs[key_] = value;
@@ -135,6 +128,7 @@ namespace hgraph
         } catch (const nb::python_error &e) {
             throw NodeException::capture_error(e, *this, "Initialising kwargs");
         } catch (const std::exception &e) { throw NodeException::capture_error(e, *this, "Initialising kwargs"); }
+        _index_kwarg_time_views();
     }
 
     void BasePythonNode::_initialise_kwarg_inputs() {
@@ -152,11 +146,9 @@ namespace hgraph
             if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
                 auto input_view = root_bundle->field(key);
                 _kwargs[key.c_str()] = nb::cast(input_view);
-                if (auto* kwarg_view = nb::inst_ptr<TSInputView>(_kwargs[key.c_str()]); kwarg_view != nullptr) {
-                    _kwarg_input_views.push_back(kwarg_view);
-                }
             }
         }
+
     }
 
     void BasePythonNode::_initialise_state() {
@@ -318,16 +310,33 @@ namespace hgraph
         _kwarg_output_views.clear();
     }
 
-    void BasePythonNode::_refresh_kwarg_time_views() {
-        const auto et = node_time(*this);
-        for (TSInputView* view : _kwarg_input_views) {
-            if (view != nullptr) {
-                view->set_current_time(et);
+    void BasePythonNode::_index_kwarg_time_views() {
+        _kwarg_input_views.clear();
+        _kwarg_output_views.clear();
+
+        for (const auto& [_, value] : _kwargs) {
+            if (nb::isinstance<TSInputView>(value)) {
+                if (auto* view = nb::inst_ptr<TSInputView>(value); view != nullptr) {
+                    _kwarg_input_views.push_back(InputViewRef{nb::borrow<nb::object>(value), view});
+                }
+            } else if (nb::isinstance<TSOutputView>(value)) {
+                if (auto* view = nb::inst_ptr<TSOutputView>(value); view != nullptr) {
+                    _kwarg_output_views.push_back(OutputViewRef{nb::borrow<nb::object>(value), view});
+                }
             }
         }
-        for (TSOutputView* view : _kwarg_output_views) {
-            if (view != nullptr) {
-                view->set_current_time(et);
+    }
+
+    void BasePythonNode::_refresh_kwarg_time_views() {
+        const auto et = node_time(*this);
+        for (const InputViewRef& tracked : _kwarg_input_views) {
+            if (tracked.view != nullptr) {
+                tracked.view->set_current_time(et);
+            }
+        }
+        for (const OutputViewRef& tracked : _kwarg_output_views) {
+            if (tracked.view != nullptr) {
+                tracked.view->set_current_time(et);
             }
         }
     }

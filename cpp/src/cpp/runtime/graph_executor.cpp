@@ -1,11 +1,13 @@
 #include "hgraph/builders/graph_builder.h"
 #include "hgraph/util/scope.h"
 
+#include <hgraph/api/python/py_ts_runtime_internal.h>
 #include <hgraph/runtime/graph_executor.h>
 #include <hgraph/runtime/record_replay.h>
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/util/lifecycle.h>
 
 namespace hgraph
@@ -82,6 +84,13 @@ namespace hgraph
     EvaluationMode GraphExecutor::run_mode() const { return _run_mode; }
 
     void GraphExecutor::run(const engine_time_t &start_time, const engine_time_t &end_time) {
+        reset_ts_link_observers();
+        reset_ts_runtime_feature_observers();
+        auto reset_runtime_observers = scope_exit([] {
+            reset_ts_link_observers();
+            reset_ts_runtime_feature_observers();
+        });
+
         auto now = std::chrono::system_clock::now();
         auto graph{_graph_builder->make_instance({})};
         auto release_graph = scope_exit([this, graph = graph] { _graph_builder->release_instance(graph); });
