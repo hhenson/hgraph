@@ -544,7 +544,14 @@ struct REFBindingHelper : public Notifiable {
             owner->is_linked = true;
             owner->target_path = final_vd.path;
             owner->value_data = final_vd.value_data;
-            owner->time_data = owner->owner_time_ptr;
+            // TSD has structured time data (container + per-element var_list)
+            // that delta_to_python needs. Use target's time_data for TSD only.
+            // All other types use owner_time_ptr (set by notify() each tick).
+            if (final_vd.meta && final_vd.meta->kind == TSKind::TSD) {
+                owner->time_data = final_vd.time_data;
+            } else {
+                owner->time_data = owner->owner_time_ptr;
+            }
             owner->observer_data = final_vd.observer_data;
             owner->delta_data = final_vd.delta_data;
             owner->link_data = final_vd.link_data;
