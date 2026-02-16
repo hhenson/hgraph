@@ -9,10 +9,24 @@
 
 namespace hgraph
 {
-    namespace {
-        constexpr int64_t ERROR_PATH = -1;
-        constexpr int64_t STATE_PATH = -2;
-        constexpr int64_t KEY_SET_PATH_ID = -3;
+	    namespace {
+	        TSOutputView output_child_at(TSOutputView view, size_t index) {
+	            if (view.as_ts_view().try_as_indexed().has_value()) {
+	                return TSIndexedOutputView(view).at(index);
+	            }
+	            return TSOutputView(nullptr, view.as_ts_view().child_at(index));
+	        }
+
+	        TSInputView input_child_at(TSInputView view, size_t index) {
+	            if (view.as_ts_view().try_as_indexed().has_value()) {
+	                return TSIndexedInputView(view).at(index);
+	            }
+	            return TSInputView(nullptr, view.as_ts_view().child_at(index));
+	        }
+
+	        constexpr int64_t ERROR_PATH = -1;
+	        constexpr int64_t STATE_PATH = -2;
+	        constexpr int64_t KEY_SET_PATH_ID = -3;
 
         void bind_static_container_recursive(TSInputView input_view, TSOutputView output_view) {
             if (!input_view || !output_view) {
@@ -35,21 +49,25 @@ namespace hgraph
                 return;
             }
 
-            if (input_meta->kind == TSKind::TSB) {
-                const size_t n = input_meta->field_count();
-                for (size_t i = 0; i < n; ++i) {
-                    bind_static_container_recursive(input_view.child_at(i), output_view.child_at(i));
-                }
-                return;
-            }
+	            if (input_meta->kind == TSKind::TSB) {
+	                const size_t n = input_meta->field_count();
+	                TSBInputView input_bundle = input_view.as_bundle();
+	                TSBOutputView output_bundle = output_view.as_bundle();
+	                for (size_t i = 0; i < n; ++i) {
+	                    bind_static_container_recursive(input_bundle.at(i), output_bundle.at(i));
+	                }
+	                return;
+	            }
 
-            if (input_meta->kind == TSKind::TSL && input_meta->fixed_size() > 0) {
-                const size_t n = input_meta->fixed_size();
-                for (size_t i = 0; i < n; ++i) {
-                    bind_static_container_recursive(input_view.child_at(i), output_view.child_at(i));
-                }
-            }
-        }
+	            if (input_meta->kind == TSKind::TSL && input_meta->fixed_size() > 0) {
+	                const size_t n = input_meta->fixed_size();
+	                TSLInputView input_list = input_view.as_list();
+	                TSLOutputView output_list = output_view.as_list();
+	                for (size_t i = 0; i < n; ++i) {
+	                    bind_static_container_recursive(input_list.at(i), output_list.at(i));
+	                }
+	            }
+	        }
     }  // namespace
 
     bool _bind_ts_endpoint(node_ptr src_node, const std::vector<int64_t> &output_path,
@@ -79,13 +97,13 @@ namespace hgraph
                 output_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
                 continue;
             }
-            if (index < 0) {
-                return false;
-            }
-            output_view = output_view.child_at(static_cast<size_t>(index));
-            if (!output_view) {
-                return false;
-            }
+	            if (index < 0) {
+	                return false;
+	            }
+	            output_view = output_child_at(output_view, static_cast<size_t>(index));
+	            if (!output_view) {
+	                return false;
+	            }
         }
 
         for (int64_t index : input_path) {
@@ -96,13 +114,13 @@ namespace hgraph
                 input_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
                 continue;
             }
-            if (index < 0) {
-                return false;
-            }
-            input_view = input_view.child_at(static_cast<size_t>(index));
-            if (!input_view) {
-                return false;
-            }
+	            if (index < 0) {
+	                return false;
+	            }
+	            input_view = input_child_at(input_view, static_cast<size_t>(index));
+	            if (!input_view) {
+	                return false;
+	            }
         }
 
         const TSMeta* input_meta = input_view.ts_meta();

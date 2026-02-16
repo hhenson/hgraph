@@ -270,6 +270,13 @@ size_t TSView::child_count() const {
     return child_count_impl(view_data_);
 }
 
+std::optional<TSIndexedView> TSView::try_as_indexed() const {
+    if (!is_list() && !is_bundle()) {
+        return std::nullopt;
+    }
+    return TSIndexedView(*this);
+}
+
 std::optional<TSWView> TSView::try_as_window() const {
     if (!is_window()) {
         return std::nullopt;
@@ -303,6 +310,17 @@ std::optional<TSBView> TSView::try_as_bundle() const {
         return std::nullopt;
     }
     return TSBView(*this);
+}
+
+TSIndexedView TSView::as_indexed() const {
+    if (!is_list() && !is_bundle()) {
+        throw std::runtime_error("TSView is not an indexed view");
+    }
+    return TSIndexedView(*this);
+}
+
+TSIndexedView TSView::as_indexed_unchecked() const noexcept {
+    return TSIndexedView(*this);
 }
 
 TSWView TSView::as_window() const {
@@ -493,18 +511,6 @@ FQPath TSOutputView::fq_path() const {
     return owner_->to_fq_path(ts_view_);
 }
 
-TSOutputView TSOutputView::child_at(size_t index) const {
-    return TSOutputView(owner_, ts_view_.child_at(index));
-}
-
-TSOutputView TSOutputView::child_by_name(std::string_view name) const {
-    return TSOutputView(owner_, ts_view_.child_by_name(name));
-}
-
-TSOutputView TSOutputView::child_by_key(const value::View& key) const {
-    return TSOutputView(owner_, ts_view_.child_by_key(key));
-}
-
 void TSOutputView::copy_from_input(const TSInputView& input) {
     ViewData dst = ts_view_.view_data();
     const ViewData& src = input.as_ts_view().view_data();
@@ -656,24 +662,16 @@ TSOutputView TSDOutputView::set(const value::View& key, const value::View& value
     return TSOutputView(owner_, as_ts_view().as_dict().set(key, value));
 }
 
-TSOutputView TSLOutputView::at(size_t index) const {
-    return TSOutputView(owner_, as_ts_view().as_list().at(index));
+TSOutputView TSIndexedOutputView::at(size_t index) const {
+    return TSOutputView(owner_, as_ts_view().as_indexed_unchecked().at(index));
 }
 
-size_t TSLOutputView::count() const {
-    return as_ts_view().as_list().count();
-}
-
-TSOutputView TSBOutputView::at(size_t index) const {
-    return TSOutputView(owner_, as_ts_view().as_bundle().at(index));
+size_t TSIndexedOutputView::count() const {
+    return as_ts_view().as_indexed_unchecked().count();
 }
 
 TSOutputView TSBOutputView::field(std::string_view name) const {
     return TSOutputView(owner_, as_ts_view().as_bundle().field(name));
-}
-
-size_t TSBOutputView::count() const {
-    return as_ts_view().as_bundle().count();
 }
 
 FQPath TSInputView::fq_path() const {
@@ -681,19 +679,6 @@ FQPath TSInputView::fq_path() const {
         return ts_view_.fq_path();
     }
     return owner_->to_fq_path(ts_view_);
-}
-
-TSInputView TSInputView::child_at(size_t index) const {
-    return TSInputView(owner_, ts_view_.child_at(index));
-}
-
-TSInputView TSInputView::child_by_name(std::string_view name) const {
-    return TSInputView(owner_, ts_view_.child_by_name(name));
-}
-
-TSInputView TSInputView::child_by_key(const value::View& key) const {
-    TSView selected = ts_view_.child_by_key(key);
-    return TSInputView(owner_, std::move(selected));
 }
 
 std::optional<TSWInputView> TSInputView::try_as_window() const {
@@ -811,24 +796,16 @@ size_t TSDInputView::count() const {
     return as_ts_view().as_dict().count();
 }
 
-TSInputView TSLInputView::at(size_t index) const {
-    return TSInputView(owner_, as_ts_view().as_list().at(index));
+TSInputView TSIndexedInputView::at(size_t index) const {
+    return TSInputView(owner_, as_ts_view().as_indexed_unchecked().at(index));
 }
 
-size_t TSLInputView::count() const {
-    return as_ts_view().as_list().count();
-}
-
-TSInputView TSBInputView::at(size_t index) const {
-    return TSInputView(owner_, as_ts_view().as_bundle().at(index));
+size_t TSIndexedInputView::count() const {
+    return as_ts_view().as_indexed_unchecked().count();
 }
 
 TSInputView TSBInputView::field(std::string_view name) const {
     return TSInputView(owner_, as_ts_view().as_bundle().field(name));
-}
-
-size_t TSBInputView::count() const {
-    return as_ts_view().as_bundle().count();
 }
 
 void TSInputView::make_active() {

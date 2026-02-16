@@ -20,16 +20,19 @@ class TSValue;
 class TSWView;
 class TSSView;
 class TSDView;
+class TSIndexedView;
 class TSLView;
 class TSBView;
 class TSWOutputView;
 class TSSOutputView;
 class TSDOutputView;
+class TSIndexedOutputView;
 class TSLOutputView;
 class TSBOutputView;
 class TSWInputView;
 class TSSInputView;
 class TSDInputView;
+class TSIndexedInputView;
 class TSLInputView;
 class TSBInputView;
 class TSInputView;
@@ -88,12 +91,15 @@ public:
     [[nodiscard]] bool is_list() const noexcept { return kind() == TSKind::TSL; }
     [[nodiscard]] bool is_bundle() const noexcept { return kind() == TSKind::TSB; }
 
+    [[nodiscard]] std::optional<TSIndexedView> try_as_indexed() const;
     [[nodiscard]] std::optional<TSWView> try_as_window() const;
     [[nodiscard]] std::optional<TSSView> try_as_set() const;
     [[nodiscard]] std::optional<TSDView> try_as_dict() const;
     [[nodiscard]] std::optional<TSLView> try_as_list() const;
     [[nodiscard]] std::optional<TSBView> try_as_bundle() const;
 
+    [[nodiscard]] TSIndexedView as_indexed_unchecked() const noexcept;
+    [[nodiscard]] TSIndexedView as_indexed() const;
     [[nodiscard]] TSWView as_window() const;
     [[nodiscard]] TSSView as_set() const;
     [[nodiscard]] TSDView as_dict() const;
@@ -151,27 +157,30 @@ public:
     [[nodiscard]] TSView set(const value::View& key, const value::View& value);
 };
 
-class HGRAPH_EXPORT TSLView : public TSView {
+class HGRAPH_EXPORT TSIndexedView : public TSView {
 public:
-    TSLView() = default;
-    explicit TSLView(TSView ts_view) noexcept : TSView(std::move(ts_view)) {}
-
+    TSIndexedView() = default;
+    explicit TSIndexedView(TSView ts_view) noexcept : TSView(std::move(ts_view)) {}
     [[nodiscard]] TSView at(size_t index) const { return child_at(index); }
     [[nodiscard]] TSView operator[](size_t index) const { return at(index); }
     [[nodiscard]] size_t count() const { return child_count(); }
     [[nodiscard]] size_t size() const { return count(); }
 };
 
-class HGRAPH_EXPORT TSBView : public TSView {
+class HGRAPH_EXPORT TSLView : public TSIndexedView {
+public:
+    TSLView() = default;
+    explicit TSLView(TSView ts_view) noexcept : TSIndexedView(std::move(ts_view)) {}
+};
+
+class HGRAPH_EXPORT TSBView : public TSIndexedView {
 public:
     TSBView() = default;
-    explicit TSBView(TSView ts_view) noexcept : TSView(std::move(ts_view)) {}
+    explicit TSBView(TSView ts_view) noexcept : TSIndexedView(std::move(ts_view)) {}
 
-    [[nodiscard]] TSView at(size_t index) const { return child_at(index); }
+    using TSIndexedView::at;
     [[nodiscard]] TSView field(std::string_view name) const { return child_by_name(name); }
     [[nodiscard]] TSView at(std::string_view name) const { return field(name); }
-    [[nodiscard]] size_t count() const { return child_count(); }
-    [[nodiscard]] size_t size() const { return count(); }
 };
 
 /**
@@ -213,11 +222,6 @@ public:
     void copy_from_output(const TSOutputView& output);
     void apply_delta(const value::View& delta) { ts_view_.apply_delta(delta); }
     void invalidate() { ts_view_.invalidate(); }
-
-    [[nodiscard]] TSOutputView child_at(size_t index) const;
-    [[nodiscard]] TSOutputView child_by_name(std::string_view name) const;
-    [[nodiscard]] TSOutputView child_by_key(const value::View& key) const;
-    [[nodiscard]] size_t child_count() const { return ts_view_.child_count(); }
 
     [[nodiscard]] std::optional<TSWOutputView> try_as_window() const;
     [[nodiscard]] std::optional<TSSOutputView> try_as_set() const;
@@ -276,27 +280,30 @@ public:
     [[nodiscard]] TSOutputView set(const value::View& key, const value::View& value);
 };
 
-class HGRAPH_EXPORT TSLOutputView : public TSOutputView {
+class HGRAPH_EXPORT TSIndexedOutputView : public TSOutputView {
 public:
-    TSLOutputView() = default;
-    explicit TSLOutputView(TSOutputView base) noexcept : TSOutputView(std::move(base)) {}
-
+    TSIndexedOutputView() = default;
+    explicit TSIndexedOutputView(TSOutputView base) noexcept : TSOutputView(std::move(base)) {}
     [[nodiscard]] TSOutputView at(size_t index) const;
-    [[nodiscard]] TSOutputView operator[](size_t index) const { return at(index); }
     [[nodiscard]] size_t count() const;
     [[nodiscard]] size_t size() const { return count(); }
 };
 
-class HGRAPH_EXPORT TSBOutputView : public TSOutputView {
+class HGRAPH_EXPORT TSLOutputView : public TSIndexedOutputView {
+public:
+    TSLOutputView() = default;
+    explicit TSLOutputView(TSOutputView base) noexcept : TSIndexedOutputView(std::move(base)) {}
+    [[nodiscard]] TSOutputView operator[](size_t index) const { return at(index); }
+};
+
+class HGRAPH_EXPORT TSBOutputView : public TSIndexedOutputView {
 public:
     TSBOutputView() = default;
-    explicit TSBOutputView(TSOutputView base) noexcept : TSOutputView(std::move(base)) {}
+    explicit TSBOutputView(TSOutputView base) noexcept : TSIndexedOutputView(std::move(base)) {}
 
-    [[nodiscard]] TSOutputView at(size_t index) const;
+    using TSIndexedOutputView::at;
     [[nodiscard]] TSOutputView field(std::string_view name) const;
     [[nodiscard]] TSOutputView at(std::string_view name) const { return field(name); }
-    [[nodiscard]] size_t count() const;
-    [[nodiscard]] size_t size() const { return count(); }
 };
 
 /**
@@ -331,11 +338,6 @@ public:
     [[nodiscard]] value::View delta_value() const { return ts_view_.delta_value(); }
     [[nodiscard]] nb::object to_python() const { return ts_view_.to_python(); }
     [[nodiscard]] nb::object delta_to_python() const { return ts_view_.delta_to_python(); }
-
-    [[nodiscard]] TSInputView child_at(size_t index) const;
-    [[nodiscard]] TSInputView child_by_name(std::string_view name) const;
-    [[nodiscard]] TSInputView child_by_key(const value::View& key) const;
-    [[nodiscard]] size_t child_count() const { return ts_view_.child_count(); }
 
     void bind(const TSOutputView& target) { ts_view_.bind(target.as_ts_view()); }
     void unbind() { ts_view_.unbind(); }
@@ -393,27 +395,30 @@ public:
     [[nodiscard]] size_t size() const { return count(); }
 };
 
-class HGRAPH_EXPORT TSLInputView : public TSInputView {
+class HGRAPH_EXPORT TSIndexedInputView : public TSInputView {
 public:
-    TSLInputView() = default;
-    explicit TSLInputView(TSInputView base) noexcept : TSInputView(std::move(base)) {}
-
+    TSIndexedInputView() = default;
+    explicit TSIndexedInputView(TSInputView base) noexcept : TSInputView(std::move(base)) {}
     [[nodiscard]] TSInputView at(size_t index) const;
-    [[nodiscard]] TSInputView operator[](size_t index) const { return at(index); }
     [[nodiscard]] size_t count() const;
     [[nodiscard]] size_t size() const { return count(); }
 };
 
-class HGRAPH_EXPORT TSBInputView : public TSInputView {
+class HGRAPH_EXPORT TSLInputView : public TSIndexedInputView {
+public:
+    TSLInputView() = default;
+    explicit TSLInputView(TSInputView base) noexcept : TSIndexedInputView(std::move(base)) {}
+    [[nodiscard]] TSInputView operator[](size_t index) const { return at(index); }
+};
+
+class HGRAPH_EXPORT TSBInputView : public TSIndexedInputView {
 public:
     TSBInputView() = default;
-    explicit TSBInputView(TSInputView base) noexcept : TSInputView(std::move(base)) {}
+    explicit TSBInputView(TSInputView base) noexcept : TSIndexedInputView(std::move(base)) {}
 
-    [[nodiscard]] TSInputView at(size_t index) const;
+    using TSIndexedInputView::at;
     [[nodiscard]] TSInputView field(std::string_view name) const;
     [[nodiscard]] TSInputView at(std::string_view name) const { return field(name); }
-    [[nodiscard]] size_t count() const;
-    [[nodiscard]] size_t size() const { return count(); }
 };
 
 }  // namespace hgraph

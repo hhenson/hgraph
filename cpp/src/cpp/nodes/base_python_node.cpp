@@ -11,8 +11,8 @@
 
 namespace hgraph
 {
-    namespace {
-        engine_time_t node_time(const Node &node) {
+	namespace {
+	        engine_time_t node_time(const Node &node) {
             if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
                 return *et;
             }
@@ -20,18 +20,52 @@ namespace hgraph
             return g != nullptr ? g->evaluation_time() : MIN_DT;
         }
 
-        TSInputView node_input_field_view(Node &node, std::string_view key) {
-            TSInputView root = node.input(node_time(node));
-            if (!root) {
-                return {};
-            }
-            auto bundle = root.try_as_bundle();
-            if (!bundle.has_value()) {
-                return {};
-            }
-            return bundle->field(key);
-        }
-    }  // namespace
+	        TSInputView node_input_field_view(Node &node, std::string_view key) {
+	            TSInputView root = node.input(node_time(node));
+	            if (!root) {
+	                return {};
+	            }
+	            auto bundle = root.try_as_bundle();
+	            if (!bundle.has_value()) {
+	                return {};
+	            }
+	            return bundle->field(key);
+	        }
+
+	        nb::object cast_typed_input_view(const TSInputView &view) {
+	            switch (view.as_ts_view().kind()) {
+	                case TSKind::TSW:
+	                    return nb::cast(view.as_window());
+	                case TSKind::TSS:
+	                    return nb::cast(view.as_set());
+	                case TSKind::TSD:
+	                    return nb::cast(view.as_dict());
+	                case TSKind::TSL:
+	                    return nb::cast(view.as_list());
+	                case TSKind::TSB:
+	                    return nb::cast(view.as_bundle());
+	                default:
+	                    return nb::cast(view);
+	            }
+	        }
+
+	        nb::object cast_typed_output_view(const TSOutputView &view) {
+	            switch (view.as_ts_view().kind()) {
+	                case TSKind::TSW:
+	                    return nb::cast(view.as_window());
+	                case TSKind::TSS:
+	                    return nb::cast(view.as_set());
+	                case TSKind::TSD:
+	                    return nb::cast(view.as_dict());
+	                case TSKind::TSL:
+	                    return nb::cast(view.as_list());
+	                case TSKind::TSB:
+	                    return nb::cast(view.as_bundle());
+	                default:
+	                    return nb::cast(view);
+	            }
+	        }
+	    }  // namespace
 
     BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                                    nb::dict scalars, const TSMeta* input_meta, const TSMeta* output_meta,
@@ -67,13 +101,13 @@ namespace hgraph
 
                     if ((injectable & InjectableTypesEnum::NODE) != InjectableTypesEnum::NONE) {
                         wrapped_value = get_node_wrapper();
-                    } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
-                        auto out = output(node_time(*this));
-                        if (out) {
-                            wrapped_value = nb::cast(out);
-                        } else {
-                            wrapped_value = nb::none();
-                        }
+	                    } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
+	                        auto out = output(node_time(*this));
+	                        if (out) {
+	                            wrapped_value = cast_typed_output_view(out);
+	                        } else {
+	                            wrapped_value = nb::none();
+	                        }
                     } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
                         auto sched    = scheduler();
                         wrapped_value = wrap_node_scheduler(sched);
@@ -142,12 +176,12 @@ namespace hgraph
         if (!signature().time_series_inputs.has_value()) { return; }
         auto &signature_args = signature().args;
         // Match main branch behavior: iterate over time_series_inputs
-        for (const auto &[key, _] : *signature().time_series_inputs) {
-            if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
-                auto input_view = root_bundle->field(key);
-                _kwargs[key.c_str()] = nb::cast(input_view);
-            }
-        }
+	        for (const auto &[key, _] : *signature().time_series_inputs) {
+	            if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
+	                auto input_view = root_bundle->field(key);
+	                _kwargs[key.c_str()] = cast_typed_input_view(input_view);
+	            }
+	        }
 
     }
 

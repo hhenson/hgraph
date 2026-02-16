@@ -191,19 +191,27 @@ std::optional<value::Value> dict_key_value_from_python(const TSView& ts_view, co
 }
 
 TSInputView dict_input_at_key_object(const TSInputView& self, const nb::object& key_obj) {
+    auto dict = self.try_as_dict();
+    if (!dict.has_value()) {
+        return {};
+    }
     auto key_value = dict_key_value_from_python(self.as_ts_view(), key_obj);
     if (!key_value.has_value()) {
         return {};
     }
-    return self.child_by_key(key_value->view());
+    return dict->at_key(key_value->view());
 }
 
 TSOutputView dict_output_at_key_object(const TSOutputView& self, const nb::object& key_obj) {
+    auto dict = self.try_as_dict();
+    if (!dict.has_value()) {
+        return {};
+    }
     auto key_value = dict_key_value_from_python(self.as_ts_view(), key_obj);
     if (!key_value.has_value()) {
         return {};
     }
-    return self.child_by_key(key_value->view());
+    return dict->at_key(key_value->view());
 }
 
 bool dict_contains_python_key(const TSView& ts_view, const nb::object& key_obj) {
@@ -337,6 +345,25 @@ nb::list tsd_output_items(const TSOutputView& self, const nb::list& keys) {
     return out;
 }
 
+nb::object tsd_input_delta_to_python(const TSDInputView& self) {
+    nb::object delta = self.as_ts_view().delta_to_python();
+    if (delta.is_none()) {
+        return get_frozendict()(nb::dict{});
+    }
+
+    nb::dict out;
+    nb::object remove = get_remove();
+    nb::object remove_if_exists = get_remove_if_exists();
+    nb::object items_attr = nb::getattr(delta, "items", nb::none());
+    nb::iterator items = items_attr.is_none() ? nb::iter(delta) : nb::iter(items_attr());
+    for (const auto& kv : items) {
+        nb::object value_obj = kv[1];
+        out[kv[0]] = value_obj.is(remove) ? remove_if_exists : value_obj;
+    }
+
+    return get_frozendict()(out);
+}
+
 nb::list tsl_keys_python(const TSView& ts_view) {
     nb::list out;
     if (ts_view.kind() != TSKind::TSL) {
@@ -367,72 +394,104 @@ nb::list tsb_keys_python(const TSView& ts_view) {
 
 nb::list tsl_input_values(const TSInputView& self, const nb::list& keys) {
     nb::list out;
+    auto list = self.try_as_list();
+    if (!list.has_value()) {
+        return out;
+    }
     for (const auto& key : keys) {
-        out.append(self.child_at(nb::cast<size_t>(key)));
+        out.append(list->at(nb::cast<size_t>(key)));
     }
     return out;
 }
 
 nb::list tsl_output_values(const TSOutputView& self, const nb::list& keys) {
     nb::list out;
+    auto list = self.try_as_list();
+    if (!list.has_value()) {
+        return out;
+    }
     for (const auto& key : keys) {
-        out.append(self.child_at(nb::cast<size_t>(key)));
+        out.append(list->at(nb::cast<size_t>(key)));
     }
     return out;
 }
 
 nb::list tsl_input_items(const TSInputView& self, const nb::list& keys) {
     nb::list out;
+    auto list = self.try_as_list();
+    if (!list.has_value()) {
+        return out;
+    }
     for (const auto& key : keys) {
         nb::object key_obj = nb::cast<nb::object>(key);
-        out.append(nb::make_tuple(key_obj, self.child_at(nb::cast<size_t>(key_obj))));
+        out.append(nb::make_tuple(key_obj, list->at(nb::cast<size_t>(key_obj))));
     }
     return out;
 }
 
 nb::list tsl_output_items(const TSOutputView& self, const nb::list& keys) {
     nb::list out;
+    auto list = self.try_as_list();
+    if (!list.has_value()) {
+        return out;
+    }
     for (const auto& key : keys) {
         nb::object key_obj = nb::cast<nb::object>(key);
-        out.append(nb::make_tuple(key_obj, self.child_at(nb::cast<size_t>(key_obj))));
+        out.append(nb::make_tuple(key_obj, list->at(nb::cast<size_t>(key_obj))));
     }
     return out;
 }
 
 nb::list tsb_input_values(const TSInputView& self, const nb::list& keys) {
     nb::list out;
+    auto bundle = self.try_as_bundle();
+    if (!bundle.has_value()) {
+        return out;
+    }
     for (const auto& key : keys) {
         std::string key_str = nb::cast<std::string>(key);
-        out.append(self.child_by_name(key_str));
+        out.append(bundle->field(key_str));
     }
     return out;
 }
 
 nb::list tsb_output_values(const TSOutputView& self, const nb::list& keys) {
     nb::list out;
+    auto bundle = self.try_as_bundle();
+    if (!bundle.has_value()) {
+        return out;
+    }
     for (const auto& key : keys) {
         std::string key_str = nb::cast<std::string>(key);
-        out.append(self.child_by_name(key_str));
+        out.append(bundle->field(key_str));
     }
     return out;
 }
 
 nb::list tsb_input_items(const TSInputView& self, const nb::list& keys) {
     nb::list out;
+    auto bundle = self.try_as_bundle();
+    if (!bundle.has_value()) {
+        return out;
+    }
     for (const auto& key : keys) {
         nb::object key_obj = nb::cast<nb::object>(key);
         std::string key_str = nb::cast<std::string>(key_obj);
-        out.append(nb::make_tuple(key_obj, self.child_by_name(key_str)));
+        out.append(nb::make_tuple(key_obj, bundle->field(key_str)));
     }
     return out;
 }
 
 nb::list tsb_output_items(const TSOutputView& self, const nb::list& keys) {
     nb::list out;
+    auto bundle = self.try_as_bundle();
+    if (!bundle.has_value()) {
+        return out;
+    }
     for (const auto& key : keys) {
         nb::object key_obj = nb::cast<nb::object>(key);
         std::string key_str = nb::cast<std::string>(key_obj);
-        out.append(nb::make_tuple(key_obj, self.child_by_name(key_str)));
+        out.append(nb::make_tuple(key_obj, bundle->field(key_str)));
     }
     return out;
 }
@@ -462,9 +521,13 @@ nb::list tsl_keys_filtered(const ViewT& self, IncludeFn&& include) {
         return out;
     }
 
-    const size_t n = self.child_count();
+    auto list = self.try_as_list();
+    if (!list.has_value()) {
+        return out;
+    }
+    const size_t n = list->count();
     for (size_t i = 0; i < n; ++i) {
-        auto child = self.child_at(i);
+        auto child = list->at(i);
         if (include(child)) {
             out.append(nb::int_(i));
         }
@@ -480,8 +543,13 @@ nb::list tsb_keys_filtered(const ViewT& self, IncludeFn&& include) {
         return out;
     }
 
+    auto bundle = self.try_as_bundle();
+    if (!bundle.has_value()) {
+        return out;
+    }
+
     for (size_t i = 0; i < meta->field_count(); ++i) {
-        auto child = self.child_at(i);
+        auto child = bundle->at(i);
         if (!include(child)) {
             continue;
         }
@@ -537,110 +605,6 @@ nb::list tsb_valid_keys_input(const TSInputView& self) {
 
 nb::list tsb_valid_keys_output(const TSOutputView& self) {
     return tsb_keys_filtered(self, [](const TSOutputView& child) { return child.valid(); });
-}
-
-nb::list output_valid_keys_dispatch(const TSOutputView& self) {
-    switch (self.as_ts_view().kind()) {
-        case TSKind::TSD:
-            return tsd_valid_keys_output(self);
-        case TSKind::TSL:
-            return tsl_valid_keys_output(self);
-        case TSKind::TSB:
-            return tsb_valid_keys_output(self);
-        default:
-            return nb::list{};
-    }
-}
-
-nb::list output_modified_keys_dispatch(const TSOutputView& self) {
-    switch (self.as_ts_view().kind()) {
-        case TSKind::TSD:
-            return tsd_modified_keys_python(self.as_ts_view());
-        case TSKind::TSL:
-            return tsl_modified_keys_output(self);
-        case TSKind::TSB:
-            return tsb_modified_keys_output(self);
-        default:
-            return nb::list{};
-    }
-}
-
-nb::list output_values_for_keys(const TSOutputView& self, const nb::list& keys) {
-    switch (self.as_ts_view().kind()) {
-        case TSKind::TSD:
-            return tsd_output_values(self, keys);
-        case TSKind::TSL:
-            return tsl_output_values(self, keys);
-        case TSKind::TSB:
-            return tsb_output_values(self, keys);
-        default:
-            return nb::list{};
-    }
-}
-
-nb::list output_items_for_keys(const TSOutputView& self, const nb::list& keys) {
-    switch (self.as_ts_view().kind()) {
-        case TSKind::TSD:
-            return tsd_output_items(self, keys);
-        case TSKind::TSL:
-            return tsl_output_items(self, keys);
-        case TSKind::TSB:
-            return tsb_output_items(self, keys);
-        default:
-            return nb::list{};
-    }
-}
-
-nb::list input_valid_keys_dispatch(const TSInputView& self) {
-    switch (self.as_ts_view().kind()) {
-        case TSKind::TSD:
-            return tsd_valid_keys_input(self);
-        case TSKind::TSL:
-            return tsl_valid_keys_input(self);
-        case TSKind::TSB:
-            return tsb_valid_keys_input(self);
-        default:
-            return nb::list{};
-    }
-}
-
-nb::list input_modified_keys_dispatch(const TSInputView& self) {
-    switch (self.as_ts_view().kind()) {
-        case TSKind::TSD:
-            return tsd_modified_keys_python(self.as_ts_view());
-        case TSKind::TSL:
-            return tsl_modified_keys_input(self);
-        case TSKind::TSB:
-            return tsb_modified_keys_input(self);
-        default:
-            return nb::list{};
-    }
-}
-
-nb::list input_values_for_keys(const TSInputView& self, const nb::list& keys) {
-    switch (self.as_ts_view().kind()) {
-        case TSKind::TSD:
-            return tsd_input_values(self, keys);
-        case TSKind::TSL:
-            return tsl_input_values(self, keys);
-        case TSKind::TSB:
-            return tsb_input_values(self, keys);
-        default:
-            return nb::list{};
-    }
-}
-
-nb::list input_items_for_keys(const TSInputView& self, const nb::list& keys) {
-    switch (self.as_ts_view().kind()) {
-        case TSKind::TSD:
-            return tsd_input_items(self, keys);
-        case TSKind::TSL:
-            return tsl_input_items(self, keys);
-        case TSKind::TSB:
-            return tsb_input_items(self, keys);
-        default:
-            return nb::list{};
-    }
 }
 
 nb::object set_delta_attr_or_empty(const nb::object& delta, const char* attr_name) {
@@ -1206,11 +1170,27 @@ void clear_output(TSOutputView& self) {
             return;
         }
 
-        case TSKind::TSL:
-        case TSKind::TSB: {
-            const size_t n = self.child_count();
+        case TSKind::TSL: {
+            auto list = self.try_as_list();
+            if (!list.has_value()) {
+                return;
+            }
+            const size_t n = list->count();
             for (size_t i = 0; i < n; ++i) {
-                TSOutputView child = self.child_at(i);
+                TSOutputView child = list->at(i);
+                clear_output(child);
+            }
+            return;
+        }
+
+        case TSKind::TSB: {
+            auto bundle = self.try_as_bundle();
+            if (!bundle.has_value()) {
+                return;
+            }
+            const size_t n = bundle->count();
+            for (size_t i = 0; i < n; ++i) {
+                TSOutputView child = bundle->at(i);
                 clear_output(child);
             }
             return;
@@ -1447,27 +1427,33 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("create", &TSDView::create, "key"_a, nb::keep_alive<0, 1>())
         .def("set", &TSDView::set, "key"_a, "value"_a, nb::keep_alive<0, 1>());
 
-    nb::class_<TSLView, TSView>(test_mod, "TSLView")
-        .def("__bool__", [](const TSLView& self) { return static_cast<bool>(self); })
-        .def("to_python", [](const TSLView& self) { return self.to_python(); })
-        .def("at", &TSLView::at, "index"_a, nb::keep_alive<0, 1>())
-        .def("count", &TSLView::count)
-        .def("size", &TSLView::size);
+    nb::class_<TSIndexedView, TSView>(test_mod, "TSIndexedView")
+        .def("__bool__", [](const TSIndexedView& self) { return static_cast<bool>(self); })
+        .def("to_python", [](const TSIndexedView& self) { return self.to_python(); })
+        .def("at", &TSIndexedView::at, "index"_a, nb::keep_alive<0, 1>())
+        .def("count", &TSIndexedView::count)
+        .def("size", &TSIndexedView::size);
 
-    nb::class_<TSBView, TSView>(test_mod, "TSBView")
+    nb::class_<TSLView, TSIndexedView>(test_mod, "TSLView")
+        .def("__bool__", [](const TSLView& self) { return static_cast<bool>(self); })
+        .def("to_python", [](const TSLView& self) { return self.to_python(); });
+
+    nb::class_<TSBView, TSIndexedView>(test_mod, "TSBView")
         .def("__bool__", [](const TSBView& self) { return static_cast<bool>(self); })
         .def("to_python", [](const TSBView& self) { return self.to_python(); })
-        .def("at", nb::overload_cast<size_t>(&TSBView::at, nb::const_), "index"_a, nb::keep_alive<0, 1>())
         .def("field", &TSBView::field, "name"_a, nb::keep_alive<0, 1>())
-        .def("count", &TSBView::count)
-        .def("size", &TSBView::size);
+        .def("at", [](const TSBView& self, size_t index) { return self.TSIndexedView::at(index); },
+             "index"_a, nb::keep_alive<0, 1>())
+        .def("at", nb::overload_cast<std::string_view>(&TSBView::at, nb::const_), "name"_a, nb::keep_alive<0, 1>());
 
     ts_view_cls
+        .def("try_as_indexed", &TSView::try_as_indexed, nb::keep_alive<0, 1>())
         .def("try_as_window", &TSView::try_as_window, nb::keep_alive<0, 1>())
         .def("try_as_set", &TSView::try_as_set, nb::keep_alive<0, 1>())
         .def("try_as_dict", &TSView::try_as_dict, nb::keep_alive<0, 1>())
         .def("try_as_list", &TSView::try_as_list, nb::keep_alive<0, 1>())
         .def("try_as_bundle", &TSView::try_as_bundle, nb::keep_alive<0, 1>())
+        .def("as_indexed", &TSView::as_indexed, nb::keep_alive<0, 1>())
         .def("as_window", &TSView::as_window, nb::keep_alive<0, 1>())
         .def("as_set", &TSView::as_set, nb::keep_alive<0, 1>())
         .def("as_dict", &TSView::as_dict, nb::keep_alive<0, 1>())
@@ -1476,25 +1462,31 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
 
     auto ts_output_view_cls = nb::class_<TSOutputView>(test_mod, "TSOutputView")
         .def("__bool__", [](const TSOutputView& self) { return static_cast<bool>(self); })
-        .def("__len__", &TSOutputView::child_count)
+        .def("__len__", [](const TSOutputView& self) { return self.as_ts_view().child_count(); })
         .def("__getitem__", [](const TSOutputView& self, size_t index) {
-            if (index >= self.child_count()) {
+            if (!self.as_ts_view().try_as_indexed().has_value()) {
                 throw nb::index_error();
             }
-            return self.child_at(index);
+            TSIndexedOutputView indexed = TSIndexedOutputView(self);
+            if (index >= indexed.count()) {
+                throw nb::index_error();
+            }
+            return indexed.at(index);
         }, "index"_a,
              nb::keep_alive<0, 1>())
         .def("__getitem__", [](const TSOutputView& self, std::string_view name) {
             if (self.as_ts_view().kind() == TSKind::TSB) {
-                return self.child_by_name(name);
+                return self.as_bundle().field(name);
             }
             if (self.as_ts_view().kind() == TSKind::TSD) {
                 return dict_output_at_key_object(self, nb::str(std::string(name).c_str()));
             }
             return TSOutputView{};
         }, "name"_a, nb::keep_alive<0, 1>())
-        .def("__getitem__", [](const TSOutputView& self, const value::View& key) { return self.child_by_key(key); },
-             "key"_a, nb::keep_alive<0, 1>())
+        .def("__getitem__", [](const TSOutputView& self, const value::View& key) {
+            auto dict = self.try_as_dict();
+            return dict.has_value() ? dict->at_key(key) : TSOutputView{};
+        }, "key"_a, nb::keep_alive<0, 1>())
         .def("__getitem__", [](const TSOutputView& self, const nb::object& key) {
             if (self.as_ts_view().kind() == TSKind::TSD) {
                 return dict_output_at_key_object(self, key);
@@ -1536,14 +1528,6 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         }, "key"_a)
         .def("fq_path_str", [](const TSOutputView& self) { return self.fq_path().to_string(); })
         .def("short_indices", [](const TSOutputView& self) { return self.short_path().indices; })
-        .def("at", &TSOutputView::child_at, "index"_a, nb::keep_alive<0, 1>())
-        .def("field", &TSOutputView::child_by_name, "name"_a, nb::keep_alive<0, 1>())
-        .def("at_key", &TSOutputView::child_by_key, "key"_a, nb::keep_alive<0, 1>())
-        .def("count", &TSOutputView::child_count)
-        .def("child_at", &TSOutputView::child_at, "index"_a, nb::keep_alive<0, 1>())
-        .def("child_by_name", &TSOutputView::child_by_name, "name"_a, nb::keep_alive<0, 1>())
-        .def("child_by_key", &TSOutputView::child_by_key, "key"_a, nb::keep_alive<0, 1>())
-        .def("size", &TSOutputView::child_count)
         .def("set_current_time", &TSOutputView::set_current_time, "time"_a)
         .def("set_value", &TSOutputView::set_value, "value"_a)
         .def("to_python", [](const TSOutputView& self) { return self.to_python(); })
@@ -1712,83 +1696,6 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             auto dict = self.try_as_dict();
             return dict.has_value() ? dict->create(key_value->view()) : TSOutputView{};
         }, "key"_a, nb::keep_alive<0, 1>())
-        .def("keys", [](const TSOutputView& self) {
-            switch (self.as_ts_view().kind()) {
-                case TSKind::TSD:
-                    return tsd_keys_python(self.as_ts_view());
-                case TSKind::TSL:
-                    return tsl_keys_python(self.as_ts_view());
-                case TSKind::TSB:
-                    return tsb_keys_python(self.as_ts_view());
-                default:
-                    return nb::list{};
-            }
-        })
-        .def("values", [](const TSOutputView& self) -> nb::object {
-            switch (self.as_ts_view().kind()) {
-                case TSKind::TSS:
-                    return self.to_python();
-                case TSKind::TSD: {
-                    nb::list keys = tsd_keys_python(self.as_ts_view());
-                    return tsd_output_values(self, keys);
-                }
-                case TSKind::TSL: {
-                    nb::list keys = tsl_keys_python(self.as_ts_view());
-                    return tsl_output_values(self, keys);
-                }
-                case TSKind::TSB: {
-                    nb::list keys = tsb_keys_python(self.as_ts_view());
-                    return tsb_output_values(self, keys);
-                }
-                default:
-                    return nb::list{};
-            }
-        })
-        .def("items", [](const TSOutputView& self) {
-            switch (self.as_ts_view().kind()) {
-                case TSKind::TSD: {
-                    nb::list keys = tsd_keys_python(self.as_ts_view());
-                    return tsd_output_items(self, keys);
-                }
-                case TSKind::TSL: {
-                    nb::list keys = tsl_keys_python(self.as_ts_view());
-                    return tsl_output_items(self, keys);
-                }
-                case TSKind::TSB: {
-                    nb::list keys = tsb_keys_python(self.as_ts_view());
-                    return tsb_output_items(self, keys);
-                }
-                default:
-                    return nb::list{};
-            }
-        })
-        .def("valid_keys", [](const TSOutputView& self) {
-            return output_valid_keys_dispatch(self);
-        })
-        .def("valid_values", [](const TSOutputView& self) {
-            return output_values_for_keys(self, output_valid_keys_dispatch(self));
-        })
-        .def("valid_items", [](const TSOutputView& self) {
-            return output_items_for_keys(self, output_valid_keys_dispatch(self));
-        })
-        .def("modified_keys", [](const TSOutputView& self) {
-            return output_modified_keys_dispatch(self);
-        })
-        .def("modified_values", [](const TSOutputView& self) {
-            return output_values_for_keys(self, output_modified_keys_dispatch(self));
-        })
-        .def("modified_items", [](const TSOutputView& self) {
-            return output_items_for_keys(self, output_modified_keys_dispatch(self));
-        })
-        .def("added_keys", [](const TSOutputView& self) {
-            return self.as_ts_view().kind() == TSKind::TSD ? tsd_added_keys_python(self.as_ts_view()) : nb::list{};
-        })
-        .def("removed_keys", [](const TSOutputView& self) {
-            return self.as_ts_view().kind() == TSKind::TSD ? tsd_removed_keys_python(self.as_ts_view()) : nb::list{};
-        })
-        .def_prop_ro("key_set", [](const TSOutputView& self) {
-            return tsd_key_set_output_view(self);
-        }, nb::keep_alive<0, 1>())
         .def("is_empty_output", [](TSOutputView& self) {
             return tss_get_is_empty_output(self);
         }, nb::keep_alive<0, 1>())
@@ -1836,22 +1743,135 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("at_key", &TSDOutputView::at_key, "key"_a, nb::keep_alive<0, 1>())
         .def("count", &TSDOutputView::count)
         .def("size", &TSDOutputView::size)
+        .def("keys", [](const TSDOutputView& self) { return tsd_keys_python(self.as_ts_view()); })
+        .def("values", [](const TSDOutputView& self) {
+            nb::list keys = tsd_keys_python(self.as_ts_view());
+            return tsd_output_values(self, keys);
+        })
+        .def("items", [](const TSDOutputView& self) {
+            nb::list keys = tsd_keys_python(self.as_ts_view());
+            return tsd_output_items(self, keys);
+        })
+        .def("valid_keys", [](const TSDOutputView& self) { return tsd_valid_keys_output(self); })
+        .def("valid_values", [](const TSDOutputView& self) {
+            return tsd_output_values(self, tsd_valid_keys_output(self));
+        })
+        .def("valid_items", [](const TSDOutputView& self) {
+            return tsd_output_items(self, tsd_valid_keys_output(self));
+        })
+        .def("modified_keys", [](const TSDOutputView& self) { return tsd_modified_keys_python(self.as_ts_view()); })
+        .def("modified_values", [](const TSDOutputView& self) {
+            return tsd_output_values(self, tsd_modified_keys_python(self.as_ts_view()));
+        })
+        .def("modified_items", [](const TSDOutputView& self) {
+            return tsd_output_items(self, tsd_modified_keys_python(self.as_ts_view()));
+        })
+        .def("added_keys", [](const TSDOutputView& self) { return tsd_added_keys_python(self.as_ts_view()); })
+        .def("added_values", [](const TSDOutputView& self) {
+            return tsd_output_values(self, tsd_added_keys_python(self.as_ts_view()));
+        })
+        .def("added_items", [](const TSDOutputView& self) {
+            return tsd_output_items(self, tsd_added_keys_python(self.as_ts_view()));
+        })
+        .def("removed_keys", [](const TSDOutputView& self) { return tsd_removed_keys_python(self.as_ts_view()); })
+        .def("removed_values", [](const TSDOutputView& self) {
+            return tsd_output_values(self, tsd_removed_keys_python(self.as_ts_view()));
+        })
+        .def("removed_items", [](const TSDOutputView& self) {
+            return tsd_output_items(self, tsd_removed_keys_python(self.as_ts_view()));
+        })
+        .def_prop_ro("key_set", [](const TSDOutputView& self) {
+            return tsd_key_set_output_view(self);
+        }, nb::keep_alive<0, 1>())
         .def("remove", &TSDOutputView::remove, "key"_a)
         .def("create", &TSDOutputView::create, "key"_a, nb::keep_alive<0, 1>())
-        .def("set", &TSDOutputView::set, "key"_a, "value"_a, nb::keep_alive<0, 1>());
+        .def("set", &TSDOutputView::set, "key"_a, "value"_a, nb::keep_alive<0, 1>())
+        .def("dict_remove", [](TSDOutputView& self, const value::View& key) {
+            return self.remove(key);
+        }, "key"_a)
+        .def("dict_create", [](TSDOutputView& self, const value::View& key) {
+            return self.create(key);
+        }, "key"_a, nb::keep_alive<0, 1>())
+        .def("dict_set", [](TSDOutputView& self, const value::View& key, const value::View& value_view) {
+            return self.set(key, value_view);
+        }, "key"_a, "value"_a, nb::keep_alive<0, 1>())
+        .def("get_ref", [](TSDOutputView& self, const nb::object& key, const nb::object& requester) {
+            TSOutputView base = self;
+            return tsd_get_ref_output(base, key, requester);
+        }, "key"_a, "requester"_a, nb::keep_alive<0, 1>())
+        .def("release_ref", [](TSDOutputView& self, const nb::object& key, const nb::object& requester) {
+            TSOutputView base = self;
+            tsd_release_ref_output(base, key, requester);
+        }, "key"_a, "requester"_a)
+        .def("get_or_create", [](TSDOutputView& self, const nb::object& key) {
+            auto key_value = dict_key_value_from_python(self.as_ts_view(), key);
+            if (!key_value.has_value()) {
+                return TSOutputView{};
+            }
+            return self.create(key_value->view());
+        }, "key"_a, nb::keep_alive<0, 1>());
 
-    nb::class_<TSLOutputView, TSOutputView>(test_mod, "TSLOutputView")
+    nb::class_<TSIndexedOutputView, TSOutputView>(test_mod, "TSIndexedOutputView")
+        .def("__bool__", [](const TSIndexedOutputView& self) { return static_cast<bool>(self); })
+        .def("at", &TSIndexedOutputView::at, "index"_a, nb::keep_alive<0, 1>())
+        .def("count", &TSIndexedOutputView::count)
+        .def("size", &TSIndexedOutputView::size);
+
+    nb::class_<TSLOutputView, TSIndexedOutputView>(test_mod, "TSLOutputView")
         .def("__bool__", [](const TSLOutputView& self) { return static_cast<bool>(self); })
-        .def("at", &TSLOutputView::at, "index"_a, nb::keep_alive<0, 1>())
-        .def("count", &TSLOutputView::count)
-        .def("size", &TSLOutputView::size);
+        .def("keys", [](const TSLOutputView& self) { return tsl_keys_python(self.as_ts_view()); })
+        .def("values", [](const TSLOutputView& self) {
+            nb::list keys = tsl_keys_python(self.as_ts_view());
+            return tsl_output_values(self, keys);
+        })
+        .def("items", [](const TSLOutputView& self) {
+            nb::list keys = tsl_keys_python(self.as_ts_view());
+            return tsl_output_items(self, keys);
+        })
+        .def("valid_keys", [](const TSLOutputView& self) { return tsl_valid_keys_output(self); })
+        .def("valid_values", [](const TSLOutputView& self) {
+            return tsl_output_values(self, tsl_valid_keys_output(self));
+        })
+        .def("valid_items", [](const TSLOutputView& self) {
+            return tsl_output_items(self, tsl_valid_keys_output(self));
+        })
+        .def("modified_keys", [](const TSLOutputView& self) { return tsl_modified_keys_output(self); })
+        .def("modified_values", [](const TSLOutputView& self) {
+            return tsl_output_values(self, tsl_modified_keys_output(self));
+        })
+        .def("modified_items", [](const TSLOutputView& self) {
+            return tsl_output_items(self, tsl_modified_keys_output(self));
+        });
 
-    nb::class_<TSBOutputView, TSOutputView>(test_mod, "TSBOutputView")
+    nb::class_<TSBOutputView, TSIndexedOutputView>(test_mod, "TSBOutputView")
         .def("__bool__", [](const TSBOutputView& self) { return static_cast<bool>(self); })
-        .def("at", nb::overload_cast<size_t>(&TSBOutputView::at, nb::const_), "index"_a, nb::keep_alive<0, 1>())
         .def("field", &TSBOutputView::field, "name"_a, nb::keep_alive<0, 1>())
-        .def("count", &TSBOutputView::count)
-        .def("size", &TSBOutputView::size);
+        .def("at", [](const TSBOutputView& self, size_t index) { return self.TSIndexedOutputView::at(index); },
+             "index"_a, nb::keep_alive<0, 1>())
+        .def("at", nb::overload_cast<std::string_view>(&TSBOutputView::at, nb::const_), "name"_a, nb::keep_alive<0, 1>())
+        .def("keys", [](const TSBOutputView& self) { return tsb_keys_python(self.as_ts_view()); })
+        .def("values", [](const TSBOutputView& self) {
+            nb::list keys = tsb_keys_python(self.as_ts_view());
+            return tsb_output_values(self, keys);
+        })
+        .def("items", [](const TSBOutputView& self) {
+            nb::list keys = tsb_keys_python(self.as_ts_view());
+            return tsb_output_items(self, keys);
+        })
+        .def("valid_keys", [](const TSBOutputView& self) { return tsb_valid_keys_output(self); })
+        .def("valid_values", [](const TSBOutputView& self) {
+            return tsb_output_values(self, tsb_valid_keys_output(self));
+        })
+        .def("valid_items", [](const TSBOutputView& self) {
+            return tsb_output_items(self, tsb_valid_keys_output(self));
+        })
+        .def("modified_keys", [](const TSBOutputView& self) { return tsb_modified_keys_output(self); })
+        .def("modified_values", [](const TSBOutputView& self) {
+            return tsb_output_values(self, tsb_modified_keys_output(self));
+        })
+        .def("modified_items", [](const TSBOutputView& self) {
+            return tsb_output_items(self, tsb_modified_keys_output(self));
+        });
 
     ts_output_view_cls
         .def("try_as_window", &TSOutputView::try_as_window, nb::keep_alive<0, 1>())
@@ -1867,25 +1887,31 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
 
     auto ts_input_view_cls = nb::class_<TSInputView>(test_mod, "TSInputView")
         .def("__bool__", [](const TSInputView& self) { return static_cast<bool>(self); })
-        .def("__len__", &TSInputView::child_count)
+        .def("__len__", [](const TSInputView& self) { return self.as_ts_view().child_count(); })
         .def("__getitem__", [](const TSInputView& self, size_t index) {
-            if (index >= self.child_count()) {
+            if (!self.as_ts_view().try_as_indexed().has_value()) {
                 throw nb::index_error();
             }
-            return self.child_at(index);
+            TSIndexedInputView indexed = TSIndexedInputView(self);
+            if (index >= indexed.count()) {
+                throw nb::index_error();
+            }
+            return indexed.at(index);
         }, "index"_a,
              nb::keep_alive<0, 1>())
         .def("__getitem__", [](const TSInputView& self, std::string_view name) {
             if (self.as_ts_view().kind() == TSKind::TSB) {
-                return self.child_by_name(name);
+                return self.as_bundle().field(name);
             }
             if (self.as_ts_view().kind() == TSKind::TSD) {
                 return dict_input_at_key_object(self, nb::str(std::string(name).c_str()));
             }
             return TSInputView{};
         }, "name"_a, nb::keep_alive<0, 1>())
-        .def("__getitem__", [](const TSInputView& self, const value::View& key) { return self.child_by_key(key); },
-             "key"_a, nb::keep_alive<0, 1>())
+        .def("__getitem__", [](const TSInputView& self, const value::View& key) {
+            auto dict = self.try_as_dict();
+            return dict.has_value() ? dict->at_key(key) : TSInputView{};
+        }, "key"_a, nb::keep_alive<0, 1>())
         .def("__getitem__", [](const TSInputView& self, const nb::object& key) {
             if (self.as_ts_view().kind() == TSKind::TSD) {
                 return dict_input_at_key_object(self, key);
@@ -1900,14 +1926,6 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         }, "key"_a)
         .def("fq_path_str", [](const TSInputView& self) { return self.fq_path().to_string(); })
         .def("short_indices", [](const TSInputView& self) { return self.short_path().indices; })
-        .def("at", &TSInputView::child_at, "index"_a, nb::keep_alive<0, 1>())
-        .def("field", &TSInputView::child_by_name, "name"_a, nb::keep_alive<0, 1>())
-        .def("at_key", &TSInputView::child_by_key, "key"_a, nb::keep_alive<0, 1>())
-        .def("count", &TSInputView::child_count)
-        .def("child_at", &TSInputView::child_at, "index"_a, nb::keep_alive<0, 1>())
-        .def("child_by_name", &TSInputView::child_by_name, "name"_a, nb::keep_alive<0, 1>())
-        .def("child_by_key", &TSInputView::child_by_key, "key"_a, nb::keep_alive<0, 1>())
-        .def("size", &TSInputView::child_count)
         .def("bind", &TSInputView::bind, "output"_a)
         .def("bind_output", &TSInputView::bind, "output"_a)
         .def("unbind", &TSInputView::unbind)
@@ -1979,83 +1997,6 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             return set_delta_attr_or_empty(self.delta_to_python(), "removed");
         })
         .def("has_dict_ops", [](const TSInputView& self) { return self.try_as_dict().has_value(); })
-        .def("keys", [](const TSInputView& self) {
-            switch (self.as_ts_view().kind()) {
-                case TSKind::TSD:
-                    return tsd_keys_python(self.as_ts_view());
-                case TSKind::TSL:
-                    return tsl_keys_python(self.as_ts_view());
-                case TSKind::TSB:
-                    return tsb_keys_python(self.as_ts_view());
-                default:
-                    return nb::list{};
-            }
-        })
-        .def("values", [](const TSInputView& self) -> nb::object {
-            switch (self.as_ts_view().kind()) {
-                case TSKind::TSS:
-                    return self.to_python();
-                case TSKind::TSD: {
-                    nb::list keys = tsd_keys_python(self.as_ts_view());
-                    return tsd_input_values(self, keys);
-                }
-                case TSKind::TSL: {
-                    nb::list keys = tsl_keys_python(self.as_ts_view());
-                    return tsl_input_values(self, keys);
-                }
-                case TSKind::TSB: {
-                    nb::list keys = tsb_keys_python(self.as_ts_view());
-                    return tsb_input_values(self, keys);
-                }
-                default:
-                    return nb::list{};
-            }
-        })
-        .def("items", [](const TSInputView& self) {
-            switch (self.as_ts_view().kind()) {
-                case TSKind::TSD: {
-                    nb::list keys = tsd_keys_python(self.as_ts_view());
-                    return tsd_input_items(self, keys);
-                }
-                case TSKind::TSL: {
-                    nb::list keys = tsl_keys_python(self.as_ts_view());
-                    return tsl_input_items(self, keys);
-                }
-                case TSKind::TSB: {
-                    nb::list keys = tsb_keys_python(self.as_ts_view());
-                    return tsb_input_items(self, keys);
-                }
-                default:
-                    return nb::list{};
-            }
-        })
-        .def("valid_keys", [](const TSInputView& self) {
-            return input_valid_keys_dispatch(self);
-        })
-        .def("valid_values", [](const TSInputView& self) {
-            return input_values_for_keys(self, input_valid_keys_dispatch(self));
-        })
-        .def("valid_items", [](const TSInputView& self) {
-            return input_items_for_keys(self, input_valid_keys_dispatch(self));
-        })
-        .def("modified_keys", [](const TSInputView& self) {
-            return input_modified_keys_dispatch(self);
-        })
-        .def("modified_values", [](const TSInputView& self) {
-            return input_values_for_keys(self, input_modified_keys_dispatch(self));
-        })
-        .def("modified_items", [](const TSInputView& self) {
-            return input_items_for_keys(self, input_modified_keys_dispatch(self));
-        })
-        .def("added_keys", [](const TSInputView& self) {
-            return self.as_ts_view().kind() == TSKind::TSD ? tsd_added_keys_python(self.as_ts_view()) : nb::list{};
-        })
-        .def("removed_keys", [](const TSInputView& self) {
-            return self.as_ts_view().kind() == TSKind::TSD ? tsd_removed_keys_python(self.as_ts_view()) : nb::list{};
-        })
-        .def_prop_ro("key_set", [](const TSInputView& self) {
-            return tsd_key_set_input_view(self);
-        }, nb::keep_alive<0, 1>())
         .def("make_active", &TSInputView::make_active)
         .def("make_passive", &TSInputView::make_passive)
         .def_prop_ro("active", &TSInputView::active)
@@ -2080,20 +2021,112 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("__bool__", [](const TSDInputView& self) { return static_cast<bool>(self); })
         .def("at_key", &TSDInputView::at_key, "key"_a, nb::keep_alive<0, 1>())
         .def("count", &TSDInputView::count)
-        .def("size", &TSDInputView::size);
+        .def("size", &TSDInputView::size)
+        .def("delta_to_python", [](const TSDInputView& self) { return tsd_input_delta_to_python(self); })
+        .def("py_delta_value", [](const TSDInputView& self) { return tsd_input_delta_to_python(self); })
+        .def_prop_ro("delta_value", [](const TSDInputView& self) { return tsd_input_delta_to_python(self); })
+        .def("keys", [](const TSDInputView& self) { return tsd_keys_python(self.as_ts_view()); })
+        .def("values", [](const TSDInputView& self) {
+            nb::list keys = tsd_keys_python(self.as_ts_view());
+            return tsd_input_values(self, keys);
+        })
+        .def("items", [](const TSDInputView& self) {
+            nb::list keys = tsd_keys_python(self.as_ts_view());
+            return tsd_input_items(self, keys);
+        })
+        .def("valid_keys", [](const TSDInputView& self) { return tsd_valid_keys_input(self); })
+        .def("valid_values", [](const TSDInputView& self) {
+            return tsd_input_values(self, tsd_valid_keys_input(self));
+        })
+        .def("valid_items", [](const TSDInputView& self) {
+            return tsd_input_items(self, tsd_valid_keys_input(self));
+        })
+        .def("modified_keys", [](const TSDInputView& self) { return tsd_modified_keys_python(self.as_ts_view()); })
+        .def("modified_values", [](const TSDInputView& self) {
+            return tsd_input_values(self, tsd_modified_keys_python(self.as_ts_view()));
+        })
+        .def("modified_items", [](const TSDInputView& self) {
+            return tsd_input_items(self, tsd_modified_keys_python(self.as_ts_view()));
+        })
+        .def("added_keys", [](const TSDInputView& self) { return tsd_added_keys_python(self.as_ts_view()); })
+        .def("added_values", [](const TSDInputView& self) {
+            return tsd_input_values(self, tsd_added_keys_python(self.as_ts_view()));
+        })
+        .def("added_items", [](const TSDInputView& self) {
+            return tsd_input_items(self, tsd_added_keys_python(self.as_ts_view()));
+        })
+        .def("removed_keys", [](const TSDInputView& self) { return tsd_removed_keys_python(self.as_ts_view()); })
+        .def("removed_values", [](const TSDInputView& self) {
+            return tsd_input_values(self, tsd_removed_keys_python(self.as_ts_view()));
+        })
+        .def("removed_items", [](const TSDInputView& self) {
+            return tsd_input_items(self, tsd_removed_keys_python(self.as_ts_view()));
+        })
+        .def_prop_ro("key_set", [](const TSDInputView& self) {
+            return tsd_key_set_input_view(self);
+        }, nb::keep_alive<0, 1>());
 
-    nb::class_<TSLInputView, TSInputView>(test_mod, "TSLInputView")
+    nb::class_<TSIndexedInputView, TSInputView>(test_mod, "TSIndexedInputView")
+        .def("__bool__", [](const TSIndexedInputView& self) { return static_cast<bool>(self); })
+        .def("at", &TSIndexedInputView::at, "index"_a, nb::keep_alive<0, 1>())
+        .def("count", &TSIndexedInputView::count)
+        .def("size", &TSIndexedInputView::size);
+
+    nb::class_<TSLInputView, TSIndexedInputView>(test_mod, "TSLInputView")
         .def("__bool__", [](const TSLInputView& self) { return static_cast<bool>(self); })
-        .def("at", &TSLInputView::at, "index"_a, nb::keep_alive<0, 1>())
-        .def("count", &TSLInputView::count)
-        .def("size", &TSLInputView::size);
+        .def("keys", [](const TSLInputView& self) { return tsl_keys_python(self.as_ts_view()); })
+        .def("values", [](const TSLInputView& self) {
+            nb::list keys = tsl_keys_python(self.as_ts_view());
+            return tsl_input_values(self, keys);
+        })
+        .def("items", [](const TSLInputView& self) {
+            nb::list keys = tsl_keys_python(self.as_ts_view());
+            return tsl_input_items(self, keys);
+        })
+        .def("valid_keys", [](const TSLInputView& self) { return tsl_valid_keys_input(self); })
+        .def("valid_values", [](const TSLInputView& self) {
+            return tsl_input_values(self, tsl_valid_keys_input(self));
+        })
+        .def("valid_items", [](const TSLInputView& self) {
+            return tsl_input_items(self, tsl_valid_keys_input(self));
+        })
+        .def("modified_keys", [](const TSLInputView& self) { return tsl_modified_keys_input(self); })
+        .def("modified_values", [](const TSLInputView& self) {
+            return tsl_input_values(self, tsl_modified_keys_input(self));
+        })
+        .def("modified_items", [](const TSLInputView& self) {
+            return tsl_input_items(self, tsl_modified_keys_input(self));
+        });
 
-    nb::class_<TSBInputView, TSInputView>(test_mod, "TSBInputView")
+    nb::class_<TSBInputView, TSIndexedInputView>(test_mod, "TSBInputView")
         .def("__bool__", [](const TSBInputView& self) { return static_cast<bool>(self); })
-        .def("at", nb::overload_cast<size_t>(&TSBInputView::at, nb::const_), "index"_a, nb::keep_alive<0, 1>())
         .def("field", &TSBInputView::field, "name"_a, nb::keep_alive<0, 1>())
-        .def("count", &TSBInputView::count)
-        .def("size", &TSBInputView::size);
+        .def("at", [](const TSBInputView& self, size_t index) { return self.TSIndexedInputView::at(index); },
+             "index"_a, nb::keep_alive<0, 1>())
+        .def("at", nb::overload_cast<std::string_view>(&TSBInputView::at, nb::const_), "name"_a, nb::keep_alive<0, 1>())
+        .def("keys", [](const TSBInputView& self) { return tsb_keys_python(self.as_ts_view()); })
+        .def("values", [](const TSBInputView& self) {
+            nb::list keys = tsb_keys_python(self.as_ts_view());
+            return tsb_input_values(self, keys);
+        })
+        .def("items", [](const TSBInputView& self) {
+            nb::list keys = tsb_keys_python(self.as_ts_view());
+            return tsb_input_items(self, keys);
+        })
+        .def("valid_keys", [](const TSBInputView& self) { return tsb_valid_keys_input(self); })
+        .def("valid_values", [](const TSBInputView& self) {
+            return tsb_input_values(self, tsb_valid_keys_input(self));
+        })
+        .def("valid_items", [](const TSBInputView& self) {
+            return tsb_input_items(self, tsb_valid_keys_input(self));
+        })
+        .def("modified_keys", [](const TSBInputView& self) { return tsb_modified_keys_input(self); })
+        .def("modified_values", [](const TSBInputView& self) {
+            return tsb_input_values(self, tsb_modified_keys_input(self));
+        })
+        .def("modified_items", [](const TSBInputView& self) {
+            return tsb_input_items(self, tsb_modified_keys_input(self));
+        });
 
     ts_input_view_cls
         .def("try_as_window", &TSInputView::try_as_window, nb::keep_alive<0, 1>())

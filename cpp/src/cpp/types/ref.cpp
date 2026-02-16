@@ -211,9 +211,19 @@ namespace hgraph
                         ts_input.unbind();
                     }
 
-                    for (size_t i = 0; i < _storage.unbound.size(); ++i) {
-                        TSInputView item = ts_input.child_at(i);
-                        _storage.unbound[i].bind_input(item);
+                    const TSKind input_kind = ts_input.as_ts_view().kind();
+                    const bool is_indexed = input_kind == TSKind::TSL || input_kind == TSKind::TSB;
+                    if (is_indexed) {
+                        TSIndexedInputView indexed_input{ts_input};
+                        for (size_t i = 0; i < _storage.unbound.size(); ++i) {
+                            TSInputView item = indexed_input.at(i);
+                            _storage.unbound[i].bind_input(item);
+                        }
+                    } else {
+                        for (size_t i = 0; i < _storage.unbound.size(); ++i) {
+                            TSInputView item{};
+                            _storage.unbound[i].bind_input(item);
+                        }
                     }
 
                     if (reactivate) {
