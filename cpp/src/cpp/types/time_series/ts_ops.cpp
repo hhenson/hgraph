@@ -1980,23 +1980,26 @@ engine_time_t op_last_modified_time(const ViewData& vd) {
 
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta != nullptr && self_meta->kind == TSKind::REF) {
+        engine_time_t out = rebind_time;
+
         auto* time_root = static_cast<const Value*>(vd.time_data);
-        if (time_root == nullptr || !time_root->has_value()) {
-            return rebind_time;
+        if (time_root != nullptr && time_root->has_value()) {
+            auto time_path = ts_path_to_time_path(vd.meta, vd.path.indices);
+            std::optional<View> maybe_time;
+            if (time_path.empty()) {
+                maybe_time = time_root->view();
+            } else {
+                maybe_time = navigate_const(time_root->view(), time_path);
+            }
+            if (maybe_time.has_value()) {
+                out = std::max(extract_time_value(*maybe_time), out);
+            }
         }
 
-        auto time_path = ts_path_to_time_path(vd.meta, vd.path.indices);
-        std::optional<View> maybe_time;
-        if (time_path.empty()) {
-            maybe_time = time_root->view();
-        } else {
-            maybe_time = navigate_const(time_root->view(), time_path);
+        if (auto bound = resolve_bound_view_data(vd); bound.has_value() && !same_view_identity(*bound, vd)) {
+            out = std::max(out, op_last_modified_time(*bound));
         }
-
-        if (!maybe_time.has_value()) {
-            return rebind_time;
-        }
-        return std::max(extract_time_value(*maybe_time), rebind_time);
+        return out;
     }
 
     if (is_unpeered_static_container_view(vd, self_meta)) {
@@ -2029,10 +2032,25 @@ engine_time_t op_last_modified_time(const ViewData& vd) {
         maybe_time = navigate_const(time_root->view(), time_path);
     }
 
-    if (!maybe_time.has_value()) {
-        return rebind_time;
+    engine_time_t out = rebind_time;
+    if (maybe_time.has_value()) {
+        out = std::max(extract_time_value(*maybe_time), rebind_time);
     }
-    return std::max(extract_time_value(*maybe_time), rebind_time);
+
+    const TSMeta* current = meta_at_path(data->meta, data->path.indices);
+    if (current != nullptr && current->kind == TSKind::TSD) {
+        auto value = resolve_value_slot_const(*data);
+        if (value.has_value() && value->valid() && value->is_map()) {
+            size_t slot = 0;
+            for (View _ : value->as_map().keys()) {
+                ViewData child = *data;
+                child.path.indices.push_back(slot++);
+                out = std::max(out, op_last_modified_time(child));
+            }
+        }
+    }
+
+    return out;
 }
 
 bool op_modified(const ViewData& vd, engine_time_t current_time) {
@@ -2040,10 +2058,11 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
 
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta != nullptr && self_meta->kind == TSKind::REF) {
-        // REF views tick on local reference updates/rebinds (or when sampled),
-        // not on bound-target value changes.
         if (vd.sampled || rebind_time_for_view(vd) == current_time) {
             return true;
+        }
+        if (auto bound = resolve_bound_view_data(vd); bound.has_value() && !same_view_identity(*bound, vd)) {
+            return op_modified(*bound, current_time);
         }
         return op_last_modified_time(vd) == current_time;
     }
@@ -2353,7 +2372,19 @@ nb::object op_to_python(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta != nullptr && self_meta->kind == TSKind::REF) {
         View v = op_value(vd);
-        return v.valid() ? v.to_python() : nb::none();
+        if (!v.valid()) {
+            return nb::none();
+        }
+        if (v.schema() == ts_reference_meta()) {
+            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(v.to_python());
+            if (ref.is_empty()) {
+                ViewData bound_target{};
+                if (resolve_bound_target_view_data(vd, bound_target)) {
+                    return nb::cast(TimeSeriesReference::make(bound_target));
+                }
+            }
+        }
+        return v.to_python();
     }
 
     ViewData key_set_source{};
@@ -2373,6 +2404,31 @@ nb::object op_to_python(const ViewData& vd) {
         return nb::module_::import_("builtins").attr("tuple")(out);
     }
 
+    if (current != nullptr && current->kind == TSKind::TSS) {
+        View v = op_value(vd);
+        if (v.valid() && v.is_set()) {
+            return v.to_python();
+        }
+        return nb::frozenset(nb::set{});
+    }
+
+    if (current != nullptr && current->kind == TSKind::TSD) {
+        nb::dict out;
+        View v = op_value(vd);
+        if (v.valid() && v.is_map()) {
+            size_t slot = 0;
+            for (View key : v.as_map().keys()) {
+                ViewData child = vd;
+                child.path.indices.push_back(slot++);
+                if (!op_valid(child)) {
+                    continue;
+                }
+                out[key.to_python()] = op_to_python(child);
+            }
+        }
+        return get_frozendict()(out);
+    }
+
     View v = op_value(vd);
     return v.valid() ? v.to_python() : nb::none();
 }
@@ -2386,7 +2442,19 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             return nb::none();
         }
         View v = op_delta_value(vd);
-        return v.valid() ? v.to_python() : nb::none();
+        if (!v.valid()) {
+            return nb::none();
+        }
+        if (v.schema() == ts_reference_meta()) {
+            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(v.to_python());
+            if (ref.is_empty()) {
+                ViewData bound_target{};
+                if (resolve_bound_target_view_data(vd, bound_target)) {
+                    return nb::cast(TimeSeriesReference::make(bound_target));
+                }
+            }
+        }
+        return v.to_python();
     }
 
     ViewData key_set_source{};
@@ -2503,62 +2571,71 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             return get_frozendict()(nb::dict{});
         }
 
-        auto* delta_root = static_cast<const Value*>(data->delta_data);
-        if (delta_root == nullptr || !delta_root->has_value()) {
-            return get_frozendict()(nb::dict{});
-        }
-
-        std::optional<View> maybe_delta;
-        if (data->path.indices.empty()) {
-            maybe_delta = delta_root->view();
-        } else {
-            maybe_delta = navigate_const(delta_root->view(), data->path.indices);
-        }
-
-        if (!maybe_delta.has_value() || !maybe_delta->valid() || !maybe_delta->is_tuple()) {
-            return get_frozendict()(nb::dict{});
-        }
-
         nb::dict delta_out;
-        auto tuple = maybe_delta->as_tuple();
+        auto* delta_root = static_cast<const Value*>(data->delta_data);
+        if (delta_root != nullptr && delta_root->has_value()) {
+            std::optional<View> maybe_delta;
+            if (data->path.indices.empty()) {
+                maybe_delta = delta_root->view();
+            } else {
+                maybe_delta = navigate_const(delta_root->view(), data->path.indices);
+            }
 
-        if (tuple.size() > 0) {
-            View changed_values = tuple.at(0);
-            if (changed_values.valid() && changed_values.is_map()) {
-                const auto changed_map = changed_values.as_map();
-                const TSMeta* element_meta = current->element_ts();
-                const bool nested_element = element_meta != nullptr && !is_scalar_like_ts_kind(element_meta->kind);
+            if (maybe_delta.has_value() && maybe_delta->valid() && maybe_delta->is_tuple()) {
+                auto tuple = maybe_delta->as_tuple();
 
-                if (!nested_element) {
-                    for (View key : changed_map.keys()) {
-                        delta_out[key.to_python()] = delta_view_to_python(changed_map.at(key));
-                    }
-                } else {
-                    auto current_value = resolve_value_slot_const(*data);
-                    if (current_value.has_value() && current_value->valid() && current_value->is_map()) {
-                        const auto value_map = current_value->as_map();
-                        for (View key : changed_map.keys()) {
-                            auto slot = map_slot_for_key(value_map, key);
-                            if (!slot.has_value()) {
-                                continue;
+                if (tuple.size() > 0) {
+                    View changed_values = tuple.at(0);
+                    if (changed_values.valid() && changed_values.is_map()) {
+                        const auto changed_map = changed_values.as_map();
+                        const TSMeta* element_meta = current->element_ts();
+                        const bool nested_element = element_meta != nullptr && !is_scalar_like_ts_kind(element_meta->kind);
+
+                        if (!nested_element) {
+                            for (View key : changed_map.keys()) {
+                                delta_out[key.to_python()] = delta_view_to_python(changed_map.at(key));
                             }
-                            ViewData child = *data;
-                            child.path.indices.push_back(*slot);
-                            delta_out[key.to_python()] = op_delta_to_python(child, current_time);
+                        } else {
+                            auto current_value = resolve_value_slot_const(*data);
+                            if (current_value.has_value() && current_value->valid() && current_value->is_map()) {
+                                const auto value_map = current_value->as_map();
+                                for (View key : changed_map.keys()) {
+                                    auto slot = map_slot_for_key(value_map, key);
+                                    if (!slot.has_value()) {
+                                        continue;
+                                    }
+                                    ViewData child = *data;
+                                    child.path.indices.push_back(*slot);
+                                    delta_out[key.to_python()] = op_delta_to_python(child, current_time);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (tuple.size() > 2) {
+                    View removed_keys = tuple.at(2);
+                    if (removed_keys.valid() && removed_keys.is_set()) {
+                        auto set = removed_keys.as_set();
+                        nb::object remove = get_remove();
+                        for (View key : set) {
+                            delta_out[key.to_python()] = remove;
                         }
                     }
                 }
             }
         }
 
-        if (tuple.size() > 2) {
-            View removed_keys = tuple.at(2);
-            if (removed_keys.valid() && removed_keys.is_set()) {
-                auto set = removed_keys.as_set();
-                nb::object remove = get_remove();
-                for (View key : set) {
-                    delta_out[key.to_python()] = remove;
+        auto current_value = resolve_value_slot_const(*data);
+        if (current_value.has_value() && current_value->valid() && current_value->is_map()) {
+            size_t slot = 0;
+            for (View key : current_value->as_map().keys()) {
+                ViewData child = *data;
+                child.path.indices.push_back(slot++);
+                if (!op_modified(child, current_time) || !op_valid(child)) {
+                    continue;
                 }
+                delta_out[key.to_python()] = op_delta_to_python(child, current_time);
             }
         }
 

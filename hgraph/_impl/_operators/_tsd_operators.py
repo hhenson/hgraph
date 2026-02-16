@@ -228,7 +228,11 @@ def contains_tsd(ts: TSD[K, TIME_SERIES_TYPE], item: TS[K]) -> TS[bool]:
     """
     Contains for TSD delegates to the key-set contains
     """
-    return contains_(ts.key_set, item)
+    # Route explicitly to the REF[TSS]-based contains overload to avoid
+    # dispatching through scalar set conversions.
+    from hgraph._impl._operators._tss_operators import contains_tss
+
+    return contains_tss(ts.key_set, item)
 
 
 @graph(overloads=not_)

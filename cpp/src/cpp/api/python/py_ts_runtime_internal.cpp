@@ -11,6 +11,7 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/ref.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/value.h>
@@ -436,72 +437,210 @@ nb::list tsb_output_items(const TSOutputView& self, const nb::list& keys) {
     return out;
 }
 
-nb::list tsl_modified_keys_input(const TSInputView& self) {
+template <typename ViewT, typename ChildByKeyFn, typename IncludeFn>
+nb::list tsd_keys_filtered(const ViewT& self, ChildByKeyFn&& child_by_key, IncludeFn&& include) {
+    nb::list out;
+    if (self.as_ts_view().kind() != TSKind::TSD) {
+        return out;
+    }
+
+    const nb::list keys = tsd_keys_python(self.as_ts_view());
+    for (const auto& key : keys) {
+        nb::object key_obj = nb::cast<nb::object>(key);
+        auto child = child_by_key(self, key_obj);
+        if (include(child)) {
+            out.append(key_obj);
+        }
+    }
+    return out;
+}
+
+template <typename ViewT, typename IncludeFn>
+nb::list tsl_keys_filtered(const ViewT& self, IncludeFn&& include) {
     nb::list out;
     if (self.as_ts_view().kind() != TSKind::TSL) {
         return out;
     }
+
     const size_t n = self.child_count();
     for (size_t i = 0; i < n; ++i) {
-        TSInputView child = self.child_at(i);
-        if (child.modified()) {
+        auto child = self.child_at(i);
+        if (include(child)) {
             out.append(nb::int_(i));
         }
     }
     return out;
+}
+
+template <typename ViewT, typename IncludeFn>
+nb::list tsb_keys_filtered(const ViewT& self, IncludeFn&& include) {
+    nb::list out;
+    const TSMeta* meta = self.as_ts_view().ts_meta();
+    if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+        return out;
+    }
+
+    for (size_t i = 0; i < meta->field_count(); ++i) {
+        auto child = self.child_at(i);
+        if (!include(child)) {
+            continue;
+        }
+        const char* name = meta->fields()[i].name;
+        if (name != nullptr) {
+            out.append(nb::str(name));
+        }
+    }
+    return out;
+}
+
+nb::list tsl_modified_keys_input(const TSInputView& self) {
+    return tsl_keys_filtered(self, [](const TSInputView& child) { return child.modified(); });
 }
 
 nb::list tsl_modified_keys_output(const TSOutputView& self) {
-    nb::list out;
-    if (self.as_ts_view().kind() != TSKind::TSL) {
-        return out;
-    }
-    const size_t n = self.child_count();
-    for (size_t i = 0; i < n; ++i) {
-        TSOutputView child = self.child_at(i);
-        if (child.modified()) {
-            out.append(nb::int_(i));
-        }
-    }
-    return out;
+    return tsl_keys_filtered(self, [](const TSOutputView& child) { return child.modified(); });
 }
 
 nb::list tsb_modified_keys_input(const TSInputView& self) {
-    nb::list out;
-    const TSMeta* meta = self.as_ts_view().ts_meta();
-    if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
-        return out;
-    }
-    for (size_t i = 0; i < meta->field_count(); ++i) {
-        TSInputView child = self.child_at(i);
-        if (!child.modified()) {
-            continue;
-        }
-        const char* name = meta->fields()[i].name;
-        if (name != nullptr) {
-            out.append(nb::str(name));
-        }
-    }
-    return out;
+    return tsb_keys_filtered(self, [](const TSInputView& child) { return child.modified(); });
 }
 
 nb::list tsb_modified_keys_output(const TSOutputView& self) {
-    nb::list out;
-    const TSMeta* meta = self.as_ts_view().ts_meta();
-    if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
-        return out;
+    return tsb_keys_filtered(self, [](const TSOutputView& child) { return child.modified(); });
+}
+
+nb::list tsd_valid_keys_input(const TSInputView& self) {
+    return tsd_keys_filtered(
+        self,
+        [](const TSInputView& parent, const nb::object& key_obj) { return dict_input_at_key_object(parent, key_obj); },
+        [](const TSInputView& child) { return child.valid(); });
+}
+
+nb::list tsd_valid_keys_output(const TSOutputView& self) {
+    return tsd_keys_filtered(
+        self,
+        [](const TSOutputView& parent, const nb::object& key_obj) { return dict_output_at_key_object(parent, key_obj); },
+        [](const TSOutputView& child) { return child.valid(); });
+}
+
+nb::list tsl_valid_keys_input(const TSInputView& self) {
+    return tsl_keys_filtered(self, [](const TSInputView& child) { return child.valid(); });
+}
+
+nb::list tsl_valid_keys_output(const TSOutputView& self) {
+    return tsl_keys_filtered(self, [](const TSOutputView& child) { return child.valid(); });
+}
+
+nb::list tsb_valid_keys_input(const TSInputView& self) {
+    return tsb_keys_filtered(self, [](const TSInputView& child) { return child.valid(); });
+}
+
+nb::list tsb_valid_keys_output(const TSOutputView& self) {
+    return tsb_keys_filtered(self, [](const TSOutputView& child) { return child.valid(); });
+}
+
+nb::list output_valid_keys_dispatch(const TSOutputView& self) {
+    switch (self.as_ts_view().kind()) {
+        case TSKind::TSD:
+            return tsd_valid_keys_output(self);
+        case TSKind::TSL:
+            return tsl_valid_keys_output(self);
+        case TSKind::TSB:
+            return tsb_valid_keys_output(self);
+        default:
+            return nb::list{};
     }
-    for (size_t i = 0; i < meta->field_count(); ++i) {
-        TSOutputView child = self.child_at(i);
-        if (!child.modified()) {
-            continue;
-        }
-        const char* name = meta->fields()[i].name;
-        if (name != nullptr) {
-            out.append(nb::str(name));
-        }
+}
+
+nb::list output_modified_keys_dispatch(const TSOutputView& self) {
+    switch (self.as_ts_view().kind()) {
+        case TSKind::TSD:
+            return tsd_modified_keys_python(self.as_ts_view());
+        case TSKind::TSL:
+            return tsl_modified_keys_output(self);
+        case TSKind::TSB:
+            return tsb_modified_keys_output(self);
+        default:
+            return nb::list{};
     }
-    return out;
+}
+
+nb::list output_values_for_keys(const TSOutputView& self, const nb::list& keys) {
+    switch (self.as_ts_view().kind()) {
+        case TSKind::TSD:
+            return tsd_output_values(self, keys);
+        case TSKind::TSL:
+            return tsl_output_values(self, keys);
+        case TSKind::TSB:
+            return tsb_output_values(self, keys);
+        default:
+            return nb::list{};
+    }
+}
+
+nb::list output_items_for_keys(const TSOutputView& self, const nb::list& keys) {
+    switch (self.as_ts_view().kind()) {
+        case TSKind::TSD:
+            return tsd_output_items(self, keys);
+        case TSKind::TSL:
+            return tsl_output_items(self, keys);
+        case TSKind::TSB:
+            return tsb_output_items(self, keys);
+        default:
+            return nb::list{};
+    }
+}
+
+nb::list input_valid_keys_dispatch(const TSInputView& self) {
+    switch (self.as_ts_view().kind()) {
+        case TSKind::TSD:
+            return tsd_valid_keys_input(self);
+        case TSKind::TSL:
+            return tsl_valid_keys_input(self);
+        case TSKind::TSB:
+            return tsb_valid_keys_input(self);
+        default:
+            return nb::list{};
+    }
+}
+
+nb::list input_modified_keys_dispatch(const TSInputView& self) {
+    switch (self.as_ts_view().kind()) {
+        case TSKind::TSD:
+            return tsd_modified_keys_python(self.as_ts_view());
+        case TSKind::TSL:
+            return tsl_modified_keys_input(self);
+        case TSKind::TSB:
+            return tsb_modified_keys_input(self);
+        default:
+            return nb::list{};
+    }
+}
+
+nb::list input_values_for_keys(const TSInputView& self, const nb::list& keys) {
+    switch (self.as_ts_view().kind()) {
+        case TSKind::TSD:
+            return tsd_input_values(self, keys);
+        case TSKind::TSL:
+            return tsl_input_values(self, keys);
+        case TSKind::TSB:
+            return tsb_input_values(self, keys);
+        default:
+            return nb::list{};
+    }
+}
+
+nb::list input_items_for_keys(const TSInputView& self, const nb::list& keys) {
+    switch (self.as_ts_view().kind()) {
+        case TSKind::TSD:
+            return tsd_input_items(self, keys);
+        case TSKind::TSL:
+            return tsl_input_items(self, keys);
+        case TSKind::TSB:
+            return tsb_input_items(self, keys);
+        default:
+            return nb::list{};
+    }
 }
 
 nb::object set_delta_attr_or_empty(const nb::object& delta, const char* attr_name) {
@@ -560,6 +699,182 @@ std::optional<value::Value> value_from_python(const value::TypeMeta* schema, con
         return std::nullopt;
     }
 }
+
+bool view_data_identity_equals(const ViewData& lhs, const ViewData& rhs) {
+    return lhs.path.indices == rhs.path.indices &&
+           lhs.value_data == rhs.value_data &&
+           lhs.time_data == rhs.time_data &&
+           lhs.observer_data == rhs.observer_data &&
+           lhs.delta_data == rhs.delta_data &&
+           lhs.link_data == rhs.link_data &&
+           lhs.projection == rhs.projection &&
+           lhs.ops == rhs.ops &&
+           lhs.meta == rhs.meta;
+}
+
+struct TSDRefOutputState {
+    std::shared_ptr<TSValue> output_value;
+    std::unordered_set<const void*> requesters{};
+    bool has_cached_target{false};
+    bool cached_has_target{false};
+    ViewData cached_target{};
+};
+
+class TSDRefFeatureObserver final : public LinkTarget {
+public:
+    explicit TSDRefFeatureObserver(ViewData source)
+        : source_(std::move(source)) {
+        TSView source_view(source_, MIN_DT);
+        const TSMeta* meta = source_view.ts_meta();
+        if (meta != nullptr && meta->kind == TSKind::TSD) {
+            key_type_ = meta->key_type();
+            element_meta_ = meta->element_ts();
+            if (element_meta_ != nullptr) {
+                ref_meta_ = TSTypeRegistry::instance().ref(element_meta_);
+            }
+        }
+
+        bind(source_, MIN_DT);
+        register_ts_link_observer(*this);
+        registered_ = true;
+    }
+
+    ~TSDRefFeatureObserver() override {
+        detach();
+    }
+
+    void detach() {
+        if (!registered_) {
+            return;
+        }
+        unregister_ts_link_observer(*this);
+        registered_ = false;
+    }
+
+    TSOutputView get_ref_output(const nb::object& key_obj, const nb::object& requester, engine_time_t current_time) {
+        if (key_type_ == nullptr || ref_meta_ == nullptr) {
+            return {};
+        }
+
+        value::Value key_value(key_type_);
+        key_value.emplace();
+        key_type_->ops().from_python(key_value.data(), key_obj, key_type_);
+        const value::View key_view = key_value.view();
+
+        auto it = ref_outputs_.find(key_view);
+        if (it == ref_outputs_.end()) {
+            TSDRefOutputState state{};
+            state.output_value = make_ref_output();
+            auto [inserted_it, inserted] = ref_outputs_.emplace(std::move(key_value), std::move(state));
+            (void)inserted;
+            it = inserted_it;
+        }
+
+        it->second.requesters.insert(requester.ptr());
+        update_ref_output(it->first.view(), it->second, current_time);
+        return TSOutputView(nullptr, it->second.output_value->ts_view(current_time));
+    }
+
+    void release_ref_output(const nb::object& key_obj, const nb::object& requester) {
+        if (key_type_ == nullptr) {
+            return;
+        }
+
+        value::Value key_value(key_type_);
+        key_value.emplace();
+        key_type_->ops().from_python(key_value.data(), key_obj, key_type_);
+
+        auto it = ref_outputs_.find(key_value.view());
+        if (it == ref_outputs_.end()) {
+            return;
+        }
+        it->second.requesters.erase(requester.ptr());
+        if (it->second.requesters.empty()) {
+            ref_outputs_.erase(it);
+        }
+    }
+
+    [[nodiscard]] bool has_consumers() const {
+        return !ref_outputs_.empty();
+    }
+
+    void notify(engine_time_t et) override {
+        for (auto& [key, state] : ref_outputs_) {
+            update_ref_output(key.view(), state, et);
+        }
+    }
+
+private:
+    [[nodiscard]] std::shared_ptr<TSValue> make_ref_output() const {
+        if (ref_meta_ == nullptr) {
+            return {};
+        }
+        auto out = std::make_shared<TSValue>(ref_meta_);
+        out->set_link_observer_registry(output_registry_.get());
+        return out;
+    }
+
+    [[nodiscard]] std::optional<ViewData> resolve_target_for_key(const value::View& key, engine_time_t current_time) const {
+        TSView source_view(source_, current_time);
+        if (!source_view || source_view.kind() != TSKind::TSD) {
+            return std::nullopt;
+        }
+
+        TSView child = source_view.child_by_key(key);
+        if (!child) {
+            return std::nullopt;
+        }
+        return child.view_data();
+    }
+
+    void set_output_reference(const std::shared_ptr<TSValue>& output_value,
+                              const std::optional<ViewData>& target,
+                              engine_time_t current_time) const {
+        if (!output_value) {
+            return;
+        }
+        TSView out = output_value->ts_view(current_time);
+        if (target.has_value()) {
+            out.from_python(nb::cast(TimeSeriesReference::make(*target)));
+            return;
+        }
+        out.from_python(nb::cast(TimeSeriesReference::make()));
+    }
+
+    void update_ref_output(const value::View& key, TSDRefOutputState& state, engine_time_t current_time) {
+        const std::optional<ViewData> target = resolve_target_for_key(key, current_time);
+        const bool target_present = target.has_value();
+
+        bool changed = !state.has_cached_target;
+        if (!changed && state.cached_has_target != target_present) {
+            changed = true;
+        }
+        if (!changed && target_present) {
+            changed = !view_data_identity_equals(state.cached_target, *target);
+        }
+
+        if (!changed) {
+            return;
+        }
+
+        set_output_reference(state.output_value, target, current_time);
+        state.has_cached_target = true;
+        state.cached_has_target = target_present;
+        if (target_present) {
+            state.cached_target = *target;
+        } else {
+            state.cached_target = {};
+        }
+    }
+
+    ViewData source_{};
+    const value::TypeMeta* key_type_{nullptr};
+    const TSMeta* element_meta_{nullptr};
+    const TSMeta* ref_meta_{nullptr};
+    std::unordered_map<value::Value, TSDRefOutputState, ValueHash, ValueEqual> ref_outputs_{};
+    bool registered_{false};
+    std::shared_ptr<TSLinkObserverRegistry> output_registry_{std::make_shared<TSLinkObserverRegistry>()};
+};
 
 class TSSFeatureObserver final : public LinkTarget {
 public:
@@ -764,6 +1079,10 @@ std::string tss_source_runtime_key_for(const TSOutputView& self) {
     return key;
 }
 
+std::string tsd_ref_source_runtime_key_for(const TSOutputView& self) {
+    return std::string("tsd_ref:") + tss_source_runtime_key_for(self);
+}
+
 std::shared_ptr<TSSFeatureObserver> ensure_tss_feature_observer(const TSOutputView& self) {
     TSLinkObserverRegistry* registry = self.as_ts_view().view_data().link_observer_registry;
     if (registry == nullptr) {
@@ -779,6 +1098,59 @@ std::shared_ptr<TSSFeatureObserver> ensure_tss_feature_observer(const TSOutputVi
     auto observer = std::make_shared<TSSFeatureObserver>(self.as_ts_view().view_data());
     registry->set_feature_state(key, observer);
     return observer;
+}
+
+std::shared_ptr<TSDRefFeatureObserver> ensure_tsd_ref_feature_observer(const TSOutputView& self) {
+    if (self.as_ts_view().kind() != TSKind::TSD) {
+        return {};
+    }
+
+    TSLinkObserverRegistry* registry = self.as_ts_view().view_data().link_observer_registry;
+    if (registry == nullptr) {
+        return {};
+    }
+
+    const std::string key = tsd_ref_source_runtime_key_for(self);
+    std::shared_ptr<void> existing = registry->feature_state(key);
+    if (existing) {
+        return std::static_pointer_cast<TSDRefFeatureObserver>(std::move(existing));
+    }
+
+    auto observer = std::make_shared<TSDRefFeatureObserver>(self.as_ts_view().view_data());
+    registry->set_feature_state(key, observer);
+    return observer;
+}
+
+TSOutputView tsd_get_ref_output(TSOutputView& self, const nb::object& key, const nb::object& requester) {
+    auto observer = ensure_tsd_ref_feature_observer(self);
+    if (!observer) {
+        return {};
+    }
+    return observer->get_ref_output(key, requester, self.current_time());
+}
+
+void tsd_release_ref_output(TSOutputView& self, const nb::object& key, const nb::object& requester) {
+    if (self.as_ts_view().kind() != TSKind::TSD) {
+        return;
+    }
+
+    TSLinkObserverRegistry* registry = self.as_ts_view().view_data().link_observer_registry;
+    if (registry == nullptr) {
+        return;
+    }
+
+    const std::string feature_key = tsd_ref_source_runtime_key_for(self);
+    std::shared_ptr<void> existing = registry->feature_state(feature_key);
+    if (!existing) {
+        return;
+    }
+
+    auto observer = std::static_pointer_cast<TSDRefFeatureObserver>(std::move(existing));
+    observer->release_ref_output(key, requester);
+    if (!observer->has_consumers()) {
+        observer->detach();
+        registry->clear_feature_state(feature_key);
+    }
 }
 
 TSOutputView tss_get_contains_output(TSOutputView& self, const nb::object& item, const nb::object& requester) {
@@ -1212,6 +1584,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("is_dict", [](const TSOutputView& self) { return self.as_ts_view().is_dict(); })
         .def("is_list", [](const TSOutputView& self) { return self.as_ts_view().is_list(); })
         .def("is_bundle", [](const TSOutputView& self) { return self.as_ts_view().is_bundle(); })
+        .def_prop_ro("is_reference", [](const TSOutputView& self) { return self.as_ts_view().kind() == TSKind::REF; })
         .def("set_sampled", [](TSOutputView& self, bool sampled) {
             self.as_ts_view().view_data().sampled = sampled;
         }, "sampled"_a)
@@ -1322,6 +1695,12 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             auto dict = self.try_as_dict();
             return dict.has_value() ? dict->set(key, value_view) : TSOutputView{};
         }, "key"_a, "value"_a, nb::keep_alive<0, 1>())
+        .def("get_ref", [](TSOutputView& self, const nb::object& key, const nb::object& requester) {
+            return tsd_get_ref_output(self, key, requester);
+        }, "key"_a, "requester"_a, nb::keep_alive<0, 1>())
+        .def("release_ref", [](TSOutputView& self, const nb::object& key, const nb::object& requester) {
+            tsd_release_ref_output(self, key, requester);
+        }, "key"_a, "requester"_a)
         .def("get_or_create", [](TSOutputView& self, const nb::object& key) {
             if (self.as_ts_view().kind() != TSKind::TSD) {
                 return TSOutputView{};
@@ -1383,53 +1762,23 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
                     return nb::list{};
             }
         })
+        .def("valid_keys", [](const TSOutputView& self) {
+            return output_valid_keys_dispatch(self);
+        })
+        .def("valid_values", [](const TSOutputView& self) {
+            return output_values_for_keys(self, output_valid_keys_dispatch(self));
+        })
+        .def("valid_items", [](const TSOutputView& self) {
+            return output_items_for_keys(self, output_valid_keys_dispatch(self));
+        })
         .def("modified_keys", [](const TSOutputView& self) {
-            switch (self.as_ts_view().kind()) {
-                case TSKind::TSD:
-                    return tsd_modified_keys_python(self.as_ts_view());
-                case TSKind::TSL:
-                    return tsl_modified_keys_output(self);
-                case TSKind::TSB:
-                    return tsb_modified_keys_output(self);
-                default:
-                    return nb::list{};
-            }
+            return output_modified_keys_dispatch(self);
         })
         .def("modified_values", [](const TSOutputView& self) {
-            switch (self.as_ts_view().kind()) {
-                case TSKind::TSD: {
-                    nb::list keys = tsd_modified_keys_python(self.as_ts_view());
-                    return tsd_output_values(self, keys);
-                }
-                case TSKind::TSL: {
-                    nb::list keys = tsl_modified_keys_output(self);
-                    return tsl_output_values(self, keys);
-                }
-                case TSKind::TSB: {
-                    nb::list keys = tsb_modified_keys_output(self);
-                    return tsb_output_values(self, keys);
-                }
-                default:
-                    return nb::list{};
-            }
+            return output_values_for_keys(self, output_modified_keys_dispatch(self));
         })
         .def("modified_items", [](const TSOutputView& self) {
-            switch (self.as_ts_view().kind()) {
-                case TSKind::TSD: {
-                    nb::list keys = tsd_modified_keys_python(self.as_ts_view());
-                    return tsd_output_items(self, keys);
-                }
-                case TSKind::TSL: {
-                    nb::list keys = tsl_modified_keys_output(self);
-                    return tsl_output_items(self, keys);
-                }
-                case TSKind::TSB: {
-                    nb::list keys = tsb_modified_keys_output(self);
-                    return tsb_output_items(self, keys);
-                }
-                default:
-                    return nb::list{};
-            }
+            return output_items_for_keys(self, output_modified_keys_dispatch(self));
         })
         .def("added_keys", [](const TSOutputView& self) {
             return self.as_ts_view().kind() == TSKind::TSD ? tsd_added_keys_python(self.as_ts_view()) : nb::list{};
@@ -1680,53 +2029,23 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
                     return nb::list{};
             }
         })
+        .def("valid_keys", [](const TSInputView& self) {
+            return input_valid_keys_dispatch(self);
+        })
+        .def("valid_values", [](const TSInputView& self) {
+            return input_values_for_keys(self, input_valid_keys_dispatch(self));
+        })
+        .def("valid_items", [](const TSInputView& self) {
+            return input_items_for_keys(self, input_valid_keys_dispatch(self));
+        })
         .def("modified_keys", [](const TSInputView& self) {
-            switch (self.as_ts_view().kind()) {
-                case TSKind::TSD:
-                    return tsd_modified_keys_python(self.as_ts_view());
-                case TSKind::TSL:
-                    return tsl_modified_keys_input(self);
-                case TSKind::TSB:
-                    return tsb_modified_keys_input(self);
-                default:
-                    return nb::list{};
-            }
+            return input_modified_keys_dispatch(self);
         })
         .def("modified_values", [](const TSInputView& self) {
-            switch (self.as_ts_view().kind()) {
-                case TSKind::TSD: {
-                    nb::list keys = tsd_modified_keys_python(self.as_ts_view());
-                    return tsd_input_values(self, keys);
-                }
-                case TSKind::TSL: {
-                    nb::list keys = tsl_modified_keys_input(self);
-                    return tsl_input_values(self, keys);
-                }
-                case TSKind::TSB: {
-                    nb::list keys = tsb_modified_keys_input(self);
-                    return tsb_input_values(self, keys);
-                }
-                default:
-                    return nb::list{};
-            }
+            return input_values_for_keys(self, input_modified_keys_dispatch(self));
         })
         .def("modified_items", [](const TSInputView& self) {
-            switch (self.as_ts_view().kind()) {
-                case TSKind::TSD: {
-                    nb::list keys = tsd_modified_keys_python(self.as_ts_view());
-                    return tsd_input_items(self, keys);
-                }
-                case TSKind::TSL: {
-                    nb::list keys = tsl_modified_keys_input(self);
-                    return tsl_input_items(self, keys);
-                }
-                case TSKind::TSB: {
-                    nb::list keys = tsb_modified_keys_input(self);
-                    return tsb_input_items(self, keys);
-                }
-                default:
-                    return nb::list{};
-            }
+            return input_items_for_keys(self, input_modified_keys_dispatch(self));
         })
         .def("added_keys", [](const TSInputView& self) {
             return self.as_ts_view().kind() == TSKind::TSD ? tsd_added_keys_python(self.as_ts_view()) : nb::list{};
