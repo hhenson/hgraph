@@ -590,7 +590,7 @@ public:
     }
 
     TSOutputView get_contains_output(const nb::object& item, const nb::object& requester, engine_time_t current_time) {
-        auto maybe_key = value_from_python(element_type_, item);
+        auto maybe_key = value_from_python(resolve_element_type(current_time), item);
         if (!maybe_key.has_value()) {
             return {};
         }
@@ -653,27 +653,57 @@ public:
     }
 
 private:
+    [[nodiscard]] const value::TypeMeta* resolve_element_type(engine_time_t current_time) const {
+        TSView source_view(source_, current_time);
+        value::View source_value = source_view.value();
+        if (!source_value.valid()) {
+            return element_type_;
+        }
+        if (source_.projection == ViewProjection::TSD_KEY_SET && source_value.is_map()) {
+            return source_value.as_map().key_type();
+        }
+        if (source_value.is_set()) {
+            return source_value.as_set().element_type();
+        }
+        return element_type_;
+    }
+
     std::shared_ptr<TSValue> make_bool_output() const {
         const TSMeta* bool_meta = TSTypeRegistry::instance().ts(value::scalar_type_meta<bool>());
-        return std::make_shared<TSValue>(bool_meta);
+        auto out = std::make_shared<TSValue>(bool_meta);
+        out->set_link_observer_registry(output_registry_.get());
+        return out;
     }
 
     bool contains_key(const value::View& key, engine_time_t current_time) const {
         TSView source_view(source_, current_time);
-        value::View set_view = source_view.value();
-        if (!set_view.valid() || !set_view.is_set()) {
+        nb::object source_obj = source_view.to_python();
+        if (source_obj.is_none()) {
             return false;
         }
-        return set_view.as_set().contains(key);
+
+        nb::object key_obj = key.to_python();
+        const int contains = PySequence_Contains(source_obj.ptr(), key_obj.ptr());
+        if (contains < 0) {
+            PyErr_Clear();
+            return false;
+        }
+        return contains == 1;
     }
 
     bool is_empty(engine_time_t current_time) const {
         TSView source_view(source_, current_time);
-        value::View set_view = source_view.value();
-        if (!set_view.valid() || !set_view.is_set()) {
+        nb::object source_obj = source_view.to_python();
+        if (source_obj.is_none()) {
             return true;
         }
-        return set_view.as_set().size() == 0;
+
+        const Py_ssize_t size = PyObject_Size(source_obj.ptr());
+        if (size < 0) {
+            PyErr_Clear();
+            return true;
+        }
+        return size == 0;
     }
 
     void set_output_value(const std::shared_ptr<TSValue>& output_value, bool value, engine_time_t current_time) const {
@@ -715,6 +745,7 @@ private:
     bool has_is_empty_cached_{false};
     bool is_empty_cached_{false};
     bool registered_{false};
+    std::shared_ptr<TSLinkObserverRegistry> output_registry_{std::make_shared<TSLinkObserverRegistry>()};
 };
 
 std::string tss_source_runtime_key_for(const TSOutputView& self) {
@@ -1158,7 +1189,16 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("from_python", [](TSOutputView& self, const nb::object& value_obj) {
             self.from_python(value_obj);
         }, "value"_a)
+        .def("copy_from_input", [](TSOutputView& self, const TSInputView& input) {
+            self.copy_from_input(input);
+        }, "input"_a)
+        .def("copy_from_output", [](TSOutputView& self, const TSOutputView& output) {
+            self.copy_from_output(output);
+        }, "output"_a)
         .def("apply_result", [](TSOutputView& self, const nb::object& value_obj) {
+            if (value_obj.is_none()) {
+                return;
+            }
             self.from_python(value_obj);
         }, "value"_a)
         .def("can_apply_result", [](const TSOutputView& self, const nb::object&) {

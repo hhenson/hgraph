@@ -378,6 +378,11 @@ struct TSDDeltaSlots {
     ValueView removed_set;
 };
 
+std::optional<std::vector<size_t>> ts_path_to_delta_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path);
+std::optional<View> resolve_value_slot_const(const ViewData& vd);
+View op_value(const ViewData& vd);
+void clear_tsd_delta_if_new_tick(ViewData& vd, engine_time_t current_time, TSDDeltaSlots slots);
+
 std::optional<ValueView> resolve_delta_slot_mut(ViewData& vd) {
     auto* delta_root = static_cast<Value*>(vd.delta_data);
     if (delta_root == nullptr || delta_root->schema() == nullptr) {
@@ -386,10 +391,14 @@ std::optional<ValueView> resolve_delta_slot_mut(ViewData& vd) {
     if (!delta_root->has_value()) {
         delta_root->emplace();
     }
-    if (vd.path.indices.empty()) {
+    auto delta_path = ts_path_to_delta_path(vd.meta, vd.path.indices);
+    if (!delta_path.has_value()) {
+        return std::nullopt;
+    }
+    if (delta_path->empty()) {
         return delta_root->view();
     }
-    return navigate_mut(delta_root->view(), vd.path.indices);
+    return navigate_mut(delta_root->view(), *delta_path);
 }
 
 TSSDeltaSlots resolve_tss_delta_slots(ViewData& vd) {
@@ -541,6 +550,67 @@ std::optional<size_t> map_slot_for_key(const value::MapView& map, const View& ke
     return std::nullopt;
 }
 
+std::optional<Value> map_key_at_slot(const value::MapView& map, size_t slot_index) {
+    size_t slot = 0;
+    for (View key : map.keys()) {
+        if (slot == slot_index) {
+            return Value(key.clone());
+        }
+        ++slot;
+    }
+    return std::nullopt;
+}
+
+void mark_tsd_parent_child_modified(ViewData child_vd, engine_time_t current_time) {
+    if (child_vd.path.indices.empty()) {
+        return;
+    }
+
+    const std::vector<size_t> full_path = child_vd.path.indices;
+    for (size_t depth = 0; depth < full_path.size(); ++depth) {
+        std::vector<size_t> tsd_path(full_path.begin(), full_path.begin() + depth);
+        const TSMeta* parent_meta = meta_at_path(child_vd.meta, tsd_path);
+        if (parent_meta == nullptr || parent_meta->kind != TSKind::TSD) {
+            continue;
+        }
+
+        ViewData tsd_vd = child_vd;
+        tsd_vd.path.indices = std::move(tsd_path);
+        const size_t child_slot = full_path[depth];
+
+        auto maybe_parent_value = resolve_value_slot_const(tsd_vd);
+        if (!maybe_parent_value.has_value() || !maybe_parent_value->valid() || !maybe_parent_value->is_map()) {
+            continue;
+        }
+
+        auto parent_map = maybe_parent_value->as_map();
+        auto maybe_key = map_key_at_slot(parent_map, child_slot);
+        if (!maybe_key.has_value()) {
+            continue;
+        }
+        const View key = maybe_key->view();
+
+        ViewData tsd_child_vd = tsd_vd;
+        tsd_child_vd.path.indices.push_back(child_slot);
+
+        auto slots = resolve_tsd_delta_slots(tsd_vd);
+        clear_tsd_delta_if_new_tick(tsd_vd, current_time, slots);
+
+        if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
+            View child_value = op_value(tsd_child_vd);
+            if (child_value.valid()) {
+                slots.changed_values_map.as_map().set(key, child_value);
+            } else {
+                slots.changed_values_map.as_map().remove(key);
+            }
+        }
+
+        if (slots.removed_set.valid() && slots.removed_set.is_set()) {
+            slots.removed_set.as_set().remove(key);
+        }
+    }
+}
+
 engine_time_t graph_start_time_for_view(const ViewData& vd) {
     node_ptr node = vd.path.node;
     if (node == nullptr) {
@@ -581,6 +651,15 @@ void clear_tsd_delta_slots(TSDDeltaSlots slots) {
     }
     if (slots.removed_set.valid() && slots.removed_set.is_set()) {
         slots.removed_set.as_set().clear();
+    }
+    if (slots.slot.valid() && slots.slot.is_tuple()) {
+        auto tuple = slots.slot.as_tuple();
+        if (tuple.size() > 3) {
+            ValueView child_deltas = tuple.at(3);
+            if (child_deltas.valid() && child_deltas.is_list()) {
+                child_deltas.as_list().clear();
+            }
+        }
     }
 }
 
@@ -1037,6 +1116,105 @@ void ensure_tsd_child_time_slot(ViewData& vd, size_t child_slot) {
     }
 }
 
+void erase_list_slot(value::ListView list, size_t slot) {
+    if (slot >= list.size()) {
+        return;
+    }
+
+    for (size_t i = slot + 1; i < list.size(); ++i) {
+        Value shifted(list.at(i).clone());
+        list.set(i - 1, shifted.view());
+    }
+    list.pop_back();
+}
+
+std::optional<ValueView> resolve_tsd_child_time_list(ViewData& vd) {
+    auto* time_root = static_cast<Value*>(vd.time_data);
+    if (time_root == nullptr || time_root->schema() == nullptr) {
+        return std::nullopt;
+    }
+    if (!time_root->has_value()) {
+        time_root->emplace();
+    }
+
+    auto parent_time_path = ts_path_to_time_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    if (self_meta != nullptr && self_meta->kind == TSKind::TSD &&
+        parent_time_path.size() == 1 && parent_time_path[0] == 0) {
+        parent_time_path.clear();
+    }
+
+    std::optional<ValueView> maybe_parent_time =
+        parent_time_path.empty() ? std::optional<ValueView>{time_root->view()}
+                                 : navigate_mut(time_root->view(), parent_time_path);
+    if (!maybe_parent_time.has_value() || !maybe_parent_time->valid() || !maybe_parent_time->is_tuple()) {
+        return std::nullopt;
+    }
+
+    auto tuple = maybe_parent_time->as_tuple();
+    if (tuple.size() < 2) {
+        return std::nullopt;
+    }
+
+    ValueView children = tuple.at(1);
+    if (!children.valid() || !children.is_list()) {
+        return std::nullopt;
+    }
+    return children;
+}
+
+void compact_tsd_child_time_slot(ViewData& vd, size_t child_slot) {
+    auto maybe_children = resolve_tsd_child_time_list(vd);
+    if (!maybe_children.has_value()) {
+        return;
+    }
+
+    auto list = maybe_children->as_list();
+    erase_list_slot(list, child_slot);
+}
+
+void ensure_tsd_child_delta_slot(ViewData& vd, size_t child_slot) {
+    auto maybe_slot = resolve_delta_slot_mut(vd);
+    if (!maybe_slot.has_value() || !maybe_slot->valid() || !maybe_slot->is_tuple()) {
+        return;
+    }
+
+    auto tuple = maybe_slot->as_tuple();
+    if (tuple.size() < 4) {
+        return;
+    }
+
+    ValueView children = tuple.at(3);
+    if (!children.valid() || !children.is_list()) {
+        return;
+    }
+
+    auto list = children.as_list();
+    if (child_slot >= list.size()) {
+        list.resize(child_slot + 1);
+    }
+}
+
+void compact_tsd_child_delta_slot(ViewData& vd, size_t child_slot) {
+    auto maybe_slot = resolve_delta_slot_mut(vd);
+    if (!maybe_slot.has_value() || !maybe_slot->valid() || !maybe_slot->is_tuple()) {
+        return;
+    }
+
+    auto tuple = maybe_slot->as_tuple();
+    if (tuple.size() < 4) {
+        return;
+    }
+
+    ValueView children = tuple.at(3);
+    if (!children.valid() || !children.is_list()) {
+        return;
+    }
+
+    auto list = children.as_list();
+    erase_list_slot(list, child_slot);
+}
+
 LinkTarget* resolve_parent_link_target(const ViewData& vd) {
     if (vd.path.indices.empty()) {
         return nullptr;
@@ -1457,10 +1635,19 @@ bool resolve_tsd_key_set_source(const ViewData& vd, ViewData& out) {
     return current != nullptr && current->kind == TSKind::TSD;
 }
 
-bool tsd_key_set_has_added_or_removed(const ViewData& source) {
+struct TSDKeySetDeltaState {
+    bool has_delta_tuple{false};
+    bool has_changed_values_map{false};
+    bool has_added{false};
+    bool has_removed{false};
+};
+
+TSDKeySetDeltaState tsd_key_set_delta_state(const ViewData& source) {
+    TSDKeySetDeltaState state{};
+
     auto* delta_root = static_cast<const Value*>(source.delta_data);
     if (delta_root == nullptr || !delta_root->has_value()) {
-        return false;
+        return state;
     }
 
     std::optional<View> maybe_delta;
@@ -1470,13 +1657,51 @@ bool tsd_key_set_has_added_or_removed(const ViewData& source) {
         maybe_delta = navigate_const(delta_root->view(), source.path.indices);
     }
     if (!maybe_delta.has_value() || !maybe_delta->valid() || !maybe_delta->is_tuple()) {
+        return state;
+    }
+
+    state.has_delta_tuple = true;
+    auto tuple = maybe_delta->as_tuple();
+    state.has_changed_values_map =
+        tuple.size() > 0 && tuple.at(0).valid() && tuple.at(0).is_map() && tuple.at(0).as_map().size() > 0;
+    state.has_added = tuple.size() > 1 && tuple.at(1).valid() && tuple.at(1).is_set() && tuple.at(1).as_set().size() > 0;
+    state.has_removed =
+        tuple.size() > 2 && tuple.at(2).valid() && tuple.at(2).is_set() && tuple.at(2).as_set().size() > 0;
+    return state;
+}
+
+bool tsd_key_set_has_added_or_removed(const ViewData& source) {
+    const auto state = tsd_key_set_delta_state(source);
+    if (!state.has_delta_tuple) {
+        return false;
+    }
+    return state.has_added || state.has_removed;
+}
+
+bool tsd_key_set_modified_this_tick(const ViewData& source, engine_time_t current_time) {
+    if (op_last_modified_time(source) != current_time) {
         return false;
     }
 
-    auto tuple = maybe_delta->as_tuple();
-    const bool has_added = tuple.size() > 1 && tuple.at(1).valid() && tuple.at(1).is_set() && tuple.at(1).as_set().size() > 0;
-    const bool has_removed = tuple.size() > 2 && tuple.at(2).valid() && tuple.at(2).is_set() && tuple.at(2).as_set().size() > 0;
-    return has_added || has_removed;
+    const auto state = tsd_key_set_delta_state(source);
+    if (!state.has_delta_tuple) {
+        return false;
+    }
+
+    if (state.has_added || state.has_removed) {
+        return true;
+    }
+
+    // Python marks key_set as modified on:
+    // 1) initial empty materialization (invalid -> empty valid)
+    // 2) same-tick key churn with no net add/remove (add then remove)
+    // In both cases, changed_values_map remains empty.
+    if (state.has_changed_values_map) {
+        return false;
+    }
+
+    auto value = resolve_value_slot_const(source);
+    return value.has_value() && value->valid() && value->is_map();
 }
 
 nb::object tsd_key_set_to_python(const ViewData& source) {
@@ -1831,7 +2056,7 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
         if (rebind_time_for_view(vd) == current_time) {
             return true;
         }
-        return tsd_key_set_has_added_or_removed(key_set_source);
+        return tsd_key_set_modified_this_tick(key_set_source, current_time);
     }
     return vd.sampled || op_last_modified_time(vd) == current_time;
 }
@@ -2076,6 +2301,7 @@ void op_set_value(ViewData& vd, const View& src, engine_time_t current_time) {
         }
     }
     stamp_time_paths(vd, current_time);
+    mark_tsd_parent_child_modified(vd, current_time);
     notify_link_target_observers(vd, current_time);
 }
 
@@ -2124,12 +2350,18 @@ void op_invalidate(ViewData& vd) {
 }
 
 nb::object op_to_python(const ViewData& vd) {
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    if (self_meta != nullptr && self_meta->kind == TSKind::REF) {
+        View v = op_value(vd);
+        return v.valid() ? v.to_python() : nb::none();
+    }
+
     ViewData key_set_source{};
     if (resolve_tsd_key_set_source(vd, key_set_source)) {
         return tsd_key_set_to_python(key_set_source);
     }
 
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = self_meta;
     if (current != nullptr && current->kind == TSKind::TSL) {
         const size_t n = op_list_size(vd);
         nb::list out;
@@ -2148,11 +2380,19 @@ nb::object op_to_python(const ViewData& vd) {
 nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
 
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    if (self_meta != nullptr && self_meta->kind == TSKind::REF) {
+        if (!op_modified(vd, current_time)) {
+            return nb::none();
+        }
+        View v = op_delta_value(vd);
+        return v.valid() ? v.to_python() : nb::none();
+    }
+
     ViewData key_set_source{};
     if (resolve_tsd_key_set_source(vd, key_set_source)) {
         ViewData previous_bridge{};
         ViewData current_bridge{};
-        const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
         if (self_meta != nullptr &&
             resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge)) {
             ViewData previous_source{};
@@ -2167,15 +2407,6 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             return nb::none();
         }
         return tsd_key_set_delta_to_python(key_set_source);
-    }
-
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (self_meta != nullptr && self_meta->kind == TSKind::REF) {
-        if (!op_modified(vd, current_time)) {
-            return nb::none();
-        }
-        View v = op_delta_value(vd);
-        return v.valid() ? v.to_python() : nb::none();
     }
 
     const auto delta_view_to_python = [](const View& view) -> nb::object {
@@ -2268,6 +2499,10 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     }
 
     if (current != nullptr && current->kind == TSKind::TSD) {
+        if (!op_modified(vd, current_time)) {
+            return get_frozendict()(nb::dict{});
+        }
+
         auto* delta_root = static_cast<const Value*>(data->delta_data);
         if (delta_root == nullptr || !delta_root->has_value()) {
             return get_frozendict()(nb::dict{});
@@ -2429,7 +2664,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
 
         const bool was_valid = op_valid(vd);
         auto slots = resolve_tss_delta_slots(vd);
-        clear_tss_delta_slots(slots);
+        clear_tss_delta_if_new_tick(vd, current_time, slots);
 
         auto set = maybe_set->as_set();
         const value::TypeMeta* element_type = set.element_type();
@@ -2743,7 +2978,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
         const bool was_valid = op_valid(vd);
         auto dst_map = maybe_dst->as_map();
         auto slots = resolve_tsd_delta_slots(vd);
-        clear_tsd_delta_slots(slots);
+        clear_tsd_delta_if_new_tick(vd, current_time, slots);
 
         nb::object item_attr = nb::getattr(src, "items", nb::none());
         nb::iterator items = item_attr.is_none() ? nb::iter(src) : nb::iter(item_attr());
@@ -2767,7 +3002,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
 
             const bool is_remove = value_obj.is(remove);
             const bool is_remove_if_exists = value_obj.is(remove_if_exists);
-                if (is_remove || is_remove_if_exists) {
+            if (is_remove || is_remove_if_exists) {
                 const bool existed = dst_map.contains(key);
                 if (!existed) {
                     if (is_remove) {
@@ -2775,6 +3010,8 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
                     }
                     continue;
                 }
+
+                const auto removed_slot = map_slot_for_key(dst_map, key);
 
                 bool added_this_cycle = false;
                 if (slots.added_set.valid() && slots.added_set.is_set()) {
@@ -2787,6 +3024,10 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
 
                 dst_map.remove(key);
                 changed = true;
+                if (removed_slot.has_value()) {
+                    compact_tsd_child_time_slot(vd, *removed_slot);
+                    compact_tsd_child_delta_slot(vd, *removed_slot);
+                }
 
                 if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
                     slots.changed_values_map.as_map().remove(key);
@@ -2856,6 +3097,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
             }
 
             ensure_tsd_child_time_slot(vd, *slot);
+            ensure_tsd_child_delta_slot(vd, *slot);
             ViewData child_vd = vd;
             child_vd.path.indices.push_back(*slot);
             const engine_time_t before = op_last_modified_time(child_vd);
@@ -2901,6 +3143,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
 
     maybe_dst->from_python(src);
     stamp_time_paths(vd, current_time);
+    mark_tsd_parent_child_modified(vd, current_time);
     notify_link_target_observers(vd, current_time);
 }
 
@@ -3341,11 +3584,41 @@ bool op_dict_remove(ViewData& vd, const View& key, engine_time_t current_time) {
     }
 
     auto map = maybe_map->as_map();
-    const bool removed = map.remove(key);
-    if (removed) {
-        stamp_time_paths(vd, current_time);
+    const auto removed_slot = map_slot_for_key(map, key);
+    if (!removed_slot.has_value()) {
+        return false;
     }
-    return removed;
+
+    auto slots = resolve_tsd_delta_slots(vd);
+    clear_tsd_delta_if_new_tick(vd, current_time, slots);
+
+    bool added_this_cycle = false;
+    if (slots.added_set.valid() && slots.added_set.is_set()) {
+        auto added = slots.added_set.as_set();
+        added_this_cycle = added.contains(key);
+        if (added_this_cycle) {
+            added.remove(key);
+        }
+    }
+
+    if (!map.remove(key)) {
+        return false;
+    }
+
+    compact_tsd_child_time_slot(vd, *removed_slot);
+    compact_tsd_child_delta_slot(vd, *removed_slot);
+
+    if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
+        slots.changed_values_map.as_map().remove(key);
+    }
+
+    if (!added_this_cycle && slots.removed_set.valid() && slots.removed_set.is_set()) {
+        slots.removed_set.as_set().add(key);
+    }
+
+    stamp_time_paths(vd, current_time);
+    notify_link_target_observers(vd, current_time);
+    return true;
 }
 
 TSView op_dict_create(ViewData& vd, const View& key, engine_time_t current_time) {
@@ -3358,6 +3631,9 @@ TSView op_dict_create(ViewData& vd, const View& key, engine_time_t current_time)
     }
 
     auto map = maybe_map->as_map();
+    auto slots = resolve_tsd_delta_slots(vd);
+    clear_tsd_delta_if_new_tick(vd, current_time, slots);
+
     if (!map.contains(key)) {
         const value::TypeMeta* value_type = map.value_type();
         if (value_type == nullptr) {
@@ -3366,7 +3642,24 @@ TSView op_dict_create(ViewData& vd, const View& key, engine_time_t current_time)
         value::Value default_value(value_type);
         default_value.emplace();
         map.set(key, default_value.view());
+        const auto slot = map_slot_for_key(map, key);
+        if (slot.has_value()) {
+            ensure_tsd_child_time_slot(vd, *slot);
+            ensure_tsd_child_delta_slot(vd, *slot);
+        }
+
+        if (slots.added_set.valid() && slots.added_set.is_set()) {
+            slots.added_set.as_set().add(key);
+        }
+        if (slots.removed_set.valid() && slots.removed_set.is_set()) {
+            slots.removed_set.as_set().remove(key);
+        }
+        if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
+            slots.changed_values_map.as_map().remove(key);
+        }
+
         stamp_time_paths(vd, current_time);
+        notify_link_target_observers(vd, current_time);
     }
     return op_child_by_key(vd, key, current_time);
 }
@@ -3381,9 +3674,48 @@ TSView op_dict_set(ViewData& vd, const View& key, const View& value, engine_time
     }
 
     auto map = maybe_map->as_map();
-    map.set(key, value);
-    stamp_time_paths(vd, current_time);
-    return op_child_by_key(vd, key, current_time);
+    auto slots = resolve_tsd_delta_slots(vd);
+    clear_tsd_delta_if_new_tick(vd, current_time, slots);
+
+    const bool existed = map.contains(key);
+    if (!existed) {
+        const value::TypeMeta* value_type = map.value_type();
+        if (value_type == nullptr) {
+            return {};
+        }
+        value::Value default_value(value_type);
+        default_value.emplace();
+        map.set(key, default_value.view());
+    }
+
+    const auto slot = map_slot_for_key(map, key);
+    if (!slot.has_value()) {
+        return {};
+    }
+
+    ensure_tsd_child_time_slot(vd, *slot);
+    ensure_tsd_child_delta_slot(vd, *slot);
+
+    ViewData child_vd = vd;
+    child_vd.path.indices.push_back(*slot);
+    op_set_value(child_vd, value, current_time);
+
+    if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
+        View child_value = op_value(child_vd);
+        if (child_value.valid()) {
+            slots.changed_values_map.as_map().set(key, child_value);
+        } else {
+            slots.changed_values_map.as_map().remove(key);
+        }
+    }
+    if (!existed && slots.added_set.valid() && slots.added_set.is_set()) {
+        slots.added_set.as_set().add(key);
+    }
+    if (slots.removed_set.valid() && slots.removed_set.is_set()) {
+        slots.removed_set.as_set().remove(key);
+    }
+
+    return op_child_at(vd, *slot, current_time);
 }
 
 const ts_window_ops k_window_ops{
@@ -3481,6 +3813,238 @@ ts_ops make_tsb_ops() {
     return out;
 }
 
+void copy_view_data_value_impl(ViewData dst, const ViewData& src, engine_time_t current_time);
+
+void copy_tss(ViewData dst, const ViewData& src, engine_time_t current_time) {
+    auto maybe_dst = resolve_value_slot_mut(dst);
+    if (!maybe_dst.has_value() || !maybe_dst->valid() || !maybe_dst->is_set()) {
+        return;
+    }
+
+    auto dst_set = maybe_dst->as_set();
+    const View src_value = op_value(src);
+
+    std::vector<Value> source_values;
+    if (src_value.valid() && src_value.is_set()) {
+        auto src_set = src_value.as_set();
+        source_values.reserve(src_set.size());
+        for (View elem : src_set) {
+            source_values.emplace_back(elem.clone());
+        }
+    }
+
+    std::vector<Value> to_remove;
+    to_remove.reserve(dst_set.size());
+    for (View elem : dst_set) {
+        bool keep = false;
+        for (const auto& src_elem : source_values) {
+            const View src_view = src_elem.view();
+            if (src_view.schema() == elem.schema() && src_view.equals(elem)) {
+                keep = true;
+                break;
+            }
+        }
+        if (!keep) {
+            to_remove.emplace_back(elem.clone());
+        }
+    }
+
+    std::vector<Value> to_add;
+    to_add.reserve(source_values.size());
+    for (const auto& src_elem : source_values) {
+        if (!dst_set.contains(src_elem.view())) {
+            to_add.emplace_back(src_elem.view().clone());
+        }
+    }
+
+    auto slots = resolve_tss_delta_slots(dst);
+    clear_tss_delta_if_new_tick(dst, current_time, slots);
+
+    bool changed = false;
+    for (const auto& elem : to_remove) {
+        changed = dst_set.remove(elem.view()) || changed;
+    }
+    for (const auto& elem : to_add) {
+        changed = dst_set.add(elem.view()) || changed;
+    }
+
+    if (slots.added_set.valid() && slots.added_set.is_set()) {
+        auto added = slots.added_set.as_set();
+        for (const auto& elem : to_add) {
+            added.add(elem.view());
+        }
+    }
+    if (slots.removed_set.valid() && slots.removed_set.is_set()) {
+        auto removed = slots.removed_set.as_set();
+        for (const auto& elem : to_remove) {
+            removed.add(elem.view());
+        }
+    }
+
+    if (changed) {
+        stamp_time_paths(dst, current_time);
+        notify_link_target_observers(dst, current_time);
+    }
+}
+
+void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
+    auto maybe_dst = resolve_value_slot_mut(dst);
+    if (!maybe_dst.has_value() || !maybe_dst->valid() || !maybe_dst->is_map()) {
+        return;
+    }
+    auto dst_map = maybe_dst->as_map();
+
+    const View src_value = op_value(src);
+
+    std::vector<Value> source_keys;
+    if (src_value.valid() && src_value.is_map()) {
+        auto src_map = src_value.as_map();
+        source_keys.reserve(src_map.size());
+        for (View key : src_map.keys()) {
+            source_keys.emplace_back(key.clone());
+        }
+    }
+
+    std::vector<Value> to_remove;
+    to_remove.reserve(dst_map.size());
+    for (View key : dst_map.keys()) {
+        bool keep = false;
+        for (const auto& source_key : source_keys) {
+            const View source_view = source_key.view();
+            if (source_view.schema() == key.schema() && source_view.equals(key)) {
+                keep = true;
+                break;
+            }
+        }
+        if (!keep) {
+            to_remove.emplace_back(key.clone());
+        }
+    }
+
+    auto slots = resolve_tsd_delta_slots(dst);
+    clear_tsd_delta_if_new_tick(dst, current_time, slots);
+    bool changed = false;
+
+    for (const auto& key : to_remove) {
+        const auto removed_slot = map_slot_for_key(dst_map, key.view());
+        dst_map.remove(key.view());
+        changed = true;
+        if (removed_slot.has_value()) {
+            compact_tsd_child_time_slot(dst, *removed_slot);
+            compact_tsd_child_delta_slot(dst, *removed_slot);
+        }
+        if (slots.removed_set.valid() && slots.removed_set.is_set()) {
+            slots.removed_set.as_set().add(key.view());
+        }
+        if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
+            slots.changed_values_map.as_map().remove(key.view());
+        }
+        stamp_time_paths(dst, current_time);
+    }
+
+    const value::TypeMeta* value_type = dst_map.value_type();
+    for (const auto& key : source_keys) {
+        const bool existed = dst_map.contains(key.view());
+        if (!existed) {
+            if (value_type == nullptr) {
+                continue;
+            }
+            value::Value default_value(value_type);
+            default_value.emplace();
+            dst_map.set(key.view(), default_value.view());
+            if (slots.added_set.valid() && slots.added_set.is_set()) {
+                slots.added_set.as_set().add(key.view());
+            }
+            stamp_time_paths(dst, current_time);
+            changed = true;
+        }
+
+        auto slot = map_slot_for_key(dst_map, key.view());
+        if (!slot.has_value()) {
+            continue;
+        }
+
+        ensure_tsd_child_time_slot(dst, *slot);
+        ensure_tsd_child_delta_slot(dst, *slot);
+
+        TSView src_child = op_child_by_key(src, key.view(), current_time);
+        TSView dst_child = op_child_at(dst, *slot, current_time);
+        if (!src_child || !dst_child) {
+            continue;
+        }
+
+        copy_view_data_value_impl(dst_child.view_data(), src_child.view_data(), current_time);
+        changed = true;
+
+        if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
+            View child_value = op_value(dst_child.view_data());
+            if (child_value.valid()) {
+                slots.changed_values_map.as_map().set(key.view(), child_value);
+            }
+        }
+        if (slots.removed_set.valid() && slots.removed_set.is_set()) {
+            slots.removed_set.as_set().remove(key.view());
+        }
+    }
+
+    if (changed) {
+        notify_link_target_observers(dst, current_time);
+    }
+}
+
+void copy_view_data_value_impl(ViewData dst, const ViewData& src, engine_time_t current_time) {
+    const TSMeta* dst_meta = meta_at_path(dst.meta, dst.path.indices);
+    const TSMeta* src_meta = meta_at_path(src.meta, src.path.indices);
+    if (dst_meta == nullptr || src_meta == nullptr) {
+        return;
+    }
+
+    if (dst_meta->kind != src_meta->kind) {
+        throw std::runtime_error("copy_view_data_value: source/destination schema kinds differ");
+    }
+
+    switch (dst_meta->kind) {
+        case TSKind::TSValue:
+        case TSKind::REF:
+        case TSKind::SIGNAL:
+        case TSKind::TSW:
+            op_set_value(dst, op_value(src), current_time);
+            return;
+
+        case TSKind::TSS:
+            copy_tss(dst, src, current_time);
+            return;
+
+        case TSKind::TSL: {
+            const size_t n = std::min(op_list_size(dst), op_list_size(src));
+            for (size_t i = 0; i < n; ++i) {
+                TSView src_child = op_child_at(src, i, current_time);
+                TSView dst_child = op_child_at(dst, i, current_time);
+                if (!src_child || !dst_child) {
+                    continue;
+                }
+                copy_view_data_value_impl(dst_child.view_data(), src_child.view_data(), current_time);
+            }
+            return;
+        }
+
+        case TSKind::TSB:
+            for (size_t i = 0; i < dst_meta->field_count(); ++i) {
+                TSView src_child = op_child_at(src, i, current_time);
+                TSView dst_child = op_child_at(dst, i, current_time);
+                if (!src_child || !dst_child) {
+                    continue;
+                }
+                copy_view_data_value_impl(dst_child.view_data(), src_child.view_data(), current_time);
+            }
+            return;
+
+        case TSKind::TSD:
+            copy_tsd(dst, src, current_time);
+            return;
+    }
+}
+
 const ts_ops k_ts_value_ops = make_common_ops(TSKind::TSValue);
 const ts_ops k_tss_ops = make_tss_ops();
 const ts_ops k_tsd_ops = make_tsd_ops();
@@ -3561,6 +4125,10 @@ bool resolve_bound_target_view_data(const ViewData& source, ViewData& out) {
     }
 
     return false;
+}
+
+void copy_view_data_value(ViewData& dst, const ViewData& src, engine_time_t current_time) {
+    copy_view_data_value_impl(dst, src, current_time);
 }
 
 void register_ts_link_observer(LinkTarget& observer) {

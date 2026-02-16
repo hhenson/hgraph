@@ -147,6 +147,64 @@ def test_key_set_removes_keys():
     assert frozenset(result[1].removed) == {"a"}
 
 
+def test_key_set_modified_on_initial_empty_materialization():
+    """Test key_set ticks on initial invalid->empty materialization."""
+    @compute_node
+    def emit_empty(trigger: TS[bool]) -> TSD[str, TS[int]]:
+        return {}
+
+    @compute_node
+    def inspect_key_set(tsd: TSD[str, TS[int]]) -> TS[tuple]:
+        key_set = tsd.key_set
+        return (
+            key_set.modified,
+            tuple(sorted(key_set.added())),
+            tuple(sorted(key_set.removed())),
+            tuple(sorted(key_set.values())),
+        )
+
+    @graph
+    def g(trigger: TS[bool]) -> TS[tuple]:
+        return inspect_key_set(emit_empty(trigger))
+
+    assert eval_node(g, [True]) == [(True, (), (), ())]
+
+
+def test_key_set_modified_on_add_remove_same_cycle_with_empty_delta():
+    """Test key_set ticks even when same-cycle churn cancels add/remove delta."""
+    @compute_node
+    def add_then_remove(trigger: TS[bool], _output: TSD[str, TS[int]] = None) -> TSD[str, TS[int]]:
+        if trigger.value:
+            _output.get_or_create("a").value = 1
+            del _output["a"]
+        return _output.delta_value if _output.modified else None
+
+    @compute_node
+    def inspect_key_set(tsd: TSD[str, TS[int]]) -> TS[tuple]:
+        key_set = tsd.key_set
+        return (
+            key_set.modified,
+            tuple(sorted(key_set.added())),
+            tuple(sorted(key_set.removed())),
+            tuple(sorted(key_set.values())),
+        )
+
+    @graph
+    def g(trigger: TS[bool]) -> TS[tuple]:
+        return inspect_key_set(add_then_remove(trigger))
+
+    assert eval_node(g, [True]) == [(True, (), (), ())]
+
+
+def test_key_set_not_modified_on_value_only_update():
+    """Test key_set does not tick when only existing values update."""
+    @compute_node
+    def inspect_key_set_modified(tsd: TSD[str, TS[int]]) -> TS[bool]:
+        return tsd.key_set.modified
+
+    assert eval_node(inspect_key_set_modified, [{"a": 1}, {"a": 2}]) == [True, False]
+
+
 def test_key_set_coherence_after_clear_and_reinsert():
     """Test key_set and modified_items remain coherent after clear and reinsert."""
     @compute_node
@@ -271,6 +329,20 @@ def test_modified_on_key_change():
         return tsd.modified
 
     assert eval_node(check_modified, [{"a": 1}, {"b": 2}]) == [True, True]
+
+
+def test_last_modified_time_updates_for_tsd_and_child_scalar():
+    """Test TSD and scalar child timestamps advance together on updates."""
+    @compute_node
+    def read_times(tsd: TSD[str, TS[int]]) -> TS[tuple]:
+        child = tsd["a"]
+        return tsd.last_modified_time, child.last_modified_time
+
+    result = eval_node(read_times, [{"a": 1}, {"a": 2}])
+
+    assert result[0][0] == result[0][1]
+    assert result[1][0] == result[1][1]
+    assert result[1][0] > result[0][0]
 
 
 def test_modified_keys_method():

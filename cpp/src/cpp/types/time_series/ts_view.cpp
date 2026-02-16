@@ -505,6 +505,18 @@ TSOutputView TSOutputView::child_by_key(const value::View& key) const {
     return TSOutputView(owner_, ts_view_.child_by_key(key));
 }
 
+void TSOutputView::copy_from_input(const TSInputView& input) {
+    ViewData dst = ts_view_.view_data();
+    const ViewData& src = input.as_ts_view().view_data();
+    copy_view_data_value(dst, src, current_time());
+}
+
+void TSOutputView::copy_from_output(const TSOutputView& output) {
+    ViewData dst = ts_view_.view_data();
+    const ViewData& src = output.as_ts_view().view_data();
+    copy_view_data_value(dst, src, current_time());
+}
+
 std::optional<TSWOutputView> TSOutputView::try_as_window() const {
     if (!ts_view_.is_window()) {
         return std::nullopt;

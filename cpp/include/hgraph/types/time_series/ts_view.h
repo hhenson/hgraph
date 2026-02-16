@@ -32,6 +32,8 @@ class TSSInputView;
 class TSDInputView;
 class TSLInputView;
 class TSBInputView;
+class TSInputView;
+class TSOutputView;
 
 /**
  * Non-owning time-series cursor (ViewData + current time).
@@ -207,6 +209,8 @@ public:
 
     void set_value(const value::View& src) { ts_view_.set_value(src); }
     void from_python(const nb::object& src) { ts_view_.from_python(src); }
+    void copy_from_input(const TSInputView& input);
+    void copy_from_output(const TSOutputView& output);
     void apply_delta(const value::View& delta) { ts_view_.apply_delta(delta); }
     void invalidate() { ts_view_.invalidate(); }
 
