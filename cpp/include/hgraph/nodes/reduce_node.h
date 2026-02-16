@@ -114,6 +114,10 @@ namespace hgraph {
         // if an input is bound to a key or not using _bound_to_key.
         // C++ does not do that, so we can track if the ts is bound to a key using a set.
         std::unordered_set<void *> bound_to_key_flags_;  // stubbed: was TimeSeriesInput*
+
+        // When do_start() can't see the TSD (e.g., behind an unevaluated REF stub),
+        // defer pre-existing key detection to the first eval().
+        bool needs_preexisting_check_{false};
     };
 } // namespace hgraph
 

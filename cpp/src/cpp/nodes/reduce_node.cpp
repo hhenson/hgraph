@@ -180,59 +180,14 @@ namespace hgraph {
                 grow_tree();
             }
         } else {
-            if constexpr (REDUCE_DEBUG) fprintf(stderr, "[REDUCE] do_start: TSD not valid, grow_tree\n");
+            // TSD input may be behind an unevaluated REF stub (e.g., inside a switch).
+            // Defer pre-existing key detection to first eval(), when stubs have evaluated.
+            if constexpr (REDUCE_DEBUG) fprintf(stderr, "[REDUCE] do_start: TSD not valid, deferring pre-existing check\n");
+            needs_preexisting_check_ = true;
             grow_tree();
         }
 
-        if constexpr (REDUCE_DEBUG) {
-            fprintf(stderr, "[REDUCE] do_start: node_count=%lld, node_size=%lld, free=%zu\n",
-                node_count(), node_size(), free_node_indexes_.size());
-            auto [lhs_id, rhs_id] = input_node_ids_;
-            fprintf(stderr, "[REDUCE] input_node_ids=(%lld,%lld), output_node_id=%lld\n",
-                lhs_id, rhs_id, output_node_id_);
-            // Dump edges
-            fprintf(stderr, "[REDUCE] nested_graph_builder has %zu edges:\n", nested_graph_builder_->edges.size());
-            for (const auto& e : nested_graph_builder_->edges) {
-                fprintf(stderr, "[REDUCE]   edge: src=%lld, output_path=[", e.src_node);
-                for (auto p : e.output_path) fprintf(stderr, "%lld,", p);
-                fprintf(stderr, "] → dst=%lld, input_path=[", e.dst_node);
-                for (auto p : e.input_path) fprintf(stderr, "%lld,", p);
-                fprintf(stderr, "]\n");
-            }
-        }
         start_component(*nested_graph_);
-        if constexpr (REDUCE_DEBUG) {
-            fprintf(stderr, "[REDUCE] do_start: inner graph started, nodes=%zu\n",
-                nested_graph_->nodes().size());
-            auto time = graph()->evaluation_time();
-            // Check subscription state of each inner node's input
-            for (size_t ni = 0; ni < nested_graph_->nodes().size(); ++ni) {
-                auto n = nested_graph_->nodes()[ni];
-                if (n->ts_input()) {
-                    auto iv = n->ts_input()->view(time);
-                    auto meta = n->ts_input()->meta();
-                    fprintf(stderr, "[REDUCE]   node %zu input: kind=%d, field_count=%zu\n",
-                        ni, meta ? (int)meta->kind : -1, meta ? meta->field_count : 0);
-                    if (meta && meta->kind == TSKind::TSB) {
-                        for (size_t fi = 0; fi < meta->field_count; ++fi) {
-                            auto fv = iv[fi].ts_view();
-                            auto& fvd = fv.view_data();
-                            fprintf(stderr, "[REDUCE]     field %zu: kind=%d, has_link=%d",
-                                fi, fvd.meta ? (int)fvd.meta->kind : -1, fvd.uses_link_target ? 1 : 0);
-                            if (fvd.uses_link_target && fvd.link_data) {
-                                auto* lt = static_cast<LinkTarget*>(fvd.link_data);
-                                fprintf(stderr, ", linked=%d, lt_meta_kind=%d, lt_obs=%p",
-                                    lt->is_linked ? 1 : 0,
-                                    lt->meta ? (int)lt->meta->kind : -1,
-                                    lt->observer_data);
-                                fprintf(stderr, ", owning_input=%p", (void*)lt->active_notifier.owning_input);
-                            }
-                            fprintf(stderr, "\n");
-                        }
-                    }
-                }
-            }
-        }
     }
 
     void ReduceNode::do_stop() {
@@ -271,6 +226,22 @@ namespace hgraph {
         ViewData tsd_resolved = resolve_through_link(tsd_field.view_data());
         TSDView tsd(tsd_resolved, time);
         TSSView key_set = tsd.key_set();
+
+        // Deferred pre-existing key check: do_start() couldn't see the TSD (behind unevaluated stub).
+        // Now that stubs have evaluated, detect pre-existing keys (all keys minus added this tick).
+        if (needs_preexisting_check_) {
+            needs_preexisting_check_ = false;
+            std::vector<value::View> pre_existing;
+            for (auto key_view : key_set.values()) {
+                if (!key_set.was_added(key_view)) {
+                    pre_existing.push_back(key_view);
+                }
+            }
+            if (!pre_existing.empty()) {
+                if constexpr (REDUCE_DEBUG) fprintf(stderr, "[REDUCE] eval: deferred pre-existing: %zu keys\n", pre_existing.size());
+                add_nodes_from_views(pre_existing);
+            }
+        }
 
         // Collect removed and added keys
         std::vector<value::View> removed_keys;

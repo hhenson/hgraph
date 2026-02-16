@@ -165,12 +165,14 @@ namespace hgraph {
                 nec->reset_next_scheduled_evaluation_time();
             }
 
-            // On graph reset: force-schedule inner stub nodes so they pick up REF values
-            // from the outer graph. Skip the output sink node to avoid writing stale values.
+            // On graph reset: force-schedule ALL inner nodes (including the output stub)
+            // so they evaluate at eval_time in node-index order. The output stub must
+            // fire AFTER computation nodes so it sees their output. Without force-scheduling
+            // the output stub, it would only fire from make_active() at MIN_ST (before
+            // computation nodes), reading empty/stale data.
             if (_graph_reset) {
                 auto eval_time = *_active_graph->cached_evaluation_time_ptr();
                 for (size_t i = 0; i < _active_graph->nodes().size(); ++i) {
-                    if (static_cast<int>(i) == _active_output_node_id) continue;
                     _active_graph->schedule_node(static_cast<int64_t>(i), eval_time, true);
                 }
             }

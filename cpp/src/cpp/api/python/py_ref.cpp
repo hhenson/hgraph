@@ -363,7 +363,7 @@ namespace hgraph
 
         if (vd.uses_link_target && vd.link_data) {
             auto* lt = static_cast<const LinkTarget*>(vd.link_data);
-            if (lt->is_linked && lt->meta) {
+            if (lt->valid()) {
                 if (lt->meta->kind != TSKind::REF) {
                     // Case 1: Non-peered binding (TS→REF) → BoundTimeSeriesReference
                     ViewData target_vd;
