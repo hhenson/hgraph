@@ -23,8 +23,16 @@ void establish_links_recursive(TSView native_view, const TSMeta* native_meta,
         return;
     }
 
-    // Baseline behavior for equivalent/leaf/REF cases.
-    alt_view.bind(native_view);
+    const bool fixed_tsl_pair =
+        native_meta->kind == TSKind::TSL &&
+        alt_meta->kind == TSKind::TSL &&
+        native_meta->fixed_size() > 0 &&
+        native_meta->fixed_size() == alt_meta->fixed_size();
+
+    // Fixed-size TSL alternatives bind children only (container slot remains unlinked).
+    if (!fixed_tsl_pair) {
+        alt_view.bind(native_view);
+    }
 
     if (native_meta == alt_meta) {
         return;
@@ -62,8 +70,7 @@ void establish_links_recursive(TSView native_view, const TSMeta* native_meta,
         return;
     }
 
-    if (native_meta->kind == TSKind::TSL && alt_meta->kind == TSKind::TSL &&
-        native_meta->fixed_size() > 0 && native_meta->fixed_size() == alt_meta->fixed_size()) {
+    if (fixed_tsl_pair) {
         const size_t n = native_meta->fixed_size();
         for (size_t i = 0; i < n; ++i) {
             establish_links_recursive(

@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from hgraph import MIN_DT
+from hgraph import MIN_DT, MIN_TD
 
 import pytest
 
@@ -557,13 +557,19 @@ def test_schema_cache_tsl_link_shape_differs_for_fixed_and_dynamic_modes():
     dynamic_output_link = runtime.schema_link_meta(dynamic_meta)
     dynamic_input_link = runtime.schema_input_link_meta(dynamic_meta)
 
-    assert fixed_output_link.kind == value.TypeKind.List
-    assert fixed_output_link.fixed_size == 3
-    assert fixed_output_link.element_type is value.TypeMeta.get("REFLink")
+    assert fixed_output_link.kind == value.TypeKind.Tuple
+    assert fixed_output_link.field_count == 2
+    assert fixed_output_link.fields[0].type is value.TypeMeta.get("REFLink")
+    assert fixed_output_link.fields[1].type.kind == value.TypeKind.List
+    assert fixed_output_link.fields[1].type.fixed_size == 3
+    assert fixed_output_link.fields[1].type.element_type is value.TypeMeta.get("REFLink")
 
-    assert fixed_input_link.kind == value.TypeKind.List
-    assert fixed_input_link.fixed_size == 3
-    assert fixed_input_link.element_type is value.TypeMeta.get("LinkTarget")
+    assert fixed_input_link.kind == value.TypeKind.Tuple
+    assert fixed_input_link.field_count == 2
+    assert fixed_input_link.fields[0].type is value.TypeMeta.get("LinkTarget")
+    assert fixed_input_link.fields[1].type.kind == value.TypeKind.List
+    assert fixed_input_link.fields[1].type.fixed_size == 3
+    assert fixed_input_link.fields[1].type.element_type is value.TypeMeta.get("LinkTarget")
 
     assert dynamic_output_link is value.TypeMeta.get("REFLink")
     assert dynamic_input_link is value.TypeMeta.get("LinkTarget")
@@ -630,6 +636,89 @@ def test_schema_cache_delta_contract_for_tss_tsd_and_tsb_nested_shapes():
     assert bundle_delta.fields[1].type.field_count == tss_delta.field_count
     assert bundle_delta.fields[1].type.fields[0].type is tss_delta.fields[0].type
     assert bundle_delta.fields[1].type.fields[1].type is tss_delta.fields[1].type
+
+
+def test_schema_cache_tsl_fixed_time_and_observer_shapes_are_recursive():
+    ts_int = _ts_int_meta()
+    fixed_meta = _registry().tsl(ts_int, 2)
+
+    time_meta = runtime.schema_time_meta(fixed_meta)
+    observer_meta = runtime.schema_observer_meta(fixed_meta)
+
+    dt_meta = value.scalar_type_meta_datetime()
+    object_meta = value.TypeMeta.get("object")
+
+    assert time_meta.kind == value.TypeKind.Tuple
+    assert time_meta.field_count == 2
+    assert time_meta.fields[0].type is dt_meta
+    assert time_meta.fields[1].type.kind == value.TypeKind.List
+    assert time_meta.fields[1].type.fixed_size == 2
+    assert time_meta.fields[1].type.element_type is dt_meta
+
+    assert observer_meta.kind == value.TypeKind.Tuple
+    assert observer_meta.field_count == 2
+    assert observer_meta.fields[0].type is object_meta
+    assert observer_meta.fields[1].type.kind == value.TypeKind.List
+    assert observer_meta.fields[1].type.fixed_size == 2
+    assert observer_meta.fields[1].type.element_type is object_meta
+
+
+def test_schema_cache_nested_tsb_parallel_shapes_recurse_per_field():
+    ts_int = _ts_int_meta()
+    inner_meta = _tsb_meta("InnerSchema", [("a", ts_int)])
+    outer_meta = _tsb_meta("OuterSchema", [("left", ts_int), ("inner", inner_meta)])
+
+    time_meta = runtime.schema_time_meta(outer_meta)
+    active_meta = runtime.schema_active_meta(outer_meta)
+    output_link_meta = runtime.schema_link_meta(outer_meta)
+
+    dt_meta = value.scalar_type_meta_datetime()
+    bool_meta = value.scalar_type_meta_bool()
+    ref_link_meta = value.TypeMeta.get("REFLink")
+
+    assert time_meta.field_count == 3
+    assert time_meta.fields[0].type is dt_meta
+    assert time_meta.fields[1].type is dt_meta
+    assert time_meta.fields[2].type.kind == value.TypeKind.Tuple
+    assert time_meta.fields[2].type.field_count == 2
+    assert time_meta.fields[2].type.fields[0].type is dt_meta
+    assert time_meta.fields[2].type.fields[1].type is dt_meta
+
+    assert active_meta.field_count == 3
+    assert active_meta.fields[0].type is bool_meta
+    assert active_meta.fields[1].type is bool_meta
+    assert active_meta.fields[2].type.kind == value.TypeKind.Tuple
+    assert active_meta.fields[2].type.field_count == 2
+    assert active_meta.fields[2].type.fields[0].type is bool_meta
+    assert active_meta.fields[2].type.fields[1].type is bool_meta
+
+    assert output_link_meta.field_count == 3
+    assert output_link_meta.fields[0].type is ref_link_meta
+    assert output_link_meta.fields[1].type is ref_link_meta
+    assert output_link_meta.fields[2].type.kind == value.TypeKind.Tuple
+    assert output_link_meta.fields[2].type.field_count == 2
+    assert output_link_meta.fields[2].type.fields[0].type is ref_link_meta
+    assert output_link_meta.fields[2].type.fields[1].type is ref_link_meta
+
+
+def test_input_tsb_peered_bind_allows_child_value_reads_without_child_links():
+    ts_int = _ts_int_meta()
+    pair_meta = _tsb_meta("PairPeeredRead", [("x", ts_int), ("y", ts_int)])
+
+    ts_output = runtime.TSOutput(pair_meta, 0)
+    out_root = ts_output.output_view(MIN_DT)
+    out_root.field("x").from_python(10)
+    out_root.field("y").from_python(20)
+
+    ts_input = runtime.TSInput(pair_meta)
+    ts_input.bind(ts_output, MIN_DT)
+    in_root = ts_input.input_view(MIN_DT)
+
+    assert in_root.is_bound()
+    assert not in_root.field("x").is_bound()
+    assert not in_root.field("y").is_bound()
+    assert in_root.field("x").to_python() == 10
+    assert in_root.field("y").to_python() == 20
 
 
 @pytest.mark.parametrize(
@@ -724,11 +813,43 @@ def test_tsd_dict_ops_roundtrip():
 
 def test_output_view_python_conversion_roundtrip_for_scalar_ts():
     meta = _ts_int_meta()
-    output_view = runtime.TSOutput(meta, 0).output_view(MIN_DT)
+    output = runtime.TSOutput(meta, 0)
+    output_view = output.output_view(MIN_DT)
 
     output_view.from_python(42)
     assert output_view.to_python() == 42
-    assert output_view.delta_to_python() is None
+    assert output_view.delta_to_python() == 42
+
+    next_tick_view = output.output_view(MIN_DT + MIN_TD)
+    assert next_tick_view.to_python() == 42
+    assert next_tick_view.delta_to_python() is None
+
+
+@pytest.mark.parametrize(
+    "meta_factory, mutate",
+    [
+        (
+            lambda: _registry().tsl(_ts_int_meta(), 2),
+            lambda root: root.at(0).from_python(10),
+        ),
+        (
+            lambda: _tsb_meta("DeltaContractBundle", [("x", _ts_int_meta())]),
+            lambda root: root.field("x").from_python(11),
+        ),
+        (
+            lambda: _tsd_meta(value.scalar_type_meta_string(), _ts_int_meta()),
+            lambda root: root.dict_set(_str_value("alpha").view(), _int_value(7).view()),
+        ),
+    ],
+    ids=["TSL", "TSB", "TSD"],
+)
+def test_non_scalar_delta_no_tick_is_not_scalar_none_contract(meta_factory, mutate):
+    output = runtime.TSOutput(meta_factory(), 0)
+    tick0 = output.output_view(MIN_DT)
+    mutate(tick0)
+
+    tick1 = output.output_view(MIN_DT + MIN_TD)
+    assert tick1.delta_to_python() is not None
 
 
 def test_tss_feature_outputs_are_endpoint_local():

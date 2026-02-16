@@ -173,11 +173,8 @@ void bind_static_container_recursive(const TSMeta* meta, TSView input_view, TSVi
         return;
     }
 
-    const bool bind_parent =
-        !(meta->kind == TSKind::TSL &&
-          meta->fixed_size() > 0 &&
-          meta->element_ts() != nullptr &&
-          meta->element_ts()->kind == TSKind::REF);
+    // Fixed-size TSL binds are child-driven (container slot remains unlinked).
+    const bool bind_parent = !(meta->kind == TSKind::TSL && meta->fixed_size() > 0);
 
     if (bind_parent) {
         input_view.bind(output_view);
@@ -293,7 +290,7 @@ void TSInput::bind(TSOutput& output, engine_time_t current_time) {
                              : output.view(current_time, meta_);
 
     if (meta_ != nullptr && !output_is_ref &&
-        (meta_->kind == TSKind::TSB || (meta_->kind == TSKind::TSL && meta_->fixed_size() > 0))) {
+        meta_->kind == TSKind::TSL && meta_->fixed_size() > 0) {
         bind_static_container_recursive(meta_, input_view, output_view);
     } else {
         input_view.bind(output_view);

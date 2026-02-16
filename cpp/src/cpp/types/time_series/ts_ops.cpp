@@ -1106,6 +1106,30 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
             }
             return resolved;
         }
+
+        // In peered static-container mode, child links remain unbound and resolve
+        // through the nearest peered ancestor link.
+        if (!vd.path.indices.empty()) {
+            for (size_t depth = vd.path.indices.size(); depth > 0; --depth) {
+                const std::vector<size_t> parent_path(vd.path.indices.begin(), vd.path.indices.begin() + depth - 1);
+                LinkTarget* parent = resolve_link_target(vd, parent_path);
+                if (parent == nullptr || !parent->is_linked || !parent->peered) {
+                    continue;
+                }
+
+                const TSMeta* parent_meta = meta_at_path(vd.meta, parent_path);
+                if (parent_meta == nullptr || parent_meta->kind != TSKind::TSB) {
+                    continue;
+                }
+
+                ViewData resolved = parent->as_view_data(vd.sampled);
+                resolved.path.indices.insert(
+                    resolved.path.indices.end(),
+                    vd.path.indices.begin() + static_cast<std::ptrdiff_t>(parent_path.size()),
+                    vd.path.indices.end());
+                return resolved;
+            }
+        }
     } else {
         if (REFLink* ref_link = resolve_ref_link(vd, vd.path.indices);
             ref_link != nullptr && ref_link->is_linked) {
@@ -2370,6 +2394,14 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         return get_frozendict()(delta_out);
     }
 
+    if (current != nullptr && current->kind == TSKind::TSValue) {
+        if (!op_modified(vd, current_time)) {
+            return nb::none();
+        }
+        View v = op_delta_value(*data);
+        return v.valid() ? v.to_python() : nb::none();
+    }
+
     View v = op_delta_value(vd);
     return v.valid() ? v.to_python() : nb::none();
 }
@@ -3023,36 +3055,41 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
                                           (parent_meta->kind == TSKind::TSL && parent_meta->fixed_size() > 0));
             if (non_peer_parent) {
                 if (LinkTarget* parent_link = resolve_link_target(vd, parent_path); parent_link != nullptr) {
-                    bool keep_parent_bound = false;
-
-                    const bool static_container_parent =
-                        parent_link->is_linked &&
-                        (parent_meta->kind == TSKind::TSB ||
-                         (parent_meta->kind == TSKind::TSL && parent_meta->fixed_size() > 0));
-
-                    if (static_container_parent) {
-                        const size_t child_index = vd.path.indices.back();
-                        const auto& parent_target_path = parent_link->target_path.indices;
-                        const auto& child_target_path = target.path.indices;
-
-                        // Peered static-container child binds map one-to-one from parent target path.
-                        keep_parent_bound =
-                            child_target_path.size() == parent_target_path.size() + 1 &&
-                            std::equal(parent_target_path.begin(), parent_target_path.end(), child_target_path.begin()) &&
-                            child_target_path.back() == child_index &&
-                            parent_link->value_data == target.value_data &&
-                            parent_link->time_data == target.time_data &&
-                            parent_link->observer_data == target.observer_data &&
-                            parent_link->delta_data == target.delta_data &&
-                            parent_link->link_data == target.link_data;
-                    }
-
-                    parent_link->peered = keep_parent_bound;
-
-                    if (!keep_parent_bound) {
+                    if (parent_meta->kind == TSKind::TSB) {
+                        // Any direct child bind transitions TSB from peered to un-peered.
                         unregister_link_target_observer(*parent_link);
                         parent_link->unbind();
                         parent_link->peered = false;
+                    } else {
+                        bool keep_parent_bound = false;
+
+                        const bool static_container_parent =
+                            parent_link->is_linked &&
+                            parent_meta->kind == TSKind::TSL &&
+                            parent_meta->fixed_size() > 0;
+
+                        if (static_container_parent) {
+                            const size_t child_index = vd.path.indices.back();
+                            const auto& parent_target_path = parent_link->target_path.indices;
+                            const auto& child_target_path = target.path.indices;
+
+                            keep_parent_bound =
+                                child_target_path.size() == parent_target_path.size() + 1 &&
+                                std::equal(parent_target_path.begin(), parent_target_path.end(), child_target_path.begin()) &&
+                                child_target_path.back() == child_index &&
+                                parent_link->value_data == target.value_data &&
+                                parent_link->time_data == target.time_data &&
+                                parent_link->observer_data == target.observer_data &&
+                                parent_link->delta_data == target.delta_data &&
+                                parent_link->link_data == target.link_data;
+                        }
+
+                        parent_link->peered = keep_parent_bound;
+                        if (!keep_parent_bound) {
+                            unregister_link_target_observer(*parent_link);
+                            parent_link->unbind();
+                            parent_link->peered = false;
+                        }
                     }
                 }
             }
