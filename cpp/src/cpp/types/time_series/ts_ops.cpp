@@ -4805,54 +4805,19 @@ inline void set_elem_time(const value::ListView& time_list, size_t slot, engine_
 // - delta is MapDelta
 // - link is LinkTarget (TSInput) or REFLink (TSOutput) for collection-level binding
 
-// DictChildNotifier: Propagates child element modifications to the parent TSD container.
-// When a TSD element's value is set directly (e.g. via get_or_create() + ts.value = x),
-// the element's ObserverList fires notify_modified() which reaches this notifier.
-// It then updates the container time and notifies the container's observers.
-struct DictChildNotifier : Notifiable {
-    engine_time_t* container_time_ptr = nullptr;
-    ObserverList* container_observers = nullptr;
-
-    void notify(engine_time_t et) override {
-        // Skip during setup (MIN_DT) and prevent re-entrant notification
-        if (et == MIN_DT || notifying_) return;
-        notifying_ = true;
-        if (container_time_ptr && *container_time_ptr < et) {
-            *container_time_ptr = et;
-        }
-        if (container_observers) {
-            container_observers->notify_modified(et);
-        }
-        notifying_ = false;
-    }
-    bool notifying_ = false;
-};
-
-// Registry for DictChildNotifiers, keyed by container observer_data pointer (unique per TSD).
-// Each TSD gets one notifier; all its elements share it.
-static thread_local std::unordered_map<void*, std::unique_ptr<DictChildNotifier>> dict_child_notifiers_;
-
-// Get or create the DictChildNotifier for a TSD.
-inline DictChildNotifier* get_or_create_child_notifier(const ViewData& vd) {
-    void* key = vd.observer_data;
-    if (!key) return nullptr;
-
-    auto it = dict_child_notifiers_.find(key);
-    if (it != dict_child_notifiers_.end()) {
-        return it->second.get();
-    }
+// Get the child-to-container notifier from the TSD's MapDelta.
+// The notifier is owned by MapDelta and lives as long as the TSD.
+inline MapDelta::ChildNotifier* get_or_create_child_notifier(const ViewData& vd) {
+    auto* map_delta = vd.delta_data ? static_cast<MapDelta*>(vd.delta_data) : nullptr;
+    if (!map_delta) return nullptr;
 
     auto time_view = make_time_view(vd);
     auto observer_view = make_observer_view(vd);
     if (!time_view.valid() || !observer_view.valid()) return nullptr;
 
-    auto notifier = std::make_unique<DictChildNotifier>();
-    notifier->container_time_ptr = &time_view.as_tuple().at(0).as<engine_time_t>();
-    notifier->container_observers = static_cast<ObserverList*>(observer_view.as_tuple().at(0).data());
-
-    auto* raw = notifier.get();
-    dict_child_notifiers_[key] = std::move(notifier);
-    return raw;
+    auto* container_time = &time_view.as_tuple().at(0).as<engine_time_t>();
+    auto* container_obs = static_cast<ObserverList*>(observer_view.as_tuple().at(0).data());
+    return map_delta->get_child_notifier(container_time, container_obs);
 }
 
 // ========== TSD Link Layout Helpers ==========

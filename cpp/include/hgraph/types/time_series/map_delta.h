@@ -19,6 +19,8 @@
 
 #include <hgraph/types/time_series/set_delta.h>
 #include <hgraph/types/time_series/slot_set.h>
+#include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/value/key_set.h>
 #include <hgraph/types/value/slot_observer.h>
 #include <hgraph/util/date_time.h>
@@ -405,6 +407,50 @@ public:
         }
     }
 
+    // ========== Child-to-Container Propagation ==========
+
+    /**
+     * @brief Notifiable that propagates element modifications to the container.
+     *
+     * When a TSD element's ObserverList fires (element was modified), this notifier
+     * updates the container's timestamp and fires the container's observers.
+     * This mirrors Python's mark_child_modified() / has_parent_output pattern.
+     */
+    struct ChildNotifier : Notifiable {
+        engine_time_t* container_time_ptr = nullptr;
+        ObserverList* container_observers = nullptr;
+
+        void notify(engine_time_t et) override {
+            if (et == MIN_DT || notifying_) return;
+            notifying_ = true;
+            if (container_time_ptr && *container_time_ptr < et) {
+                *container_time_ptr = et;
+            }
+            if (container_observers) {
+                container_observers->notify_modified(et);
+            }
+            notifying_ = false;
+        }
+        bool notifying_ = false;
+    };
+
+    /**
+     * @brief Get the child-to-container notifier, initializing it on first use.
+     *
+     * @param container_time Pointer to the container's time (tuple.at(0))
+     * @param container_obs Pointer to the container's ObserverList (tuple.at(0))
+     * @return Pointer to the ChildNotifier (owned by this MapDelta)
+     */
+    ChildNotifier* get_child_notifier(engine_time_t* container_time, ObserverList* container_obs) {
+        if (!child_notifier_) {
+            child_notifier_ = std::make_unique<ChildNotifier>();
+        }
+        // Always update pointers — they may change if the TSD is rebound
+        child_notifier_->container_time_ptr = container_time;
+        child_notifier_->container_observers = container_obs;
+        return child_notifier_.get();
+    }
+
     // ========== Key Time Tracking ==========
 
     /**
@@ -436,6 +482,9 @@ private:
     // These persist across ticks (clear() clears them, doesn't destroy them).
     // Destroyed when the element slot is erased or the parent is destroyed.
     std::unordered_map<size_t, std::unique_ptr<MapDelta>> owned_child_map_deltas_;
+
+    // Child-to-container notifier (owned, one per TSD)
+    std::unique_ptr<ChildNotifier> child_notifier_;
 
     // Cached combined modified set (lazily computed)
     mutable SlotSet modified_;
