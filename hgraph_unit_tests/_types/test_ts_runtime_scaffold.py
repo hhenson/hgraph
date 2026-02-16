@@ -731,6 +731,44 @@ def test_output_view_python_conversion_roundtrip_for_scalar_ts():
     assert output_view.delta_to_python() is None
 
 
+def test_tss_feature_outputs_are_endpoint_local():
+    tss_meta = _registry().tss(value.scalar_type_meta_int64())
+
+    out1 = runtime.TSOutput(tss_meta, 0).output_view(MIN_DT)
+    out2 = runtime.TSOutput(tss_meta, 1).output_view(MIN_DT)
+
+    req1 = object()
+    req2 = object()
+
+    contains1 = out1.get_contains_output(1, req1)
+    contains2 = out2.get_contains_output(1, req2)
+    assert contains1.to_python() is False
+    assert contains2.to_python() is False
+
+    out1.from_python({1})
+    assert contains1.to_python() is True
+    assert contains2.to_python() is False
+
+    out2.from_python({1})
+    assert contains1.to_python() is True
+    assert contains2.to_python() is True
+
+    out1.release_contains_output(1, req1)
+    out2.release_contains_output(1, req2)
+
+
+def test_tss_is_empty_feature_output_tracks_source_state():
+    tss_meta = _registry().tss(value.scalar_type_meta_int64())
+    source = runtime.TSOutput(tss_meta, 0).output_view(MIN_DT)
+    empty_ref = source.is_empty_output()
+
+    assert empty_ref.to_python() is True
+    source.from_python({1})
+    assert empty_ref.to_python() is False
+    source.clear()
+    assert empty_ref.to_python() is True
+
+
 @pytest.mark.parametrize(
     "meta_factory, expected_try, expected_cls",
     [

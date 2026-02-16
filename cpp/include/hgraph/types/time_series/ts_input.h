@@ -2,8 +2,11 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/link_observer_registry.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_view.h>
+
+#include <memory>
 
 namespace hgraph {
 
@@ -62,6 +65,7 @@ private:
 
     TSValue value_;
     value::Value active_;
+    std::shared_ptr<TSLinkObserverRegistry> link_observer_registry_{};
     const TSMeta* meta_{nullptr};
     node_ptr owning_node_{nullptr};
     bool active_root_{false};

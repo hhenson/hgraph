@@ -1,5 +1,6 @@
 #include <hgraph/types/time_series/ts_ops.h>
 
+#include <hgraph/types/time_series/link_observer_registry.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/ref_link.h>
 #include <hgraph/types/time_series/ts_input.h>
@@ -14,7 +15,6 @@
 #include <algorithm>
 #include <optional>
 #include <stdexcept>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -25,15 +25,7 @@ using value::View;
 using value::Value;
 using value::ValueView;
 
-struct ObserverRegistration {
-    std::vector<size_t> path;
-    LinkTarget* link_target{nullptr};
-};
-
 LinkTarget* resolve_link_target(const ViewData& vd, const std::vector<size_t>& ts_path);
-
-// Graph runtime executes on the single-thread event loop, so this registry is intentionally lock-free.
-std::unordered_map<void*, std::vector<ObserverRegistration>> observer_registry;
 
 bool is_prefix_path(const std::vector<size_t>& lhs, const std::vector<size_t>& rhs) {
     if (lhs.size() > rhs.size()) {
@@ -97,41 +89,54 @@ void notify_activation_if_modified(REFLink* payload, TSInput* input) {
     payload->notify(current_time);
 }
 
-void unregister_link_target_observer(const LinkTarget& link_target) {
-    if (observer_registry.empty()) {
+void unregister_link_target_observer_from_registry(const LinkTarget& link_target, TSLinkObserverRegistry* registry) {
+    if (registry == nullptr || registry->entries.empty()) {
         return;
     }
 
-    for (auto it = observer_registry.begin(); it != observer_registry.end();) {
+    for (auto it = registry->entries.begin(); it != registry->entries.end();) {
         auto& registrations = it->second;
         registrations.erase(
             std::remove_if(
                 registrations.begin(),
                 registrations.end(),
-                [&link_target](const ObserverRegistration& registration) {
+                [&link_target](const LinkObserverRegistration& registration) {
                     return registration.link_target == &link_target;
                 }),
             registrations.end());
 
         if (registrations.empty()) {
-            it = observer_registry.erase(it);
+            it = registry->entries.erase(it);
         } else {
             ++it;
         }
     }
 }
 
-void register_link_target_observer_entry(void* value_data, const std::vector<size_t>& path, LinkTarget* target) {
-    if (value_data == nullptr || target == nullptr) {
+void unregister_link_target_observer(const LinkTarget& link_target) {
+    TSLinkObserverRegistry* direct_registry = link_target.link_observer_registry;
+    TSLinkObserverRegistry* resolved_registry = link_target.has_resolved_target ? link_target.resolved_target.link_observer_registry : nullptr;
+
+    unregister_link_target_observer_from_registry(link_target, direct_registry);
+    if (resolved_registry != direct_registry) {
+        unregister_link_target_observer_from_registry(link_target, resolved_registry);
+    }
+}
+
+void register_link_target_observer_entry(TSLinkObserverRegistry* registry,
+                                         void* value_data,
+                                         const std::vector<size_t>& path,
+                                         LinkTarget* target) {
+    if (registry == nullptr || value_data == nullptr || target == nullptr) {
         return;
     }
 
-    auto& registrations = observer_registry[value_data];
+    auto& registrations = registry->entries[value_data];
 
     const auto existing = std::find_if(
         registrations.begin(),
         registrations.end(),
-        [target](const ObserverRegistration& registration) {
+        [target](const LinkObserverRegistration& registration) {
             return registration.link_target == target;
         });
 
@@ -140,7 +145,7 @@ void register_link_target_observer_entry(void* value_data, const std::vector<siz
         return;
     }
 
-    registrations.push_back(ObserverRegistration{path, target});
+    registrations.push_back(LinkObserverRegistration{path, target});
 }
 
 void register_link_target_observer(const LinkTarget& link_target) {
@@ -149,10 +154,15 @@ void register_link_target_observer(const LinkTarget& link_target) {
     }
 
     auto* mutable_target = const_cast<LinkTarget*>(&link_target);
-    register_link_target_observer_entry(link_target.value_data, link_target.target_path.indices, mutable_target);
+    register_link_target_observer_entry(
+        link_target.link_observer_registry,
+        link_target.value_data,
+        link_target.target_path.indices,
+        mutable_target);
 
     if (link_target.has_resolved_target && link_target.resolved_target.value_data != nullptr) {
         register_link_target_observer_entry(
+            link_target.resolved_target.link_observer_registry,
             link_target.resolved_target.value_data,
             link_target.resolved_target.path.indices,
             mutable_target);
@@ -160,18 +170,18 @@ void register_link_target_observer(const LinkTarget& link_target) {
 }
 
 void notify_link_target_observers(const ViewData& target_view, engine_time_t current_time) {
-    if (target_view.value_data == nullptr) {
+    if (target_view.value_data == nullptr || target_view.link_observer_registry == nullptr) {
         return;
     }
 
     std::vector<LinkTarget*> observers;
-    auto it = observer_registry.find(target_view.value_data);
-    if (it == observer_registry.end()) {
+    auto it = target_view.link_observer_registry->entries.find(target_view.value_data);
+    if (it == target_view.link_observer_registry->entries.end()) {
         return;
     }
 
     std::unordered_set<LinkTarget*> dedupe;
-    for (const ObserverRegistration& registration : it->second) {
+    for (const LinkObserverRegistration& registration : it->second) {
         if (registration.link_target == nullptr) {
             continue;
         }
@@ -1131,6 +1141,7 @@ bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
            lhs.observer_data == rhs.observer_data &&
            lhs.delta_data == rhs.delta_data &&
            lhs.link_data == rhs.link_data &&
+           lhs.link_observer_registry == rhs.link_observer_registry &&
            lhs.projection == rhs.projection &&
            lhs.path.indices == rhs.path.indices;
 }
@@ -3524,7 +3535,7 @@ void unregister_ts_link_observer(LinkTarget& observer) {
 }
 
 void reset_ts_link_observers() {
-    observer_registry.clear();
+    // Registries are endpoint-owned and do not require process-global cleanup.
 }
 
 }  // namespace hgraph

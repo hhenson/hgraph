@@ -152,6 +152,7 @@ ViewData TSValue::make_view_data(ShortPath path) const {
     vd.observer_data = observer_.schema() != nullptr ? const_cast<value::Value*>(&observer_) : nullptr;
     vd.delta_data = delta_value_.schema() != nullptr ? const_cast<value::Value*>(&delta_value_) : nullptr;
     vd.link_data = link_.schema() != nullptr ? const_cast<value::Value*>(&link_) : nullptr;
+    vd.link_observer_registry = link_observer_registry_;
     vd.sampled = false;
     vd.uses_link_target = uses_link_target_;
     vd.ops = get_ts_ops(meta_);

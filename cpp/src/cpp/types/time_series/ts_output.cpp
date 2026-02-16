@@ -77,6 +77,14 @@ void establish_links_recursive(TSView native_view, const TSMeta* native_meta,
 
 }  // namespace
 
+TSOutput::TSOutput(const TSMeta* meta, node_ptr owning_node, size_t port_index)
+    : native_value_(meta),
+      link_observer_registry_(std::make_shared<TSLinkObserverRegistry>()),
+      owning_node_(owning_node),
+      port_index_(port_index) {
+    native_value_.set_link_observer_registry(link_observer_registry_.get());
+}
+
 TSView TSOutput::view(engine_time_t current_time) {
     return TSView(native_value_, current_time, root_path());
 }
@@ -105,6 +113,7 @@ TSValue& TSOutput::get_or_create_alternative(const TSMeta* schema) {
     }
 
     auto [inserted, _] = alternatives_.emplace(schema, TSValue(schema));
+    inserted->second.set_link_observer_registry(link_observer_registry_.get());
     establish_default_binding(inserted->second);
     return inserted->second;
 }

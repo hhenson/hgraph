@@ -248,8 +248,11 @@ void unbind_links_recursive(const TSMeta* meta, TSView input_view) {
 
 TSInput::TSInput(const TSMeta* meta, node_ptr owning_node)
     : value_(meta, meta != nullptr ? TSMetaSchemaCache::instance().get(meta).input_link_schema : nullptr),
+      link_observer_registry_(std::make_shared<TSLinkObserverRegistry>()),
       meta_(meta),
       owning_node_(owning_node) {
+    value_.set_link_observer_registry(link_observer_registry_.get());
+
     if (meta_ == nullptr) {
         return;
     }

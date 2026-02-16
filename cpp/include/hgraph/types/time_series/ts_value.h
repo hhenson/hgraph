@@ -8,6 +8,7 @@
 namespace hgraph {
 
 class TSView;
+struct TSLinkObserverRegistry;
 
 /**
  * Owning storage for a time-series value.
@@ -52,6 +53,10 @@ public:
     [[nodiscard]] bool all_valid(engine_time_t current_time) const;
     [[nodiscard]] bool has_delta() const;
 
+    void set_link_observer_registry(TSLinkObserverRegistry* registry) noexcept {
+        link_observer_registry_ = registry;
+    }
+
     [[nodiscard]] ViewData make_view_data(ShortPath path = {}) const;
     [[nodiscard]] TSView ts_view(engine_time_t current_time, ShortPath path = {}) const;
 
@@ -66,6 +71,7 @@ private:
 
     const TSMeta* meta_{nullptr};
     bool uses_link_target_{false};
+    TSLinkObserverRegistry* link_observer_registry_{nullptr};
 };
 
 }  // namespace hgraph

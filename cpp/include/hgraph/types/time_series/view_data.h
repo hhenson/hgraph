@@ -15,6 +15,7 @@ namespace hgraph {
 struct ts_ops;
 struct LinkTarget;
 struct REFLink;
+struct TSLinkObserverRegistry;
 struct ViewData;
 
 /**
@@ -90,6 +91,7 @@ struct ViewData {
     void* observer_data{nullptr};
     void* delta_data{nullptr};
     void* link_data{nullptr};
+    TSLinkObserverRegistry* link_observer_registry{nullptr};
 
     bool sampled{false};
     bool uses_link_target{false};

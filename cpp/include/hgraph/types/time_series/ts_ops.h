@@ -163,13 +163,13 @@ HGRAPH_EXPORT void store_to_ref_link(REFLink& target, const ViewData& source);
 HGRAPH_EXPORT bool resolve_bound_target_view_data(const ViewData& source, ViewData& out);
 
 /**
- * Register/unregister a link observer against the process-global TS observer registry.
+ * Register/unregister a link observer against endpoint-owned TS observer registries.
  */
 HGRAPH_EXPORT void register_ts_link_observer(LinkTarget& observer);
 HGRAPH_EXPORT void unregister_ts_link_observer(LinkTarget& observer);
 
 /**
- * Reset process-global TS link observer state between graph runs.
+ * Compatibility no-op (registries are endpoint-owned and auto-reset with endpoint lifetime).
  */
 HGRAPH_EXPORT void reset_ts_link_observers();
 

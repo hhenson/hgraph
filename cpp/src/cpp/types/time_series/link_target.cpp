@@ -64,6 +64,7 @@ void LinkTarget::copy_target_data_from(const LinkTarget& other) {
     observer_data = other.observer_data;
     delta_data = other.delta_data;
     link_data = other.link_data;
+    link_observer_registry = other.link_observer_registry;
     projection = other.projection;
     ops = other.ops;
     meta = other.meta;
@@ -82,6 +83,7 @@ void LinkTarget::clear_target_data() {
     observer_data = nullptr;
     delta_data = nullptr;
     link_data = nullptr;
+    link_observer_registry = nullptr;
     projection = ViewProjection::NONE;
     ops = nullptr;
     meta = nullptr;
@@ -103,6 +105,7 @@ void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
     observer_data = target.observer_data;
     delta_data = target.delta_data;
     link_data = target.link_data;
+    link_observer_registry = target.link_observer_registry;
     projection = target.projection;
     ops = target.ops;
     meta = target.meta;
@@ -160,6 +163,7 @@ ViewData LinkTarget::as_view_data(bool sampled) const {
     vd.observer_data = observer_data;
     vd.delta_data = delta_data;
     vd.link_data = link_data;
+    vd.link_observer_registry = link_observer_registry;
     vd.sampled = sampled;
     vd.uses_link_target = true;
     vd.projection = projection;

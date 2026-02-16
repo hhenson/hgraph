@@ -1,9 +1,11 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/link_observer_registry.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_view.h>
 
+#include <memory>
 #include <unordered_map>
 
 namespace hgraph {
@@ -14,8 +16,7 @@ namespace hgraph {
 class HGRAPH_EXPORT TSOutput {
 public:
     TSOutput() = default;
-    TSOutput(const TSMeta* meta, node_ptr owning_node, size_t port_index = 0)
-        : native_value_(meta), owning_node_(owning_node), port_index_(port_index) {}
+    TSOutput(const TSMeta* meta, node_ptr owning_node, size_t port_index = 0);
 
     TSOutput(const TSOutput&) = delete;
     TSOutput& operator=(const TSOutput&) = delete;
@@ -60,6 +61,7 @@ private:
 
     TSValue native_value_;
     std::unordered_map<const TSMeta*, TSValue> alternatives_;
+    std::shared_ptr<TSLinkObserverRegistry> link_observer_registry_{};
     node_ptr owning_node_{nullptr};
     size_t port_index_{0};
 };

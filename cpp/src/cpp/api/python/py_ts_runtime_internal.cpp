@@ -2,6 +2,7 @@
 
 #include <hgraph/python/chrono.h>
 #include <hgraph/types/feature_extension.h>
+#include <hgraph/types/time_series/link_observer_registry.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/ref_link.h>
 #include <hgraph/types/time_series/ts_input.h>
@@ -21,6 +22,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -537,35 +539,6 @@ bool set_output_remove(TSOutputView& self, const nb::object& elem_obj) {
     return true;
 }
 
-struct TSSSourceKey {
-    node_ptr node{nullptr};
-    PortType port_type{PortType::OUTPUT};
-    void* value_data{nullptr};
-    std::vector<size_t> path{};
-    ViewProjection projection{ViewProjection::NONE};
-
-    bool operator==(const TSSSourceKey& other) const {
-        return node == other.node &&
-               port_type == other.port_type &&
-               value_data == other.value_data &&
-               projection == other.projection &&
-               path == other.path;
-    }
-};
-
-struct TSSSourceKeyHash {
-    size_t operator()(const TSSSourceKey& key) const noexcept {
-        size_t h = std::hash<node_ptr>{}(key.node);
-        h ^= std::hash<uint8_t>{}(static_cast<uint8_t>(key.port_type)) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        h ^= std::hash<void*>{}(key.value_data) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        h ^= static_cast<size_t>(key.projection) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        for (size_t p : key.path) {
-            h ^= std::hash<size_t>{}(p) + 0x9e3779b9 + (h << 6) + (h >> 2);
-        }
-        return h;
-    }
-};
-
 struct ContainsOutputState {
     std::shared_ptr<TSValue> output_value;
     bool has_cached_value{false};
@@ -604,7 +577,9 @@ public:
         registered_ = true;
     }
 
-    ~TSSFeatureObserver() override = default;
+    ~TSSFeatureObserver() override {
+        detach();
+    }
 
     void detach() {
         if (!registered_) {
@@ -742,22 +717,36 @@ private:
     bool registered_{false};
 };
 
-std::unordered_map<TSSSourceKey, std::shared_ptr<TSSFeatureObserver>, TSSSourceKeyHash> g_tss_feature_observers;
-
-TSSSourceKey tss_source_key_for(const TSOutputView& self) {
+std::string tss_source_runtime_key_for(const TSOutputView& self) {
     const ViewData& vd = self.as_ts_view().view_data();
-    return TSSSourceKey{vd.path.node, vd.path.port_type, vd.value_data, vd.path.indices, vd.projection};
+    std::string key;
+    key.reserve(64 + vd.path.indices.size() * 12);
+    key.append("value:");
+    key.append(std::to_string(reinterpret_cast<uintptr_t>(vd.value_data)));
+    key.append("|proj:");
+    key.append(std::to_string(static_cast<unsigned>(vd.projection)));
+    key.append("|path");
+    for (size_t index : vd.path.indices) {
+        key.push_back('/');
+        key.append(std::to_string(index));
+    }
+    return key;
 }
 
 std::shared_ptr<TSSFeatureObserver> ensure_tss_feature_observer(const TSOutputView& self) {
-    TSSSourceKey key = tss_source_key_for(self);
-    auto it = g_tss_feature_observers.find(key);
-    if (it != g_tss_feature_observers.end()) {
-        return it->second;
+    TSLinkObserverRegistry* registry = self.as_ts_view().view_data().link_observer_registry;
+    if (registry == nullptr) {
+        return {};
+    }
+
+    const std::string key = tss_source_runtime_key_for(self);
+    std::shared_ptr<void> existing = registry->feature_state(key);
+    if (existing) {
+        return std::static_pointer_cast<TSSFeatureObserver>(std::move(existing));
     }
 
     auto observer = std::make_shared<TSSFeatureObserver>(self.as_ts_view().view_data());
-    g_tss_feature_observers.emplace(std::move(key), observer);
+    registry->set_feature_state(key, observer);
     return observer;
 }
 
@@ -766,6 +755,9 @@ TSOutputView tss_get_contains_output(TSOutputView& self, const nb::object& item,
         return {};
     }
     auto observer = ensure_tss_feature_observer(self);
+    if (!observer) {
+        return {};
+    }
     return observer->get_contains_output(item, requester, self.current_time());
 }
 
@@ -774,16 +766,22 @@ void tss_release_contains_output(TSOutputView& self, const nb::object& item, con
         return;
     }
 
-    const TSSSourceKey key = tss_source_key_for(self);
-    auto it = g_tss_feature_observers.find(key);
-    if (it == g_tss_feature_observers.end()) {
+    TSLinkObserverRegistry* registry = self.as_ts_view().view_data().link_observer_registry;
+    if (registry == nullptr) {
         return;
     }
 
-    it->second->release_contains_output(item, requester, self.current_time());
-    if (!it->second->has_consumers()) {
-        it->second->detach();
-        g_tss_feature_observers.erase(it);
+    const std::string key = tss_source_runtime_key_for(self);
+    std::shared_ptr<void> existing = registry->feature_state(key);
+    if (!existing) {
+        return;
+    }
+
+    auto observer = std::static_pointer_cast<TSSFeatureObserver>(std::move(existing));
+    observer->release_contains_output(item, requester, self.current_time());
+    if (!observer->has_consumers()) {
+        observer->detach();
+        registry->clear_feature_state(key);
     }
 }
 
@@ -792,6 +790,9 @@ TSOutputView tss_get_is_empty_output(TSOutputView& self) {
         return {};
     }
     auto observer = ensure_tss_feature_observer(self);
+    if (!observer) {
+        return {};
+    }
     return observer->get_is_empty_output(self.current_time());
 }
 
@@ -837,12 +838,7 @@ void clear_output(TSOutputView& self) {
 }  // namespace
 
 void reset_ts_runtime_feature_observers() {
-    for (auto& [_, observer] : g_tss_feature_observers) {
-        if (observer) {
-            observer->detach();
-        }
-    }
-    g_tss_feature_observers.clear();
+    // Runtime observers are stored on endpoint registries and cleaned up with endpoint lifetime.
 }
 
 void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
