@@ -170,11 +170,19 @@ inline void store_link_target(REFLink& rl, const ViewData& target) {
 }
 
 // Helper: Check if this view is linked via REFLink and get the REFLink
-// Only call when uses_link_target is false
+// Only call when uses_link_target is false.
+// Only REF outputs have active REFLinks for delegation (REFLink stores the
+// resolved target of a TSReference). For all other kinds, link_data may point
+// to collection-level link storage (TSD/TSL/TSB) or a default-constructed
+// REFLink (TS/TSS/TSW/SIGNAL), neither of which should be followed.
 inline const REFLink* get_active_link(const ViewData& vd) {
-    if (vd.uses_link_target) return nullptr;  // Wrong type
+    if (vd.uses_link_target) return nullptr;  // TSInput uses LinkTarget, not REFLink
+    if (!vd.meta || vd.meta->kind != TSKind::REF) return nullptr;  // Only REF has active REFLinks
     auto* rl = get_ref_link(vd.link_data);
-    return (rl && rl->target().valid()) ? rl : nullptr;
+    if (rl && rl->target().valid()) {
+        return rl;
+    }
+    return nullptr;
 }
 
 // Helper: Check if this view is linked via LinkTarget and get the LinkTarget
@@ -323,7 +331,8 @@ struct REFBindingHelper : public Notifiable {
 
     explicit REFBindingHelper(LinkTarget* lt, const ViewData& ref_src, bool ref_to_ref = false,
                               void* input_obs = nullptr)
-        : owner(lt), ref_source(ref_src), input_observer_data(input_obs), is_ref_to_ref_(ref_to_ref) {}
+        : owner(lt), ref_source(ref_src), input_observer_data(input_obs), is_ref_to_ref_(ref_to_ref) {
+    }
 
     ~REFBindingHelper() override {
         // Do NOT call unsubscribe_all() here.
@@ -461,7 +470,7 @@ struct REFBindingHelper : public Notifiable {
         if (ts_ref->is_peered()) {
             try {
                 resolved = ts_ref->resolve(current_time);
-            } catch (const std::exception&) {
+            } catch (const std::exception& e) {
                 return;
             }
         } else if (ts_ref->is_python_bound()) {
@@ -649,7 +658,9 @@ bool valid(const ViewData& vd) {
         }
     }
     auto [result, target] = resolve_delegation_target_with_ref(vd, MIN_DT);
-    if (result == DelegateResult::DELEGATED) return target.ops->valid(target);
+    if (result == DelegateResult::DELEGATED) {
+        return target.ops->valid(target);
+    }
     if (result == DelegateResult::REF_UNRESOLVED) return false;
     // For REF outputs (no links), check that the TSReference is non-empty.
     // Matches Python: REF output valid = has_output (non-empty ref).
@@ -1349,9 +1360,34 @@ void set_value(ViewData& vd, const value::View& src, engine_time_t current_time)
             value::View field_time = time_tuple.at(i + 1);  // +1 for bundle-level time
             if (field_time) {
                 const TSMeta* field_meta = vd.meta->fields[i].ts_type;
-                if (field_meta && (field_meta->is_collection() || field_meta->kind == TSKind::TSB)) {
-                    // Composite field: time is tuple[engine_time_t, ...]
-                    field_time.as_tuple().at(0).as<engine_time_t>() = current_time;
+                if (field_meta && field_meta->kind == TSKind::TSB) {
+                    // Nested TSB: set container time AND recursively set sub-field times
+                    auto nested_time_tuple = field_time.as_tuple();
+                    nested_time_tuple.at(0).as<engine_time_t>() = current_time;
+                    for (size_t j = 0; j < field_meta->field_count; ++j) {
+                        value::View sub_field_time = nested_time_tuple.at(j + 1);
+                        if (sub_field_time) {
+                            const TSMeta* sub_meta = field_meta->fields[j].ts_type;
+                            if (sub_meta && (sub_meta->is_collection() || sub_meta->kind == TSKind::TSB)) {
+                                sub_field_time.as_tuple().at(0).as<engine_time_t>() = current_time;
+                            } else {
+                                *static_cast<engine_time_t*>(sub_field_time.data()) = current_time;
+                            }
+                        }
+                    }
+                } else if (field_meta && field_meta->is_collection()) {
+                    // Collection field: time is tuple[engine_time_t, elem_times...]
+                    auto coll_time_tuple = field_time.as_tuple();
+                    coll_time_tuple.at(0).as<engine_time_t>() = current_time;
+
+                    // For TSL: stamp all fixed-size element times
+                    if (field_meta->kind == TSKind::TSL && field_meta->fixed_size > 0) {
+                        auto elem_times = coll_time_tuple.at(1).as_list();
+                        size_t max_idx = std::min(static_cast<size_t>(field_meta->fixed_size), elem_times.size());
+                        for (size_t j = 0; j < max_idx; ++j) {
+                            elem_times.at(j).as<engine_time_t>() = current_time;
+                        }
+                    }
                 } else {
                     // Scalar field: time is just engine_time_t
                     *static_cast<engine_time_t*>(field_time.data()) = current_time;
@@ -1392,7 +1428,9 @@ nb::object to_python(const ViewData& vd) {
             value::View link_view(vd.link_data, link_schema);
             auto link_tuple = link_view.as_tuple();
 
-            // Check if any field has a valid link (indicating this is a linked input bundle)
+            // Check if any scalar field has a valid link (indicating this is a linked input bundle)
+            // Note: Collection/composite fields use per-element links, but if any scalar is linked,
+            // we're in the linked path and should handle all fields through links/child_at.
             bool has_links = false;
             for (size_t i = 0; i < vd.meta->field_count; ++i) {
                 const TSMeta* field_meta = vd.meta->fields[i].ts_type;
@@ -1407,6 +1445,20 @@ nb::object to_python(const ViewData& vd) {
                     } else {
                         auto* rl = static_cast<const REFLink*>(field_link.data());
                         if (rl && rl->target().is_linked) {
+                            has_links = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            // Also check if any collection/composite field has links (via its link_data)
+            if (!has_links) {
+                for (size_t i = 0; i < vd.meta->field_count; ++i) {
+                    const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+                    if (field_meta && (field_meta->is_collection() || field_meta->kind == TSKind::TSB)) {
+                        // Collection fields have their own link schemas - check if link data exists
+                        void* field_link_data = get_field_link_data(vd, i);
+                        if (field_link_data) {
                             has_links = true;
                             break;
                         }
@@ -1452,6 +1504,17 @@ nb::object to_python(const ViewData& vd) {
                                 }
                             }
                         }
+                    } else if (field_meta && (field_meta->is_collection() || field_meta->kind == TSKind::TSB)) {
+                        // Collection/composite fields: use child_at to get field view with proper link data
+                        TSView field_view = child_at(vd, i, MIN_DT);
+                        const auto& fvd = field_view.view_data();
+                        if (fvd.valid() && fvd.ops && fvd.ops->valid(fvd)) {
+                            nb::object field_val = fvd.ops->to_python(fvd);
+                            if (!field_val.is_none()) {
+                                result[field_name] = field_val;
+                                field_included = true;
+                            }
+                        }
                     }
                     // For CompoundScalar: include required fields (no default) as None
                     // Matching Python: getattr(s, k, None) is None
@@ -1477,7 +1540,7 @@ nb::object to_python(const ViewData& vd) {
         auto time_view = make_time_view(vd);
         auto time_tuple = time_view.as_tuple();
         auto value_view = make_value_view(vd);
-        auto value_tuple = value_view.as_tuple();
+        auto value_indexed = value_view.as_bundle();
 
         nb::dict result;
         for (size_t i = 0; i < vd.meta->field_count; ++i) {
@@ -1499,9 +1562,31 @@ nb::object to_python(const ViewData& vd) {
             }
 
             if (field_valid) {
-                value::View field_value = value_tuple.at(i);
-                if (field_value.valid()) {
-                    result[field_name] = field_value.to_python();
+                if (field_meta && (field_meta->is_collection() || field_meta->kind == TSKind::TSB)) {
+                    // Composite field: use TS-level to_python for correct formatting
+                    // (e.g., TSL returns {index: value} dict, not a list)
+                    ViewData field_vd;
+                    field_vd.path = vd.path.child(i);
+                    field_vd.value_data = value_indexed.at(i).data();
+                    field_vd.time_data = time_tuple.at(i + 1).data();
+                    if (vd.observer_data) {
+                        auto observer_view = make_observer_view(vd);
+                        field_vd.observer_data = observer_view.as_tuple().at(i + 1).data();
+                    }
+                    field_vd.delta_data = nullptr;
+                    field_vd.uses_link_target = vd.uses_link_target;
+                    field_vd.ops = get_ts_ops(field_meta);
+                    field_vd.meta = field_meta;
+                    nb::object py_val = field_vd.ops->to_python(field_vd);
+                    if (!py_val.is_none()) {
+                        result[field_name] = py_val;
+                    }
+                } else {
+                    // Scalar field: use value-level to_python
+                    value::View field_value = value_indexed.at(i);
+                    if (field_value.valid()) {
+                        result[field_name] = field_value.to_python();
+                    }
                 }
             } else if (has_cs) {
                 // For CompoundScalar: include required fields (no default) as None
@@ -1535,17 +1620,26 @@ nb::object delta_to_python(const ViewData& vd) {
             value::View link_view(vd.link_data, link_schema);
             auto link_tuple = link_view.as_tuple();
 
-            // First pass: determine current engine time (max last_modified_time across fields)
+            // First pass: determine current engine time (max last_modified_time across all fields)
             engine_time_t current_time = MIN_DT;
             for (size_t i = 0; i < vd.meta->field_count; ++i) {
                 const TSMeta* field_meta = vd.meta->fields[i].ts_type;
-                if (!field_meta || !field_meta->is_scalar_ts()) continue;
+                if (!field_meta) continue;
 
-                if (vd.uses_link_target) {
-                    auto* lt = static_cast<const LinkTarget*>(link_tuple.at(i + 1).data());
-                    if (lt && lt->is_linked && lt->ops) {
-                        ViewData target_vd = make_view_data_from_link_target(*lt, vd.path.child(i));
-                        engine_time_t ft = target_vd.ops->last_modified_time(target_vd);
+                if (field_meta->is_scalar_ts()) {
+                    if (vd.uses_link_target) {
+                        auto* lt = static_cast<const LinkTarget*>(link_tuple.at(i + 1).data());
+                        if (lt && lt->is_linked && lt->ops) {
+                            ViewData target_vd = make_view_data_from_link_target(*lt, vd.path.child(i));
+                            engine_time_t ft = target_vd.ops->last_modified_time(target_vd);
+                            if (ft > current_time) current_time = ft;
+                        }
+                    }
+                } else if (field_meta->is_collection() || field_meta->kind == TSKind::TSB) {
+                    TSView field_view = child_at(vd, i, MIN_DT);
+                    const auto& fvd = field_view.view_data();
+                    if (fvd.valid() && fvd.ops) {
+                        engine_time_t ft = fvd.ops->last_modified_time(fvd);
                         if (ft > current_time) current_time = ft;
                     }
                 }
@@ -1597,6 +1691,17 @@ nb::object delta_to_python(const ViewData& vd) {
                             }
                         }
                     }
+                } else if (field_meta && (field_meta->is_collection() || field_meta->kind == TSKind::TSB)) {
+                    // Collection/composite fields: use child_at to get field view with proper link data
+                    TSView field_view = child_at(vd, i, current_time);
+                    const auto& fvd = field_view.view_data();
+                    if (fvd.valid() && fvd.ops &&
+                        fvd.ops->valid(fvd) && fvd.ops->modified(fvd, current_time)) {
+                        nb::object field_val = fvd.ops->delta_to_python(fvd);
+                        if (!field_val.is_none()) {
+                            result[field_name] = field_val;
+                        }
+                    }
                 }
             }
             return result;
@@ -1608,7 +1713,7 @@ nb::object delta_to_python(const ViewData& vd) {
         auto time_view = make_time_view(vd);
         auto time_tuple = time_view.as_tuple();
         auto value_view = make_value_view(vd);
-        auto value_tuple = value_view.as_tuple();
+        auto value_indexed = value_view.as_bundle();
 
         // Bundle-level time is the current engine time (set during from_python)
         engine_time_t bundle_time = time_tuple.at(0).as<engine_time_t>();
@@ -1637,15 +1742,35 @@ nb::object delta_to_python(const ViewData& vd) {
                 // Python TSB delta_value filters by ts.valid which for REF returns
                 // has_output (False for empty refs). Match that here.
                 if (field_meta && field_meta->kind == TSKind::REF) {
-                    value::View field_value = value_tuple.at(i);
+                    value::View field_value = value_indexed.at(i);
                     if (field_value.valid()) {
                         auto* ref = static_cast<const TSReference*>(field_value.data());
                         if (ref->is_empty()) continue;
                     }
                 }
-                value::View field_value = value_tuple.at(i);
-                if (field_value.valid()) {
-                    result[field_name] = field_value.to_python();
+                if (field_meta && (field_meta->is_collection() || field_meta->kind == TSKind::TSB)) {
+                    // Composite field: use TS-level delta_to_python
+                    ViewData field_vd;
+                    field_vd.path = vd.path.child(i);
+                    field_vd.value_data = value_indexed.at(i).data();
+                    field_vd.time_data = time_tuple.at(i + 1).data();
+                    if (vd.observer_data) {
+                        auto observer_view = make_observer_view(vd);
+                        field_vd.observer_data = observer_view.as_tuple().at(i + 1).data();
+                    }
+                    field_vd.delta_data = nullptr;
+                    field_vd.uses_link_target = vd.uses_link_target;
+                    field_vd.ops = get_ts_ops(field_meta);
+                    field_vd.meta = field_meta;
+                    nb::object py_val = field_vd.ops->delta_to_python(field_vd);
+                    if (!py_val.is_none()) {
+                        result[field_name] = py_val;
+                    }
+                } else {
+                    value::View field_value = value_indexed.at(i);
+                    if (field_value.valid()) {
+                        result[field_name] = field_value.to_python();
+                    }
                 }
             }
         }
@@ -1708,9 +1833,35 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
             value::View field_time = time_tuple.at(i + 1);  // +1 for bundle-level time
             if (field_time) {
                 const TSMeta* field_meta = vd.meta->fields[i].ts_type;
-                if (field_meta && (field_meta->is_collection() || field_meta->kind == TSKind::TSB)) {
-                    // Composite field: time is tuple[engine_time_t, ...]
-                    field_time.as_tuple().at(0).as<engine_time_t>() = current_time;
+                if (field_meta && field_meta->kind == TSKind::TSB) {
+                    // Nested TSB: set container time AND recursively set sub-field times
+                    auto nested_time_tuple = field_time.as_tuple();
+                    nested_time_tuple.at(0).as<engine_time_t>() = current_time;
+                    // Recursively stamp all sub-fields so to_python considers them valid
+                    for (size_t j = 0; j < field_meta->field_count; ++j) {
+                        value::View sub_field_time = nested_time_tuple.at(j + 1);
+                        if (sub_field_time) {
+                            const TSMeta* sub_meta = field_meta->fields[j].ts_type;
+                            if (sub_meta && (sub_meta->is_collection() || sub_meta->kind == TSKind::TSB)) {
+                                sub_field_time.as_tuple().at(0).as<engine_time_t>() = current_time;
+                            } else {
+                                *static_cast<engine_time_t*>(sub_field_time.data()) = current_time;
+                            }
+                        }
+                    }
+                } else if (field_meta && field_meta->is_collection()) {
+                    // Collection field: time is tuple[engine_time_t, elem_times...]
+                    auto coll_time_tuple = field_time.as_tuple();
+                    coll_time_tuple.at(0).as<engine_time_t>() = current_time;
+
+                    // For fixed-size TSL: stamp all element times since from_python sets all elements
+                    if (field_meta->kind == TSKind::TSL && field_meta->fixed_size > 0) {
+                        auto elem_times = coll_time_tuple.at(1).as_list();
+                        size_t max_idx = std::min(static_cast<size_t>(field_meta->fixed_size), elem_times.size());
+                        for (size_t j = 0; j < max_idx; ++j) {
+                            elem_times.at(j).as<engine_time_t>() = current_time;
+                        }
+                    }
                 } else {
                     // Scalar field: time is just engine_time_t
                     *static_cast<engine_time_t*>(field_time.data()) = current_time;
@@ -2309,15 +2460,18 @@ void bind(ViewData& vd, const ViewData& target) {
 
             // Set nested container's parent_link to this container (TSInput path)
             if (vd.uses_link_target && container_lt) {
-                // For composite fields, the link data contains a nested tuple
-                // Element 0 is the nested container's LinkTarget
-                auto nested_link_schema = get_bundle_link_schema(field_vd);
-                if (nested_link_schema) {
-                    value::View nested_link(field_vd.link_data, nested_link_schema);
-                    auto nested_tuple = nested_link.as_tuple();
-                    auto* nested_container_lt = static_cast<LinkTarget*>(nested_tuple.at(0).data());
-                    if (nested_container_lt) {
-                        nested_container_lt->parent_link = container_lt;
+                // Only TSB and TSD have a container-level LinkTarget at element 0
+                // of their link tuple. TSL uses fixed_list[LinkTarget] without a
+                // container-level entry.
+                if (field_meta && (field_meta->kind == TSKind::TSB || field_meta->kind == TSKind::TSD)) {
+                    auto nested_link_schema = get_bundle_link_schema(field_vd);
+                    if (nested_link_schema) {
+                        value::View nested_link(field_vd.link_data, nested_link_schema);
+                        auto nested_tuple = nested_link.as_tuple();
+                        auto* nested_container_lt = static_cast<LinkTarget*>(nested_tuple.at(0).data());
+                        if (nested_container_lt) {
+                            nested_container_lt->parent_link = container_lt;
+                        }
                     }
                 }
             }
@@ -4617,6 +4771,26 @@ bool dict_remove(ViewData& vd, const value::View& key, engine_time_t current_tim
 TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, engine_time_t current_time);
 TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_time);
 
+// Helper: Get/set element time from a VarList slot.
+// For scalar elements (TS, TSS, REF, SIGNAL), the VarList element is a plain engine_time_t.
+// For composite elements (TSD, TSB, TSL), it is a tuple where at(0) is the container time.
+inline engine_time_t get_elem_time(const value::ListView& time_list, size_t slot) {
+    auto elem = time_list.at(slot);
+    if (auto tpl = elem.try_as_tuple()) {
+        return tpl->at(0).as<engine_time_t>();
+    }
+    return elem.as<engine_time_t>();
+}
+
+inline void set_elem_time(const value::ListView& time_list, size_t slot, engine_time_t t) {
+    auto elem = time_list.at(slot);
+    if (auto tpl = elem.try_as_tuple()) {
+        tpl->at(0).as<engine_time_t>() = t;
+    } else {
+        elem.as<engine_time_t>() = t;
+    }
+}
+
 // For TSD types:
 // - value is map type
 // - time is tuple[engine_time_t, var_list[element_times]]
@@ -4704,7 +4878,8 @@ inline void* get_collection_link_data(const ViewData& vd) {
 // Shadow outer-namespace get_active_link for TSD tuple layout
 inline const REFLink* get_active_link(const ViewData& vd) {
     if (vd.uses_link_target) return nullptr;
-    auto* rl = get_ref_link(get_collection_link_data(vd));
+    void* cld = get_collection_link_data(vd);
+    auto* rl = get_ref_link(cld);
     return (rl && rl->target().valid()) ? rl : nullptr;
 }
 
@@ -4952,7 +5127,7 @@ nb::object to_python(const ViewData& vd) {
         return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
     }
     // Check time-series validity first (has value been set?)
-    if (!valid(vd)) return nb::none();
+    if (!valid(vd)) { return nb::none(); }
 
     // Python: frozendict({k: v.value for k, v in self.items() if v.valid})
     // Iterate elements, skip invalid, convert values to Python
@@ -4993,16 +5168,35 @@ nb::object to_python(const ViewData& vd) {
                         }
                     }
                 } else {
-                    engine_time_t elem_time = time_list.at(slot).as<engine_time_t>();
+                    engine_time_t elem_time = get_elem_time(time_list, slot);
                     if (elem_time != MIN_DT) {
                         const void* key_data = key_set.key_at_slot(slot);
                         value::View key_view(key_data, key_tm);
 
-                        if (val_tm && val_tm->ops) {
-                            // Non-ref scalar — use value directly from MapStorage
-                            void* val_data = storage->value_at_slot(slot);
-                            value::View val_view(val_data, val_tm);
-                            result[key_view.to_python()] = val_view.to_python();
+                        if (elem_ts->kind == TSKind::TSValue || elem_ts->kind == TSKind::SIGNAL) {
+                            // Scalar element — use value directly from MapStorage
+                            if (val_tm && val_tm->ops) {
+                                void* val_data = storage->value_at_slot(slot);
+                                value::View val_view(val_data, val_tm);
+                                result[key_view.to_python()] = val_view.to_python();
+                            }
+                        } else {
+                            // Composite element (TSD, TSB, TSL, TSS) — use TS-level to_python
+                            auto observer_view = make_observer_view(vd);
+                            auto observer_list = observer_view.as_tuple().at(1).as_list();
+                            ViewData elem_vd;
+                            elem_vd.path = vd.path.child(slot);
+                            elem_vd.value_data = storage->value_at_slot(slot);
+                            elem_vd.time_data = time_list.at(slot).data();
+                            elem_vd.observer_data = (slot < observer_list.size()) ? observer_list.at(slot).data() : nullptr;
+                            elem_vd.delta_data = nullptr;
+                            elem_vd.uses_link_target = vd.uses_link_target;
+                            elem_vd.ops = get_ts_ops(elem_ts);
+                            elem_vd.meta = elem_ts;
+                            nb::object py_val = elem_vd.ops->to_python(elem_vd);
+                            if (!py_val.is_none()) {
+                                result[key_view.to_python()] = py_val;
+                            }
                         }
                     }
                 }
@@ -5024,7 +5218,7 @@ nb::object delta_to_python(const ViewData& vd) {
         return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
     }
     // Check time-series validity first (has value been set?)
-    if (!valid(vd)) return nb::none();
+    if (!valid(vd)) { return nb::none(); }
 
     // TSD delta_value: frozendict of modified+valid elements' delta_values
     // Python: frozendict(chain(((k, v.delta_value) for k,v in items if v.modified and v.valid),
@@ -5108,7 +5302,7 @@ nb::object delta_to_python(const ViewData& vd) {
         for (auto slot : *index_set) {
             if (emitted_slots.count(slot)) continue;
             if (slot < time_list.size()) {
-                engine_time_t elem_time = time_list.at(slot).as<engine_time_t>();
+                engine_time_t elem_time = get_elem_time(time_list, slot);
                 if (elem_is_ref) {
                     auto* ref = static_cast<TSReference*>(storage->value_at_slot(slot));
                     if (ref && !ref->is_empty()) {
@@ -5262,15 +5456,13 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         value::Value<> key_val(key_tm);
         key_val.view().from_python(py_key);
 
-        if (val_tm && elem_ts->kind != TSKind::TSS) {
-            // Scalar-like element: use value-level conversion + dict_set
-            // Note: TSS has non-null val_tm but needs TS-level from_python because its
-            // value-level from_python (Tuple.from_python) doesn't handle Python sets.
+        if (val_tm && elem_ts->kind == TSKind::TSValue) {
+            // Scalar element: use value-level conversion + dict_set
             value::Value<> elem_val(val_tm);
             elem_val.view().from_python(py_val);
             dict_set(vd, key_val.view(), elem_val.view(), current_time);
         } else {
-            // TSS or element without val_tm (TSB): create slot, use TS-level from_python
+            // Composite element (TSD, TSB, TSL, TSS, REF): create slot, use TS-level from_python
             TSView elem_view = dict_create(vd, key_val.view(), current_time);
             ViewData elem_vd = elem_view.view_data();
             get_ts_ops(elem_ts)->from_python(elem_vd, py_val, current_time);
@@ -5332,7 +5524,15 @@ TSView child_at(const ViewData& vd, size_t slot, engine_time_t current_time) {
     elem_vd.value_data = storage->value_at_slot(slot);
     elem_vd.time_data = time_view.as_tuple().at(1).as_list().at(slot).data();
     elem_vd.observer_data = observer_view.as_tuple().at(1).as_list().at(slot).data();
-    elem_vd.delta_data = nullptr;
+    // For nested TSD elements, provide a child MapDelta for delta tracking.
+    // This allows nested TSD key_set() and delta access to work correctly.
+    if (elem_meta->kind == TSKind::TSD && vd.delta_data) {
+        auto* parent_delta = static_cast<MapDelta*>(vd.delta_data);
+        auto* inner_storage = static_cast<value::MapStorage*>(elem_vd.value_data);
+        elem_vd.delta_data = parent_delta->get_or_create_child_map_delta(slot, inner_storage);
+    } else {
+        elem_vd.delta_data = nullptr;
+    }
     elem_vd.sampled = vd.sampled;  // Propagate sampled flag from parent
     elem_vd.uses_link_target = vd.uses_link_target;  // Propagate link type flag
     elem_vd.ops = get_ts_ops(elem_meta);
@@ -5401,9 +5601,19 @@ TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t cu
     ViewData elem_vd;
     elem_vd.path = vd.path.child(slot);
     elem_vd.value_data = storage->value_at_slot(slot);
-    elem_vd.time_data = time_view.as_tuple().at(1).as_list().at(slot).data();
-    elem_vd.observer_data = observer_view.as_tuple().at(1).as_list().at(slot).data();
-    elem_vd.delta_data = nullptr;
+    {
+        auto time_list = time_view.as_tuple().at(1).as_list();
+        auto obs_list = observer_view.as_tuple().at(1).as_list();
+        elem_vd.time_data = time_list.at(slot).data();
+        elem_vd.observer_data = obs_list.at(slot).data();
+    }
+    if (elem_meta->kind == TSKind::TSD && vd.delta_data) {
+        auto* parent_delta = static_cast<MapDelta*>(vd.delta_data);
+        auto* inner_storage = static_cast<value::MapStorage*>(elem_vd.value_data);
+        elem_vd.delta_data = parent_delta->get_or_create_child_map_delta(slot, inner_storage);
+    } else {
+        elem_vd.delta_data = nullptr;
+    }
     elem_vd.sampled = vd.sampled;  // Propagate sampled flag from parent
     elem_vd.uses_link_target = vd.uses_link_target;  // Propagate link type flag
     elem_vd.ops = get_ts_ops(elem_meta);
@@ -5650,7 +5860,13 @@ TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_t
         elem_vd.value_data = storage->value_at_slot(existing_slot);
         elem_vd.time_data = time_view.as_tuple().at(1).as_list().at(existing_slot).data();
         elem_vd.observer_data = observer_view.as_tuple().at(1).as_list().at(existing_slot).data();
-        elem_vd.delta_data = nullptr;
+        if (elem_meta->kind == TSKind::TSD && vd.delta_data) {
+            auto* parent_delta = static_cast<MapDelta*>(vd.delta_data);
+            auto* inner_storage = static_cast<value::MapStorage*>(elem_vd.value_data);
+            elem_vd.delta_data = parent_delta->get_or_create_child_map_delta(existing_slot, inner_storage);
+        } else {
+            elem_vd.delta_data = nullptr;
+        }
         elem_vd.uses_link_target = vd.uses_link_target;
         elem_vd.ops = get_ts_ops(elem_meta);
         elem_vd.meta = elem_meta;
@@ -5719,7 +5935,7 @@ TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_t
     }
 
     // Initialize the time at this slot to MIN_DT (unset)
-    time_list.at(slot).as<engine_time_t>() = MIN_DT;
+    set_elem_time(time_list, slot, MIN_DT);
 
     // The observer at this slot is already default-constructed by resize
 
@@ -5754,7 +5970,13 @@ TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_t
     elem_vd.value_data = storage->value_at_slot(slot);
     elem_vd.time_data = time_list.at(slot).data();
     elem_vd.observer_data = observer_list.at(slot).data();
-    elem_vd.delta_data = nullptr;
+    if (elem_meta->kind == TSKind::TSD && vd.delta_data) {
+        auto* parent_delta = static_cast<MapDelta*>(vd.delta_data);
+        auto* inner_storage = static_cast<value::MapStorage*>(elem_vd.value_data);
+        elem_vd.delta_data = parent_delta->get_or_create_child_map_delta(slot, inner_storage);
+    } else {
+        elem_vd.delta_data = nullptr;
+    }
     elem_vd.uses_link_target = vd.uses_link_target;
     elem_vd.ops = get_ts_ops(elem_meta);
     elem_vd.meta = elem_meta;
@@ -5853,7 +6075,7 @@ TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, 
     }
 
     // Update element timestamp
-    time_list.at(slot).as<engine_time_t>() = current_time;
+    set_elem_time(time_list, slot, current_time);
 
     // Notify element observers
     auto* elem_observers = static_cast<ObserverList*>(observer_list.at(slot).data());
@@ -5878,7 +6100,13 @@ TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, 
     elem_vd.value_data = storage->value_at_slot(slot);
     elem_vd.time_data = time_list.at(slot).data();
     elem_vd.observer_data = observer_list.at(slot).data();
-    elem_vd.delta_data = nullptr;
+    if (elem_meta->kind == TSKind::TSD && vd.delta_data) {
+        auto* parent_delta = static_cast<MapDelta*>(vd.delta_data);
+        auto* inner_storage = static_cast<value::MapStorage*>(elem_vd.value_data);
+        elem_vd.delta_data = parent_delta->get_or_create_child_map_delta(slot, inner_storage);
+    } else {
+        elem_vd.delta_data = nullptr;
+    }
     elem_vd.uses_link_target = vd.uses_link_target;
     elem_vd.ops = get_ts_ops(elem_meta);
     elem_vd.meta = elem_meta;

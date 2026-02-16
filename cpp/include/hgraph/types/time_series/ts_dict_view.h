@@ -204,7 +204,17 @@ public:
         // Get the key_time from MapDelta — this is the key set's own modification time,
         // separate from the TSD container time which updates for value changes too.
         // In Python, key_set has its own _last_modified_time that only updates on add/remove.
-        void* key_time_ptr = map_delta ? static_cast<void*>(map_delta->key_time_ptr()) : nullptr;
+        // When delta_data is null (e.g., nested TSD without delta tracking), fall back to
+        // the container time from time_data to avoid crashes.
+        void* key_time_ptr;
+        if (map_delta) {
+            key_time_ptr = static_cast<void*>(map_delta->key_time_ptr());
+        } else {
+            // Fall back to container time (first element of time tuple)
+            auto* time_schema = TSMetaSchemaCache::instance().get_time_schema(meta());
+            value::View time_view(view_data_.time_data, time_schema);
+            key_time_ptr = const_cast<void*>(time_view.as_tuple().at(0).data());
+        }
 
         // TSD observer structure: tuple[ObserverList, var_list[...]]
         // We need the first element (container observer)

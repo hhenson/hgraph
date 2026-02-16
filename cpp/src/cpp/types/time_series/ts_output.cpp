@@ -571,8 +571,9 @@ void TSOutput::establish_links_recursive(
         return;
     }
 
-    // Case 3: TSValue → REF (wrapping)
-    if (native_meta->kind == TSKind::TSValue && target_meta->kind == TSKind::REF) {
+    // Case 3: Any → REF (wrapping)
+    // When target is REF and native is not REF, wrap the native in a TSReference
+    if (native_meta->kind != TSKind::REF && target_meta->kind == TSKind::REF) {
         // Store TSReference value constructed from native's path
         // The TSReference points to the native position
         ShortPath native_path = native_view.short_path();

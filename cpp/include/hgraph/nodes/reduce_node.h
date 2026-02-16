@@ -91,6 +91,11 @@ namespace hgraph {
 
         void swap_node(const std::tuple<int64_t, int64_t> &src_ndx, const std::tuple<int64_t, int64_t> &dst_ndx);
 
+        // Re-apply TSReference writes after start_component/start_subgraph links LinkTargets.
+        // Before linking, set_ref_input_value writes to OWN value_data, but ref_value() reads
+        // through LinkTarget after linking. This re-writes through the now-linked LinkTargets.
+        void reapply_ref_bindings();
+
         int64_t node_size() const;
 
         int64_t node_count() const;

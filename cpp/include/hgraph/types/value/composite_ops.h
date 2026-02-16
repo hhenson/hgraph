@@ -313,6 +313,18 @@ struct BundleOps {
  * The layout is identical to Bundle, using BundleFieldInfo with nullptr names.
  */
 struct TupleOps {
+    // ========== None Mask Helpers ==========
+    // The none_mask is stored as a uint64_t at the end of the tuple data
+    // (after all fields, at offset schema->size - sizeof(uint64_t))
+
+    static uint64_t* none_mask_ptr(void* obj, const TypeMeta* schema) {
+        return reinterpret_cast<uint64_t*>(static_cast<char*>(obj) + schema->size - sizeof(uint64_t));
+    }
+
+    static const uint64_t* none_mask_ptr(const void* obj, const TypeMeta* schema) {
+        return reinterpret_cast<const uint64_t*>(static_cast<const char*>(obj) + schema->size - sizeof(uint64_t));
+    }
+
     // ========== Core Operations ==========
 
     static void construct(void* dst, const TypeMeta* schema) {
@@ -323,6 +335,7 @@ struct TupleOps {
                 field.type->ops->construct(field_ptr, field.type);
             }
         }
+        *none_mask_ptr(dst, schema) = 0;
     }
 
     static void destruct(void* obj, const TypeMeta* schema) {
@@ -344,6 +357,7 @@ struct TupleOps {
                 field.type->ops->copy_assign(dst_field, src_field, field.type);
             }
         }
+        *none_mask_ptr(dst, schema) = *none_mask_ptr(src, schema);
     }
 
     static void move_assign(void* dst, void* src, const TypeMeta* schema) {
@@ -355,6 +369,7 @@ struct TupleOps {
                 field.type->ops->move_assign(dst_field, src_field, field.type);
             }
         }
+        *none_mask_ptr(dst, schema) = *none_mask_ptr(src, schema);
     }
 
     static void move_construct(void* dst, void* src, const TypeMeta* schema) {
@@ -366,9 +381,13 @@ struct TupleOps {
                 field.type->ops->move_construct(dst_field, src_field, field.type);
             }
         }
+        *none_mask_ptr(dst, schema) = *none_mask_ptr(src, schema);
     }
 
     static bool equals(const void* a, const void* b, const TypeMeta* schema) {
+        // Compare None masks first
+        if (*none_mask_ptr(a, schema) != *none_mask_ptr(b, schema)) return false;
+
         for (size_t i = 0; i < schema->field_count; ++i) {
             const BundleFieldInfo& field = schema->fields[i];
             const void* a_field = static_cast<const char*>(a) + field.offset;
@@ -384,14 +403,19 @@ struct TupleOps {
 
     static std::string to_string(const void* obj, const TypeMeta* schema) {
         std::string result = "(";
+        uint64_t mask = *none_mask_ptr(obj, schema);
         for (size_t i = 0; i < schema->field_count; ++i) {
             if (i > 0) result += ", ";
-            const BundleFieldInfo& field = schema->fields[i];
-            const void* field_ptr = static_cast<const char*>(obj) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->to_string) {
-                result += field.type->ops->to_string(field_ptr, field.type);
+            if (mask & (1ULL << i)) {
+                result += "None";
             } else {
-                result += "<null>";
+                const BundleFieldInfo& field = schema->fields[i];
+                const void* field_ptr = static_cast<const char*>(obj) + field.offset;
+                if (field.type && field.type->ops && field.type->ops->to_string) {
+                    result += field.type->ops->to_string(field_ptr, field.type);
+                } else {
+                    result += "<null>";
+                }
             }
         }
         result += ")";
@@ -402,13 +426,18 @@ struct TupleOps {
 
     static nb::object to_python(const void* obj, const TypeMeta* schema) {
         nb::list result;
+        uint64_t mask = *none_mask_ptr(obj, schema);
         for (size_t i = 0; i < schema->field_count; ++i) {
-            const BundleFieldInfo& field = schema->fields[i];
-            const void* field_ptr = static_cast<const char*>(obj) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->to_python) {
-                result.append(field.type->ops->to_python(field_ptr, field.type));
-            } else {
+            if (mask & (1ULL << i)) {
                 result.append(nb::none());
+            } else {
+                const BundleFieldInfo& field = schema->fields[i];
+                const void* field_ptr = static_cast<const char*>(obj) + field.offset;
+                if (field.type && field.type->ops && field.type->ops->to_python) {
+                    result.append(field.type->ops->to_python(field_ptr, field.type));
+                } else {
+                    result.append(nb::none());
+                }
             }
         }
         return nb::tuple(result);
@@ -421,18 +450,21 @@ struct TupleOps {
 
         nb::sequence seq = nb::cast<nb::sequence>(src);
         size_t src_len = nb::len(seq);
+        uint64_t mask = 0;
 
         for (size_t i = 0; i < schema->field_count && i < src_len; ++i) {
             const BundleFieldInfo& field = schema->fields[i];
             void* field_ptr = static_cast<char*>(dst) + field.offset;
             if (field.type && field.type->ops && field.type->ops->from_python) {
                 nb::object elem = seq[i];
-                // Skip None values - can't cast None to non-nullable scalar types
-                if (!elem.is_none()) {
+                if (elem.is_none()) {
+                    mask |= (1ULL << i);
+                } else {
                     field.type->ops->from_python(field_ptr, elem, field.type);
                 }
             }
         }
+        *none_mask_ptr(dst, schema) = mask;
     }
 
     // ========== Hashable Operations ==========
@@ -521,6 +553,7 @@ struct DynamicListStorage {
     std::vector<std::byte> data;  // Element storage (capacity managed by vector)
     size_t size{0};               // Current number of valid elements
     bool is_linked{false};        // If true, data contains ViewData array
+    std::vector<bool> none_mask;  // Tracks None elements for variadic tuples
 
     DynamicListStorage() = default;
 
@@ -542,6 +575,11 @@ struct DynamicListStorage {
 
     /// Set the linked state
     void set_linked(bool linked) noexcept { is_linked = linked; }
+
+    /// Check if element at index is None
+    [[nodiscard]] bool is_none(size_t i) const noexcept {
+        return i < none_mask.size() && none_mask[i];
+    }
 };
 
 /**
@@ -662,6 +700,8 @@ struct ListOps {
                     elem_type->ops->copy_assign(dst_elem, src_elem, elem_type);
                 }
             }
+            // Copy None mask
+            dst_storage->none_mask = src_storage->none_mask;
         }
     }
 
@@ -684,9 +724,10 @@ struct ListOps {
             // First destruct dst elements
             destruct(dst, schema);
 
-            // Move vector and size
+            // Move vector, size, and None mask
             dst_storage->data = std::move(src_storage->data);
             dst_storage->size = src_storage->size;
+            dst_storage->none_mask = std::move(src_storage->none_mask);
 
             // Reset source
             src_storage->size = 0;
@@ -717,6 +758,13 @@ struct ListOps {
         size_t size_b = size(b, schema);
 
         if (size_a != size_b) return false;
+
+        // For dynamic lists, also compare None masks
+        if (!is_fixed(schema)) {
+            auto* storage_a = static_cast<const DynamicListStorage*>(a);
+            auto* storage_b = static_cast<const DynamicListStorage*>(b);
+            if (storage_a->none_mask != storage_b->none_mask) return false;
+        }
 
         for (size_t i = 0; i < size_a; ++i) {
             const void* elem_a = get_element_ptr_const(a, i, schema);
@@ -755,12 +803,19 @@ struct ListOps {
         nb::list result;
         size_t n = size(obj, schema);
 
+        // For dynamic lists, check the None mask for elements that were stored as None
+        const DynamicListStorage* storage = is_fixed(schema) ? nullptr : static_cast<const DynamicListStorage*>(obj);
+
         for (size_t i = 0; i < n; ++i) {
-            const void* elem_ptr = get_element_ptr_const(obj, i, schema);
-            if (elem_type && elem_type->ops && elem_type->ops->to_python) {
-                result.append(elem_type->ops->to_python(elem_ptr, elem_type));
-            } else {
+            if (storage && storage->is_none(i)) {
                 result.append(nb::none());
+            } else {
+                const void* elem_ptr = get_element_ptr_const(obj, i, schema);
+                if (elem_type && elem_type->ops && elem_type->ops->to_python) {
+                    result.append(elem_type->ops->to_python(elem_ptr, elem_type));
+                } else {
+                    result.append(nb::none());
+                }
             }
         }
         // Return as tuple if this is a variadic tuple (tuple[T, ...]), otherwise list
@@ -796,12 +851,15 @@ struct ListOps {
             // Dynamic list: resize and populate
             do_resize(dst, src_len, schema);
             auto* storage = static_cast<DynamicListStorage*>(dst);
+            // Track None elements for round-tripping (needed by variadic tuples like tuple[int, ...])
+            storage->none_mask.assign(src_len, false);
             for (size_t i = 0; i < src_len; ++i) {
                 void* elem_ptr = static_cast<char*>(storage->data_ptr()) + i * elem_type->size;
                 if (elem_type && elem_type->ops && elem_type->ops->from_python) {
                     nb::object elem = seq[i];
-                    // Skip None values - can't cast None to non-nullable scalar types
-                    if (!elem.is_none()) {
+                    if (elem.is_none()) {
+                        storage->none_mask[i] = true;
+                    } else {
                         elem_type->ops->from_python(elem_ptr, elem, elem_type);
                     }
                 }

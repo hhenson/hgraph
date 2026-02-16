@@ -496,4 +496,20 @@ void TSValue::wire_tsl_observers(value::View value_v, value::View delta_v) {
 // TSView TSValue::ts_view(engine_time_t current_time) is implemented
 // in ts_view.cpp to avoid circular dependency
 
+// ============================================================================
+// MapDelta out-of-line methods
+// ============================================================================
+
+MapDelta* MapDelta::get_or_create_child_map_delta(size_t slot, value::MapStorage* inner_storage) {
+    auto it = owned_child_map_deltas_.find(slot);
+    if (it != owned_child_map_deltas_.end()) {
+        return it->second.get();
+    }
+    auto child = std::make_unique<MapDelta>(&inner_storage->key_set());
+    inner_storage->key_set().add_observer(child.get());
+    MapDelta* raw = child.get();
+    owned_child_map_deltas_[slot] = std::move(child);
+    return raw;
+}
+
 } // namespace hgraph

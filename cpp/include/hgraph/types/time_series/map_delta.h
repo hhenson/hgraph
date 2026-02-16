@@ -23,6 +23,8 @@
 #include <hgraph/types/value/slot_observer.h>
 #include <hgraph/util/date_time.h>
 
+#include <memory>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -32,6 +34,10 @@ namespace hgraph {
 class MapDelta;
 struct BundleDeltaNav;
 struct ListDeltaNav;
+
+namespace value {
+    class MapStorage;  // Forward declaration for nested TSD delta management
+}
 
 /**
  * @brief Type-safe variant for child delta storage.
@@ -169,6 +175,8 @@ public:
         updated_.erase(slot);
         // Forward to key_delta_ for add/remove cancellation logic
         key_delta_.on_erase(slot);
+        // Destroy owned child MapDelta for this slot (inner MapStorage is being erased too)
+        owned_child_map_deltas_.erase(slot);
     }
 
     /**
@@ -344,6 +352,33 @@ public:
         return key_delta_.empty() && updated_.empty();
     }
 
+    // ========== Nested TSD Delta Management ==========
+
+    /**
+     * @brief Get or create a child MapDelta for a nested TSD element.
+     *
+     * When a TSD contains TSD elements, each inner TSD needs its own MapDelta
+     * for key add/remove tracking. This method lazily allocates a child MapDelta,
+     * connects it as a SlotObserver on the inner MapStorage's KeySet, and stores
+     * it for future access.
+     *
+     * @param slot The slot index of the element in the parent TSD
+     * @param inner_storage The inner TSD element's MapStorage
+     * @return Pointer to the child MapDelta (owned by this MapDelta)
+     */
+    MapDelta* get_or_create_child_map_delta(size_t slot, value::MapStorage* inner_storage);
+
+    /**
+     * @brief Get an existing child MapDelta for a nested TSD element.
+     *
+     * @param slot The slot index of the element
+     * @return Pointer to the child MapDelta, or nullptr if none exists
+     */
+    [[nodiscard]] MapDelta* get_child_map_delta(size_t slot) const {
+        auto it = owned_child_map_deltas_.find(slot);
+        return it != owned_child_map_deltas_.end() ? it->second.get() : nullptr;
+    }
+
     // ========== State Management ==========
 
     /**
@@ -351,6 +386,8 @@ public:
      *
      * Called at the start of each tick to clear accumulated delta.
      * Resets key_delta_, updated, children, and the cleared flag.
+     * Owned child MapDeltas are cleared (not destroyed) to preserve
+     * their connection to inner MapStorage observers.
      */
     void clear() {
         key_delta_.clear();
@@ -361,6 +398,10 @@ public:
         // Reset children to monostate
         for (auto& child : children_) {
             child = std::monostate{};
+        }
+        // Clear (don't destroy) owned child MapDeltas
+        for (auto& [slot, child] : owned_child_map_deltas_) {
+            if (child) child->clear();
         }
     }
 
@@ -390,6 +431,11 @@ private:
     SlotSet updated_;     // Slots updated this tick (MapDelta-specific)
     std::vector<DeltaVariant> children_;  // Child deltas for nested TS types
     engine_time_t key_time_{MIN_DT};  // Last time a key was added/removed
+
+    // Owned child MapDelta objects for nested TSD elements.
+    // These persist across ticks (clear() clears them, doesn't destroy them).
+    // Destroyed when the element slot is erased or the parent is destroyed.
+    std::unordered_map<size_t, std::unique_ptr<MapDelta>> owned_child_map_deltas_;
 
     // Cached combined modified set (lazily computed)
     mutable SlotSet modified_;

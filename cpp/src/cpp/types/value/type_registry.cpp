@@ -270,6 +270,11 @@ const TypeMeta* TupleTypeBuilder::build() {
     // Align final size
     total_size = (total_size + max_alignment - 1) & ~(max_alignment - 1);
 
+    // Add space for uint64_t none_mask at the end (tracks None elements for Python round-tripping)
+    if (alignof(uint64_t) > max_alignment) max_alignment = alignof(uint64_t);
+    size_t mask_offset = (total_size + alignof(uint64_t) - 1) & ~(alignof(uint64_t) - 1);
+    total_size = mask_offset + sizeof(uint64_t);
+
     // Store fields in registry and get pointer
     BundleFieldInfo* fields_ptr = count > 0 ? _registry.store_field_info(std::move(fields)) : nullptr;
 
