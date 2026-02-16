@@ -45,6 +45,24 @@ struct SignalSubscription : Notifiable {
     void unsubscribe();
 };
 
+/// Proxy for REF output → non-REF input binding.
+/// When a REF output is connected to a non-REF input (e.g., REF[TSL] → TSL),
+/// this proxy observes the REF output's observer list. When the REF changes,
+/// it resolves the TSReference and re-binds the input to the actual target.
+/// This is needed because non-scalar ops (TSL, TSS, TSD) use resolve_delegation_target
+/// (not resolve_delegation_target_with_ref) and cannot resolve REF data directly.
+struct RefBindingProxy : Notifiable {
+    ViewData ref_output_vd{};              ///< REF output's ViewData (to read TSReference)
+    ViewData input_vd{};                   ///< Non-REF input field's ViewData (to update LinkTarget)
+    TSInput* input{nullptr};               ///< The input for subscription/notification
+    ObserverList* ref_observers{nullptr};   ///< REF output's observer list (for subscribe/unsubscribe)
+    bool subscribed{false};
+
+    void notify(engine_time_t et) override;
+    void subscribe();
+    void unsubscribe();
+};
+
 /**
  * @brief Consumer of time-series values.
  *
@@ -257,6 +275,15 @@ public:
      */
     void add_signal_subscription(engine_time_t* signal_time_data, ObserverList* output_observers);
 
+    /**
+     * @brief Register a REF binding proxy for REF output → non-REF input.
+     *
+     * When a REF output is connected to a non-REF input, the proxy observes
+     * the REF output and, when it changes, resolves the reference and binds
+     * the input to the actual target.
+     */
+    void add_ref_binding_proxy(ViewData ref_output_vd, ViewData input_vd, ObserverList* ref_observers);
+
 private:
     TSValue value_;                     ///< Contains Links at leaves pointing to outputs
     value::Value<> active_;             ///< Hierarchical active state (mirrors schema structure)
@@ -264,6 +291,7 @@ private:
     node_ptr owning_node_{nullptr};     ///< For scheduling
     TSOutput* bound_output_{nullptr};   ///< Persistent bound output reference
     std::vector<std::unique_ptr<SignalSubscription>> signal_subscriptions_;  ///< Non-peered SIGNAL subscriptions
+    std::vector<std::unique_ptr<RefBindingProxy>> ref_binding_proxies_;     ///< REF→non-REF binding proxies
 };
 
 } // namespace hgraph

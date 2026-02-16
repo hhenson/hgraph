@@ -6,6 +6,7 @@
 #include <hgraph/types/time_series/ref_link.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/ts_meta_schema.h>
+#include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/types/value/indexed_view.h>
 #include <hgraph/types/node.h>
 
@@ -60,6 +61,15 @@ void TSInput::set_active(bool active) {
             sub->subscribe();
         } else {
             sub->unsubscribe();
+        }
+    }
+
+    // Handle REF binding proxies (REF output → non-REF input)
+    for (auto& proxy : ref_binding_proxies_) {
+        if (active) {
+            proxy->subscribe();
+        } else {
+            proxy->unsubscribe();
         }
     }
 }
@@ -175,6 +185,9 @@ TSInput::~TSInput() {
     for (auto& sub : signal_subscriptions_) {
         sub->unsubscribe();
     }
+    for (auto& proxy : ref_binding_proxies_) {
+        proxy->unsubscribe();
+    }
 }
 
 void TSInput::notify(engine_time_t et) {
@@ -212,6 +225,57 @@ void SignalSubscription::unsubscribe() {
         output_observers->remove_observer(this);
         subscribed = false;
     }
+}
+
+// ============================================================================
+// RefBindingProxy Implementation
+// ============================================================================
+
+void RefBindingProxy::notify(engine_time_t et) {
+    if (!input || !ref_output_vd.value_data || !input_vd.ops) return;
+    auto* ts_ref = static_cast<const TSReference*>(ref_output_vd.value_data);
+    if (!ts_ref) return;
+
+    if (ts_ref->is_empty()) {
+        auto* lt = static_cast<LinkTarget*>(input_vd.link_data);
+        if (lt) lt->is_linked = false;
+        input->notify(et);
+        return;
+    }
+
+    if (ts_ref->is_peered()) {
+        try {
+            TSView target_view = ts_ref->resolve(et);
+            const ViewData& target_vd = target_view.view_data();
+            input_vd.ops->bind(input_vd, target_vd);
+        } catch (...) {}
+        input->notify(et);
+    }
+    // For PYTHON_BOUND refs: do NOT notify — the standard bind (LinkTarget)
+    // already has a subscription that handles notification correctly.
+}
+
+void RefBindingProxy::subscribe() {
+    if (ref_observers && !subscribed) {
+        ref_observers->add_observer(this);
+        subscribed = true;
+    }
+}
+
+void RefBindingProxy::unsubscribe() {
+    if (ref_observers && subscribed) {
+        ref_observers->remove_observer(this);
+        subscribed = false;
+    }
+}
+
+void TSInput::add_ref_binding_proxy(ViewData ref_output_vd, ViewData input_field_vd, ObserverList* ref_observers) {
+    auto proxy = std::make_unique<RefBindingProxy>();
+    proxy->ref_output_vd = ref_output_vd;
+    proxy->input_vd = input_field_vd;
+    proxy->input = this;
+    proxy->ref_observers = ref_observers;
+    ref_binding_proxies_.push_back(std::move(proxy));
 }
 
 bool TSInput::active() const noexcept {

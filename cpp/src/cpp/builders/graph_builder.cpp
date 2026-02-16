@@ -214,8 +214,26 @@ namespace hgraph
                     dst_node->ts_input()->add_signal_subscription(signal_time, obs_list);
                 }
             } else {
-                // 3. Standard bind: create LinkTarget and subscribe
+                // 3. Check for REF output → non-REF input binding
+                auto& in_vd = input_view.ts_view().view_data();
+                auto& out_vd2 = output_view.ts_view().view_data();
+                bool ref_to_non_ref = (out_vd2.meta && out_vd2.meta->kind == TSKind::REF &&
+                                       in_vd.meta && in_vd.meta->kind != TSKind::REF);
+
+                // Always do standard bind first
                 input_view.bind(output_view);
+
+                if (ref_to_non_ref) {
+                    // Also create a RefBindingProxy for non-scalar types (TSL, TSS, TSD, TSB)
+                    // that can't resolve REF data through their own delegation path.
+                    ObserverList* ref_obs = nullptr;
+                    if (out_vd2.observer_data) {
+                        ref_obs = static_cast<ObserverList*>(out_vd2.observer_data);
+                    }
+                    if (ref_obs) {
+                        dst_node->ts_input()->add_ref_binding_proxy(out_vd2, in_vd, ref_obs);
+                    }
+                }
             }
         }
 
