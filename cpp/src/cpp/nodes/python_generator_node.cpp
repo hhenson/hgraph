@@ -5,6 +5,7 @@
 namespace hgraph {
 
     void PythonGeneratorNode::do_eval() {
+        _refresh_kwarg_time_views();
         auto et = graph()->evaluation_time();
         auto output_view = output(et);
         if (!output_view) {
@@ -16,7 +17,7 @@ namespace hgraph {
         for (nb::iterator v = ++generator; v != sentinel; ++v) {
             // Returns NULL if there are no new values
             auto tpl = *v;
-            if (v.is_none()) {
+            if (tpl.is_none()) {
                 out = nb::none();
                 break;
             }
@@ -76,6 +77,7 @@ namespace hgraph {
 
     void PythonGeneratorNode::start() {
         BasePythonNode::_initialise_kwargs();
+        _refresh_kwarg_time_views();
         generator = nb::cast<nb::iterator>(_eval_fn(**_kwargs));
         graph()->schedule_node(node_ndx(), graph()->evaluation_time());
     }

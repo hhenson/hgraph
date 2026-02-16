@@ -45,6 +45,8 @@ namespace hgraph
     void BasePythonNode::_initialise_kwargs() {
         // Assuming Injector and related types are properly defined, and scalars is a map-like container
         _kwargs = {};
+        _kwarg_input_views.clear();
+        _kwarg_output_views.clear();
 
         bool  has_injectables{signature().injectables != 0};
         auto *injectable_map = has_injectables ? &(*signature().injectable_inputs) : nullptr;
@@ -114,6 +116,11 @@ namespace hgraph
                     }
 
                     _kwargs[key_] = wrapped_value;
+                    if (auto* input_view = nb::inst_ptr<TSInputView>(_kwargs[key_]); input_view != nullptr) {
+                        _kwarg_input_views.push_back(input_view);
+                    } else if (auto* output_view = nb::inst_ptr<TSOutputView>(_kwargs[key_]); output_view != nullptr) {
+                        _kwarg_output_views.push_back(output_view);
+                    }
                     continue;
                 }
                 _kwargs[key_] = value;
@@ -138,12 +145,16 @@ namespace hgraph
         if (!root) { return; }
         auto root_bundle = root.try_as_bundle();
         if (!root_bundle.has_value()) { return; }
+        if (!signature().time_series_inputs.has_value()) { return; }
         auto &signature_args = signature().args;
         // Match main branch behavior: iterate over time_series_inputs
         for (const auto &[key, _] : *signature().time_series_inputs) {
             if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
                 auto input_view = root_bundle->field(key);
                 _kwargs[key.c_str()] = nb::cast(input_view);
+                if (auto* kwarg_view = nb::inst_ptr<TSInputView>(_kwargs[key.c_str()]); kwarg_view != nullptr) {
+                    _kwarg_input_views.push_back(kwarg_view);
+                }
             }
         }
     }
@@ -238,6 +249,7 @@ namespace hgraph
     };
 
     void BasePythonNode::do_eval() {
+        _refresh_kwarg_time_views();
         ContextManager context_manager(*this);
         try {
             auto out{_eval_fn(**_kwargs)};
@@ -249,6 +261,7 @@ namespace hgraph
     }
 
     void BasePythonNode::do_start() {
+        _refresh_kwarg_time_views();
         if (_start_fn.is_valid() && !_start_fn.is_none()) {
             // Get the callable signature parameters using inspect.signature
             // This matches Python's approach: signature(self.start_fn).parameters.keys()
@@ -268,6 +281,7 @@ namespace hgraph
     }
 
     void BasePythonNode::do_stop() {
+        _refresh_kwarg_time_views();
         if (_stop_fn.is_valid() and !_stop_fn.is_none()) {
             // Get the callable signature parameters using inspect.signature
             // This matches Python's approach: signature(self.stop_fn).parameters.keys()
@@ -298,5 +312,23 @@ namespace hgraph
         Node::start();
     }
 
-    void BasePythonNode::dispose() { _kwargs.clear(); }
+    void BasePythonNode::dispose() {
+        _kwargs.clear();
+        _kwarg_input_views.clear();
+        _kwarg_output_views.clear();
+    }
+
+    void BasePythonNode::_refresh_kwarg_time_views() {
+        const auto et = node_time(*this);
+        for (TSInputView* view : _kwarg_input_views) {
+            if (view != nullptr) {
+                view->set_current_time(et);
+            }
+        }
+        for (TSOutputView* view : _kwarg_output_views) {
+            if (view != nullptr) {
+                view->set_current_time(et);
+            }
+        }
+    }
 }  // namespace hgraph

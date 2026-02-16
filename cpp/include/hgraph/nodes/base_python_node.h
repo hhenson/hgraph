@@ -6,6 +6,7 @@
 #define HGRAPH_CPP_ENGINE_BASE_PYTHON_NODE_H
 
 #include <hgraph/types/node.h>
+#include <vector>
 
 namespace hgraph {
     /**
@@ -48,11 +49,15 @@ namespace hgraph {
 
         void dispose() override;
 
+        void _refresh_kwarg_time_views();
+
         nb::callable _eval_fn;
         nb::callable _start_fn;
         nb::callable _stop_fn;
 
         nb::kwargs _kwargs;
+        std::vector<TSInputView*> _kwarg_input_views;
+        std::vector<TSOutputView*> _kwarg_output_views;
     };
 } // namespace hgraph
 

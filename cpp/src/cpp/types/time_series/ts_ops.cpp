@@ -6,8 +6,12 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/value/type_registry.h>
 
+#include <algorithm>
 #include <optional>
 #include <stdexcept>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace hgraph {
 namespace {
@@ -15,6 +19,103 @@ namespace {
 using value::View;
 using value::Value;
 using value::ValueView;
+
+struct ObserverRegistration {
+    std::vector<size_t> path;
+    LinkTarget* link_target{nullptr};
+};
+
+// Graph runtime executes on the single-thread event loop, so this registry is intentionally lock-free.
+std::unordered_map<void*, std::vector<ObserverRegistration>> observer_registry;
+
+bool is_prefix_path(const std::vector<size_t>& lhs, const std::vector<size_t>& rhs) {
+    if (lhs.size() > rhs.size()) {
+        return false;
+    }
+    return std::equal(lhs.begin(), lhs.end(), rhs.begin());
+}
+
+bool paths_related(const std::vector<size_t>& lhs, const std::vector<size_t>& rhs) {
+    return is_prefix_path(lhs, rhs) || is_prefix_path(rhs, lhs);
+}
+
+void unregister_link_target_observer(const LinkTarget& link_target) {
+    if (link_target.value_data == nullptr) {
+        return;
+    }
+
+    auto it = observer_registry.find(link_target.value_data);
+    if (it == observer_registry.end()) {
+        return;
+    }
+
+    auto& registrations = it->second;
+    registrations.erase(
+        std::remove_if(
+            registrations.begin(),
+            registrations.end(),
+            [&link_target](const ObserverRegistration& registration) {
+                return registration.link_target == &link_target;
+            }),
+        registrations.end());
+
+    if (registrations.empty()) {
+        observer_registry.erase(it);
+    }
+}
+
+void register_link_target_observer(const LinkTarget& link_target) {
+    if (!link_target.is_linked || link_target.value_data == nullptr) {
+        return;
+    }
+
+    auto& registrations = observer_registry[link_target.value_data];
+
+    const auto existing = std::find_if(
+        registrations.begin(),
+        registrations.end(),
+        [&link_target](const ObserverRegistration& registration) {
+            return registration.link_target == &link_target;
+        });
+
+    if (existing != registrations.end()) {
+        existing->path = link_target.target_path.indices;
+        return;
+    }
+
+    registrations.push_back(ObserverRegistration{link_target.target_path.indices, const_cast<LinkTarget*>(&link_target)});
+}
+
+void notify_link_target_observers(const ViewData& target_view, engine_time_t current_time) {
+    if (target_view.value_data == nullptr) {
+        return;
+    }
+
+    std::vector<LinkTarget*> observers;
+    auto it = observer_registry.find(target_view.value_data);
+    if (it == observer_registry.end()) {
+        return;
+    }
+
+    std::unordered_set<LinkTarget*> dedupe;
+    for (const ObserverRegistration& registration : it->second) {
+        if (registration.link_target == nullptr) {
+            continue;
+        }
+        if (!paths_related(registration.path, target_view.path.indices)) {
+            continue;
+        }
+        if (dedupe.insert(registration.link_target).second) {
+            observers.push_back(registration.link_target);
+        }
+    }
+
+    for (LinkTarget* observer : observers) {
+        if (observer != nullptr && observer->is_linked) {
+            observer->notify(current_time);
+        }
+    }
+}
 
 const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indices) {
     const TSMeta* meta = root;
@@ -425,6 +526,24 @@ LinkTarget* resolve_parent_link_target(const ViewData& vd) {
     return resolve_link_target(vd, parent_path);
 }
 
+std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
+    if (vd.uses_link_target) {
+        if (LinkTarget* target = resolve_link_target(vd, vd.path.indices);
+            target != nullptr && target->is_linked) {
+            return target->as_view_data(vd.sampled);
+        }
+    } else {
+        if (REFLink* ref_link = resolve_ref_link(vd, vd.path.indices);
+            ref_link != nullptr && ref_link->is_linked) {
+            ViewData resolved = ref_link->resolved_view_data();
+            resolved.sampled = resolved.sampled || vd.sampled;
+            return resolved;
+        }
+    }
+
+    return std::nullopt;
+}
+
 void stamp_time_paths(ViewData& vd, engine_time_t current_time) {
     auto* time_root = static_cast<Value*>(vd.time_data);
     if (time_root == nullptr || time_root->schema() == nullptr) {
@@ -470,12 +589,19 @@ const TSMeta* op_ts_meta(const ViewData& vd) {
 }
 
 engine_time_t op_last_modified_time(const ViewData& vd) {
-    auto* time_root = static_cast<const Value*>(vd.time_data);
+    const ViewData* data = &vd;
+    ViewData resolved{};
+    if (auto bound = resolve_bound_view_data(vd); bound.has_value()) {
+        resolved = std::move(bound.value());
+        data = &resolved;
+    }
+
+    auto* time_root = static_cast<const Value*>(data->time_data);
     if (time_root == nullptr || !time_root->has_value()) {
         return MIN_DT;
     }
 
-    auto time_path = ts_path_to_time_path(vd.meta, vd.path.indices);
+    auto time_path = ts_path_to_time_path(data->meta, data->path.indices);
     std::optional<View> maybe_time;
     if (time_path.empty()) {
         maybe_time = time_root->view();
@@ -494,11 +620,18 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
 }
 
 bool op_valid(const ViewData& vd) {
-    auto* value_root = static_cast<const Value*>(vd.value_data);
+    const ViewData* data = &vd;
+    ViewData resolved{};
+    if (auto bound = resolve_bound_view_data(vd); bound.has_value()) {
+        resolved = std::move(bound.value());
+        data = &resolved;
+    }
+
+    auto* value_root = static_cast<const Value*>(data->value_data);
     if (value_root == nullptr || !value_root->has_value()) {
         return false;
     }
-    auto maybe = navigate_const(value_root->view(), vd.path.indices);
+    auto maybe = navigate_const(value_root->view(), data->path.indices);
     return maybe.has_value() && maybe->valid();
 }
 
@@ -511,25 +644,46 @@ bool op_sampled(const ViewData& vd) {
 }
 
 View op_value(const ViewData& vd) {
-    auto* value_root = static_cast<const Value*>(vd.value_data);
+    const ViewData* data = &vd;
+    ViewData resolved{};
+    if (auto bound = resolve_bound_view_data(vd); bound.has_value()) {
+        resolved = std::move(bound.value());
+        data = &resolved;
+    }
+
+    auto* value_root = static_cast<const Value*>(data->value_data);
     if (value_root == nullptr || !value_root->has_value()) {
         return {};
     }
-    auto maybe = navigate_const(value_root->view(), vd.path.indices);
+    auto maybe = navigate_const(value_root->view(), data->path.indices);
     return maybe.has_value() ? *maybe : View{};
 }
 
 View op_delta_value(const ViewData& vd) {
-    auto* delta_root = static_cast<const Value*>(vd.delta_data);
+    const ViewData* data = &vd;
+    ViewData resolved{};
+    if (auto bound = resolve_bound_view_data(vd); bound.has_value()) {
+        resolved = std::move(bound.value());
+        data = &resolved;
+    }
+
+    auto* delta_root = static_cast<const Value*>(data->delta_data);
     if (delta_root == nullptr || !delta_root->has_value()) {
         return {};
     }
-    auto maybe = navigate_const(delta_root->view(), vd.path.indices);
+    auto maybe = navigate_const(delta_root->view(), data->path.indices);
     return maybe.has_value() ? *maybe : View{};
 }
 
 bool op_has_delta(const ViewData& vd) {
-    auto* delta_root = static_cast<const Value*>(vd.delta_data);
+    const ViewData* data = &vd;
+    ViewData resolved{};
+    if (auto bound = resolve_bound_view_data(vd); bound.has_value()) {
+        resolved = std::move(bound.value());
+        data = &resolved;
+    }
+
+    auto* delta_root = static_cast<const Value*>(data->delta_data);
     return delta_root != nullptr && delta_root->has_value();
 }
 
@@ -559,6 +713,7 @@ void op_set_value(ViewData& vd, const View& src, engine_time_t current_time) {
         }
     }
     stamp_time_paths(vd, current_time);
+    notify_link_target_observers(vd, current_time);
 }
 
 void op_apply_delta(ViewData& vd, const View& delta, engine_time_t current_time) {
@@ -585,6 +740,7 @@ void op_apply_delta(ViewData& vd, const View& delta, engine_time_t current_time)
     }
 
     stamp_time_paths(vd, current_time);
+    notify_link_target_observers(vd, current_time);
 }
 
 void op_invalidate(ViewData& vd) {
@@ -618,12 +774,14 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
         if (value_root != nullptr) {
             value_root->reset();
             stamp_time_paths(vd, current_time);
+            notify_link_target_observers(vd, current_time);
         }
         return;
     }
 
     maybe_dst->from_python(src);
     stamp_time_paths(vd, current_time);
+    notify_link_target_observers(vd, current_time);
 }
 
 TSView op_child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
@@ -714,8 +872,7 @@ View op_observer(const ViewData& vd) {
 }
 
 void op_notify_observers(ViewData& vd, engine_time_t current_time) {
-    (void)vd;
-    (void)current_time;
+    notify_link_target_observers(vd, current_time);
 }
 
 void op_bind(ViewData& vd, const ViewData& target) {
@@ -724,9 +881,11 @@ void op_bind(ViewData& vd, const ViewData& target) {
         if (link_target == nullptr) {
             return;
         }
+        unregister_link_target_observer(*link_target);
         store_to_link_target(*link_target, target);
         link_target->owner_time_ptr = resolve_owner_time_ptr(vd);
         link_target->parent_link = resolve_parent_link_target(vd);
+        register_link_target_observer(*link_target);
 
         // TSB root bind is peered (container slot). Field binds are un-peered.
         const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
@@ -737,6 +896,7 @@ void op_bind(ViewData& vd, const ViewData& target) {
                 std::vector<size_t> child_path = vd.path.indices;
                 child_path.push_back(i);
                 if (LinkTarget* child_link = resolve_link_target(vd, child_path); child_link != nullptr) {
+                    unregister_link_target_observer(*child_link);
                     child_link->unbind();
                     child_link->peered = false;
                 }
@@ -750,6 +910,7 @@ void op_bind(ViewData& vd, const ViewData& target) {
             const TSMeta* parent_meta = meta_at_path(vd.meta, parent_path);
             if (parent_meta != nullptr && parent_meta->kind == TSKind::TSB) {
                 if (LinkTarget* parent_link = resolve_link_target(vd, parent_path); parent_link != nullptr) {
+                    unregister_link_target_observer(*parent_link);
                     parent_link->unbind();
                     parent_link->peered = false;
                 }
@@ -770,6 +931,7 @@ void op_unbind(ViewData& vd) {
         if (lt == nullptr) {
             return;
         }
+        unregister_link_target_observer(*lt);
         lt->unbind();
         lt->peered = false;
     } else {
