@@ -11,6 +11,10 @@ Logical index 0 always refers to the oldest element in the buffer.
 import pytest
 import numpy as np
 
+from hgraph._feature_switch import is_feature_enabled
+if not is_feature_enabled("use_cpp"):
+    pytest.skip("Buffer protocol tests require C++ extension", allow_module_level=True)
+
 # Skip all tests if C++ extension is not available
 _hgraph = pytest.importorskip("hgraph._hgraph")
 value = _hgraph.value

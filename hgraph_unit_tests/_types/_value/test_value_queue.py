@@ -17,6 +17,10 @@ These tests verify the Queue implementation including:
 
 import pytest
 
+from hgraph._feature_switch import is_feature_enabled
+if not is_feature_enabled("use_cpp"):
+    pytest.skip("Buffer protocol tests require C++ extension", allow_module_level=True)
+
 try:
     from hgraph._hgraph import (
         value,
