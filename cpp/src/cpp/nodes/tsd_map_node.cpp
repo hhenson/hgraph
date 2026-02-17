@@ -204,6 +204,7 @@ namespace hgraph {
 
         auto time = graph()->evaluation_time();
 
+
         // Clear output delta for this tick (lazy clearing).
         // dict_create/dict_remove modify the TSD via MapStorage which notifies MapDelta via SlotObserver,
         // but nothing else triggers the lazy delta clear. We must do it here at the start of each tick.

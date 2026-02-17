@@ -129,12 +129,18 @@ namespace hgraph
                                     inner_ref.set_resolve_time(self.resolve_time());
                                     TSView target = inner_ref.resolve(self.resolve_time());
                                     if (target) {
+                                        // Clear link_data: the resolved TSValue's link storage
+                                        // may contain REFLinks from internal graph wiring that
+                                        // would cause bundle_ops::child_at to navigate to garbage.
+                                        target.view_data().link_data = nullptr;
                                         TSOutputView target_ov(std::move(target), nullptr);
                                         return wrap_output_view(std::move(target_ov));
                                     }
                                 }
                             }
                         }
+                        // Clear link_data: same rationale as above.
+                        resolved.view_data().link_data = nullptr;
                         TSOutputView output_view(std::move(resolved), nullptr);
                         return wrap_output_view(std::move(output_view));
                     }
@@ -322,6 +328,10 @@ namespace hgraph
             ref_copy.set_resolve_time(time);
             TSView target = ref_copy.resolve(time);
             if (target) {
+                // Clear link_data: the resolved TSValue's link storage may contain
+                // REFLinks from internal graph wiring that would cause
+                // bundle_ops::child_at to navigate to garbage.
+                target.view_data().link_data = nullptr;
                 TSOutputView ov(std::move(target), nullptr);
                 nb::object wrapper = wrap_output_view(std::move(ov));
                 auto ref_module = nb::module_::import_("hgraph._types._ref_type");
@@ -340,6 +350,9 @@ namespace hgraph
 
     // Helper: wrap a concrete (non-REF) output TSView as BoundTimeSeriesReference
     static nb::object make_bound_ref(TSView&& target_view) {
+        // Ensure link_data is clear: resolved TSValue link storage may contain
+        // REFLinks from internal graph wiring that shouldn't be followed.
+        target_view.view_data().link_data = nullptr;
         TSOutputView ov(std::move(target_view), nullptr);
         nb::object wrapper = wrap_output_view(std::move(ov));
         auto ref_module = nb::module_::import_("hgraph._types._ref_type");
@@ -387,10 +400,19 @@ namespace hgraph
         }
 
         // Case 3: Unbound/direct — TSReference in own value_data
-        // Used by reduce inner stubs where set_ref_input_value writes directly.
-        auto val = iv.ts_view().value();
-        if (val.valid()) {
-            TSReference ref = val.as<TSReference>();
+        // Used by reduce inner stubs where set_ref_input_value writes directly,
+        // and by TSD elements accessed through resolved_dict_view where the ViewData
+        // has uses_link_target=false (resolved through LinkTarget to output storage).
+        //
+        // IMPORTANT: Read the TSReference directly from value_data instead of calling
+        // iv.ts_view().value() which goes through scalar_ops::value() →
+        // resolve_delegation_target() → get_active_link(). When uses_link_target=false,
+        // get_active_link() would misinterpret link_data as REFLink* even though it
+        // might not be (e.g., when link_data comes from an alternative TSD view's
+        // per-element link storage that doesn't match the expected REFLink layout).
+        if (vd.value_data) {
+            auto* ref_ptr = static_cast<const TSReference*>(vd.value_data);
+            TSReference ref = *ref_ptr;
             if (ref.is_peered()) {
                 // Resolve the PEERED ref to its target
                 ref.set_resolve_time(time);
@@ -406,6 +428,7 @@ namespace hgraph
                         return nb::cast(TSReference::empty());
                     }
                     // Target is concrete output → BoundTimeSeriesReference
+                    resolved.view_data().link_data = nullptr;
                     return make_bound_ref(std::move(resolved));
                 }
             }

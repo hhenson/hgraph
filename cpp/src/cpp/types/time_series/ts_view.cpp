@@ -430,10 +430,17 @@ TSView ShortPath::resolve(engine_time_t current_time) const {
             throw std::runtime_error("ShortPath::resolve() failed: node has no TSOutput at port " + std::to_string(port_idx));
         }
         view = output->native_value().ts_view(current_time);
+        // Clear link_data for output resolution: the TSValue's link storage
+        // contains REFLinks from internal graph wiring (e.g., inner graph delegation).
+        // bundle_ops::child_at would follow these REFLinks to wrong targets.
+        view.view_data().link_data = nullptr;
     }
 
     // Navigate through remaining indices (child navigation within the output)
     for (size_t i = first_nav_index; i < indices_.size(); ++i) {
+        if (!view) {
+            return TSView{};  // Navigation hit an invalid/dead element
+        }
         view = view[indices_[i]];
     }
 

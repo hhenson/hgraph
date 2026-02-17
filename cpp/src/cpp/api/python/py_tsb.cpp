@@ -30,7 +30,8 @@ namespace hgraph
         auto bundle_view = this->view().as_bundle();
         TSView field_view;
         if (nb::isinstance<nb::str>(key)) {
-            field_view = bundle_view.field(nb::cast<std::string>(key));
+            auto name = nb::cast<std::string>(key);
+            field_view = bundle_view.field(name);
         } else if (nb::isinstance<nb::int_>(key)) {
             field_view = bundle_view.field(nb::cast<size_t>(key));
         } else {
