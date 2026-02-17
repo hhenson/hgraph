@@ -133,7 +133,7 @@ def tsd_get_items(
 
         if ts.valid and not ts.value.is_empty:
             _state.tsd = ts.value.output
-            _state.key = (key.value - key.added()) if key.valid else set()
+            _state.key = set(key.value - key.added()) if key.valid else set()
         else:
             _state.tsd = None
             _state.key = set()
@@ -141,7 +141,7 @@ def tsd_get_items(
         if _state.tsd is not None:
             for k in _state.key:
                 output = _state.tsd.get_ref(k, _state.reference)
-                _ref.create(k)
+                _ref.get_or_create(k)
                 _ref[k].bind_output(output)
                 _ref[k].make_active()
 
@@ -149,14 +149,16 @@ def tsd_get_items(
         return
 
     for k in key.added():
+        _state.key.add(k)
         output = _state.tsd.get_ref(k, _state.reference)
-        _ref.create(k)
+        _ref.get_or_create(k)
         _ref[k].bind_output(output)
         _ref[k].make_active()
 
     out = {}
 
     for k in key.removed():
+        _state.key.discard(k)
         _state.tsd.release_ref(k, _state.reference)
         _ref.on_key_removed(k)
         _ref_ref.on_key_removed(k)
