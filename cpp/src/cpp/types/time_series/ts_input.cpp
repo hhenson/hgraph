@@ -269,6 +269,13 @@ void RefBindingProxy::unsubscribe() {
     }
 }
 
+void TSInput::clear_ref_binding_proxies() {
+    for (auto& proxy : ref_binding_proxies_) {
+        proxy->unsubscribe();
+    }
+    ref_binding_proxies_.clear();
+}
+
 void TSInput::add_ref_binding_proxy(ViewData ref_output_vd, ViewData input_field_vd, ObserverList* ref_observers) {
     auto proxy = std::make_unique<RefBindingProxy>();
     proxy->ref_output_vd = ref_output_vd;

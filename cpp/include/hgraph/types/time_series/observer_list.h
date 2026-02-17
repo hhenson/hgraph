@@ -100,22 +100,11 @@ public:
     void notify_modified(engine_time_t current_time) {
         for (size_t i = 0; i < observers_.size(); ++i) {
             auto* obs = observers_[i];
-            if (!obs) {
-                fprintf(stderr, "[OBSERVER] NULL observer at index %zu/%zu\n", i, observers_.size());
+            if (!obs || !obs->is_alive()) {
+                // Remove dangling/null observer to prevent future issues
+                observers_.erase(observers_.begin() + static_cast<ptrdiff_t>(i));
+                --i;
                 continue;
-            }
-            if (!obs->is_alive()) {
-                fprintf(stderr, "[OBSERVER] DANGLING observer at index %zu/%zu sentinel=0x%08X addr=%p\n",
-                        i, observers_.size(), obs->sentinel_, (void*)obs);
-                // Dump all observers for context
-                for (size_t j = 0; j < observers_.size(); ++j) {
-                    auto* o = observers_[j];
-                    const char* tname = (o && o->is_alive()) ? typeid(*o).name() : "DEAD";
-                    fprintf(stderr, "[OBSERVER]   [%zu] addr=%p sentinel=0x%08X alive=%d type=%s\n",
-                            j, (void*)o, o ? o->sentinel_ : 0, o ? o->is_alive() : -1, tname);
-                }
-                fprintf(stderr, "[OBSERVER] this ObserverList addr=%p\n", (void*)this);
-                abort();
             }
             obs->notify(current_time);
         }

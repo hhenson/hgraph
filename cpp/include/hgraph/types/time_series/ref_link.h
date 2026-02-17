@@ -127,6 +127,15 @@ public:
      */
     [[nodiscard]] const LinkTarget& target() const noexcept { return target_; }
 
+    /**
+     * @brief Get mutable reference to the target LinkTarget.
+     *
+     * Used by wire_outputs() in nested graph nodes to directly redirect
+     * a TSB output field to another output's storage without going through
+     * the full REF subscription mechanism.
+     */
+    LinkTarget& mutable_target() noexcept { return target_; }
+
     // ========== Modification Tracking ==========
 
     /**

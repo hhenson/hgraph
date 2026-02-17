@@ -4,55 +4,63 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/time_series/ts_reference.h>
-#include <hgraph/types/time_series/observer_list.h>
-#include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/short_path.h>
 #include <hgraph/types/time_series/view_data.h>
 #include <hgraph/util/lifecycle.h>
 
 namespace hgraph {
+
     void TryExceptNode::wire_outputs() {
-        // TryExceptNode: inner output maps to the "out" sub-field of outer bundle.
-        //
+        // Do NOT use forwarded_target here.
         // In Python, _wire_outputs does: node.output = self.output.out
-        // The inner stub's output is replaced with the outer REF field.
-        //
-        // In C++, we forward the inner stub's output to the outer "out" field's storage,
-        // but redirect time_data to a scratch variable and suppress observer_data.
-        // This prevents the outer "out" field from appearing modified or firing
-        // notifications automatically during inner graph evaluation.
-        //
-        // In do_eval(), after inner evaluation, we check:
-        // 1. Did the inner stub write? (scratch_time_ >= eval_time)
-        // 2. Is the resolved reference target valid? (lmt != MIN_DT)
-        // Only then do we set the "out" field's time and fire its observers.
-        //
-        // This mirrors Python's reference_observer semantics where downstream
-        // consumers only get notified when the REFERENCED TARGET has been written,
-        // not just because the reference itself changed.
-        if (m_output_node_id_ >= 0 && ts_output()) {
-            auto inner_node = m_active_graph_->nodes()[m_output_node_id_];
-            if (inner_node->ts_output()) {
-                auto outer_view = ts_output()->view(MIN_DT);
-                auto out_field_view = outer_view.field("out");
-                ViewData out_field_data = out_field_view.ts_view().view_data();
+        // This replaces the inner output stub's output object with the outer "out" field.
+        // In C++, we can't replace objects, so we manually copy results after evaluation
+        // in do_eval(), only when the inner graph actually produced meaningful output.
+    }
 
-                // Save pointer to the outer "out" field's real time for manual propagation
-                out_field_time_ptr_ = static_cast<engine_time_t*>(out_field_data.time_data);
+    // Check if a REF's ultimate target is valid at the given time.
+    // Resolves through nested REF chains.
+    // Returns true if the REF points to a valid (ever-set) target, false if empty/invalid.
+    static bool ref_target_is_valid(const ViewData& vd, engine_time_t et) {
+        if (!vd.meta || vd.meta->kind != TSKind::REF || !vd.value_data) {
+            // Not a REF — always valid if it has data
+            return true;
+        }
 
-                LinkTarget& ft = inner_node->ts_output()->forwarded_target();
-                ft.is_linked = true;
-                ft.value_data = out_field_data.value_data;
-                ft.time_data = &scratch_time_;        // Redirect time to scratch
-                ft.observer_data = nullptr;            // Suppress auto-notification
-                ft.delta_data = out_field_data.delta_data;
-                ft.link_data = out_field_data.link_data;
-                ft.ops = out_field_data.ops;
-                ft.meta = out_field_data.meta;
+        auto& ref = *static_cast<const TSReference*>(vd.value_data);
+        if (ref.is_empty()) {
+            return false;
+        }
+        if (!ref.is_peered()) {
+            return true;
+        }
+
+        // Resolve the peered REF to its target
+        TSView target = ref.path().resolve(et);
+
+        // Resolve through nested REFs
+        while (target.view_data().meta && target.view_data().meta->kind == TSKind::REF) {
+            const ViewData& target_vd = target.view_data();
+            if (target_vd.value_data) {
+                auto& inner_ref = *static_cast<const TSReference*>(target_vd.value_data);
+                if (inner_ref.is_peered()) {
+                    target = inner_ref.path().resolve(et);
+                } else if (inner_ref.is_empty()) {
+                    return false;
+                } else {
+                    break;
+                }
+            } else {
+                return false;
             }
         }
+
+        return target.valid();
     }
 
     void TryExceptNode::do_eval() {
@@ -64,79 +72,50 @@ namespace hgraph {
                 nec->reset_next_scheduled_evaluation_time();
             }
 
-            // Reset scratch time before inner evaluation
-            scratch_time_ = MIN_DT;
-
             m_active_graph_->evaluate_graph();
-
-            // After inner graph evaluation, check whether to propagate the "out" field.
-            //
-            // In Python, downstream consumers bind through reference_observers to the
-            // REFERENCED TARGET. They only get notified when rebinding to a target that
-            // has been written (valid: lmt != MIN_DT). At tick 1 the reference points to
-            // nothing's output (never written, lmt=MIN_DT) → no notification. At tick 4
-            // it points to add_scalars' output (written at tick 3, lmt=3) → notification.
-            if (out_field_time_ptr_ && ts_output() && m_output_node_id_ >= 0) {
-                auto eval_time = graph()->evaluation_time();
-
-                if (scratch_time_ >= eval_time) {
-                    // Inner output stub wrote during this tick.
-                    // Read the TSReference from the "out" field's value storage.
-                    auto outer_view = ts_output()->view(eval_time);
-                    auto out_field = outer_view.field("out");
-                    auto vd = out_field.ts_view().view_data();
-
-                    bool should_propagate = false;
-
-                    if (vd.meta && vd.meta->kind == TSKind::REF && vd.value_data) {
-                        auto* ref = static_cast<const TSReference*>(vd.value_data);
-                        if (ref->is_peered()) {
-                            // Resolve the reference to the actual target
-                            try {
-                                TSView resolved = ref->resolve(eval_time);
-                                // Check if the resolved target has ever been written.
-                                // This matches Python's reference_observer semantics:
-                                // In bind_output, notification only fires if output.valid
-                                // (i.e., last_modified_time != MIN_DT).
-                                if (resolved && resolved.last_modified_time() != MIN_DT) {
-                                    should_propagate = true;
-                                }
-                            } catch (...) {
-                                // Resolution failed - don't propagate
-                            }
-                        }
-                        // EMPTY or NON_PEERED references: don't propagate
-                    }
-
-                    if (should_propagate) {
-                        // Set the outer "out" field's actual time
-                        *out_field_time_ptr_ = eval_time;
-                        // Fire the outer "out" field's observers to propagate through
-                        // the binding chain (REFLink → downstream inputs → parent → record node)
-                        if (vd.observer_data) {
-                            auto* observers = static_cast<ObserverList*>(vd.observer_data);
-                            observers->notify_modified(eval_time);
-                        }
-                    }
-                }
-            }
 
             if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(m_active_graph_->evaluation_engine_clock().
                 get())) {
                 nec->reset_next_scheduled_evaluation_time();
             }
+
+            // After inner graph evaluates, check if the inner output stub produced
+            // meaningful output. The inner output stub's output is a REF that always
+            // gets written (because valid_inputs is empty). But we only want to
+            // propagate to the outer "out" field when the REF's ultimate target
+            // is actually valid and modified.
+            if (m_output_node_id_ >= 0 && ts_output()) {
+                auto inner_node = m_active_graph_->nodes()[m_output_node_id_];
+                if (inner_node->ts_output()) {
+                    auto et = graph()->evaluation_time();
+                    auto inner_view = inner_node->ts_output()->view(et);
+
+                    if (inner_view.modified()) {
+                        // The inner output stub was modified. Check if its REF target
+                        // is valid (i.e., points to a real value). We don't check
+                        // modified because the target may have been set in a prior tick
+                        // but the REF switched to point to it just now.
+                        const ViewData& inner_vd = inner_view.view_data();
+
+                        if (ref_target_is_valid(inner_vd, et)) {
+                            // Copy the inner output stub's value to the outer "out" field
+                            auto output_view = ts_output()->view(et);
+                            auto out_field = output_view.field("out");
+                            nb::object inner_py = inner_view.to_python();
+                            out_field.from_python(inner_py);
+                        }
+                    }
+                }
+            }
         } catch (const std::exception &e) {
-            // Capture the exception and publish it to the error output, mirroring Python behavior
+            // Capture the exception and publish it to the error output
             auto err = NodeError::capture_error(e, *this, "");
-            // Create a heap-allocated copy managed by nanobind
             auto error_ptr = nb::ref<NodeError>(new NodeError(err));
 
-            // Output is either a bundle with "exception" field, or direct TS[NodeError]
             if (ts_output()) {
                 auto output_view = ts_output()->view(graph()->evaluation_time());
                 const TSMeta* meta = ts_output()->ts_meta();
                 if (meta && meta->kind == TSKind::TSB && meta->field_count > 0) {
-                    // Bundle case: write to "exception" field
                     auto exception_view = output_view.field("exception");
                     try {
                         exception_view.from_python(nb::cast(error_ptr));
@@ -144,14 +123,11 @@ namespace hgraph {
                         exception_view.from_python(nb::str(err.to_string().c_str()));
                     }
                 } else {
-                    // Sink case: direct TS[NodeError]
                     output_view.from_python(nb::cast(error_ptr));
                 }
             }
 
-            // Stop the nested component to mirror Python try/except behavior
             stop_component(*m_active_graph_);
-            // Unbind inner graph inputs to prevent dangling observer pointers
             for (size_t ni = 0; ni < m_active_graph_->nodes().size(); ni++) {
                 auto& node = m_active_graph_->nodes()[ni];
                 if (node->ts_input()) {

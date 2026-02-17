@@ -75,10 +75,21 @@ namespace hgraph {
                         }
                     }
 
+                    // Check: if the original source was REF and resolved is not REF,
+                    // the output_path was designed for REF navigation.
+                    // In that case, skip output_path navigation on the resolved data.
+                    auto* inner_src_output = m_active_graph_->nodes()[edge.src_node]->ts_output();
+                    bool src_was_ref = inner_src_output &&
+                                       inner_src_output->ts_meta() &&
+                                       inner_src_output->ts_meta()->kind == TSKind::REF;
+                    bool resolved_is_ref = resolved.meta && resolved.meta->kind == TSKind::REF;
+
                     TSView src_view(resolved, graph()->evaluation_time());
-                    for (auto idx : edge.output_path) {
-                        if (idx >= 0) {
-                            src_view = src_view[static_cast<size_t>(idx)];
+                    if (!src_was_ref || resolved_is_ref) {
+                        for (auto idx : edge.output_path) {
+                            if (idx >= 0) {
+                                src_view = src_view[static_cast<size_t>(idx)];
+                            }
                         }
                     }
 
@@ -88,6 +99,14 @@ namespace hgraph {
                         dst_input_view.ts_view().unbind();
                     }
                     dst_input_view.ts_view().bind(src_view);
+
+                    // Clear RefBindingProxies on the destination node's TSInput.
+                    // The inner graph was wired with REF stubs, so graph_builder
+                    // created RefBindingProxies for REF→non-REF edges. Now that
+                    // we've rebound directly to upstream (non-REF) data, these
+                    // proxies would incorrectly overwrite our binding when stubs
+                    // evaluate and modify their REF outputs.
+                    dst_node->ts_input()->clear_ref_binding_proxies();
                 }
             }
         }

@@ -183,15 +183,22 @@ namespace hgraph
         auto end{_nodes.size()};
         if (is_started()) { stop_subgraph(start_node, end); }
 
-        // Unbind inputs of removed nodes AFTER stop but BEFORE dispose.
-        // This unsubscribes REFBindingHelpers from observer lists of surviving nodes,
-        // preventing dangling Notifiable* pointers when these nodes are destroyed.
-        // (Matches Python Node.stop() which calls un_bind_output(unbind_refs=True).)
+        // Unsubscribe and unbind inputs of removed nodes AFTER stop but BEFORE dispose.
+        // This matches Python Node.stop() which calls un_bind_output(unbind_refs=True)
+        // on each input, which:
+        //   1. make_passive() → removes observer subscription from output's observer list
+        //   2. Clears the bound output reference
+        // Without this, dangling Notifiable* pointers remain in surviving nodes' observer
+        // lists, causing hangs or segfaults when those observers are later notified.
         // We only do this in reduce_graph (partial teardown), NOT in full graph stop,
         // because full stop destroys all nodes together and doesn't leave dangling refs.
         for (auto i = start_node; i < static_cast<int64_t>(end); ++i) {
             auto& node = _nodes[i];
             if (node->ts_input()) {
+                // First: unsubscribe from observer lists (make_passive equivalent)
+                node->ts_input()->set_active(false);
+
+                // Then: unbind link targets
                 ViewData vd = node->ts_input()->value().make_view_data();
                 vd.uses_link_target = true;
                 if (vd.ops && vd.ops->unbind) {

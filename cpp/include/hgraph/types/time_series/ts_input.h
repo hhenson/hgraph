@@ -284,6 +284,14 @@ public:
      */
     void add_ref_binding_proxy(ViewData ref_output_vd, ViewData input_vd, ObserverList* ref_observers);
 
+    /**
+     * @brief Clear all REF binding proxies (unsubscribe and remove).
+     *
+     * Used during cross-graph wiring (write_inputs) to prevent inner graph
+     * RefBindingProxies from overwriting upstream bindings when stubs evaluate.
+     */
+    void clear_ref_binding_proxies();
+
 private:
     TSValue value_;                     ///< Contains Links at leaves pointing to outputs
     value::Value<> active_;             ///< Hierarchical active state (mirrors schema structure)

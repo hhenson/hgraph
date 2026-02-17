@@ -407,7 +407,6 @@ namespace hgraph {
         }
 
         auto& inner_graph = it->second;
-
         if (auto* nec = dynamic_cast<NestedEngineEvaluationClock*>(
                 inner_graph->evaluation_engine_clock().get())) {
             nec->reset_next_scheduled_evaluation_time();
