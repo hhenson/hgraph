@@ -468,7 +468,7 @@ class PythonTimeSeriesBundleReferenceInput(PythonTimeSeriesReferenceInput, Gener
             # Use generic lazy creation for now
             return super().__getitem__(item)
         else:
-            throw NotImplementedError("String key access not implemented for REF[TSB]")
+            raise NotImplementedError("String key access not implemented for REF[TSB]")
             # return super().__getitem__(item)
 
 
