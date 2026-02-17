@@ -167,6 +167,10 @@ namespace
         [](NestedNode*, ApiPtr<Node> ptr) {
             return nb::cast(PyNestedNode(std::move(ptr)));
         },
+        // Other nested nodes
+        [](NestedGraphNode*, ApiPtr<Node> ptr) {
+            return nb::cast(PyNestedNode(std::move(ptr)));
+        },
         // Default to base PyNode
         // [NOTE] first arg must be `auto`, not `Node*`: in latter case compiler needs complete nodes definitions
         [](auto, ApiPtr<Node> ptr) { return nb::cast(PyNode(std::move(ptr))); }
