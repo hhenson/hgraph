@@ -51,69 +51,46 @@ namespace hgraph
 
 	            if (input_meta->kind == TSKind::TSB) {
 	                const size_t n = input_meta->field_count();
-	                TSBInputView input_bundle = input_view.as_bundle();
-	                TSBOutputView output_bundle = output_view.as_bundle();
+	                auto input_bundle = input_view.try_as_bundle();
+	                auto output_bundle = output_view.try_as_bundle();
+	                if (!input_bundle.has_value() || !output_bundle.has_value()) {
+	                    return;
+	                }
 	                for (size_t i = 0; i < n; ++i) {
-	                    bind_static_container_recursive(input_bundle.at(i), output_bundle.at(i));
+	                    bind_static_container_recursive(input_bundle->at(i), output_bundle->at(i));
 	                }
 	                return;
 	            }
 
 	            if (input_meta->kind == TSKind::TSL && input_meta->fixed_size() > 0) {
 	                const size_t n = input_meta->fixed_size();
-	                TSLInputView input_list = input_view.as_list();
-	                TSLOutputView output_list = output_view.as_list();
+	                auto input_list = input_view.try_as_list();
+	                auto output_list = output_view.try_as_list();
+	                if (!input_list.has_value() || !output_list.has_value()) {
+	                    return;
+	                }
 	                for (size_t i = 0; i < n; ++i) {
-	                    bind_static_container_recursive(input_list.at(i), output_list.at(i));
+	                    bind_static_container_recursive(input_list->at(i), output_list->at(i));
 	                }
 	            }
 	        }
     }  // namespace
 
-    bool _bind_ts_endpoint(node_ptr src_node, const std::vector<int64_t> &output_path,
-                           node_ptr dst_node, const std::vector<int64_t> &input_path) {
-        TSOutputView output_view;
-        std::vector<int64_t> normalized_output_path = output_path;
-        if (output_path.size() == 1 && output_path.front() == ERROR_PATH) {
-            output_view = src_node->error_output(MIN_DT);
-            normalized_output_path.clear();
-        } else if (output_path.size() == 1 && output_path.front() == STATE_PATH) {
-            output_view = src_node->recordable_state(MIN_DT);
-            normalized_output_path.clear();
-        } else {
-            output_view = src_node->output(MIN_DT);
-        }
+	    bool _bind_ts_endpoint(node_ptr src_node, const std::vector<int64_t> &output_path,
+	                           node_ptr dst_node, const std::vector<int64_t> &input_path) {
+	        TSInputView input_view = dst_node->input(MIN_DT);
+	        if (!input_view) {
+	            return false;
+	        }
 
-        TSInputView input_view = dst_node->input(MIN_DT);
-        if (!output_view || !input_view) {
-            return false;
-        }
-
-        for (int64_t index : normalized_output_path) {
-            if (index == KEY_SET_PATH_ID) {
-                if (output_view.as_ts_view().kind() != TSKind::TSD) {
-                    return false;
-                }
-                output_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
-                continue;
-            }
-	            if (index < 0) {
-	                return false;
+	        for (int64_t index : input_path) {
+	            if (index == KEY_SET_PATH_ID) {
+	                if (input_view.as_ts_view().kind() != TSKind::TSD) {
+	                    return false;
+	                }
+	                input_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
+	                continue;
 	            }
-	            output_view = output_child_at(output_view, static_cast<size_t>(index));
-	            if (!output_view) {
-	                return false;
-	            }
-        }
-
-        for (int64_t index : input_path) {
-            if (index == KEY_SET_PATH_ID) {
-                if (input_view.as_ts_view().kind() != TSKind::TSD) {
-                    return false;
-                }
-                input_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
-                continue;
-            }
 	            if (index < 0) {
 	                return false;
 	            }
@@ -121,11 +98,44 @@ namespace hgraph
 	            if (!input_view) {
 	                return false;
 	            }
-        }
+	        }
 
-        const TSMeta* input_meta = input_view.ts_meta();
-        if (input_meta != nullptr &&
-            (input_meta->kind == TSKind::TSB || (input_meta->kind == TSKind::TSL && input_meta->fixed_size() > 0))) {
+	        TSOutputView output_view;
+	        std::vector<int64_t> normalized_output_path = output_path;
+	        if (output_path.size() == 1 && output_path.front() == ERROR_PATH) {
+	            output_view = src_node->error_output(MIN_DT);
+	            normalized_output_path.clear();
+	        } else if (output_path.size() == 1 && output_path.front() == STATE_PATH) {
+	            output_view = src_node->recordable_state(MIN_DT);
+	            normalized_output_path.clear();
+	        } else {
+	            output_view = src_node->output(MIN_DT);
+	        }
+	        if (!output_view) {
+	            return false;
+	        }
+
+	        for (int64_t index : normalized_output_path) {
+	            if (index == KEY_SET_PATH_ID) {
+	                if (output_view.as_ts_view().kind() != TSKind::TSD) {
+	                    return false;
+	                }
+	                output_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
+	                continue;
+	            }
+	            if (index < 0) {
+	                return false;
+	            }
+	            output_view = output_child_at(output_view, static_cast<size_t>(index));
+	            if (!output_view) {
+	                return false;
+	            }
+	        }
+
+	        const TSMeta* input_meta = input_view.ts_meta();
+	        if (input_meta != nullptr &&
+	            input_meta->kind == TSKind::TSL &&
+            input_meta->fixed_size() > 0) {
             const TSMeta* output_meta = output_view.ts_meta();
             if (output_meta != nullptr && output_meta->kind == TSKind::REF) {
                 input_view.bind(output_view);

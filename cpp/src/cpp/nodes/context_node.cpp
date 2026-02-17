@@ -6,12 +6,25 @@
 #include <hgraph/python/global_keys.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
 #include <nanobind/nanobind.h>
 
 namespace hgraph {
     namespace {
+        bool view_data_equals(const ViewData &lhs, const ViewData &rhs) {
+            return lhs.path.indices == rhs.path.indices &&
+                   lhs.value_data == rhs.value_data &&
+                   lhs.time_data == rhs.time_data &&
+                   lhs.observer_data == rhs.observer_data &&
+                   lhs.delta_data == rhs.delta_data &&
+                   lhs.link_data == rhs.link_data &&
+                   lhs.projection == rhs.projection &&
+                   lhs.ops == rhs.ops &&
+                   lhs.meta == rhs.meta;
+        }
+
         engine_time_t node_time(const Node &node) {
             if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
                 return *et;
@@ -22,15 +35,25 @@ namespace hgraph {
     }  // namespace
 
     void ContextStubSourceNode::do_start() {
-        _subscribed_output = nullptr;
+        if (_subscribed_link.is_linked) {
+            unregister_ts_link_observer(_subscribed_link);
+            _subscribed_link.unbind();
+        }
+        _owner_time = node_time(*this);
+        _subscribed_link.active_notifier = this;
+        _subscribed_link.owner_time_ptr = &_owner_time;
+        _subscribed_link.parent_link = nullptr;
         notify();
     }
 
     void ContextStubSourceNode::do_stop() {
-        if (_subscribed_output != nullptr) {
-            _subscribed_output->un_subscribe(this);
-            _subscribed_output = nullptr;
+        if (_subscribed_link.is_linked) {
+            unregister_ts_link_observer(_subscribed_link);
+            _subscribed_link.unbind();
         }
+        _subscribed_link.active_notifier = nullptr;
+        _subscribed_link.owner_time_ptr = nullptr;
+        _subscribed_link.parent_link = nullptr;
     }
 
     void ContextStubSourceNode::do_eval() {
@@ -91,41 +114,58 @@ namespace hgraph {
             throw std::runtime_error(fmt::format("Missing shared output for path: {}{}", key, diag));
         }
 
-        // We will capture the reference value and subscribe to the producing output when available
-        std::optional<TimeSeriesReference> value_ref;
-        time_series_reference_output_s_ptr output_ts = nullptr;
+        // Capture the reference value and track the producing output via TS link observer registration.
+        nb::object value_ref_obj = nb::none();
+        std::optional<ViewData> subscribed_target;
 
         // Case 1: direct TimeSeriesReferenceOutput stored in GlobalState
-        // Use nb::isinstance to handle both base and specialized reference types
         if (nb::isinstance<PyTimeSeriesReferenceOutput>(shared)) {
-            output_ts = unwrap_output_as<TimeSeriesReferenceOutput>(shared);
-            if (output_ts->valid() && output_ts->has_value()) {
-                value_ref = output_ts->value();
+            auto &output = nb::cast<PyTimeSeriesReferenceOutput &>(shared);
+            value_ref_obj = output.value();
+            if (output.output_view()) {
+                subscribed_target = output.output_view().as_ts_view().view_data();
             }
         }
         // Case 2: TimeSeriesReferenceInput stored in GlobalState
         else if (nb::isinstance<PyTimeSeriesReferenceInput>(shared)) {
-            auto ref = unwrap_input_as<TimeSeriesReferenceInput>(shared);
-            if (ref->has_peer()) {
-                // Use the bound peer output (stub remains a reference node)
-                output_ts = std::dynamic_pointer_cast<TimeSeriesReferenceOutput>(ref->output());
+            auto &ref = nb::cast<PyTimeSeriesReferenceInput &>(shared);
+            if (static_cast<bool>(ref.has_peer())) {
+                nb::object output_obj = ref.output();
+                if (nb::isinstance<PyTimeSeriesOutput>(output_obj)) {
+                    auto &output = nb::cast<PyTimeSeriesOutput &>(output_obj);
+                    if (output.output_view()) {
+                        subscribed_target = output.output_view().as_ts_view().view_data();
+                    }
+                }
             }
-            // Always use the value from the REF input (may be empty). Python sets value regardless of peer.
-            value_ref = ref->value();
+            value_ref_obj = ref.ref_value();
         } else {
             throw std::runtime_error(
                 fmt::format("Context found an unknown output type bound to {}: {}", key,
                             nb::str(shared.type()).c_str()));
         }
 
-        // Manage subscription if we have a producing output
-        if (output_ts != nullptr) {
-            bool is_same{_subscribed_output == output_ts};
-            if (!is_same) {
-                output_ts->subscribe(this);
-                if (_subscribed_output != nullptr) { _subscribed_output->un_subscribe(this); }
-                _subscribed_output = output_ts;
+        // Manage subscription against output TS link-observer registries.
+        if (subscribed_target.has_value()) {
+            const bool same_target =
+                _subscribed_link.is_linked &&
+                view_data_equals(_subscribed_link.as_view_data(false), *subscribed_target);
+
+            if (!same_target) {
+                if (_subscribed_link.is_linked) {
+                    unregister_ts_link_observer(_subscribed_link);
+                    _subscribed_link.unbind();
+                }
+                _owner_time = node_time(*this);
+                _subscribed_link.active_notifier = this;
+                _subscribed_link.owner_time_ptr = &_owner_time;
+                _subscribed_link.parent_link = nullptr;
+                _subscribed_link.bind(*subscribed_target, node_time(*this));
+                register_ts_link_observer(_subscribed_link);
             }
+        } else if (_subscribed_link.is_linked) {
+            unregister_ts_link_observer(_subscribed_link);
+            _subscribed_link.unbind();
         }
 
         // Finally, set this node's own REF output to the captured value (may be None)
@@ -133,10 +173,10 @@ namespace hgraph {
         if (!out_port) {
             throw std::runtime_error("ContextStubSourceNode: missing TS output");
         }
-        if (value_ref.has_value()) {
-            out_port.from_python(nb::cast(*value_ref));
-        } else {
+        if (value_ref_obj.is_none()) {
             out_port.from_python(nb::cast(TimeSeriesReference::make()));
+        } else {
+            out_port.from_python(value_ref_obj);
         }
     }
 

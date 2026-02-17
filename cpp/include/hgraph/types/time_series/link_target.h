@@ -3,6 +3,8 @@
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/time_series/view_data.h>
 
+#include <vector>
+
 namespace hgraph {
 
 /**
@@ -35,9 +37,10 @@ struct HGRAPH_EXPORT LinkTarget : Notifiable {
     ViewData previous_target{};
     bool has_resolved_target{false};
     ViewData resolved_target{};
+    std::vector<ViewData> fan_in_targets{};
 
     LinkTarget() = default;
-    ~LinkTarget() override = default;
+    ~LinkTarget() override;
 
     LinkTarget(const LinkTarget& other);
     LinkTarget& operator=(const LinkTarget& other);

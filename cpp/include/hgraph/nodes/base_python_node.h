@@ -9,6 +9,10 @@
 #include <vector>
 
 namespace hgraph {
+    class TSInputView;
+    class TSOutputView;
+    class TSView;
+
     /**
      * BasePythonNode - Base class for Python-based compute nodes
      *
@@ -23,14 +27,12 @@ namespace hgraph {
      * - PythonGeneratorNode: Generator-based nodes
      */
     struct BasePythonNode : Node {
-        struct InputViewRef {
+        struct WrappedInputRef {
             nb::object owner;
-            TSInputView* view{nullptr};
         };
 
-        struct OutputViewRef {
+        struct WrappedOutputRef {
             nb::object owner;
-            TSOutputView* view{nullptr};
         };
 
         BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
@@ -68,8 +70,8 @@ namespace hgraph {
         nb::callable _stop_fn;
 
         nb::kwargs _kwargs;
-        std::vector<InputViewRef> _kwarg_input_views;
-        std::vector<OutputViewRef> _kwarg_output_views;
+        std::vector<WrappedInputRef> _kwarg_wrapped_inputs;
+        std::vector<WrappedOutputRef> _kwarg_wrapped_outputs;
     };
 } // namespace hgraph
 

@@ -51,11 +51,7 @@ namespace hgraph
                 return {};
             }
 
-            auto ts = bundle_opt->field("ts");
-            if (!ts && bundle_opt->count() > 0) {
-                ts = bundle_opt->at(0);
-            }
-            return ts;
+            return bundle_opt->field("ts");
         }
 
         std::string key_repr(const value::View &key, const value::TypeMeta *key_type_meta) {
@@ -152,15 +148,6 @@ namespace hgraph
 
             nb::object added_obj = nb::getattr(delta, "added", nb::none());
             nb::object removed_obj = nb::getattr(delta, "removed", nb::none());
-            if (added_obj.is_none() && removed_obj.is_none() && nb::isinstance<nb::dict>(delta)) {
-                auto as_dict = nb::cast<nb::dict>(delta);
-                if (as_dict.contains("added")) {
-                    added_obj = as_dict["added"];
-                }
-                if (as_dict.contains("removed")) {
-                    removed_obj = as_dict["removed"];
-                }
-            }
 
             bool has_delta = false;
             if (!added_obj.is_none()) {
@@ -256,16 +243,10 @@ namespace hgraph
             return;
         }
 
-        // During TS migration, KEY_SET path binding is still represented by routing
-        // the owning TSD endpoint. Support both the intended TSS key-set shape and
-        // the current TSD fallback shape.
-        if (keys_meta->kind == TSKind::TSS) {
-            key_type_meta_ = keys_meta->value_type != nullptr ? keys_meta->value_type->element_type : nullptr;
-        } else if (keys_meta->kind == TSKind::TSD) {
-            key_type_meta_ = keys_meta->key_type();
-        } else {
-            key_type_meta_ = nullptr;
+        if (keys_meta->kind != TSKind::TSS) {
+            throw std::runtime_error("TsdMapNode expected __keys__ input to be TSS");
         }
+        key_type_meta_ = keys_meta->value_type != nullptr ? keys_meta->value_type->element_type : nullptr;
     }
 
     void TsdMapNode::do_start() {
@@ -601,6 +582,12 @@ namespace hgraph
             }
             out.create(key);
         }
+    }
+
+    bool TsdMapNode::refresh_multiplexed_bindings(const value::View &key, graph_s_ptr &graph) {
+        (void)key;
+        (void)graph;
+        return false;
     }
 
     void register_tsd_map_with_nanobind(nb::module_ &m) {

@@ -30,8 +30,10 @@ const TSMeta* meta_child(const TSMeta* meta, size_t index) {
 
         case TSKind::TSL:
         case TSKind::TSD:
-        case TSKind::REF:
             return meta->element_ts();
+
+        case TSKind::REF:
+            return meta_child(meta->element_ts(), index);
 
         default:
             return nullptr;

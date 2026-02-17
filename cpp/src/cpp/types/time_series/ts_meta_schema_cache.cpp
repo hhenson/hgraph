@@ -304,11 +304,22 @@ const TypeMeta* TSMetaSchemaCache::generate_link_schema_impl(const TSMeta* meta,
     switch (meta->kind) {
         case TSKind::TSValue:
         case TSKind::TSD:
-        case TSKind::REF:
         case TSKind::TSW:
         case TSKind::TSS:
         case TSKind::SIGNAL:
             return leaf;
+
+        case TSKind::REF:
+            {
+                // REF carries its own link slot (slot 0) and a nested link tree
+                // for referred children (slot 1). This supports non-peered child
+                // binding under REF containers.
+                const TypeMeta* child_link = generate_link_schema_impl(meta->element_ts(), input_mode);
+                auto builder = registry.tuple();
+                builder.add_element(leaf);
+                builder.add_element(child_link != nullptr ? child_link : leaf);
+                return builder.build();
+            }
 
         case TSKind::TSL:
             if (meta->fixed_size() > 0) {

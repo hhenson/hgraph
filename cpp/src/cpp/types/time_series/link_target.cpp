@@ -1,6 +1,11 @@
 #include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/ts_ops.h>
 
 namespace hgraph {
+
+LinkTarget::~LinkTarget() {
+    unregister_ts_link_observer(*this);
+}
 
 LinkTarget::LinkTarget(const LinkTarget& other) {
     copy_target_data_from(other);
@@ -68,6 +73,7 @@ void LinkTarget::copy_target_data_from(const LinkTarget& other) {
     projection = other.projection;
     ops = other.ops;
     meta = other.meta;
+    fan_in_targets = other.fan_in_targets;
 }
 
 void LinkTarget::move_target_data_from(LinkTarget&& other) noexcept {
@@ -87,6 +93,7 @@ void LinkTarget::clear_target_data() {
     projection = ViewProjection::NONE;
     ops = nullptr;
     meta = nullptr;
+    fan_in_targets.clear();
 }
 
 void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
@@ -109,6 +116,7 @@ void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
     projection = target.projection;
     ops = target.ops;
     meta = target.meta;
+    fan_in_targets.clear();
 
     if (current_time != MIN_DT) {
         last_rebind_time = current_time;
@@ -165,7 +173,7 @@ ViewData LinkTarget::as_view_data(bool sampled) const {
     vd.link_data = link_data;
     vd.link_observer_registry = link_observer_registry;
     vd.sampled = sampled;
-    vd.uses_link_target = true;
+    vd.uses_link_target = false;
     vd.projection = projection;
     vd.ops = ops;
     vd.meta = meta;

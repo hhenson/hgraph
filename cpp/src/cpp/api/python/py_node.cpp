@@ -5,8 +5,6 @@
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/ref.h>
-#include <hgraph/types/tsb.h>
 
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node.h>
@@ -119,30 +117,21 @@ namespace hgraph
     }
 
     nb::object PyNode::input() const {
-        auto et = _impl->cached_evaluation_time_ptr() != nullptr ? *_impl->cached_evaluation_time_ptr() : MIN_DT;
-        auto in = _impl->input(et);
-        if (!in) {
-            return nb::none();
-        }
-        return nb::cast(in);
+        auto view = _impl->input();
+        return view ? wrap_input_view(view) : nb::none();
     }
 
     nb::dict PyNode::inputs() const {
         nb::dict d;
-        auto et = _impl->cached_evaluation_time_ptr() != nullptr ? *_impl->cached_evaluation_time_ptr() : MIN_DT;
-        auto root = _impl->input(et);
-        if (!root) {
-            return d;
-        }
-        auto bundle = root.try_as_bundle();
-        if (!bundle.has_value()) {
-            return d;
-        }
-        for (size_t i = 0; i < bundle->count(); ++i) {
-            const char *name = bundle->ts_meta()->fields()[i].name;
-            if (name != nullptr) {
-                d[name] = nb::cast(bundle->at(i));
-            }
+        auto view = _impl->input();
+        if (!view) { return d; }
+        const TSMeta* meta = view.ts_meta();
+        if (!meta || meta->kind != TSKind::TSB || meta->fields() == nullptr) { return d; }
+
+        auto bundle = view.as_bundle();
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            auto field_view = bundle.at(i);
+            d[meta->fields()[i].name] = wrap_input_view(field_view);
         }
         return d;
     }
@@ -150,21 +139,13 @@ namespace hgraph
     nb::tuple PyNode::start_inputs() const { return nb::tuple(nb::cast(_impl->start_inputs())); }
 
     nb::object PyNode::output() {
-        auto et = _impl->cached_evaluation_time_ptr() != nullptr ? *_impl->cached_evaluation_time_ptr() : MIN_DT;
-        auto out = _impl->output(et);
-        if (!out) {
-            return nb::none();
-        }
-        return nb::cast(out);
+        auto view = _impl->output();
+        return view ? wrap_output_view(view) : nb::none();
     }
 
     nb::object PyNode::recordable_state() {
-        auto et = _impl->cached_evaluation_time_ptr() != nullptr ? *_impl->cached_evaluation_time_ptr() : MIN_DT;
-        auto state = _impl->recordable_state(et);
-        if (!state) {
-            return nb::none();
-        }
-        return nb::cast(state);
+        auto view = _impl->recordable_state();
+        return view ? wrap_output_view(view) : nb::none();
     }
 
     nb::bool_ PyNode::has_recordable_state() const { return nb::bool_(_impl->has_recordable_state()); }
@@ -174,12 +155,8 @@ namespace hgraph
     nb::bool_ PyNode::has_scheduler() const { return nb::bool_(_impl->has_scheduler()); }
 
     nb::object PyNode::error_output() {
-        auto et = _impl->cached_evaluation_time_ptr() != nullptr ? *_impl->cached_evaluation_time_ptr() : MIN_DT;
-        auto out = _impl->error_output(et);
-        if (!out) {
-            return nb::none();
-        }
-        return nb::cast(out);
+        auto view = _impl->error_output();
+        return view ? wrap_output_view(view) : nb::none();
     }
 
     nb::bool_ PyNode::has_input() const { return nb::bool_(_impl->has_input()); }

@@ -26,20 +26,13 @@ namespace hgraph {
                 .def(
                     "make_instance",
                     [](OutputBuilder::ptr self, nb::object owning_node,
-                       nb::object owning_output) -> nb::object {
+                       nb::object owning_output) -> time_series_output_s_ptr {
                         if (!owning_node.is_none()) {
-                            auto node{unwrap_node(owning_node)};
-                            auto output_{self->make_instance(node.get())};
-                            return wrap_time_series(output_);
+                            return self->make_instance(unwrap_node(owning_node).get());
                         }
                         if (!owning_output.is_none()) {
-                            auto object_{unwrap_output(owning_output)};
-                            auto result_{self->make_instance(object_.get())};
-                            return wrap_time_series(result_);
+                            return self->make_instance(nb::cast<time_series_output_ptr>(owning_output));
                         }
-                        // TODO: Here we need to create a standalone instance of the output
-
-                        // Allow both to be None to match Python behavior
                         throw std::runtime_error("At least one of owning_node or owning_output must be provided");
                     },
                     "owning_node"_a = nb::none(), "owning_output"_a = nb::none())

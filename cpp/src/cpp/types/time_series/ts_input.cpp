@@ -283,9 +283,11 @@ TSInputView TSInput::input_view(engine_time_t current_time, const TSMeta* schema
 void TSInput::bind(TSOutput& output, engine_time_t current_time) {
     TSView input_view = view(current_time);
     TSView native_output_view = output.view(current_time);
+    const bool input_is_ref = meta_ != nullptr && meta_->kind == TSKind::REF;
+    const bool input_is_signal = meta_ != nullptr && meta_->kind == TSKind::SIGNAL;
     const bool output_is_ref = native_output_view.ts_meta() != nullptr &&
                                native_output_view.ts_meta()->kind == TSKind::REF;
-    TSView output_view = ((meta_ != nullptr && meta_->kind == TSKind::REF) || output_is_ref)
+    TSView output_view = (input_is_ref || input_is_signal || output_is_ref)
                              ? native_output_view
                              : output.view(current_time, meta_);
 

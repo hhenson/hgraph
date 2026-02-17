@@ -521,7 +521,7 @@ namespace hgraph
     }
 
     nb::object TimeSeriesDictOutputImpl::py_get_ref(const nb::object &key, const nb::object &requester) {
-        return wrap_time_series(get_ref(key, static_cast<const void *>(requester.ptr())));
+        return nb::cast(get_ref(key, static_cast<const void *>(requester.ptr())));
     }
 
     void TimeSeriesDictOutputImpl::py_release_ref(const nb::object &key, const nb::object &requester) {

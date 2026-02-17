@@ -350,18 +350,7 @@ nb::object tsd_input_delta_to_python(const TSDInputView& self) {
     if (delta.is_none()) {
         return get_frozendict()(nb::dict{});
     }
-
-    nb::dict out;
-    nb::object remove = get_remove();
-    nb::object remove_if_exists = get_remove_if_exists();
-    nb::object items_attr = nb::getattr(delta, "items", nb::none());
-    nb::iterator items = items_attr.is_none() ? nb::iter(delta) : nb::iter(items_attr());
-    for (const auto& kv : items) {
-        nb::object value_obj = kv[1];
-        out[kv[0]] = value_obj.is(remove) ? remove_if_exists : value_obj;
-    }
-
-    return get_frozendict()(out);
+    return delta;
 }
 
 nb::list tsl_keys_python(const TSView& ts_view) {
@@ -903,9 +892,6 @@ public:
         }
 
         it->second.requesters.erase(requester.ptr());
-        if (it->second.requesters.empty()) {
-            contains_outputs_.erase(it);
-        }
     }
 
     TSOutputView get_is_empty_output(engine_time_t current_time) {
@@ -1219,6 +1205,26 @@ void clear_output(TSOutputView& self) {
 }
 
 }  // namespace
+
+TSOutputView runtime_tsd_get_ref_output(TSOutputView& self, const nb::object& key, const nb::object& requester) {
+    return tsd_get_ref_output(self, key, requester);
+}
+
+void runtime_tsd_release_ref_output(TSOutputView& self, const nb::object& key, const nb::object& requester) {
+    tsd_release_ref_output(self, key, requester);
+}
+
+TSOutputView runtime_tss_get_contains_output(TSOutputView& self, const nb::object& item, const nb::object& requester) {
+    return tss_get_contains_output(self, item, requester);
+}
+
+void runtime_tss_release_contains_output(TSOutputView& self, const nb::object& item, const nb::object& requester) {
+    tss_release_contains_output(self, item, requester);
+}
+
+TSOutputView runtime_tss_get_is_empty_output(TSOutputView& self) {
+    return tss_get_is_empty_output(self);
+}
 
 void reset_ts_runtime_feature_observers() {
     // Runtime observers are stored on endpoint registries and cleaned up with endpoint lifetime.

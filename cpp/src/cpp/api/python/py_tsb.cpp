@@ -1,140 +1,300 @@
 #include <hgraph/api/python/py_tsb.h>
 #include <hgraph/api/python/wrapper_factory.h>
-#include <hgraph/types/tsb.h>
+
+#include <fmt/format.h>
+#include <stdexcept>
+#include <type_traits>
 
 namespace hgraph
 {
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    PyTimeSeriesBundle<T_TS, T_U>::PyTimeSeriesBundle(api_ptr impl) : T_TS(std::move(impl)) {}
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::iter() const {
-        return nb::iter(list_to_list(impl()->values()));
+namespace
+{
+    template <typename T_TS>
+    nb::object wrap_child(typename PyTimeSeriesBundle<T_TS>::view_type child) {
+        if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
+            return wrap_output_view(std::move(child));
+        } else {
+            return wrap_input_view(std::move(child));
+        }
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::get_item(const nb::handle &key) const {
+    template <typename T_TS>
+    typename PyTimeSeriesBundle<T_TS>::view_type child_at(const PyTimeSeriesBundle<T_TS> &self, size_t index) {
+        if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
+            return self.output_view().as_bundle().at(index);
+        } else {
+            return self.input_view().as_bundle().at(index);
+        }
+    }
+
+    template <typename T_TS>
+    typename PyTimeSeriesBundle<T_TS>::view_type child_by_name(const PyTimeSeriesBundle<T_TS> &self, std::string_view name) {
+        if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
+            return self.output_view().as_bundle().field(name);
+        } else {
+            return self.input_view().as_bundle().field(name);
+        }
+    }
+
+    template <typename T_TS>
+    nb::list field_names(const PyTimeSeriesBundle<T_TS> &self) {
+        nb::list out;
+        const auto *meta = self.view().ts_meta();
+        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+            return out;
+        }
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            out.append(nb::str(meta->fields()[i].name));
+        }
+        return out;
+    }
+}  // namespace
+
+    template <typename T_TS>
+    PyTimeSeriesBundle<T_TS>::PyTimeSeriesBundle(view_type view) : T_TS(std::move(view)) {}
+
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::iter() const {
+        return nb::iter(values());
+    }
+
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::get_item(const nb::handle &key) const {
         if (nb::isinstance<nb::str>(key)) {
-            return wrap_time_series(impl()->operator[](nb::cast<std::string>(key)));
+            auto child = child_by_name(*this, nb::cast<std::string>(key));
+            if (!child) {
+                throw nb::key_error();
+            }
+            return wrap_child<T_TS>(std::move(child));
         }
+
         if (nb::isinstance<nb::int_>(key)) {
-            return wrap_time_series(impl()->operator[](nb::cast<size_t>(key)));
+            const size_t index = nb::cast<size_t>(key);
+            auto child = child_at(*this, index);
+            if (!child) {
+                throw nb::index_error();
+            }
+            return wrap_child<T_TS>(std::move(child));
         }
+
         throw std::runtime_error("Invalid key type for TimeSeriesBundle");
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::get_attr(const nb::handle &key) const {
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::get_attr(const nb::handle &key) const {
         return get_item(key);
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::bool_ PyTimeSeriesBundle<T_TS, T_U>::contains(const nb::handle &key) const {
-        if (nb::isinstance<nb::str>(key)) { return nb::bool_(impl()->contains(nb::cast<std::string>(key))); }
+    template <typename T_TS>
+    nb::bool_ PyTimeSeriesBundle<T_TS>::contains(const nb::handle &key) const {
+        if (!nb::isinstance<nb::str>(key)) {
+            return nb::bool_(false);
+        }
+
+        const auto *meta = this->view().ts_meta();
+        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+            return nb::bool_(false);
+        }
+
+        const std::string name = nb::cast<std::string>(key);
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            if (name == meta->fields()[i].name) {
+                return nb::bool_(true);
+            }
+        }
         return nb::bool_(false);
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    const TimeSeriesSchema &PyTimeSeriesBundle<T_TS, T_U>::schema() const {
-        return impl()->schema();
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::schema() const {
+        const auto *meta = this->view().ts_meta();
+        return meta != nullptr ? meta->python_type() : nb::none();
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::key_from_value(const nb::handle &value) const {
-        constexpr auto is_input = std::is_same_v<T_U, TimeSeriesBundleInput>;
-        typedef std::conditional_t<is_input, time_series_input_s_ptr, time_series_output_s_ptr> TS_SPtr;
-        TS_SPtr p;
-        if constexpr (is_input) {
-            p = unwrap_input(value);
-        } else {
-            p = unwrap_output(value);
-        }
-        if (!p) {
-            throw std::runtime_error("Value is not a valid TimeSeries");
-        }
-        try {
-            auto key = impl()->key_from_value(p);
-            return nb::str(key.c_str());
-        } catch (const std::exception &e) {
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::key_from_value(const nb::handle &value) const {
+        const auto *meta = this->view().ts_meta();
+        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
             return nb::none();
         }
+
+        const ShortPath *target_path = nullptr;
+        if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
+            if (auto *wrapped = nb::inst_ptr<PyTimeSeriesOutput>(value)) {
+                target_path = &wrapped->output_view().short_path();
+            }
+        } else {
+            if (auto *wrapped = nb::inst_ptr<PyTimeSeriesInput>(value)) {
+                target_path = &wrapped->input_view().short_path();
+            }
+        }
+
+        if (target_path == nullptr) {
+            return nb::none();
+        }
+
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            auto child = child_at(*this, i);
+            if (!child) {
+                continue;
+            }
+            const auto &child_path = child.short_path();
+            if (child_path.node == target_path->node && child_path.port_type == target_path->port_type &&
+                child_path.indices == target_path->indices) {
+                return nb::str(meta->fields()[i].name);
+            }
+        }
+        return nb::none();
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::keys() const {
-        return set_to_list(impl()->keys());
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::keys() const {
+        return field_names(*this);
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::values() const {
-        return list_to_list(impl()->values());
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::values() const {
+        nb::list out;
+        const auto *meta = this->view().ts_meta();
+        if (meta == nullptr || meta->kind != TSKind::TSB) {
+            return out;
+        }
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            auto child = child_at(*this, i);
+            if (!child) {
+                continue;
+            }
+            out.append(wrap_child<T_TS>(std::move(child)));
+        }
+        return out;
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_keys() const {
-        return set_to_list(impl()->valid_keys());
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::valid_keys() const {
+        nb::list out;
+        const auto *meta = this->view().ts_meta();
+        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+            return out;
+        }
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            auto child = child_at(*this, i);
+            if (child && child.valid()) {
+                out.append(nb::str(meta->fields()[i].name));
+            }
+        }
+        return out;
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_values() const {
-        return list_to_list(impl()->valid_values());
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::valid_values() const {
+        nb::list out;
+        const auto *meta = this->view().ts_meta();
+        if (meta == nullptr || meta->kind != TSKind::TSB) {
+            return out;
+        }
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            auto child = child_at(*this, i);
+            if (child && child.valid()) {
+                out.append(wrap_child<T_TS>(std::move(child)));
+            }
+        }
+        return out;
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_keys() const {
-        return set_to_list(impl()->modified_keys());
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::modified_keys() const {
+        nb::list out;
+        const auto *meta = this->view().ts_meta();
+        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+            return out;
+        }
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            auto child = child_at(*this, i);
+            if (child && child.modified()) {
+                out.append(nb::str(meta->fields()[i].name));
+            }
+        }
+        return out;
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_values() const {
-        return list_to_list(impl()->modified_values());
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::modified_values() const {
+        nb::list out;
+        const auto *meta = this->view().ts_meta();
+        if (meta == nullptr || meta->kind != TSKind::TSB) {
+            return out;
+        }
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            auto child = child_at(*this, i);
+            if (child && child.modified()) {
+                out.append(wrap_child<T_TS>(std::move(child)));
+            }
+        }
+        return out;
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::int_ PyTimeSeriesBundle<T_TS, T_U>::len() const {
-        return nb::int_(impl()->size());
+    template <typename T_TS>
+    nb::int_ PyTimeSeriesBundle<T_TS>::len() const {
+        auto bundle = this->view().as_bundle();
+        return nb::int_(bundle.count());
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::bool_ PyTimeSeriesBundle<T_TS, T_U>::empty() const {
-        return nb::bool_(impl()->empty());
+    template <typename T_TS>
+    nb::bool_ PyTimeSeriesBundle<T_TS>::empty() const {
+        auto bundle = this->view().as_bundle();
+        return nb::bool_(bundle.count() == 0);
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::items() const {
-        return items_to_list(impl()->items());
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::items() const {
+        nb::list out;
+        const auto *meta = this->view().ts_meta();
+        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+            return out;
+        }
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            auto child = child_at(*this, i);
+            if (!child) {
+                continue;
+            }
+            out.append(nb::make_tuple(nb::str(meta->fields()[i].name), wrap_child<T_TS>(std::move(child))));
+        }
+        return out;
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_items() const {
-        return items_to_list(impl()->valid_items());
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::valid_items() const {
+        nb::list out;
+        const auto *meta = this->view().ts_meta();
+        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+            return out;
+        }
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            auto child = child_at(*this, i);
+            if (child && child.valid()) {
+                out.append(nb::make_tuple(nb::str(meta->fields()[i].name), wrap_child<T_TS>(std::move(child))));
+            }
+        }
+        return out;
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_items() const {
-        return items_to_list(impl()->modified_items());
+    template <typename T_TS>
+    nb::object PyTimeSeriesBundle<T_TS>::modified_items() const {
+        nb::list out;
+        const auto *meta = this->view().ts_meta();
+        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+            return out;
+        }
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            auto child = child_at(*this, i);
+            if (child && child.modified()) {
+                out.append(nb::make_tuple(nb::str(meta->fields()[i].name), wrap_child<T_TS>(std::move(child))));
+            }
+        }
+        return out;
     }
 
-    template <typename T_TS, typename T_U> constexpr const char *get_bundle_type_name() {
+    template <typename T_TS> constexpr const char *get_bundle_type_name() {
         if constexpr (std::is_same_v<T_TS, PyTimeSeriesInput>) {
             return "TimeSeriesBundleInput@{:p}[keys={}, valid={}]";
         } else {
@@ -142,33 +302,25 @@ namespace hgraph
         }
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::str PyTimeSeriesBundle<T_TS, T_U>::py_str() {
-        auto                  self = impl();
-        constexpr const char *name = get_bundle_type_name<T_TS, T_U>();
-        auto                  str  = fmt::format(name, static_cast<const void *>(self), self->keys().size(), self->valid());
+    template <typename T_TS>
+    nb::str PyTimeSeriesBundle<T_TS>::py_str() {
+        constexpr const char *name = get_bundle_type_name<T_TS>();
+        const auto count = static_cast<size_t>(len());
+        auto str = fmt::format(fmt::runtime(name), static_cast<const void *>(&this->view()), count, static_cast<bool>(this->valid()));
         return nb::str(str.c_str());
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::str PyTimeSeriesBundle<T_TS, T_U>::py_repr() {
+    template <typename T_TS>
+    nb::str PyTimeSeriesBundle<T_TS>::py_repr() {
         return py_str();
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    T_U *PyTimeSeriesBundle<T_TS, T_U>::impl() const {
-        return this->template static_cast_impl<T_U>();
-    }
+    template struct PyTimeSeriesBundle<PyTimeSeriesOutput>;
+    template struct PyTimeSeriesBundle<PyTimeSeriesInput>;
 
-    template struct PyTimeSeriesBundle<PyTimeSeriesOutput, TimeSeriesBundleOutput>;
-    template struct PyTimeSeriesBundle<PyTimeSeriesInput, TimeSeriesBundleInput>;
-
-    template <typename T_TS, typename T_U> void _register_tsb_with_nanobind(nb::module_ &m) {
-        using PyTS_Type = PyTimeSeriesBundle<T_TS, T_U>;
-        auto name{std::is_same_v<T_U, TimeSeriesBundleInput> ? "TimeSeriesBundleInput" : "TimeSeriesBundleOutput"};
+    template <typename T_TS> void _register_tsb_with_nanobind(nb::module_ &m) {
+        using PyTS_Type = PyTimeSeriesBundle<T_TS>;
+        auto name{std::is_same_v<T_TS, PyTimeSeriesInput> ? "TimeSeriesBundleInput" : "TimeSeriesBundleOutput"};
         nb::class_<PyTS_Type, T_TS>(m, name)
             .def("__getitem__", &PyTS_Type::get_item)
             .def("__getattr__", &PyTS_Type::get_attr)
@@ -184,6 +336,28 @@ namespace hgraph
             .def("modified_keys", &PyTS_Type::modified_keys)
             .def("modified_values", &PyTS_Type::modified_values)
             .def("modified_items", &PyTS_Type::modified_items)
+            .def_prop_ro("delta_value", [](const PyTS_Type& self) -> nb::object {
+                nb::dict out;
+                const auto* meta = self.view().ts_meta();
+                if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+                    return out;
+                }
+                for (size_t i = 0; i < meta->field_count(); ++i) {
+                    const char* field_name = meta->fields()[i].name;
+                    if (field_name == nullptr) {
+                        continue;
+                    }
+                    auto child = child_at(self, i);
+                    if (!child) {
+                        continue;
+                    }
+                    nb::object child_delta = child.delta_to_python();
+                    if (!child_delta.is_none()) {
+                        out[nb::str(field_name)] = child_delta;
+                    }
+                }
+                return out;
+            })
             .def("key_from_value", &PyTS_Type::key_from_value)
             .def_prop_ro("empty", &PyTS_Type::empty)
             .def_prop_ro("__schema__", &PyTS_Type::schema)
@@ -193,7 +367,7 @@ namespace hgraph
     }
 
     void tsb_register_with_nanobind(nb::module_ &m) {
-        _register_tsb_with_nanobind<PyTimeSeriesOutput, TimeSeriesBundleOutput>(m);
-        _register_tsb_with_nanobind<PyTimeSeriesInput, TimeSeriesBundleInput>(m);
+        _register_tsb_with_nanobind<PyTimeSeriesOutput>(m);
+        _register_tsb_with_nanobind<PyTimeSeriesInput>(m);
     }
 }  // namespace hgraph

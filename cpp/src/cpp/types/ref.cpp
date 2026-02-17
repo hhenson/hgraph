@@ -29,6 +29,19 @@ namespace hgraph
                    lhs.ops == rhs.ops &&
                    lhs.meta == rhs.meta;
         }
+
+        void unbind_view_recursive(const TSView& root_view) {
+            TSView view = root_view;
+            if (!view) {
+                return;
+            }
+
+            view.unbind();
+            const size_t count = view.child_count();
+            for (size_t i = 0; i < count; ++i) {
+                unbind_view_recursive(view.child_at(i));
+            }
+        }
     }
 
     // ============================================================
@@ -175,7 +188,7 @@ namespace hgraph
     void TimeSeriesReference::bind_input(TSInputView &ts_input) const {
         switch (_kind) {
             case Kind::EMPTY:
-                ts_input.unbind();
+                unbind_view_recursive(ts_input.as_ts_view());
                 return;
 
             case Kind::BOUND:

@@ -1,5 +1,7 @@
 #include <hgraph/api/python/wrapper_factory.h>
+#include <hgraph/api/python/py_time_series.h>
 
+#include <fmt/format.h>
 #include <hgraph/nodes/base_python_node.h>
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/constants.h>
@@ -30,40 +32,6 @@ namespace hgraph
 	                return {};
 	            }
 	            return bundle->field(key);
-	        }
-
-	        nb::object cast_typed_input_view(const TSInputView &view) {
-	            switch (view.as_ts_view().kind()) {
-	                case TSKind::TSW:
-	                    return nb::cast(view.as_window());
-	                case TSKind::TSS:
-	                    return nb::cast(view.as_set());
-	                case TSKind::TSD:
-	                    return nb::cast(view.as_dict());
-	                case TSKind::TSL:
-	                    return nb::cast(view.as_list());
-	                case TSKind::TSB:
-	                    return nb::cast(view.as_bundle());
-	                default:
-	                    return nb::cast(view);
-	            }
-	        }
-
-	        nb::object cast_typed_output_view(const TSOutputView &view) {
-	            switch (view.as_ts_view().kind()) {
-	                case TSKind::TSW:
-	                    return nb::cast(view.as_window());
-	                case TSKind::TSS:
-	                    return nb::cast(view.as_set());
-	                case TSKind::TSD:
-	                    return nb::cast(view.as_dict());
-	                case TSKind::TSL:
-	                    return nb::cast(view.as_list());
-	                case TSKind::TSB:
-	                    return nb::cast(view.as_bundle());
-	                default:
-	                    return nb::cast(view);
-	            }
 	        }
 	    }  // namespace
 
@@ -104,7 +72,7 @@ namespace hgraph
 	                    } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
 	                        auto out = output(node_time(*this));
 	                        if (out) {
-	                            wrapped_value = cast_typed_output_view(out);
+	                            wrapped_value = wrap_output_view(out);
 	                        } else {
 	                            wrapped_value = nb::none();
 	                        }
@@ -142,9 +110,14 @@ namespace hgraph
                         } else {
                             wrapped_value = nb::none();
                         }
-                    } else {
-                        // Fallback: call injector with this node (same behaviour as python impl)
+                    } else if ((injectable & InjectableTypesEnum::STATE) != InjectableTypesEnum::NONE) {
                         wrapped_value = value(get_node_wrapper());
+                    } else if ((injectable & InjectableTypesEnum::LOGGER) != InjectableTypesEnum::NONE) {
+                        wrapped_value = value(get_node_wrapper());
+                    } else {
+                        throw std::runtime_error(
+                            fmt::format("Unsupported injectable mask {} for '{}'",
+                                        static_cast<int>(injectable), key));
                     }
 
                     _kwargs[key_] = wrapped_value;
@@ -179,7 +152,7 @@ namespace hgraph
 	        for (const auto &[key, _] : *signature().time_series_inputs) {
 	            if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
 	                auto input_view = root_bundle->field(key);
-	                _kwargs[key.c_str()] = cast_typed_input_view(input_view);
+	                _kwargs[key.c_str()] = wrap_input_view(input_view);
 	            }
 	        }
 
@@ -340,37 +313,49 @@ namespace hgraph
 
     void BasePythonNode::dispose() {
         _kwargs.clear();
-        _kwarg_input_views.clear();
-        _kwarg_output_views.clear();
+        _kwarg_wrapped_inputs.clear();
+        _kwarg_wrapped_outputs.clear();
     }
 
     void BasePythonNode::_index_kwarg_time_views() {
-        _kwarg_input_views.clear();
-        _kwarg_output_views.clear();
+        _kwarg_wrapped_inputs.clear();
+        _kwarg_wrapped_outputs.clear();
+
+        const auto track_wrapped_input = [&](const nb::handle& value) {
+            _kwarg_wrapped_inputs.push_back(WrappedInputRef{nb::borrow<nb::object>(value)});
+        };
+
+        const auto track_wrapped_output = [&](const nb::handle& value) {
+            _kwarg_wrapped_outputs.push_back(WrappedOutputRef{nb::borrow<nb::object>(value)});
+        };
 
         for (const auto& [_, value] : _kwargs) {
-            if (nb::isinstance<TSInputView>(value)) {
-                if (auto* view = nb::inst_ptr<TSInputView>(value); view != nullptr) {
-                    _kwarg_input_views.push_back(InputViewRef{nb::borrow<nb::object>(value), view});
-                }
-            } else if (nb::isinstance<TSOutputView>(value)) {
-                if (auto* view = nb::inst_ptr<TSOutputView>(value); view != nullptr) {
-                    _kwarg_output_views.push_back(OutputViewRef{nb::borrow<nb::object>(value), view});
-                }
+            if (nb::isinstance<PyTimeSeriesInput>(value)) {
+                track_wrapped_input(value);
+                continue;
+            }
+
+            if (nb::isinstance<PyTimeSeriesOutput>(value)) {
+                track_wrapped_output(value);
+                continue;
             }
         }
     }
 
     void BasePythonNode::_refresh_kwarg_time_views() {
         const auto et = node_time(*this);
-        for (const InputViewRef& tracked : _kwarg_input_views) {
-            if (tracked.view != nullptr) {
-                tracked.view->set_current_time(et);
+        for (const WrappedInputRef& tracked : _kwarg_wrapped_inputs) {
+            if (tracked.owner.is_valid()) {
+                auto& wrapped = nb::cast<PyTimeSeriesInput&>(tracked.owner);
+                wrapped.view().set_current_time(et);
+                wrapped.input_view().set_current_time(et);
             }
         }
-        for (const OutputViewRef& tracked : _kwarg_output_views) {
-            if (tracked.view != nullptr) {
-                tracked.view->set_current_time(et);
+        for (const WrappedOutputRef& tracked : _kwarg_wrapped_outputs) {
+            if (tracked.owner.is_valid()) {
+                auto& wrapped = nb::cast<PyTimeSeriesOutput&>(tracked.owner);
+                wrapped.view().set_current_time(et);
+                wrapped.output_view().set_current_time(et);
             }
         }
     }

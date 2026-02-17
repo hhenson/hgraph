@@ -48,9 +48,14 @@ const ts_bundle_ops* resolve_bundle_ops(const ViewData& view_data) {
 const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indices) {
     const TSMeta* meta = root;
     for (size_t index : indices) {
+        while (meta != nullptr && meta->kind == TSKind::REF) {
+            meta = meta->element_ts();
+        }
+
         if (meta == nullptr) {
             return nullptr;
         }
+
         switch (meta->kind) {
             case TSKind::TSB:
                 if (meta->fields() == nullptr || index >= meta->field_count()) {
@@ -60,7 +65,6 @@ const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indice
                 break;
             case TSKind::TSL:
             case TSKind::TSD:
-            case TSKind::REF:
                 meta = meta->element_ts();
                 break;
             default:
@@ -104,9 +108,28 @@ TSView child_by_key_impl(const ViewData& view_data, const value::View& key, engi
     }
 
     auto map = v.as_map();
+    const bool debug_child_key = std::getenv("HGRAPH_DEBUG_CHILD_KEY") != nullptr;
+    if (debug_child_key) {
+        std::string key_s = nb::cast<std::string>(nb::repr(key.to_python()));
+        std::fprintf(stderr,
+                     "[child_by_key] path=%s key=%s map_size=%zu\n",
+                     view_data.path.to_string().c_str(),
+                     key_s.c_str(),
+                     map.size());
+    }
     size_t slot = 0;
-    for (value::View k : map.keys()) {
-        if (k.schema() == key.schema() && k.equals(key)) {
+    for (value::View map_key : map.keys()) {
+        if (debug_child_key) {
+            std::string map_key_s = nb::cast<std::string>(nb::repr(map_key.to_python()));
+            std::fprintf(stderr,
+                         "  [child_by_key] probe slot=%zu map_key=%s\n",
+                         slot,
+                         map_key_s.c_str());
+        }
+        if (map_key.schema() == key.schema() && map_key.equals(key)) {
+            if (debug_child_key) {
+                std::fprintf(stderr, "  [child_by_key] match slot=%zu\n", slot);
+            }
             return child_at_impl(view_data, slot, current_time);
         }
         ++slot;
