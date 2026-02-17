@@ -563,8 +563,18 @@ namespace hgraph
     nb::object PyTimeSeriesDictInput::modified_keys() const {
         auto dict_view = resolved_dict_view(input_view());
         nb::list result;
-        for (auto key : dict_view.modified_keys()) {
-            result.append(key_view_to_python(key, dict_view.meta()));
+        if (dict_view.view_data().delta_data) {
+            for (auto key : dict_view.modified_keys()) {
+                result.append(key_view_to_python(key, dict_view.meta()));
+            }
+        } else if (dict_view.modified()) {
+            // No delta tracking — scan all items
+            for (auto it = dict_view.items().begin(); it != dict_view.items().end(); ++it) {
+                TSView ts_view = *it;
+                if (ts_view.modified()) {
+                    result.append(key_view_to_python(it.key(), dict_view.meta()));
+                }
+            }
         }
         return result;
     }
@@ -572,20 +582,44 @@ namespace hgraph
     nb::object PyTimeSeriesDictInput::modified_values() const {
         auto dict_view = resolved_dict_view(input_view());
         nb::list result;
-        for (auto it = dict_view.modified_items().begin(); it != dict_view.modified_items().end(); ++it) {
-            TSView ts_view = *it;
-            result.append(wrap_input_view(TSInputView(ts_view, nullptr)));
+        if (dict_view.view_data().delta_data) {
+            for (auto it = dict_view.modified_items().begin(); it != dict_view.modified_items().end(); ++it) {
+                TSView ts_view = *it;
+                result.append(wrap_input_view(TSInputView(ts_view, nullptr)));
+            }
+        } else if (dict_view.modified()) {
+            // No delta tracking — scan all items
+            for (auto it = dict_view.items().begin(); it != dict_view.items().end(); ++it) {
+                TSView ts_view = *it;
+                if (ts_view.modified()) {
+                    result.append(wrap_input_view(TSInputView(ts_view, nullptr)));
+                }
+            }
         }
         return result;
     }
 
     nb::object PyTimeSeriesDictInput::modified_items() const {
         auto dict_view = resolved_dict_view(input_view());
+
         nb::list result;
-        for (auto it = dict_view.modified_items().begin(); it != dict_view.modified_items().end(); ++it) {
-            TSView ts_view = *it;
-            auto wrapped_value = wrap_input_view(TSInputView(ts_view, nullptr));
-            result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
+        if (dict_view.view_data().delta_data) {
+            // Delta tracking available — use efficient delta-based iteration
+            for (auto it = dict_view.modified_items().begin(); it != dict_view.modified_items().end(); ++it) {
+                TSView ts_view = *it;
+                auto wrapped_value = wrap_input_view(TSInputView(ts_view, nullptr));
+                result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
+            }
+        } else if (dict_view.modified()) {
+            // No delta tracking (e.g., TSD field within TSB input) — scan all items
+            // and check each element's modified flag individually.
+            for (auto it = dict_view.items().begin(); it != dict_view.items().end(); ++it) {
+                TSView ts_view = *it;
+                if (ts_view.modified()) {
+                    auto wrapped_value = wrap_input_view(TSInputView(ts_view, nullptr));
+                    result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
+                }
+            }
         }
         return result;
     }
