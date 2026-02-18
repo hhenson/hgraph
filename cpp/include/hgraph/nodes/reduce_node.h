@@ -4,7 +4,9 @@
 #include <deque>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/nested_node.h>
-#include <hgraph/types/tsd.h>
+#include <hgraph/types/feature_extension.h>
+#include <hgraph/types/value/value.h>
+#include <memory>
 
 namespace hgraph {
     void register_reduce_node_with_nanobind(nb::module_ & m);
@@ -36,9 +38,9 @@ namespace hgraph {
 
         [[nodiscard]] std::unordered_map<int, graph_s_ptr> nested_graphs() const;
 
-        TimeSeriesDictInputImpl::ptr ts();
+        TSInputView ts();
 
-        time_series_reference_input_ptr zero();
+        TSInputView zero();
 
         // Expose attributes to allow us to more easily inspect the state in Python
         // Can make debugging easier.
@@ -71,12 +73,12 @@ namespace hgraph {
         void do_eval() override {
         };
 
-        TimeSeriesOutput::s_ptr last_output();
+        TSOutputView last_output();
 
         // Uses View for key iteration from TSD
-        void add_nodes_from_views(const std::vector<value::View> &keys);
+        void add_nodes_from_views(const std::vector<value::Value> &keys);
 
-        void remove_nodes_from_views(const std::vector<value::View> &keys);
+        void remove_nodes_from_views(const std::vector<value::Value> &keys);
 
         void re_balance_nodes();
 
@@ -97,17 +99,16 @@ namespace hgraph {
         std::vector<node_s_ptr> get_node(int64_t ndx);
 
     private:
+        using key_value_map_type = std::unordered_map<value::Value, std::unique_ptr<TSValue>, ValueHash, ValueEqual>;
+
         graph_s_ptr nested_graph_;
         graph_builder_s_ptr nested_graph_builder_;
         std::tuple<int64_t, int64_t> input_node_ids_; // LHS index, RHS index
         int64_t output_node_id_;
         key_map_type bound_node_indexes_;
         std::vector<std::tuple<int64_t, int64_t> > free_node_indexes_; // List of (ndx, 0(lhs)|1(rhs)) tuples
+        key_value_map_type local_key_values_;
 
-        // The python code uses the fact that you can randomly add properties to a python object and tracks
-        // if an input is bound to a key or not using _bound_to_key.
-        // C++ does not do that, so we can track if the ts is bound to a key using a set.
-        std::unordered_set<TimeSeriesInput *> bound_to_key_flags_;
     };
 } // namespace hgraph
 

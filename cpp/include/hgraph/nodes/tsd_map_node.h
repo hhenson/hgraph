@@ -50,6 +50,7 @@ namespace hgraph
         using key_set_type = std::unordered_set<value::Value, ValueHash, ValueEqual>;
         using key_value_map_type = std::unordered_map<value::Value, std::unique_ptr<TSValue>, ValueHash, ValueEqual>;
         using key_ref_snapshot_map_type = std::unordered_map<value::Value, value::Value, ValueHash, ValueEqual>;
+        using arg_key_value_map_type = std::unordered_map<std::string, key_value_map_type>;
 
         static inline std::string KEYS_ARG = "__keys__";
         static inline std::string _KEY_ARG = "__key_arg__";
@@ -99,7 +100,7 @@ namespace hgraph
 
         void wire_graph(const value::View &key, graph_s_ptr &graph);
 
-        bool refresh_multiplexed_bindings(const value::View &key, graph_s_ptr &graph);
+        bool refresh_multiplexed_bindings(const value::View &key, graph_s_ptr &graph, bool* all_mux_inputs_valid = nullptr);
 
         // Protected members accessible by derived classes (e.g., MeshNode)
         graph_builder_s_ptr nested_graph_builder_;
@@ -114,6 +115,7 @@ namespace hgraph
         std::unordered_set<std::string>          multiplexed_args_;
         std::string                              key_arg_;
         key_time_map_type                        scheduled_keys_;
+        arg_key_value_map_type                   local_input_values_;
         key_value_map_type                       local_output_values_;
         key_ref_snapshot_map_type                last_ref_source_values_;
         std::string                              recordable_id_;

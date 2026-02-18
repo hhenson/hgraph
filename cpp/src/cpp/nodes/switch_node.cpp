@@ -14,6 +14,8 @@
 #include <hgraph/util/lifecycle.h>
 
 #include <optional>
+#include <cstdlib>
+#include <cstdio>
 
 namespace hgraph {
     namespace {
@@ -49,21 +51,38 @@ namespace hgraph {
         }
 
         void bind_inner_from_outer(const TSView &outer_any, TSInputView inner_any) {
+            const bool debug_bind = std::getenv("HGRAPH_DEBUG_SWITCH_BIND") != nullptr;
             if (!inner_any) {
                 return;
             }
 
             if (!outer_any) {
+                if (debug_bind) {
+                    std::fprintf(stderr,
+                                 "[switch_bind] outer=<none> inner_kind=%d uses_lt=%d -> unbind\n",
+                                 static_cast<int>(inner_any.as_ts_view().kind()),
+                                 inner_any.as_ts_view().view_data().uses_link_target ? 1 : 0);
+                }
                 inner_any.unbind();
                 return;
             }
 
             const TSMeta *outer_meta = outer_any.ts_meta();
+            if (debug_bind) {
+                std::fprintf(stderr,
+                             "[switch_bind] outer_kind=%d inner_kind=%d inner_uses_lt=%d outer_valid=%d outer_mod=%d\n",
+                             outer_meta != nullptr ? static_cast<int>(outer_meta->kind) : -1,
+                             static_cast<int>(inner_any.as_ts_view().kind()),
+                             inner_any.as_ts_view().view_data().uses_link_target ? 1 : 0,
+                             outer_any.valid() ? 1 : 0,
+                             outer_any.modified() ? 1 : 0);
+            }
             if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
-                // Prefer cloning the local REF payload when present to preserve
-                // wrapper sampling semantics (Python clone_binding parity).
                 value::View ref_view = outer_any.value();
                 if (ref_view.valid()) {
+                    if (debug_bind) {
+                        std::fprintf(stderr, "[switch_bind] using ref_view.bind_input path\n");
+                    }
                     TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
                     ref.bind_input(inner_any);
                     return;
@@ -71,20 +90,30 @@ namespace hgraph {
 
                 ViewData bound_target{};
                 if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
+                    if (debug_bind) {
+                        std::fprintf(stderr, "[switch_bind] using resolve_bound_target_view_data path (REF)\n");
+                    }
                     inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
                     return;
                 }
 
-                // Fall back to chaining through the outer REF view when the local
-                // payload is empty and direct target resolution is unavailable.
+                if (debug_bind) {
+                    std::fprintf(stderr, "[switch_bind] using outer REF view fallback bind path\n");
+                }
                 inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
                 return;
             }
 
             ViewData bound_target{};
             if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
+                if (debug_bind) {
+                    std::fprintf(stderr, "[switch_bind] using resolve_bound_target_view_data path (non-REF)\n");
+                }
                 inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
             } else {
+                if (debug_bind) {
+                    std::fprintf(stderr, "[switch_bind] using direct outer view bind path (non-REF)\n");
+                }
                 inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
             }
         }
@@ -163,6 +192,7 @@ namespace hgraph {
     }
 
     void SwitchNode::eval() {
+        const bool debug_switch = std::getenv("HGRAPH_DEBUG_SWITCH") != nullptr;
         mark_evaluated();
 
         if (_key_type == nullptr) {
@@ -178,6 +208,19 @@ namespace hgraph {
 
         if (!effective_key_view.valid()) {
             return;
+        }
+
+        if (debug_switch) {
+            std::string key_s{"<none>"};
+            try { key_s = nb::cast<std::string>(nb::repr(effective_key_view.to_python())); } catch (...) {}
+            std::fprintf(stderr,
+                         "[switch] eval node=%s ndx=%lld now=%lld key_valid=1 key_mod=%d key=%s has_active=%d\n",
+                         signature().name.c_str(),
+                         static_cast<long long>(node_ndx()),
+                         static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
+                         effective_key_view.modified() ? 1 : 0,
+                         key_s.c_str(),
+                         _active_graph != nullptr ? 1 : 0);
         }
 
         bool graph_reset = false;
@@ -196,6 +239,18 @@ namespace hgraph {
             // Check if key changed
             bool key_changed = !_active_key.has_value() ||
                                !keys_equal(current_key_view, _active_key->view());
+
+            if (debug_switch) {
+                std::string current_key_s = _key_type->ops().to_string(current_key_view.data(), _key_type);
+                std::string active_key_s = _active_key.has_value() ? _key_type->ops().to_string(_active_key->data(), _key_type) : "<none>";
+                std::fprintf(stderr,
+                             "[switch] key_update now=%lld current=%s active=%s changed=%d reload=%d\n",
+                             static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
+                             current_key_s.c_str(),
+                             active_key_s.c_str(),
+                             key_changed ? 1 : 0,
+                             _reload_on_ticked ? 1 : 0);
+            }
 
             if (_reload_on_ticked || key_changed) {
                 if (_active_key.has_value()) {
@@ -237,7 +292,14 @@ namespace hgraph {
 
                 // Get key string for graph label
                 std::string key_str = _key_type->ops().to_string(_active_key->data(), _key_type);
-                _active_graph = _active_graph_builder->make_instance(new_node_id, this, key_str);
+                    _active_graph = _active_graph_builder->make_instance(new_node_id, this, key_str);
+                    if (debug_switch) {
+                        std::fprintf(stderr,
+                                     "[switch] graph_create now=%lld key=%s node_id_depth=%zu\n",
+                                     static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
+                                     key_str.c_str(),
+                                     new_node_id.size());
+                    }
 
                 // Set up evaluation engine
                 _active_graph->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
@@ -253,10 +315,84 @@ namespace hgraph {
 
         // Evaluate the active graph if it exists
         if (_active_graph != nullptr) {
+            // REF-valued outer args can rebind without key changes (for example
+            // reduce tree growth changing the root reference). Refresh these
+            // bindings on REF ticks so inner graphs track the new target.
+            const std::unordered_map<std::string, int> *input_ids_to_use = nullptr;
+            if (_active_key.has_value()) {
+                auto active_key_view = _active_key->view();
+                auto input_ids_it = _input_node_ids->find(active_key_view);
+                if (input_ids_it != _input_node_ids->end()) {
+                    input_ids_to_use = &input_ids_it->second;
+                } else if (!_default_input_node_ids.empty()) {
+                    input_ids_to_use = &_default_input_node_ids;
+                }
+            }
+
+            auto outer_root = input(node_time(*this));
+            std::optional<TSBInputView> outer_bundle_opt = outer_root ? outer_root.try_as_bundle() : std::nullopt;
+            if (input_ids_to_use != nullptr && outer_bundle_opt.has_value()) {
+                for (const auto &[arg, node_ndx] : *input_ids_to_use) {
+                    if (arg == "key") {
+                        continue;
+                    }
+
+                    auto node = _active_graph->nodes()[node_ndx];
+                    auto node_root = node->input(node_time(*node));
+                    std::optional<TSBInputView> node_bundle_opt = node_root ? node_root.try_as_bundle() : std::nullopt;
+                    if (!node_bundle_opt.has_value()) {
+                        continue;
+                    }
+
+                    auto inner_any = node_bundle_opt->field("ts");
+                    if (!inner_any) {
+                        continue;
+                    }
+
+                    auto outer_any = outer_bundle_opt->field(arg);
+                    const TSMeta *outer_meta = outer_any ? outer_any.ts_meta() : nullptr;
+                    const bool refresh_ref_binding =
+                        outer_any && outer_meta != nullptr && outer_meta->kind == TSKind::REF && outer_any.modified();
+
+                    if (!inner_any.is_bound() || refresh_ref_binding) {
+                        bind_inner_from_outer(outer_any ? outer_any.as_ts_view() : TSView{}, inner_any);
+                        if (!inner_any.active()) {
+                            inner_any.make_active();
+                        }
+                        node->notify();
+
+                        if (debug_switch) {
+                            std::fprintf(stderr,
+                                         "[switch] refresh arg=%s now=%lld ref_refresh=%d inner_bound=%d\n",
+                                         arg.c_str(),
+                                         static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
+                                         refresh_ref_binding ? 1 : 0,
+                                         inner_any.is_bound() ? 1 : 0);
+                        }
+                    }
+                }
+            }
+
             if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(_active_graph->evaluation_engine_clock().get())) {
                 nec->reset_next_scheduled_evaluation_time();
             }
             _active_graph->evaluate_graph();
+
+            if (debug_switch) {
+                auto out_dbg = output(node_time(*this));
+                std::string out_value{"<none>"};
+                std::string out_delta{"<none>"};
+                try { out_value = nb::cast<std::string>(nb::repr(out_dbg.to_python())); } catch (...) {}
+                try { out_delta = nb::cast<std::string>(nb::repr(out_dbg.delta_to_python())); } catch (...) {}
+                std::fprintf(stderr,
+                             "[switch] post_eval now=%lld graph_reset=%d out_mod=%d out_valid=%d out_value=%s out_delta=%s\n",
+                             static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
+                             graph_reset ? 1 : 0,
+                             out_dbg.modified() ? 1 : 0,
+                             out_dbg.valid() ? 1 : 0,
+                             out_value.c_str(),
+                             out_delta.c_str());
+            }
 
             // Mirror Python switch behavior: on graph reset, if the nested graph did
             // not produce a tick for this cycle then invalidate outer output.

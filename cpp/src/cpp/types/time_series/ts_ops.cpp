@@ -73,19 +73,41 @@ void notify_activation_if_modified(LinkTarget* payload, TSInput* input) {
         return;
     }
 
+    const bool debug_activate = std::getenv("HGRAPH_DEBUG_ACTIVATE") != nullptr;
     const engine_time_t current_time = resolve_input_current_time(input);
     if (current_time == MIN_DT) {
+        if (debug_activate) {
+            std::fprintf(stderr,
+                         "[activate_lt] current=MIN_DT linked=1 rebind=%lld\n",
+                         static_cast<long long>(payload->last_rebind_time.time_since_epoch().count()));
+        }
         return;
     }
 
     ViewData target_vd = payload->as_view_data(false);
     if (!payload->ops->valid(target_vd)) {
+        if (debug_activate) {
+            std::fprintf(stderr,
+                         "[activate_lt] current=%lld target_valid=0 rebind=%lld\n",
+                         static_cast<long long>(current_time.time_since_epoch().count()),
+                         static_cast<long long>(payload->last_rebind_time.time_since_epoch().count()));
+        }
         return;
     }
-    if (!payload->ops->modified(target_vd, current_time)) {
+    const bool target_modified = payload->ops->modified(target_vd, current_time);
+    const bool sampled_on_rebind = payload->last_rebind_time == current_time;
+    if (debug_activate) {
+        std::fprintf(stderr,
+                     "[activate_lt] current=%lld target_modified=%d sampled_on_rebind=%d rebind=%lld\n",
+                     static_cast<long long>(current_time.time_since_epoch().count()),
+                     target_modified ? 1 : 0,
+                     sampled_on_rebind ? 1 : 0,
+                     static_cast<long long>(payload->last_rebind_time.time_since_epoch().count()));
+    }
+    if (!target_modified && !sampled_on_rebind) {
         return;
     }
-    payload->notify(payload->ops->last_modified_time(target_vd));
+    payload->notify(sampled_on_rebind ? current_time : payload->ops->last_modified_time(target_vd));
 }
 
 void notify_activation_if_modified(REFLink* payload, TSInput* input) {
@@ -492,7 +514,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                 const bool observed_is_ref = observed_meta != nullptr && observed_meta->kind == TSKind::REF;
                 const bool is_valid = observed.ops->valid(observed);
                 const bool is_modified = observed.ops->modified(observed, current_time);
-                if (!target_is_ref && !observed_is_ref && is_valid && !is_modified) {
+                if (!target_is_ref && is_valid && !is_modified) {
                     if (debug_notify) {
                         std::fprintf(stderr,
                                      "[notify_obs]   skip ancestor->desc valid=%d mod=%d observed_is_ref=%d target_is_ref=%d path=%s\n",
@@ -508,19 +530,47 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
             const bool descendant_to_ancestor =
                 is_prefix_path(registration.path, target_view.path.indices) &&
                 registration.path.size() < target_view.path.indices.size();
-            if (descendant_to_ancestor &&
-                registration.link_target->active_notifier != nullptr &&
-                view_path_contains_tsd_ancestor(target_view)) {
-                auto* active_input = dynamic_cast<TSInput*>(registration.link_target->active_notifier);
-                if (active_input != nullptr &&
-                    active_input->meta() != nullptr &&
-                    active_input->meta()->kind == TSKind::SIGNAL &&
-                    active_input->owning_node() != nullptr &&
-                    active_input->owning_node()->signature().active_inputs.has_value()) {
+            if (descendant_to_ancestor) {
+                ViewData observer_view = registration.link_target->as_view_data(false);
+                observer_view.sampled = false;
+                if (observer_view.ops != nullptr &&
+                    !observer_view.ops->modified(observer_view, current_time)) {
                     if (debug_notify) {
-                        std::fprintf(stderr, "[notify_obs]   skip signal descendant->ancestor suppression\n");
+                        std::fprintf(stderr,
+                                     "[notify_obs]   skip descendant->ancestor observer-unmodified path=%s\n",
+                                     observer_view.path.to_string().c_str());
                     }
                     continue;
+                }
+
+                ViewData observed = target_view;
+                observed.path.indices = registration.path;
+                observed.sampled = false;
+
+                // Do not bubble descendant writes to ancestor observers when the
+                // ancestor view itself is not modified on this tick. This is
+                // important for REF[TSD]-style wrappers which should not tick on
+                // unrelated key updates.
+                if (observed.ops != nullptr && !observed.ops->modified(observed, current_time)) {
+                    if (debug_notify) {
+                        std::fprintf(stderr, "[notify_obs]   skip descendant->ancestor unmodified\n");
+                    }
+                    continue;
+                }
+
+                if (registration.link_target->active_notifier != nullptr &&
+                    view_path_contains_tsd_ancestor(target_view)) {
+                    auto* active_input = dynamic_cast<TSInput*>(registration.link_target->active_notifier);
+                    if (active_input != nullptr &&
+                        active_input->meta() != nullptr &&
+                        active_input->meta()->kind == TSKind::SIGNAL &&
+                        active_input->owning_node() != nullptr &&
+                        active_input->owning_node()->signature().active_inputs.has_value()) {
+                        if (debug_notify) {
+                            std::fprintf(stderr, "[notify_obs]   skip signal descendant->ancestor suppression\n");
+                        }
+                        continue;
+                    }
                 }
             }
             if (dedupe.insert(registration.link_target).second) {
@@ -544,10 +594,23 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                 continue;
             }
             if (debug_notify) {
+                ViewData observer_view = observer->as_view_data(false);
+                const TSMeta* observer_meta = meta_at_path(observer_view.meta, observer_view.path.indices);
+                const auto* active_input = dynamic_cast<TSInput*>(observer->active_notifier);
+                std::string active_path{"<none>"};
+                int active_kind = -1;
+                if (active_input != nullptr) {
+                    active_path = active_input->root_path().to_string();
+                    active_kind = active_input->meta() != nullptr ? static_cast<int>(active_input->meta()->kind) : -1;
+                }
                 std::fprintf(stderr,
-                             "[notify_obs]  pre-notify obs=%p active_notifier=%p parent=%p owner_time_ptr=%p\n",
+                             "[notify_obs]  pre-notify obs=%p obs_path=%s obs_kind=%d active_notifier=%p active_path=%s active_kind=%d parent=%p owner_time_ptr=%p\n",
                              static_cast<void*>(observer),
+                             observer_view.path.to_string().c_str(),
+                             observer_meta != nullptr ? static_cast<int>(observer_meta->kind) : -1,
                              static_cast<void*>(observer->active_notifier),
+                             active_path.c_str(),
+                             active_kind,
                              static_cast<void*>(observer->parent_link),
                              static_cast<void*>(observer->owner_time_ptr));
             }
@@ -588,7 +651,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
             const bool observed_is_ref = observed_meta != nullptr && observed_meta->kind == TSKind::REF;
             const bool is_valid = observed.ops->valid(observed);
             const bool is_modified = observed.ops->modified(observed, current_time);
-            if (!target_is_ref && !observed_is_ref && is_valid && !is_modified) {
+            if (!target_is_ref && is_valid && !is_modified) {
                 continue;
             }
         }
@@ -1844,6 +1907,99 @@ ViewProjection merge_projection(ViewProjection requested, ViewProjection resolve
     return requested != ViewProjection::NONE ? requested : resolved;
 }
 
+std::optional<std::vector<size_t>> remap_residual_indices_for_bound_view(
+    const ViewData& local_view,
+    const ViewData& bound_view,
+    const std::vector<size_t>& residual_indices) {
+    if (residual_indices.empty()) {
+        return std::vector<size_t>{};
+    }
+
+    const TSMeta* current = meta_at_path(local_view.meta, local_view.path.indices);
+    std::vector<size_t> local_path = local_view.path.indices;
+    std::vector<size_t> bound_path = bound_view.path.indices;
+    std::vector<size_t> mapped;
+    mapped.reserve(residual_indices.size());
+
+    for (size_t index : residual_indices) {
+        while (current != nullptr && current->kind == TSKind::REF) {
+            current = current->element_ts();
+        }
+        if (current == nullptr) {
+            return std::nullopt;
+        }
+
+        switch (current->kind) {
+            case TSKind::TSB: {
+                if (current->fields() == nullptr || index >= current->field_count()) {
+                    return std::nullopt;
+                }
+                mapped.push_back(index);
+                local_path.push_back(index);
+                bound_path.push_back(index);
+                current = current->fields()[index].ts_type;
+                break;
+            }
+            case TSKind::TSL: {
+                mapped.push_back(index);
+                local_path.push_back(index);
+                bound_path.push_back(index);
+                current = current->element_ts();
+                break;
+            }
+            case TSKind::TSD: {
+                ViewData local_container = local_view;
+                local_container.path.indices = local_path;
+                ViewData bound_container = bound_view;
+                bound_container.path.indices = bound_path;
+
+                auto local_value = resolve_value_slot_const(local_container);
+                auto bound_value = resolve_value_slot_const(bound_container);
+                if (!local_value.has_value() || !bound_value.has_value() ||
+                    !local_value->valid() || !bound_value->valid() ||
+                    !local_value->is_map() || !bound_value->is_map()) {
+                    return std::nullopt;
+                }
+
+                auto local_map = local_value->as_map();
+                auto bound_map = bound_value->as_map();
+
+                std::optional<View> key_for_local_slot;
+                for (View key : local_map.keys()) {
+                    auto slot = map_slot_for_key(local_map, key);
+                    if (slot.has_value() && *slot == index) {
+                        key_for_local_slot = key;
+                        break;
+                    }
+                }
+                if (!key_for_local_slot.has_value()) {
+                    return std::nullopt;
+                }
+
+                auto bound_slot = map_slot_for_key(bound_map, *key_for_local_slot);
+                if (!bound_slot.has_value()) {
+                    return std::nullopt;
+                }
+
+                mapped.push_back(*bound_slot);
+                local_path.push_back(index);
+                bound_path.push_back(*bound_slot);
+                current = current->element_ts();
+                break;
+            }
+            default: {
+                mapped.push_back(index);
+                local_path.push_back(index);
+                bound_path.push_back(index);
+                current = nullptr;
+                break;
+            }
+        }
+    }
+
+    return mapped;
+}
+
 std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
     const bool debug_resolve = std::getenv("HGRAPH_DEBUG_RESOLVE") != nullptr;
     const auto log_resolve = [&](const char* tag, const ViewData& out) {
@@ -1870,7 +2026,11 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
             resolved.projection = merge_projection(vd.projection, resolved.projection);
             const auto residual = link_residual_ts_path(vd.meta, vd.path.indices);
             if (!residual.empty()) {
-                resolved.path.indices.insert(resolved.path.indices.end(), residual.begin(), residual.end());
+                if (auto mapped = remap_residual_indices_for_bound_view(vd, resolved, residual); mapped.has_value()) {
+                    resolved.path.indices.insert(resolved.path.indices.end(), mapped->begin(), mapped->end());
+                } else {
+                    resolved.path.indices.insert(resolved.path.indices.end(), residual.begin(), residual.end());
+                }
             }
             if (std::getenv("HGRAPH_DEBUG_REF_ANCESTOR") != nullptr) {
                 std::fprintf(stderr,
@@ -1898,10 +2058,16 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
 
                 ViewData resolved = parent->as_view_data(vd.sampled);
                 resolved.projection = merge_projection(vd.projection, resolved.projection);
-                resolved.path.indices.insert(
-                    resolved.path.indices.end(),
+                const std::vector<size_t> residual(
                     vd.path.indices.begin() + static_cast<std::ptrdiff_t>(parent_path.size()),
                     vd.path.indices.end());
+                ViewData local_parent = vd;
+                local_parent.path.indices = parent_path;
+                if (auto mapped = remap_residual_indices_for_bound_view(local_parent, resolved, residual); mapped.has_value()) {
+                    resolved.path.indices.insert(resolved.path.indices.end(), mapped->begin(), mapped->end());
+                } else {
+                    resolved.path.indices.insert(resolved.path.indices.end(), residual.begin(), residual.end());
+                }
                 log_resolve("lt-ancestor", resolved);
                 return resolved;
             }
@@ -2369,6 +2535,12 @@ nb::object tsd_bridge_delta_to_python(const ViewData& previous_data,
 
     const bool has_previous = previous_value.has_value() && previous_value->valid() && previous_value->is_map();
     const bool has_current = current_value.has_value() && current_value->valid() && current_value->is_map();
+    const auto entry_visible = [&](const value::MapView& map, const View& key) -> bool {
+        if (!map.contains(key)) {
+            return false;
+        }
+        return !bridge_entry_to_python(map.at(key)).is_none();
+    };
 
     if (has_current) {
         const auto current_map = current_value->as_map();
@@ -2382,12 +2554,18 @@ nb::object tsd_bridge_delta_to_python(const ViewData& previous_data,
                     include = !(previous_entry.schema() == current_entry.schema() && previous_entry.equals(current_entry));
                 }
                 if (include) {
-                    delta_out[key.to_python()] = bridge_entry_to_python(current_entry);
+                    nb::object py_entry = bridge_entry_to_python(current_entry);
+                    if (!py_entry.is_none()) {
+                        delta_out[key.to_python()] = std::move(py_entry);
+                    }
                 }
             }
         } else {
             for (View key : current_map.keys()) {
-                delta_out[key.to_python()] = bridge_entry_to_python(current_map.at(key));
+                nb::object py_entry = bridge_entry_to_python(current_map.at(key));
+                if (!py_entry.is_none()) {
+                    delta_out[key.to_python()] = std::move(py_entry);
+                }
             }
         }
     }
@@ -2402,7 +2580,13 @@ nb::object tsd_bridge_delta_to_python(const ViewData& previous_data,
             if (is_prev_cycle_add(key)) {
                 return;
             }
-            if (has_current && current_value->as_map().contains(key)) {
+            const bool in_prev = previous_map.contains(key);
+            const bool prev_visible = in_prev && entry_visible(previous_map, key);
+            const bool in_curr_visible = has_current && entry_visible(current_value->as_map(), key);
+            if (in_prev && !prev_visible) {
+                return;
+            }
+            if (in_curr_visible) {
                 return;
             }
             delta_out[key.to_python()] = remove;
@@ -2420,6 +2604,9 @@ nb::object tsd_bridge_delta_to_python(const ViewData& previous_data,
 
         if (previous_removed_keys.valid() && previous_removed_keys.is_set()) {
             for (View key : previous_removed_keys.as_set()) {
+                if (!previous_map.contains(key)) {
+                    continue;
+                }
                 emit_remove_if_missing_from_current(key);
             }
         }
@@ -4022,7 +4209,15 @@ nb::object op_to_python(const ViewData& vd) {
                 if (!op_valid(child)) {
                     return;
                 }
-                out[key.to_python()] = op_to_python(child);
+
+                nb::object child_py = op_to_python(child);
+                const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
+                if (child_meta != nullptr && child_meta->kind == TSKind::REF && child_py.is_none()) {
+                    // Keep key-space stable internally, but hide unresolved REF entries
+                    // from Python-facing value snapshots.
+                    return;
+                }
+                out[key.to_python()] = std::move(child_py);
             });
         }
         return get_frozendict()(out);
@@ -4266,12 +4461,15 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     }
 
     if (current != nullptr && current->kind == TSKind::TSS) {
-        if (!op_modified(*data, current_time)) {
+        const bool wrapper_modified = op_modified(vd, current_time);
+        const bool resolved_modified = op_modified(*data, current_time);
+        if (!wrapper_modified && !resolved_modified) {
             return nb::none();
         }
 
         nb::set added_set;
         nb::set removed_set;
+        bool has_native_delta = false;
 
         auto* delta_root = static_cast<const Value*>(data->delta_data);
         if (delta_root != nullptr && delta_root->has_value()) {
@@ -4290,6 +4488,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                         for (View elem : added.as_set()) {
                             added_set.add(elem.to_python());
                         }
+                        has_native_delta = has_native_delta || added.as_set().size() > 0;
                     }
                 }
                 if (tuple.size() > 1) {
@@ -4298,6 +4497,35 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                         for (View elem : removed.as_set()) {
                             removed_set.add(elem.to_python());
                         }
+                        has_native_delta = has_native_delta || removed.as_set().size() > 0;
+                    }
+                }
+            }
+        }
+
+        bool sampled_like = data->sampled;
+        if (!sampled_like && wrapper_modified && !resolved_modified) {
+            sampled_like = true;
+        }
+        if (!sampled_like) {
+            const engine_time_t wrapper_time = ref_wrapper_last_modified_time_on_read_path(vd);
+            if (wrapper_time == current_time && !has_native_delta) {
+                sampled_like = true;
+            }
+        }
+
+        if (sampled_like) {
+            added_set = nb::set();
+            removed_set = nb::set();
+            View current_value = op_value(*data);
+            if (current_value.valid()) {
+                if (current_value.is_set()) {
+                    for (View elem : current_value.as_set()) {
+                        added_set.add(elem.to_python());
+                    }
+                } else if (current_value.is_map()) {
+                    for (View key : current_value.as_map().keys()) {
+                        added_set.add(key.to_python());
                     }
                 }
             }
@@ -4321,6 +4549,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         nb::dict delta_out;
         View changed_values;
         View added_keys;
+        View removed_keys;
         auto* delta_root = static_cast<const Value*>(data->delta_data);
         if (delta_root != nullptr && delta_root->has_value()) {
             std::optional<View> maybe_delta;
@@ -4339,18 +4568,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                     added_keys = tuple.at(1);
                 }
                 if (tuple.size() > 2) {
-                    View removed_keys = tuple.at(2);
-                    if (removed_keys.valid() && removed_keys.is_set()) {
-                        auto set = removed_keys.as_set();
-                        const bool has_added_set = added_keys.valid() && added_keys.is_set();
-                        nb::object remove = get_remove();
-                        for (View key : set) {
-                            if (has_added_set && added_keys.as_set().contains(key)) {
-                                continue;
-                            }
-                            delta_out[key.to_python()] = remove;
-                        }
-                    }
+                    removed_keys = tuple.at(2);
                 }
             }
         }
@@ -4369,17 +4587,29 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             bool sampled_like = data->sampled;
             if (!sampled_like &&
                 vd.uses_link_target &&
-                element_meta != nullptr &&
-                element_meta->kind == TSKind::TSD &&
                 rebind_time == current_time) {
                 if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices); link_target != nullptr) {
-                    // First bind into nested TSD can arrive without concrete child deltas.
+                    // First bind should sample current visible values and avoid carrying
+                    // stale remove markers from an unrelated previous binding.
                     sampled_like = !link_target->has_previous_target;
                 }
             }
             if (!sampled_like && wrapper_time == current_time && !has_changed_map) {
                 sampled_like = true;
             }
+
+            if (!sampled_like && removed_keys.valid() && removed_keys.is_set()) {
+                auto set = removed_keys.as_set();
+                const bool has_added_set = added_keys.valid() && added_keys.is_set();
+                nb::object remove = get_remove();
+                for (View key : set) {
+                    if (has_added_set && added_keys.as_set().contains(key)) {
+                        continue;
+                    }
+                    delta_out[key.to_python()] = remove;
+                }
+            }
+
             if (debug_tsd_delta) {
                 size_t changed_size = 0;
                 if (changed_values.valid() && changed_values.is_map()) {
@@ -4492,9 +4722,18 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                     child.sampled = false;
                     if (include_unmodified) {
                         View entry = value_map.at(key);
-                        if (entry.valid()) {
-                            delta_out[key.to_python()] = delta_view_to_python(entry);
+                        if (!entry.valid()) {
+                            return;
                         }
+
+                        nb::object entry_py = delta_view_to_python(entry);
+                        const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
+                        if (child_meta != nullptr && child_meta->kind == TSKind::REF && entry_py.is_none()) {
+                            // REF entries with unresolved targets are not visible at
+                            // the Python layer and should not appear in sampled deltas.
+                            return;
+                        }
+                        delta_out[key.to_python()] = std::move(entry_py);
                         return;
                     }
                     if (!op_valid(child)) {
