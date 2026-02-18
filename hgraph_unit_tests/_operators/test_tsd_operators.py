@@ -50,6 +50,7 @@ from hgraph import (
     uncollapse_keys,
     unpartition,
     values_,
+    if_then_else,
 )
 from hgraph._operators._stream import filter_by
 from hgraph.nodes import extract_tsd, flatten_tsd, keys_where_true, make_tsd, where_true
@@ -126,13 +127,27 @@ def test_tsd_get_items():
 def test_tsd_get_items_refs():
     @graph
     def g(ts: TSD[int, TS[int]], keys: TSS[int]) -> TSD[int, TS[int]]:
-        return getitem_(max_(lambda x: x, ts), keys)
+        return getitem_(map_(lambda x: x, ts), keys)
 
     assert eval_node(
-        getitem_,
+        g,
         [{1: 1, 2: 2}, {1: 3}, {1: 4}, {1: REMOVE, 2: 5}, {3: 6}],
         [None, {1}, {2}, {Removed(2)}, None],
-        resolution_dict={"ts": TSD[int, TS[int]], "key": TSS[int]},
+    ) == [None, {1: 3}, {2: 2, 1: 4}, {2: REMOVE, 1: REMOVE}, None]
+
+
+def test_tsd_get_items_change_tsd():
+    @graph
+    def g(c: TS[bool], ts1: TSD[int, TS[int]], ts2: TSD[int, TS[int]], keys: TSS[int]) -> TSD[int, TS[int]]:
+        ts = if_then_else(c, ts1, ts2)
+        return getitem_(ts, keys)
+
+    assert eval_node(
+        g,
+        [True, None, False, True, None],
+        [{1: 1, 2: 2}, {1: 3}, {1: 4}, {1: REMOVE, 2: 5}, {3: 6}],
+        [{1: 1, 2: 2}, {1: 3}, {1: 4}, {1: REMOVE, 2: 5}, {3: 6}],
+        [None, {1}, {2}, {Removed(2)}, None],
     ) == [None, {1: 3}, {2: 2, 1: 4}, {2: REMOVE, 1: REMOVE}, None]
 
 

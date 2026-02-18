@@ -511,11 +511,7 @@ namespace hgraph {
         result.reserve(_recent_node_performance.size());
 
         // Iterate in reverse order (most recent first), skipping the first batch
-        for (auto it = _recent_node_performance.rbegin(); it != _recent_node_performance.rend(); ++it) {
-            // Skip the first (oldest) batch which is at rend() - 1
-            if (std::next(it) == _recent_node_performance.rend()) {
-                break;
-            }
+        for (auto it = std::next(_recent_node_performance.rbegin()); it != _recent_node_performance.rend(); ++it) {
 
             const auto& batch_time = it->first;
             const auto& batch_data = it->second;
@@ -539,12 +535,7 @@ namespace hgraph {
         result.reserve(_recent_graph_performance.size());
 
         // Iterate in reverse order (most recent first), skipping the first batch
-        for (auto it = _recent_graph_performance.rbegin(); it != _recent_graph_performance.rend(); ++it) {
-            // Skip the first (oldest) batch which is at rend() - 1
-            if (std::next(it) == _recent_graph_performance.rend()) {
-                break;
-            }
-
+        for (auto it = std::next(_recent_graph_performance.rbegin()); it != _recent_graph_performance.rend(); ++it) {
             const auto& batch_time = it->first;
             const auto& batch_data = it->second;
 

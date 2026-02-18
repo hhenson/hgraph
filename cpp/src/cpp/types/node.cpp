@@ -522,7 +522,7 @@ namespace hgraph
     void NodeScheduler::schedule(engine_time_t when, std::optional<std::string> tag, bool on_wall_clock) {
         std::optional<engine_time_t> original_time = std::nullopt;
 
-        if (tag.has_value() && _tags.contains(tag.value())) {
+        if (tag.has_value() && _tags.contains(tag.value()) && _scheduled_events.size()) {
             original_time = next_scheduled_time();
             _scheduled_events.erase({_tags.at(tag.value()), tag.value()});
         }
@@ -605,11 +605,13 @@ namespace hgraph
     }
 
     void NodeScheduler::_on_alarm(engine_time_t when, std::string tag) {
-        _tags[tag]            = when;
         std::string alarm_tag = fmt::format("{}:{}", reinterpret_cast<std::uintptr_t>(this), tag);
-        _alarm_tags.erase(alarm_tag);
-        _scheduled_events.insert({when, tag});
-        _node->graph()->schedule_node(_node->node_ndx(), when);
+        if (auto alarm_it = _alarm_tags.find(alarm_tag); alarm_it != _alarm_tags.end()) {
+            _alarm_tags.erase(alarm_it);
+            _tags[tag]            = when;
+            _scheduled_events.insert({when, tag});
+            _node->graph()->schedule_node(_node->node_ndx(), when);
+        }
     }
 
     Node::Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars)

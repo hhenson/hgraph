@@ -122,7 +122,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
     def get_recent_node_performance(self, node_id: tuple[int, ...], after: datetime = None):
         result = []
-        for batch_time, batch in reversed(self.recent_node_performance[1:]):
+        for batch_time, batch in reversed(self.recent_node_performance[:-1]):
             if after is None or batch_time > after:
                 if v := batch.get(node_id):
                     result.append((batch_time, v))
@@ -132,7 +132,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
     def get_recent_graph_performance(self, graph_id: tuple[int, ...], after: datetime = None):
         result = []
-        for batch_time, batch in reversed(self.recent_graph_performance[1:]):
+        for batch_time, batch in reversed(self.recent_graph_performance[:-1]):
             if after is None or batch_time > after:
                 if v := batch.get(graph_id):
                     result.append((batch_time, v))

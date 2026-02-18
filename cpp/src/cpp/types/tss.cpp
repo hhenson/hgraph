@@ -142,11 +142,7 @@ namespace hgraph
     }
 
     nb::object TimeSeriesSetOutput::py_value() const {
-        nb::set v{};
-        for (auto elem : _storage.value()) {
-            v.add(elem.to_python());
-        }
-        return nb::frozenset(v);
+        return _storage.value().to_python();
     }
 
     nb::object TimeSeriesSetOutput::py_delta_value() const {

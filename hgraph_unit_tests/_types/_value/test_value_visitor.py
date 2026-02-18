@@ -9,6 +9,10 @@ Reference: Value_USER_GUIDE.md Section 8 (Visiting Values)
 
 import pytest
 
+from hgraph._feature_switch import is_feature_enabled
+if is_feature_enabled("use_cpp"):
+    pytest.skip("Buffer protocol tests require C++ extension", allow_module_level=True)
+
 # Try to import the C++ extension module
 _hgraph = pytest.importorskip("hgraph._hgraph", reason="C++ extension not available")
 value = _hgraph.value  # Value types are in the value submodule
