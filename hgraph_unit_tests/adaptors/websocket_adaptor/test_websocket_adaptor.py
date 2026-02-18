@@ -1,5 +1,5 @@
 from collections import defaultdict
-from random import randrange
+import socket
 
 import pytest
 from frozendict import frozendict
@@ -60,10 +60,20 @@ try:
     )
     from hgraph import stop_engine
 
-    PORT = randrange(3300, 32000)
+    def _find_free_port() -> int:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 0))
+                return s.getsockname()[1]
+        except PermissionError:
+            pytest.skip("Socket bind is not permitted in this environment")
+
+
+    def _allocate_test_ports() -> tuple[int, int]:
+        return _find_free_port(), _find_free_port()
 
     @graph
-    def run_test(queries: dict[object, object]):
+    def run_test(queries: dict[object, object], http_port: int, websocket_port: int):
         def s(request: TS[HttpRequest]) -> TS[HttpResponse]:
             stop_engine(request)
             return combine[TS[HttpResponse]](status_code=200, body=b"Ok")
@@ -71,43 +81,59 @@ try:
         http_server_handler(url="/stop")(s)
 
         @sink_node
-        def q(t: TIME_SERIES_TYPE):
-            Thread(target=make_query).start()
+        def q(t: TIME_SERIES_TYPE, _state: STATE = None):
+            if getattr(_state, "started", False):
+                return
+            _state.started = True
+            Thread(target=make_query, daemon=True).start()
 
         def make_query():
             import tornado
             import requests
             import time
 
+            def request_stop():
+                try:
+                    requests.request("GET", f"http://localhost:{http_port}/stop", timeout=1)
+                except Exception:
+                    pass
+
             time.sleep(0.1)
 
             async def ws(i, msg):
                 if isinstance(i, str):
                     ws1 = await tornado.websocket.websocket_connect(
-                        f"ws://localhost:{PORT+1}/test/{i}", connect_timeout=1
+                        f"ws://localhost:{websocket_port}/test/{i}", connect_timeout=1
                     )
                 else:
-                    ws1 = await tornado.websocket.websocket_connect(f"ws://localhost:{PORT+1}/test", connect_timeout=1)
-                ws1.write_message(msg, binary=True)
-                GlobalState().instance().responses[i] = await ws1.read_message()
+                    ws1 = await tornado.websocket.websocket_connect(
+                        f"ws://localhost:{websocket_port}/test", connect_timeout=1
+                    )
+                try:
+                    ws1.write_message(msg, binary=True)
+                    GlobalState().instance().responses[i] = await ws1.read_message()
+                finally:
+                    ws1.close()
 
-            for id, msg in queries.items():
-                TornadoWeb.instance().get_loop().add_callback(ws, id, msg)
-                time.sleep(0.1)
+            try:
+                for id, msg in queries.items():
+                    TornadoWeb.instance().get_loop().add_callback(ws, id, msg)
+                    time.sleep(0.1)
 
-            sleeps = 0
-            while len(GlobalState().instance().responses) < len(queries) and sleeps < 10:
-                time.sleep(0.1)
-                sleeps += 1
+                deadline = time.monotonic() + 2.0
+                while len(GlobalState().instance().responses) < len(queries) and time.monotonic() < deadline:
+                    time.sleep(0.05)
+            finally:
+                request_stop()
 
-            requests.request("GET", f"http://localhost:{PORT}/stop", timeout=1)
-
-        q(True)
+        q(True)  # Kick off the single query thread once.
 
     @pytest.mark.xfail(reason="Does not run with xdist correctly")
     @pytest.mark.serial
     @pytest.mark.timeout(30)
     def test_single_websocket_request_graph():
+        http_port, websocket_port = _allocate_test_ports()
+
         @websocket_server_handler(url="/test")
         def x(request: TSB[WebSocketServerRequest[bytes]]) -> TSB[WebSocketResponse[bytes]]:
             return combine[TSB[WebSocketResponse[bytes]]](
@@ -117,9 +143,9 @@ try:
 
         @graph
         def g():
-            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=PORT)
-            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=PORT + 1)
-            run_test(queries={1: b"Hello, world!", 2: b"Hello, world again!"})
+            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=http_port)
+            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=websocket_port)
+            run_test(queries={1: b"Hello, world!", 2: b"Hello, world again!"}, http_port=http_port, websocket_port=websocket_port)
 
         with GlobalState() as gs:
             gs.responses = {}
@@ -133,6 +159,8 @@ try:
     @pytest.mark.serial
     @pytest.mark.timeout(30)
     def test_multiple_websocket_request_graph():
+        http_port, websocket_port = _allocate_test_ports()
+
         @websocket_server_handler(url="/test")
         @compute_node
         def x(request: TSD[int, TSB[WebSocketServerRequest[bytes]]], _state: STATE = None) -> TSD[int, TSB[WebSocketResponse[bytes]]]:
@@ -148,9 +176,9 @@ try:
 
         @graph
         def g():
-            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=PORT)
-            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=PORT + 1)
-            run_test(queries={1: b"Hello, world!", 2: b"Hello, world again!"})
+            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=http_port)
+            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=websocket_port)
+            run_test(queries={1: b"Hello, world!", 2: b"Hello, world again!"}, http_port=http_port, websocket_port=websocket_port)
 
         with GlobalState() as gs:
             gs.responses = {}
@@ -163,6 +191,8 @@ try:
     @pytest.mark.xfail(reason="When running with all tests, the server does not start and the test then fails")
     @pytest.mark.timeout(30)
     def test_websocket_server_adaptor_graph():
+        http_port, websocket_port = _allocate_test_ports()
+
         @websocket_server_handler(url="/test/(.*)")
         def x(request: TSB[WebSocketServerRequest[bytes]], b: TS[int]) -> TSB[WebSocketResponse[bytes]]:
             return combine[TSB[WebSocketResponse[bytes]]](
@@ -176,11 +206,11 @@ try:
 
         @graph
         def g():
-            register_adaptor(None, websocket_server_adaptor_helper, port=PORT + 1)
-            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=PORT)
-            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=PORT + 1)
+            register_adaptor(None, websocket_server_adaptor_helper, port=websocket_port)
+            register_adaptor("http_server_adaptor", http_server_adaptor_impl, port=http_port)
+            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=websocket_port)
             x(b=33)
-            run_test(queries={"a": b"Hello, world!", "b": b"Hello, world again!"})
+            run_test(queries={"a": b"Hello, world!", "b": b"Hello, world again!"}, http_port=http_port, websocket_port=websocket_port)
 
         with GlobalState() as gs:
             gs.responses = {}
@@ -192,6 +222,7 @@ try:
 
     @pytest.mark.serial
     def test_single_request_graph_client():
+        websocket_port = _find_free_port()
         from hgraph import EvaluationEngineApi
 
         @websocket_server_handler(url="/test/(.*)")
@@ -217,12 +248,12 @@ try:
 
         @graph
         def g():
-            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=PORT + 1)
+            register_adaptor("websocket_server_adaptor", websocket_server_adaptor_impl, port=websocket_port)
             register_adaptor(None, websocket_client_adaptor_impl)
 
             queries = frozendict({
-                "one": (WebSocketConnectRequest(f"ws://localhost:{PORT+1}/test/one"), (b"message 1", b"message 2")),
-                "two": (WebSocketConnectRequest(f"ws://localhost:{PORT+1}/test/two"), (b"message X", b"message Y")),
+                "one": (WebSocketConnectRequest(f"ws://localhost:{websocket_port}/test/one"), (b"message 1", b"message 2")),
+                "two": (WebSocketConnectRequest(f"ws://localhost:{websocket_port}/test/two"), (b"message X", b"message Y")),
             })
 
             @graph

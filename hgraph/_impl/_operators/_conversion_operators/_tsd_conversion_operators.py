@@ -144,18 +144,10 @@ def convert_mapping_to_tsd(
     all_valid=lambda m, __strict__: ("tsl",) if __strict__ else None,
 )
 def combine_tsd_from_tuple_and_tsl(
-    keys: Tuple[SCALAR, ...],
-    *tsl: TSL[TIME_SERIES_TYPE, SIZE],
-    __strict__: bool = True,
-    _output: TSD_OUT[SCALAR, TIME_SERIES_TYPE] = None,
-) -> TSD[SCALAR, TIME_SERIES_TYPE]:
+    keys: Tuple[SCALAR, ...], *tsl: TSL[REF[TIME_SERIES_TYPE], SIZE], __strict__: bool = True
+) -> TSD[SCALAR, REF[TIME_SERIES_TYPE]]:
     # Not the valid constraint only affects wheather or not this has a binding and not if the underlying value is valid!
-    current = {key: value.value for key, value in zip(keys, tsl) if value.valid}
-
-    previous = _output.value if _output.valid else {}
-    out = {k: REMOVE for k in previous.keys() - current.keys()}
-    out.update({k: v for k, v in current.items() if previous.get(k) != v})
-    return out
+    return {k: v.value for k, v in zip(keys, tsl) if v.valid and not v.value.is_empty}
 
 
 @compute_node(

@@ -1,6 +1,7 @@
 from ctypes import cast
 from datetime import timedelta
 from math import e
+import socket
 from socket import gethostname
 from typing import Callable, Tuple
 
@@ -123,11 +124,18 @@ def test_inspector_sort_key():
 def test_run_inspector():
     import polars as pl
     import pyarrow
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+    except OSError:
+        pytest.skip("localhost port binding is not available in this environment")
     
     @graph
     def g() -> TSD[int, TS[int]]:
-        inspector(8888)
-        perspective_web(gethostname(), port=8888)
+        inspector(port)
+        perspective_web(gethostname(), port=port)
         
         ticks = schedule(timedelta(milliseconds=10))
         tsd = convert[TSD[int, TS[int]]](key=count(ticks), ts=count(ticks))
@@ -236,8 +244,8 @@ def test_run_inspector():
 
 
         test = test_inspector(table_updates("inspector"))
-        debug_print("requests", http_client_adaptor(combine[TS[HttpGetRequest]](url="http://localhost:8888/inspect/" + test.requests)).status_code)
-        debug_print("expand", http_client_adaptor(HttpGetRequest(url="http://localhost:8888/inspect/expand/")).status_code)
+        debug_print("requests", http_client_adaptor(combine[TS[HttpGetRequest]](url=f"http://localhost:{port}/inspect/" + test.requests)).status_code)
+        debug_print("expand", http_client_adaptor(HttpGetRequest(url=f"http://localhost:{port}/inspect/expand/")).status_code)
         
         stop_engine(if_true(test.done))
         
