@@ -324,6 +324,16 @@ namespace
             }
         }
 
+        // Non-peered REF[TSB]/REF[TSL] can be driven by child binds without a
+        // root bind target. TSView::value() materializes the composite REF payload.
+        value::View synthesized = input_view().as_ts_view().value();
+        if (synthesized.valid()) {
+            nb::object synthesized_obj = synthesized.to_python();
+            if (nb::isinstance<TimeSeriesReference>(synthesized_obj)) {
+                return synthesized_obj;
+            }
+        }
+
         nb::object value_obj = input_view().to_python();
         if (value_obj.is_none()) {
             return nb::cast(TimeSeriesReference::make());

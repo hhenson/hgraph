@@ -167,6 +167,25 @@ namespace hgraph {
             }
         }
         _initialise_inputs();
+
+        // Switch cases consume non-key inputs on every tick while the active
+        // nested graph is running. Ensure those inputs are active so upstream
+        // notifications wake this node even when key is unchanged.
+        auto root = input(node_time(*this));
+        if (root) {
+            if (auto bundle = root.try_as_bundle(); bundle.has_value() &&
+                signature().time_series_inputs.has_value()) {
+                for (const auto& [arg, _] : *signature().time_series_inputs) {
+                    if (arg == "key") {
+                        continue;
+                    }
+                    auto view = bundle->field(arg);
+                    if (view) {
+                        view.make_active();
+                    }
+                }
+            }
+        }
     }
 
     void SwitchNode::do_stop() {
@@ -398,8 +417,18 @@ namespace hgraph {
             // not produce a tick for this cycle then invalidate outer output.
             if (graph_reset) {
                 auto out_view = output(node_time(*this));
-                if (out_view && !out_view.modified()) {
-                    out_view.invalidate();
+                if (out_view) {
+                    if (out_view.modified()) {
+                        // Graph-reset with a modified output should sample the full
+                        // current snapshot for this cycle (including unchanged
+                        // children) to mirror Python switch behavior.
+                        const value::View current_value = out_view.value();
+                        if (current_value.valid()) {
+                            out_view.set_value(current_value);
+                        }
+                    } else {
+                        out_view.invalidate();
+                    }
                 }
             }
             if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(_active_graph->evaluation_engine_clock().get())) {
