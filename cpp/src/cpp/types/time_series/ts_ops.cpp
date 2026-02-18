@@ -1489,7 +1489,12 @@ void set_value(ViewData& vd, const value::View& src, engine_time_t current_time)
                         auto elem_times = coll_time_tuple.at(1).as_list();
                         size_t max_idx = std::min(static_cast<size_t>(field_meta->fixed_size), elem_times.size());
                         for (size_t j = 0; j < max_idx; ++j) {
-                            elem_times.at(j).as<engine_time_t>() = current_time;
+                            auto elem_time = elem_times.at(j);
+                            if (auto nested_time = elem_time.try_as_tuple()) {
+                                nested_time->at(0).as<engine_time_t>() = current_time;
+                            } else {
+                                elem_time.as<engine_time_t>() = current_time;
+                            }
                         }
                     }
                 } else {
@@ -1963,7 +1968,12 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
                         auto elem_times = coll_time_tuple.at(1).as_list();
                         size_t max_idx = std::min(static_cast<size_t>(field_meta->fixed_size), elem_times.size());
                         for (size_t j = 0; j < max_idx; ++j) {
-                            elem_times.at(j).as<engine_time_t>() = current_time;
+                            auto elem_time = elem_times.at(j);
+                            if (auto nested_time = elem_time.try_as_tuple()) {
+                                nested_time->at(0).as<engine_time_t>() = current_time;
+                            } else {
+                                elem_time.as<engine_time_t>() = current_time;
+                            }
                         }
                     }
                 } else {
@@ -3240,8 +3250,24 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         return;
     }
 
-    auto dst = make_value_view(vd);
-    dst.from_python(src);
+    if (vd.meta && vd.meta->element_ts && vd.meta->element_ts->kind == TSKind::TSD && nb::isinstance<nb::sequence>(src)) {
+        auto seq = nb::cast<nb::sequence>(src);
+        size_t src_len = nb::len(seq);
+        size_t max_idx = std::min(src_len, child_count(vd));
+        for (size_t i = 0; i < max_idx; ++i) {
+            nb::object elem = seq[i];
+            if (elem.is_none()) {
+                continue;
+            }
+            TSView child = child_at(vd, i, current_time);
+            if (child.view_data().valid() && child.view_data().ops) {
+                child.view_data().ops->from_python(child.view_data(), elem, current_time);
+            }
+        }
+    } else {
+        auto dst = make_value_view(vd);
+        dst.from_python(src);
+    }
 
     auto time_view = make_time_view(vd);
     // Set container time
@@ -3267,11 +3293,22 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
             nb::object elem = seq[i];
             if (!elem.is_none()) {
                 // Set element time
-                elem_times.at(i).as<engine_time_t>() = current_time;
+                auto elem_time = elem_times.at(i);
+                if (auto nested_time = elem_time.try_as_tuple()) {
+                    nested_time->at(0).as<engine_time_t>() = current_time;
+                } else {
+                    elem_time.as<engine_time_t>() = current_time;
+                }
 
                 // Notify element observers (for per-element binding)
                 if (elem_observers && i < elem_observers.size()) {
-                    auto* elem_obs = static_cast<ObserverList*>(elem_observers.at(i).data());
+                    auto elem_obs_view = elem_observers.at(i);
+                    ObserverList* elem_obs = nullptr;
+                    if (auto elem_obs_tuple = elem_obs_view.try_as_tuple()) {
+                        elem_obs = static_cast<ObserverList*>(elem_obs_tuple->at(0).data());
+                    } else {
+                        elem_obs = static_cast<ObserverList*>(elem_obs_view.data());
+                    }
                     if (elem_obs) {
                         elem_obs->notify_modified(current_time);
                     }
@@ -4917,6 +4954,26 @@ inline MapDelta::ChildNotifier* get_or_create_child_notifier(const ViewData& vd)
     return map_delta->get_child_notifier(container_time, container_obs);
 }
 
+inline void* get_or_create_child_delta(
+        MapDelta* parent_delta,
+        const TSMeta* elem_meta,
+        size_t slot,
+        void* elem_value_data) {
+    if (!parent_delta || !elem_meta || !elem_value_data) {
+        return nullptr;
+    }
+
+    if (elem_meta->kind == TSKind::TSD) {
+        auto* inner_storage = static_cast<value::MapStorage*>(elem_value_data);
+        return parent_delta->get_or_create_child_map_delta(slot, inner_storage);
+    }
+    if (elem_meta->kind == TSKind::TSS) {
+        auto* inner_storage = static_cast<value::SetStorage*>(elem_value_data);
+        return parent_delta->get_or_create_child_set_delta(slot, inner_storage);
+    }
+    return nullptr;
+}
+
 // ========== TSD Link Layout Helpers ==========
 // TSD link storage is a tuple[collection_link, var_list[element_link]].
 // These helpers extract the collection-level link from the tuple, shadowing
@@ -5389,12 +5446,7 @@ nb::object delta_to_python(const ViewData& vd) {
                         elem_vd.value_data = storage->value_at_slot(slot);
                         elem_vd.time_data = time_list.at(slot).data();
                         elem_vd.observer_data = (slot < observer_list.size()) ? observer_list.at(slot).data() : nullptr;
-                        if (elem_ts->kind == TSKind::TSD && map_delta_ptr) {
-                            auto* inner_storage = static_cast<value::MapStorage*>(elem_vd.value_data);
-                            elem_vd.delta_data = map_delta_ptr->get_or_create_child_map_delta(slot, inner_storage);
-                        } else {
-                            elem_vd.delta_data = nullptr;
-                        }
+                        elem_vd.delta_data = get_or_create_child_delta(map_delta_ptr, elem_ts, slot, elem_vd.value_data);
                         elem_vd.uses_link_target = vd.uses_link_target;
                         elem_vd.ops = get_ts_ops(elem_ts);
                         elem_vd.meta = elem_ts;
@@ -5705,13 +5757,9 @@ TSView child_at(const ViewData& vd, size_t slot, engine_time_t current_time) {
     elem_vd.observer_data = observer_list.at(slot).data();
     // For nested TSD elements, provide a child MapDelta for delta tracking.
     // This allows nested TSD key_set() and delta access to work correctly.
-    if (elem_meta->kind == TSKind::TSD && vd.delta_data) {
-        auto* parent_delta = static_cast<MapDelta*>(vd.delta_data);
-        auto* inner_storage = static_cast<value::MapStorage*>(elem_vd.value_data);
-        elem_vd.delta_data = parent_delta->get_or_create_child_map_delta(slot, inner_storage);
-    } else {
-        elem_vd.delta_data = nullptr;
-    }
+    elem_vd.delta_data = get_or_create_child_delta(
+        vd.delta_data ? static_cast<MapDelta*>(vd.delta_data) : nullptr, elem_meta, slot, elem_vd.value_data
+    );
     elem_vd.sampled = vd.sampled;  // Propagate sampled flag from parent
     elem_vd.uses_link_target = vd.uses_link_target;  // Propagate link type flag
     elem_vd.ops = get_ts_ops(elem_meta);
@@ -5790,13 +5838,9 @@ TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t cu
         elem_vd.time_data = time_list.at(slot).data();
         elem_vd.observer_data = obs_list.at(slot).data();
     }
-    if (elem_meta->kind == TSKind::TSD && vd.delta_data) {
-        auto* parent_delta = static_cast<MapDelta*>(vd.delta_data);
-        auto* inner_storage = static_cast<value::MapStorage*>(elem_vd.value_data);
-        elem_vd.delta_data = parent_delta->get_or_create_child_map_delta(slot, inner_storage);
-    } else {
-        elem_vd.delta_data = nullptr;
-    }
+    elem_vd.delta_data = get_or_create_child_delta(
+        vd.delta_data ? static_cast<MapDelta*>(vd.delta_data) : nullptr, elem_meta, slot, elem_vd.value_data
+    );
     elem_vd.sampled = vd.sampled;  // Propagate sampled flag from parent
     elem_vd.uses_link_target = vd.uses_link_target;  // Propagate link type flag
     elem_vd.ops = get_ts_ops(elem_meta);
@@ -6070,13 +6114,12 @@ TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_t
         elem_vd.value_data = storage->value_at_slot(existing_slot);
         elem_vd.time_data = time_view.as_tuple().at(1).as_list().at(existing_slot).data();
         elem_vd.observer_data = observer_view.as_tuple().at(1).as_list().at(existing_slot).data();
-        if (elem_meta->kind == TSKind::TSD && vd.delta_data) {
-            auto* parent_delta = static_cast<MapDelta*>(vd.delta_data);
-            auto* inner_storage = static_cast<value::MapStorage*>(elem_vd.value_data);
-            elem_vd.delta_data = parent_delta->get_or_create_child_map_delta(existing_slot, inner_storage);
-        } else {
-            elem_vd.delta_data = nullptr;
-        }
+        elem_vd.delta_data = get_or_create_child_delta(
+            vd.delta_data ? static_cast<MapDelta*>(vd.delta_data) : nullptr,
+            elem_meta,
+            existing_slot,
+            elem_vd.value_data
+        );
         elem_vd.uses_link_target = vd.uses_link_target;
         elem_vd.ops = get_ts_ops(elem_meta);
         elem_vd.meta = elem_meta;
@@ -6180,13 +6223,9 @@ TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_t
     elem_vd.value_data = storage->value_at_slot(slot);
     elem_vd.time_data = time_list.at(slot).data();
     elem_vd.observer_data = observer_list.at(slot).data();
-    if (elem_meta->kind == TSKind::TSD && vd.delta_data) {
-        auto* parent_delta = static_cast<MapDelta*>(vd.delta_data);
-        auto* inner_storage = static_cast<value::MapStorage*>(elem_vd.value_data);
-        elem_vd.delta_data = parent_delta->get_or_create_child_map_delta(slot, inner_storage);
-    } else {
-        elem_vd.delta_data = nullptr;
-    }
+    elem_vd.delta_data = get_or_create_child_delta(
+        vd.delta_data ? static_cast<MapDelta*>(vd.delta_data) : nullptr, elem_meta, slot, elem_vd.value_data
+    );
     elem_vd.uses_link_target = vd.uses_link_target;
     elem_vd.ops = get_ts_ops(elem_meta);
     elem_vd.meta = elem_meta;
@@ -6310,13 +6349,9 @@ TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, 
     elem_vd.value_data = storage->value_at_slot(slot);
     elem_vd.time_data = time_list.at(slot).data();
     elem_vd.observer_data = observer_list.at(slot).data();
-    if (elem_meta->kind == TSKind::TSD && vd.delta_data) {
-        auto* parent_delta = static_cast<MapDelta*>(vd.delta_data);
-        auto* inner_storage = static_cast<value::MapStorage*>(elem_vd.value_data);
-        elem_vd.delta_data = parent_delta->get_or_create_child_map_delta(slot, inner_storage);
-    } else {
-        elem_vd.delta_data = nullptr;
-    }
+    elem_vd.delta_data = get_or_create_child_delta(
+        vd.delta_data ? static_cast<MapDelta*>(vd.delta_data) : nullptr, elem_meta, slot, elem_vd.value_data
+    );
     elem_vd.uses_link_target = vd.uses_link_target;
     elem_vd.ops = get_ts_ops(elem_meta);
     elem_vd.meta = elem_meta;

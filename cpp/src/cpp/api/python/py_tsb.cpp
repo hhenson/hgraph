@@ -75,8 +75,23 @@ namespace hgraph
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::key_from_value(const nb::handle &value) const {
-        // Not supported in view mode
-        throw std::runtime_error("not implemented: PyTimeSeriesBundle::key_from_value");
+        if (!nb::isinstance<PyTimeSeriesType>(value)) {
+            throw std::runtime_error("key_from_value: expected TimeSeriesType value");
+        }
+
+        auto& ts_type = nb::cast<PyTimeSeriesType&>(value);
+        auto target_data = ts_type.view().view_data().value_data;
+
+        auto bundle_view = this->view().as_bundle();
+        auto items = bundle_view.items();
+        for (auto it = items.begin(); it != items.end(); ++it) {
+            TSView elem = *it;
+            if (elem.view_data().value_data == target_data) {
+                return nb::str(it.name());
+            }
+        }
+
+        throw std::runtime_error("key_from_value: value not found in TSB");
     }
 
     template <typename T_TS>

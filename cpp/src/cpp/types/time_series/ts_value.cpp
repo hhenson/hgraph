@@ -523,4 +523,27 @@ MapDelta* MapDelta::get_or_create_child_map_delta(size_t slot, value::MapStorage
     return raw;
 }
 
+SetDelta* MapDelta::get_or_create_child_set_delta(size_t slot, value::SetStorage* inner_storage) {
+    auto it = owned_child_set_deltas_.find(slot);
+    if (it != owned_child_set_deltas_.end()) {
+        SetDelta* child = it->second.get();
+        const value::KeySet* current_key_set = child->key_set();
+        value::KeySet* target_key_set = inner_storage ? &inner_storage->key_set() : nullptr;
+        if (target_key_set && current_key_set != target_key_set) {
+            if (current_key_set) {
+                const_cast<value::KeySet*>(current_key_set)->remove_observer(child);
+            }
+            child->bind(target_key_set);
+            child->clear();
+            target_key_set->add_observer(child);
+        }
+        return child;
+    }
+    auto child = std::make_unique<SetDelta>(&inner_storage->key_set());
+    inner_storage->key_set().add_observer(child.get());
+    SetDelta* raw = child.get();
+    owned_child_set_deltas_[slot] = std::move(child);
+    return raw;
+}
+
 } // namespace hgraph

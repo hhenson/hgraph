@@ -39,6 +39,7 @@ struct ListDeltaNav;
 
 namespace value {
     class MapStorage;  // Forward declaration for nested TSD delta management
+    class SetStorage;  // Forward declaration for nested TSS delta management
 }
 
 /**
@@ -372,6 +373,26 @@ public:
     MapDelta* get_or_create_child_map_delta(size_t slot, value::MapStorage* inner_storage);
 
     /**
+     * @brief Get or create a child SetDelta for a nested TSS element.
+     *
+     * @param slot The slot index of the element in the parent TSD
+     * @param inner_storage The inner TSS element's SetStorage
+     * @return Pointer to the child SetDelta (owned by this MapDelta)
+     */
+    SetDelta* get_or_create_child_set_delta(size_t slot, value::SetStorage* inner_storage);
+
+    /**
+     * @brief Get an existing child SetDelta for a nested TSS element.
+     *
+     * @param slot The slot index of the element
+     * @return Pointer to the child SetDelta, or nullptr if none exists
+     */
+    [[nodiscard]] SetDelta* get_child_set_delta(size_t slot) const {
+        auto it = owned_child_set_deltas_.find(slot);
+        return it != owned_child_set_deltas_.end() ? it->second.get() : nullptr;
+    }
+
+    /**
      * @brief Get an existing child MapDelta for a nested TSD element.
      *
      * @param slot The slot index of the element
@@ -404,6 +425,10 @@ public:
         }
         // Clear (don't destroy) owned child MapDeltas
         for (auto& [slot, child] : owned_child_map_deltas_) {
+            if (child) child->clear();
+        }
+        // Clear (don't destroy) owned child SetDeltas
+        for (auto& [slot, child] : owned_child_set_deltas_) {
             if (child) child->clear();
         }
     }
@@ -483,6 +508,10 @@ private:
     // These persist across ticks (clear() clears them, doesn't destroy them).
     // Destroyed when the element slot is erased or the parent is destroyed.
     std::unordered_map<size_t, std::unique_ptr<MapDelta>> owned_child_map_deltas_;
+
+    // Owned child SetDelta objects for nested TSS elements.
+    // These persist across ticks (clear() clears them, doesn't destroy them).
+    std::unordered_map<size_t, std::unique_ptr<SetDelta>> owned_child_set_deltas_;
 
     // Child-to-container notifier (owned, one per TSD)
     std::unique_ptr<ChildNotifier> child_notifier_;
