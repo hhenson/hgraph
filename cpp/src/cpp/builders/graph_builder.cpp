@@ -210,6 +210,21 @@ namespace hgraph
                 }
             }
 
+            // Python wiring semantics: binding a TSD directly to SIGNAL uses the
+            // key_set signal (add/remove activity), not container value ticks.
+            if (!signal_multi_bind) {
+                auto& in_vd = input_view.ts_view().view_data();
+                auto& out_vd = output_view.ts_view().view_data();
+                if (in_vd.meta && in_vd.meta->kind == TSKind::SIGNAL &&
+                    out_vd.meta && out_vd.meta->kind == TSKind::TSD) {
+                    TSSView tss_view = output_view.ts_view().as_dict().key_set();
+                    output_view = TSOutputView(
+                        TSView(tss_view.view_data(), bind_time),
+                        output_view.output()
+                    );
+                }
+            }
+
             if (signal_multi_bind) {
                 // SIGNAL non-peered binding: register a SignalSubscription that
                 // updates the SIGNAL's time_data and schedules the node.

@@ -743,18 +743,13 @@ bool modified(const ViewData& vd, engine_time_t current_time) {
 }
 
 bool valid(const ViewData& vd) {
-    // Peered REF input is always valid (Python: PythonTimeSeriesReferenceInput.valid = True always).
-    // Must check BEFORE delegation because delegation would resolve to the output's REF data,
-    // which returns False for empty REFs (below). But peered REF inputs need to be valid
-    // regardless of emptiness so that consumer nodes are scheduled.
-    if (vd.meta && vd.meta->kind == TSKind::REF) {
-        if (auto* lt = get_active_link_target(vd)) {
-            if (lt->meta && lt->meta->kind == TSKind::REF) {
-                return true;  // Peered REF input — always valid
-            }
-        } else if (auto* rl = get_active_link(vd)) {
-            if (rl->target().meta && rl->target().meta->kind == TSKind::REF) {
-                return true;  // Peered REF input — always valid
+    // REF inputs are always valid once bound, even when the current reference is empty.
+    // This matches Python's REF input semantics and ensures downstream nodes can evaluate
+    // emptiness transitions (for example valid(ref) -> False on key removal).
+    if (vd.meta && vd.meta->kind == TSKind::REF && vd.uses_link_target && vd.link_data) {
+        if (auto* lt = get_link_target(vd.link_data)) {
+            if (lt->ref_binding_ || lt->is_linked) {
+                return true;
             }
         }
     }
@@ -5524,6 +5519,11 @@ nb::object delta_to_python(const ViewData& vd) {
             nb::object remove_sentinel = tsd_mod.attr("REMOVE");
 
             for (auto slot : removed_slots) {
+                // Python parity: only emit REMOVE when the removed element was
+                // previously valid on the input side.
+                if (!map_delta->was_removed_valid(slot)) {
+                    continue;
+                }
                 // Key data remains accessible at the slot during the current tick
                 const void* key_data = key_set.key_at_slot(slot);
                 if (key_data) {
@@ -5532,6 +5532,12 @@ nb::object delta_to_python(const ViewData& vd) {
                 }
             }
         }
+    }
+
+    // Python parity: container-only notifications (for example sampled REF writes
+    // with no actual key/value delta) should not emit an empty dict delta.
+    if (nb::len(result) == 0 && map_delta_ptr && map_delta_ptr->empty()) {
+        return nb::none();
     }
 
     nb::module_ frozendict_mod = nb::module_::import_("frozendict");
@@ -5587,7 +5593,12 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
             time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
             // Also stamp key_time (Python: self.key_set.mark_modified())
             auto* map_delta = vd.delta_data ? static_cast<MapDelta*>(vd.delta_data) : nullptr;
-            if (map_delta) map_delta->set_key_time(current_time);
+            if (map_delta) {
+                map_delta->set_key_time(current_time);
+                if (auto* key_obs = map_delta->key_observers()) {
+                    key_obs->notify_modified(current_time);
+                }
+            }
             // Notify observers
             auto obs_view = make_observer_view(vd);
             auto* obs_list = static_cast<ObserverList*>(obs_view.as_tuple().at(0).data());
@@ -6038,6 +6049,38 @@ bool dict_remove(ViewData& vd, const value::View& key, engine_time_t current_tim
 
     // Capture slot before removal so we can propagate nested-TSD removal deltas.
     size_t slot = storage->key_set().find(key.data());
+    bool removed_value_was_valid = false;
+    if (slot != static_cast<size_t>(-1) && vd.meta && vd.meta->element_ts) {
+        TSView elem_before_remove = child_at(vd, slot, current_time);
+        if (elem_before_remove.view_data().ops) {
+            if (elem_before_remove.view_data().meta &&
+                elem_before_remove.view_data().meta->kind == TSKind::REF) {
+                // REF validity for TSD delta semantics should reflect whether the
+                // referenced target currently has a concrete value, not whether
+                // the reference object itself is non-empty.
+                const ViewData& ref_vd = elem_before_remove.view_data();
+                if (ref_vd.value_data && ref_vd.meta && ref_vd.meta->value_type) {
+                    value::View ref_value(ref_vd.value_data, ref_vd.meta->value_type);
+                    if (ref_value.valid()) {
+                        const auto* ts_ref = static_cast<const TSReference*>(ref_value.data());
+                        if (ts_ref && !ts_ref->is_empty() && ts_ref->is_peered()) {
+                            try {
+                                TSView resolved = ts_ref->resolve(current_time);
+                                if (resolved && resolved.view_data().ops) {
+                                    nb::object py_target = resolved.view_data().ops->to_python(resolved.view_data());
+                                    removed_value_was_valid = !py_target.is_none();
+                                }
+                            } catch (...) {
+                                removed_value_was_valid = false;
+                            }
+                        }
+                    }
+                }
+            } else {
+                removed_value_was_valid = elem_before_remove.view_data().ops->valid(elem_before_remove.view_data());
+            }
+        }
+    }
     if (slot != static_cast<size_t>(-1) && vd.meta && vd.meta->element_ts &&
         vd.meta->element_ts->kind == TSKind::TSD) {
         // Mark the removed element as modified at this tick so removed_items()
@@ -6069,7 +6112,15 @@ bool dict_remove(ViewData& vd, const value::View& key, engine_time_t current_tim
     if (removed) {
         // Update key set modification time (separate from container time)
         auto* map_delta = vd.delta_data ? static_cast<MapDelta*>(vd.delta_data) : nullptr;
-        if (map_delta) map_delta->set_key_time(current_time);
+        if (map_delta) {
+            if (removed_value_was_valid && map_delta->was_slot_removed(slot)) {
+                map_delta->mark_removed_valid(slot);
+            }
+            map_delta->set_key_time(current_time);
+            if (auto* key_obs = map_delta->key_observers()) {
+                key_obs->notify_modified(current_time);
+            }
+        }
 
         // Update container timestamp
         auto time_view = make_time_view(vd);
@@ -6204,7 +6255,12 @@ TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_t
 
     // Update key set modification time (separate from container time)
     auto* map_delta = vd.delta_data ? static_cast<MapDelta*>(vd.delta_data) : nullptr;
-    if (map_delta) map_delta->set_key_time(current_time);
+    if (map_delta) {
+        map_delta->set_key_time(current_time);
+        if (auto* key_obs = map_delta->key_observers()) {
+            key_obs->notify_modified(current_time);
+        }
+    }
 
     // Update container timestamp
     time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
@@ -6311,7 +6367,12 @@ TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, 
 
         // Update key set modification time (new key added)
         auto* map_delta = vd.delta_data ? static_cast<MapDelta*>(vd.delta_data) : nullptr;
-        if (map_delta) map_delta->set_key_time(current_time);
+        if (map_delta) {
+            map_delta->set_key_time(current_time);
+            if (auto* key_obs = map_delta->key_observers()) {
+                key_obs->notify_modified(current_time);
+            }
+        }
     } else {
         // Key exists - just update the value
         void* val_ptr = storage->value_at_slot(slot);

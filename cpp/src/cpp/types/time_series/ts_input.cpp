@@ -12,6 +12,18 @@
 
 namespace hgraph {
 
+static inline bool is_collection_kind(TSKind kind) {
+    switch (kind) {
+        case TSKind::TSD:
+        case TSKind::TSS:
+        case TSKind::TSL:
+        case TSKind::TSB:
+            return true;
+        default:
+            return false;
+    }
+}
+
 // ============================================================================
 // TSInput Implementation
 // ============================================================================
@@ -333,17 +345,34 @@ void TSInputView::bind(TSOutputView& output) {
     // 4. Peered tracking is handled by ts_ops::bind in the link structure
     //    (LinkTarget.peered flag set by list_ops/bundle_ops/dict_ops bind)
 
+    // SIGNAL <- TSD: mirror Python behavior by driving the SIGNAL from key-set
+    // observer notifications rather than container observer notifications.
+    const auto& vd = ts_view_.view_data();
+    const auto& out_vd = output.ts_view().view_data();
+    bool is_signal_to_tsd = (vd.meta && vd.meta->kind == TSKind::SIGNAL &&
+                             out_vd.meta && out_vd.meta->kind == TSKind::TSD);
+    if (is_signal_to_tsd && input_) {
+        auto* signal_time = static_cast<engine_time_t*>(vd.time_data);
+        ObserverList* key_set_observers = nullptr;
+        auto key_set_view = output.ts_view().as_dict().key_set();
+        if (key_set_view.view_data().observer_data) {
+            key_set_observers = static_cast<ObserverList*>(key_set_view.view_data().observer_data);
+        }
+        if (signal_time && key_set_observers) {
+            input_->add_signal_subscription(signal_time, key_set_observers);
+        }
+    }
+
     // 5. Subscribe for notifications if active
     // For TS→REF binding (REF input bound to non-REF output), the reference
     // is fixed at bind time — do NOT subscribe to the target's observer list.
     // Python equivalent: PythonTimeSeriesReferenceInput.do_bind_output sets
     // _output=None, so make_active() skips subscription.
     if (input_ && input_->active()) {
-        const auto& vd = ts_view_.view_data();
-        const auto& out_vd = output.ts_view().view_data();
         bool is_ts_to_ref = (vd.meta && vd.meta->kind == TSKind::REF &&
-                             out_vd.meta && out_vd.meta->kind != TSKind::REF);
-        if (!is_ts_to_ref) {
+                             out_vd.meta && out_vd.meta->kind != TSKind::REF &&
+                             !is_collection_kind(out_vd.meta->kind));
+        if (!is_ts_to_ref && !is_signal_to_tsd) {
             output.subscribe(input_);
         }
     }
@@ -352,9 +381,18 @@ void TSInputView::bind(TSOutputView& output) {
 void TSInputView::unbind() {
     // 1. Unsubscribe if we were active and bound
     if (bound_output_ && input_ && input_->active()) {
-        // Get a view of the bound output at current time to unsubscribe
+        bool skip_unsubscribe = false;
+        const auto& in_vd = ts_view_.view_data();
         TSOutputView output_view = bound_output_->view(ts_view_.current_time());
-        output_view.unsubscribe(input_);
+        const auto& out_vd = output_view.ts_view().view_data();
+        if (in_vd.meta && in_vd.meta->kind == TSKind::SIGNAL &&
+            out_vd.meta && out_vd.meta->kind == TSKind::TSD) {
+            skip_unsubscribe = true;
+        }
+        if (!skip_unsubscribe) {
+            // Get a view of the bound output at current time to unsubscribe
+            output_view.unsubscribe(input_);
+        }
     }
 
     // 2. Clear the bound output reference
@@ -395,18 +433,28 @@ void TSInputView::make_active() {
     if (is_bound()) {
         const auto& vd = ts_view_.view_data();
         bool is_ts_to_ref = false;
+        bool is_signal_to_tsd = false;
+        TSOutputView output_view;
         if (vd.meta && vd.meta->kind == TSKind::REF) {
             // Check if target (via LinkTarget) is non-REF
             if (vd.uses_link_target && vd.link_data) {
                 auto* lt = static_cast<LinkTarget*>(vd.link_data);
                 is_ts_to_ref = (lt && lt->is_linked && lt->meta &&
-                                lt->meta->kind != TSKind::REF);
+                                lt->meta->kind != TSKind::REF &&
+                                !is_collection_kind(lt->meta->kind));
             }
         }
+        if (bound_output_ && vd.meta && vd.meta->kind == TSKind::SIGNAL) {
+            output_view = bound_output_->view(ts_view_.current_time());
+            auto& ovd = output_view.ts_view().view_data();
+            is_signal_to_tsd = (ovd.meta && ovd.meta->kind == TSKind::TSD);
+        }
 
-        if (bound_output_ && !is_ts_to_ref) {
+        if (bound_output_ && !is_ts_to_ref && !is_signal_to_tsd) {
             // Root-level view: use bound_output_ directly
-            TSOutputView output_view = bound_output_->view(ts_view_.current_time());
+            if (!output_view.output()) {
+                output_view = bound_output_->view(ts_view_.current_time());
+            }
             output_view.subscribe(input_);
 
             // Initial notification: if the output is already valid AND modified,
@@ -487,15 +535,22 @@ void TSInputView::make_passive() {
     if (is_bound()) {
         const auto& vd = ts_view_.view_data();
         bool is_ts_to_ref = false;
+        bool is_signal_to_tsd = false;
         if (vd.meta && vd.meta->kind == TSKind::REF) {
             if (vd.uses_link_target && vd.link_data) {
                 auto* lt = static_cast<LinkTarget*>(vd.link_data);
                 is_ts_to_ref = (lt && lt->is_linked && lt->meta &&
-                                lt->meta->kind != TSKind::REF);
+                                lt->meta->kind != TSKind::REF &&
+                                !is_collection_kind(lt->meta->kind));
             }
         }
+        if (bound_output_ && vd.meta && vd.meta->kind == TSKind::SIGNAL) {
+            TSOutputView output_view = bound_output_->view(ts_view_.current_time());
+            auto& ovd = output_view.ts_view().view_data();
+            is_signal_to_tsd = (ovd.meta && ovd.meta->kind == TSKind::TSD);
+        }
 
-        if (bound_output_ && !is_ts_to_ref) {
+        if (bound_output_ && !is_ts_to_ref && !is_signal_to_tsd) {
             // Root-level view: unsubscribe TSInput from output's observer list
             TSOutputView output_view = bound_output_->view(ts_view_.current_time());
             output_view.unsubscribe(input_);

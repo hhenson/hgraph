@@ -191,6 +191,7 @@ namespace hgraph {
 
                 // Check if the new graph's resolved target actually produced output
                 bool new_graph_produced_output = false;
+                std::optional<ViewData> new_target_vd;
                 {
                     auto out_view = ts_output()->view(time);
                     auto& vd = out_view.ts_view().view_data();
@@ -201,18 +202,59 @@ namespace hgraph {
                                 TSView resolved = ref->resolve(time);
                                 auto rvd = resolved.view_data();
                                 if (rvd.ops) {
+                                    new_target_vd = rvd;
                                     engine_time_t target_lmt = rvd.ops->last_modified_time(rvd);
                                     new_graph_produced_output = (target_lmt >= time);
                                 }
                             } catch (...) {}
                         }
                     } else {
+                        new_target_vd = out_view.ts_view().view_data();
                         new_graph_produced_output = out_view.modified();
                     }
                 }
 
-                if (!new_graph_produced_output) {
-                    auto& old_vd = *_saved_old_target_vd;
+                auto& old_vd = *_saved_old_target_vd;
+
+                if (new_graph_produced_output && new_target_vd) {
+                    auto& new_vd = *new_target_vd;
+                    // Python parity: on branch switches where the new branch emits a partial
+                    // TSD delta, retain previously-valid keys that were not explicitly removed.
+                    if (old_vd.meta && old_vd.meta->kind == TSKind::TSD &&
+                        new_vd.meta && new_vd.meta->kind == TSKind::TSD &&
+                        old_vd.ops && new_vd.ops && new_vd.ops->from_python) {
+                        nb::object py_old = old_vd.ops->to_python(old_vd);
+                        nb::object py_new = new_vd.ops->to_python(new_vd);
+                        if (!py_old.is_none() && !py_new.is_none()) {
+                            nb::set removed_keys;
+                            nb::object py_new_delta = new_vd.ops->delta_to_python(new_vd);
+                            if (!py_new_delta.is_none()) {
+                                for (auto item : py_new_delta.attr("items")()) {
+                                    auto kv = nb::cast<nb::tuple>(item);
+                                    nb::object py_val = kv[1];
+                                    if (nb::hasattr(py_val, "name") &&
+                                        nb::cast<std::string>(py_val.attr("name")) == "REMOVE") {
+                                        removed_keys.add(kv[0]);
+                                    }
+                                }
+                            }
+
+                            nb::dict merge_payload;
+                            for (auto item : py_old.attr("items")()) {
+                                auto kv = nb::cast<nb::tuple>(item);
+                                nb::object py_key = kv[0];
+                                bool present_in_new = nb::cast<bool>(py_new.attr("__contains__")(py_key));
+                                if (!present_in_new && !removed_keys.contains(py_key)) {
+                                    merge_payload[py_key] = kv[1];
+                                }
+                            }
+
+                            if (nb::len(merge_payload) > 0) {
+                                new_vd.ops->from_python(new_vd, nb::cast<nb::object>(merge_payload), time);
+                            }
+                        }
+                    }
+                } else {
 
                     if (old_vd.meta && old_vd.meta->kind == TSKind::TSS
                         && old_vd.ops && old_vd.ops->set_remove) {
@@ -229,7 +271,10 @@ namespace hgraph {
                         for (auto& v : to_remove) {
                             old_vd.ops->set_remove(old_vd, v.const_view(), time);
                         }
-                    } else if (old_vd.ops && old_vd.ops->invalidate) {
+                    } else if (old_vd.meta && old_vd.meta->kind != TSKind::TSD &&
+                               old_vd.ops && old_vd.ops->invalidate) {
+                        // For TSD outputs, keep sampled state across branch switches and
+                        // rely on downstream deltas to reconcile keys/values.
                         old_vd.ops->invalidate(old_vd);
                     }
 

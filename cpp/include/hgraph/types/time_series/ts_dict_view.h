@@ -229,11 +229,17 @@ public:
             key_time_ptr = const_cast<void*>(time_view.as_tuple().at(0).data());
         }
 
-        // TSD observer structure: tuple[ObserverList, var_list[...]]
-        // We need the first element (container observer)
-        auto observer_schema = TSMetaSchemaCache::instance().get_observer_schema(meta());
-        value::View observer_tuple(view_data_.observer_data, observer_schema);
-        void* container_observer_ptr = const_cast<void*>(observer_tuple.as_tuple().at(0).data());
+        // Use key-set-specific observers when MapDelta is available. This keeps
+        // key_set SIGNAL semantics tied to key add/remove activity only.
+        void* key_observer_ptr = nullptr;
+        if (map_delta) {
+            key_observer_ptr = static_cast<void*>(map_delta->key_observers());
+        } else {
+            // Fallback: container observer for views without delta_data.
+            auto observer_schema = TSMetaSchemaCache::instance().get_observer_schema(meta());
+            value::View observer_tuple(view_data_.observer_data, observer_schema);
+            key_observer_ptr = const_cast<void*>(observer_tuple.as_tuple().at(0).data());
+        }
 
         // Get or create raw TSMeta for TSS[KeyType] (non-tuple format)
         // We use tss_raw() because key_set's data is borrowed from MapStorage,
@@ -247,7 +253,7 @@ public:
             view_data_.path.child(TSD_KEY_SET_SLOT),  // Unique path for key_set child
             const_cast<void*>(static_cast<const void*>(set_storage)),  // SetStorage
             key_time_ptr,                 // Key set's own modification time (from MapDelta)
-            container_observer_ptr,       // Container observer
+            key_observer_ptr,             // Key-set observer
             set_delta,                    // Embedded SetDelta from MapDelta
             get_ts_ops(TSKind::TSS),      // TSS ops (needed for valid() check in delta access)
             tss_meta                      // TSS[KeyType] raw metadata

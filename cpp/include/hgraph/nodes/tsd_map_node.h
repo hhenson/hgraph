@@ -112,10 +112,12 @@ namespace hgraph
         std::string                              key_arg_;
         key_time_map_type                        scheduled_keys_;
         key_set_type                             pending_multiplexed_wirings_;
+        key_set_type                             absent_non_multiplexed_keys_prev_;
         std::string                              recordable_id_;
+        bool                                     force_full_inner_eval_{false};
 
         void try_wire_pending_keys(engine_time_t time);
-        bool try_wire_multiplexed_for_key(const value::View& key, engine_time_t time);
+        bool try_wire_multiplexed_for_key(const value::View& key, engine_time_t time, bool* changed = nullptr);
         void clear_pending_wiring_subscriptions();
 
         // Notifier that schedules the map node when upstream TSD outputs change.

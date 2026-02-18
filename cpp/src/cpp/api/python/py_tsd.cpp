@@ -7,6 +7,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/constants.h>
+#include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/util/date_time.h>
 
 namespace hgraph
@@ -389,7 +390,8 @@ namespace hgraph
         // Build TSReference: peered if key exists in native, empty if not.
         TSView alt_elem = alt_dict.at(key_val.const_view());
         TSReference ref;
-        TSDView native_dict = this->view().as_dict();
+        // Use output_view() here (not base view()) so forwarded/rebound outputs are current.
+        TSDView native_dict = output_view().ts_view().as_dict();
         if (native_dict.contains(key_val.const_view())) {
             TSView native_elem = native_dict.at(key_val.const_view());
             if (native_elem) {
@@ -410,6 +412,9 @@ namespace hgraph
             auto* elem_time = static_cast<engine_time_t*>(alt_elem.view_data().time_data);
             if (elem_time) {
                 *elem_time = time;
+            }
+            if (auto* elem_obs = static_cast<ObserverList*>(alt_elem.view_data().observer_data)) {
+                elem_obs->notify_modified(time);
             }
         }
 
@@ -870,46 +875,58 @@ namespace hgraph
     // ===== Collection-specific copy operations =====
 
     void PyTimeSeriesDictOutput::copy_from_input(const PyTimeSeriesInput &input) {
-        // Build a combined dict: {k: v for k,v in input.items()} + {k: REMOVE for stale keys}
-        // Then use from_python which correctly handles both SET and REMOVE entries.
-        nb::object input_value = input.value();
+        // PyTimeSeriesType::value() is non-virtual, so dispatch explicitly for TSD inputs.
+        nb::object input_value;
+        const auto *input_as_tsd = dynamic_cast<const PyTimeSeriesDictInput *>(&input);
+        if (input_as_tsd) {
+            input_value = input_as_tsd->value();
+        } else {
+            input_value = input.value();
+        }
         if (input_value.is_none()) {
             input_value = nb::dict();
         }
 
-        // Get REMOVE sentinel
         nb::module_ tsd_mod = nb::module_::import_("hgraph._types._tsd_type");
         nb::object remove_sentinel = tsd_mod.attr("REMOVE");
 
-        // Build combined dict from input value + REMOVE for stale keys
         nb::dict combined;
-
-        // Add input entries (value is a frozendict, iterate it)
         for (auto item : input_value.attr("items")()) {
             auto kv = nb::cast<nb::tuple>(item);
             combined[kv[0]] = kv[1];
         }
 
-        // Add REMOVE for keys in output but not in input
         nb::set input_keys_set;
-        for (auto item : input_value.attr("keys")()) {
-            input_keys_set.add(item);
-        }
-
-        nb::list output_keys_list = nb::cast<nb::list>(this->keys());
-        for (auto key : output_keys_list) {
-            if (!input_keys_set.contains(key)) {
-                combined[key] = remove_sentinel;
+        if (input_as_tsd) {
+            for (auto item : input_as_tsd->keys()) {
+                input_keys_set.add(item);
+            }
+        } else {
+            for (auto item : input_value.attr("keys")()) {
+                input_keys_set.add(item);
             }
         }
 
-        // Use from_python which handles both SET and REMOVE properly
+        auto self_dict_view = output_view().ts_view().as_dict();
+        for (auto key : self_dict_view.keys()) {
+            nb::object py_key = key_view_to_python(key, self_dict_view.meta());
+            if (!input_keys_set.contains(py_key)) {
+                combined[py_key] = remove_sentinel;
+            }
+        }
+
         output_view().from_python(nb::cast<nb::object>(combined));
     }
 
     void PyTimeSeriesDictOutput::copy_from_output(const PyTimeSeriesOutput &output) {
-        // Same approach: build combined dict from source value + REMOVEs for stale keys
-        nb::object src_value = output.value();
+        // PyTimeSeriesType::value() is non-virtual, so dispatch explicitly for TSD outputs.
+        nb::object src_value;
+        const auto *output_as_tsd = dynamic_cast<const PyTimeSeriesDictOutput *>(&output);
+        if (output_as_tsd) {
+            src_value = output_as_tsd->output_view().ts_view().to_python();
+        } else {
+            src_value = output.value();
+        }
         if (src_value.is_none()) {
             src_value = nb::dict();
         }
@@ -924,14 +941,22 @@ namespace hgraph
         }
 
         nb::set src_keys_set;
-        for (auto item : src_value.attr("keys")()) {
-            src_keys_set.add(item);
+        if (output_as_tsd) {
+            auto src_dict_view = output_as_tsd->output_view().ts_view().as_dict();
+            for (auto key : src_dict_view.keys()) {
+                src_keys_set.add(key_view_to_python(key, src_dict_view.meta()));
+            }
+        } else {
+            for (auto item : src_value.attr("keys")()) {
+                src_keys_set.add(item);
+            }
         }
 
-        nb::list self_keys_list = nb::cast<nb::list>(this->keys());
-        for (auto key : self_keys_list) {
-            if (!src_keys_set.contains(key)) {
-                combined[key] = remove_sentinel;
+        auto self_dict_view = output_view().ts_view().as_dict();
+        for (auto key : self_dict_view.keys()) {
+            nb::object py_key = key_view_to_python(key, self_dict_view.meta());
+            if (!src_keys_set.contains(py_key)) {
+                combined[py_key] = remove_sentinel;
             }
         }
 

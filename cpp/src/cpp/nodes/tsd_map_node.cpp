@@ -18,6 +18,7 @@
 #include <hgraph/util/lifecycle.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 #include <stdexcept>
+#include <optional>
 
 namespace hgraph {
 
@@ -37,6 +38,39 @@ namespace hgraph {
             auto* obs = static_cast<ObserverList*>(vd.observer_data);
             obs->notify_modified(time);
         }
+    }
+
+    // Resolve a map input field through input links and one-or-more REF wrappers so scheduling
+    // decisions can use the actual underlying collection semantics.
+    static ViewData resolve_field_for_scheduling(TSView field_ts_view, engine_time_t time) {
+        ViewData resolved = resolve_through_link(field_ts_view.view_data());
+
+        // Preserve upstream output path when this input is bound through LinkTarget.
+        auto& input_vd = field_ts_view.view_data();
+        if (input_vd.uses_link_target && input_vd.link_data) {
+            auto* lt = static_cast<LinkTarget*>(input_vd.link_data);
+            if (lt->is_linked && lt->target_path.valid()) {
+                resolved.path = lt->target_path;
+            }
+        }
+
+        // Follow REF chains (up to a small guard depth) to the concrete target.
+        for (size_t depth = 0; depth < 8; ++depth) {
+            if (!resolved.meta || resolved.meta->kind != TSKind::REF || !resolved.value_data) {
+                break;
+            }
+            auto* ref_ptr = static_cast<TSReference*>(resolved.value_data);
+            if (!ref_ptr || ref_ptr->is_empty()) {
+                break;
+            }
+            TSView target = ref_ptr->resolve(time);
+            if (!target || !target.view_data().valid()) {
+                break;
+            }
+            resolved = target.view_data();
+        }
+
+        return resolved;
     }
 
     // ========== MapNestedEngineEvaluationClock ==========
@@ -187,6 +221,7 @@ namespace hgraph {
         scheduled_keys_.clear();
         pending_keys_.clear();
         pending_multiplexed_wirings_.clear();
+        absent_non_multiplexed_keys_prev_.clear();
         clear_pending_wiring_subscriptions();
     }
 
@@ -203,6 +238,9 @@ namespace hgraph {
         mark_evaluated();
 
         auto time = graph()->evaluation_time();
+        auto now = last_evaluation_time();
+        key_set_type created_keys_this_tick;
+        key_set_type protected_same_tick_schedules;
 
 
         // Clear output delta for this tick (lazy clearing).
@@ -214,50 +252,23 @@ namespace hgraph {
 
         auto outer_input = ts_input()->view(time);
 
-        // 1. Process key changes from __keys__ TSS input
+        // 1. Reconcile active inner graphs against current __keys__ snapshot.
+        // The key-set can appear valid without added/removed deltas (for example after
+        // REF rebinds or switch branch activation with pre-existing keys). Using only
+        // SetDelta misses those cases and leaves active_graphs_ stale.
         auto keys_field = outer_input.field(KEYS_ARG).ts_view();
         ViewData keys_resolved = resolve_through_link(keys_field.view_data());
 
-        if (keys_resolved.valid() && keys_resolved.ops && keys_resolved.ops->modified(keys_resolved, time)) {
+        if (keys_resolved.valid() && keys_resolved.ops && keys_resolved.ops->valid(keys_resolved)) {
             TSSView keys_view(keys_resolved, time);
 
-            // Process added keys
-            for (auto key_val : keys_view.added()) {
-                value::PlainValue pv_key(key_val);
-                if (active_graphs_.find(key_val) == active_graphs_.end()) {
-                    create_new_graph(key_val);
-                }
+            std::unordered_set<value::PlainValue, PlainValueHash, PlainValueEqual> current_keys;
+            for (auto key_val : keys_view.values()) {
+                current_keys.emplace(key_val);
             }
 
-            // Process removed keys
-            for (auto key_val : keys_view.removed()) {
-                if (active_graphs_.find(key_val) != active_graphs_.end()) {
-                    remove_graph(key_val);
-                    // Remove from scheduled keys
-                    auto sk_it = scheduled_keys_.find(key_val);
-                    if (sk_it != scheduled_keys_.end()) {
-                        scheduled_keys_.erase(sk_it);
-                    }
-                    // Remove from pending wirings
-                    auto pw_it = pending_multiplexed_wirings_.find(key_val);
-                    if (pw_it != pending_multiplexed_wirings_.end()) {
-                        pending_multiplexed_wirings_.erase(pw_it);
-                    }
-                }
-            }
-
-            // Reconciliation: when keys are modified but SetDelta is empty (e.g., REF rebind
-            // to a new TSS), the delta-based processing above won't catch orphaned active graphs.
-            // Compare active_graphs_ against the actual current key set values to remove any
-            // graphs whose keys no longer exist, and add any new keys.
-            if (!active_graphs_.empty()) {
-                // Build set of current keys for quick lookup
-                std::unordered_set<value::PlainValue, PlainValueHash, PlainValueEqual> current_keys;
-                for (auto kv : keys_view.values()) {
-                    current_keys.emplace(kv);
-                }
-
-                // Remove active graphs whose keys are not in the current set
+            // Remove graphs for keys no longer present.
+            {
                 std::vector<value::PlainValue> orphaned_keys;
                 for (auto& [key, _] : active_graphs_) {
                     if (current_keys.find(key.const_view()) == current_keys.end()) {
@@ -276,29 +287,206 @@ namespace hgraph {
                     }
                 }
             }
-        } else if (!keys_resolved.valid() && !active_graphs_.empty()) {
-            // Keys input became invalid (e.g., switch changed case and invalidated output).
-            // In Python, this triggers REF-rebinding which unbinds the TSS input, and the
-            // _prev_output mechanism computes removals for all previously-active keys.
-            // In C++, we handle this directly: remove all active graphs.
-            // Collect keys to remove (can't modify active_graphs_ while iterating)
-            std::vector<value::PlainValue> keys_to_remove;
-            keys_to_remove.reserve(active_graphs_.size());
-            for (auto& [key, _] : active_graphs_) {
-                keys_to_remove.emplace_back(key.const_view());
+
+            // Add graphs for any pre-existing/new keys that are currently present.
+            for (const auto& key_val : current_keys) {
+                if (active_graphs_.find(key_val.const_view()) == active_graphs_.end()) {
+                    created_keys_this_tick.emplace(value::PlainValue(key_val.const_view()));
+                    create_new_graph(key_val.const_view());
+                }
             }
-            for (auto& key : keys_to_remove) {
-                remove_graph(key.const_view());
-            }
-            scheduled_keys_.clear();
         }
 
-        // 1.5 Try to complete any deferred multiplexed wirings
+        // 1.5 Refresh multiplexed bindings for all active keys.
+        // This handles source rebinds and key removals for already-wired graphs.
+        if (!multiplexed_args_.empty() && !active_graphs_.empty()) {
+            std::vector<value::PlainValue> active_keys_snapshot;
+            active_keys_snapshot.reserve(active_graphs_.size());
+            for (const auto& [key, _] : active_graphs_) {
+                active_keys_snapshot.emplace_back(key.const_view());
+            }
+
+            for (const auto& key : active_keys_snapshot) {
+                bool binding_changed = false;
+                bool all_wired = try_wire_multiplexed_for_key(key.const_view(), time, &binding_changed);
+                bool key_needs_eval = false;
+
+                // Schedule when the key's upstream multiplexed element changed even if
+                // the binding target path stayed the same.
+                for (const auto& [arg, _] : input_node_ids_) {
+                    if (!multiplexed_args_.count(arg)) {
+                        continue;
+                    }
+
+                    auto field_view = outer_input.field(arg).ts_view();
+                    ViewData tsd_resolved = resolve_through_link(field_view.view_data());
+                    auto& vd = field_view.view_data();
+                    if (vd.uses_link_target && vd.link_data) {
+                        auto* lt = static_cast<LinkTarget*>(vd.link_data);
+                        if (lt->is_linked && lt->target_path.valid()) {
+                            tsd_resolved.path = lt->target_path;
+                        }
+                    }
+
+                    if (!tsd_resolved.meta || tsd_resolved.meta->kind != TSKind::TSD || !tsd_resolved.ops) {
+                        continue;
+                    }
+
+                    TSDView dict_view(tsd_resolved, time);
+                    auto key_view = key.const_view();
+                    if (dict_view.was_added(key_view) || dict_view.was_removed(key_view)) {
+                        key_needs_eval = true;
+                        break;
+                    }
+                    if (dict_view.contains(key_view)) {
+                        TSView elem = dict_view.at(key_view);
+                        if (elem.modified()) {
+                            key_needs_eval = true;
+                            break;
+                        }
+                    }
+                }
+                if (key_needs_eval) {
+                    force_full_inner_eval_ = true;
+                }
+
+                if (binding_changed || key_needs_eval) {
+                    protected_same_tick_schedules.emplace(value::PlainValue(key.const_view()));
+                    scheduled_keys_.emplace(value::PlainValue(key.const_view()), now);
+                }
+
+                if (all_wired) {
+                    auto pending_it = pending_multiplexed_wirings_.find(key.const_view());
+                    if (pending_it != pending_multiplexed_wirings_.end()) {
+                        pending_multiplexed_wirings_.erase(pending_it);
+                    }
+                } else {
+                    pending_multiplexed_wirings_.emplace(value::PlainValue(key.const_view()));
+                }
+            }
+        }
+
+        // 1.6 Try to complete any deferred multiplexed wirings
         try_wire_pending_keys(time);
 
         // Unsubscribe from upstream TSD observers once all pending wirings are resolved
         if (pending_multiplexed_wirings_.empty()) {
             clear_pending_wiring_subscriptions();
+        }
+
+        // 1.7 Evaluate all active keys whenever the map has non-multiplexed TS inputs.
+        // Those inputs are shared across every inner graph and can affect output without
+        // surfacing as per-key wiring changes. Running all active keys keeps inner
+        // graphs coherent with pass-through/non-multiplexed dependencies.
+        if (!active_graphs_.empty()) {
+            bool has_non_multiplexed_inputs = false;
+            bool has_non_multiplexed_collection_inputs = false;
+            std::vector<std::pair<std::string, ViewData>> non_multiplexed_inputs;
+            for (const auto& [arg, _] : input_node_ids_) {
+                if (arg == key_arg_ || arg == KEYS_ARG || multiplexed_args_.count(arg)) {
+                    continue;
+                }
+                has_non_multiplexed_inputs = true;
+                ViewData resolved = resolve_field_for_scheduling(outer_input.field(arg).ts_view(), time);
+                non_multiplexed_inputs.emplace_back(arg, resolved);
+                if (resolved.meta) {
+                    switch (resolved.meta->kind) {
+                        case TSKind::TSD:
+                        case TSKind::TSS:
+                        case TSKind::TSL:
+                        case TSKind::TSB:
+                            has_non_multiplexed_collection_inputs = true;
+                            break;
+                        default:
+                            break;
+                    }
+                }
+            }
+
+            force_full_inner_eval_ = false;
+
+            auto schedule_now = [this, now](const value::View& key_view) {
+                auto it = scheduled_keys_.find(key_view);
+                if (it == scheduled_keys_.end()) {
+                    scheduled_keys_.emplace(value::PlainValue(key_view), now);
+                } else if (it->second > now) {
+                    it->second = now;
+                }
+            };
+
+            if (has_non_multiplexed_collection_inputs) {
+                key_set_type absent_non_multiplexed_keys_now;
+                for (const auto& [key, _] : active_graphs_) {
+                    bool key_needs_eval = false;
+                    bool saw_tsd_input = false;
+                    bool key_missing_in_tsd = false;
+                    for (const auto& [arg, resolved_ref] : non_multiplexed_inputs) {
+                        (void)arg;
+                        ViewData resolved = resolved_ref;
+                        if (!resolved.meta || !resolved.ops) {
+                            continue;
+                        }
+
+                        if (resolved.meta->kind == TSKind::TSD) {
+                            saw_tsd_input = true;
+                            TSDView dict_view(resolved, time);
+                            auto key_view = key.const_view();
+                            if (dict_view.was_added(key_view) || dict_view.was_removed(key_view)) {
+                                key_needs_eval = true;
+                                break;
+                            }
+                            if (dict_view.contains(key_view)) {
+                                TSView elem = dict_view.at(key_view);
+                                if (elem.modified()) {
+                                    key_needs_eval = true;
+                                    break;
+                                }
+                            } else {
+                                key_missing_in_tsd = true;
+                            }
+                        } else if (resolved.ops->modified(resolved, time)) {
+                            key_needs_eval = true;
+                            break;
+                        }
+                    }
+
+                    if (key_needs_eval) {
+                        protected_same_tick_schedules.emplace(value::PlainValue(key.const_view()));
+                        schedule_now(key.const_view());
+                    } else {
+                        auto key_view = key.const_view();
+                        bool preserve_first_absence_tick =
+                            saw_tsd_input &&
+                            key_missing_in_tsd &&
+                            absent_non_multiplexed_keys_prev_.find(key_view) ==
+                                absent_non_multiplexed_keys_prev_.end();
+
+                        if (!preserve_first_absence_tick &&
+                            created_keys_this_tick.find(key_view) == created_keys_this_tick.end() &&
+                            protected_same_tick_schedules.find(key_view) == protected_same_tick_schedules.end()) {
+                            auto scheduled_it = scheduled_keys_.find(key_view);
+                            if (scheduled_it != scheduled_keys_.end() && scheduled_it->second == now) {
+                                scheduled_keys_.erase(scheduled_it);
+                            }
+                        }
+                    }
+
+                    if (saw_tsd_input && key_missing_in_tsd) {
+                        absent_non_multiplexed_keys_now.emplace(value::PlainValue(key.const_view()));
+                    }
+                }
+                absent_non_multiplexed_keys_prev_ = std::move(absent_non_multiplexed_keys_now);
+            } else if (has_non_multiplexed_inputs) {
+                for (const auto& [key, _] : active_graphs_) {
+                    schedule_now(key.const_view());
+                }
+                absent_non_multiplexed_keys_prev_.clear();
+            } else {
+                absent_non_multiplexed_keys_prev_.clear();
+            }
+        } else {
+            force_full_inner_eval_ = false;
+            absent_non_multiplexed_keys_prev_.clear();
         }
 
         // 2. Evaluate scheduled graphs
@@ -322,6 +510,8 @@ namespace hgraph {
                 graph()->schedule_node(node_ndx(), dt);
             }
         }
+
+        force_full_inner_eval_ = false;
 
     }
 
@@ -441,14 +631,21 @@ namespace hgraph {
             }
         }
 
-        // Explicitly schedule the output stub so it evaluates during this inner graph pass.
-        // The output stub's REF input is TS→REF (non-peered, set up by graph_builder's deferred
-        // binding path), which does NOT subscribe to the compute node's output observer list.
-        // Without this, the output stub would only run at initial wiring and never again.
-        // Python's REF input subscribes via make_active(), but C++'s deferred binding path
-        // doesn't set observer_data on the LinkTarget, so ActiveNotifier is never subscribed.
-        if (output_node_id_ >= 0) {
-            auto eval_time = *inner_graph->evaluation_engine_clock()->evaluation_time_ptr();
+        auto eval_time = *inner_graph->evaluation_engine_clock()->evaluation_time_ptr();
+        if (force_full_inner_eval_) {
+            // Some pass-through collection inputs update through REF paths that do not reliably
+            // propagate scheduling through observers. Force a full inner pass for this tick.
+            auto& sched = inner_graph->schedule();
+            for (size_t i = 0; i < sched.size(); ++i) {
+                if (sched[i] < eval_time) {
+                    sched[i] = eval_time;
+                }
+            }
+        } else if (output_node_id_ >= 0) {
+            // Explicitly schedule the output stub so it evaluates during this inner graph pass.
+            // The output stub's REF input is TS->REF (non-peered, set up by graph_builder's deferred
+            // binding path), which does not subscribe to the compute node's output observer list.
+            // Without this, the output stub would only run at initial wiring and never again.
             auto& sched = inner_graph->schedule()[output_node_id_];
             if (sched < eval_time) {
                 sched = eval_time;
@@ -639,12 +836,13 @@ namespace hgraph {
 
     // ========== Deferred wiring for multiplexed inputs ==========
 
-    bool TsdMapNode::try_wire_multiplexed_for_key(const value::View& key, engine_time_t time) {
+    bool TsdMapNode::try_wire_multiplexed_for_key(const value::View& key, engine_time_t time, bool* changed) {
         auto graph_it = active_graphs_.find(key);
         if (graph_it == active_graphs_.end()) return false;
 
         auto& inner_graph = graph_it->second;
         bool all_wired = true;
+        bool key_changed = false;
 
         for (const auto& [arg, node_ndx] : input_node_ids_) {
             if (!multiplexed_args_.count(arg)) continue;
@@ -669,35 +867,79 @@ namespace hgraph {
             TSView tsd_element = tsd_resolved.ops->child_by_key(tsd_resolved, key, time);
             ShortPath element_path = tsd_element.view_data().path;
 
-            if (!element_path.valid()) {
-                all_wired = false;
-                continue;
-            }
+            TSReference new_ref = element_path.valid()
+                                  ? TSReference::peered(element_path)
+                                  : TSReference::empty();
 
-            // Deferred wiring: write the TSReference directly to the stub's REF OUTPUT.
-            // We bypass the stub's eval function because:
-            // 1. The graph is already started — make_active() already ran (with no binding)
-            // 2. TSView::bind() on the stub's REF input doesn't establish subscriptions
-            // 3. Writing directly to the output triggers the REFBindingHelper which
-            //    resolves the reference and updates the downstream node's input
+            // Write the TSReference directly to the stub's REF OUTPUT.
+            // This updates downstream REF binding helpers immediately.
             if (inner_node->ts_output()) {
                 ViewData out_vd = inner_node->ts_output()->native_value().make_view_data();
                 if (out_vd.value_data) {
                     auto* ref_ptr = static_cast<TSReference*>(out_vd.value_data);
-                    *ref_ptr = TSReference::peered(element_path);
-                }
-                if (out_vd.time_data) {
-                    *static_cast<engine_time_t*>(out_vd.time_data) = time;
-                }
-                if (out_vd.observer_data) {
-                    auto* obs = static_cast<ObserverList*>(out_vd.observer_data);
-                    obs->notify_modified(time);
+                    TSReference old_ref = *ref_ptr;
+                    if (old_ref != new_ref) {
+                        *ref_ptr = std::move(new_ref);
+
+                        bool binding_requires_eval = false;
+
+                        // Only force eval on binding changes that materially change
+                        // target identity (or make previous/new targets unresolved).
+                        if (old_ref.is_empty() != ref_ptr->is_empty()) {
+                            binding_requires_eval = true;
+                        } else if (!old_ref.is_empty() && !ref_ptr->is_empty()) {
+                            auto resolve_target = [time](const TSReference& ref) -> std::optional<ViewData> {
+                                try {
+                                    TSView tv = ref.resolve(time);
+                                    if (!tv || !tv.view_data().valid()) {
+                                        return std::nullopt;
+                                    }
+                                    return tv.view_data();
+                                } catch (...) {
+                                    return std::nullopt;
+                                }
+                            };
+
+                            auto old_target = resolve_target(old_ref);
+                            auto new_target = resolve_target(*ref_ptr);
+                            if (!old_target || !new_target) {
+                                binding_requires_eval = true;
+                            }
+                        }
+
+                        key_changed = key_changed || binding_requires_eval;
+
+                        if (out_vd.time_data) {
+                            *static_cast<engine_time_t*>(out_vd.time_data) = time;
+                        }
+                        if (out_vd.observer_data) {
+                            auto* obs = static_cast<ObserverList*>(out_vd.observer_data);
+                            obs->notify_modified(time);
+                        }
+                    }
                 }
             }
-            // Don't call inner_node->notify() — we bypassed the stub by writing directly
-            // to its output. The REFBindingHelper will schedule the downstream compute node.
+
+            if (!element_path.valid()) {
+                all_wired = false;
+
+                // Subscribe to upstream TSD observer so we retry when key appears.
+                if (tsd_resolved.observer_data) {
+                    if (!pending_wiring_notifier_) {
+                        pending_wiring_notifier_ = std::make_unique<PendingWiringNotifier>(this);
+                    }
+                    auto* obs = static_cast<ObserverList*>(tsd_resolved.observer_data);
+                    if (pending_wiring_subscriptions_.find(obs) == pending_wiring_subscriptions_.end()) {
+                        obs->add_observer(pending_wiring_notifier_.get());
+                        pending_wiring_subscriptions_.insert(obs);
+                    }
+                }
+            }
         }
 
+        if (changed) {
+            *changed = key_changed;
+        }
         return all_wired;
     }
 

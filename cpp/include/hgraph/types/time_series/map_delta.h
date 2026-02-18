@@ -228,6 +228,23 @@ public:
     }
 
     /**
+     * @brief Mark a removed slot as having been valid at removal time.
+     *
+     * Python TSD input delta semantics only emit REMOVE for keys whose
+     * removed values were previously valid.
+     */
+    void mark_removed_valid(size_t slot) {
+        removed_was_valid_.insert(slot);
+    }
+
+    /**
+     * @brief Check if a removed slot was valid at removal time.
+     */
+    [[nodiscard]] bool was_removed_valid(size_t slot) const {
+        return removed_was_valid_.contains(slot);
+    }
+
+    /**
      * @brief Check if a specific slot was added this tick.
      * @param slot The slot index to check
      * @return true if the slot was added
@@ -416,6 +433,7 @@ public:
     void clear() {
         key_delta_.clear();
         updated_.clear();
+        removed_was_valid_.clear();
         // Invalidate cached modified set
         modified_.clear();
         modified_valid_ = false;
@@ -498,11 +516,22 @@ public:
      */
     void set_key_time(engine_time_t t) { key_time_ = t; }
 
+    /**
+     * @brief Observer list for key-set-only notifications.
+     *
+     * This is distinct from the TSD container observer list so SIGNAL bindings
+     * to `dict.key_set` only fire on key add/remove activity.
+     */
+    [[nodiscard]] ObserverList* key_observers() { return &key_observers_; }
+    [[nodiscard]] const ObserverList* key_observers() const { return &key_observers_; }
+
 private:
     SetDelta key_delta_;  // Embedded SetDelta for key add/remove (COMPOSITION)
     SlotSet updated_;     // Slots updated this tick (MapDelta-specific)
+    SlotSet removed_was_valid_;  // Removed slots that were valid at removal time
     std::vector<DeltaVariant> children_;  // Child deltas for nested TS types
     engine_time_t key_time_{MIN_DT};  // Last time a key was added/removed
+    ObserverList key_observers_;  // Observers for key-set-only notifications
 
     // Owned child MapDelta objects for nested TSD elements.
     // These persist across ticks (clear() clears them, doesn't destroy them).
