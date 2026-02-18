@@ -994,12 +994,19 @@ namespace hgraph
                     const bool outer_was_valid = outer_key.valid();
                     const bool outer_needs_init = !outer_was_valid || output_init_pending;
                     if (inner_effective.modified()) {
-                        outer_key.from_python(inner_effective.delta_to_python());
+                        // Python parity: keyed map outputs copy full nested output
+                        // state for evaluated keys, which preserves removals when
+                        // branch outputs switch shape (for example switch_ resets).
+                        ViewData dst_vd = outer_key.as_ts_view().view_data();
+                        ViewData src_vd = inner_effective.view_data();
+                        copy_view_data_value(dst_vd, src_vd, node_time(*this));
                         if (auto pending_it = pending_keys_.find(key_value); pending_it != pending_keys_.end()) {
                             pending_keys_.erase(pending_it);
                         }
                     } else if (outer_needs_init) {
-                        outer_key.from_python(inner_effective.to_python());
+                        ViewData dst_vd = outer_key.as_ts_view().view_data();
+                        ViewData src_vd = inner_effective.view_data();
+                        copy_view_data_value(dst_vd, src_vd, node_time(*this));
                         if (auto pending_it = pending_keys_.find(key_value); pending_it != pending_keys_.end()) {
                             pending_keys_.erase(pending_it);
                         }

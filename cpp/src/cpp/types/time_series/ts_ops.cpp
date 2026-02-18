@@ -31,6 +31,7 @@ using value::ValueView;
 LinkTarget* resolve_link_target(const ViewData& vd, const std::vector<size_t>& ts_path);
 bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewData& out);
 bool same_view_identity(const ViewData& lhs, const ViewData& rhs);
+bool same_or_descendant_view(const ViewData& base, const ViewData& candidate);
 engine_time_t direct_last_modified_time(const ViewData& vd);
 const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indices);
 
@@ -544,16 +545,18 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                 is_prefix_path(registration.path, target_view.path.indices) &&
                 registration.path.size() < target_view.path.indices.size();
             if (descendant_to_ancestor) {
-                ViewData observer_view = registration.link_target->as_view_data(false);
-                observer_view.sampled = false;
-                if (observer_view.ops != nullptr &&
-                    !observer_view.ops->modified(observer_view, current_time)) {
-                    if (debug_notify) {
-                        std::fprintf(stderr,
-                                     "[notify_obs]   skip descendant->ancestor observer-unmodified path=%s\n",
-                                     observer_view.path.to_string().c_str());
+                if (registration.link_target->notify_on_ref_wrapper_write) {
+                    ViewData observer_view = registration.link_target->as_view_data(false);
+                    observer_view.sampled = false;
+                    if (observer_view.ops != nullptr &&
+                        !observer_view.ops->modified(observer_view, current_time)) {
+                        if (debug_notify) {
+                            std::fprintf(stderr,
+                                         "[notify_obs]   skip descendant->ancestor observer-unmodified path=%s\n",
+                                         observer_view.path.to_string().c_str());
+                        }
+                        continue;
                     }
-                    continue;
                 }
 
                 ViewData observed = target_view;
@@ -601,11 +604,13 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
             // consumers can observe bind/unbind transitions in the same tick.
             refresh_dynamic_ref_binding_for_link_target(observer, false, current_time);
             if (!observer->notify_on_ref_wrapper_write) {
+                const TSMeta* target_meta = meta_at_path(target_view.meta, target_view.path.indices);
+                const bool target_is_ref_wrapper = target_meta != nullptr && target_meta->kind == TSKind::REF;
                 const bool notify_from_resolved_target =
                     observer->has_resolved_target &&
-                    same_view_identity(target_view, observer->resolved_target);
+                    same_or_descendant_view(observer->resolved_target, target_view);
                 const bool rebind_tick = observer->last_rebind_time == current_time;
-                if (!notify_from_resolved_target && !rebind_tick) {
+                if (target_is_ref_wrapper && !notify_from_resolved_target && !rebind_tick) {
                     if (debug_notify) {
                         std::fprintf(stderr,
                                      "[notify_obs]  skip ref-wrapper write for non-ref observer obs=%p\n",
@@ -2207,6 +2212,17 @@ bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
            lhs.link_observer_registry == rhs.link_observer_registry &&
            lhs.projection == rhs.projection &&
            lhs.path.indices == rhs.path.indices;
+}
+
+bool same_or_descendant_view(const ViewData& base, const ViewData& candidate) {
+    return base.value_data == candidate.value_data &&
+           base.time_data == candidate.time_data &&
+           base.observer_data == candidate.observer_data &&
+           base.delta_data == candidate.delta_data &&
+           base.link_data == candidate.link_data &&
+           base.link_observer_registry == candidate.link_observer_registry &&
+           base.projection == candidate.projection &&
+           is_prefix_path(base.path.indices, candidate.path.indices);
 }
 
 engine_time_t direct_last_modified_time(const ViewData& vd) {
@@ -4332,6 +4348,7 @@ nb::object op_to_python(const ViewData& vd) {
 nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
+    const bool debug_delta_kind = std::getenv("HGRAPH_DEBUG_DELTA_KIND") != nullptr;
 
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta != nullptr && self_meta->kind == TSKind::REF) {
@@ -4344,6 +4361,15 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
 
     ViewData key_set_source{};
     if (resolve_tsd_key_set_source(vd, key_set_source)) {
+        if (debug_delta_kind) {
+            std::fprintf(stderr,
+                         "[delta_kind] keyset path=%s self_kind=%d proj=%d uses_lt=%d now=%lld\n",
+                         vd.path.to_string().c_str(),
+                         self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
+                         static_cast<int>(vd.projection),
+                         vd.uses_link_target ? 1 : 0,
+                         static_cast<long long>(current_time.time_since_epoch().count()));
+        }
         if (debug_keyset_bridge) {
             std::fprintf(stderr,
                          "[keyset_delta] direct path=%s self_kind=%d uses_lt=%d source=%s\n",
@@ -4406,7 +4432,13 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         return tsd_key_set_delta_to_python(key_set_source);
     }
 
-    if (self_meta != nullptr) {
+    const bool key_set_consumer =
+        self_meta != nullptr &&
+        (self_meta->kind == TSKind::TSS ||
+         self_meta->kind == TSKind::SIGNAL ||
+         is_tsd_key_set_projection(vd));
+
+    if (key_set_consumer) {
         ViewData previous_bridge{};
         ViewData current_bridge{};
         if (resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge)) {
@@ -4543,6 +4575,17 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     const ViewData* data = &resolved;
 
     const TSMeta* current = meta_at_path(data->meta, data->path.indices);
+    if (debug_delta_kind) {
+        std::fprintf(stderr,
+                     "[delta_kind] path=%s self_kind=%d resolved_kind=%d self_proj=%d resolved_proj=%d uses_lt=%d now=%lld\n",
+                     vd.path.to_string().c_str(),
+                     self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
+                     current != nullptr ? static_cast<int>(current->kind) : -1,
+                     static_cast<int>(vd.projection),
+                     static_cast<int>(data->projection),
+                     vd.uses_link_target ? 1 : 0,
+                     static_cast<long long>(current_time.time_since_epoch().count()));
+    }
     if (current != nullptr && (current->kind == TSKind::TSS || current->kind == TSKind::TSD)) {
         const bool debug_tsd_bridge = std::getenv("HGRAPH_DEBUG_TSD_BRIDGE") != nullptr;
         ViewData previous_bridge{};

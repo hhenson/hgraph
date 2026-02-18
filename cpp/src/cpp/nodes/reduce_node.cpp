@@ -178,19 +178,33 @@ namespace hgraph {
                 return {};
             }
 
+            auto normalize_child = [current_time = tsd_input.current_time()](TSView child) -> TSView {
+                if (!child) {
+                    return {};
+                }
+                if (child.valid()) {
+                    return child;
+                }
+                ViewData resolved_target{};
+                if (resolve_bound_target_view_data(child.view_data(), resolved_target)) {
+                    return TSView(resolved_target, current_time);
+                }
+                return child;
+            };
+
             auto tsd_opt = tsd_input.try_as_dict();
             if (!tsd_opt.has_value()) {
                 return {};
             }
 
-            TSView direct_child = tsd_opt->as_ts_view().as_dict().at_key(key);
+            TSView direct_child = normalize_child(tsd_opt->as_ts_view().as_dict().at_key(key));
             if (direct_child && direct_child.valid()) {
                 return direct_child;
             }
 
             ViewData bound_target{};
             if (resolve_bound_target_view_data(tsd_opt->as_ts_view().view_data(), bound_target)) {
-                TSView bound_child = TSView(bound_target, tsd_input.current_time()).child_by_key(key);
+                TSView bound_child = normalize_child(TSView(bound_target, tsd_input.current_time()).child_by_key(key));
                 if (bound_child && bound_child.valid()) {
                     return bound_child;
                 }
@@ -447,12 +461,32 @@ namespace hgraph {
 
         TSInputView tsd = ts();
         std::vector<value::Value> current_keys;
-        if (debug_reduce) {
-            collect_tsd_keys(tsd, current_keys);
-        }
         std::vector<value::Value> added_keys;
         std::vector<value::Value> removed_keys;
-        collect_tsd_key_delta(tsd, added_keys, removed_keys);
+        const bool got_keys = collect_tsd_keys(tsd, current_keys);
+        if (got_keys) {
+            std::unordered_set<value::Value, ValueHash, ValueEqual> current_key_set;
+            current_key_set.reserve(current_keys.size());
+            for (const auto& key : current_keys) {
+                current_key_set.insert(key.view().clone());
+            }
+
+            removed_keys.reserve(bound_node_indexes_.size());
+            for (const auto& [bound_key, _] : bound_node_indexes_) {
+                if (current_key_set.find(bound_key) == current_key_set.end()) {
+                    removed_keys.push_back(bound_key.view().clone());
+                }
+            }
+
+            added_keys.reserve(current_keys.size());
+            for (const auto& key : current_keys) {
+                if (bound_node_indexes_.find(key.view()) == bound_node_indexes_.end()) {
+                    added_keys.push_back(key.view().clone());
+                }
+            }
+        } else {
+            collect_tsd_key_delta(tsd, added_keys, removed_keys);
+        }
         remove_nodes_from_views(removed_keys);
 
         if (debug_reduce) {
@@ -519,7 +553,7 @@ namespace hgraph {
                     }
 
                     auto node = nodes[side];
-                    auto inner_ts = node_inner_ts_input(*node);
+                    auto inner_ts = node_inner_ts_input(*node, node_time(*this));
                     if (!inner_ts) {
                         continue;
                     }
@@ -621,7 +655,7 @@ namespace hgraph {
                         if (!inner_ts.active()) {
                             inner_ts.make_active();
                         }
-                        node->notify();
+                        node->notify(node_time(*this));
                     }
                 }
             }
@@ -674,8 +708,11 @@ namespace hgraph {
         }
 
         bool l_out_target_modified = false;
-        if (ViewData l_out_target{};
-            resolve_bound_target_view_data(l_out.as_ts_view().view_data(), l_out_target)) {
+        if (auto normalized_target = resolve_non_ref_target_view_data(l_out.as_ts_view());
+            normalized_target.has_value()) {
+            l_out_target_modified = TSView(*normalized_target, node_time(*this)).modified();
+        } else if (ViewData l_out_target{};
+                   resolve_bound_target_view_data(l_out.as_ts_view().view_data(), l_out_target)) {
             l_out_target_modified = TSView(l_out_target, node_time(*this)).modified();
         }
 
@@ -916,16 +953,16 @@ namespace hgraph {
             auto lhs_node = sub_graph[std::get<0>(input_node_ids_)];
             auto rhs_node = sub_graph[std::get<1>(input_node_ids_)];
 
-            auto lhs_input = node_inner_ts_input(*lhs_node);
-            auto rhs_input = node_inner_ts_input(*rhs_node);
+            auto lhs_input = node_inner_ts_input(*lhs_node, node_time(*this));
+            auto rhs_input = node_inner_ts_input(*rhs_node, node_time(*this));
 
             if (lhs_input) {
                 bind_inner_from_outer(left_parent ? left_parent.as_ts_view() : TSView{}, lhs_input);
-                lhs_node->notify();
+                lhs_node->notify(node_time(*this));
             }
             if (rhs_input) {
                 bind_inner_from_outer(right_parent ? right_parent.as_ts_view() : TSView{}, rhs_input);
-                rhs_node->notify();
+                rhs_node->notify(node_time(*this));
             }
         }
 
@@ -991,7 +1028,7 @@ namespace hgraph {
         }
 
         auto node = nodes[side];
-        auto inner_ts = node_inner_ts_input(*node);
+        auto inner_ts = node_inner_ts_input(*node, node_time(*this));
         if (!inner_ts) {
             return;
         }
@@ -1000,7 +1037,7 @@ namespace hgraph {
         auto tsd_opt = tsd.try_as_dict();
         if (!tsd_opt.has_value()) {
             inner_ts.unbind();
-            node->notify();
+            node->notify(node_time(*this));
             return;
         }
 
@@ -1078,7 +1115,7 @@ namespace hgraph {
             inner_ts.make_active();
         }
 
-        node->notify();
+        node->notify(node_time(*this));
     }
 
     void ReduceNode::zero_node(const std::tuple<int64_t, int64_t> &ndx) {
@@ -1089,7 +1126,7 @@ namespace hgraph {
         }
 
         auto node = nodes[side];
-        auto inner_ts = node_inner_ts_input(*node);
+        auto inner_ts = node_inner_ts_input(*node, node_time(*this));
         if (!inner_ts) {
             return;
         }
@@ -1104,7 +1141,7 @@ namespace hgraph {
             }
         }
 
-        node->notify();
+        node->notify(node_time(*this));
     }
 
     void ReduceNode::swap_node(const std::tuple<int64_t, int64_t> &src_ndx, const std::tuple<int64_t, int64_t> &dst_ndx) {
@@ -1125,8 +1162,8 @@ namespace hgraph {
             return;
         }
 
-        auto src_input = node_inner_ts_input(*src_node);
-        auto dst_input = node_inner_ts_input(*dst_node);
+        auto src_input = node_inner_ts_input(*src_node, node_time(*this));
+        auto dst_input = node_inner_ts_input(*dst_node, node_time(*this));
         if (!src_input || !dst_input) {
             return;
         }
@@ -1152,8 +1189,8 @@ namespace hgraph {
         } else {
             bind_inner_from_outer(dst_input.as_ts_view(), src_input);
         }
-        src_node->notify();
-        dst_node->notify();
+        src_node->notify(node_time(*this));
+        dst_node->notify(node_time(*this));
     }
 
     int64_t ReduceNode::node_size() const {
