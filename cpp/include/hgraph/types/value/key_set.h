@@ -138,7 +138,12 @@ public:
                 }
             }
         }
+        other.keys_.clear();
+        other.alive_.clear();
+        other.free_list_.clear();
+        other.key_type_ = nullptr;
         other.size_ = 0;
+        other.observers_ = ObserverDispatcher{};
         other.index_set_.reset();
     }
 
@@ -161,7 +166,12 @@ public:
             } else {
                 index_set_.reset();
             }
+            other.keys_.clear();
+            other.alive_.clear();
+            other.free_list_.clear();
+            other.key_type_ = nullptr;
             other.size_ = 0;
+            other.observers_ = ObserverDispatcher{};
             other.index_set_.reset();
         }
         return *this;
@@ -297,6 +307,13 @@ public:
     }
 
     void clear() {
+        if (!index_set_) {
+            alive_.clear();
+            free_list_.clear();
+            size_ = 0;
+            return;
+        }
+
         // Notify observers
         observers_.notify_clear();
 

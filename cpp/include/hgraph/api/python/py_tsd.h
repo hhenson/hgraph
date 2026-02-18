@@ -31,6 +31,7 @@ namespace hgraph
         [[nodiscard]] nb::object get(const nb::object &item, const nb::object &default_value) const;
         [[nodiscard]] nb::object get_or_create(const nb::object &key);
         void create(const nb::object &item);
+        void clear();
         [[nodiscard]] nb::object iter() const;
         [[nodiscard]] bool contains(const nb::object &item) const;
         [[nodiscard]] nb::object key_set() const;

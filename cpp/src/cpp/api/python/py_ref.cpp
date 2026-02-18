@@ -4,7 +4,7 @@
 #include <hgraph/types/constants.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
-#include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/time_series/ts_view.h>
 
 #include <fmt/format.h>
@@ -37,30 +37,13 @@ namespace
         return g->evaluation_time();
     }
 
-    std::optional<ViewData> resolve_non_ref_target(const TSInputView &input_view) {
-        const ViewData &vd = input_view.as_ts_view().view_data();
-        if (!vd.uses_link_target || vd.link_data == nullptr) {
-            return std::nullopt;
-        }
-
-        const auto *lt = static_cast<const LinkTarget *>(vd.link_data);
-        if (lt == nullptr || !lt->is_linked || lt->meta == nullptr || lt->meta->kind == TSKind::REF) {
-            return std::nullopt;
-        }
-
+    std::optional<ViewData> resolve_bound_target_view(const TSInputView &input_view) {
+        const ViewData &source = input_view.as_ts_view().view_data();
         ViewData target{};
-        target.path = lt->target_path;
-        target.value_data = lt->value_data;
-        target.time_data = lt->time_data;
-        target.observer_data = lt->observer_data;
-        target.delta_data = lt->delta_data;
-        target.link_data = lt->link_data;
-        target.link_observer_registry = vd.link_observer_registry;
-        target.sampled = vd.sampled;
-        target.uses_link_target = false;
-        target.projection = ViewProjection::NONE;
-        target.ops = lt->ops;
-        target.meta = lt->meta;
+        if (!resolve_bound_target_view_data(source, target)) {
+            return std::nullopt;
+        }
+
         return target;
     }
 }  // namespace
@@ -93,7 +76,38 @@ namespace
             .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
             .def_prop_ro("output", [](TimeSeriesReference &self) -> nb::object {
                 if (const ViewData *bound = self.bound_view(); bound != nullptr) {
-                    return wrap_output_view(TSOutputView(nullptr, TSView(*bound, resolve_bound_view_current_time(*bound))));
+                    const engine_time_t current_time = resolve_bound_view_current_time(*bound);
+                    TSView resolved_view(*bound, current_time);
+                    const TSMeta* resolved_meta = resolved_view.ts_meta();
+
+                    if (resolved_meta != nullptr && resolved_meta->kind == TSKind::REF) {
+                        value::View ref_payload = resolved_view.value();
+                        if (ref_payload.valid()) {
+                            try {
+                                TimeSeriesReference nested_ref = nb::cast<TimeSeriesReference>(ref_payload.to_python());
+                                if (const ViewData *nested_target = nested_ref.bound_view(); nested_target != nullptr) {
+                                    TSView nested_view(*nested_target, current_time);
+                                    const TSMeta* nested_meta = nested_view.ts_meta();
+                                    if (nested_meta != nullptr && nested_meta->kind != TSKind::REF) {
+                                        return wrap_output_view(TSOutputView(nullptr, std::move(nested_view)));
+                                    }
+                                }
+                            } catch (const std::exception &) {
+                                // Not a TSReference payload.
+                            }
+                        }
+
+                        ViewData bound_target{};
+                        if (resolve_bound_target_view_data(*bound, bound_target)) {
+                            TSView target_view(bound_target, current_time);
+                            const TSMeta* target_meta = target_view.ts_meta();
+                            if (target_meta != nullptr && target_meta->kind != TSKind::REF) {
+                                return wrap_output_view(TSOutputView(nullptr, std::move(target_view)));
+                            }
+                        }
+                    }
+
+                    return wrap_output_view(TSOutputView(nullptr, std::move(resolved_view)));
                 }
                 return nb::none();
             })
@@ -189,8 +203,25 @@ namespace
         : PyTimeSeriesInput(std::move(view)) {}
 
     nb::object PyTimeSeriesReferenceInput::ref_value() const {
-        if (auto target = resolve_non_ref_target(input_view()); target.has_value()) {
-            return nb::cast(TimeSeriesReference::make(*target));
+        // For TS->REF (non-peered), value is a bound reference to the target TS output.
+        // For REF->REF (peered), value is the bound REF output payload itself.
+        if (auto target = resolve_bound_target_view(input_view()); target.has_value()) {
+            TSView target_view(*target, input_view().current_time());
+            const TSMeta* target_meta = target_view.ts_meta();
+            if (target_meta != nullptr && target_meta->kind != TSKind::REF) {
+                return nb::cast(TimeSeriesReference::make(*target));
+            }
+
+            if (target_meta != nullptr && target_meta->kind == TSKind::REF && target->ops != nullptr) {
+                nb::object target_value = target->ops->to_python(*target);
+                if (target_value.is_none()) {
+                    return nb::cast(TimeSeriesReference::make());
+                }
+                if (nb::isinstance<TimeSeriesReference>(target_value)) {
+                    return target_value;
+                }
+                throw std::runtime_error("TimeSeriesReferenceInput.value expected REF payload from bound REF output");
+            }
         }
 
         nb::object value_obj = input_view().to_python();

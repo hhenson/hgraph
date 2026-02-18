@@ -1,5 +1,6 @@
 #include "hgraph/api/python/wrapper_factory.h"
 
+#include <hgraph/api/python/py_ref.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
@@ -27,28 +28,10 @@ namespace
 
     std::optional<ViewData> resolve_bound_target_view_data(const TSInputView &input_view) {
         const ViewData &vd = input_view.as_ts_view().view_data();
-        if (!vd.uses_link_target || vd.link_data == nullptr) {
-            return std::nullopt;
-        }
-
-        const auto *lt = static_cast<const LinkTarget *>(vd.link_data);
-        if (lt == nullptr || !lt->is_linked) {
-            return std::nullopt;
-        }
-
         ViewData target{};
-        target.path = lt->target_path;
-        target.value_data = lt->value_data;
-        target.time_data = lt->time_data;
-        target.observer_data = lt->observer_data;
-        target.delta_data = lt->delta_data;
-        target.link_data = lt->link_data;
-        target.link_observer_registry = vd.link_observer_registry;
-        target.sampled = vd.sampled;
-        target.uses_link_target = false;
-        target.projection = ViewProjection::NONE;
-        target.ops = lt->ops;
-        target.meta = lt->meta;
+        if (!hgraph::resolve_bound_target_view_data(vd, target)) {
+            return std::nullopt;
+        }
         return target;
     }
 }  // namespace
@@ -81,6 +64,9 @@ namespace
     }
 
     nb::object PyTimeSeriesType::value() const {
+        if (auto* ref_input = dynamic_cast<const PyTimeSeriesReferenceInput*>(this)) {
+            return ref_input->ref_value();
+        }
         if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
             return input->input_view().as_ts_view().to_python();
         }

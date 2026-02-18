@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <type_traits>
+#include <vector>
 
 namespace hgraph
 {
@@ -186,7 +187,25 @@ namespace
     void PyTimeSeriesDictOutput::create(const nb::object &item) {
         auto key_val = key_from_python(item);
         if (key_val.schema() != nullptr) {
-            output_view().as_dict().create(key_val.view());
+            (void)output_view().as_dict().create(key_val.view());
+        }
+    }
+
+    void PyTimeSeriesDictOutput::clear() {
+        auto dict = output_view().as_dict();
+        value::View current = output_view().as_ts_view().value();
+        if (!current.valid() || !current.is_map()) {
+            return;
+        }
+
+        std::vector<value::Value> keys;
+        keys.reserve(current.as_map().size());
+        for (value::View key : current.as_map().keys()) {
+            keys.emplace_back(key.clone());
+        }
+
+        for (const auto& key : keys) {
+            dict.remove(key.view());
         }
     }
 
@@ -287,21 +306,11 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::removed_values() const {
-        nb::list out;
-        for (const auto &key_item : nb::cast<nb::list>(removed_keys())) {
-            (void)key_item;
-            out.append(nb::none());
-        }
-        return out;
+        return dict_values_for_keys(output_view().as_dict(), nb::cast<nb::list>(removed_keys()));
     }
 
     nb::object PyTimeSeriesDictOutput::removed_items() const {
-        nb::list out;
-        for (const auto &key_item : nb::cast<nb::list>(removed_keys())) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            out.append(nb::make_tuple(key, nb::none()));
-        }
-        return out;
+        return dict_items_for_keys(output_view().as_dict(), nb::cast<nb::list>(removed_keys()));
     }
 
     bool PyTimeSeriesDictOutput::has_removed() const {
@@ -552,21 +561,11 @@ namespace
     }
 
     nb::object PyTimeSeriesDictInput::removed_values() const {
-        nb::list out;
-        for (const auto &key_item : nb::cast<nb::list>(removed_keys())) {
-            (void)key_item;
-            out.append(nb::none());
-        }
-        return out;
+        return dict_values_for_keys(input_view().as_dict(), nb::cast<nb::list>(removed_keys()));
     }
 
     nb::object PyTimeSeriesDictInput::removed_items() const {
-        nb::list out;
-        for (const auto &key_item : nb::cast<nb::list>(removed_keys())) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            out.append(nb::make_tuple(key, nb::none()));
-        }
-        return out;
+        return dict_items_for_keys(input_view().as_dict(), nb::cast<nb::list>(removed_keys()));
     }
 
     bool PyTimeSeriesDictInput::has_removed() const {

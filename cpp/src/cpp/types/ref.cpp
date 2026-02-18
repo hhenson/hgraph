@@ -232,6 +232,13 @@ namespace hgraph
                             TSInputView item = indexed_input.at(i);
                             _storage.unbound[i].bind_input(item);
                         }
+                    } else if (input_kind == TSKind::REF) {
+                        // REF[TSB]/REF[TSL] clone-binding parity: bind unbound children
+                        // against the REF child paths so wrapper state remains non-peered.
+                        for (size_t i = 0; i < _storage.unbound.size(); ++i) {
+                            TSInputView item(nullptr, ts_input.as_ts_view().child_at(i));
+                            _storage.unbound[i].bind_input(item);
+                        }
                     } else {
                         for (size_t i = 0; i < _storage.unbound.size(); ++i) {
                             TSInputView item{};

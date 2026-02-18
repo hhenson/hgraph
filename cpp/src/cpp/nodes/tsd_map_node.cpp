@@ -62,6 +62,86 @@ namespace hgraph
             return nb::cast<std::string>(nb::repr(py_key));
         }
 
+        TSView resolve_outer_key_view(TSView outer_ts, const value::View &key) {
+            if (!outer_ts || !key.valid()) {
+                return {};
+            }
+
+            TSView child = outer_ts.child_by_key(key);
+            if (child) {
+                return child;
+            }
+
+            const TSMeta *outer_meta = outer_ts.ts_meta();
+            if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
+                ViewData bound_target{};
+                if (resolve_bound_target_view_data(outer_ts.view_data(), bound_target)) {
+                    return TSView(bound_target, outer_ts.current_time()).child_by_key(key);
+                }
+            }
+            return {};
+        }
+
+        TSView resolve_effective_view(TSView view) {
+            if (!view) {
+                return {};
+            }
+
+            TSView current = view;
+            for (size_t depth = 0; depth < 8; ++depth) {
+                bool advanced = false;
+
+                ViewData bound_target{};
+                if (resolve_bound_target_view_data(current.view_data(), bound_target)) {
+                    if (!(bound_target.path.indices == current.view_data().path.indices &&
+                          bound_target.value_data == current.view_data().value_data &&
+                          bound_target.time_data == current.view_data().time_data &&
+                          bound_target.observer_data == current.view_data().observer_data &&
+                          bound_target.delta_data == current.view_data().delta_data &&
+                          bound_target.link_data == current.view_data().link_data &&
+                          bound_target.projection == current.view_data().projection &&
+                          bound_target.meta == current.view_data().meta)) {
+                        current = TSView(bound_target, current.current_time());
+                        advanced = true;
+                    }
+                }
+                if (advanced) {
+                    continue;
+                }
+
+                const TSMeta *meta = current.ts_meta();
+                if (meta != nullptr && meta->kind == TSKind::REF) {
+                    value::View ref_view = current.value();
+                    if (ref_view.valid()) {
+                        try {
+                            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
+                            if (const ViewData *ref_target = ref.bound_view(); ref_target != nullptr) {
+                                if (!(ref_target->path.indices == current.view_data().path.indices &&
+                                      ref_target->value_data == current.view_data().value_data &&
+                                      ref_target->time_data == current.view_data().time_data &&
+                                      ref_target->observer_data == current.view_data().observer_data &&
+                                      ref_target->delta_data == current.view_data().delta_data &&
+                                      ref_target->link_data == current.view_data().link_data &&
+                                      ref_target->projection == current.view_data().projection &&
+                                      ref_target->meta == current.view_data().meta)) {
+                                    current = TSView(*ref_target, current.current_time());
+                                    advanced = true;
+                                }
+                            }
+                        } catch (const std::exception &) {
+                            // Not a TSView-backed reference.
+                        }
+                    }
+                }
+
+                if (!advanced) {
+                    break;
+                }
+            }
+
+            return current;
+        }
+
         void bind_inner_from_outer(const TSView &outer_any, TSInputView inner_any) {
             if (!inner_any) {
                 return;
@@ -93,7 +173,7 @@ namespace hgraph
             if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
                 inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
             } else {
-                inner_any.unbind();
+                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
             }
         }
 
@@ -255,6 +335,24 @@ namespace hgraph
             auto recordable_id{signature().record_replay_id};
             recordable_id_ = get_fq_recordable_id(graph()->traits(), recordable_id.has_value() ? recordable_id.value() : "map_");
         }
+
+        // Multiplexed and shared args must be active on the outer map node so
+        // value-only updates (with stable key sets) can reschedule keyed graphs.
+        auto outer_root = input(node_time(*this));
+        auto outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
+        if (!outer_bundle.has_value()) {
+            return;
+        }
+
+        for (const auto& [arg, _] : input_node_ids_) {
+            if (arg == key_arg_) {
+                continue;
+            }
+            auto outer_arg = outer_bundle->field(arg);
+            if (outer_arg) {
+                outer_arg.make_active();
+            }
+        }
     }
 
     void TsdMapNode::do_stop() {
@@ -323,6 +421,80 @@ namespace hgraph
                 for (const auto& key : keys_to_remove) {
                     remove_graph(key.view());
                     scheduled_keys_.erase(key);
+                }
+            }
+        } else if (keys_view && active_graphs_.empty()) {
+            key_set_type current_keys;
+            if (collect_current_map_keys(keys_view, current_keys)) {
+                for (const auto &key : current_keys) {
+                    if (active_graphs_.find(key.view()) == active_graphs_.end()) {
+                        create_new_graph(key.view());
+                    }
+                }
+            }
+        }
+
+        auto schedule_key_now = [&](const value::View& key_view, engine_time_t now) {
+            auto active_it = active_graphs_.find(key_view);
+            if (active_it == active_graphs_.end()) {
+                return;
+            }
+            auto scheduled_it = scheduled_keys_.find(active_it->first.view());
+            if (scheduled_it == scheduled_keys_.end() || scheduled_it->second > now) {
+                scheduled_keys_.insert_or_assign(active_it->first.view().clone(), now);
+            }
+        };
+
+        auto schedule_all_active_now = [&](engine_time_t now) {
+            for (const auto& [key, _] : active_graphs_) {
+                auto scheduled_it = scheduled_keys_.find(key.view());
+                if (scheduled_it == scheduled_keys_.end() || scheduled_it->second > now) {
+                    scheduled_keys_.insert_or_assign(key.view().clone(), now);
+                }
+            }
+        };
+
+        auto outer_root = input(node_time(*this));
+        std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
+        if (outer_bundle.has_value()) {
+            const engine_time_t now = last_evaluation_time();
+            for (const auto& [arg, _] : input_node_ids_) {
+                if (arg == key_arg_) {
+                    continue;
+                }
+
+                auto outer_arg = outer_bundle->field(arg);
+                if (!outer_arg || !outer_arg.modified()) {
+                    continue;
+                }
+
+                if (multiplexed_args_.find(arg) == multiplexed_args_.end()) {
+                    schedule_all_active_now(now);
+                    continue;
+                }
+
+                bool scheduled_from_delta = false;
+                TSView effective_arg = resolve_effective_view(outer_arg.as_ts_view());
+                if (effective_arg) {
+                    const TSMeta* effective_meta = effective_arg.ts_meta();
+                    if (effective_meta != nullptr && effective_meta->kind == TSKind::TSD) {
+                        nb::object delta = effective_arg.delta_to_python();
+                        if (nb::isinstance<nb::dict>(delta)) {
+                            nb::dict delta_dict = nb::cast<nb::dict>(delta);
+                            for (const auto& kv : delta_dict) {
+                                auto key_value = key_from_python_object(nb::cast<nb::object>(kv.first), key_type_meta_);
+                                if (!key_value.has_value()) {
+                                    continue;
+                                }
+                                schedule_key_now(key_value->view(), now);
+                                scheduled_from_delta = true;
+                            }
+                        }
+                    }
+                }
+
+                if (!scheduled_from_delta) {
+                    schedule_all_active_now(now);
                 }
             }
         }
@@ -428,6 +600,7 @@ namespace hgraph
         }
 
         auto &nested = it->second;
+        refresh_multiplexed_bindings(key, nested);
         if (auto *nec = dynamic_cast<NestedEngineEvaluationClock *>(nested->evaluation_engine_clock().get())) {
             nec->reset_next_scheduled_evaluation_time();
         }
@@ -469,17 +642,26 @@ namespace hgraph
             auto node = nested->nodes()[output_node_id_];
             auto inner = node->output(node_time(*node));
             if (outer && inner) {
-                TSView inner_view = inner.as_ts_view();
-                ViewData resolved{};
-                if (resolve_bound_target_view_data(inner_view.view_data(), resolved)) {
-                    inner_view = TSView(resolved, inner_view.current_time());
-                }
-
                 auto outer_key = outer.create(key);
-                if (outer_key && inner_view.modified()) {
-                    if (inner_view.valid()) {
-                        outer_key.from_python(inner_view.delta_to_python());
-                    } else {
+                if (outer_key) {
+                    TSView inner_raw = inner.as_ts_view();
+                    TSView inner_effective = resolve_effective_view(inner_raw);
+                    const bool outer_was_valid = outer_key.valid();
+
+                    const TSMeta *outer_meta = outer_key.ts_meta();
+                    if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
+                        if (inner_effective) {
+                            outer_key.from_python(nb::cast(TimeSeriesReference::make(inner_effective.view_data())));
+                        } else if (inner.modified()) {
+                            outer_key.invalidate();
+                        }
+                    } else if (inner_effective.valid()) {
+                        if (inner_effective.modified()) {
+                            outer_key.from_python(inner_effective.delta_to_python());
+                        } else if (!outer_was_valid) {
+                            outer_key.from_python(inner_effective.to_python());
+                        }
+                    } else if (inner_effective.modified()) {
                         outer_key.invalidate();
                     }
                 }
@@ -556,17 +738,7 @@ namespace hgraph
             }
 
             if (multiplexed_args_.find(arg) != multiplexed_args_.end()) {
-                TSView outer_key_value{};
-                TSView outer_ts = outer_arg.as_ts_view();
-                const TSMeta* outer_meta = outer_ts.ts_meta();
-                if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
-                    ViewData bound_target{};
-                    if (resolve_bound_target_view_data(outer_ts.view_data(), bound_target)) {
-                        outer_key_value = TSView(bound_target, outer_ts.current_time()).child_by_key(key);
-                    }
-                } else {
-                    outer_key_value = outer_ts.child_by_key(key);
-                }
+                TSView outer_key_value = resolve_outer_key_view(outer_arg.as_ts_view(), key);
                 bind_inner_from_outer(outer_key_value, inner_ts);
             } else {
                 bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts);
@@ -580,14 +752,49 @@ namespace hgraph
             if (!inner_out || !out) {
                 return;
             }
-            out.create(key);
+            (void)out.create(key);
         }
     }
 
     bool TsdMapNode::refresh_multiplexed_bindings(const value::View &key, graph_s_ptr &graph) {
-        (void)key;
-        (void)graph;
-        return false;
+        auto outer_root = input(node_time(*this));
+        std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
+
+        bool refreshed = false;
+        for (const auto &[arg, node_ndx] : input_node_ids_) {
+            if (arg == key_arg_) {
+                continue;
+            }
+            if (multiplexed_args_.find(arg) == multiplexed_args_.end()) {
+                continue;
+            }
+
+            auto node = graph->nodes()[node_ndx];
+            auto inner_ts = node_inner_ts_input(*node);
+            if (!inner_ts) {
+                continue;
+            }
+
+            if (!outer_bundle.has_value()) {
+                inner_ts.unbind();
+                refreshed = true;
+                continue;
+            }
+
+            auto outer_arg = outer_bundle->field(arg);
+            if (!outer_arg) {
+                inner_ts.unbind();
+                refreshed = true;
+                continue;
+            }
+
+            TSView outer_key_value = resolve_outer_key_view(outer_arg.as_ts_view(), key);
+            bind_inner_from_outer(outer_key_value, inner_ts);
+            node->notify();
+            refreshed = true;
+        }
+
+        return refreshed;
     }
 
     void register_tsd_map_with_nanobind(nb::module_ &m) {

@@ -257,19 +257,40 @@ nb::list tsd_modified_keys_python(const TSView& ts_view) {
     return out;
 }
 
-nb::list tsd_added_keys_python(const TSView& ts_view) {
-    nb::list out;
+struct TSDDeltaSets {
+    View added_keys{};
+    View removed_keys{};
+};
+
+TSDDeltaSets tsd_delta_sets(const TSView& ts_view) {
+    TSDDeltaSets sets{};
     View delta = ts_view.delta_value();
     if (!delta.valid() || !delta.is_tuple()) {
-        return out;
+        return sets;
     }
 
     auto tuple = delta.as_tuple();
-    if (tuple.size() <= 1 || !tuple.at(1).valid() || !tuple.at(1).is_set()) {
+    if (tuple.size() > 1 && tuple.at(1).valid() && tuple.at(1).is_set()) {
+        sets.added_keys = tuple.at(1);
+    }
+    if (tuple.size() > 2 && tuple.at(2).valid() && tuple.at(2).is_set()) {
+        sets.removed_keys = tuple.at(2);
+    }
+    return sets;
+}
+
+nb::list tsd_added_keys_python(const TSView& ts_view) {
+    nb::list out;
+    const auto sets = tsd_delta_sets(ts_view);
+    if (!sets.added_keys.valid()) {
         return out;
     }
 
-    for (View key : tuple.at(1).as_set()) {
+    const bool has_removed = sets.removed_keys.valid() && sets.removed_keys.is_set();
+    for (View key : sets.added_keys.as_set()) {
+        if (has_removed && sets.removed_keys.as_set().contains(key)) {
+            continue;
+        }
         out.append(key.to_python());
     }
     return out;
@@ -277,17 +298,16 @@ nb::list tsd_added_keys_python(const TSView& ts_view) {
 
 nb::list tsd_removed_keys_python(const TSView& ts_view) {
     nb::list out;
-    View delta = ts_view.delta_value();
-    if (!delta.valid() || !delta.is_tuple()) {
+    const auto sets = tsd_delta_sets(ts_view);
+    if (!sets.removed_keys.valid()) {
         return out;
     }
 
-    auto tuple = delta.as_tuple();
-    if (tuple.size() <= 2 || !tuple.at(2).valid() || !tuple.at(2).is_set()) {
-        return out;
-    }
-
-    for (View key : tuple.at(2).as_set()) {
+    const bool has_added = sets.added_keys.valid() && sets.added_keys.is_set();
+    for (View key : sets.removed_keys.as_set()) {
+        if (has_added && sets.added_keys.as_set().contains(key)) {
+            continue;
+        }
         out.append(key.to_python());
     }
     return out;
@@ -331,7 +351,11 @@ nb::list tsd_input_items(const TSInputView& self, const nb::list& keys) {
     nb::list out;
     for (const auto& key : keys) {
         nb::object key_obj = nb::cast<nb::object>(key);
-        out.append(nb::make_tuple(key_obj, dict_input_at_key_object(self, key_obj)));
+        TSInputView child = dict_input_at_key_object(self, key_obj);
+        if (!child) {
+            continue;
+        }
+        out.append(nb::make_tuple(key_obj, child));
     }
     return out;
 }
@@ -340,7 +364,11 @@ nb::list tsd_output_items(const TSOutputView& self, const nb::list& keys) {
     nb::list out;
     for (const auto& key : keys) {
         nb::object key_obj = nb::cast<nb::object>(key);
-        out.append(nb::make_tuple(key_obj, dict_output_at_key_object(self, key_obj)));
+        TSOutputView child = dict_output_at_key_object(self, key_obj);
+        if (!child) {
+            continue;
+        }
+        out.append(nb::make_tuple(key_obj, child));
     }
     return out;
 }

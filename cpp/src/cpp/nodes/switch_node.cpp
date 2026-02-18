@@ -13,6 +13,8 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/util/lifecycle.h>
 
+#include <optional>
+
 namespace hgraph {
     namespace {
         engine_time_t node_time(const Node &node) {
@@ -23,8 +25,8 @@ namespace hgraph {
             return g != nullptr ? g->evaluation_time() : MIN_DT;
         }
 
-        TSInputView node_input_field(Node &node, std::string_view name) {
-            auto root = node.input(node_time(node));
+        TSInputView node_input_field(Node &node, std::string_view name, std::optional<engine_time_t> current_time = std::nullopt) {
+            auto root = node.input(current_time.value_or(node_time(node)));
             if (!root) {
                 return {};
             }
@@ -33,6 +35,58 @@ namespace hgraph {
                 return {};
             }
             return bundle_opt->field(name);
+        }
+
+        std::optional<value::Value> canonicalise_key(const value::View& key_view, const value::TypeMeta* key_type) {
+            if (!key_view.valid() || key_type == nullptr) {
+                return std::nullopt;
+            }
+
+            value::Value out(key_type);
+            out.emplace();
+            key_type->ops().from_python(out.data(), key_view.to_python(), key_type);
+            return out;
+        }
+
+        void bind_inner_from_outer(const TSView &outer_any, TSInputView inner_any) {
+            if (!inner_any) {
+                return;
+            }
+
+            if (!outer_any) {
+                inner_any.unbind();
+                return;
+            }
+
+            const TSMeta *outer_meta = outer_any.ts_meta();
+            if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
+                // Prefer cloning the local REF payload when present to preserve
+                // wrapper sampling semantics (Python clone_binding parity).
+                value::View ref_view = outer_any.value();
+                if (ref_view.valid()) {
+                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
+                    ref.bind_input(inner_any);
+                    return;
+                }
+
+                ViewData bound_target{};
+                if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
+                    inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+                    return;
+                }
+
+                // Fall back to chaining through the outer REF view when the local
+                // payload is empty and direct target resolution is unavailable.
+                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
+                return;
+            }
+
+            ViewData bound_target{};
+            if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
+                inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+            } else {
+                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
+            }
         }
     }  // namespace
 
@@ -102,24 +156,42 @@ namespace hgraph {
     }
 
     bool SwitchNode::keys_equal(const value::View& a, const value::View& b) const {
-        if (!a.valid() || !b.valid()) return false;
+        if (!a.valid() || !b.valid() || _key_type == nullptr) {
+            return false;
+        }
         return _key_type->ops().equals(a.data(), b.data(), _key_type);
     }
 
     void SwitchNode::eval() {
         mark_evaluated();
 
+        if (_key_type == nullptr) {
+            throw std::runtime_error("SwitchNode key type meta is not initialised");
+        }
+
         auto key_view = node_input_field(*this, "key");
-        if (!key_view || !key_view.valid()) {
+        if (!key_view) {
             return; // No key input or invalid
+        }
+
+        TSView effective_key_view = key_view.as_ts_view();
+
+        if (!effective_key_view.valid()) {
+            return;
         }
 
         bool graph_reset = false;
 
         // Check if key has been modified
-        if (key_view.modified()) {
-            // Extract the key value from the input time series (using Value system)
-            auto current_key_view = key_view.value();
+        if (effective_key_view.modified()) {
+            auto key_value = effective_key_view.value();
+            if (!key_value.valid()) {
+                return;
+            }
+
+            auto canonical_key = canonicalise_key(key_value, _key_type);
+            value::Value key_storage = canonical_key.has_value() ? std::move(*canonical_key) : key_value.clone();
+            auto current_key_view = key_storage.view();
 
             // Check if key changed
             bool key_changed = !_active_key.has_value() ||
@@ -143,9 +215,6 @@ namespace hgraph {
                     _active_graph_builder = nullptr;
                 }
 
-                // Clone the current key for storage
-                _active_key = current_key_view.clone();
-
                 // Find the graph builder for this key
                 auto it = _nested_graph_builders->find(current_key_view);
                 if (it != _nested_graph_builders->end()) {
@@ -157,6 +226,9 @@ namespace hgraph {
                 if (_active_graph_builder == nullptr) {
                     throw std::runtime_error("No graph defined for key and no default available");
                 }
+
+                // Persist canonical key after lookup is complete.
+                _active_key = std::move(key_storage);
 
                 // Create new graph
                 ++_count;
@@ -239,28 +311,11 @@ namespace hgraph {
                     if (!outer_any) {
                         continue;
                     }
-                    auto inner_any = node_input_field(*node, "ts");
+                    auto inner_any = node_input_field(*node, "ts", node_time(*this));
                     if (!inner_any) {
                         continue;
                     }
-
-                    const TSMeta* outer_meta = outer_any.ts_meta();
-                    if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
-                        TimeSeriesReference ref = TimeSeriesReference::make();
-                        value::View ref_view = outer_any.value();
-                        if (ref_view.valid()) {
-                            ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
-                        }
-                        ref.bind_input(inner_any);
-                        continue;
-                    }
-
-                    ViewData bound_target{};
-                    if (resolve_bound_target_view_data(outer_any.as_ts_view().view_data(), bound_target)) {
-                        inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
-                    } else {
-                        inner_any.as_ts_view().unbind();
-                    }
+                    bind_inner_from_outer(outer_any.as_ts_view(), inner_any);
                 }
             }
         }

@@ -57,6 +57,13 @@ namespace hgraph {
     void TimeSeriesSignalInput::make_active() {
         if (active()) { return; }
         BaseTimeSeriesInput::make_active();
+        if (std::getenv("HGRAPH_DEBUG_SIGNAL_INPUT") != nullptr) {
+            std::fprintf(stderr,
+                         "[signal.make_active] this=%p impl=%p ts_values=%zu\n",
+                         static_cast<void*>(this),
+                         static_cast<void*>(_impl.get()),
+                         _ts_values.size());
+        }
         if (_impl) {
             _impl->make_active();
         } else if (!_ts_values.empty()) {
@@ -75,6 +82,13 @@ namespace hgraph {
     }
 
     bool TimeSeriesSignalInput::bind_output(time_series_output_s_ptr output) {
+        if (std::getenv("HGRAPH_DEBUG_SIGNAL_INPUT") != nullptr) {
+            std::fprintf(stderr,
+                         "[signal.bind_output] this=%p impl=%p output=%p\n",
+                         static_cast<void*>(this),
+                         static_cast<void*>(_impl.get()),
+                         static_cast<void*>(output.get()));
+        }
         if (_impl) {
             return _impl->bind_output(output);
         }

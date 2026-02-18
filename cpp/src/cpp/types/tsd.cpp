@@ -1092,6 +1092,19 @@ namespace hgraph
     }
 
     bool TimeSeriesDictInputImpl::modified() const {
+        if (std::getenv("HGRAPH_DEBUG_TSD_INPUT") != nullptr) {
+            auto et = owning_graph()->evaluation_time();
+            std::fprintf(stderr,
+                         "[tsd_input.modified] this=%p et=%lld has_peer=%d active=%d last=%lld sample=%lld key_mod=%d ts_count=%zu\n",
+                         static_cast<const void*>(this),
+                         static_cast<long long>(et.time_since_epoch().count()),
+                         has_peer() ? 1 : 0,
+                         active() ? 1 : 0,
+                         static_cast<long long>(_last_modified_time.time_since_epoch().count()),
+                         static_cast<long long>(sample_time().time_since_epoch().count()),
+                         key_set().modified() ? 1 : 0,
+                         _ts_values.size());
+        }
         if (has_peer()) { return TimeSeriesDictInput::modified(); }
         if (active()) {
             auto et{owning_graph()->evaluation_time()};
@@ -1118,6 +1131,13 @@ namespace hgraph
     }
 
     void TimeSeriesDictInputImpl::notify_parent(TimeSeriesInput *child, engine_time_t modified_time) {
+        if (std::getenv("HGRAPH_DEBUG_TSD_INPUT") != nullptr) {
+            std::fprintf(stderr,
+                         "[tsd_input.notify_parent] this=%p child=%p t=%lld\n",
+                         static_cast<void*>(this),
+                         static_cast<void*>(child),
+                         static_cast<long long>(modified_time.time_since_epoch().count()));
+        }
         if (_last_modified_time < modified_time) {
             _last_modified_time = modified_time;
             _modified_items.clear();

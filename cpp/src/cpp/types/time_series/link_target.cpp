@@ -97,10 +97,26 @@ void LinkTarget::clear_target_data() {
 }
 
 void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
+    const bool was_linked = is_linked;
+    const bool same_binding =
+        was_linked &&
+        target_path.indices == target.path.indices &&
+        value_data == target.value_data &&
+        time_data == target.time_data &&
+        observer_data == target.observer_data &&
+        delta_data == target.delta_data &&
+        link_data == target.link_data &&
+        link_observer_registry == target.link_observer_registry &&
+        projection == target.projection &&
+        ops == target.ops &&
+        meta == target.meta;
+    const bool preserve_resolved_target = same_binding && has_resolved_target;
+    const ViewData preserved_resolved_target = preserve_resolved_target ? resolved_target : ViewData{};
+
     if (is_linked) {
         has_previous_target = true;
         previous_target = as_view_data(false);
-    } else {
+    } else if (!has_previous_target) {
         has_previous_target = false;
         previous_target = {};
     }
@@ -125,15 +141,20 @@ void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
         }
     }
 
-    has_resolved_target = false;
-    resolved_target = {};
+    if (preserve_resolved_target) {
+        has_resolved_target = true;
+        resolved_target = preserved_resolved_target;
+    } else {
+        has_resolved_target = false;
+        resolved_target = {};
+    }
 }
 
 void LinkTarget::unbind(engine_time_t current_time) {
     if (is_linked) {
         has_previous_target = true;
         previous_target = as_view_data(false);
-    } else {
+    } else if (!has_previous_target) {
         has_previous_target = false;
         previous_target = {};
     }

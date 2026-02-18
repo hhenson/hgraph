@@ -5,6 +5,8 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/traits.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <string_view>
 
 namespace hgraph
@@ -28,7 +30,7 @@ namespace hgraph
 	        constexpr int64_t STATE_PATH = -2;
 	        constexpr int64_t KEY_SET_PATH_ID = -3;
 
-        void bind_static_container_recursive(TSInputView input_view, TSOutputView output_view) {
+	        void bind_static_container_recursive(TSInputView input_view, TSOutputView output_view) {
             if (!input_view || !output_view) {
                 return;
             }
@@ -51,26 +53,16 @@ namespace hgraph
 
 	            if (input_meta->kind == TSKind::TSB) {
 	                const size_t n = input_meta->field_count();
-	                auto input_bundle = input_view.try_as_bundle();
-	                auto output_bundle = output_view.try_as_bundle();
-	                if (!input_bundle.has_value() || !output_bundle.has_value()) {
-	                    return;
-	                }
 	                for (size_t i = 0; i < n; ++i) {
-	                    bind_static_container_recursive(input_bundle->at(i), output_bundle->at(i));
+	                    bind_static_container_recursive(input_child_at(input_view, i), output_child_at(output_view, i));
 	                }
 	                return;
 	            }
 
 	            if (input_meta->kind == TSKind::TSL && input_meta->fixed_size() > 0) {
 	                const size_t n = input_meta->fixed_size();
-	                auto input_list = input_view.try_as_list();
-	                auto output_list = output_view.try_as_list();
-	                if (!input_list.has_value() || !output_list.has_value()) {
-	                    return;
-	                }
 	                for (size_t i = 0; i < n; ++i) {
-	                    bind_static_container_recursive(input_list->at(i), output_list->at(i));
+	                    bind_static_container_recursive(input_child_at(input_view, i), output_child_at(output_view, i));
 	                }
 	            }
 	        }
@@ -78,10 +70,21 @@ namespace hgraph
 
 	    bool _bind_ts_endpoint(node_ptr src_node, const std::vector<int64_t> &output_path,
 	                           node_ptr dst_node, const std::vector<int64_t> &input_path) {
+            const bool debug_bind = std::getenv("HGRAPH_DEBUG_BIND_ENDPOINT") != nullptr;
 	        TSInputView input_view = dst_node->input(MIN_DT);
 	        if (!input_view) {
 	            return false;
 	        }
+            if (debug_bind) {
+                const TSMeta* root_in_meta = input_view.ts_meta();
+                std::fprintf(stderr,
+                             "[bind_endpoint] src=%s dst=%s in_path=[%s] out_path=[%s] in_root_kind=%d\n",
+                             src_node != nullptr ? src_node->signature().name.c_str() : "<null>",
+                             dst_node != nullptr ? dst_node->signature().name.c_str() : "<null>",
+                             fmt::format("{}", fmt::join(input_path, ",")).c_str(),
+                             fmt::format("{}", fmt::join(output_path, ",")).c_str(),
+                             root_in_meta != nullptr ? static_cast<int>(root_in_meta->kind) : -1);
+            }
 
 	        for (int64_t index : input_path) {
 	            if (index == KEY_SET_PATH_ID) {
@@ -99,6 +102,13 @@ namespace hgraph
 	                return false;
 	            }
 	        }
+            if (debug_bind) {
+                const TSMeta* in_meta = input_view.ts_meta();
+                std::fprintf(stderr,
+                             "[bind_endpoint] dst_view_path=%s in_kind=%d\n",
+                             input_view.as_ts_view().short_path().to_string().c_str(),
+                             in_meta != nullptr ? static_cast<int>(in_meta->kind) : -1);
+            }
 
 	        TSOutputView output_view;
 	        std::vector<int64_t> normalized_output_path = output_path;
@@ -114,6 +124,12 @@ namespace hgraph
 	        if (!output_view) {
 	            return false;
 	        }
+            if (debug_bind) {
+                const TSMeta* root_out_meta = output_view.ts_meta();
+                std::fprintf(stderr,
+                             "[bind_endpoint] src_root_kind=%d\n",
+                             root_out_meta != nullptr ? static_cast<int>(root_out_meta->kind) : -1);
+            }
 
 	        for (int64_t index : normalized_output_path) {
 	            if (index == KEY_SET_PATH_ID) {
@@ -131,18 +147,32 @@ namespace hgraph
 	                return false;
 	            }
 	        }
+            if (debug_bind) {
+                const TSMeta* out_meta_dbg = output_view.ts_meta();
+                std::fprintf(stderr,
+                             "[bind_endpoint] src_view_path=%s out_kind=%d\n",
+                             output_view.as_ts_view().short_path().to_string().c_str(),
+                             out_meta_dbg != nullptr ? static_cast<int>(out_meta_dbg->kind) : -1);
+            }
 
 	        const TSMeta* input_meta = input_view.ts_meta();
+	        const TSMeta* output_meta = output_view.ts_meta();
 	        if (input_meta != nullptr &&
-	            input_meta->kind == TSKind::TSL &&
-            input_meta->fixed_size() > 0) {
-            const TSMeta* output_meta = output_view.ts_meta();
-            if (output_meta != nullptr && output_meta->kind == TSKind::REF) {
-                input_view.bind(output_view);
-            } else {
+	            input_meta->kind == TSKind::SIGNAL &&
+	            dst_node->signature().active_inputs.has_value() &&
+	            output_meta != nullptr &&
+	            output_meta->kind == TSKind::TSD &&
+	            output_view.as_ts_view().view_data().projection == ViewProjection::NONE) {
+	            // Python wiring implicitly adapts TSD -> SIGNAL via key_set ticks.
+	            output_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
+	        }
+	        if (input_meta != nullptr &&
+                (input_meta->kind == TSKind::TSB ||
+                 (input_meta->kind == TSKind::TSL && input_meta->fixed_size() > 0))) {
+                // Python parity: static containers bind through children first,
+                // then optionally retain parent peering when fully peer-compatible.
                 bind_static_container_recursive(input_view, output_view);
-            }
-        } else {
+	        } else {
             input_view.bind(output_view);
         }
         return true;
