@@ -503,7 +503,7 @@ Describes time-series types with temporal tracking semantics.
 
 ### Structure
 
-TSMeta uses a **flat struct with tagged union** approach - the `kind` field determines which other fields are valid. This is more memory-efficient than an inheritance hierarchy and enables simple serialization.
+TSMeta uses a **compact tagged-union** approach. Two fields are always present (`kind` and `value_type`), while all kind-specific data is stored in a `KindData` union selected by `kind`. This minimizes per-instance footprint compared to a flat struct where most fields would be unused for any given kind.
 
 ```cpp
 /**
@@ -532,48 +532,12 @@ struct TSBFieldInfo {
 /**
  * Complete metadata describing a time-series type.
  *
- * TSMeta is the schema for a time-series type. It uses a tagged union approach
- * where the `kind` field determines which members are valid:
- *
- * - TSValue: value_type is valid
- * - TSS: value_type is valid (set element type)
- * - TSD: key_type, element_ts are valid
- * - TSL: element_ts, fixed_size are valid
- * - TSW: value_type, is_duration_based, window union are valid
- * - TSB: fields, field_count, bundle_name, python_type are valid
- * - REF: element_ts is valid (referenced time-series)
- * - SIGNAL: no additional fields
+ * TSMeta is a compact tagged structure:
+ * - `kind` + `value_type` are always present
+ * - kind-specific data is stored in a union to minimize per-instance footprint.
  */
 struct TSMeta {
-    TSKind kind;
-
-    // ========== Value/Key Types ==========
-    // Valid for: TSValue (value), TSS (element), TSW (value), TSD (key)
-
-    /// Value type - valid for: TSValue, TSS, TSW
-    const TypeMeta* value_type = nullptr;
-
-    /// Key type - valid for: TSD
-    const TypeMeta* key_type = nullptr;
-
-    // ========== Nested Time-Series ==========
-    // Valid for: TSD (value TS), TSL (element TS), REF (referenced TS)
-
-    /// Element time-series - valid for: TSD (value), TSL (element), REF (referenced)
-    const TSMeta* element_ts = nullptr;
-
-    // ========== Size Information ==========
-
-    /// Fixed size - valid for: TSL (0 = dynamic SIZE)
-    size_t fixed_size = 0;
-
-    // ========== Window Parameters ==========
-    // Valid for: TSW
-
-    /// True if duration-based window, false if tick-based
-    bool is_duration_based = false;
-
-    /// Window parameters union - saves space since only one is used
+    // ========== Window Parameters (shared type for TSWData) ==========
     union WindowParams {
         struct {
             size_t period;
@@ -584,61 +548,119 @@ struct TSMeta {
             engine_time_delta_t min_time_range;
         } duration;
 
-        // Default constructor - initialize tick params
-        WindowParams() : tick{0, 0} {}
-    } window;
+        constexpr WindowParams() : tick{0, 0} {}
+    };
 
-    // ========== Bundle Fields ==========
-    // Valid for: TSB
+    // ========== Kind-Specific Data Structs ==========
 
-    /// Field metadata array - valid for: TSB
-    const TSBFieldInfo* fields = nullptr;
+    struct EmptyData {};                       // TSValue, TSS, SIGNAL
 
-    /// Number of fields - valid for: TSB
-    size_t field_count = 0;
+    struct TSDData {
+        const TypeMeta* key_type = nullptr;    // Key value type
+        const TSMeta* value_ts = nullptr;      // Value time-series schema
+    };
 
-    /// Bundle schema name - valid for: TSB
-    const char* bundle_name = nullptr;
+    struct TSLData {
+        const TSMeta* element_ts = nullptr;    // Element time-series schema
+        size_t fixed_size = 0;                 // 0 = dynamic size
+    };
 
-    /// Python type for reconstruction - valid for: TSB (optional)
-    /// When set, to_python conversion returns an instance of this class.
-    /// When not set (None), returns a dict.
-    nb::object python_type;
+    struct TSWData {
+        bool is_duration_based = false;
+        WindowParams window{};
+    };
+
+    struct TSBData {
+        const TSBFieldInfo* fields = nullptr;
+        size_t field_count = 0;
+        const char* bundle_name = nullptr;
+        nb::object python_type{};                  // RAII-managed Python type (nb::object wraps PyObject*)
+    };
+
+    struct REFData {
+        const TSMeta* referenced_ts = nullptr;
+    };
+
+    // ========== Tagged Union ==========
+
+    union KindData {
+        EmptyData empty;
+        TSDData tsd;
+        TSLData tsl;
+        TSWData tsw;
+        TSBData tsb;
+        REFData ref;
+
+        constexpr KindData() : empty{} {}
+    };
+
+    // ========== Core Fields ==========
+
+    TSKind kind = TSKind::SIGNAL;
+    const TypeMeta* value_type = nullptr;      // Valid for: TSValue, TSS, TSW
+    KindData data{};                           // Selected by kind
+
+    // ========== Setters (used by builders/registry) ==========
+
+    void set_tsd(const TypeMeta* key_type, const TSMeta* value_ts) noexcept;
+    void set_tsl(const TSMeta* element_ts, size_t fixed_size) noexcept;
+    void set_tsw_tick(size_t period, size_t min_period) noexcept;
+    void set_tsw_duration(engine_time_delta_t time_range, engine_time_delta_t min_time_range) noexcept;
+    void set_tsb(const TSBFieldInfo* fields, size_t field_count, const char* bundle_name,
+                 nb::object python_type) noexcept;
+    void set_ref(const TSMeta* referenced_ts) noexcept;
+
+    // ========== Accessors (kind-guarded, return safe defaults) ==========
+
+    const TypeMeta* key_type() const noexcept;          // TSD only, else nullptr
+    const TSMeta* element_ts() const noexcept;           // TSD/TSL/REF, else nullptr
+    size_t fixed_size() const noexcept;                  // TSL only, else 0
+    bool is_duration_based() const noexcept;             // TSW only, else false
+    size_t period() const noexcept;                      // TSW tick only
+    size_t min_period() const noexcept;                  // TSW tick only
+    engine_time_delta_t time_range() const noexcept;     // TSW duration only
+    engine_time_delta_t min_time_range() const noexcept; // TSW duration only
+    const TSBFieldInfo* fields() const noexcept;         // TSB only, else nullptr
+    size_t field_count() const noexcept;                 // TSB only, else 0
+    const char* bundle_name() const noexcept;            // TSB only, else nullptr
+    const nb::object& python_type() const noexcept;       // TSB only, else static nb::none()
 
     // ========== Helper Methods ==========
 
-    /**
-     * Check if this is a collection time-series.
-     * @return true if TSS, TSD, TSL, or TSB
-     */
-    bool is_collection() const noexcept {
-        return kind == TSKind::TSS || kind == TSKind::TSD ||
-               kind == TSKind::TSL || kind == TSKind::TSB;
-    }
-
-    /**
-     * Check if this is a scalar-like time-series.
-     * @return true if TS, TSW, or SIGNAL
-     */
-    bool is_scalar_ts() const noexcept {
-        return kind == TSKind::TSValue || kind == TSKind::TSW ||
-               kind == TSKind::SIGNAL;
-    }
+    bool is_collection() const noexcept;    // true if TSS, TSD, TSL, or TSB
+    bool is_scalar_ts() const noexcept;     // true if TSValue, TSW, or SIGNAL
 };
 ```
 
-### Field Validity by TSKind
+**Design rationale**: The tagged union eliminates wasted space from unused fields. A flat struct with all fields (key_type, element_ts, fixed_size, is_duration_based, window, fields, field_count, bundle_name, python_type) would waste most of its footprint for any given kind. The KindData union means a TSValue instance only pays for `kind + value_type + sizeof(KindData)`, where KindData is sized to the largest variant (TSBData or TSWData).
 
-| TSKind | value_type | key_type | element_ts | fixed_size | window | fields/field_count | bundle_name |
-|--------|------------|----------|------------|------------|--------|-------------------|-------------|
-| TSValue | Y (value type) | - | - | - | - | - | - |
-| TSS | Y (element type) | - | - | - | - | - | - |
-| TSD | - | Y | Y (value TS) | - | - | - | - |
-| TSL | - | - | Y (element TS) | Y (0=dynamic) | - | - | - |
-| TSW | Y (value type) | - | - | - | Y | - | - |
-| TSB | - | - | - | - | - | Y | Y |
-| REF | - | - | Y (referenced TS) | - | - | - | - |
-| SIGNAL | - | - | - | - | - | - | - |
+**python_type note**: TSBData stores `nb::object` by value. Since `nb::object` wraps a `PyObject*` with RAII reference counting, this is lightweight (pointer-sized) and correctly manages Python object lifetime.
+
+### Kind ↔ KindData Variant Mapping
+
+| TSKind | KindData variant | value_type | Description |
+|--------|-----------------|------------|-------------|
+| TSValue | EmptyData | Y (value type) | Scalar time-series |
+| TSS | EmptyData | Y (element type) | Time-series set |
+| TSD | TSDData | - | key_type + value_ts |
+| TSL | TSLData | - | element_ts + fixed_size |
+| TSW | TSWData | Y (value type) | is_duration_based + window params |
+| TSB | TSBData | - | fields + field_count + bundle_name + python_type |
+| REF | REFData | - | referenced_ts |
+| SIGNAL | EmptyData | - | No additional data |
+
+### Accessor Dispatch Summary
+
+| Accessor | Returns from | Kind guard |
+|----------|-------------|------------|
+| `key_type()` | `data.tsd.key_type` | TSD only |
+| `element_ts()` | `data.tsd.value_ts` / `data.tsl.element_ts` / `data.ref.referenced_ts` | TSD, TSL, REF |
+| `fixed_size()` | `data.tsl.fixed_size` | TSL only |
+| `is_duration_based()` | `data.tsw.is_duration_based` | TSW only |
+| `period()` / `min_period()` | `data.tsw.window.tick.*` | TSW + tick only |
+| `time_range()` / `min_time_range()` | `data.tsw.window.duration.*` | TSW + duration only |
+| `fields()` / `field_count()` / `bundle_name()` | `data.tsb.*` | TSB only |
+| `python_type()` | `data.tsb.python_type` | TSB only |
 
 ### Operations Retrieval
 
