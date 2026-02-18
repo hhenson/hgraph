@@ -92,7 +92,7 @@ namespace hgraph
         // (e.g., REF[TSB[AB]] with sub-field indices), we can't navigate children since REF
         // is scalar. Instead, we collect these edges and construct NON_PEERED TSReferences.
         struct DeferredRefEdge {
-            size_t remaining_index;          // Field index within the REF's element_ts
+            std::vector<size_t> remaining_path; // Full path within the REF's element_ts (can be multi-level)
             int64_t src_node_idx;            // Source node index
             int64_t dst_node_idx;            // Destination node index (for subscription)
             std::vector<int64_t> output_path; // Source output path
@@ -100,6 +100,9 @@ namespace hgraph
         // Group deferred edges by the REF input's value_data pointer (uniquely identifies the REF)
         std::unordered_map<void*, std::vector<DeferredRefEdge>> deferred_ref_edges;
         std::unordered_map<void*, ViewData> ref_input_viewdatas;
+        // Track ancestor ViewDatas that need their time set when deferred edges are processed.
+        // Key: REF value_data ptr, Value: list of ancestor time_data pointers leading to the REF.
+        std::unordered_map<void*, std::vector<engine_time_t*>> deferred_ancestor_times;
 
         for (const auto &edge : edges) {
             auto src_node = nodes[edge.src_node].get();
@@ -134,26 +137,44 @@ namespace hgraph
             bool deferred = false;
             bool signal_multi_bind = false;
 
+            // Track ancestor time_data pointers during navigation for deferred edges
+            std::vector<engine_time_t*> ancestor_times;
+
             for (size_t pi = 0; pi < edge.input_path.size() && !deferred && !signal_multi_bind; ++pi) {
                 auto idx = edge.input_path[pi];
                 if (idx >= 0) {
+                    // Record the current ViewData's time_data before navigating deeper
+                    auto& pre_nav_vd = input_view.ts_view().view_data();
+                    if (pre_nav_vd.time_data) {
+                        ancestor_times.push_back(static_cast<engine_time_t*>(pre_nav_vd.time_data));
+                    }
+
                     input_view = input_view[static_cast<size_t>(idx)];
 
                     // After navigation, check if we landed on a REF with more path elements
                     auto& curr_vd = input_view.ts_view().view_data();
                     if (curr_vd.meta && curr_vd.meta->kind == TSKind::REF &&
                         pi + 1 < edge.input_path.size()) {
-                        // The next index would navigate INTO the REF, which isn't supported
+                        // The next indices would navigate INTO the REF, which isn't supported
                         // for scalar REF types. Defer this edge for NON_PEERED construction.
-                        int64_t next_idx = edge.input_path[pi + 1];
-                        if (next_idx >= 0) {
+                        // Capture ALL remaining indices (not just the first) to support
+                        // nested structures like TSL[TSL[TS[int]]].
+                        std::vector<size_t> remaining;
+                        for (size_t ri = pi + 1; ri < edge.input_path.size(); ++ri) {
+                            if (edge.input_path[ri] >= 0) {
+                                remaining.push_back(static_cast<size_t>(edge.input_path[ri]));
+                            }
+                        }
+                        if (!remaining.empty()) {
                             deferred_ref_edges[curr_vd.value_data].push_back({
-                                static_cast<size_t>(next_idx),
+                                std::move(remaining),
                                 edge.src_node,
                                 edge.dst_node,
                                 edge.output_path
                             });
                             ref_input_viewdatas.try_emplace(curr_vd.value_data, curr_vd);
+                            // Store ancestor times for this REF group (only once per group)
+                            deferred_ancestor_times.try_emplace(curr_vd.value_data, ancestor_times);
                         }
                         deferred = true;
                     }
@@ -243,41 +264,92 @@ namespace hgraph
         for (auto& [vd_ptr, deferred_edges] : deferred_ref_edges) {
             auto& ref_vd = ref_input_viewdatas.at(vd_ptr);
 
-            // Determine field count from REF's element_ts
+            // Build nested NON_PEERED reference tree from deferred edges.
+            // Edges may have multi-level remaining_paths (e.g., [0,0], [0,1], [1,0], [1,1])
+            // which need to be organized into a nested structure:
+            // NON_PEERED[NON_PEERED[PEERED(src1), PEERED(src2)], NON_PEERED[PEERED(src3), PEERED(src4)]]
             const TSMeta* element_ts = ref_vd.meta ? ref_vd.meta->element_ts : nullptr;
-            size_t field_count = 0;
-            if (element_ts) {
-                if (element_ts->kind == TSKind::TSB) {
-                    field_count = element_ts->field_count;
-                } else if (element_ts->kind == TSKind::TSL) {
-                    field_count = element_ts->fixed_size;
-                }
-            }
-            if (field_count == 0) {
-                // Can't determine structure - use max index + 1
-                for (auto& de : deferred_edges) {
-                    field_count = std::max(field_count, de.remaining_index + 1);
-                }
-            }
 
-            // Create PEERED TSReference items from source outputs
-            std::vector<TSReference> items(field_count);
+            // Recursive lambda to build nested TSReference tree
+            std::function<TSReference(
+                const std::vector<const DeferredRefEdge*>&,
+                size_t,           // depth: which level of remaining_path we're examining
+                const TSMeta*     // structure at this level
+            )> build_ref_tree = [&](
+                const std::vector<const DeferredRefEdge*>& edges_at_level,
+                size_t depth,
+                const TSMeta* meta_at_level
+            ) -> TSReference {
+                // Determine field count at this level
+                size_t field_count = 0;
+                if (meta_at_level) {
+                    if (meta_at_level->kind == TSKind::TSB) field_count = meta_at_level->field_count;
+                    else if (meta_at_level->kind == TSKind::TSL) field_count = meta_at_level->fixed_size;
+                }
+                if (field_count == 0) {
+                    for (auto* de : edges_at_level) {
+                        if (depth < de->remaining_path.size()) {
+                            field_count = std::max(field_count, de->remaining_path[depth] + 1);
+                        }
+                    }
+                }
+                if (field_count == 0) return TSReference::empty();
+
+                // Group edges by their index at this depth
+                std::vector<std::vector<const DeferredRefEdge*>> groups(field_count);
+                for (auto* de : edges_at_level) {
+                    if (depth < de->remaining_path.size()) {
+                        size_t idx = de->remaining_path[depth];
+                        if (idx < field_count) {
+                            groups[idx].push_back(de);
+                        }
+                    }
+                }
+
+                std::vector<TSReference> items(field_count);
+                for (size_t i = 0; i < field_count; ++i) {
+                    if (groups[i].empty()) continue;
+
+                    // Check if edges in this group are at leaf level (no more path)
+                    bool all_leaf = true;
+                    for (auto* de : groups[i]) {
+                        if (depth + 1 < de->remaining_path.size()) {
+                            all_leaf = false;
+                            break;
+                        }
+                    }
+
+                    if (all_leaf) {
+                        // Leaf: create PEERED reference from last edge
+                        auto* de = groups[i].back();
+                        std::vector<size_t> indices;
+                        for (auto idx : de->output_path) {
+                            if (idx >= 0) indices.push_back(static_cast<size_t>(idx));
+                        }
+                        ShortPath sp(nodes[de->src_node_idx].get(), PortType::OUTPUT, std::move(indices));
+                        items[i] = TSReference::peered(std::move(sp));
+                    } else {
+                        // Non-leaf: recurse to build nested NON_PEERED
+                        const TSMeta* child_meta = meta_at_level ? meta_at_level->element_ts : nullptr;
+                        // For TSB, use field meta instead of element_ts
+                        if (meta_at_level && meta_at_level->kind == TSKind::TSB &&
+                            i < meta_at_level->field_count && meta_at_level->fields) {
+                            child_meta = meta_at_level->fields[i].ts_type;
+                        }
+                        items[i] = build_ref_tree(groups[i], depth + 1, child_meta);
+                    }
+                }
+                return TSReference::non_peered(std::move(items));
+            };
+
+            // Build the edge pointer list
+            std::vector<const DeferredRefEdge*> edge_ptrs;
+            edge_ptrs.reserve(deferred_edges.size());
             for (auto& de : deferred_edges) {
-                // Build ShortPath indices from the output_path
-                std::vector<size_t> indices;
-                for (auto idx : de.output_path) {
-                    if (idx >= 0) indices.push_back(static_cast<size_t>(idx));
-                }
-
-                ShortPath sp(nodes[de.src_node_idx].get(), PortType::OUTPUT, std::move(indices));
-
-                if (de.remaining_index < field_count) {
-                    items[de.remaining_index] = TSReference::peered(std::move(sp));
-                }
+                edge_ptrs.push_back(&de);
             }
 
-            // Create and store NON_PEERED reference in the REF input's value storage
-            auto ref = TSReference::non_peered(std::move(items));
+            auto ref = build_ref_tree(edge_ptrs, 0, element_ts);
             if (ref_vd.value_data && ref_vd.meta && ref_vd.meta->value_type) {
                 value::View v(ref_vd.value_data, ref_vd.meta->value_type);
                 auto* ref_ptr = static_cast<TSReference*>(v.data());
@@ -289,22 +361,33 @@ namespace hgraph
                 *static_cast<engine_time_t*>(ref_vd.time_data) = bind_time;
             }
 
-            // Set up the LinkTarget so set_active() can detect the TS→REF binding
-            // and fire the initial notification (notify(MIN_ST)).
-            // The deferred path skips scalar_ops::bind(), so the LinkTarget would
-            // otherwise remain uninitialized (is_linked=false, meta=nullptr).
-            // Python equivalent: PythonTimeSeriesReferenceInput.do_bind_output()
-            // appends to start_inputs for initial notification at node start.
-            if (ref_vd.uses_link_target && ref_vd.link_data && element_ts) {
-                auto* lt = static_cast<LinkTarget*>(ref_vd.link_data);
-                lt->is_linked = true;
-                lt->meta = element_ts;  // Inner type (TSB/TSL), not REF — triggers TS→REF detection
+            // Also set modification time on ancestor containers (TSL, TSB, etc.)
+            // that were navigated through to reach this REF. Without this, parent
+            // containers would have last_modified_time == MIN_DT and valid() would
+            // return false, preventing the node from evaluating.
+            auto anc_it = deferred_ancestor_times.find(vd_ptr);
+            if (anc_it != deferred_ancestor_times.end()) {
+                for (auto* anc_time : anc_it->second) {
+                    if (*anc_time == MIN_DT) {
+                        *anc_time = bind_time;
+                    }
+                }
             }
+
+            // NOTE: We intentionally do NOT set up LinkTarget here for deferred edges.
+            // Setting lt->is_linked=true without valid data pointers (value_data etc.)
+            // would cause ref_value() to enter the TS→REF case (Case 1) with null data,
+            // returning garbage instead of falling through to Case 3 (direct value_data read).
+            // The initial notification still fires because the REF's modification time
+            // is set to bind_time above, and the node will be scheduled at start time.
 
             // Subscribe the dst node's TSInput to each unique source output's observer list,
             // but ONLY for REF→REF (peered) bindings where the source is a REF output.
             // For TS→REF (non-peered), the reference is fixed at bind time and the
             // downstream should NOT be notified when the source value changes.
+            // Instead, the RefBindingProxy's NON_PEERED handler subscribes the
+            // dereferenced input's LinkTargets to the resolved source observer lists,
+            // so the final consumer (e.g., record_to_memory) gets notified directly.
             for (size_t dei = 0; dei < deferred_edges.size(); ++dei) {
                 auto& de = deferred_edges[dei];
                 // Check if we already subscribed to this source
@@ -319,13 +402,24 @@ namespace hgraph
                 if (dst_node && dst_node->ts_input() && src_output) {
                     ViewData src_vd = src_output->native_value().make_view_data();
                     // Only subscribe if source is a REF output (REF→REF peered binding).
-                    // Non-REF sources (TS→REF) are fixed references that should not
-                    // trigger the downstream node on value changes.
                     if (src_vd.meta && src_vd.meta->kind == TSKind::REF &&
                         src_vd.observer_data) {
                         auto* obs = static_cast<ObserverList*>(src_vd.observer_data);
                         obs->add_observer(dst_node->ts_input());
                     }
+                }
+            }
+
+            // Schedule the destination node at start time so it evaluates and
+            // processes its initial REF input value. Without this, nodes with
+            // deferred REF edges (like ref_signal in test_free_bundle_ref) would
+            // never be scheduled because they're not subscribed to source observers
+            // for TS→REF bindings. In Python, the bind sequence triggers an initial
+            // notify through the child PythonTimeSeriesReferenceInput chain.
+            if (!deferred_edges.empty()) {
+                auto* dst_node = nodes[deferred_edges[0].dst_node_idx].get();
+                if (dst_node && dst_node->ts_input()) {
+                    dst_node->ts_input()->notify(bind_time);
                 }
             }
         }

@@ -627,20 +627,22 @@ public:
     using reference = TSView;
 
     TSDictIterator() noexcept
-        : nav_data_(nullptr)
+        : nav_data_()
         , meta_(nullptr)
         , current_index_(0)
         , end_index_(0)
         , current_time_(MIN_DT)
     {}
 
-    TSDictIterator(const ViewData* nav_data, const TSMeta* meta, size_t index, size_t end, engine_time_t current_time) noexcept
-        : nav_data_(nav_data)
+    TSDictIterator(ViewData nav_data, const TSMeta* meta, size_t index, size_t end, engine_time_t current_time) noexcept
+        : nav_data_(std::move(nav_data))
         , meta_(meta)
         , current_index_(index)
         , end_index_(end)
         , current_time_(current_time)
-    {}
+    {
+        advance_to_live();
+    }
 
     /**
      * @brief Dereference to get TSView.
@@ -659,17 +661,21 @@ public:
      * This provides access to the key for the current entry.
      */
     [[nodiscard]] value::View key() const {
-        if (!nav_data_ || !meta_ || !meta_->key_type) {
+        if (!meta_ || !meta_->key_type || current_index_ >= end_index_ ||
+            !nav_data_.valid() || !nav_data_.value_data) {
             return value::View{};
         }
-        // ViewData::value_data points to the MapStorage for TSD types
-        auto* map_storage = static_cast<const value::MapStorage*>(nav_data_->value_data);
+        auto* map_storage = static_cast<const value::MapStorage*>(nav_data_.value_data);
+        if (!map_storage->key_set().is_alive(current_index_)) {
+            return value::View{};
+        }
         const void* key_ptr = map_storage->key_at_slot(current_index_);
         return value::View(const_cast<void*>(key_ptr), meta_->key_type);
     }
 
     TSDictIterator& operator++() {
         ++current_index_;
+        advance_to_live();
         return *this;
     }
 
@@ -688,7 +694,17 @@ public:
     }
 
 private:
-    const ViewData* nav_data_;
+    void advance_to_live() {
+        if (!nav_data_.valid() || !nav_data_.value_data) {
+            return;
+        }
+        auto* map_storage = static_cast<const value::MapStorage*>(nav_data_.value_data);
+        while (current_index_ < end_index_ && !map_storage->key_set().is_alive(current_index_)) {
+            ++current_index_;
+        }
+    }
+
+    ViewData nav_data_;
     const TSMeta* meta_;
     size_t current_index_;
     size_t end_index_;
@@ -730,11 +746,11 @@ public:
     {}
 
     [[nodiscard]] TSDictIterator begin() const {
-        return TSDictIterator(&nav_data_, meta_, begin_index_, end_index_, current_time_);
+        return TSDictIterator(nav_data_, meta_, begin_index_, end_index_, current_time_);
     }
 
     [[nodiscard]] TSDictIterator end() const {
-        return TSDictIterator(&nav_data_, meta_, end_index_, end_index_, current_time_);
+        return TSDictIterator(nav_data_, meta_, end_index_, end_index_, current_time_);
     }
 
     [[nodiscard]] size_t size() const { return end_index_ - begin_index_; }
@@ -763,17 +779,17 @@ public:
     using set_iterator = SlotSet::const_iterator;
 
     TSDictSlotIterator() noexcept
-        : nav_data_(nullptr)
+        : nav_data_()
         , meta_(nullptr)
         , current_()
         , end_()
         , current_time_(MIN_DT)
     {}
 
-    TSDictSlotIterator(const ViewData* nav_data, const TSMeta* meta,
+    TSDictSlotIterator(ViewData nav_data, const TSMeta* meta,
                        set_iterator current, set_iterator end,
                        engine_time_t current_time) noexcept
-        : nav_data_(nav_data)
+        : nav_data_(std::move(nav_data))
         , meta_(meta)
         , current_(current)
         , end_(end)
@@ -797,10 +813,11 @@ public:
      * @brief Get the key at the current slot as a value::View.
      */
     [[nodiscard]] value::View key() const {
-        if (!nav_data_ || !meta_ || !meta_->key_type || current_ == end_) {
+        if (!meta_ || !meta_->key_type || current_ == end_ ||
+            !nav_data_.valid() || !nav_data_.value_data) {
             return value::View{};
         }
-        auto* map_storage = static_cast<const value::MapStorage*>(nav_data_->value_data);
+        auto* map_storage = static_cast<const value::MapStorage*>(nav_data_.value_data);
         const void* key_ptr = map_storage->key_at_slot(*current_);
         return value::View(const_cast<void*>(key_ptr), meta_->key_type);
     }
@@ -825,7 +842,7 @@ public:
     }
 
 private:
-    const ViewData* nav_data_;
+    ViewData nav_data_;
     const TSMeta* meta_;
     set_iterator current_;
     set_iterator end_;
@@ -867,14 +884,14 @@ public:
         if (!slots_) {
             return TSDictSlotIterator{};
         }
-        return TSDictSlotIterator(&nav_data_, meta_, slots_->begin(), slots_->end(), current_time_);
+        return TSDictSlotIterator(nav_data_, meta_, slots_->begin(), slots_->end(), current_time_);
     }
 
     [[nodiscard]] TSDictSlotIterator end() const {
         if (!slots_) {
             return TSDictSlotIterator{};
         }
-        return TSDictSlotIterator(&nav_data_, meta_, slots_->end(), slots_->end(), current_time_);
+        return TSDictSlotIterator(nav_data_, meta_, slots_->end(), slots_->end(), current_time_);
     }
 
     [[nodiscard]] size_t size() const { return slots_ ? slots_->size() : 0; }
@@ -902,16 +919,16 @@ public:
     using reference = TSView;
 
     FilteredTSDictIterator() noexcept
-        : nav_data_(nullptr)
+        : nav_data_()
         , meta_(nullptr)
         , current_index_(0)
         , end_index_(0)
         , current_time_(MIN_DT)
     {}
 
-    FilteredTSDictIterator(const ViewData* nav_data, const TSMeta* meta,
+    FilteredTSDictIterator(ViewData nav_data, const TSMeta* meta,
                            size_t index, size_t end, engine_time_t current_time) noexcept
-        : nav_data_(nav_data)
+        : nav_data_(std::move(nav_data))
         , meta_(meta)
         , current_index_(index)
         , end_index_(end)
@@ -926,10 +943,11 @@ public:
     [[nodiscard]] size_t index() const noexcept { return current_index_; }
 
     [[nodiscard]] value::View key() const {
-        if (!nav_data_ || !meta_ || !meta_->key_type) {
+        if (!meta_ || !meta_->key_type || current_index_ >= end_index_ ||
+            !nav_data_.valid() || !nav_data_.value_data) {
             return value::View{};
         }
-        auto* map_storage = static_cast<const value::MapStorage*>(nav_data_->value_data);
+        auto* map_storage = static_cast<const value::MapStorage*>(nav_data_.value_data);
         const void* key_ptr = map_storage->key_at_slot(current_index_);
         return value::View(const_cast<void*>(key_ptr), meta_->key_type);
     }
@@ -959,7 +977,7 @@ private:
     void advance_to_match();
     bool matches_filter() const;
 
-    const ViewData* nav_data_;
+    ViewData nav_data_;
     const TSMeta* meta_;
     size_t current_index_;
     size_t end_index_;
@@ -993,11 +1011,11 @@ public:
     {}
 
     [[nodiscard]] FilteredTSDictIterator<Filter> begin() const {
-        return FilteredTSDictIterator<Filter>(&nav_data_, meta_, begin_index_, end_index_, current_time_);
+        return FilteredTSDictIterator<Filter>(nav_data_, meta_, begin_index_, end_index_, current_time_);
     }
 
     [[nodiscard]] FilteredTSDictIterator<Filter> end() const {
-        return FilteredTSDictIterator<Filter>(&nav_data_, meta_, end_index_, end_index_, current_time_);
+        return FilteredTSDictIterator<Filter>(nav_data_, meta_, end_index_, end_index_, current_time_);
     }
 
     [[nodiscard]] bool empty() const { return begin() == end(); }

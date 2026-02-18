@@ -46,6 +46,8 @@ namespace hgraph
         return elem_schema->ops->to_python(elem.data(), elem_schema);
     }
 
+    static TSOutput* resolve_ts_output(const TSOutputView& ov);
+
     // ===== PyTimeSeriesSetOutput =====
 
     bool PyTimeSeriesSetOutput::contains(const nb::object &item) const {
@@ -128,11 +130,25 @@ namespace hgraph
         }
 
         auto set_view = view().as_set();
-        if (!set_view.has_is_empty_child()) {
-            return nb::none();
+        if (set_view.has_is_empty_child()) {
+            TSView is_empty_view = set_view.is_empty_ts();
+            TSOutputView out_view(std::move(is_empty_view), nullptr);
+            auto* py_out = new FeatureBoolOutput(std::move(out_view));
+            is_empty_cache_ = nb::cast(static_cast<PyTimeSeriesOutput*>(py_out), nb::rv_policy::take_ownership);
+            return is_empty_cache_;
         }
 
-        TSView is_empty_view = set_view.is_empty_ts();
+        // Raw-format TSS (e.g. TSD key_set): synthesize a feature output
+        // that tracks empty-state transitions.
+        auto* output = resolve_ts_output(output_view());
+        if (!output) {
+            return nb::none();
+        }
+        const TSMeta* tss_meta = nullptr;
+        if (output->ts_meta() && output->ts_meta()->kind == TSKind::TSD) {
+            tss_meta = set_view.meta();
+        }
+        TSView is_empty_view = output->get_is_empty_view(output_view().current_time(), tss_meta);
         TSOutputView out_view(std::move(is_empty_view), nullptr);
         auto* py_out = new FeatureBoolOutput(std::move(out_view));
         is_empty_cache_ = nb::cast(static_cast<PyTimeSeriesOutput*>(py_out), nb::rv_policy::take_ownership);

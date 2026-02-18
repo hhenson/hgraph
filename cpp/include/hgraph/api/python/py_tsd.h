@@ -93,6 +93,8 @@ namespace hgraph
         PyTimeSeriesDictInput(const PyTimeSeriesDictInput&) = delete;
         PyTimeSeriesDictInput& operator=(const PyTimeSeriesDictInput&) = delete;
 
+        [[nodiscard]] nb::object value() const;
+        [[nodiscard]] nb::object delta_value() const;
         [[nodiscard]] size_t size() const;
         [[nodiscard]] nb::object get_item(const nb::object &item) const;
         [[nodiscard]] nb::object get(const nb::object &item, const nb::object &default_value) const;

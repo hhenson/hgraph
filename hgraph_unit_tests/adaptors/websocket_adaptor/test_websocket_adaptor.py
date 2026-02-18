@@ -106,6 +106,7 @@ try:
 
     @pytest.mark.xfail(reason="Does not run with xdist correctly")
     @pytest.mark.serial
+    @pytest.mark.timeout(30)
     def test_single_websocket_request_graph():
         @websocket_server_handler(url="/test")
         def x(request: TSB[WebSocketServerRequest[bytes]]) -> TSB[WebSocketResponse[bytes]]:
@@ -130,6 +131,7 @@ try:
 
     @pytest.mark.xfail(reason="Does not run with xdist correctly")
     @pytest.mark.serial
+    @pytest.mark.timeout(30)
     def test_multiple_websocket_request_graph():
         @websocket_server_handler(url="/test")
         @compute_node
@@ -159,6 +161,7 @@ try:
             assert gs.responses[2] == b"Hello, world #1!"
 
     @pytest.mark.xfail(reason="When running with all tests, the server does not start and the test then fails")
+    @pytest.mark.timeout(30)
     def test_websocket_server_adaptor_graph():
         @websocket_server_handler(url="/test/(.*)")
         def x(request: TSB[WebSocketServerRequest[bytes]], b: TS[int]) -> TSB[WebSocketResponse[bytes]]:

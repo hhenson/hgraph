@@ -8,11 +8,25 @@
 - `examples/`: runnable examples and notebooks.
 - `cmake/`, `CMakeLists.txt`, `pyproject.toml`: build and packaging configuration.
 
+## Branch Focus
+- This branch is focused on implementing the documented features in `ts_value_v2601/`.
+- Before coding, review `ts_value_v2601/` docs and align changes with that documented behavior.
+
+## Session Initialization (Aligned with `CLAUDE.md`)
+- Canonical startup/run guidance is in `CLAUDE.md`; keep this file aligned with it.
+- `uv venv --python 3.12`: create the project-local virtual environment.
+- `uv sync --all-extras --all-groups`: install all dependencies (includes `hgraph`).
+- `cmake --build cmake-build-debug`: build the C++ extension.
+- `rm .venv/lib/python3.12/site-packages/hgraph/_hgraph.cpython-312-darwin.so`: remove installed extension.
+- `ln -s \`pwd\`/cmake-build-debug/cpp/src/cpp/_hgraph.cpython-312-darwin.so \`pwd\`/.venv/lib/python3.12/site-packages/hgraph/_hgraph.cpython-312-darwin.so`: symlink build artifact for fast iteration.
+- `cat hgraph_features.yaml`: confirm `features.use_cpp: true` at session start.
+- `uv run pytest hgraph_unit_tests/_operators/test_const.py -v`: smoke check environment and runtime wiring.
+
 ## Build, Test, and Development Commands
-- `uv venv`: create a project-local virtual environment.
+- `uv venv --python 3.12`: create a project-local virtual environment.
 - `uv sync --all-extras --all-groups`: install all dependencies into the venv (preferred).
 - `cmake --build cmake-build-debug`: rebuild the C++ extension from an existing CMake build dir.
-- `uv run pytest hgraph_unit_tests`: run tests (set `HGRAPH_USE_CPP` explicitly to select runtime).
+- `uv run pytest hgraph_unit_tests`: run tests (uses C++ by default via `hgraph_features.yaml`).
 - `HGRAPH_USE_CPP=0 uv run pytest hgraph_unit_tests`: run tests against the Python implementation.
 - `HGRAPH_USE_CPP=1 uv run pytest hgraph_unit_tests`: explicitly force the C++ runtime (recommended for C++ validation).
 - `uv run pytest hgraph_unit_tests/_operators/test_const.py -v`: quick smoke check.
@@ -44,4 +58,5 @@
 
 ## Configuration Notes
 - Feature flags live in `hgraph_features.yaml` (`use_cpp: true` is the default for development).
+- At the start of a session, verify `hgraph_features.yaml` still has `use_cpp: true`.
 - You can override with `HGRAPH_USE_CPP=0` to compare Python vs C++ behavior during tests.

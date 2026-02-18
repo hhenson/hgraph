@@ -145,6 +145,19 @@ public:
         return value_view().as_map().size();
     }
 
+    /**
+     * @brief Get the total number of allocated slots (capacity).
+     *
+     * This includes both live and dead (free-listed) slots. Use this
+     * as the end index for slot-based iteration, since live entries
+     * may be at any slot position (not necessarily contiguous from 0).
+     */
+    [[nodiscard]] size_t slot_capacity() const {
+        if (!view_data_.value_data) return 0;
+        auto* storage = static_cast<const value::MapStorage*>(view_data_.value_data);
+        return storage->key_set().capacity();
+    }
+
     // ========== Key Set Access ==========
 
     /**
@@ -397,11 +410,15 @@ public:
         if (!view_data_.valid()) {
             return TSDictRange{};
         }
-        return TSDictRange(view_data_, meta(), 0, size(), current_time_);
+        // Iterate over slot_capacity() because live slots are sparse when tombstones exist.
+        // TSDictIterator skips dead slots, yielding only live entries.
+        return TSDictRange(view_data_, meta(), 0, slot_capacity(), current_time_);
     }
 
     /**
      * @brief Iterate over entries with valid values.
+     *
+     * Skips dead/free-listed slots. Use this when you need only live entries.
      *
      * @return FilteredTSDictRange that skips invalid values
      */
@@ -409,7 +426,7 @@ public:
         if (!view_data_.valid()) {
             return FilteredTSDictRange<TSFilter::VALID>{};
         }
-        return FilteredTSDictRange<TSFilter::VALID>(view_data_, meta(), 0, size(), current_time_);
+        return FilteredTSDictRange<TSFilter::VALID>(view_data_, meta(), 0, slot_capacity(), current_time_);
     }
 
     /**

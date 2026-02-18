@@ -327,7 +327,8 @@ namespace hgraph
             TSReference ref_copy = stored_ref;
             ref_copy.set_resolve_time(time);
             TSView target = ref_copy.resolve(time);
-            if (target) {
+            if (target && target.view_data().ops &&
+                target.view_data().ops->valid(target.view_data())) {
                 // Clear link_data: the resolved TSValue's link storage may contain
                 // REFLinks from internal graph wiring that would cause
                 // bundle_ops::child_at to navigate to garbage.
@@ -431,12 +432,58 @@ namespace hgraph
                     resolved.view_data().link_data = nullptr;
                     return make_bound_ref(std::move(resolved));
                 }
+                // Keep the peered ref when resolution fails in this direct-value path.
+                // Nested collapse/ref compositions can legitimately carry a peered
+                // reference that is resolved by the consumer's context.
+                return nb::cast(std::move(ref));
             }
             // NON_PEERED or EMPTY: return as-is
             ref.set_resolve_time(time);
             return nb::cast(std::move(ref));
         }
         return nb::cast(TSReference::empty());
+    }
+
+    static nb::object delegate_ref_collection_method(const PyTimeSeriesReferenceInput& self, const char* method_name) {
+        nb::object ref = self.ref_value();
+        if (ref.is_none()) {
+            return nb::list();
+        }
+
+        try {
+            if (nb::hasattr(ref, "has_output") && nb::cast<bool>(ref.attr("has_output"))) {
+                nb::object output = ref.attr("output");
+                if (!output.is_none()) {
+                    if (nb::isinstance<PyTimeSeriesOutput>(output)) {
+                        auto& py_output = nb::cast<PyTimeSeriesOutput&>(output);
+                        nb::object input_wrapper =
+                            wrap_input_view(TSInputView(py_output.output_view().ts_view(), nullptr));
+                        if (!input_wrapper.is_none() && nb::hasattr(input_wrapper, method_name)) {
+                            return input_wrapper.attr(method_name)();
+                        }
+                    }
+
+                    if (nb::hasattr(output, method_name)) {
+                        return output.attr(method_name)();
+                    }
+                }
+            }
+            if (nb::hasattr(ref, method_name)) {
+                return ref.attr(method_name)();
+            }
+        } catch (...) {
+            // Fall through to empty list when delegation cannot be resolved.
+        }
+
+        return nb::list();
+    }
+
+    nb::object PyTimeSeriesReferenceInput::modified_items() const {
+        return delegate_ref_collection_method(*this, "modified_items");
+    }
+
+    nb::object PyTimeSeriesReferenceInput::removed_keys() const {
+        return delegate_ref_collection_method(*this, "removed_keys");
     }
 
     nb::str PyTimeSeriesReferenceInput::to_string() const {
@@ -449,6 +496,8 @@ namespace hgraph
         nb::class_<PyTimeSeriesReferenceInput, PyTimeSeriesInput>(m, "TimeSeriesReferenceInput")
             .def_prop_ro("value", &PyTimeSeriesReferenceInput::ref_value)
             .def_prop_ro("delta_value", &PyTimeSeriesReferenceInput::ref_value)
+            .def("modified_items", &PyTimeSeriesReferenceInput::modified_items)
+            .def("removed_keys", &PyTimeSeriesReferenceInput::removed_keys)
             .def("__str__", &PyTimeSeriesReferenceInput::to_string)
             .def("__repr__", &PyTimeSeriesReferenceInput::to_repr);
     }

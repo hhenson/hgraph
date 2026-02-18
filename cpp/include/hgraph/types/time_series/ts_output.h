@@ -61,7 +61,8 @@ public:
         TSOutput* output,
         TSValue* alt,
         const TSMeta* native_meta,
-        const TSMeta* target_meta
+        const TSMeta* target_meta,
+        std::vector<size_t> relative_path
     );
 
     /**
@@ -92,10 +93,14 @@ public:
     void on_clear() override;
 
 private:
+    [[nodiscard]] engine_time_t callback_time() const;
+    [[nodiscard]] bool resolve_collection_views(engine_time_t current_time, TSView& native_view, TSView& alt_view) const;
+
     TSOutput* output_;              ///< Owning TSOutput
     TSValue* alt_;                  ///< Alternative TSValue
     const TSMeta* native_meta_;     ///< Native element schema
     const TSMeta* target_meta_;     ///< Target element schema
+    std::vector<size_t> relative_path_; ///< Path from output root value to observed collection
     value::KeySet* registered_key_set_{nullptr}; ///< KeySet we're registered with (for cleanup)
 };
 
@@ -201,6 +206,19 @@ public:
      * @param requester Opaque pointer identifying the requester
      */
     void release_contains(const value::View& key, void* requester);
+
+    /**
+     * @brief Get a TSView for a TS[bool] that tracks TSS emptiness.
+     *
+     * For tuple-format TSS this mirrors the nested is_empty child behavior.
+     * For raw-format TSS (e.g. TSD key_set) this synthesizes an equivalent
+     * feature output that only ticks when emptiness changes.
+     *
+     * @param current_time The current engine time
+     * @param tss_meta Optional explicit TSS metadata (used for TSD key_set)
+     * @return TSView for TS[bool] empty-state tracking
+     */
+    TSView get_is_empty_view(engine_time_t current_time, const TSMeta* tss_meta = nullptr);
 
     // ========== Accessors ==========
 
@@ -346,6 +364,7 @@ private:
     node_ptr owning_node_{nullptr};                                 ///< For graph context
     size_t port_index_{0};                                          ///< Port index on node
     void* contains_tracking_{nullptr};                              ///< Lazy ContainsTracking (defined in ts_output.cpp)
+    void* is_empty_tracking_{nullptr};                              ///< Lazy IsEmptyTracking (defined in ts_output.cpp)
 
     // Note: REFLinks are stored inline in the alternative TSValue's link storage.
     // The link schema uses REFLink at each position, which can function as either

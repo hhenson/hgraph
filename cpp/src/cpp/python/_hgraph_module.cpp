@@ -12,6 +12,8 @@
 #include <hgraph/util/stack_trace.h>
 
 #include <nanobind/intrusive/counter.inl>
+#include <cstdlib>
+#include <string_view>
 
 void export_runtime(nb::module_ &);
 
@@ -69,8 +71,12 @@ NB_MODULE(_hgraph, m) {
         nb::intrusive_ptr<nb::intrusive_base>(
             [](nb::intrusive_base *o, PyObject *po) noexcept { o->set_self_py(po); }));
 
-    // Install crash handlers for automatic stack traces on crashes
-    hgraph::install_crash_handlers();
+    // Crash handlers can recurse under some fatal C++ failure paths during tests.
+    // Keep them opt-in to avoid non-terminating high-CPU crash loops.
+    if (const char* crash_handlers = std::getenv("HGRAPH_ENABLE_CRASH_HANDLERS");
+        crash_handlers && std::string_view(crash_handlers) == "1") {
+        hgraph::install_crash_handlers();
+    }
 
     // Expose stack trace functions to Python
     m.def("get_stack_trace", &hgraph::get_stack_trace, "Get current C++ stack trace as a string");

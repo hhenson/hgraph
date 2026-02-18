@@ -17,6 +17,7 @@
 #include <hgraph/types/value/slot_observer.h>
 #include <hgraph/types/value/type_meta.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <vector>
 
@@ -49,29 +50,25 @@ public:
     ValueArray(ValueArray&& other) noexcept
         : values_(std::move(other.values_))
         , value_type_(other.value_type_)
-        , capacity_(other.capacity_) {
+        , capacity_(other.capacity_)
+        , initialized_(std::move(other.initialized_)) {
         other.capacity_ = 0;
     }
 
     ValueArray& operator=(ValueArray&& other) noexcept {
         if (this != &other) {
-            // Destruct existing values
-            if (value_type_ && value_type_->ops && value_type_->ops->destruct) {
-                for (size_t i = 0; i < capacity_; ++i) {
-                    // Note: we'd need is_alive info from KeySet - skip for now
-                }
-            }
+            destroy_all_initialized();
             values_ = std::move(other.values_);
             value_type_ = other.value_type_;
             capacity_ = other.capacity_;
+            initialized_ = std::move(other.initialized_);
             other.capacity_ = 0;
         }
         return *this;
     }
 
     ~ValueArray() {
-        // Note: Destruction of values is handled by on_clear or MapStorage destructor
-        // that knows which slots are alive
+        destroy_all_initialized();
     }
 
     // ========== SlotObserver Implementation ==========
@@ -96,24 +93,36 @@ public:
         }
 
         capacity_ = new_cap;
+        initialized_.resize(new_cap, false);
     }
 
     void on_insert(size_t slot) override {
         // Construct a default value at this slot
         if (!value_type_) return;
+        if (slot >= capacity_) return;
+
+        // If a previously-erased value is retained at this slot, destruct it
+        // before constructing the new value.
+        if (slot < initialized_.size() && initialized_[slot]) {
+            if (value_type_->ops && value_type_->ops->destruct) {
+                void* old_ptr = value_at_slot(slot);
+                value_type_->ops->destruct(old_ptr, value_type_);
+            }
+        }
+
         void* val_ptr = value_at_slot(slot);
         if (value_type_->ops && value_type_->ops->construct) {
             value_type_->ops->construct(val_ptr, value_type_);
         }
+        if (slot < initialized_.size()) {
+            initialized_[slot] = true;
+        }
     }
 
     void on_erase(size_t slot) override {
-        // Destruct the value at this slot
-        if (!value_type_) return;
-        void* val_ptr = value_at_slot(slot);
-        if (value_type_->ops && value_type_->ops->destruct) {
-            value_type_->ops->destruct(val_ptr, value_type_);
-        }
+        (void)slot;
+        // Preserve erased slot values so removed_items() can still access
+        // value payloads during the current tick.
     }
 
     void on_update(size_t /*slot*/) override {
@@ -121,8 +130,8 @@ public:
     }
 
     void on_clear() override {
-        // All values will be destructed - handled by caller iterating live slots
-        // Just reset our state (values storage remains allocated for reuse)
+        destroy_all_initialized();
+        std::fill(initialized_.begin(), initialized_.end(), false);
     }
 
     // ========== Value Access ==========
@@ -153,9 +162,24 @@ public:
     [[nodiscard]] const std::byte* data() const { return values_.data(); }
 
 private:
+    void destroy_all_initialized() {
+        if (!value_type_ || !value_type_->ops || !value_type_->ops->destruct) {
+            return;
+        }
+        size_t limit = std::min(initialized_.size(), capacity_);
+        for (size_t i = 0; i < limit; ++i) {
+            if (initialized_[i]) {
+                void* val_ptr = value_at_slot(i);
+                value_type_->ops->destruct(val_ptr, value_type_);
+                initialized_[i] = false;
+            }
+        }
+    }
+
     std::vector<std::byte> values_;
     const TypeMeta* value_type_{nullptr};
     size_t capacity_{0};
+    std::vector<bool> initialized_;
 };
 
 } // namespace hgraph::value

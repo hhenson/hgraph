@@ -177,8 +177,9 @@ public:
         updated_.erase(slot);
         // Forward to key_delta_ for add/remove cancellation logic
         key_delta_.on_erase(slot);
-        // Destroy owned child MapDelta for this slot (inner MapStorage is being erased too)
-        owned_child_map_deltas_.erase(slot);
+        // Keep child MapDelta for removed slots so removed_items() can still
+        // expose nested removed_keys() during the current tick.
+        // Slot-reuse rebinding is handled in get_or_create_child_map_delta().
     }
 
     /**

@@ -178,14 +178,8 @@ public:
      * @brief Clear all entries.
      */
     void clear() {
-        // First destruct all values at live slots
-        if (value_type_ && value_type_->ops && value_type_->ops->destruct) {
-            for (auto slot : set_.key_set()) {
-                void* val_ptr = const_cast<void*>(values_.value_at_slot(slot));
-                value_type_->ops->destruct(val_ptr, value_type_);
-            }
-        }
-        // Now clear keys (KeySet::clear will call on_clear)
+        // KeySet::clear() notifies ValueArray::on_clear(), which now handles
+        // value destruction for all initialized slots.
         set_.key_set().clear();
     }
 

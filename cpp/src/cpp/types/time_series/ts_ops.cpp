@@ -28,7 +28,6 @@
 #include <optional>
 #include <stdexcept>
 #include <unordered_map>
-#include <cstdio>
 
 // Forward declarations to avoid including py_time_series.h / py_tss.h / py_ref.h
 // (including those headers in this translation unit changes nanobind type resolution
@@ -169,17 +168,26 @@ inline void store_link_target(REFLink& rl, const ViewData& target) {
     lt.meta = target.meta;
 }
 
-// Helper: Check if this view is linked via REFLink and get the REFLink
+// Helper: Check if this view is linked via REFLink and get the REFLink.
 // Only call when uses_link_target is false.
-// Only REF outputs have active REFLinks for delegation (REFLink stores the
-// resolved target of a TSReference). For all other kinds, link_data may point
-// to collection-level link storage (TSD/TSL/TSB) or a default-constructed
-// REFLink (TS/TSS/TSW/SIGNAL), neither of which should be followed.
+// Scalar TS outputs (including non-REF alternatives) can be linked through
+// REFLink via scalar_ops::bind, so delegation must not be restricted to
+// TSKind::REF here. Collection namespaces provide their own link helpers.
 inline const REFLink* get_active_link(const ViewData& vd) {
     if (vd.uses_link_target) return nullptr;  // TSInput uses LinkTarget, not REFLink
-    if (!vd.meta || vd.meta->kind != TSKind::REF) return nullptr;  // Only REF has active REFLinks
     auto* rl = get_ref_link(vd.link_data);
     if (rl && rl->target().valid()) {
+        return rl;
+    }
+    return nullptr;
+}
+
+// Helper: detect a bound REFLink whose target is currently unresolved/invalid.
+// This happens for TS alternatives dereferencing a REF source that has gone empty.
+inline const REFLink* get_unresolved_bound_link(const ViewData& vd) {
+    if (vd.uses_link_target) return nullptr;
+    auto* rl = get_ref_link(vd.link_data);
+    if (rl && rl->is_bound() && !rl->target().valid()) {
         return rl;
     }
     return nullptr;
@@ -222,10 +230,23 @@ struct DelegateTarget {
 
 // Forward declaration: defined below after resolve_ref_link_target_from_vd
 inline std::optional<ViewData> resolve_ref_link_target(const LinkTarget& lt, engine_time_t current_time);
+inline std::optional<ViewData> resolve_ref_link_target_from_vd(const ViewData& vd, engine_time_t current_time);
 
 // REF-resolving delegation: handles the case where a non-REF reader is bound to a REF output.
 // Returns DELEGATED with resolved target, REF_UNRESOLVED if REF couldn't be resolved, or NO_LINK.
 inline DelegateTarget resolve_delegation_target_with_ref(const ViewData& vd, engine_time_t time) {
+    // TSInput bound to REF output via REFBindingHelper can become temporarily
+    // unresolved when the reference goes empty; LinkTarget is retained but
+    // marked unlinked. Treat this as REF_UNRESOLVED for non-REF readers.
+    if (vd.uses_link_target && vd.link_data &&
+        (!vd.meta || vd.meta->kind != TSKind::REF)) {
+        if (auto* lt = get_link_target(vd.link_data)) {
+            if (lt->ref_binding_ && !lt->is_linked) {
+                return {DelegateResult::REF_UNRESOLVED, {}};
+            }
+        }
+    }
+
     if (auto* lt = get_active_link_target(vd)) {
         if (lt->meta && lt->meta->kind == TSKind::REF &&
             (!vd.meta || vd.meta->kind != TSKind::REF)) {
@@ -237,7 +258,15 @@ inline DelegateTarget resolve_delegation_target_with_ref(const ViewData& vd, eng
         return {DelegateResult::DELEGATED, make_view_data_from_link_target(*lt, vd.path)};
     }
     if (auto* rl = get_active_link(vd)) {
-        return {DelegateResult::DELEGATED, make_view_data_from_link(*rl, vd.path)};
+        ViewData linked = make_view_data_from_link(*rl, vd.path);
+        if (linked.meta && linked.meta->kind == TSKind::REF &&
+            (!vd.meta || vd.meta->kind != TSKind::REF)) {
+            if (auto resolved = resolve_ref_link_target_from_vd(linked, time)) {
+                return {DelegateResult::DELEGATED, *resolved};
+            }
+            return {DelegateResult::REF_UNRESOLVED, {}};
+        }
+        return {DelegateResult::DELEGATED, linked};
     }
     return {DelegateResult::NO_LINK, {}};
 }
@@ -460,6 +489,9 @@ struct REFBindingHelper : public Notifiable {
                 owner->link_data = nullptr;
                 owner->ops = ref_source.ops;
                 owner->meta = ref_source.meta;
+            } else {
+                // REF->REF: empty source means unresolved reference.
+                owner->is_linked = false;
             }
             target_changed_ = true;
             return;
@@ -471,6 +503,10 @@ struct REFBindingHelper : public Notifiable {
             try {
                 resolved = ts_ref->resolve(current_time);
             } catch (const std::exception& e) {
+                if (is_ref_to_ref_) {
+                    owner->is_linked = false;
+                    target_changed_ = true;
+                }
                 return;
             }
         } else if (ts_ref->is_python_bound()) {
@@ -479,6 +515,9 @@ struct REFBindingHelper : public Notifiable {
             auto vd = resolve_python_bound_reference(ts_ref, current_time);
             if (vd) {
                 resolved = TSView(*vd, current_time);
+            } else if (is_ref_to_ref_) {
+                owner->is_linked = false;
+                target_changed_ = true;
             }
         } else {
             // NON_PEERED: store REF source data
@@ -497,7 +536,13 @@ struct REFBindingHelper : public Notifiable {
             target_changed_ = true;
             return;
         }
-        if (!resolved) return;
+        if (!resolved) {
+            if (is_ref_to_ref_) {
+                owner->is_linked = false;
+                target_changed_ = true;
+            }
+            return;
+        }
 
         // If the resolved target is itself a REF, dereference through it to get
         // the actual TS data. This happens in switch/map scenarios where the
@@ -557,6 +602,9 @@ struct REFBindingHelper : public Notifiable {
             owner->link_data = final_vd.link_data;
             owner->ops = final_vd.ops;
             owner->meta = final_vd.meta;
+        } else {
+            // REF->REF mode: when the source resolves, mark as linked.
+            owner->is_linked = true;
         }
         // REF→REF mode: LinkTarget keeps REF source data; only subscribe to resolved target
 
@@ -634,17 +682,63 @@ namespace scalar_ops {
 // - link is REFLink (TSOutput) or LinkTarget (TSInput)
 
 engine_time_t last_modified_time(const ViewData& vd) {
+    engine_time_t owner_ref_mod_time = MIN_DT;
+    bool has_owner_ref_mod_time = false;
+    if (vd.meta && vd.meta->kind == TSKind::REF && vd.uses_link_target && vd.link_data) {
+        if (auto* lt = get_link_target(vd.link_data)) {
+            if (lt->ref_binding_ && lt->owner_time_ptr) {
+                owner_ref_mod_time = *lt->owner_time_ptr;
+                has_owner_ref_mod_time = true;
+            }
+        }
+    }
+
     auto [result, target] = resolve_delegation_target_with_ref(vd, MIN_DT);
-    if (result == DelegateResult::DELEGATED) return target.ops->last_modified_time(target);
-    if (result == DelegateResult::REF_UNRESOLVED) return MIN_DT;
-    if (!vd.time_data) return MIN_DT;
-    return *static_cast<engine_time_t*>(vd.time_data);
+    engine_time_t base_time = MIN_DT;
+    if (result == DelegateResult::DELEGATED) {
+        base_time = target.ops->last_modified_time(target);
+    } else if (result == DelegateResult::REF_UNRESOLVED) {
+        base_time = MIN_DT;
+    } else if (vd.time_data) {
+        base_time = *static_cast<engine_time_t*>(vd.time_data);
+    }
+    if (has_owner_ref_mod_time && owner_ref_mod_time > base_time) {
+        base_time = owner_ref_mod_time;
+    }
+    return base_time;
 }
 
 bool modified(const ViewData& vd, engine_time_t current_time) {
+    if (vd.meta && vd.meta->kind == TSKind::REF && vd.uses_link_target && vd.link_data) {
+        if (auto* lt = get_link_target(vd.link_data)) {
+            if (lt->ref_binding_) {
+                if (lt->owner_time_ptr && *lt->owner_time_ptr >= current_time) {
+                    return true;
+                }
+
+                // Some REF->REF transitions (notably key removal in TSD-backed refs)
+                // can update source data without emitting a direct observer tick.
+                // Re-evaluate the REF binding lazily and surface link-state changes
+                // as a modification at the current tick.
+                auto* helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+                bool was_linked = lt->is_linked;
+                helper->rebind(current_time);
+                if (lt->is_linked != was_linked) {
+                    const_cast<LinkTarget*>(lt)->notify(current_time);
+                    return true;
+                }
+
+                if (lt->owner_time_ptr && *lt->owner_time_ptr >= current_time) {
+                    return true;
+                }
+            }
+        }
+    }
+
     auto [result, target] = resolve_delegation_target_with_ref(vd, current_time);
     if (result == DelegateResult::DELEGATED) return target.ops->modified(target, current_time);
     if (result == DelegateResult::REF_UNRESOLVED) return false;
+    if (get_unresolved_bound_link(vd)) return false;
     return last_modified_time(vd) >= current_time;
 }
 
@@ -669,6 +763,7 @@ bool valid(const ViewData& vd) {
         return target.ops->valid(target);
     }
     if (result == DelegateResult::REF_UNRESOLVED) return false;
+    if (get_unresolved_bound_link(vd)) return false;
     // For REF outputs (no links), check that the TSReference is non-empty.
     // Matches Python: REF output valid = has_output (non-empty ref).
     if (vd.meta && vd.meta->kind == TSKind::REF && vd.value_data) {
@@ -746,6 +841,7 @@ nb::object to_python(const ViewData& vd) {
     auto [result, target] = resolve_delegation_target_with_ref(vd, MIN_DT);
     if (result == DelegateResult::DELEGATED) return target.ops->to_python(target);
     if (result == DelegateResult::REF_UNRESOLVED) return nb::none();
+    if (get_unresolved_bound_link(vd)) return nb::none();
     if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
@@ -758,6 +854,7 @@ nb::object delta_to_python(const ViewData& vd) {
         return target.ops->delta_to_python(target);
     }
     if (result == DelegateResult::REF_UNRESOLVED) return nb::none();
+    if (get_unresolved_bound_link(vd)) return nb::none();
     if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
@@ -4840,16 +4937,30 @@ inline const value::TypeMeta* get_dict_link_schema(const ViewData& vd) {
 // Returns pointer to the REFLink or LinkTarget at tuple.at(0)
 inline void* get_collection_link_data(const ViewData& vd) {
     if (!vd.link_data) return nullptr;
+
+    // Root TSD uses tuple[collection_link, element_links].
+    // Non-root element views carry direct REFLink/LinkTarget pointers.
+    if (!vd.path.is_root()) {
+        return vd.link_data;
+    }
+
     auto* schema = get_dict_link_schema(vd);
-    if (!schema) return nullptr;
+    if (!schema) return vd.link_data;
     value::View lv(vd.link_data, schema);
-    if (!lv.valid()) return nullptr;
-    return lv.as_tuple().at(0).data();
+    if (!lv.valid()) return vd.link_data;
+
+    // Root storage is normally tuple[collection_link, element_links].
+    // Fall back to direct pointer for forwarded/resolved views.
+    if (auto tpl = lv.try_as_tuple()) {
+        return tpl->at(0).data();
+    }
+    return vd.link_data;
 }
 
 // Shadow outer-namespace get_active_link for TSD tuple layout
 inline const REFLink* get_active_link(const ViewData& vd) {
     if (vd.uses_link_target) return nullptr;
+    if (!vd.path.is_root()) return nullptr;
     void* cld = get_collection_link_data(vd);
     auto* rl = get_ref_link(cld);
     return (rl && rl->target().valid()) ? rl : nullptr;
@@ -4858,6 +4969,7 @@ inline const REFLink* get_active_link(const ViewData& vd) {
 // Shadow outer-namespace get_active_link_target for TSD tuple layout
 inline const LinkTarget* get_active_link_target(const ViewData& vd) {
     if (!vd.uses_link_target) return nullptr;
+    if (!vd.path.is_root()) return nullptr;
     auto* lt = get_link_target(get_collection_link_data(vd));
     return (lt && lt->valid()) ? lt : nullptr;
 }
@@ -4949,8 +5061,8 @@ bool has_delta(const ViewData& vd) {
 
 void set_value(ViewData& vd, const value::View& src, engine_time_t current_time) {
     // If linked, delegate to target (write through)
-    if (auto* rl = get_ref_link(get_collection_link_data(vd))) {
-        if (rl->target().valid()) {
+    if (vd.path.is_root()) {
+        if (auto* rl = get_active_link(vd)) {
             ViewData target_vd = make_view_data_from_link(*rl, vd.path, vd.sampled);
             rl->target().ops->set_value(target_vd, src, current_time);
             return;
@@ -4976,8 +5088,8 @@ void set_value(ViewData& vd, const value::View& src, engine_time_t current_time)
 
 void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_time) {
     // If linked, delegate to target
-    if (auto* rl = get_ref_link(get_collection_link_data(vd))) {
-        if (rl->target().valid()) {
+    if (vd.path.is_root()) {
+        if (auto* rl = get_active_link(vd)) {
             ViewData target_vd = make_view_data_from_link(*rl, vd.path);
             rl->target().ops->apply_delta(target_vd, delta, current_time);
             return;
@@ -5072,8 +5184,8 @@ void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_t
 
 void invalidate(ViewData& vd) {
     // If linked, delegate to target
-    if (auto* rl = get_ref_link(get_collection_link_data(vd))) {
-        if (rl->target().valid()) {
+    if (vd.path.is_root()) {
+        if (auto* rl = get_active_link(vd)) {
             ViewData target_vd = make_view_data_from_link(*rl, vd.path);
             rl->target().ops->invalidate(target_vd);
             return;
@@ -5112,65 +5224,74 @@ nb::object to_python(const ViewData& vd) {
     auto time_list = time_view.as_tuple().at(1).as_list();
 
     const auto* key_tm = storage->key_type();
-    const auto* val_tm = storage->value_type();
     const TSMeta* elem_ts = vd.meta->element_ts;
     bool elem_is_ref = (elem_ts && elem_ts->kind == TSKind::REF);
 
     nb::dict result;
 
     auto& key_set = storage->key_set();
-    auto* index_set = key_set.index_set();
-    if (index_set) {
-        for (auto slot : *index_set) {
-            if (slot < time_list.size()) {
-                if (elem_is_ref) {
-                    // Element is REF-wrapped (TSD output alternative).
-                    // The alternative's element time is not synced with the native's,
-                    // so resolve the TSReference and check the native's validity.
-                    auto* ref = static_cast<TSReference*>(storage->value_at_slot(slot));
-                    if (ref && !ref->is_empty()) {
-                        TSView target = ref->resolve(MIN_DT);
-                        if (target && target.view_data().ops && target.view_data().ops->valid(target.view_data())) {
-                            const void* key_data = key_set.key_at_slot(slot);
-                            value::View key_view(key_data, key_tm);
-                            nb::object py_val = target.view_data().ops->to_python(target.view_data());
-                            if (!py_val.is_none()) {
-                                result[key_view.to_python()] = py_val;
-                            }
-                        }
+    engine_time_t ref_query_time = MIN_DT;
+    if (elem_is_ref && vd.path.node()) {
+        auto* g = vd.path.node()->graph();
+        if (g) {
+            ref_query_time = g->evaluation_time();
+        }
+    }
+    for (auto slot : key_set) {
+        if (slot >= time_list.size()) {
+            continue;
+        }
+        if (elem_is_ref) {
+            // Element is REF-wrapped (TSD output alternative).
+            // The alternative's element time is not synced with the native's,
+            // so resolve the TSReference and check the native's validity.
+            auto* ref = static_cast<TSReference*>(storage->value_at_slot(slot));
+            if (ref && !ref->is_empty()) {
+                TSView target = ref->resolve(ref_query_time);
+                if (target && target.view_data().ops && target.view_data().ops->valid(target.view_data())) {
+                    const void* key_data = key_set.key_at_slot(slot);
+                    value::View key_view(key_data, key_tm);
+                    nb::object py_val = target.view_data().ops->to_python(target.view_data());
+                    if (!py_val.is_none()) {
+                        result[key_view.to_python()] = py_val;
                     }
-                } else {
-                    engine_time_t elem_time = get_elem_time(time_list, slot);
-                    if (elem_time != MIN_DT) {
-                        const void* key_data = key_set.key_at_slot(slot);
-                        value::View key_view(key_data, key_tm);
+                }
+            }
+        } else {
+            engine_time_t elem_time = get_elem_time(time_list, slot);
+            if (elem_time == MIN_DT) {
+                continue;
+            }
+            const void* key_data = key_set.key_at_slot(slot);
+            value::View key_view(key_data, key_tm);
 
-                        if (elem_ts->kind == TSKind::TSValue || elem_ts->kind == TSKind::SIGNAL) {
-                            // Scalar element — use value directly from MapStorage
-                            if (val_tm && val_tm->ops) {
-                                void* val_data = storage->value_at_slot(slot);
-                                value::View val_view(val_data, val_tm);
-                                result[key_view.to_python()] = val_view.to_python();
-                            }
-                        } else {
-                            // Composite element (TSD, TSB, TSL, TSS) — use TS-level to_python
-                            auto observer_view = make_observer_view(vd);
-                            auto observer_list = observer_view.as_tuple().at(1).as_list();
-                            ViewData elem_vd;
-                            elem_vd.path = vd.path.child(slot);
-                            elem_vd.value_data = storage->value_at_slot(slot);
-                            elem_vd.time_data = time_list.at(slot).data();
-                            elem_vd.observer_data = (slot < observer_list.size()) ? observer_list.at(slot).data() : nullptr;
-                            elem_vd.delta_data = nullptr;
-                            elem_vd.uses_link_target = vd.uses_link_target;
-                            elem_vd.ops = get_ts_ops(elem_ts);
-                            elem_vd.meta = elem_ts;
-                            nb::object py_val = elem_vd.ops->to_python(elem_vd);
-                            if (!py_val.is_none()) {
-                                result[key_view.to_python()] = py_val;
-                            }
-                        }
+            if (elem_ts->kind == TSKind::TSValue || elem_ts->kind == TSKind::SIGNAL) {
+                // Scalar element — use child view so element-level links/delegation
+                // (e.g. alternatives bound via REFLink) are respected.
+                TSView child = child_at(vd, slot, ref_query_time);
+                if (child.view_data().valid() && child.view_data().ops &&
+                    child.view_data().ops->valid(child.view_data())) {
+                    nb::object py_val = child.view_data().ops->to_python(child.view_data());
+                    if (!py_val.is_none()) {
+                        result[key_view.to_python()] = py_val;
                     }
+                }
+            } else {
+                // Composite element (TSD, TSB, TSL, TSS) — use TS-level to_python
+                auto observer_view = make_observer_view(vd);
+                auto observer_list = observer_view.as_tuple().at(1).as_list();
+                ViewData elem_vd;
+                elem_vd.path = vd.path.child(slot);
+                elem_vd.value_data = storage->value_at_slot(slot);
+                elem_vd.time_data = time_list.at(slot).data();
+                elem_vd.observer_data = (slot < observer_list.size()) ? observer_list.at(slot).data() : nullptr;
+                elem_vd.delta_data = nullptr;
+                elem_vd.uses_link_target = vd.uses_link_target;
+                elem_vd.ops = get_ts_ops(elem_ts);
+                elem_vd.meta = elem_ts;
+                nb::object py_val = elem_vd.ops->to_python(elem_vd);
+                if (!py_val.is_none()) {
+                    result[key_view.to_python()] = py_val;
                 }
             }
         }
@@ -5205,7 +5326,6 @@ nb::object delta_to_python(const ViewData& vd) {
     engine_time_t container_time = time_view.as_tuple().at(0).as<engine_time_t>();
 
     const auto* key_tm = storage->key_type();
-    const auto* val_tm = storage->value_type();
 
     nb::dict result;
 
@@ -5245,11 +5365,51 @@ nb::object delta_to_python(const ViewData& vd) {
                 } else {
                     const void* key_data = key_set.key_at_slot(slot);
                     value::View key_view(key_data, key_tm);
-                    if (val_tm && val_tm->ops) {
-                        void* val_data = storage->value_at_slot(slot);
-                        value::View val_view(val_data, val_tm);
-                        result[key_view.to_python()] = val_view.to_python();
-                        emitted_slots.insert(slot);
+                    if (elem_ts->kind == TSKind::TSValue || elem_ts->kind == TSKind::SIGNAL) {
+                        TSView child = child_at(vd, slot, container_time);
+                        if (child.view_data().valid() && child.view_data().ops) {
+                            nb::object py_delta = child.view_data().ops->delta_to_python(child.view_data());
+                            if (!py_delta.is_none()) {
+                                result[key_view.to_python()] = py_delta;
+                                emitted_slots.insert(slot);
+                            }
+                        }
+                    } else {
+                        auto observer_view = make_observer_view(vd);
+                        auto observer_list = observer_view.as_tuple().at(1).as_list();
+                        auto* link_schema = get_dict_link_schema(vd);
+                        value::View link_view;
+                        value::ListView link_list;
+                        if (vd.link_data && link_schema) {
+                            link_view = value::View(vd.link_data, link_schema);
+                            link_list = link_view.as_tuple().at(1).as_list();
+                        }
+                        ViewData elem_vd;
+                        elem_vd.path = vd.path.child(slot);
+                        elem_vd.value_data = storage->value_at_slot(slot);
+                        elem_vd.time_data = time_list.at(slot).data();
+                        elem_vd.observer_data = (slot < observer_list.size()) ? observer_list.at(slot).data() : nullptr;
+                        if (elem_ts->kind == TSKind::TSD && map_delta_ptr) {
+                            auto* inner_storage = static_cast<value::MapStorage*>(elem_vd.value_data);
+                            elem_vd.delta_data = map_delta_ptr->get_or_create_child_map_delta(slot, inner_storage);
+                        } else {
+                            elem_vd.delta_data = nullptr;
+                        }
+                        elem_vd.uses_link_target = vd.uses_link_target;
+                        elem_vd.ops = get_ts_ops(elem_ts);
+                        elem_vd.meta = elem_ts;
+                        if (link_list.valid() && slot < link_list.size()) {
+                            elem_vd.link_data = link_list.at(slot).data();
+                        }
+                        nb::object py_delta = elem_vd.ops->delta_to_python(elem_vd);
+                        bool include = !py_delta.is_none();
+                        if (include && elem_ts->kind == TSKind::TSD && nb::len(py_delta) == 0) {
+                            include = false;
+                        }
+                        if (include) {
+                            result[key_view.to_python()] = py_delta;
+                            emitted_slots.insert(slot);
+                        }
                     }
                 }
             }
@@ -5269,36 +5429,34 @@ nb::object delta_to_python(const ViewData& vd) {
         }
     }
 
-    auto* index_set = key_set.index_set();
-    if (index_set) {
-        for (auto slot : *index_set) {
-            if (emitted_slots.count(slot)) continue;
-            if (slot < time_list.size()) {
-                engine_time_t elem_time = get_elem_time(time_list, slot);
-                if (elem_is_ref) {
-                    auto* ref = static_cast<TSReference*>(storage->value_at_slot(slot));
-                    if (ref && !ref->is_empty()) {
-                        TSView target = ref->resolve(ref_current_time);
-                        if (target && target.view_data().ops) {
-                            engine_time_t target_time = target.view_data().ops->last_modified_time(target.view_data());
-                            if (target_time >= ref_current_time) {
-                                const void* key_data = key_set.key_at_slot(slot);
-                                value::View key_view(key_data, key_tm);
-                                nb::object py_val = target.view_data().ops->to_python(target.view_data());
-                                if (!py_val.is_none()) {
-                                    result[key_view.to_python()] = py_val;
-                                }
-                            }
+    for (auto slot : key_set) {
+        if (emitted_slots.count(slot)) continue;
+        if (slot >= time_list.size()) continue;
+        if (elem_is_ref) {
+            auto* ref = static_cast<TSReference*>(storage->value_at_slot(slot));
+            if (ref && !ref->is_empty()) {
+                TSView target = ref->resolve(ref_current_time);
+                if (target && target.view_data().ops) {
+                    engine_time_t target_time = target.view_data().ops->last_modified_time(target.view_data());
+                    if (target_time >= ref_current_time) {
+                        const void* key_data = key_set.key_at_slot(slot);
+                        value::View key_view(key_data, key_tm);
+                        nb::object py_val = target.view_data().ops->to_python(target.view_data());
+                        if (!py_val.is_none()) {
+                            result[key_view.to_python()] = py_val;
                         }
                     }
-                } else if (elem_time >= container_time) {
-                    const void* key_data = key_set.key_at_slot(slot);
-                    value::View key_view(key_data, key_tm);
-                    if (val_tm && val_tm->ops) {
-                        void* val_data = storage->value_at_slot(slot);
-                        value::View val_view(val_data, val_tm);
-                        result[key_view.to_python()] = val_view.to_python();
-                    }
+                }
+            }
+        } else if (elem_ts->kind == TSKind::TSValue || elem_ts->kind == TSKind::SIGNAL) {
+            const void* key_data = key_set.key_at_slot(slot);
+            value::View key_view(key_data, key_tm);
+            TSView child = child_at(vd, slot, ref_current_time);
+            if (child.view_data().valid() && child.view_data().ops &&
+                child.view_data().ops->modified(child.view_data(), ref_current_time)) {
+                nb::object py_delta = child.view_data().ops->delta_to_python(child.view_data());
+                if (!py_delta.is_none()) {
+                    result[key_view.to_python()] = py_delta;
                 }
             }
         }
@@ -5330,8 +5488,8 @@ nb::object delta_to_python(const ViewData& vd) {
 
 void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
     // If linked, delegate to target (write through)
-    if (auto* rl = get_ref_link(get_collection_link_data(vd))) {
-        if (rl->target().valid()) {
+    if (vd.path.is_root()) {
+        if (auto* rl = get_active_link(vd)) {
             ViewData target_vd = make_view_data_from_link(*rl, vd.path);
             rl->target().ops->from_python(target_vd, src, current_time);
             return;
@@ -5344,14 +5502,13 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         throw std::runtime_error("dict from_python on invalid ViewData");
     }
 
-    // Clear delta if this is a new tick (lazy clearing)
-    // The delta may contain stale data from the previous tick which would
-    // cause incorrect add/remove cancellation in SetDelta::on_erase
+    // Clear delta if this is a new tick (lazy clearing).
+    // Prevents stale per-slot entries from previous ticks from leaking into
+    // modified/removed iteration for replay-driven updates.
     if (vd.delta_data) {
         auto time_view = make_time_view(vd);
         engine_time_t container_time = time_view.as_tuple().at(0).as<engine_time_t>();
         if (current_time > container_time) {
-            // New tick - clear the delta
             auto* map_delta = static_cast<MapDelta*>(vd.delta_data);
             map_delta->clear();
         }
@@ -5430,6 +5587,26 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
 
         if (val_tm && elem_ts->kind == TSKind::TSValue) {
             // Scalar element: use value-level conversion + dict_set
+            // Some compute nodes (e.g. tsd_get_items) may emit TimeSeriesReference
+            // objects even when the wired output schema is scalar. Match Python
+            // runtime behavior by unwrapping bound references to their output value.
+            if (nb::hasattr(py_val, "has_output") && nb::hasattr(py_val, "is_empty")) {
+                bool is_empty_ref = nb::cast<bool>(py_val.attr("is_empty"));
+                if (is_empty_ref) {
+                    continue;
+                }
+                bool has_output_ref = nb::cast<bool>(py_val.attr("has_output"));
+                if (has_output_ref) {
+                    nb::object py_output = py_val.attr("output");
+                    if (!py_output.is_none() && nb::hasattr(py_output, "value")) {
+                        if (!nb::hasattr(py_output, "valid") || nb::cast<bool>(py_output.attr("valid"))) {
+                            py_val = py_output.attr("value");
+                        } else {
+                            continue;
+                        }
+                    }
+                }
+            }
             value::Value<> elem_val(val_tm);
             elem_val.view().from_python(py_val);
             dict_set(vd, key_val.view(), elem_val.view(), current_time);
@@ -5438,6 +5615,30 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
             TSView elem_view = dict_create(vd, key_val.view(), current_time);
             ViewData elem_vd = elem_view.view_data();
             get_ts_ops(elem_ts)->from_python(elem_vd, py_val, current_time);
+
+            // Ensure parent element time is stamped for composite writes done via
+            // recursive from_python (child notifier propagation can be bypassed on
+            // first-write paths during replay hydration).
+            size_t slot = static_cast<size_t>(-1);
+            const auto& indices = elem_view.view_data().path.indices();
+            if (!indices.empty()) {
+                slot = indices.back();
+            } else {
+                auto* parent_storage = static_cast<value::MapStorage*>(vd.value_data);
+                slot = parent_storage->key_set().find(key_val.view().data());
+            }
+            if (slot != static_cast<size_t>(-1)) {
+                auto time_view = make_time_view(vd);
+                auto time_list = time_view.as_tuple().at(1).as_list();
+                if (slot < time_list.size()) {
+                    set_elem_time(time_list, slot, current_time);
+                }
+                time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
+                if (vd.delta_data) {
+                    auto* map_delta = static_cast<MapDelta*>(vd.delta_data);
+                    map_delta->on_update(slot);
+                }
+            }
         }
     }
 
@@ -5482,6 +5683,7 @@ TSView child_at(const ViewData& vd, size_t slot, engine_time_t current_time) {
 
     auto time_view = make_time_view(vd);
     auto observer_view = make_observer_view(vd);
+    if (!time_view.valid() || !observer_view.valid()) return TSView{};
 
     // 'slot' is a STORAGE SLOT index (same convention as child_by_key and ShortPath).
     // child_by_key stores storage slots in the path, and ShortPath::resolve() navigates
@@ -5494,8 +5696,13 @@ TSView child_at(const ViewData& vd, size_t slot, engine_time_t current_time) {
     ViewData elem_vd;
     elem_vd.path = vd.path.child(slot);
     elem_vd.value_data = storage->value_at_slot(slot);
-    elem_vd.time_data = time_view.as_tuple().at(1).as_list().at(slot).data();
-    elem_vd.observer_data = observer_view.as_tuple().at(1).as_list().at(slot).data();
+    auto time_list = time_view.as_tuple().at(1).as_list();
+    auto observer_list = observer_view.as_tuple().at(1).as_list();
+    if (slot >= time_list.size() || slot >= observer_list.size()) {
+        return TSView{};
+    }
+    elem_vd.time_data = time_list.at(slot).data();
+    elem_vd.observer_data = observer_list.at(slot).data();
     // For nested TSD elements, provide a child MapDelta for delta tracking.
     // This allows nested TSD key_set() and delta access to work correctly.
     if (elem_meta->kind == TSKind::TSD && vd.delta_data) {
@@ -5558,6 +5765,7 @@ TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t cu
 
     auto time_view = make_time_view(vd);
     auto observer_view = make_observer_view(vd);
+    if (!time_view.valid() || !observer_view.valid()) return TSView{};
 
     // Find the slot for this key
     auto* storage = static_cast<value::MapStorage*>(vd.value_data);
@@ -5576,6 +5784,9 @@ TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t cu
     {
         auto time_list = time_view.as_tuple().at(1).as_list();
         auto obs_list = observer_view.as_tuple().at(1).as_list();
+        if (slot >= time_list.size() || slot >= obs_list.size()) {
+            return TSView{};
+        }
         elem_vd.time_data = time_list.at(slot).data();
         elem_vd.observer_data = obs_list.at(slot).data();
     }
@@ -5629,8 +5840,8 @@ value::View observer(const ViewData& vd) {
 
 void notify_observers(ViewData& vd, engine_time_t current_time) {
     // If linked, delegate to target
-    if (auto* rl = get_ref_link(get_collection_link_data(vd))) {
-        if (rl->target().valid()) {
+    if (vd.path.is_root()) {
+        if (auto* rl = get_active_link(vd)) {
             ViewData target_vd = make_view_data_from_link(*rl, vd.path);
             rl->target().ops->notify_observers(target_vd, current_time);
             return;
@@ -5767,8 +5978,8 @@ bool is_peered(const ViewData& vd) {
 
 bool dict_remove(ViewData& vd, const value::View& key, engine_time_t current_time) {
     // If linked, delegate to target (write through)
-    if (auto* rl = get_ref_link(get_collection_link_data(vd))) {
-        if (rl->target().valid()) {
+    if (vd.path.is_root()) {
+        if (auto* rl = get_active_link(vd)) {
             ViewData target_vd = make_view_data_from_link(*rl, vd.path);
             return rl->target().ops->dict_remove(target_vd, key, current_time);
         }
@@ -5780,6 +5991,33 @@ bool dict_remove(ViewData& vd, const value::View& key, engine_time_t current_tim
 
     // Get the MapStorage
     auto* storage = static_cast<value::MapStorage*>(vd.value_data);
+
+    // Capture slot before removal so we can propagate nested-TSD removal deltas.
+    size_t slot = storage->key_set().find(key.data());
+    if (slot != static_cast<size_t>(-1) && vd.meta && vd.meta->element_ts &&
+        vd.meta->element_ts->kind == TSKind::TSD) {
+        // Mark the removed element as modified at this tick so removed_items()
+        // consumers can query its nested delta.
+        auto time_view = make_time_view(vd);
+        auto time_list = time_view.as_tuple().at(1).as_list();
+        if (slot < time_list.size()) {
+            set_elem_time(time_list, slot, current_time);
+        }
+
+        // Seed inner delta with per-key removals without mutating inner storage.
+        // This matches Python semantics where removing an outer key exposes
+        // nested removed_keys() for the removed inner TSD value.
+        auto* parent_delta = vd.delta_data ? static_cast<MapDelta*>(vd.delta_data) : nullptr;
+        auto* inner_storage = static_cast<value::MapStorage*>(storage->value_at_slot(slot));
+        if (parent_delta && inner_storage) {
+            if (auto* child_delta = parent_delta->get_or_create_child_map_delta(slot, inner_storage)) {
+                for (auto inner_slot : inner_storage->key_set()) {
+                    child_delta->on_erase(inner_slot);
+                }
+                child_delta->set_key_time(current_time);
+            }
+        }
+    }
 
     // Remove the key (MapDelta is notified via SlotObserver if registered)
     bool removed = storage->remove(key.data());
@@ -5806,8 +6044,8 @@ bool dict_remove(ViewData& vd, const value::View& key, engine_time_t current_tim
 
 TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_time) {
     // If linked, delegate to target (write through)
-    if (auto* rl = get_ref_link(get_collection_link_data(vd))) {
-        if (rl->target().valid()) {
+    if (vd.path.is_root()) {
+        if (auto* rl = get_active_link(vd)) {
             ViewData target_vd = make_view_data_from_link(*rl, vd.path);
             return rl->target().ops->dict_create(target_vd, key, current_time);
         }
@@ -5963,8 +6201,8 @@ TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_t
 
 TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, engine_time_t current_time) {
     // If linked, delegate to target (write through)
-    if (auto* rl = get_ref_link(get_collection_link_data(vd))) {
-        if (rl->target().valid()) {
+    if (vd.path.is_root()) {
+        if (auto* rl = get_active_link(vd)) {
             ViewData target_vd = make_view_data_from_link(*rl, vd.path);
             return rl->target().ops->dict_set(target_vd, key, value, current_time);
         }

@@ -157,16 +157,29 @@ const TSMeta* REFLink::dereferenced_meta() const noexcept {
 }
 
 void REFLink::notify(engine_time_t et) {
-    // Time-accounting: always propagate up
+    // REF-specific: if REF source changed, rebind target BEFORE propagating.
+    // In Python, reference_observers are notified via bind_input() which is
+    // a no-op for empty refs. So if rebinding yields an empty target, we must
+    // NOT propagate the notification to the owning input.
+    if (ref_source_bound_) {
+        TSView ref_view(ref_source_view_data_, et);
+        if (ref_view && ref_view.last_modified_time() >= et) {
+            // REF source changed at this tick — rebind first
+            rebind_target(et);
+            if (!target_.valid()) {
+                // New target is empty — don't notify the dereferenced input.
+                // This matches Python where EmptyTimeSeriesReference.bind_input()
+                // is a no-op, so _reference_observers are NOT notified.
+                return;
+            }
+        }
+    }
+
+    // Time-accounting: propagate up (target value changed, or ref rebound to valid target)
     if (last_notify_time_ != et) {
         last_notify_time_ = et;
         if (owner_time_ptr_) *owner_time_ptr_ = et;
         if (parent_link_) parent_link_->notify(et);
-    }
-
-    // REF-specific: if REF source changed, rebind target
-    if (ref_source_bound_) {
-        rebind_target(et);
     }
 }
 

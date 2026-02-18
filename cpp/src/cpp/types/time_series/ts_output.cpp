@@ -188,6 +188,105 @@ struct ContainsTracking : Notifiable {
 };
 
 // ============================================================================
+// IsEmptyTracking - tracks TSS empty state as TS[bool]
+// ============================================================================
+
+struct IsEmptyTracking : Notifiable {
+    TSOutput* owner_;
+    const TSMeta* explicit_tss_meta_{nullptr};  // Non-null when owner is TSD (key_set case)
+    ObserverList* registered_obs_{nullptr};
+    std::unique_ptr<TSValue> ts_bool_;
+    const TSMeta* ts_bool_meta_{nullptr};
+
+    explicit IsEmptyTracking(TSOutput* owner, const TSMeta* tss_meta = nullptr)
+        : owner_(owner), explicit_tss_meta_(tss_meta) {}
+
+    ~IsEmptyTracking() override {
+        if (registered_obs_) {
+            registered_obs_->remove_observer(this);
+        }
+    }
+
+    /// Get the effective TSS meta — either explicit (TSD key_set case) or from owner
+    const TSMeta* get_tss_meta(engine_time_t current_time) const {
+        if (explicit_tss_meta_) return explicit_tss_meta_;
+        return owner_->view(current_time).ts_meta();
+    }
+
+    /// Get the TSS set view for emptiness checks.
+    /// When owner is TSD, gets the key_set view; otherwise gets owner's TSS view directly.
+    TSSView get_set_view(engine_time_t current_time) const {
+        auto output_view = owner_->view(current_time);
+        if (explicit_tss_meta_) {
+            return output_view.ts_view().as_dict().key_set();
+        }
+        return output_view.ts_view().as_set();
+    }
+
+    bool compute_empty(engine_time_t current_time) const {
+        TSSView set_view = get_set_view(current_time);
+        if (!set_view.view_data().valid()) {
+            // For invalid/unset collections, Python semantics treat is_empty as True.
+            return true;
+        }
+        return set_view.size() == 0;
+    }
+
+    void init(engine_time_t current_time) {
+        if (ts_bool_) return;
+
+        auto& registry = TSTypeRegistry::instance();
+        auto& cache = TSMetaSchemaCache::instance();
+
+        ts_bool_meta_ = registry.ts(cache.bool_meta());
+        ts_bool_ = std::make_unique<TSValue>(ts_bool_meta_);
+
+        bool is_empty = compute_empty(current_time);
+        TSView bool_view = ts_bool_->ts_view(current_time);
+        value::View bool_value(&is_empty, cache.bool_meta());
+        bool_view.set_value(bool_value);
+
+        // Subscribe to the owner container observer.
+        auto output_view = owner_->view(current_time);
+        const auto* owner_meta = output_view.ts_meta();
+        auto observer_schema = cache.get_observer_schema(owner_meta);
+        auto observer_tuple = value::View(output_view.ts_view().view_data().observer_data, observer_schema);
+        registered_obs_ = static_cast<ObserverList*>(observer_tuple.as_tuple().at(0).data());
+        if (registered_obs_) {
+            registered_obs_->add_observer(this);
+        }
+    }
+
+    TSView get_view(engine_time_t current_time) {
+        init(current_time);
+        if (!ts_bool_) return TSView{};
+        return ts_bool_->ts_view(current_time);
+    }
+
+    // Notifiable callback — fired when TSS/TSD content changes
+    void notify(engine_time_t time) override {
+        if (!ts_bool_) return;
+
+        auto& cache = TSMetaSchemaCache::instance();
+        bool is_empty = compute_empty(time);
+
+        TSView bool_view = ts_bool_->ts_view(time);
+        if (!bool_view) return;
+
+        bool current = false;
+        auto current_view = bool_view.value();
+        if (current_view.valid()) {
+            current = current_view.as<bool>();
+        }
+
+        if (current != is_empty) {
+            value::View bool_value(&is_empty, cache.bool_meta());
+            bool_view.set_value(bool_value);
+        }
+    }
+};
+
+// ============================================================================
 // AlternativeTimePropagator - copies native container time to alternative
 // ============================================================================
 
@@ -214,12 +313,14 @@ AlternativeStructuralObserver::AlternativeStructuralObserver(
     TSOutput* output,
     TSValue* alt,
     const TSMeta* native_meta,
-    const TSMeta* target_meta
+    const TSMeta* target_meta,
+    std::vector<size_t> relative_path
 )
     : output_(output)
     , alt_(alt)
     , native_meta_(native_meta)
     , target_meta_(target_meta)
+    , relative_path_(std::move(relative_path))
     , registered_key_set_(nullptr)
 {}
 
@@ -247,6 +348,31 @@ void AlternativeStructuralObserver::on_capacity(size_t /*old_cap*/, size_t /*new
     // Alternative capacity is managed separately - no action needed
 }
 
+engine_time_t AlternativeStructuralObserver::callback_time() const {
+    if (output_ && output_->owning_node() && output_->owning_node()->graph()) {
+        return output_->owning_node()->graph()->evaluation_time();
+    }
+    return MIN_DT;
+}
+
+bool AlternativeStructuralObserver::resolve_collection_views(engine_time_t current_time, TSView& native_view, TSView& alt_view) const {
+    if (!output_ || !alt_) return false;
+
+    native_view = output_->native_value().ts_view(current_time);
+    native_view.view_data().path = output_->root_path();
+    alt_view = alt_->ts_view(current_time);
+
+    for (size_t idx : relative_path_) {
+        if (!native_view || !alt_view) {
+            return false;
+        }
+        native_view = native_view[idx];
+        alt_view = alt_view[idx];
+    }
+
+    return native_view && alt_view;
+}
+
 void AlternativeStructuralObserver::on_insert(size_t slot) {
     // A new element was added to the native at this slot
     // We need to create the corresponding element in the alternative
@@ -254,18 +380,19 @@ void AlternativeStructuralObserver::on_insert(size_t slot) {
 
     if (!output_ || !alt_) return;
 
-    // Get native and alternative views at setup time
-    engine_time_t setup_time = MIN_DT;
-    TSView native_view = output_->native_value().ts_view(setup_time);
-    // Set valid path so Case 3 (TS→REF) can create resolvable TSReferences
-    native_view.view_data().path = output_->root_path();
-    TSView alt_view = alt_->ts_view(setup_time);
+    engine_time_t current_time = callback_time();
+    TSView native_view;
+    TSView alt_view;
+    if (!resolve_collection_views(current_time, native_view, alt_view)) return;
+    if (native_view.ts_meta()->kind != TSKind::TSD || alt_view.ts_meta()->kind != TSKind::TSD) return;
 
     // Extract key from native MapStorage at the given storage slot
     const ViewData& native_vd = native_view.view_data();
+    if (!native_vd.value_data) return;
     auto* native_storage = static_cast<value::MapStorage*>(native_vd.value_data);
     const void* key_data = native_storage->key_at_slot(slot);
-    value::View key_view(key_data, native_meta_->key_type);
+    if (!key_data) return;
+    value::View key_view(key_data, native_view.ts_meta()->key_type);
 
     // Get native element by key
     TSView native_elem = native_view.as_dict().at(key_view);
@@ -276,8 +403,8 @@ void AlternativeStructuralObserver::on_insert(size_t slot) {
     if (!native_elem || !alt_elem) return;
 
     // Get element schemas
-    const TSMeta* native_elem_meta = native_meta_->element_ts;
-    const TSMeta* target_elem_meta = target_meta_->element_ts;
+    const TSMeta* native_elem_meta = native_view.ts_meta()->element_ts;
+    const TSMeta* target_elem_meta = alt_view.ts_meta()->element_ts;
 
     // Establish the link for this new element
     output_->establish_links_recursive(
@@ -299,51 +426,23 @@ void AlternativeStructuralObserver::on_erase(size_t slot) {
 
     if (!output_ || !alt_) return;
 
-    // Get current evaluation time from the owning node's graph
-    engine_time_t current_time = MIN_DT;
-    if (output_->owning_node() && output_->owning_node()->graph()) {
-        current_time = output_->owning_node()->graph()->evaluation_time();
-    }
-
-    // Get native and alternative views
-    TSView native_view = output_->native_value().ts_view(current_time);
-    TSView alt_view = alt_->ts_view(current_time);
+    engine_time_t current_time = callback_time();
+    TSView native_view;
+    TSView alt_view;
+    if (!resolve_collection_views(current_time, native_view, alt_view)) return;
+    if (native_view.ts_meta()->kind != TSKind::TSD || alt_view.ts_meta()->kind != TSKind::TSD) return;
 
     // Extract key from native MapStorage (key data still valid during erase callback)
     const ViewData& native_vd = native_view.view_data();
+    if (!native_vd.value_data) return;
     auto* native_storage = static_cast<value::MapStorage*>(native_vd.value_data);
     const void* key_data = native_storage->key_at_slot(slot);
-    value::View key_view(key_data, native_meta_->key_type);
+    if (!key_data) return;
+    value::View key_view(key_data, native_view.ts_meta()->key_type);
 
-    // Check if this is a REF alternative (target element is REF kind)
-    if (target_meta_->element_ts && target_meta_->element_ts->kind == TSKind::REF) {
-        // Update the alternative element's TSReference to empty rather than removing
-        TSDView alt_dict = alt_view.as_dict();
-        if (alt_dict.contains(key_view)) {
-            TSView alt_elem = alt_dict.at(key_view);
-            if (alt_elem) {
-                // Set TSReference to empty
-                void* value_data = alt_elem.view_data().value_data;
-                if (value_data) {
-                    auto* ref_ptr = static_cast<TSReference*>(value_data);
-                    *ref_ptr = TSReference();  // empty
-                }
-                // Mark element as modified at current time
-                auto* elem_time = static_cast<engine_time_t*>(alt_elem.view_data().time_data);
-                if (elem_time) {
-                    *elem_time = current_time;
-                }
-                // Notify the element's observers so subscribers see the change
-                if (alt_elem.view_data().observer_data) {
-                    auto* observers = static_cast<ObserverList*>(alt_elem.view_data().observer_data);
-                    observers->notify_modified(current_time);
-                }
-            }
-        }
-    } else {
-        // Non-REF alternative: remove from alternative by key (original behavior)
-        alt_view.as_dict().remove(key_view);
-    }
+    // Remove from the corresponding alternative collection.
+    // This preserves removed_keys()/removed_items() semantics for downstream nodes.
+    alt_view.as_dict().remove(key_view);
 }
 
 
@@ -356,10 +455,10 @@ void AlternativeStructuralObserver::on_clear() {
     // All elements were cleared from native
     // Clear all links in the alternative
 
-    if (!alt_) return;
-
-    engine_time_t setup_time = MIN_DT;
-    TSView alt_view = alt_->ts_view(setup_time);
+    engine_time_t current_time = callback_time();
+    TSView native_view;
+    TSView alt_view;
+    if (!resolve_collection_views(current_time, native_view, alt_view)) return;
 
     // For TSD/TSL, iterate and unbind all elements
     // This is a simplified approach - more sophisticated would track each element
@@ -411,6 +510,7 @@ TSOutput::TSOutput(TSOutput&& other) noexcept
     , owning_node_(other.owning_node_)
     , port_index_(other.port_index_)
     , contains_tracking_(std::exchange(other.contains_tracking_, nullptr))
+    , is_empty_tracking_(std::exchange(other.is_empty_tracking_, nullptr))
 {
     other.owning_node_ = nullptr;
     other.port_index_ = 0;
@@ -419,6 +519,7 @@ TSOutput::TSOutput(TSOutput&& other) noexcept
 TSOutput& TSOutput::operator=(TSOutput&& other) noexcept {
     if (this != &other) {
         delete static_cast<ContainsTracking*>(contains_tracking_);
+        delete static_cast<IsEmptyTracking*>(is_empty_tracking_);
         native_value_ = std::move(other.native_value_);
         alternatives_ = std::move(other.alternatives_);
         structural_observers_ = std::move(other.structural_observers_);
@@ -427,6 +528,7 @@ TSOutput& TSOutput::operator=(TSOutput&& other) noexcept {
         owning_node_ = other.owning_node_;
         port_index_ = other.port_index_;
         contains_tracking_ = std::exchange(other.contains_tracking_, nullptr);
+        is_empty_tracking_ = std::exchange(other.is_empty_tracking_, nullptr);
         other.owning_node_ = nullptr;
         other.port_index_ = 0;
     }
@@ -435,6 +537,7 @@ TSOutput& TSOutput::operator=(TSOutput&& other) noexcept {
 
 TSOutput::~TSOutput() {
     delete static_cast<ContainsTracking*>(contains_tracking_);
+    delete static_cast<IsEmptyTracking*>(is_empty_tracking_);
 }
 
 TSView TSOutput::get_contains_view(const value::View& key, void* requester, engine_time_t current_time,
@@ -448,6 +551,13 @@ TSView TSOutput::get_contains_view(const value::View& key, void* requester, engi
 void TSOutput::release_contains(const value::View& key, void* requester) {
     if (!contains_tracking_) return;
     static_cast<ContainsTracking*>(contains_tracking_)->release(key, requester);
+}
+
+TSView TSOutput::get_is_empty_view(engine_time_t current_time, const TSMeta* tss_meta) {
+    if (!is_empty_tracking_) {
+        is_empty_tracking_ = new IsEmptyTracking(this, tss_meta);
+    }
+    return static_cast<IsEmptyTracking*>(is_empty_tracking_)->get_view(current_time);
 }
 
 TSOutputView TSOutput::view(engine_time_t current_time) {
@@ -628,8 +738,16 @@ void TSOutput::establish_links_recursive(
         // Element types differ - need per-element conversion
         // Create a structural observer to keep alternative in sync with native
 
+        std::vector<size_t> relative_path;
+        const auto& native_indices = native_view.short_path().indices();
+        if (!native_indices.empty()) {
+            // short_path includes the output port index at root; skip it so
+            // we can resolve from TSValue roots in callbacks.
+            relative_path.assign(native_indices.begin() + 1, native_indices.end());
+        }
+
         auto observer = std::make_unique<AlternativeStructuralObserver>(
-            this, &alt, native_meta, target_meta
+            this, &alt, native_meta, target_meta, std::move(relative_path)
         );
 
         // Subscribe the observer to native's structural changes
