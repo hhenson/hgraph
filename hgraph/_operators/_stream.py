@@ -65,7 +65,7 @@ def schedule(
     start: datetime = None,
     initial_delay: bool = True,
     max_ticks: int = sys.maxsize,
-    on_wall_clock: bool = False,
+    use_wall_clock: bool = False,
 ) -> TS[bool]:
     """
     Generates regular ticks in the graph that tick at the specified delay. For example,
