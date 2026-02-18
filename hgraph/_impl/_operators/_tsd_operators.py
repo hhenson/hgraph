@@ -4,7 +4,7 @@ from datetime import date, datetime
 from statistics import stdev, variance
 from typing import Callable, Set, Tuple, Type, cast
 
-from hgraph import K_2, TIME_SERIES_TYPE_1, HgTSDTypeMetaData, HgTupleFixedScalarType, and_, default
+from hgraph import K_2, TIME_SERIES_TYPE_1, HgTSDTypeMetaData, HgTupleFixedScalarType, and_, default, set_delta
 from hgraph._operators import (
     add_,
     bit_and,
@@ -269,21 +269,127 @@ def bit_xor_tsds(lhs: TSD[K, TIME_SERIES_TYPE], rhs: TSD[K, TIME_SERIES_TYPE]) -
     return merge(tsd_get_items(lhs, keys), tsd_get_items(rhs, keys))
 
 
-@graph(overloads=eq_)
-def eq_tsds(lhs: TSD[K, TIME_SERIES_TYPE], rhs: TSD[K, TIME_SERIES_TYPE], epsilon: TS[float] = None) -> TS[bool]:
-    return reduce(
-        lambda l, r: and_(l, r),
-        map_(lambda l, r: default(eq_(l, r) if epsilon is None else eq_(l, r, epsilon=epsilon), False), lhs, rhs),
-        True,
-    )
+@dataclass
+class TsdEqState(CompoundScalar):
+    lhs: dict = field(default_factory=dict)
+    rhs: dict = field(default_factory=dict)
+
+
+def _update_tsd_snapshot(ts: TSD[K, TIME_SERIES_TYPE], snapshot: dict) -> None:
+    for key in ts.removed_keys():
+        snapshot.pop(key, None)
+
+    for key in ts.modified_keys():
+        child = ts[key]
+        snapshot[key] = child if hasattr(child, "modified_keys") else child.value
+
+
+@compute_node(overloads=eq_)
+def eq_tsds(
+    lhs: TSD[K, TIME_SERIES_TYPE],
+    rhs: TSD[K, TIME_SERIES_TYPE],
+    epsilon: TS[float] = None,
+    _state: STATE[TsdEqState] = None,
+) -> TS[bool]:
+    _update_tsd_snapshot(lhs, _state.lhs)
+    _update_tsd_snapshot(rhs, _state.rhs)
+
+    lhs_keys = set(_state.lhs.keys())
+    rhs_keys = set(_state.rhs.keys())
+    if lhs_keys != rhs_keys:
+        return False
+
+    epsilon_value = epsilon.value if epsilon is not None and epsilon.valid else None
+    for key in lhs_keys:
+        left = _state.lhs[key]
+        right = _state.rhs[key]
+        if (
+            epsilon_value is not None
+            and isinstance(left, (int, float))
+            and isinstance(right, (int, float))
+            and abs(float(left) - float(right)) > float(epsilon_value)
+        ):
+            return False
+        if epsilon_value is None and left != right:
+            return False
+        if epsilon_value is not None and not isinstance(left, (int, float)) and left != right:
+            return False
+
+    return True
 
 
 def get_schema_type(schema: Type[TS_SCHEMA], key: str) -> Type[TIME_SERIES_TYPE]:
     return schema[key].py_type
 
 
+def _as_ref(ts_like) -> TimeSeriesReference:
+    """
+    Normalize REF wrappers and directly-bound TS inputs to a TimeSeriesReference.
+    """
+    candidates = [ts_like]
+    for attr in ("output", "reference_output"):
+        try:
+            candidate = getattr(ts_like, attr)
+        except Exception:
+            candidate = None
+        if candidate is not None:
+            candidates.append(candidate)
+
+    for candidate in candidates:
+        try:
+            ref = TimeSeriesReference.make(candidate)
+            if not ref.is_empty:
+                return ref
+        except Exception:
+            continue
+
+    return TimeSeriesReference.make()
+
+
 @compute_node(
     overloads=getattr_,
+    resolvers={TIME_SERIES_TYPE: lambda mapping, key: get_schema_type(mapping[TS_SCHEMA], key)},
+)
+def tsd_get_bundle_item_direct(
+    tsd: TSD[K, TSB[TS_SCHEMA]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+) -> TSD[K, TIME_SERIES_TYPE]:
+    """
+    Direct bundle-field extraction for non-REF TSD elements.
+    """
+    out = {}
+    for k, v in tsd.modified_items():
+        if v.valid:
+            field = v[key]
+            if field.valid:
+                out[k] = field.value
+
+    for k in tsd.removed_keys():
+        out[k] = REMOVE_IF_EXISTS
+
+    return out
+
+
+@graph(
+    overloads=getattr_,
+    resolvers={TIME_SERIES_TYPE: lambda mapping, key: get_schema_type(mapping[TS_SCHEMA], key)},
+)
+def tsd_get_bundle_item_2_direct(
+    tsd: TSD[K, TSD[K_1, TSB[TS_SCHEMA]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+) -> TSD[K, TSD[K_1, TIME_SERIES_TYPE]]:
+    return map_(lambda x: getattr_(x, key), tsd)
+
+
+@graph(
+    overloads=getattr_,
+    resolvers={TIME_SERIES_TYPE: lambda mapping, key: get_schema_type(mapping[TS_SCHEMA], key)},
+)
+def tsd_get_bundle_item_3_direct(
+    tsd: TSD[K, TSD[K_1, TSD[K_2, TSB[TS_SCHEMA]]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
+) -> TSD[K, TSD[K_1, TSD[K_2, TIME_SERIES_TYPE]]]:
+    return map_(lambda x: getattr_(x, key), tsd)
+
+
+@compute_node(
     resolvers={TIME_SERIES_TYPE: lambda mapping, key: get_schema_type(mapping[TS_SCHEMA], key)},
 )
 def tsd_get_bundle_item(
@@ -294,11 +400,12 @@ def tsd_get_bundle_item(
     """
     out = {}
     for k, v in tsd.modified_items():
-        if not v.value.is_empty:
-            if v.value.has_output:
-                out[k] = TimeSeriesReference.make(v.value.output[key])
+        ref = _as_ref(v)
+        if not ref.is_empty:
+            if ref.has_output and ref.output is not None:
+                out[k] = TimeSeriesReference.make(ref.output[key])
             else:
-                out[k] = v.value.items[_schema._schema_index_of(key)]
+                out[k] = ref.items[_schema._schema_index_of(key)]
         else:
             out[k] = TimeSeriesReference.make()
     for k in tsd.removed_keys():
@@ -317,7 +424,6 @@ def tsd_get_bundle_item_nested(
 
 
 @graph(
-    overloads=getattr_,
     resolvers={TIME_SERIES_TYPE: lambda mapping, key: get_schema_type(mapping[TS_SCHEMA], key)},
 )
 def tsd_get_bundle_item_2(
@@ -327,7 +433,6 @@ def tsd_get_bundle_item_2(
 
 
 @graph(
-    overloads=getattr_,
     resolvers={TIME_SERIES_TYPE: lambda mapping, key: get_schema_type(mapping[TS_SCHEMA], key)},
 )
 def tsd_get_bundle_item_3(
@@ -355,23 +460,63 @@ def tsd_get_cs_item(tsd: TSD[K, TS[SCHEMA]], key: str, _schema: Type[SCHEMA] = A
     return out
 
 
+@dataclass
+class NestedTsdState(CompoundScalar):
+    nested: dict = field(default_factory=dict)
+    output: dict = field(default_factory=dict)
+
+
+def _update_nested_tsd_snapshot(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], snapshot: dict) -> None:
+    for outer_key in ts.removed_keys():
+        snapshot.pop(outer_key, None)
+
+    for outer_key, inner in ts.modified_items():
+        if inner is None:
+            snapshot.pop(outer_key, None)
+            continue
+
+        inner_snapshot = dict(snapshot.get(outer_key, {}))
+        had_inner_delta = False
+
+        for inner_key in inner.removed_keys():
+            inner_snapshot.pop(inner_key, None)
+            had_inner_delta = True
+
+        for inner_key, inner_value in inner.modified_items():
+            inner_snapshot[inner_key] = _as_ref(inner_value)
+            had_inner_delta = True
+
+        if inner_snapshot:
+            snapshot[outer_key] = inner_snapshot
+        else:
+            snapshot.pop(outer_key, None)
+
+
+def _diff_flat_tsd(previous: dict, current: dict) -> dict:
+    out = {key: REMOVE_IF_EXISTS for key in previous.keys() - current.keys()}
+    out.update({key: value for key, value in current.items() if previous.get(key) != value})
+    return out
+
+
 @compute_node
-def _collapse_keys_tsd_impl(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]]:
+def _collapse_keys_tsd_impl(
+    ts: TSD[K, TSD[K_1, TIME_SERIES_TYPE]], _state: STATE[NestedTsdState] = None
+) -> TSD[Tuple[K, K_1], TIME_SERIES_TYPE]:
     """
     Collapse the nested TSDs to a TSD with a tuple key.
     """
-    out = {}
+    snapshot_value = ts.value
+    _state.nested = {outer_key: dict(inner.items()) for outer_key, inner in (snapshot_value or {}).items()}
+    current = {
+        (outer_key, inner_key): value
+        for outer_key, inner_values in _state.nested.items()
+        for inner_key, value in inner_values.items()
+    }
 
-    for k, v in ts.removed_items():
-        if v is not None:
-            out.update({(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
-
-    for k, v in ts.modified_items():
-        if v is not None:
-            out.update({(k, k1): v1.value for k1, v1 in v.modified_items()})
-            out.update({(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
-
-    return out
+    out = _diff_flat_tsd(_state.output, current)
+    _state.output = dict(current)
+    if out:
+        return out
 
 
 def _key_type_as_tuple(tp):
@@ -379,23 +524,27 @@ def _key_type_as_tuple(tp):
 
 
 @compute_node(resolvers={SCALAR: lambda m: Tuple[*(_key_type_as_tuple(m[K]) + _key_type_as_tuple(m[K_1]))]})
-def _collapse_merge_keys_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[SCALAR, REF[TIME_SERIES_TYPE]]:
+def _collapse_merge_keys_tsd(
+    ts: TSD[K, TSD[K_1, TIME_SERIES_TYPE]], _state: STATE[NestedTsdState] = None
+) -> TSD[SCALAR, TIME_SERIES_TYPE]:
     """
     Collapse the nested TSDs to a TSD with a tuple key, merging keys if they are tuples.
     """
-    out = {}
-
     def merge_key(a, b):
         return ((a,) if not isinstance(a, tuple) else a) + ((b,) if not isinstance(b, tuple) else b)
 
-    for k, v in ts.removed_items():
-        out.update({merge_key(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
+    snapshot_value = ts.value
+    _state.nested = {outer_key: dict(inner.items()) for outer_key, inner in (snapshot_value or {}).items()}
+    current = {
+        merge_key(outer_key, inner_key): value
+        for outer_key, inner_values in _state.nested.items()
+        for inner_key, value in inner_values.items()
+    }
 
-    for k, v in ts.modified_items():
-        out.update({merge_key(k, k1): v1.value for k1, v1 in v.modified_items()})
-        out.update({merge_key(k, k1): REMOVE_IF_EXISTS for k1 in v.removed_keys()})
-
-    return out
+    out = _diff_flat_tsd(_state.output, current)
+    _state.output = dict(current)
+    if out:
+        return out
 
 
 @graph(overloads=collapse_keys)
@@ -418,6 +567,7 @@ def collapse_keys_tsd(
 def uncollapse_keys_tsd(
     ts: TSD[Tuple[K, K_1], REF[TIME_SERIES_TYPE]],
     remove_empty: bool = True,
+    remove_outer_keys: TS[Set[K]] = None,
     _output: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]] = None,
 ) -> TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]:
     """
@@ -442,6 +592,10 @@ def uncollapse_keys_tsd(
 
     if remove_empty:
         for k in removed:
+            out[k] = REMOVE_IF_EXISTS
+
+    if remove_outer_keys is not None and remove_outer_keys.valid:
+        for k in remove_outer_keys.value:
             out[k] = REMOVE_IF_EXISTS
 
     return out
@@ -519,6 +673,52 @@ def uncollapse_more_keys_tsd(ts: TSD[K, REF[TIME_SERIES_TYPE]], remove_empty: bo
 @dataclass
 class TsdRekeyState(CompoundScalar):
     prev: dict = field(default_factory=dict)  # Previous new keys
+    ts_values: dict = field(default_factory=dict)
+    output: dict = field(default_factory=dict)
+
+
+@dataclass
+class TsdPartitionState(CompoundScalar):
+    ts_values: dict = field(default_factory=dict)
+    partition_values: dict = field(default_factory=dict)
+    output: dict = field(default_factory=dict)
+
+
+@dataclass
+class TsdUnpartitionState(CompoundScalar):
+    flattened: dict = field(default_factory=dict)
+    sources: dict = field(default_factory=dict)
+
+
+def _unpartition_snapshot_impl(
+    tsd: TSD[K_1, TSD[K, TIME_SERIES_TYPE]], _state: STATE[TsdUnpartitionState]
+) -> TSD[K, TIME_SERIES_TYPE]:
+    snapshot_value = tsd.value
+    snapshot = dict(snapshot_value.items()) if snapshot_value is not None else {}
+
+    flattened = {}
+    sources = {}
+    for partition, values in snapshot.items():
+        if values is None:
+            continue
+        for key, value in values.items():
+            flattened[key] = value
+            sources[key] = partition
+
+    previous_flattened = _state.flattened
+    previous_sources = _state.sources
+    removed = {k: REMOVE_IF_EXISTS for k in previous_flattened.keys() - flattened.keys()}
+    out = {
+        key: value
+        for key, value in flattened.items()
+        if previous_flattened.get(key) != value or previous_sources.get(key) != sources.get(key)
+    }
+
+    _state.flattened = dict(flattened)
+    _state.sources = dict(sources)
+
+    if removed or out:
+        return removed | out
 
 
 @compute_node(overloads=rekey, valid=("new_keys",))
@@ -530,38 +730,33 @@ def rekey_tsd(
 
     The expectation is that the set of new keys are distinct producing a 1-1 mapping.
     """
-    out = {}
     prev = _state.prev
+    ts_values = _state.ts_values
 
-    # Removed tsd items
     for k in ts.removed_keys():
-        k_new = prev.get(k)
-        if k_new is not None:
-            out[k_new] = REMOVE_IF_EXISTS
+        ts_values.pop(k, None)
+    for k, v in ts.modified_items():
+        ts_values[k] = v.value
+    if not ts_values and ts.valid:
+        ts_values.update({k: v.value for k, v in ts.valid_items()})
 
-    # Removed key mappings
     for ts_key in new_keys.removed_keys():
-        prev_key = prev.pop(ts_key, None)
-        if prev_key is not None:
-            out[prev_key] = REMOVE_IF_EXISTS
-
-    # Modified key mappings
+        prev.pop(ts_key, None)
     for ts_key, new_key in new_keys.modified_items():
-        new_key = new_key.value
-        prev_key = prev.get(ts_key, None)
-        if prev_key is not None and new_key != prev_key:
-            out[prev_key] = REMOVE_IF_EXISTS
-        prev[ts_key] = new_key
-        v = ts.get(ts_key)
-        if v is not None:
-            out[new_key] = v.value
+        prev[ts_key] = new_key.value
+    if not prev and new_keys.valid:
+        prev.update({ts_key: key.value for ts_key, key in new_keys.valid_items()})
 
-    # Modified tsd items
-    if ts.valid:
-        for k, v in ts.modified_items():
-            k_new = prev.get(k, None)
-            if k_new is not None:
-                out[k_new] = v.value
+    current_output = {}
+    for ts_key, value in ts_values.items():
+        key = prev.get(ts_key)
+        if key is not None:
+            current_output[key] = value
+
+    previous_output = _state.output
+    out = {k: REMOVE_IF_EXISTS for k in previous_output.keys() - current_output.keys()}
+    out.update({k: v for k, v in current_output.items() if previous_output.get(k) != v})
+    _state.output = dict(current_output)
 
     if out:
         return out
@@ -572,33 +767,31 @@ def rekey_tsd_with_set(
     tsd: TSD[K, REF[TIME_SERIES_TYPE]], new_keys: TSD[K, TSS[K_1]], _state: STATE[TsdRekeyState] = None
 ) -> TSD[K_1, REF[TIME_SERIES_TYPE]]:
     prev = _state.prev
+    ts_values = _state.ts_values
 
-    # Removed tsd items
-    out = {k: REMOVE_IF_EXISTS for tsd_key in tsd.removed_keys() for k in prev.get(tsd_key, ())}
+    for ts_key in tsd.removed_keys():
+        ts_values.pop(ts_key, None)
+    for ts_key, v in tsd.modified_items():
+        ts_values[ts_key] = v.value
+    if not ts_values and tsd.valid:
+        ts_values.update({ts_key: value.value for ts_key, value in tsd.valid_items()})
 
-    # Removed key mappings
-    for tsd_key in new_keys.removed_keys():
-        for k in prev.get(tsd_key, ()):
-            out[k] = REMOVE_IF_EXISTS
-        prev.pop(tsd_key, None)
+    for ts_key in new_keys.removed_keys():
+        prev.pop(ts_key, None)
+    for ts_key, key_set in new_keys.modified_items():
+        prev[ts_key] = set(key_set.value)
+    if not prev and new_keys.valid:
+        prev.update({ts_key: set(key_set.value) for ts_key, key_set in new_keys.valid_items()})
 
-    # Modified key mappings
-    for tsd_key, key_set in new_keys.modified_items():
-        key_set = key_set.value
-        prev_key_set = prev.get(tsd_key, set())
-        for k in prev_key_set - key_set:
-            out[k] = REMOVE_IF_EXISTS
-        for k in key_set - prev_key_set:
-            if tsd_key in tsd:
-                out[k] = tsd[tsd_key].value
-        prev[tsd_key] = {s for s in key_set}  # need a copy of the set
+    current_output = {}
+    for ts_key, value in ts_values.items():
+        for key in prev.get(ts_key, ()):
+            current_output[key] = value
 
-    # Modified tsd items
-    for tsd_key, v in tsd.modified_items():
-        key_set = new_keys.get(tsd_key)
-        if key_set:
-            for k in key_set.value:
-                out[k] = v.value
+    previous_output = _state.output
+    out = {k: REMOVE_IF_EXISTS for k in previous_output.keys() - current_output.keys()}
+    out.update({k: v for k, v in current_output.items() if previous_output.get(k) != v})
+    _state.output = dict(current_output)
 
     if out:
         return out
@@ -632,7 +825,10 @@ def flip_tsd(ts: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) -> TSD[K_
 
 @compute_node(overloads=flip, requires=lambda m, unique: unique is False)
 def flip_tsd_non_unique(
-    ts: TSD[K, TS[K_1]], unique: bool, _state: STATE[TsdRekeyState] = None, _output: TSD_OUT[K_1, TSS[K]] = None
+    ts: TSD[K, TS[K_1]],
+    unique: bool,
+    _state: STATE[TsdRekeyState] = None,
+    _k_tp: type[K] = AUTO_RESOLVE,
 ) -> TSD[K_1, TSS[K]]:
     """
     Flip the TSD to have the time-series as the key and the key as the time-series.
@@ -640,58 +836,59 @@ def flip_tsd_non_unique(
     """
     prev = _state.prev
 
-    # Clear up existing mapping before we track new key mappings
     for k in ts.removed_keys():
-        k_old = prev.pop(k, None)
-        if k_old is not None:
-            _output[k_old].remove(k)
-
+        prev.pop(k, None)
     for k, v in ts.modified_items():
-        v = v.value
-        k_old = prev.pop(k, None)
-        if k_old is not None and k_old != v:
-            _output[k_old].remove(k)
-        _output.get_or_create(v).add(k)
-        prev[k] = v
+        prev[k] = v.value
+    if not prev and ts.valid:
+        prev.update({k: v.value for k, v in ts.valid_items()})
 
-    drop = {k for k, v in _output.modified_items() if not v}
-    for k in drop:
-        del _output[k]
+    current = defaultdict(set)
+    for k, v in prev.items():
+        current[v].add(k)
+
+    previous_output = _state.output
+    out = {v: REMOVE_IF_EXISTS for v in previous_output.keys() - current.keys()}
+
+    for v, current_set in current.items():
+        previous_set = previous_output.get(v)
+        if previous_set is None:
+            out[v] = set(current_set)
+            continue
+        added = current_set - previous_set
+        removed = previous_set - current_set
+        if added or removed:
+            out[v] = set_delta(added, removed, _k_tp)
+
+    _state.output = {v: set(values) for v, values in current.items()}
+
+    if out:
+        return out
 
 
-@compute_node(overloads=flip_keys)
-def flip_keys_tsd(
-    ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]], _output: TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]] = None
-) -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
+@compute_node
+def _flip_keys_tsd_flat(
+    ts: TSD[K, TSD[K_1, TIME_SERIES_TYPE]], _state: STATE[NestedTsdState] = None
+) -> TSD[Tuple[K_1, K], TIME_SERIES_TYPE]:
     """
-    Switch the keys on a TSD of TSD's. This can be considered as a pivot.
+    Build a flat swapped-key view to avoid emitting nested TSD deltas directly from Python.
     """
-    ts = ts.value
-    prev = _output.value
+    snapshot_value = ts.value
+    _state.nested = {outer_key: dict(inner.items()) for outer_key, inner in (snapshot_value or {}).items()}
+    current = {
+        (inner_key, outer_key): value
+        for outer_key, inner_values in _state.nested.items()
+        for inner_key, value in inner_values.items()
+    }
+    out = _diff_flat_tsd(_state.output, current)
+    _state.output = dict(current)
+    if out:
+        return out
 
-    # Create the target dictionary
-    new = defaultdict(dict)
-    for k, v in ts.items():
-        for k1, v1 in v.items():
-            new[k1][k] = v1
 
-    # Now work out the delta
-    out = defaultdict(dict)
-    for k_n, inner_n in new.items():
-        if inner_prev := prev.get(k_n):
-            for k1_n, ref_n in inner_n.items():
-                if (ref_prev := inner_prev.get(k1_n)) is None or ref_n != ref_prev:
-                    out[k_n][k1_n] = ref_n
-            for k1_p in inner_prev.keys():
-                if k1_p not in inner_n:
-                    out[k_n][k1_p] = REMOVE_IF_EXISTS
-        else:
-            out[k_n] = inner_n
-    for k_p in prev.keys():
-        if k_p not in new:
-            out[k_p] = REMOVE_IF_EXISTS
-
-    return out
+@graph(overloads=flip_keys)
+def flip_keys_tsd(ts: TSD[K, TSD[K_1, TIME_SERIES_TYPE]]) -> TSD[K_1, TSD[K, TIME_SERIES_TYPE]]:
+    return uncollapse_keys(_flip_keys_tsd_flat(ts))
 
 
 @graph(overloads=merge)
@@ -704,95 +901,270 @@ def merge_tsd(
     """
     Merge TSD elements together
     """
-    return map_(merge, *tsl)
+    v_meta = HgTypeMetaData.parse_type(_v_tp)
+    if isinstance(v_meta, HgTSDTypeMetaData):
+        flat_merged = _merge_nested_tsd_flat_stateful(*tsl)
+        collapse_outer_keys = _nested_outer_remove_candidates(*tsl)
+        return uncollapse_keys(flat_merged, remove_empty=False, remove_outer_keys=collapse_outer_keys)
+    return _merge_tsd_stateful(*tsl)
+
+
+@dataclass
+class TsdMergeState(CompoundScalar):
+    sources: dict = field(default_factory=dict)
+    versions: dict = field(default_factory=dict)
+    output: dict = field(default_factory=dict)
+    tick: int = 0
+
+
+@compute_node
+def _merge_tsd_stateful(
+    *tsl: TSL[TSD[K, TIME_SERIES_TYPE], SIZE], _state: STATE[TsdMergeState] = None
+) -> TSD[K, TIME_SERIES_TYPE]:
+    _state.tick += 1
+    tick = _state.tick
+    values = list(tsl.values())
+    sources = _state.sources
+    versions = _state.versions
+    for index in range(len(values), len(sources)):
+        sources.pop(index, None)
+        versions.pop(index, None)
+
+    for index, ts in enumerate(values):
+        source = sources.setdefault(index, {})
+        source_versions = versions.setdefault(index, {})
+        for key in ts.removed_keys():
+            source.pop(key, None)
+            source_versions.pop(key, None)
+        modified_keys = list(ts.modified_keys())
+        for key in modified_keys:
+            child = ts[key]
+            source[key] = child if hasattr(child, "modified_keys") else child.value
+            source_versions[key] = tick
+        if not modified_keys and ts.valid:
+            snapshot_value = ts.value
+            snapshot = dict(snapshot_value.items()) if snapshot_value is not None else {}
+            for key in set(source.keys()) - set(snapshot.keys()):
+                source.pop(key, None)
+                source_versions.pop(key, None)
+            for key, value in snapshot.items():
+                if source.get(key) != value:
+                    source[key] = value
+                    source_versions[key] = tick
+
+    all_keys = set()
+    for source in sources.values():
+        all_keys.update(source.keys())
+
+    current = {}
+    for key in all_keys:
+        best_index = None
+        best_version = -1
+        for index in range(len(values)):
+            source = sources.get(index, {})
+            if key not in source:
+                continue
+            version = versions.get(index, {}).get(key, -1)
+            if version > best_version or (version == best_version and (best_index is None or index < best_index)):
+                best_index = index
+                best_version = version
+        if best_index is not None:
+            current[key] = sources[best_index][key]
+
+    out = _diff_flat_tsd(_state.output, current)
+    _state.output = dict(current)
+    if out:
+        return out
+
+
+@compute_node
+def _merge_nested_tsd_flat_stateful(
+    *tsl: TSL[TSD[K, TSD[K_1, TIME_SERIES_TYPE]], SIZE], _state: STATE[TsdMergeState] = None
+) -> TSD[Tuple[K, K_1], TIME_SERIES_TYPE]:
+    _state.tick += 1
+    tick = _state.tick
+    values = list(tsl.values())
+    sources = _state.sources
+    versions = _state.versions
+    for index in range(len(values), len(sources)):
+        sources.pop(index, None)
+        versions.pop(index, None)
+
+    for index, ts in enumerate(values):
+        source = sources.setdefault(index, {})
+        source_versions = versions.setdefault(index, {})
+
+        snapshot_value = ts.value if ts.valid else None
+        snapshot = {
+            (outer_key, inner_key): value
+            for outer_key, inner_values in (snapshot_value or {}).items()
+            for inner_key, value in inner_values.items()
+        }
+
+        for key in set(source.keys()) - set(snapshot.keys()):
+            source.pop(key, None)
+            source_versions.pop(key, None)
+
+        for key, value in snapshot.items():
+            if source.get(key) != value:
+                source[key] = value
+                source_versions[key] = tick
+
+    all_keys = set()
+    for source in sources.values():
+        all_keys.update(source.keys())
+
+    current = {}
+    for key in all_keys:
+        best_index = None
+        best_version = -1
+        for index in range(len(values)):
+            source = sources.get(index, {})
+            if key not in source:
+                continue
+            version = versions.get(index, {}).get(key, -1)
+            if version > best_version or (version == best_version and (best_index is None or index < best_index)):
+                best_index = index
+                best_version = version
+        if best_index is not None:
+            current[key] = sources[best_index][key]
+
+    out = _diff_flat_tsd(_state.output, current)
+    _state.output = dict(current)
+    if out:
+        return out
+
+
+@dataclass
+class TsdNestedOuterRemoveState(CompoundScalar):
+    source_outer_keys: dict = field(default_factory=dict)
+
+
+@compute_node
+def _nested_outer_remove_candidates(
+    *tsl: TSL[TSD[K, TSD[K_1, TIME_SERIES_TYPE]], SIZE],
+    _state: STATE[TsdNestedOuterRemoveState] = None,
+) -> TS[Set[K]]:
+    removed_outer_keys = set()
+    source_outer_keys = _state.source_outer_keys
+    values = list(tsl.values())
+
+    for index in range(len(values), len(source_outer_keys)):
+        source_outer_keys.pop(index, None)
+
+    for index, ts in enumerate(values):
+        previous_keys = set(source_outer_keys.get(index, set()))
+        snapshot_value = ts.value if ts.valid else None
+        current_keys = set((snapshot_value or {}).keys())
+        removed_outer_keys.update(previous_keys - current_keys)
+        source_outer_keys[index] = current_keys
+
+    current_outer_keys = set()
+    for keys in source_outer_keys.values():
+        current_outer_keys.update(keys)
+
+    return {key for key in removed_outer_keys if key not in current_outer_keys}
+
 
 
 @compute_node(overloads=merge, requires=lambda m, disjoint: disjoint)
 def merge_tsd_disjoint(
-    *tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE],
+    *tsl: TSL[TSD[K, TIME_SERIES_TYPE], SIZE],
     disjoint: bool = False,
-    _output: TSD_OUT[K, REF[TIME_SERIES_TYPE]] = None,
-) -> TSD[K, REF[TIME_SERIES_TYPE]]:
+    _state: STATE[TsdMergeState] = None,
+) -> TSD[K, TIME_SERIES_TYPE]:
     """
     Merge TSD of references assuming there is no overlap in key sets, otherwise only the leftmost values will be forwarded
     """
-    out = {}
-    modified = set()
-    removed = set()
+    values = list(tsl.values())
+    sources = _state.sources
+    for index in range(len(values), len(sources)):
+        sources.pop(index, None)
 
-    for v in reversed(list(tsl.modified_values())):
-        modified.update(v.modified_keys())
-        removed.update(v.removed_keys())
+    for index, ts in enumerate(values):
+        source = sources.setdefault(index, {})
+        for key in ts.removed_keys():
+            source.pop(key, None)
+        modified_keys = list(ts.modified_keys())
+        for key in modified_keys:
+            child = ts[key]
+            source[key] = child if hasattr(child, "modified_keys") else child.value
+        if not modified_keys and ts.valid:
+            snapshot_value = ts.value
+            snapshot = dict(snapshot_value.items()) if snapshot_value is not None else {}
+            for key in set(source.keys()) - set(snapshot.keys()):
+                source.pop(key, None)
+            for key, value in snapshot.items():
+                source[key] = value
 
-    for k in removed:
-        for v in tsl.values():
-            if k in v:
-                out[k] = v[k].value
-                break
-        else:
-            out[k] = REMOVE_IF_EXISTS
+    current = {}
+    for index in range(len(values)):
+        for key, value in sources.get(index, {}).items():
+            current.setdefault(key, value)
 
-    for k in modified - removed:
-        for v in tsl.values():
-            if k in v:
-                out[k] = v[k].value
-                break
-        if k in _output and _output[k].value == out[k]:
-            del out[k]
-
-    return out
+    out = _diff_flat_tsd(_state.output, current)
+    _state.output = dict(current)
+    if out:
+        return out
 
 
 @compute_node(overloads=partition, valid=())
 def partition_tsd(
-    ts: TSD[K, REF[TIME_SERIES_TYPE]], partitions: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None
+    ts: TSD[K, REF[TIME_SERIES_TYPE]], partitions: TSD[K, TS[K_1]], _state: STATE[TsdPartitionState] = None
 ) -> TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]:
     """
     Partition a TSD into partitions by the given mapping.
     """
-    out = defaultdict(dict)
-    prev = _state.prev
+    ts_values = _state.ts_values
+    partition_values = _state.partition_values
 
-    # Clear up existing mapping before we track new key mappings
-    for k in ts.removed_keys():
-        partition = prev.get(k)
+    for key in ts.removed_keys():
+        ts_values.pop(key, None)
+    for key, value in ts.modified_items():
+        ts_values[key] = value.value
+
+    for key in partitions.removed_keys():
+        partition_values.pop(key, None)
+    for key, partition in partitions.modified_items():
+        partition_values[key] = partition.value
+
+    new_output = defaultdict(dict)
+    for key, value in ts_values.items():
+        partition = partition_values.get(key)
         if partition is not None:
-            out[partition][k] = REMOVE_IF_EXISTS
+            new_output[partition][key] = value
 
-    # Track changes in partitions
-    for k, partition in partitions.removed_items():
-        out[partition.value][k] = REMOVE_IF_EXISTS
+    previous_output = _state.output
+    out = {}
+    for partition in set(previous_output.keys()) | set(new_output.keys()):
+        previous_values = previous_output.get(partition, {})
+        current_values = new_output.get(partition, {})
+        partition_delta = {}
 
-    for k, partition in partitions.modified_items():
-        partition = partition.value
-        prev_partition = prev.get(k, None)
-        if prev_partition is not None and partition != prev_partition:
-            out[prev_partition][k] = REMOVE_IF_EXISTS
-        prev[k] = partition
-        v = ts.get(k)
-        if v is not None:
-            out[partition][k] = v.value
+        for key in previous_values.keys() - current_values.keys():
+            partition_delta[key] = REMOVE_IF_EXISTS
 
-    for k, v in ts.modified_items():
-        partition = prev.get(k, None)
-        if partition is not None:
-            out[partition][k] = v.value
+        for key, value in current_values.items():
+            if previous_values.get(key) != value:
+                partition_delta[key] = value
 
-    return out
+        if partition_delta:
+            out[partition] = partition_delta
+
+    _state.output = {partition: dict(values) for partition, values in new_output.items()}
+
+    if out:
+        return out
 
 
 @compute_node(overloads=unpartition)
-def unpartition_tsd(tsd: TSD[K_1, TSD[K, REF[TIME_SERIES_TYPE]]]) -> TSD[K, REF[TIME_SERIES_TYPE]]:
+def unpartition_tsd(
+    tsd: TSD[K_1, TSD[K, TIME_SERIES_TYPE]], _state: STATE[TsdUnpartitionState] = None
+) -> TSD[K, TIME_SERIES_TYPE]:
     """
     Union of TSDs - given
     """
-    out = {}
-    removed = {}
-    for k, v in tsd.modified_items():
-        out |= {k: v.delta_value for k, v in v.modified_items()}
-        removed |= {k: REMOVE_IF_EXISTS for k in v.removed_keys()}
-
-    return removed | out
+    return _unpartition_snapshot_impl(tsd, _state)
 
 
 @graph(overloads=zero)
@@ -901,17 +1273,47 @@ def filter_by_tsd(ts: TSD[K, V], expr: Callable[[V, ...], bool], **kwargs: TSB[T
     return _filter_by_tsd(ts, matches)
 
 
+@dataclass
+class TsdFilterByState(CompoundScalar):
+    selected: set = field(default_factory=set)
+
+
 @compute_node(active=("matches",))
-def _filter_by_tsd(ts: TSD[K, REF[V]], matches: TSD[K, TS[bool]]) -> TSD[K, REF[V]]:
+def _filter_by_tsd(
+    ts: TSD[K, REF[V]], matches: TSD[K, TS[bool]], _state: STATE[TsdFilterByState] = None
+) -> TSD[K, REF[V]]:
     """
     We only care about matches ticking, since any change in ts will be reflected in matches.
     """
+    def resolve_match(v) -> bool | None:
+        value = v.value
+        if hasattr(value, "has_output") and hasattr(value, "is_empty") and hasattr(value, "output"):
+            if value.is_empty or not value.has_output:
+                return None
+            output = value.output
+            if output is None:
+                return None
+            if hasattr(output, "valid") and not output.valid:
+                return None
+            return bool(output.value)
+        return bool(value)
+
+    current_selected = set()
+    for key, value in matches.items():
+        if resolve_match(value):
+            current_selected.add(key)
+
     out = {}
-    for k, v in matches.modified_items():
-        if v.value:
-            out[k] = ts[k].value
-        else:
-            out[k] = REMOVE_IF_EXISTS
-    for k in matches.removed_keys():
-        out[k] = REMOVE_IF_EXISTS
-    return out
+    for key in _state.selected - current_selected:
+        out[key] = REMOVE_IF_EXISTS
+
+    for key in current_selected - _state.selected:
+        out[key] = ts[key].value
+
+    for key in current_selected & _state.selected:
+        if key in ts.modified_keys():
+            out[key] = ts[key].value
+
+    _state.selected = current_selected
+    if out:
+        return out
