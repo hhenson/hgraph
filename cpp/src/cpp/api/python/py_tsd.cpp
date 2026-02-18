@@ -7,6 +7,7 @@
 #include <fmt/format.h>
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 #include <type_traits>
 #include <vector>
 
@@ -14,6 +15,8 @@ namespace hgraph
 {
 namespace
 {
+    bool is_remove_marker(const nb::object &obj);
+
     value::Value key_from_python_with_meta(const nb::object &key, const TSMeta *meta) {
         const auto *key_schema = meta != nullptr ? meta->key_type() : nullptr;
         if (key_schema == nullptr) {
@@ -40,36 +43,144 @@ namespace
 
     nb::list tsd_delta_keys_slot(const TSView &view, size_t tuple_index, bool expect_map) {
         nb::list out;
+        nb::set seen;
+        auto append_unique = [&](const nb::object& key_obj) {
+            if (PySet_Contains(seen.ptr(), key_obj.ptr()) == 1) {
+                return;
+            }
+            seen.add(key_obj);
+            out.append(key_obj);
+        };
+
+        auto key_set_delta_keys = [&](bool added) {
+            nb::list keys;
+            TSView key_set_view = view;
+            key_set_view.view_data().projection = ViewProjection::TSD_KEY_SET;
+            nb::object key_set_delta = key_set_view.delta_to_python();
+            if (key_set_delta.is_none()) {
+                return keys;
+            }
+
+            const char* member_name = added ? "added" : "removed";
+            nb::object member = nb::getattr(key_set_delta, member_name, nb::none());
+            if (member.is_none()) {
+                return keys;
+            }
+            if (PyCallable_Check(member.ptr()) != 0) {
+                member = member();
+            }
+            if (member.is_none()) {
+                return keys;
+            }
+
+            for (auto item_h : nb::cast<nb::iterable>(member)) {
+                keys.append(nb::cast<nb::object>(item_h));
+            }
+            return keys;
+        };
+
+        bool tuple_slot_compatible = false;
+
         value::View delta = view.delta_value();
-        if (!delta.valid() || !delta.is_tuple()) {
+        if (delta.valid() && delta.is_tuple()) {
+            auto tuple = delta.as_tuple();
+            if (tuple_index < tuple.size()) {
+                value::View slot = tuple.at(tuple_index);
+                if (slot.valid()) {
+                    if (expect_map && slot.is_map()) {
+                        tuple_slot_compatible = true;
+                        for (value::View key : slot.as_map().keys()) {
+                            append_unique(key.to_python());
+                        }
+                    }
+                    if (!expect_map && slot.is_set()) {
+                        tuple_slot_compatible = true;
+                        for (value::View key : slot.as_set()) {
+                            append_unique(key.to_python());
+                        }
+                    }
+                }
+            }
+        }
+
+        const nb::list key_set_added = key_set_delta_keys(true);
+        const nb::list key_set_removed = key_set_delta_keys(false);
+
+        // Key-set bridge deltas can expose rebind additions/removals that are not
+        // present in the raw tuple slots.
+        if (tuple_index == 1) {
+            out = nb::list{};
+            seen = nb::set{};
+            for (const auto &k : key_set_added) {
+                append_unique(nb::cast<nb::object>(k));
+            }
             return out;
         }
 
-        auto tuple = delta.as_tuple();
-        if (tuple_index >= tuple.size()) {
+        if (tuple_index == 2) {
+            out = nb::list{};
+            seen = nb::set{};
+            for (const auto &k : key_set_removed) {
+                append_unique(nb::cast<nb::object>(k));
+            }
             return out;
         }
 
-        value::View slot = tuple.at(tuple_index);
-        if (!slot.valid()) {
-            return out;
-        }
-
-        if (expect_map) {
-            if (!slot.is_map()) {
+        if (tuple_index == 0) {
+            for (const auto &k : key_set_added) {
+                append_unique(nb::cast<nb::object>(k));
+            }
+            if (nb::len(out) > 0) {
                 return out;
             }
-            for (value::View key : slot.as_map().keys()) {
-                out.append(key.to_python());
+            if (tuple_slot_compatible) {
+                return out;
+            }
+        } else if (tuple_slot_compatible) {
+            return out;
+        }
+
+        // Bridge-derived deltas can be materialized only in delta_to_python()
+        // and not in the raw tuple.
+        if (tuple_index != 0 && tuple_index != 2) {
+            return out;
+        }
+
+        // If we successfully parsed a tuple slot and it just had no entries, preserve that.
+        // Only fall through when tuple data was unavailable/incompatible for this slot.
+        if (tuple_slot_compatible) {
+            return out;
+        }
+
+        nb::object delta_obj = view.delta_to_python();
+        if (delta_obj.is_none()) {
+            return out;
+        }
+
+        auto emit_from_pair = [tuple_index, &append_unique](const nb::object &key_obj, const nb::object &value_obj) {
+            const bool is_remove = is_remove_marker(value_obj);
+            if (tuple_index == 2 && is_remove) {
+                append_unique(key_obj);
+            }
+            if (tuple_index == 0 && !is_remove) {
+                append_unique(key_obj);
+            }
+        };
+
+        if (nb::isinstance<nb::dict>(delta_obj)) {
+            nb::dict delta_dict = nb::cast<nb::dict>(delta_obj);
+            for (const auto &kv : delta_dict) {
+                emit_from_pair(nb::cast<nb::object>(kv.first), nb::cast<nb::object>(kv.second));
             }
             return out;
         }
 
-        if (!slot.is_set()) {
+        auto items_attr = nb::getattr(delta_obj, "items", nb::none());
+        if (items_attr.is_none()) {
             return out;
         }
-        for (value::View key : slot.as_set()) {
-            out.append(key.to_python());
+        for (const auto &kv : nb::iter(items_attr())) {
+            emit_from_pair(nb::cast<nb::object>(kv[0]), nb::cast<nb::object>(kv[1]));
         }
         return out;
     }
@@ -130,13 +241,42 @@ namespace
     }
 
     bool is_remove_marker(const nb::object &obj) {
-        auto tsd_mod = nb::module_::import_("hgraph._types._tsd_type");
-        return obj.is(tsd_mod.attr("REMOVE")) || obj.is(tsd_mod.attr("REMOVE_IF_EXISTS"));
+        auto remove = get_remove();
+        auto remove_if_exists = get_remove_if_exists();
+        if (obj.is(remove) || obj.is(remove_if_exists)) {
+            return true;
+        }
+
+        nb::object current = nb::getattr(obj, "name", nb::none());
+        for (size_t depth = 0; depth < 4 && !current.is_none(); ++depth) {
+            if (current.is(remove) || current.is(remove_if_exists)) {
+                return true;
+            }
+            if (nb::isinstance<nb::str>(current)) {
+                std::string name = nb::cast<std::string>(current);
+                return name == "REMOVE" || name == "REMOVE_IF_EXISTS";
+            }
+            current = nb::getattr(current, "name", nb::none());
+        }
+        return false;
     }
 
     bool is_remove_if_exists_marker(const nb::object &obj) {
-        auto tsd_mod = nb::module_::import_("hgraph._types._tsd_type");
-        return obj.is(tsd_mod.attr("REMOVE_IF_EXISTS"));
+        auto remove_if_exists = get_remove_if_exists();
+        if (obj.is(remove_if_exists)) {
+            return true;
+        }
+        nb::object current = nb::getattr(obj, "name", nb::none());
+        for (size_t depth = 0; depth < 4 && !current.is_none(); ++depth) {
+            if (current.is(remove_if_exists)) {
+                return true;
+            }
+            if (nb::isinstance<nb::str>(current)) {
+                return nb::cast<std::string>(current) == "REMOVE_IF_EXISTS";
+            }
+            current = nb::getattr(current, "name", nb::none());
+        }
+        return false;
     }
 }  // namespace
 

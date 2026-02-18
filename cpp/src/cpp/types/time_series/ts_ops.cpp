@@ -327,11 +327,24 @@ void refresh_dynamic_ref_binding_for_link_target(LinkTarget* link_target, bool s
     }
 
     if (!link_target->has_resolved_target) {
+        // Transition from unresolved -> resolved is a rebind from empty. Keep
+        // bridge state as "no previous target" so key_set consumers can emit
+        // full added snapshots on reactivation.
+        link_target->has_previous_target = false;
+        link_target->previous_target = {};
         link_target->has_resolved_target = has_resolved_target;
         link_target->resolved_target = has_resolved_target ? resolved_target : ViewData{};
         if (has_resolved_target) {
             unregister_link_target_observer(*link_target);
             register_link_target_observer(*link_target);
+        }
+
+        engine_time_t stamp = current_time != MIN_DT ? current_time : direct_last_modified_time(source_view);
+        if (stamp != MIN_DT) {
+            link_target->last_rebind_time = stamp;
+            if (link_target->owner_time_ptr != nullptr && *link_target->owner_time_ptr < stamp) {
+                *link_target->owner_time_ptr = stamp;
+            }
         }
         return;
     }
@@ -587,6 +600,20 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
             // Keep REF-resolved bridge state up to date on source writes so
             // consumers can observe bind/unbind transitions in the same tick.
             refresh_dynamic_ref_binding_for_link_target(observer, false, current_time);
+            if (!observer->notify_on_ref_wrapper_write) {
+                const bool notify_from_resolved_target =
+                    observer->has_resolved_target &&
+                    same_view_identity(target_view, observer->resolved_target);
+                const bool rebind_tick = observer->last_rebind_time == current_time;
+                if (!notify_from_resolved_target && !rebind_tick) {
+                    if (debug_notify) {
+                        std::fprintf(stderr,
+                                     "[notify_obs]  skip ref-wrapper write for non-ref observer obs=%p\n",
+                                     static_cast<void*>(observer));
+                    }
+                    continue;
+                }
+            }
             if (suppress_static_ref_child_notification(*observer, current_time)) {
                 if (debug_notify) {
                     std::fprintf(stderr, "[notify_obs]  suppress static-ref child notify obs=%p\n", static_cast<void*>(observer));
@@ -604,7 +631,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                     active_kind = active_input->meta() != nullptr ? static_cast<int>(active_input->meta()->kind) : -1;
                 }
                 std::fprintf(stderr,
-                             "[notify_obs]  pre-notify obs=%p obs_path=%s obs_kind=%d active_notifier=%p active_path=%s active_kind=%d parent=%p owner_time_ptr=%p\n",
+                             "[notify_obs]  pre-notify obs=%p obs_path=%s obs_kind=%d active_notifier=%p active_path=%s active_kind=%d parent=%p owner_time_ptr=%p notify_on_ref_wrapper_write=%d has_resolved=%d rebind=%lld\n",
                              static_cast<void*>(observer),
                              observer_view.path.to_string().c_str(),
                              observer_meta != nullptr ? static_cast<int>(observer_meta->kind) : -1,
@@ -612,7 +639,10 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                              active_path.c_str(),
                              active_kind,
                              static_cast<void*>(observer->parent_link),
-                             static_cast<void*>(observer->owner_time_ptr));
+                             static_cast<void*>(observer->owner_time_ptr),
+                             observer->notify_on_ref_wrapper_write ? 1 : 0,
+                             observer->has_resolved_target ? 1 : 0,
+                             static_cast<long long>(observer->last_rebind_time.time_since_epoch().count()));
             }
             observer->notify(current_time);
             if (debug_notify) {
@@ -2214,17 +2244,12 @@ engine_time_t ref_wrapper_last_modified_time_on_read_path(const ViewData& vd) {
         auto rebound = resolve_bound_view_data(probe);
 
         if (current_is_ref && include_wrapper_time) {
-            bool has_non_empty_local_ref = false;
-            if (auto local = resolve_value_slot_const(probe);
-                local.has_value() && local->valid() && local->schema() == ts_reference_meta()) {
-                TimeSeriesReference ref = nb::cast<TimeSeriesReference>(local->to_python());
-                has_non_empty_local_ref = !ref.is_empty();
-            }
-
             const bool has_rebound_target =
                 rebound.has_value() && !same_view_identity(*rebound, probe);
 
-            if (has_non_empty_local_ref || has_rebound_target) {
+            // Non-REF consumers should observe REF wrapper *rebinds*, but not
+            // wrapper-local rewrites that preserve target identity.
+            if (has_rebound_target) {
                 out = std::max(out, direct_last_modified_time(probe));
             }
         }
@@ -2743,6 +2768,28 @@ bool resolve_tsd_key_set_source(const ViewData& vd, ViewData& out) {
     return current != nullptr && current->kind == TSKind::TSD;
 }
 
+// Bridge paths can carry raw TSD views (projection::NONE) when rebinding
+// between concrete and empty REF states. Treat those as key_set sources for
+// bridge delta synthesis only.
+bool resolve_tsd_key_set_bridge_source(const ViewData& vd, ViewData& out) {
+    if (resolve_tsd_key_set_source(vd, out)) {
+        return true;
+    }
+
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    if (self_meta == nullptr || self_meta->kind != TSKind::TSD) {
+        return false;
+    }
+
+    if (!resolve_read_view_data(vd, self_meta, out)) {
+        return false;
+    }
+
+    out.projection = ViewProjection::NONE;
+    const TSMeta* current = meta_at_path(out.meta, out.path.indices);
+    return current != nullptr && current->kind == TSKind::TSD;
+}
+
 struct TSDKeySetDeltaState {
     bool has_delta_tuple{false};
     bool has_changed_values_map{false};
@@ -2861,6 +2908,17 @@ nb::object tsd_key_set_delta_to_python(const ViewData& source) {
     }
 
     return python_set_delta(nb::frozenset(added_out), nb::frozenset(removed_out));
+}
+
+nb::object tsd_key_set_all_added_to_python(const ViewData& source) {
+    nb::set added_out;
+    auto value = resolve_value_slot_const(source);
+    if (value.has_value() && value->valid() && value->is_map()) {
+        for (View key : value->as_map().keys()) {
+            added_out.add(key.to_python());
+        }
+    }
+    return python_set_delta(nb::frozenset(added_out), nb::frozenset(nb::set{}));
 }
 
 nb::object tsd_key_set_bridge_delta_to_python(const ViewData& previous_data, const ViewData& current_data) {
@@ -3579,14 +3637,15 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
         // REF[TSD] -> REF[TSS] key_set bridges can keep resolving to the
         // previous concrete TSD while the REF wrapper has already rebound to
         // empty. In that case, use bridge state to expose the rebind tick.
-        if (self_meta != nullptr && self_meta->kind == TSKind::TSS) {
+        const bool key_set_projection = is_tsd_key_set_projection(vd);
+        if ((self_meta != nullptr && self_meta->kind == TSKind::TSS) || key_set_projection) {
             ViewData previous_bridge{};
             ViewData current_bridge{};
             if (resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge)) {
                 ViewData previous_source{};
                 ViewData current_source{};
-                const bool has_previous_source = resolve_tsd_key_set_source(previous_bridge, previous_source);
-                const bool has_current_source = resolve_tsd_key_set_source(current_bridge, current_source);
+                const bool has_previous_source = resolve_tsd_key_set_bridge_source(previous_bridge, previous_source);
+                const bool has_current_source = resolve_tsd_key_set_bridge_source(current_bridge, current_source);
                 if (debug_keyset_bridge) {
                     std::fprintf(stderr,
                                  "[keyset_mod] bridge path=%s prev=%s curr=%s has_prev=%d has_curr=%d\n",
@@ -3599,16 +3658,37 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
                 if (has_previous_source || has_current_source) {
                     return true;
                 }
-            } else if (debug_keyset_bridge) {
-                if (LinkTarget* lt = resolve_link_target(vd, vd.path.indices); lt != nullptr) {
+            } else {
+                LinkTarget* lt = resolve_link_target(vd, vd.path.indices);
+                if (debug_keyset_bridge && lt != nullptr) {
+                    const bool first_bind = lt->is_linked &&
+                                            !lt->has_previous_target &&
+                                            lt->last_rebind_time == current_time;
                     std::fprintf(stderr,
-                                 "[keyset_mod] no_bridge path=%s linked=%d prev=%d resolved=%d rebind=%lld now=%lld\n",
+                                 "[keyset_mod] no_bridge path=%s linked=%d prev=%d resolved=%d rebind=%lld now=%lld first_bind=%d\n",
                                  vd.path.to_string().c_str(),
                                  lt->is_linked ? 1 : 0,
                                  lt->has_previous_target ? 1 : 0,
                                  lt->has_resolved_target ? 1 : 0,
                                  static_cast<long long>(lt->last_rebind_time.time_since_epoch().count()),
-                                 static_cast<long long>(current_time.time_since_epoch().count()));
+                                 static_cast<long long>(current_time.time_since_epoch().count()),
+                                 first_bind ? 1 : 0);
+                }
+                if (lt != nullptr && lt->is_linked &&
+                    !lt->has_previous_target &&
+                    lt->last_rebind_time == current_time) {
+                    // First bind from an empty REF wrapper to a concrete TSD should
+                    // tick key_set immediately even before a previous-target bridge exists.
+                    if (debug_keyset_bridge) {
+                        std::fprintf(stderr,
+                                     "[keyset_mod] first_bind path=%s linked=%d prev=%d rebind=%lld now=%lld\n",
+                                     vd.path.to_string().c_str(),
+                                     lt->is_linked ? 1 : 0,
+                                     lt->has_previous_target ? 1 : 0,
+                                     static_cast<long long>(lt->last_rebind_time.time_since_epoch().count()),
+                                     static_cast<long long>(current_time.time_since_epoch().count()));
+                    }
+                    return true;
                 }
             }
         }
@@ -3623,8 +3703,8 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
         if (resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge)) {
             ViewData previous_source{};
             ViewData current_source{};
-            if (resolve_tsd_key_set_source(previous_bridge, previous_source) ||
-                resolve_tsd_key_set_source(current_bridge, current_source)) {
+            if (resolve_tsd_key_set_bridge_source(previous_bridge, previous_source) ||
+                resolve_tsd_key_set_bridge_source(current_bridge, current_source)) {
                 return true;
             }
         }
@@ -4148,8 +4228,15 @@ void op_invalidate(ViewData& vd) {
 nb::object op_to_python(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta != nullptr && self_meta->kind == TSKind::REF) {
-        View v = op_value(vd);
-        return v.valid() ? v.to_python() : nb::none();
+        // Python contract for REF is the reference object itself (not dereferenced payload).
+        if (auto local = resolve_value_slot_const(vd);
+            local.has_value() && local->valid() && local->schema() == ts_reference_meta()) {
+            return local->to_python();
+        }
+        if (auto bound = resolve_bound_view_data(vd); bound.has_value()) {
+            return nb::cast(TimeSeriesReference::make(*bound));
+        }
+        return nb::cast(TimeSeriesReference::make());
     }
 
     ViewData key_set_source{};
@@ -4206,15 +4293,30 @@ nb::object op_to_python(const ViewData& vd) {
             for_each_map_key_slot(v.as_map(), [&](View key, size_t slot) {
                 ViewData child = vd;
                 child.path.indices.push_back(slot);
-                if (!op_valid(child)) {
+                const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
+                if (child_meta == nullptr) {
+                    if (!op_valid(child)) {
+                        return;
+                    }
+                    nb::object child_py = op_to_python(child);
+                    if (child_py.is_none()) {
+                        return;
+                    }
+                    out[key.to_python()] = std::move(child_py);
+                    return;
+                }
+
+                if (child_meta->kind != TSKind::REF && !op_valid(child)) {
                     return;
                 }
 
                 nb::object child_py = op_to_python(child);
-                const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
                 if (child_meta != nullptr && child_meta->kind == TSKind::REF && child_py.is_none()) {
                     // Keep key-space stable internally, but hide unresolved REF entries
                     // from Python-facing value snapshots.
+                    return;
+                }
+                if (child_meta->kind != TSKind::REF && child_py.is_none()) {
                     return;
                 }
                 out[key.to_python()] = std::move(child_py);
@@ -4256,8 +4358,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge)) {
             ViewData previous_source{};
             ViewData current_source{};
-            const bool has_previous_source = resolve_tsd_key_set_source(previous_bridge, previous_source);
-            const bool has_current_source = resolve_tsd_key_set_source(current_bridge, current_source);
+            const bool has_previous_source = resolve_tsd_key_set_bridge_source(previous_bridge, previous_source);
+            const bool has_current_source = resolve_tsd_key_set_bridge_source(current_bridge, current_source);
             if (has_previous_source || has_current_source) {
                 if (debug_keyset_bridge) {
                     std::fprintf(stderr,
@@ -4277,6 +4379,27 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             }
         }
 
+        // First bind from empty REF -> concrete TSD has no previous bridge yet.
+        // Emit full "added" snapshot so key_set consumers observe immediate adds.
+        const bool key_set_projection = is_tsd_key_set_projection(vd);
+        if ((self_meta != nullptr && self_meta->kind == TSKind::TSS) || key_set_projection) {
+            if (LinkTarget* lt = resolve_link_target(vd, vd.path.indices);
+                lt != nullptr && lt->is_linked &&
+                !lt->has_previous_target &&
+                lt->last_rebind_time == current_time) {
+                if (debug_keyset_bridge) {
+                    std::fprintf(stderr,
+                                 "[keyset_delta] first_bind path=%s linked=%d prev=%d rebind=%lld now=%lld\n",
+                                 vd.path.to_string().c_str(),
+                                 lt->is_linked ? 1 : 0,
+                                 lt->has_previous_target ? 1 : 0,
+                                 static_cast<long long>(lt->last_rebind_time.time_since_epoch().count()),
+                                 static_cast<long long>(current_time.time_since_epoch().count()));
+                }
+                return tsd_key_set_all_added_to_python(key_set_source);
+            }
+        }
+
         if (!op_modified(vd, current_time)) {
             return nb::none();
         }
@@ -4289,8 +4412,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         if (resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge)) {
             ViewData previous_source{};
             ViewData current_source{};
-            const bool has_previous_source = resolve_tsd_key_set_source(previous_bridge, previous_source);
-            const bool has_current_source = resolve_tsd_key_set_source(current_bridge, current_source);
+            const bool has_previous_source = resolve_tsd_key_set_bridge_source(previous_bridge, previous_source);
+            const bool has_current_source = resolve_tsd_key_set_bridge_source(current_bridge, current_source);
             if (debug_keyset_bridge) {
                 std::fprintf(stderr,
                              "[keyset_delta] fallback path=%s prev_bridge=%s curr_bridge=%s has_prev=%d has_curr=%d\n",
@@ -5610,15 +5733,15 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
     const bool debug_op_bind = std::getenv("HGRAPH_DEBUG_OP_BIND") != nullptr;
     bool used_ancestor_meta = false;
     const TSMeta* current = resolve_meta_or_ancestor(vd, used_ancestor_meta);
+    const TSMeta* target_meta = meta_at_path(target.meta, target.path.indices);
     const bool signal_descendant_bind = used_ancestor_meta && current != nullptr && current->kind == TSKind::SIGNAL;
     if (debug_op_bind) {
-        const TSMeta* target_meta_dbg = meta_at_path(target.meta, target.path.indices);
         std::fprintf(stderr,
                      "[op_bind] vd=%s kind=%d target=%s target_kind=%d uses_lt=%d used_anc=%d sig_desc=%d now=%lld\n",
                      vd.path.to_string().c_str(),
                      current != nullptr ? static_cast<int>(current->kind) : -1,
                      target.path.to_string().c_str(),
-                     target_meta_dbg != nullptr ? static_cast<int>(target_meta_dbg->kind) : -1,
+                     target_meta != nullptr ? static_cast<int>(target_meta->kind) : -1,
                      vd.uses_link_target ? 1 : 0,
                      used_ancestor_meta ? 1 : 0,
                      signal_descendant_bind ? 1 : 0,
@@ -5633,6 +5756,17 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         unregister_link_target_observer(*link_target);
         link_target->owner_time_ptr = resolve_owner_time_ptr(vd);
         link_target->parent_link = resolve_parent_link_target(vd);
+        link_target->notify_on_ref_wrapper_write =
+            !(current != nullptr &&
+              current->kind != TSKind::REF &&
+              target_meta != nullptr &&
+              target_meta->kind == TSKind::REF);
+        if (debug_op_bind) {
+            std::fprintf(stderr,
+                         "[op_bind]  lt=%p notify_on_ref_wrapper_write=%d\n",
+                         static_cast<void*>(link_target),
+                         link_target->notify_on_ref_wrapper_write ? 1 : 0);
+        }
 
         if (signal_descendant_bind) {
             if (!link_target->is_linked) {
@@ -5674,7 +5808,6 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
             return;
         }
 
-        const TSMeta* target_meta = meta_at_path(target.meta, target.path.indices);
         if (current != nullptr && current->kind == TSKind::REF &&
             target_meta != nullptr && target_meta->kind != TSKind::REF) {
             const TSMeta* element_meta = current->element_ts();

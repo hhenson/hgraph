@@ -19,6 +19,57 @@
 
 namespace hgraph {
     namespace {
+        bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
+            return lhs.value_data == rhs.value_data &&
+                   lhs.time_data == rhs.time_data &&
+                   lhs.observer_data == rhs.observer_data &&
+                   lhs.delta_data == rhs.delta_data &&
+                   lhs.link_data == rhs.link_data &&
+                   lhs.projection == rhs.projection &&
+                   lhs.path.indices == rhs.path.indices;
+        }
+
+        std::optional<ViewData> resolve_non_ref_target_view_data(const TSView& start_view) {
+            ViewData cursor = start_view.view_data();
+            const engine_time_t current_time = start_view.current_time();
+
+            for (size_t depth = 0; depth < 64; ++depth) {
+                TSView cursor_view(cursor, current_time);
+                const TSMeta* meta = cursor_view.ts_meta();
+                if (meta == nullptr) {
+                    return std::nullopt;
+                }
+                if (meta->kind != TSKind::REF) {
+                    return cursor;
+                }
+
+                value::View payload = cursor_view.value();
+                if (payload.valid()) {
+                    try {
+                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(payload.to_python());
+                        if (const ViewData* target = ref.bound_view();
+                            target != nullptr && !same_view_identity(*target, cursor)) {
+                            cursor = *target;
+                            continue;
+                        }
+                    } catch (const std::exception&) {
+                        // Not a TimeSeriesReference payload.
+                    }
+                }
+
+                ViewData bound_target{};
+                if (resolve_bound_target_view_data(cursor, bound_target) &&
+                    !same_view_identity(bound_target, cursor)) {
+                    cursor = std::move(bound_target);
+                    continue;
+                }
+
+                return std::nullopt;
+            }
+
+            return std::nullopt;
+        }
+
         engine_time_t node_time(const Node &node) {
             if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
                 return *et;
@@ -159,6 +210,94 @@ namespace hgraph {
             key_value.emplace();
             key_type_meta->ops().from_python(key_value.data(), key_obj, key_type_meta);
             return key_value;
+        }
+
+        nb::object get_delta_member(const nb::object& delta_obj, const char* name) {
+            nb::object member = nb::getattr(delta_obj, name, nb::none());
+            if (member.is_none()) {
+                return member;
+            }
+            if (PyCallable_Check(member.ptr()) != 0) {
+                return member();
+            }
+            return member;
+        }
+
+        bool append_keys_from_python_iterable(const nb::object& iterable_obj,
+                                              const value::TypeMeta* key_type_meta,
+                                              std::vector<value::Value>& out) {
+            if (iterable_obj.is_none() || key_type_meta == nullptr) {
+                return false;
+            }
+
+            bool appended = false;
+            for (auto item_h : nb::cast<nb::iterable>(iterable_obj)) {
+                auto key_value = key_from_python_object(nb::cast<nb::object>(item_h), key_type_meta);
+                if (!key_value.has_value()) {
+                    continue;
+                }
+                out.push_back(std::move(*key_value));
+                appended = true;
+            }
+            return appended;
+        }
+
+        bool collect_tsd_key_delta(const TSInputView& tsd_input,
+                                   std::vector<value::Value>& added,
+                                   std::vector<value::Value>& removed) {
+            added.clear();
+            removed.clear();
+            if (!tsd_input) {
+                return false;
+            }
+
+            const TSMeta* tsd_meta = tsd_input.ts_meta();
+            const value::TypeMeta* key_type_meta =
+                (tsd_meta != nullptr && tsd_meta->kind == TSKind::TSD) ? tsd_meta->key_type() : nullptr;
+            if (key_type_meta == nullptr) {
+                return false;
+            }
+
+            TSView key_set_view = tsd_input.as_ts_view();
+            key_set_view.view_data().projection = ViewProjection::TSD_KEY_SET;
+            nb::object delta_obj = key_set_view.delta_to_python();
+            if (delta_obj.is_none()) {
+                return true;
+            }
+
+            append_keys_from_python_iterable(get_delta_member(delta_obj, "added"), key_type_meta, added);
+            append_keys_from_python_iterable(get_delta_member(delta_obj, "removed"), key_type_meta, removed);
+            return true;
+        }
+
+        bool collect_tsd_changed_keys(const TSInputView& tsd_input, std::vector<value::Value>& out) {
+            out.clear();
+            if (!tsd_input) {
+                return false;
+            }
+
+            const TSMeta* tsd_meta = tsd_input.ts_meta();
+            const value::TypeMeta* key_type_meta =
+                (tsd_meta != nullptr && tsd_meta->kind == TSKind::TSD) ? tsd_meta->key_type() : nullptr;
+            if (key_type_meta == nullptr) {
+                return false;
+            }
+
+            nb::object delta_obj = tsd_input.delta_to_python();
+            if (!nb::isinstance<nb::dict>(delta_obj)) {
+                return true;
+            }
+
+            nb::dict delta_dict = nb::cast<nb::dict>(delta_obj);
+            out.reserve(delta_dict.size());
+            for (auto item : delta_dict) {
+                auto key_value = key_from_python_object(nb::cast<nb::object>(item.first), key_type_meta);
+                if (!key_value.has_value()) {
+                    continue;
+                }
+                out.push_back(std::move(*key_value));
+            }
+            return true;
         }
 
         nb::object remove_marker() {
@@ -306,31 +445,15 @@ namespace hgraph {
         }
         const bool debug_reduce = std::getenv("HGRAPH_DEBUG_REDUCE") != nullptr;
 
+        TSInputView tsd = ts();
         std::vector<value::Value> current_keys;
-        collect_tsd_keys(ts(), current_keys);
-
-        std::unordered_set<value::Value, ValueHash, ValueEqual> current_key_set;
-        current_key_set.reserve(current_keys.size());
-        for (const auto &key : current_keys) {
-            current_key_set.insert(key.view().clone());
+        if (debug_reduce) {
+            collect_tsd_keys(tsd, current_keys);
         }
-
-        std::vector<value::Value> removed_keys;
-        removed_keys.reserve(bound_node_indexes_.size());
-        for (const auto &[bound_key, _] : bound_node_indexes_) {
-            if (current_key_set.find(bound_key.view()) == current_key_set.end()) {
-                removed_keys.push_back(bound_key.view().clone());
-            }
-        }
-        remove_nodes_from_views(removed_keys);
-
         std::vector<value::Value> added_keys;
-        added_keys.reserve(current_key_set.size());
-        for (const auto &key : current_key_set) {
-            if (bound_node_indexes_.find(key.view()) == bound_node_indexes_.end()) {
-                added_keys.push_back(key.view().clone());
-            }
-        }
+        std::vector<value::Value> removed_keys;
+        collect_tsd_key_delta(tsd, added_keys, removed_keys);
+        remove_nodes_from_views(removed_keys);
 
         if (debug_reduce) {
             auto keys_to_str = [](const std::vector<value::Value>& keys) {
@@ -371,14 +494,24 @@ namespace hgraph {
 
         re_balance_nodes();
 
-        if (auto tsd = ts(); tsd) {
+        std::vector<value::Value> changed_keys;
+        collect_tsd_changed_keys(tsd, changed_keys);
+
+        if (tsd) {
             auto tsd_opt = tsd.try_as_dict();
             if (tsd_opt.has_value()) {
                 const TSMeta* tsd_meta = tsd.ts_meta();
                 const value::TypeMeta* key_type_meta =
                     (tsd_meta != nullptr && tsd_meta->kind == TSKind::TSD) ? tsd_meta->key_type() : nullptr;
 
-                for (const auto &[key, ndx] : bound_node_indexes_) {
+                for (const auto& changed_key : changed_keys) {
+                    auto bound_it = bound_node_indexes_.find(changed_key.view());
+                    if (bound_it == bound_node_indexes_.end()) {
+                        continue;
+                    }
+
+                    const auto& key = bound_it->first;
+                    const auto& ndx = bound_it->second;
                     auto [node_id, side] = ndx;
                     auto nodes = get_node(node_id);
                     if (side < 0 || side >= static_cast<int64_t>(nodes.size())) {
@@ -510,6 +643,41 @@ namespace hgraph {
 
         const bool out_valid = out.valid();
         const bool l_out_valid = l_out.valid();
+        const bool l_out_modified = l_out.modified();
+        bool copied_from_normalized_ref = false;
+
+        if (l_out_valid) {
+            const TSMeta* l_out_meta = l_out.ts_meta();
+            if (l_out_meta != nullptr && l_out_meta->kind == TSKind::REF) {
+                if (auto normalized_target = resolve_non_ref_target_view_data(l_out.as_ts_view());
+                    normalized_target.has_value()) {
+                    TimeSeriesReference normalized_ref = TimeSeriesReference::make(*normalized_target);
+                    bool same_ref = false;
+                    if (out_valid) {
+                        value::View out_value = out.value();
+                        if (out_value.valid()) {
+                            try {
+                                TimeSeriesReference out_ref = nb::cast<TimeSeriesReference>(out_value.to_python());
+                                same_ref = out_ref == normalized_ref;
+                            } catch (...) {
+                                same_ref = false;
+                            }
+                        }
+                    }
+
+                    if (!out_valid || !same_ref) {
+                        out.from_python(nb::cast(normalized_ref));
+                    }
+                    copied_from_normalized_ref = true;
+                }
+            }
+        }
+
+        bool l_out_target_modified = false;
+        if (ViewData l_out_target{};
+            resolve_bound_target_view_data(l_out.as_ts_view().view_data(), l_out_target)) {
+            l_out_target_modified = TSView(l_out_target, node_time(*this)).modified();
+        }
 
         bool values_equal = false;
         if (out_valid && l_out_valid) {
@@ -518,7 +686,8 @@ namespace hgraph {
             values_equal = out_value.valid() && l_out_value.valid() && out_value.equals(l_out_value);
         }
 
-        if ((l_out_valid && !out_valid) || (l_out_valid && !values_equal)) {
+        if (!copied_from_normalized_ref &&
+            (l_out_target_modified || (l_out_valid && !out_valid) || (l_out_valid && !values_equal))) {
             out.copy_from_output(l_out);
         }
 
@@ -546,14 +715,16 @@ namespace hgraph {
                 }
             } catch (...) {}
             std::fprintf(stderr,
-                         "[reduce] post out_valid=%d out=%s out_target=%s last_valid=%d last=%s last_target=%s equal=%d\n",
+                         "[reduce] post out_valid=%d out=%s out_target=%s last_valid=%d last=%s last_target=%s equal=%d last_modified=%d target_modified=%d\n",
                          out_valid ? 1 : 0,
                          out_py.c_str(),
                          out_target_py.c_str(),
                          l_out_valid ? 1 : 0,
                          l_out_py.c_str(),
                          l_out_target_py.c_str(),
-                         values_equal ? 1 : 0);
+                         values_equal ? 1 : 0,
+                         l_out_modified ? 1 : 0,
+                         l_out_target_modified ? 1 : 0);
         }
     }
 

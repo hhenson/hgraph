@@ -32,6 +32,9 @@ struct HGRAPH_EXPORT LinkTarget : Notifiable {
     LinkTarget* parent_link{nullptr};
     Notifiable* active_notifier{nullptr};
     bool peered{false};
+    // For non-REF consumers bound via REF wrappers, wrapper-local writes should
+    // not drive notifications when the resolved target is unchanged.
+    bool notify_on_ref_wrapper_write{true};
     engine_time_t last_rebind_time{MIN_DT};
     bool has_previous_target{false};
     ViewData previous_target{};

@@ -13,6 +13,16 @@ namespace hgraph
 {
 namespace
 {
+    bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
+        return lhs.value_data == rhs.value_data &&
+               lhs.time_data == rhs.time_data &&
+               lhs.observer_data == rhs.observer_data &&
+               lhs.delta_data == rhs.delta_data &&
+               lhs.link_data == rhs.link_data &&
+               lhs.projection == rhs.projection &&
+               lhs.path.indices == rhs.path.indices;
+    }
+
     engine_time_t resolve_bound_view_current_time(const ViewData& vd) {
         node_ptr owner = vd.path.node;
         if (owner == nullptr) {
@@ -46,6 +56,76 @@ namespace
 
         return target;
     }
+
+    std::optional<TSView> resolve_non_ref_output_view_from_bound(const ViewData& bound, engine_time_t current_time) {
+        const bool debug_ref_output = std::getenv("HGRAPH_DEBUG_REF_OUTPUT") != nullptr;
+        ViewData cursor = bound;
+
+        for (size_t depth = 0; depth < 64; ++depth) {
+            TSView view(cursor, current_time);
+            const TSMeta* meta = view.ts_meta();
+            if (debug_ref_output) {
+                std::string py = "<none>";
+                try { py = nb::cast<std::string>(nb::repr(view.to_python())); } catch (...) {}
+                std::fprintf(stderr,
+                             "[ref_output] depth=%zu path=%s kind=%d value=%s\n",
+                             depth,
+                             view.short_path().to_string().c_str(),
+                             meta != nullptr ? static_cast<int>(meta->kind) : -1,
+                             py.c_str());
+            }
+            if (meta == nullptr) {
+                return std::nullopt;
+            }
+            if (meta->kind != TSKind::REF) {
+                return view;
+            }
+
+            value::View ref_payload = view.value();
+            if (ref_payload.valid()) {
+                try {
+                    TimeSeriesReference nested_ref = nb::cast<TimeSeriesReference>(ref_payload.to_python());
+                    if (const ViewData* nested_target = nested_ref.bound_view(); nested_target != nullptr) {
+                        if (debug_ref_output) {
+                            std::fprintf(stderr,
+                                         "[ref_output]  payload bound_view path=%s\n",
+                                         nested_target->path.to_string().c_str());
+                        }
+                        if (same_view_identity(*nested_target, cursor)) {
+                            return std::nullopt;
+                        }
+                        cursor = *nested_target;
+                        continue;
+                    }
+
+                } catch (const std::exception &) {
+                    // Not a TimeSeriesReference payload.
+                }
+            }
+
+            ViewData bound_target{};
+            if (resolve_bound_target_view_data(cursor, bound_target)) {
+                if (debug_ref_output) {
+                    std::fprintf(stderr,
+                                 "[ref_output]  resolve_bound_target -> %s\n",
+                                 bound_target.path.to_string().c_str());
+                }
+                if (same_view_identity(bound_target, cursor)) {
+                    return std::nullopt;
+                }
+                cursor = std::move(bound_target);
+                continue;
+            }
+
+            if (debug_ref_output) {
+                std::fprintf(stderr, "[ref_output]  unresolved non-ref target\n");
+            }
+
+            return std::nullopt;
+        }
+
+        return std::nullopt;
+    }
 }  // namespace
 
     void ref_register_with_nanobind(nb::module_ &m) {
@@ -77,36 +157,12 @@ namespace
             .def_prop_ro("output", [](TimeSeriesReference &self) -> nb::object {
                 if (const ViewData *bound = self.bound_view(); bound != nullptr) {
                     const engine_time_t current_time = resolve_bound_view_current_time(*bound);
-                    TSView resolved_view(*bound, current_time);
-                    const TSMeta* resolved_meta = resolved_view.ts_meta();
-
-                    if (resolved_meta != nullptr && resolved_meta->kind == TSKind::REF) {
-                        value::View ref_payload = resolved_view.value();
-                        if (ref_payload.valid()) {
-                            try {
-                                TimeSeriesReference nested_ref = nb::cast<TimeSeriesReference>(ref_payload.to_python());
-                                if (const ViewData *nested_target = nested_ref.bound_view(); nested_target != nullptr) {
-                                    TSView nested_view(*nested_target, current_time);
-                                    const TSMeta* nested_meta = nested_view.ts_meta();
-                                    if (nested_meta != nullptr && nested_meta->kind != TSKind::REF) {
-                                        return wrap_output_view(TSOutputView(nullptr, std::move(nested_view)));
-                                    }
-                                }
-                            } catch (const std::exception &) {
-                                // Not a TSReference payload.
-                            }
-                        }
-
-                        ViewData bound_target{};
-                        if (resolve_bound_target_view_data(*bound, bound_target)) {
-                            TSView target_view(bound_target, current_time);
-                            const TSMeta* target_meta = target_view.ts_meta();
-                            if (target_meta != nullptr && target_meta->kind != TSKind::REF) {
-                                return wrap_output_view(TSOutputView(nullptr, std::move(target_view)));
-                            }
-                        }
+                    if (auto resolved_view = resolve_non_ref_output_view_from_bound(*bound, current_time);
+                        resolved_view.has_value()) {
+                        return wrap_output_view(TSOutputView(nullptr, std::move(*resolved_view)));
                     }
 
+                    TSView resolved_view(*bound, current_time);
                     return wrap_output_view(TSOutputView(nullptr, std::move(resolved_view)));
                 }
                 return nb::none();
@@ -195,7 +251,51 @@ namespace
     void PyTimeSeriesReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesReferenceOutput, PyTimeSeriesOutput>(m, "TimeSeriesReferenceOutput")
             .def("__str__", &PyTimeSeriesReferenceOutput::to_string)
-            .def("__repr__", &PyTimeSeriesReferenceOutput::to_repr);
+            .def("__repr__", &PyTimeSeriesReferenceOutput::to_repr)
+            .def("__getitem__", [](const PyTimeSeriesReferenceOutput& self, const nb::object& key) -> nb::object {
+                const TSView& base_view = self.output_view().as_ts_view();
+                const TSMeta* meta = base_view.ts_meta();
+                while (meta != nullptr && meta->kind == TSKind::REF) {
+                    meta = meta->element_ts();
+                }
+
+                TSView child{};
+
+                if (nb::isinstance<nb::int_>(key)) {
+                    child = base_view.child_at(nb::cast<size_t>(key));
+                } else if (nb::isinstance<nb::str>(key)) {
+                    if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+                        throw nb::key_error();
+                    }
+                    const std::string field_name = nb::cast<std::string>(key);
+                    bool found = false;
+                    size_t field_index = 0;
+                    for (size_t i = 0; i < meta->field_count(); ++i) {
+                        const char* name = meta->fields()[i].name;
+                        if (name != nullptr && field_name == name) {
+                            found = true;
+                            field_index = i;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        throw nb::key_error();
+                    }
+                    child = base_view.child_at(field_index);
+                } else if (meta != nullptr && meta->kind == TSKind::TSD && meta->key_type() != nullptr) {
+                    value::Value key_value(meta->key_type());
+                    key_value.emplace();
+                    meta->key_type()->ops().from_python(key_value.data(), key, meta->key_type());
+                    child = base_view.child_by_key(key_value.view());
+                } else {
+                    throw nb::key_error();
+                }
+
+                if (!child) {
+                    throw nb::key_error();
+                }
+                return wrap_output_view(TSOutputView(nullptr, std::move(child)));
+            }, "key"_a, nb::keep_alive<0, 1>());
     }
 
     // Base REF Input constructor

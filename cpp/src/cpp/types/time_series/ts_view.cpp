@@ -4,6 +4,7 @@
 #include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_value.h>
+#include <hgraph/types/value/map_storage.h>
 
 #include <stdexcept>
 
@@ -108,33 +109,31 @@ TSView child_by_key_impl(const ViewData& view_data, const value::View& key, engi
     }
 
     auto map = v.as_map();
+    if (!key.valid() || key.schema() != map.key_type()) {
+        return {};
+    }
+
+    const auto* storage = static_cast<const value::MapStorage*>(map.data());
+    if (storage == nullptr) {
+        return {};
+    }
+
+    const size_t slot = storage->key_set().find(key.data());
+    if (slot == static_cast<size_t>(-1)) {
+        return {};
+    }
+
     const bool debug_child_key = std::getenv("HGRAPH_DEBUG_CHILD_KEY") != nullptr;
     if (debug_child_key) {
         std::string key_s = nb::cast<std::string>(nb::repr(key.to_python()));
         std::fprintf(stderr,
-                     "[child_by_key] path=%s key=%s map_size=%zu\n",
+                     "[child_by_key] path=%s key=%s map_size=%zu slot=%zu\n",
                      view_data.path.to_string().c_str(),
                      key_s.c_str(),
-                     map.size());
+                     map.size(),
+                     slot);
     }
-    size_t slot = 0;
-    for (value::View map_key : map.keys()) {
-        if (debug_child_key) {
-            std::string map_key_s = nb::cast<std::string>(nb::repr(map_key.to_python()));
-            std::fprintf(stderr,
-                         "  [child_by_key] probe slot=%zu map_key=%s\n",
-                         slot,
-                         map_key_s.c_str());
-        }
-        if (map_key.schema() == key.schema() && map_key.equals(key)) {
-            if (debug_child_key) {
-                std::fprintf(stderr, "  [child_by_key] match slot=%zu\n", slot);
-            }
-            return child_at_impl(view_data, slot, current_time);
-        }
-        ++slot;
-    }
-    return {};
+    return child_at_impl(view_data, slot, current_time);
 }
 
 size_t child_count_impl(const ViewData& view_data) {

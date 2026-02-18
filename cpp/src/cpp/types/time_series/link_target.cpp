@@ -74,6 +74,7 @@ void LinkTarget::copy_target_data_from(const LinkTarget& other) {
     ops = other.ops;
     meta = other.meta;
     fan_in_targets = other.fan_in_targets;
+    notify_on_ref_wrapper_write = other.notify_on_ref_wrapper_write;
 }
 
 void LinkTarget::move_target_data_from(LinkTarget&& other) noexcept {
@@ -94,6 +95,7 @@ void LinkTarget::clear_target_data() {
     ops = nullptr;
     meta = nullptr;
     fan_in_targets.clear();
+    notify_on_ref_wrapper_write = true;
 }
 
 void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
