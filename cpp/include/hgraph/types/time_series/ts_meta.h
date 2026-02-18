@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <utility>
 
 namespace nb = nanobind;
@@ -109,7 +110,7 @@ struct TSMeta {
         const TSBFieldInfo* fields = nullptr;
         size_t field_count = 0;
         const char* bundle_name = nullptr;
-        const nb::object* python_type = nullptr;
+        nb::object python_type{};
     };
     struct REFData {
         const TSMeta* referenced_ts = nullptr;
@@ -123,12 +124,33 @@ struct TSMeta {
         TSBData tsb;
         REFData ref;
 
-        constexpr KindData() : empty{} {}
+        KindData() : empty{} {}
+        ~KindData() {}  // Owner (TSMeta) manages active member destruction
     };
 
     TSKind kind = TSKind::SIGNAL;
     const value::TypeMeta* value_type = nullptr;
     KindData data{};
+
+    // TSMeta is always heap-allocated and pointer-referenced; non-copyable due to nb::object in union.
+    TSMeta() = default;
+    ~TSMeta() { destroy_active_member(); }
+
+    TSMeta(const TSMeta&) = delete;
+    TSMeta& operator=(const TSMeta&) = delete;
+
+    TSMeta(TSMeta&& other) noexcept : kind(other.kind), value_type(other.value_type) {
+        move_data_from(std::move(other));
+    }
+    TSMeta& operator=(TSMeta&& other) noexcept {
+        if (this != &other) {
+            destroy_active_member();
+            kind = other.kind;
+            value_type = other.value_type;
+            move_data_from(std::move(other));
+        }
+        return *this;
+    }
 
     void set_tsd(const value::TypeMeta* key_type, const TSMeta* value_ts) noexcept {
         data.tsd = TSDData{key_type, value_ts};
@@ -147,8 +169,8 @@ struct TSMeta {
         data.tsw.window.duration.min_time_range = min_time_range;
     }
     void set_tsb(const TSBFieldInfo* fields, size_t field_count, const char* bundle_name,
-                 const nb::object* python_type) noexcept {
-        data.tsb = TSBData{fields, field_count, bundle_name, python_type};
+                 nb::object python_type) {
+        new (&data.tsb) TSBData{fields, field_count, bundle_name, std::move(python_type)};
     }
     void set_ref(const TSMeta* referenced_ts) noexcept {
         data.ref = REFData{referenced_ts};
@@ -207,13 +229,9 @@ struct TSMeta {
         return kind == TSKind::TSB ? data.tsb.bundle_name : nullptr;
     }
 
-    [[nodiscard]] const nb::object* python_type_ptr() const noexcept {
-        return kind == TSKind::TSB ? data.tsb.python_type : nullptr;
-    }
-
-    [[nodiscard]] nb::object python_type() const {
-        const nb::object* obj = python_type_ptr();
-        return obj != nullptr ? *obj : nb::none();
+    [[nodiscard]] const nb::object& python_type() const noexcept {
+        static const nb::object none_obj{};
+        return kind == TSKind::TSB ? data.tsb.python_type : none_obj;
     }
 
     // ========== Helper Methods ==========
@@ -234,6 +252,23 @@ struct TSMeta {
     [[nodiscard]] bool is_scalar_ts() const noexcept {
         return kind == TSKind::TSValue || kind == TSKind::TSW ||
                kind == TSKind::SIGNAL;
+    }
+
+private:
+    void destroy_active_member() {
+        if (kind == TSKind::TSB) {
+            data.tsb.~TSBData();
+        }
+    }
+
+    void move_data_from(TSMeta&& other) noexcept {
+        if (other.kind == TSKind::TSB) {
+            new (&data.tsb) TSBData{std::move(other.data.tsb)};
+        } else {
+            // All other KindData variants are trivially copyable
+            std::memcpy(&data, &other.data, sizeof(KindData));
+        }
+        other.kind = TSKind::SIGNAL;  // Prevent double-destroy of TSBData
     }
 };
 

@@ -303,13 +303,7 @@ const TSMeta* TSTypeRegistry::tsb(
     meta->kind = TSKind::TSB;
     meta->value_type = value_schema;
     const char* bundle_name = intern_string(name);
-    const nb::object* python_type_ptr = nullptr;
-    if (!python_type.is_none()) {
-        auto py_obj = std::make_unique<nb::object>(std::move(python_type));
-        python_type_ptr = py_obj.get();
-        python_types_.push_back(std::move(py_obj));
-    }
-    meta->set_tsb(field_array.get(), field_count, bundle_name, python_type_ptr);
+    meta->set_tsb(field_array.get(), field_count, bundle_name, std::move(python_type));
 
     field_arrays_.push_back(std::move(field_array));
 
