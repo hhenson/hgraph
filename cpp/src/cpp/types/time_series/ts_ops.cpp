@@ -4298,6 +4298,19 @@ nb::object delta_to_python(const ViewData& vd) {
     // Check time-series validity first
     if (!valid(vd)) return nb::none();
 
+    // Guard against stale cached deltas being replayed on non-modified ticks.
+    // This can happen when a set output does not tick but still has a cached
+    // Python delta object from a prior evaluation cycle.
+    engine_time_t eval_time = MIN_DT;
+    if (vd.path.node()) {
+        if (auto* g = vd.path.node()->graph()) {
+            eval_time = g->evaluation_time();
+        }
+    }
+    if (eval_time != MIN_DT && !modified(vd, eval_time)) {
+        return nb::none();
+    }
+
     // Return the cached Python delta built by from_python or set_add/set_remove.
     // Cache entries are managed by from_python and set_add/set_remove which clear
     // stale entries at the start of each new tick. Input-side staleness is guarded
@@ -5356,6 +5369,70 @@ nb::object to_python(const ViewData& vd) {
 nb::object delta_to_python(const ViewData& vd) {
     // If linked via LinkTarget (TSInput), delegate to target
     if (auto* lt = get_active_link_target(vd)) {
+        // On REF rebind, synthesize a full dict delta between old and new targets.
+        // This mirrors Python's rebind behavior where the consumer sees the switch
+        // as a structural/value transition, not only the new target's local delta.
+        if (lt->ref_binding_) {
+            auto* helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+            if (helper->has_pending_delta_) {
+                ViewData old_vd = helper->pending_old_vd_;
+                helper->has_pending_delta_ = false;
+
+                auto to_plain_dict = [](const nb::object& mapping_like) -> nb::dict {
+                    nb::dict out;
+                    if (mapping_like.is_none()) {
+                        return out;
+                    }
+                    nb::object items = mapping_like.attr("items")();
+                    for (auto item : items) {
+                        auto kv = nb::cast<nb::tuple>(item);
+                        out[kv[0]] = kv[1];
+                    }
+                    return out;
+                };
+
+                ViewData new_target_vd = make_view_data_from_link_target(*lt, vd.path);
+                nb::dict new_values = to_plain_dict(lt->ops->to_python(new_target_vd));
+                nb::dict old_values = old_vd.ops ? to_plain_dict(old_vd.ops->to_python(old_vd)) : nb::dict{};
+
+                nb::dict result;
+
+                // Added/updated keys from new target
+                for (auto item : new_values.attr("items")()) {
+                    auto kv = nb::cast<nb::tuple>(item);
+                    nb::object key = kv[0];
+                    nb::object new_val = kv[1];
+
+                    bool include = true;
+                    if (old_values.contains(key)) {
+                        nb::object old_val = old_values[key];
+                        int eq = PyObject_RichCompareBool(old_val.ptr(), new_val.ptr(), Py_EQ);
+                        if (eq == 1) {
+                            include = false;
+                        } else if (eq < 0) {
+                            PyErr_Clear();
+                        }
+                    }
+                    if (include) {
+                        result[key] = new_val;
+                    }
+                }
+
+                // Removed keys from old target
+                nb::module_ tsd_mod = nb::module_::import_("hgraph._types._tsd_type");
+                nb::object remove_sentinel = tsd_mod.attr("REMOVE");
+                for (auto item : old_values.attr("items")()) {
+                    auto kv = nb::cast<nb::tuple>(item);
+                    nb::object key = kv[0];
+                    if (!new_values.contains(key)) {
+                        result[key] = remove_sentinel;
+                    }
+                }
+
+                nb::module_ frozendict_mod = nb::module_::import_("frozendict");
+                return frozendict_mod.attr("frozendict")(result);
+            }
+        }
         return lt->ops->delta_to_python(make_view_data_from_link_target(*lt, vd.path));
     }
     // If linked via REFLink (TSOutput), delegate to target
@@ -5536,8 +5613,12 @@ nb::object delta_to_python(const ViewData& vd) {
 
     // Python parity: container-only notifications (for example sampled REF writes
     // with no actual key/value delta) should not emit an empty dict delta.
+    // Keep empty dict deltas when key-set activity occurred this tick (for example
+    // add+remove in same cycle), matching Python TSD output semantics.
     if (nb::len(result) == 0 && map_delta_ptr && map_delta_ptr->empty()) {
-        return nb::none();
+        if (!(map_delta_ptr->key_time() != MIN_DT && map_delta_ptr->key_time() == container_time)) {
+            return nb::none();
+        }
     }
 
     nb::module_ frozendict_mod = nb::module_::import_("frozendict");
@@ -6049,38 +6130,10 @@ bool dict_remove(ViewData& vd, const value::View& key, engine_time_t current_tim
 
     // Capture slot before removal so we can propagate nested-TSD removal deltas.
     size_t slot = storage->key_set().find(key.data());
-    bool removed_value_was_valid = false;
-    if (slot != static_cast<size_t>(-1) && vd.meta && vd.meta->element_ts) {
-        TSView elem_before_remove = child_at(vd, slot, current_time);
-        if (elem_before_remove.view_data().ops) {
-            if (elem_before_remove.view_data().meta &&
-                elem_before_remove.view_data().meta->kind == TSKind::REF) {
-                // REF validity for TSD delta semantics should reflect whether the
-                // referenced target currently has a concrete value, not whether
-                // the reference object itself is non-empty.
-                const ViewData& ref_vd = elem_before_remove.view_data();
-                if (ref_vd.value_data && ref_vd.meta && ref_vd.meta->value_type) {
-                    value::View ref_value(ref_vd.value_data, ref_vd.meta->value_type);
-                    if (ref_value.valid()) {
-                        const auto* ts_ref = static_cast<const TSReference*>(ref_value.data());
-                        if (ts_ref && !ts_ref->is_empty() && ts_ref->is_peered()) {
-                            try {
-                                TSView resolved = ts_ref->resolve(current_time);
-                                if (resolved && resolved.view_data().ops) {
-                                    nb::object py_target = resolved.view_data().ops->to_python(resolved.view_data());
-                                    removed_value_was_valid = !py_target.is_none();
-                                }
-                            } catch (...) {
-                                removed_value_was_valid = false;
-                            }
-                        }
-                    }
-                }
-            } else {
-                removed_value_was_valid = elem_before_remove.view_data().ops->valid(elem_before_remove.view_data());
-            }
-        }
-    }
+    // Avoid dereferencing child validity through nested wrapper state during erase:
+    // for nested TSD paths this can hit transient child view/link state and crash.
+    // Treat existing slots as valid removals for delta tracking.
+    bool removed_value_was_valid = (slot != static_cast<size_t>(-1));
     if (slot != static_cast<size_t>(-1) && vd.meta && vd.meta->element_ts &&
         vd.meta->element_ts->kind == TSKind::TSD) {
         // Mark the removed element as modified at this tick so removed_items()

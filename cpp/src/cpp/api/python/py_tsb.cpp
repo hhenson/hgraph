@@ -28,19 +28,33 @@ namespace hgraph
     nb::object PyTimeSeriesBundle<T_TS>::get_item(const nb::handle &key) const {
         // View-based: get field view
         auto bundle_view = this->view().as_bundle();
+        const auto* meta = this->view().ts_meta();
         TSView field_view;
+        const TSMeta* field_meta = nullptr;
         if (nb::isinstance<nb::str>(key)) {
             auto name = nb::cast<std::string>(key);
             field_view = bundle_view.field(name);
+            if (meta && meta->fields) {
+                for (size_t i = 0; i < meta->field_count; ++i) {
+                    if (meta->fields[i].name == name) {
+                        field_meta = meta->fields[i].ts_type;
+                        break;
+                    }
+                }
+            }
         } else if (nb::isinstance<nb::int_>(key)) {
-            field_view = bundle_view.field(nb::cast<size_t>(key));
+            auto idx = nb::cast<size_t>(key);
+            field_view = bundle_view.field(idx);
+            if (meta && meta->fields && idx < meta->field_count) {
+                field_meta = meta->fields[idx].ts_type;
+            }
         } else {
             throw std::runtime_error("Invalid key type for TimeSeriesBundle");
         }
         if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
             return wrap_output_view(TSOutputView(field_view, nullptr));
         } else {
-            return wrap_input_view(TSInputView(field_view, nullptr));
+            return wrap_input_view(TSInputView(field_view, nullptr), field_meta ? field_meta : field_view.ts_meta());
         }
     }
 

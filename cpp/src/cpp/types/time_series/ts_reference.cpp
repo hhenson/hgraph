@@ -153,7 +153,7 @@ bool TSReference::is_valid(engine_time_t current_time) const {
             }
         }
         case Kind::NON_PEERED:
-            // Valid if any item is non-empty
+            // Valid if any item is non-empty.
             for (const auto& item : storage_.non_peered_items) {
                 if (!item.is_empty()) {
                     return true;

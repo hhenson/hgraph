@@ -447,13 +447,12 @@ namespace hgraph
         ViewData vd = resolve_through_link(iv.ts_view().view_data());
 
         // Check if the input's schema differs from the resolved (native) view's schema.
-        // This happens when the input expects REF-wrapped elements but the output is native.
+        // In that case we need the alternative view from the bound output so child
+        // wrappers are created with the input schema's element type.
         const TSMeta* input_meta = iv.ts_meta();
-        bool needs_ref_alt = input_meta
-                             && input_meta->element_ts
-                             && input_meta->element_ts->kind == TSKind::REF;
-        if (needs_ref_alt && vd.meta && input_meta != vd.meta) {
-            // Input schema differs from native — need the alternative view.
+        bool needs_alt = input_meta && vd.meta && input_meta != vd.meta;
+        if (needs_alt) {
+            // Input schema differs from native — use the alternative view.
             TSOutput* bound = iv.bound_output();
             if (!bound) {
                 // bound_output_ not set on TSInputView (happens when the TSD input
@@ -493,10 +492,28 @@ namespace hgraph
     static nb::object wrap_dict_input_child_view(
             const TSView& ts_view,
             engine_time_t current_time,
-            TSInput* parent_input) {
-        auto wrapped = wrap_input_view(TSInputView(ts_view, parent_input));
-        if (!wrapped.is_none()) {
-            return wrapped;
+            TSInput* parent_input,
+            const TSMeta* effective_meta = nullptr) {
+        const TSMeta* child_meta = ts_view.ts_meta();
+
+        // For some alternative-wired dict values, the child view may expose REF meta
+        // while the input schema expects a concrete type (for example TSB). In that
+        // case, resolve through links first and wrap using the effective schema.
+        const bool prefer_effective_meta =
+            effective_meta &&
+            child_meta &&
+            child_meta != effective_meta &&
+            child_meta->kind == TSKind::REF &&
+            effective_meta->kind != TSKind::REF;
+
+        if (!prefer_effective_meta) {
+            const TSMeta* initial_meta = child_meta ? nullptr : effective_meta;
+            auto wrapped = initial_meta
+                               ? wrap_input_view(TSInputView(ts_view, parent_input), initial_meta)
+                               : wrap_input_view(TSInputView(ts_view, parent_input));
+            if (!wrapped.is_none()) {
+                return wrapped;
+            }
         }
 
         ViewData resolved_vd = resolve_through_link(ts_view.view_data());
@@ -505,6 +522,13 @@ namespace hgraph
         }
 
         TSView resolved_view(resolved_vd, current_time);
+        const TSMeta* resolved_meta = effective_meta ? effective_meta : resolved_vd.meta;
+        if (resolved_meta) {
+            auto wrapped = wrap_input_view(TSInputView(resolved_view, parent_input), resolved_meta);
+            if (!wrapped.is_none()) {
+                return wrapped;
+            }
+        }
         return wrap_input_view(TSInputView(resolved_view, parent_input));
     }
 
@@ -518,12 +542,60 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictInput::delta_value() const {
-        ViewData vd = resolve_through_link(input_view().ts_view().view_data());
-        TSView ts_view(vd, input_view().current_time());
+        auto dict_view = resolved_dict_view(input_view());
+        TSView ts_view(dict_view.view_data(), input_view().current_time());
         if (!ts_view.modified()) {
             return nb::none();
         }
-        return ts_view.delta_to_python();
+
+        nb::dict out;
+        const TSMeta* elem_meta = dict_view.meta() ? dict_view.meta()->element_ts : nullptr;
+        const bool has_removed = !dict_view.removed_slots().empty();
+        const bool nested_tsd = elem_meta && elem_meta->kind == TSKind::TSD;
+
+        // Preserve legacy delta conversion for the common case to keep
+        // nested map_/bundle wiring behavior unchanged.
+        // The manual fallback below is only for nested-TSD removal paths
+        // that can crash in dict_ops::delta_to_python().
+        if (!(has_removed && nested_tsd)) {
+            return ts_view.delta_to_python();
+        }
+
+        // Build delta from key-level changes instead of relying on dict_ops::delta_to_python()
+        // to avoid crashes on nested removed-slot traversal.
+        for (auto key : dict_view.modified_keys()) {
+            TSView elem_view = dict_view.at(key);
+            nb::object wrapped = wrap_dict_input_child_view(
+                elem_view,
+                input_view().current_time(),
+                const_cast<TSInput*>(input_view().input()),
+                elem_meta
+            );
+            if (wrapped.is_none()) {
+                continue;
+            }
+
+            nb::object py_delta = nb::none();
+            if (nb::hasattr(wrapped, "delta_value")) {
+                py_delta = wrapped.attr("delta_value");
+            }
+            if (py_delta.is_none() && nb::hasattr(wrapped, "value")) {
+                py_delta = wrapped.attr("value");
+            }
+            if (!py_delta.is_none()) {
+                out[key_view_to_python(key, dict_view.meta())] = py_delta;
+            }
+        }
+
+        if (!dict_view.removed_slots().empty()) {
+            nb::module_ tsd_mod = nb::module_::import_("hgraph._types._tsd_type");
+            nb::object remove_sentinel = tsd_mod.attr("REMOVE");
+            for (auto key : dict_view.removed_keys()) {
+                out[key_view_to_python(key, dict_view.meta())] = remove_sentinel;
+            }
+        }
+
+        return out.size() ? nb::cast<nb::object>(out) : nb::none();
     }
 
     size_t PyTimeSeriesDictInput::size() const {
@@ -536,7 +608,7 @@ namespace hgraph
         auto dict_view = resolved_dict_view(input_view());
         auto key_val = key_from_python(item);
         TSView elem_view = dict_view.at(key_val.const_view());
-        return wrap_dict_input_child_view(elem_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()));
+        return wrap_dict_input_child_view(elem_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr);
     }
 
     nb::object PyTimeSeriesDictInput::get(const nb::object &item, const nb::object &default_value) const {
@@ -544,7 +616,7 @@ namespace hgraph
         auto key_val = key_from_python(item);
         if (dict_view.contains(key_val.const_view())) {
             TSView elem_view = dict_view.at(key_val.const_view());
-            return wrap_dict_input_child_view(elem_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()));
+            return wrap_dict_input_child_view(elem_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr);
         }
         return default_value;
     }
@@ -553,7 +625,7 @@ namespace hgraph
         auto dict_view = resolved_dict_view(input_view());
         auto key_val = key_from_python(key);
         TSView elem_view = dict_view.get_or_create(key_val.const_view());
-        return wrap_dict_input_child_view(elem_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()));
+        return wrap_dict_input_child_view(elem_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr);
     }
 
     void PyTimeSeriesDictInput::create(const nb::object &item) {
@@ -595,7 +667,7 @@ namespace hgraph
         auto items = dict_view.items();
         for (auto it = items.begin(); it != items.end(); ++it) {
             TSView ts_view = *it;
-            result.append(wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input())));
+            result.append(wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr));
         }
         return result;
     }
@@ -606,7 +678,7 @@ namespace hgraph
         auto items = dict_view.items();
         for (auto it = items.begin(); it != items.end(); ++it) {
             TSView ts_view = *it;
-            auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()));
+            auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr);
             result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
         }
         return result;
@@ -615,14 +687,14 @@ namespace hgraph
     nb::object PyTimeSeriesDictInput::modified_keys() const {
         auto dict_view = resolved_dict_view(input_view());
         nb::list result;
-        const TSMeta *elem_meta = dict_view.meta() ? dict_view.meta()->element_ts : nullptr;
         for (auto key : dict_view.modified_keys()) {
             result.append(key_view_to_python(key, dict_view.meta()));
         }
 
-        // REF-element dict inputs can have empty MapDelta on bind/rebind ticks.
-        if (result.size() == 0 && elem_meta && elem_meta->kind == TSKind::REF &&
-            dict_view.modified() && dict_view.view_data().delta_data == nullptr) {
+        // Some bound dict inputs can have empty MapDelta on bind/rebind ticks.
+        // Fall back to treating current items as modified when container is modified
+        // but no per-key delta structure is available.
+        if (result.size() == 0 && dict_view.modified() && dict_view.view_data().delta_data == nullptr) {
             auto items = dict_view.items();
             for (auto it = items.begin(); it != items.end(); ++it) {
                 TSView ts_view = *it;
@@ -639,19 +711,17 @@ namespace hgraph
     nb::object PyTimeSeriesDictInput::modified_values() const {
         auto dict_view = resolved_dict_view(input_view());
         nb::list result;
-        const TSMeta *elem_meta = dict_view.meta() ? dict_view.meta()->element_ts : nullptr;
         auto modified_items = dict_view.modified_items();
         for (auto it = modified_items.begin(); it != modified_items.end(); ++it) {
             TSView ts_view = *it;
-            auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()));
+            auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr);
             if (wrapped_value.is_none()) {
                 continue;
             }
             result.append(wrapped_value);
         }
 
-        if (result.size() == 0 && elem_meta && elem_meta->kind == TSKind::REF &&
-            dict_view.modified() && dict_view.view_data().delta_data == nullptr) {
+        if (result.size() == 0 && dict_view.modified() && dict_view.view_data().delta_data == nullptr) {
             auto items = dict_view.items();
             for (auto it = items.begin(); it != items.end(); ++it) {
                 TSView ts_view = *it;
@@ -659,7 +729,7 @@ namespace hgraph
                 if (!child_vd.ops) {
                     continue;
                 }
-                auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()));
+                auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr);
                 if (wrapped_value.is_none()) {
                     continue;
                 }
@@ -672,19 +742,17 @@ namespace hgraph
     nb::object PyTimeSeriesDictInput::modified_items() const {
         auto dict_view = resolved_dict_view(input_view());
         nb::list result;
-        const TSMeta *elem_meta = dict_view.meta() ? dict_view.meta()->element_ts : nullptr;
         auto modified_items = dict_view.modified_items();
         for (auto it = modified_items.begin(); it != modified_items.end(); ++it) {
             TSView ts_view = *it;
-            auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()));
+            auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr);
             if (wrapped_value.is_none()) {
                 continue;
             }
             result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
         }
 
-        if (result.size() == 0 && elem_meta && elem_meta->kind == TSKind::REF &&
-            dict_view.modified() && dict_view.view_data().delta_data == nullptr) {
+        if (result.size() == 0 && dict_view.modified() && dict_view.view_data().delta_data == nullptr) {
             auto items = dict_view.items();
             for (auto it = items.begin(); it != items.end(); ++it) {
                 TSView ts_view = *it;
@@ -692,7 +760,7 @@ namespace hgraph
                 if (!child_vd.ops) {
                     continue;
                 }
-                auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()));
+                auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr);
                 if (wrapped_value.is_none()) {
                     continue;
                 }
@@ -726,7 +794,7 @@ namespace hgraph
         auto valid_items = dict_view.valid_items();
         for (auto it = valid_items.begin(); it != valid_items.end(); ++it) {
             TSView ts_view = *it;
-            result.append(wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input())));
+            result.append(wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr));
         }
         return result;
     }
@@ -737,7 +805,7 @@ namespace hgraph
         auto valid_items = dict_view.valid_items();
         for (auto it = valid_items.begin(); it != valid_items.end(); ++it) {
             TSView ts_view = *it;
-            auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()));
+            auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr);
             result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
         }
         return result;
@@ -758,7 +826,7 @@ namespace hgraph
         auto added_items = dict_view.added_items();
         for (auto it = added_items.begin(); it != added_items.end(); ++it) {
             TSView ts_view = *it;
-            result.append(wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input())));
+            result.append(wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr));
         }
         return result;
     }
@@ -769,7 +837,7 @@ namespace hgraph
         auto added_items = dict_view.added_items();
         for (auto it = added_items.begin(); it != added_items.end(); ++it) {
             TSView ts_view = *it;
-            auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()));
+            auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr);
             result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
         }
         return result;
@@ -801,7 +869,7 @@ namespace hgraph
         auto removed_items = dict_view.removed_items();
         for (auto it = removed_items.begin(); it != removed_items.end(); ++it) {
             TSView ts_view = *it;
-            result.append(wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input())));
+            result.append(wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr));
         }
         return result;
     }
@@ -812,7 +880,7 @@ namespace hgraph
         auto removed_items = dict_view.removed_items();
         for (auto it = removed_items.begin(); it != removed_items.end(); ++it) {
             TSView ts_view = *it;
-            auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()));
+            auto wrapped_value = wrap_dict_input_child_view(ts_view, input_view().current_time(), const_cast<TSInput*>(input_view().input()), dict_view.meta() ? dict_view.meta()->element_ts : nullptr);
             result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
         }
         return result;

@@ -149,7 +149,7 @@ namespace hgraph
             })
             // ABC-compatible properties to match Python TimeSeriesReference
             .def_prop_ro("is_valid", [](const TSReference& self) {
-                return !self.is_empty();
+                return self.is_valid(self.resolve_time());
             })
             .def_prop_ro("is_bound", [](const TSReference& self) {
                 return self.is_peered();
@@ -161,10 +161,16 @@ namespace hgraph
                 if (!self.is_non_peered()) {
                     return nb::none();
                 }
-                return nb::cast(self.items());
+                auto items = self.items();
+                for (auto& item : items) {
+                    item.set_resolve_time(self.resolve_time());
+                }
+                return nb::cast(std::move(items));
             })
             .def("__getitem__", [](const TSReference& self, size_t idx) {
-                return self[idx];
+                TSReference item = self[idx];
+                item.set_resolve_time(self.resolve_time());
+                return item;
             })
             // bind_input: matches Python TimeSeriesReference.bind_input() behavior
             // Called by operators like valid_impl: ts.value.bind_input(ts_value)
@@ -218,6 +224,9 @@ namespace hgraph
             .value("EMPTY", TSReference::Kind::EMPTY)
             .value("PEERED", TSReference::Kind::PEERED)
             .value("NON_PEERED", TSReference::Kind::NON_PEERED);
+
+        // Backward-compatible alias expected by tests and older callers.
+        m.attr("TSReference") = m.attr("TimeSeriesReference");
 
         // FQReference class
         nb::class_<FQReference>(m, "FQReference")
