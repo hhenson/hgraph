@@ -38,6 +38,7 @@ namespace hgraph
         [[nodiscard]] nb::object keys() const;
         [[nodiscard]] nb::object values() const;
         [[nodiscard]] nb::object items() const;
+        [[nodiscard]] nb::object delta_value() const;
         [[nodiscard]] nb::object modified_keys() const;
         [[nodiscard]] nb::object modified_values() const;
         [[nodiscard]] nb::object modified_items() const;
@@ -101,6 +102,7 @@ namespace hgraph
         [[nodiscard]] nb::object keys() const;
         [[nodiscard]] nb::object values() const;
         [[nodiscard]] nb::object items() const;
+        [[nodiscard]] nb::object delta_value() const;
         [[nodiscard]] nb::object modified_keys() const;
         [[nodiscard]] nb::object modified_values() const;
         [[nodiscard]] nb::object modified_items() const;

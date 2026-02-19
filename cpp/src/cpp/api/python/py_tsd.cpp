@@ -169,30 +169,7 @@ namespace
             return out;
         }
 
-        if (tuple_index == 0) {
-            // Prefer tuple-derived modified keys when available. Key-set "added"
-            // is only a fallback for bridge-style deltas where tuple slot 0 is
-            // unavailable/incompatible.
-            if (nb::len(out) > 0) {
-                return out;
-            }
-            if (tuple_slot_compatible) {
-                if (ref_valued) {
-                    for (const auto &k : key_set_added) {
-                        append_unique(nb::cast<nb::object>(k));
-                    }
-                }
-                return out;
-            }
-            if (ref_valued) {
-                for (const auto &k : key_set_added) {
-                    append_unique(nb::cast<nb::object>(k));
-                }
-                if (nb::len(out) > 0) {
-                    return out;
-                }
-            }
-        } else if (tuple_slot_compatible) {
+        if (tuple_index != 0 && tuple_slot_compatible) {
             return out;
         }
 
@@ -202,15 +179,29 @@ namespace
             return out;
         }
 
-        // If we successfully parsed a tuple slot and it just had no entries, preserve that.
-        // Only fall through when tuple data was unavailable/incompatible for this slot.
-        if (tuple_slot_compatible) {
+        // For slot 0, derive modified keys from delta_to_python() so carry-forward
+        // bridge entries (for example rebind snapshots) are preserved.
+        const bool prefer_python_delta_for_slot0 = tuple_index == 0;
+
+        // If we successfully parsed a non-slot-0 tuple and it just had no entries,
+        // preserve that. Only fall through when tuple data was unavailable/incompatible.
+        if (!prefer_python_delta_for_slot0 && tuple_slot_compatible) {
             return out;
         }
 
         nb::object delta_obj = view.delta_to_python();
         if (delta_obj.is_none()) {
+            if (prefer_python_delta_for_slot0 && ref_valued) {
+                for (const auto &k : key_set_added) {
+                    append_unique(nb::cast<nb::object>(k));
+                }
+            }
             return out;
+        }
+
+        if (prefer_python_delta_for_slot0) {
+            out = nb::list{};
+            seen = nb::set{};
         }
 
         auto emit_from_pair = [tuple_index, &append_unique](const nb::object &key_obj, const nb::object &value_obj) {
@@ -327,6 +318,29 @@ namespace
         }
         return false;
     }
+
+    bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
+        return lhs.value_data == rhs.value_data &&
+               lhs.time_data == rhs.time_data &&
+               lhs.delta_data == rhs.delta_data &&
+               lhs.observer_data == rhs.observer_data &&
+               lhs.link_data == rhs.link_data &&
+               lhs.path.indices == rhs.path.indices;
+    }
+
+    bool child_rebound_this_tick(const TSView& child_view) {
+        ViewData previous{};
+        if (!resolve_previous_bound_target_view_data(child_view.view_data(), previous)) {
+            return false;
+        }
+
+        ViewData current{};
+        if (!resolve_bound_target_view_data(child_view.view_data(), current)) {
+            return false;
+        }
+
+        return !same_view_identity(previous, current);
+    }
 }  // namespace
 
     // ===== PyTimeSeriesDictOutput Implementation =====
@@ -428,6 +442,75 @@ namespace
 
     nb::object PyTimeSeriesDictOutput::items() const {
         return dict_items_for_keys(output_view().as_dict(), nb::cast<nb::list>(keys()));
+    }
+
+    nb::object PyTimeSeriesDictOutput::delta_value() const {
+        TSOutputView view = output_view();
+        auto dict = view.as_dict();
+        const auto* meta = dict.ts_meta();
+        const bool ref_valued =
+            meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
+
+        nb::dict out;
+        nb::set added_key_set;
+        for (const auto& key_item : nb::cast<nb::list>(added_keys())) {
+            added_key_set.add(nb::cast<nb::object>(key_item));
+        }
+
+        nb::set current_keys;
+        for (const auto& key_item : nb::cast<nb::list>(keys())) {
+            current_keys.add(nb::cast<nb::object>(key_item));
+        }
+
+        nb::set previous_keys;
+        ViewData previous_bound_keys{};
+        if (resolve_previous_bound_target_view_data(view.as_ts_view().view_data(), previous_bound_keys) &&
+            previous_bound_keys.ops != nullptr &&
+            previous_bound_keys.ops->value != nullptr) {
+            value::View previous_value = previous_bound_keys.ops->value(previous_bound_keys);
+            if (previous_value.valid() && previous_value.is_map()) {
+                for (value::View prev_key : previous_value.as_map().keys()) {
+                    previous_keys.add(prev_key.to_python());
+                }
+            }
+        }
+
+        for (const auto& key_item : nb::cast<nb::list>(modified_keys())) {
+            nb::object key = nb::cast<nb::object>(key_item);
+            auto key_val = key_from_python_with_meta(key, meta);
+            if (key_val.schema() == nullptr) {
+                continue;
+            }
+
+            auto child = dict.at_key(key_val.view());
+            if (!child || !child.valid()) {
+                continue;
+            }
+            const bool child_modified = child.modified();
+            nb::object child_delta = child.as_ts_view().delta_to_python();
+            const bool in_added_set = PySet_Contains(added_key_set.ptr(), key.ptr()) == 1;
+            const bool in_current_set = PySet_Contains(current_keys.ptr(), key.ptr()) == 1;
+            const bool in_previous_set = PySet_Contains(previous_keys.ptr(), key.ptr()) == 1;
+            const bool structural_added = in_added_set && in_current_set && !in_previous_set;
+            const bool rebound = child_rebound_this_tick(child.as_ts_view());
+            if (child_delta.is_none() && (ref_valued || structural_added || rebound || !child_modified)) {
+                child_delta = child.as_ts_view().to_python();
+            }
+            if (child_delta.is_none()) {
+                continue;
+            }
+            out[key] = std::move(child_delta);
+        }
+
+        for (const auto& key_item : nb::cast<nb::list>(removed_keys())) {
+            nb::object key = nb::cast<nb::object>(key_item);
+            if (PySet_Contains(current_keys.ptr(), key.ptr()) == 1) {
+                continue;
+            }
+            out[key] = get_remove();
+        }
+
+        return get_frozendict()(std::move(out));
     }
 
     nb::object PyTimeSeriesDictOutput::modified_keys() const {
@@ -901,6 +984,104 @@ namespace
 
     nb::object PyTimeSeriesDictInput::items() const {
         return dict_items_for_keys(input_view().as_dict(), nb::cast<nb::list>(keys()));
+    }
+
+    nb::object PyTimeSeriesDictInput::delta_value() const {
+        TSInputView view = input_view();
+        auto dict = view.as_dict();
+        const auto* meta = dict.ts_meta();
+        const bool ref_valued =
+            meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
+
+        nb::dict out;
+        nb::set added_key_set;
+        for (const auto& key_item : nb::cast<nb::list>(added_keys())) {
+            added_key_set.add(nb::cast<nb::object>(key_item));
+        }
+
+        nb::set current_keys;
+        for (const auto& key_item : nb::cast<nb::list>(keys())) {
+            current_keys.add(nb::cast<nb::object>(key_item));
+        }
+
+        nb::set previous_keys;
+        ViewData previous_bound_keys{};
+        if (resolve_previous_bound_target_view_data(view.as_ts_view().view_data(), previous_bound_keys) &&
+            previous_bound_keys.ops != nullptr &&
+            previous_bound_keys.ops->value != nullptr) {
+            value::View previous_value = previous_bound_keys.ops->value(previous_bound_keys);
+            if (previous_value.valid() && previous_value.is_map()) {
+                for (value::View prev_key : previous_value.as_map().keys()) {
+                    previous_keys.add(prev_key.to_python());
+                }
+            }
+        }
+
+        for (const auto& key_item : nb::cast<nb::list>(modified_keys())) {
+            nb::object key = nb::cast<nb::object>(key_item);
+            auto key_val = key_from_python_with_meta(key, meta);
+            if (key_val.schema() == nullptr) {
+                continue;
+            }
+
+            auto child = dict.at_key(key_val.view());
+            if (!child || !child.valid()) {
+                continue;
+            }
+            const bool child_modified = child.modified();
+            nb::object child_delta = child.as_ts_view().delta_to_python();
+            const bool in_added_set = PySet_Contains(added_key_set.ptr(), key.ptr()) == 1;
+            const bool in_current_set = PySet_Contains(current_keys.ptr(), key.ptr()) == 1;
+            const bool in_previous_set = PySet_Contains(previous_keys.ptr(), key.ptr()) == 1;
+            const bool structural_added = in_added_set && in_current_set && !in_previous_set;
+            const bool rebound = child_rebound_this_tick(child.as_ts_view());
+            if (child_delta.is_none() && (ref_valued || structural_added || rebound || !child_modified)) {
+                child_delta = child.as_ts_view().to_python();
+            }
+            if (child_delta.is_none()) {
+                continue;
+            }
+            out[key] = std::move(child_delta);
+        }
+
+        value::View previous_map{};
+        ViewData previous_bound{};
+        if (resolve_previous_bound_target_view_data(view.as_ts_view().view_data(), previous_bound) &&
+            previous_bound.ops != nullptr &&
+            previous_bound.ops->value != nullptr) {
+            value::View previous_value = previous_bound.ops->value(previous_bound);
+            if (previous_value.valid() && previous_value.is_map()) {
+                previous_map = previous_value;
+            }
+        }
+
+        for (const auto& key_item : nb::cast<nb::list>(removed_keys())) {
+            nb::object key = nb::cast<nb::object>(key_item);
+            if (PySet_Contains(current_keys.ptr(), key.ptr()) == 1) {
+                continue;
+            }
+            auto key_val = key_from_python_with_meta(key, meta);
+            if (key_val.schema() == nullptr) {
+                continue;
+            }
+
+            bool include_remove = false;
+            if (previous_map.valid()) {
+                const value::MapView previous_entries = previous_map.as_map();
+                if (previous_entries.contains(key_val.view())) {
+                    value::View previous_child = previous_entries.at(key_val.view());
+                    include_remove = previous_child.valid();
+                }
+            } else {
+                include_remove = true;
+            }
+
+            if (include_remove) {
+                out[key] = get_remove();
+            }
+        }
+
+        return get_frozendict()(std::move(out));
     }
 
     nb::object PyTimeSeriesDictInput::modified_keys() const {

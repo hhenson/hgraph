@@ -117,6 +117,54 @@ namespace hgraph {
                 inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
             }
         }
+
+        std::optional<value::Value> snapshot_ref_target_value(const TSOutputView& output_view) {
+            if (!output_view) {
+                return std::nullopt;
+            }
+            const TSMeta* meta = output_view.ts_meta();
+            if (meta == nullptr || meta->kind != TSKind::REF) {
+                return std::nullopt;
+            }
+
+            ViewData target{};
+            if (!resolve_bound_target_view_data(output_view.as_ts_view().view_data(), target) ||
+                target.ops == nullptr ||
+                target.ops->value == nullptr) {
+                return std::nullopt;
+            }
+
+            value::View target_value = target.ops->value(target);
+            if (!target_value.valid()) {
+                return std::nullopt;
+            }
+            return target_value.clone();
+        }
+
+        void seed_ref_target_value(const TSOutputView& output_view,
+                                   const value::Value& snapshot,
+                                   engine_time_t current_time) {
+            if (!output_view || !snapshot.has_value()) {
+                return;
+            }
+            const TSMeta* meta = output_view.ts_meta();
+            if (meta == nullptr || meta->kind != TSKind::REF) {
+                return;
+            }
+
+            ViewData target{};
+            if (!resolve_bound_target_view_data(output_view.as_ts_view().view_data(), target)) {
+                return;
+            }
+
+            TSView target_view(target, current_time);
+            value::View current_value = target_view.value();
+            const value::TypeMeta* current_schema = current_value.schema();
+            if (current_schema != nullptr && current_schema != snapshot.schema()) {
+                return;
+            }
+            target_view.from_python(snapshot.to_python());
+        }
     }  // namespace
 
     SwitchNode::SwitchNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
@@ -213,6 +261,7 @@ namespace hgraph {
     void SwitchNode::eval() {
         const bool debug_switch = std::getenv("HGRAPH_DEBUG_SWITCH") != nullptr;
         mark_evaluated();
+        std::optional<value::Value> graph_reset_ref_snapshot;
 
         if (_key_type == nullptr) {
             throw std::runtime_error("SwitchNode key type meta is not initialised");
@@ -274,6 +323,7 @@ namespace hgraph {
             if (_reload_on_ticked || key_changed) {
                 if (_active_key.has_value()) {
                     graph_reset = true;
+                    graph_reset_ref_snapshot = snapshot_ref_target_value(output(node_time(*this)));
                     stop_component(*_active_graph);
                     unwire_graph(_active_graph);
                     // Schedule deferred disposal via lambda capture
@@ -334,6 +384,10 @@ namespace hgraph {
 
         // Evaluate the active graph if it exists
         if (_active_graph != nullptr) {
+            if (graph_reset && graph_reset_ref_snapshot.has_value()) {
+                seed_ref_target_value(output(node_time(*this)), *graph_reset_ref_snapshot, node_time(*this));
+            }
+
             // REF-valued outer args can rebind without key changes (for example
             // reduce tree growth changing the root reference). Refresh these
             // bindings on REF ticks so inner graphs track the new target.
@@ -417,18 +471,8 @@ namespace hgraph {
             // not produce a tick for this cycle then invalidate outer output.
             if (graph_reset) {
                 auto out_view = output(node_time(*this));
-                if (out_view) {
-                    if (out_view.modified()) {
-                        // Graph-reset with a modified output should sample the full
-                        // current snapshot for this cycle (including unchanged
-                        // children) to mirror Python switch behavior.
-                        const value::View current_value = out_view.value();
-                        if (current_value.valid()) {
-                            out_view.set_value(current_value);
-                        }
-                    } else {
-                        out_view.invalidate();
-                    }
+                if (out_view && !out_view.modified()) {
+                    out_view.invalidate();
                 }
             }
             if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(_active_graph->evaluation_engine_clock().get())) {

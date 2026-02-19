@@ -2459,7 +2459,16 @@ engine_time_t ref_wrapper_last_modified_time_on_read_path(const ViewData& vd) {
             // Non-REF consumers should observe REF wrapper *rebinds*, but not
             // wrapper-local rewrites that preserve target identity.
             if (has_rebound_target) {
-                out = std::max(out, direct_last_modified_time(probe));
+                engine_time_t rebind_time = rebind_time_for_view(probe);
+                if (probe.uses_link_target) {
+                    if (LinkTarget* link_target = resolve_link_target(probe, probe.path.indices);
+                        link_target != nullptr &&
+                        link_target->is_linked &&
+                        !link_target->has_previous_target) {
+                        rebind_time = std::max(rebind_time, link_target->last_rebind_time);
+                    }
+                }
+                out = std::max(out, rebind_time);
             } else if (static_ref_container) {
                 // Static REF containers (for example REF[TSB]) can update local
                 // reference payload without exposing a single bound_view target.
