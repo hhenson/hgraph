@@ -102,10 +102,15 @@ namespace hgraph
 
         bool refresh_multiplexed_bindings(const value::View &key, graph_s_ptr &graph, bool* all_mux_inputs_valid = nullptr);
 
+        void mark_key_for_forced_emit(const value::View &key) {
+            force_emit_keys_.insert(key.clone());
+        }
+
         // Protected members accessible by derived classes (e.g., MeshNode)
         graph_builder_s_ptr nested_graph_builder_;
         key_graph_map_type  active_graphs_;
         key_set_type        pending_keys_;
+        key_set_type        force_emit_keys_;
         int64_t             count_{1};
         const value::TypeMeta* key_type_meta_{nullptr};
 

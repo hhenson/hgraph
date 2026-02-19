@@ -339,9 +339,9 @@ public:
     [[nodiscard]] nb::object to_python() const { return ts_view_.to_python(); }
     [[nodiscard]] nb::object delta_to_python() const { return ts_view_.delta_to_python(); }
 
-    void bind(const TSOutputView& target) { ts_view_.bind(target.as_ts_view()); }
-    void unbind() { ts_view_.unbind(); }
-    [[nodiscard]] bool is_bound() const { return ts_view_.is_bound(); }
+    void bind(const TSOutputView& target);
+    void unbind();
+    [[nodiscard]] bool is_bound() const;
     void make_active();
     void make_passive();
     [[nodiscard]] bool active() const;

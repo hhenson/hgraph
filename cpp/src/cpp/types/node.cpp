@@ -10,6 +10,7 @@
 #include <hgraph/types/tsb.h>
 #include <ranges>
 #include <sstream>
+#include <cstdio>
 
 namespace hgraph
 {
@@ -545,6 +546,17 @@ namespace hgraph
         auto is_started{_node->is_started()};
         // Use node's cached evaluation time pointer - direct memory access, no pointer chasing
         engine_time_t now_ = is_started ? *_node->_cached_evaluation_time_ptr : MIN_DT;
+        if (std::getenv("HGRAPH_DEBUG_SCHED_TIME") != nullptr) {
+            auto graph_now = _node->graph() != nullptr ? _node->graph()->evaluation_time() : MIN_DT;
+            std::fprintf(stderr,
+                         "[sched_abs] node=%lld now=%lld graph_now=%lld when=%lld started=%d tag=%s\n",
+                         static_cast<long long>(_node->node_ndx()),
+                         static_cast<long long>(now_.time_since_epoch().count()),
+                         static_cast<long long>(graph_now.time_since_epoch().count()),
+                         static_cast<long long>(when.time_since_epoch().count()),
+                         is_started ? 1 : 0,
+                         tag.has_value() ? tag->c_str() : "<none>");
+        }
 
         if (when > now_) {
             _tags[tag.value_or("")] = when;
@@ -562,6 +574,17 @@ namespace hgraph
         // Use node's cached evaluation time pointer - direct memory access, no pointer chasing
         auto eval_time = *_node->_cached_evaluation_time_ptr;
         auto when_     = eval_time + when;
+        if (std::getenv("HGRAPH_DEBUG_SCHED_TIME") != nullptr) {
+            auto graph_now = _node->graph() != nullptr ? _node->graph()->evaluation_time() : MIN_DT;
+            std::fprintf(stderr,
+                         "[sched_rel] node=%lld eval=%lld graph_now=%lld delta=%lld when=%lld tag=%s\n",
+                         static_cast<long long>(_node->node_ndx()),
+                         static_cast<long long>(eval_time.time_since_epoch().count()),
+                         static_cast<long long>(graph_now.time_since_epoch().count()),
+                         static_cast<long long>(when.count()),
+                         static_cast<long long>(when_.time_since_epoch().count()),
+                         tag.has_value() ? tag->c_str() : "<none>");
+        }
         schedule(when_, std::move(tag), on_wall_clock);
     }
 
@@ -597,9 +620,13 @@ namespace hgraph
         if (_scheduled_events.empty()) { return; }
         // Use node's cached evaluation time pointer - direct memory access, no pointer chasing
         auto until = *_node->_cached_evaluation_time_ptr;
-        // Note: empty string is considered smallest in std::string comparison,
-        // so upper_bound will correctly find elements <= until regardless of tag value
-        _scheduled_events.erase(_scheduled_events.begin(), _scheduled_events.upper_bound({until, VERY_LARGE_STRING}));
+        while (!_scheduled_events.empty() && _scheduled_events.begin()->first <= until) {
+            auto [_, tag] = *_scheduled_events.begin();
+            if (!tag.empty()) {
+                _tags.erase(tag);
+            }
+            _scheduled_events.erase(_scheduled_events.begin());
+        }
 
         if (!_scheduled_events.empty()) { _node->graph()->schedule_node(_node->node_ndx(), _scheduled_events.begin()->first); }
     }
@@ -887,6 +914,7 @@ namespace hgraph
         bool should_eval{true};
 
         auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
+        _last_eval_time = et;
         TSInputView root = input(et);
         if (root && signature().time_series_inputs.has_value()) {
             auto bundle = root.try_as_bundle();
@@ -993,11 +1021,14 @@ namespace hgraph
         }
 
         // Handle scheduling
-        if (scheduled) {
-            // Must have a scheduler if it is scheduled
-            _scheduler->advance();
-        } else if (has_scheduler() && _scheduler->requires_scheduling()) {
-            graph()->schedule_node(node_ndx(), _scheduler->next_scheduled_time());
+        if (has_scheduler()) {
+            // If a node is activated by input updates after a delayed callback window,
+            // scheduler events can be behind current time. Purge before re-scheduling.
+            if (scheduled || (_scheduler->requires_scheduling() && _scheduler->next_scheduled_time() <= et)) {
+                _scheduler->advance();
+            } else if (_scheduler->requires_scheduling()) {
+                graph()->schedule_node(node_ndx(), _scheduler->next_scheduled_time());
+            }
         }
     }
 }  // namespace hgraph

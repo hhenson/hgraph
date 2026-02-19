@@ -297,6 +297,7 @@ namespace hgraph
         // Performance optimization: Cache evaluation time pointer from graph
         // Set once when graph is assigned to node, never changes
         const engine_time_t *_cached_evaluation_time_ptr{nullptr};
+        engine_time_t        _last_eval_time{MIN_DT};
     };
 }  // namespace hgraph
 

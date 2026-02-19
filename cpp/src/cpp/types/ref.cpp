@@ -483,7 +483,10 @@ namespace hgraph
     bool TimeSeriesReferenceInput::all_valid() const { return has_value() || BaseTimeSeriesInput::all_valid(); }
 
     engine_time_t TimeSeriesReferenceInput::last_modified_time() const {
-        return has_output() ? output()->last_modified_time() : sample_time();
+        if (has_output()) {
+            return std::max(output()->last_modified_time(), sample_time());
+        }
+        return sample_time();
     }
 
     void TimeSeriesReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr other) {

@@ -13,16 +13,6 @@ namespace hgraph
 {
 namespace
 {
-    bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
-        return lhs.value_data == rhs.value_data &&
-               lhs.time_data == rhs.time_data &&
-               lhs.observer_data == rhs.observer_data &&
-               lhs.delta_data == rhs.delta_data &&
-               lhs.link_data == rhs.link_data &&
-               lhs.projection == rhs.projection &&
-               lhs.path.indices == rhs.path.indices;
-    }
-
     engine_time_t resolve_bound_view_current_time(const ViewData& vd) {
         node_ptr owner = vd.path.node;
         if (owner == nullptr) {
@@ -40,91 +30,32 @@ namespace
             return MIN_DT;
         }
 
+        const engine_time_t graph_time = g->evaluation_time();
+        if (graph_time != MIN_DT) {
+            return graph_time;
+        }
+
         if (auto api = g->evaluation_engine_api(); api != nullptr) {
             return api->start_time();
         }
-
-        return g->evaluation_time();
+        return MIN_DT;
     }
 
     std::optional<ViewData> resolve_bound_target_view(const TSInputView &input_view) {
         const ViewData &source = input_view.as_ts_view().view_data();
+        const TSMeta* meta = input_view.ts_meta();
         ViewData target{};
+        if (meta != nullptr && meta->kind == TSKind::REF) {
+            if (!resolve_direct_bound_view_data(source, target)) {
+                return std::nullopt;
+            }
+            return target;
+        }
         if (!resolve_bound_target_view_data(source, target)) {
             return std::nullopt;
         }
 
         return target;
-    }
-
-    std::optional<TSView> resolve_non_ref_output_view_from_bound(const ViewData& bound, engine_time_t current_time) {
-        const bool debug_ref_output = std::getenv("HGRAPH_DEBUG_REF_OUTPUT") != nullptr;
-        ViewData cursor = bound;
-
-        for (size_t depth = 0; depth < 64; ++depth) {
-            TSView view(cursor, current_time);
-            const TSMeta* meta = view.ts_meta();
-            if (debug_ref_output) {
-                std::string py = "<none>";
-                try { py = nb::cast<std::string>(nb::repr(view.to_python())); } catch (...) {}
-                std::fprintf(stderr,
-                             "[ref_output] depth=%zu path=%s kind=%d value=%s\n",
-                             depth,
-                             view.short_path().to_string().c_str(),
-                             meta != nullptr ? static_cast<int>(meta->kind) : -1,
-                             py.c_str());
-            }
-            if (meta == nullptr) {
-                return std::nullopt;
-            }
-            if (meta->kind != TSKind::REF) {
-                return view;
-            }
-
-            value::View ref_payload = view.value();
-            if (ref_payload.valid()) {
-                try {
-                    TimeSeriesReference nested_ref = nb::cast<TimeSeriesReference>(ref_payload.to_python());
-                    if (const ViewData* nested_target = nested_ref.bound_view(); nested_target != nullptr) {
-                        if (debug_ref_output) {
-                            std::fprintf(stderr,
-                                         "[ref_output]  payload bound_view path=%s\n",
-                                         nested_target->path.to_string().c_str());
-                        }
-                        if (same_view_identity(*nested_target, cursor)) {
-                            return std::nullopt;
-                        }
-                        cursor = *nested_target;
-                        continue;
-                    }
-
-                } catch (const std::exception &) {
-                    // Not a TimeSeriesReference payload.
-                }
-            }
-
-            ViewData bound_target{};
-            if (resolve_bound_target_view_data(cursor, bound_target)) {
-                if (debug_ref_output) {
-                    std::fprintf(stderr,
-                                 "[ref_output]  resolve_bound_target -> %s\n",
-                                 bound_target.path.to_string().c_str());
-                }
-                if (same_view_identity(bound_target, cursor)) {
-                    return std::nullopt;
-                }
-                cursor = std::move(bound_target);
-                continue;
-            }
-
-            if (debug_ref_output) {
-                std::fprintf(stderr, "[ref_output]  unresolved non-ref target\n");
-            }
-
-            return std::nullopt;
-        }
-
-        return std::nullopt;
     }
 }  // namespace
 
@@ -157,13 +88,21 @@ namespace
             .def_prop_ro("output", [](TimeSeriesReference &self) -> nb::object {
                 if (const ViewData *bound = self.bound_view(); bound != nullptr) {
                     const engine_time_t current_time = resolve_bound_view_current_time(*bound);
-                    if (auto resolved_view = resolve_non_ref_output_view_from_bound(*bound, current_time);
-                        resolved_view.has_value()) {
-                        return wrap_output_view(TSOutputView(nullptr, std::move(*resolved_view)));
+                    TSView bound_view(*bound, current_time);
+                    if (std::getenv("HGRAPH_DEBUG_REF_OUTPUT") != nullptr) {
+                        const TSMeta* root_meta = bound->meta;
+                        const TSMeta* cur_meta = bound_view.ts_meta();
+                        const TSMeta* root_elem = (root_meta != nullptr && root_meta->kind == TSKind::TSD) ? root_meta->element_ts() : nullptr;
+                        std::fprintf(stderr,
+                                     "[ref_output] path=%s idx_count=%zu root_kind=%d root_elem_kind=%d cur_kind=%d current=%lld\n",
+                                     bound->path.to_string().c_str(),
+                                     bound->path.indices.size(),
+                                     root_meta != nullptr ? static_cast<int>(root_meta->kind) : -1,
+                                     root_elem != nullptr ? static_cast<int>(root_elem->kind) : -1,
+                                     cur_meta != nullptr ? static_cast<int>(cur_meta->kind) : -1,
+                                     static_cast<long long>(current_time.time_since_epoch().count()));
                     }
-
-                    TSView resolved_view(*bound, current_time);
-                    return wrap_output_view(TSOutputView(nullptr, std::move(resolved_view)));
+                    return wrap_output_view(TSOutputView(nullptr, std::move(bound_view)));
                 }
                 return nb::none();
             })

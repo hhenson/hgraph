@@ -11,39 +11,40 @@
 namespace hgraph {
 namespace {
 
-const ts_window_ops* resolve_window_ops(const ViewData& view_data) {
-    if (view_data.ops == nullptr) {
+const ts_ops* resolve_kind_ops(const ViewData& view_data) {
+    if (view_data.ops == nullptr || view_data.ops->ts_meta == nullptr) {
         return nullptr;
     }
-    return view_data.ops->window_ops();
+    const TSMeta* meta = view_data.ops->ts_meta(view_data);
+    if (meta == nullptr) {
+        return nullptr;
+    }
+    return get_ts_ops(meta);
+}
+
+const ts_window_ops* resolve_window_ops(const ViewData& view_data) {
+    const ts_ops* ops = resolve_kind_ops(view_data);
+    return ops != nullptr ? ops->window_ops() : nullptr;
 }
 
 const ts_set_ops* resolve_set_ops(const ViewData& view_data) {
-    if (view_data.ops == nullptr) {
-        return nullptr;
-    }
-    return view_data.ops->set_ops();
+    const ts_ops* ops = resolve_kind_ops(view_data);
+    return ops != nullptr ? ops->set_ops() : nullptr;
 }
 
 const ts_dict_ops* resolve_dict_ops(const ViewData& view_data) {
-    if (view_data.ops == nullptr) {
-        return nullptr;
-    }
-    return view_data.ops->dict_ops();
+    const ts_ops* ops = resolve_kind_ops(view_data);
+    return ops != nullptr ? ops->dict_ops() : nullptr;
 }
 
 const ts_list_ops* resolve_list_ops(const ViewData& view_data) {
-    if (view_data.ops == nullptr) {
-        return nullptr;
-    }
-    return view_data.ops->list_ops();
+    const ts_ops* ops = resolve_kind_ops(view_data);
+    return ops != nullptr ? ops->list_ops() : nullptr;
 }
 
 const ts_bundle_ops* resolve_bundle_ops(const ViewData& view_data) {
-    if (view_data.ops == nullptr) {
-        return nullptr;
-    }
-    return view_data.ops->bundle_ops();
+    const ts_ops* ops = resolve_kind_ops(view_data);
+    return ops != nullptr ? ops->bundle_ops() : nullptr;
 }
 
 const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indices) {
@@ -82,6 +83,48 @@ value::View resolve_navigation_value(const ViewData& view_data) {
     return view_data.ops->value(view_data);
 }
 
+value::View resolve_local_navigation_value(const ViewData& view_data) {
+    auto* value_root = static_cast<const value::Value*>(view_data.value_data);
+    if (value_root == nullptr || !value_root->has_value()) {
+        return {};
+    }
+
+    value::View current = value_root->view();
+    for (size_t index : view_data.path.indices) {
+        if (!current.valid() || !current.is_tuple()) {
+            return {};
+        }
+        auto tuple = current.as_tuple();
+        if (index >= tuple.size()) {
+            return {};
+        }
+        current = tuple.at(index);
+    }
+    return current;
+}
+
+std::optional<size_t> map_slot_for_key(const value::View& map_view, const value::View& key) {
+    if (!map_view.valid() || !map_view.is_map()) {
+        return std::nullopt;
+    }
+
+    auto map = map_view.as_map();
+    if (!key.valid() || key.schema() != map.key_type()) {
+        return std::nullopt;
+    }
+
+    const auto* storage = static_cast<const value::MapStorage*>(map.data());
+    if (storage == nullptr) {
+        return std::nullopt;
+    }
+
+    const size_t slot = storage->key_set().find(key.data());
+    if (slot == static_cast<size_t>(-1)) {
+        return std::nullopt;
+    }
+    return slot;
+}
+
 TSView child_at_impl(const ViewData& view_data, size_t index, engine_time_t current_time) {
     ViewData child = view_data;
     child.path.indices.push_back(index);
@@ -103,23 +146,15 @@ TSView child_by_name_impl(const ViewData& view_data, std::string_view name, engi
 }
 
 TSView child_by_key_impl(const ViewData& view_data, const value::View& key, engine_time_t current_time) {
+    if (view_data.uses_link_target) {
+        if (auto local_slot = map_slot_for_key(resolve_local_navigation_value(view_data), key); local_slot.has_value()) {
+            return child_at_impl(view_data, *local_slot, current_time);
+        }
+    }
+
     value::View v = resolve_navigation_value(view_data);
-    if (!v.valid() || !v.is_map()) {
-        return {};
-    }
-
-    auto map = v.as_map();
-    if (!key.valid() || key.schema() != map.key_type()) {
-        return {};
-    }
-
-    const auto* storage = static_cast<const value::MapStorage*>(map.data());
-    if (storage == nullptr) {
-        return {};
-    }
-
-    const size_t slot = storage->key_set().find(key.data());
-    if (slot == static_cast<size_t>(-1)) {
+    const auto slot = map_slot_for_key(v, key);
+    if (!slot.has_value()) {
         return {};
     }
 
@@ -130,10 +165,10 @@ TSView child_by_key_impl(const ViewData& view_data, const value::View& key, engi
                      "[child_by_key] path=%s key=%s map_size=%zu slot=%zu\n",
                      view_data.path.to_string().c_str(),
                      key_s.c_str(),
-                     map.size(),
-                     slot);
+                     v.as_map().size(),
+                     *slot);
     }
-    return child_at_impl(view_data, slot, current_time);
+    return child_at_impl(view_data, *slot, current_time);
 }
 
 size_t child_count_impl(const ViewData& view_data) {
@@ -491,6 +526,18 @@ bool TSDView::remove(const value::View& key) {
 
 TSView TSDView::create(const value::View& key) {
     const ts_dict_ops* ops = resolve_dict_ops(view_data());
+    if (std::getenv("HGRAPH_DEBUG_TSD_CREATE_DISPATCH") != nullptr) {
+        const auto* vd_ops = view_data().ops;
+        const TSMeta* meta = ts_meta();
+        std::fprintf(stderr,
+                     "[tsd_view.create] path=%s meta_kind=%d vd_ops=%p vd_ops_kind=%d dict_ops=%p key_valid=%d\n",
+                     short_path().to_string().c_str(),
+                     meta != nullptr ? static_cast<int>(meta->kind) : -1,
+                     static_cast<const void*>(vd_ops),
+                     vd_ops != nullptr ? static_cast<int>(vd_ops->kind) : -1,
+                     static_cast<const void*>(ops),
+                     key.valid() ? 1 : 0);
+    }
     if (ops == nullptr || ops->create == nullptr) {
         return {};
     }
@@ -844,6 +891,22 @@ void TSInputView::make_passive() {
 
 bool TSInputView::active() const {
     return owner_ != nullptr && owner_->active(ts_view_);
+}
+
+void TSInputView::bind(const TSOutputView& target) {
+    ts_view_.bind(target.as_ts_view());
+    if (owner_ != nullptr && owner_->active(ts_view_)) {
+        // Active inputs that bind later must re-attach notifier wiring immediately.
+        owner_->set_active(ts_view_, true);
+    }
+}
+
+void TSInputView::unbind() {
+    ts_view_.unbind();
+}
+
+bool TSInputView::is_bound() const {
+    return ts_view_.is_bound();
 }
 
 }  // namespace hgraph

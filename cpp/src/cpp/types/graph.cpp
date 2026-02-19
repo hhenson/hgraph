@@ -7,6 +7,7 @@
 #include <hgraph/types/traits.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 
+#include <cstdio>
 #include <utility>
 
 namespace hgraph
@@ -64,6 +65,17 @@ namespace hgraph
     void Graph::schedule_node(int64_t node_ndx, engine_time_t when, bool force_set) {
         // Use cached evaluation time pointer (set at initialization) - direct memory access
         auto et = *_cached_evaluation_time_ptr;
+
+        if (std::getenv("HGRAPH_DEBUG_GRAPH_SCHED") != nullptr) {
+            std::fprintf(stderr,
+                         "[graph_sched] graph=[%s] node=%lld et=%lld when=%lld force=%d st=%lld\n",
+                         fmt::format("{}", fmt::join(this->graph_id(), ",")).c_str(),
+                         static_cast<long long>(node_ndx),
+                         static_cast<long long>(et.time_since_epoch().count()),
+                         static_cast<long long>(when.time_since_epoch().count()),
+                         force_set ? 1 : 0,
+                         static_cast<long long>(_schedule[node_ndx].time_since_epoch().count()));
+        }
 
         // Match Python: just throw if scheduling in the past
         if (when < et) {

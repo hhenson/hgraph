@@ -28,6 +28,8 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/traits.h>
+#include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 #include <utility>
 
@@ -120,30 +122,50 @@ namespace
             throw std::runtime_error("wrap_output_view: TSOutputView has no TSMeta");
         }
 
+        const bool debug_wrap_output = std::getenv("HGRAPH_DEBUG_WRAP_OUTPUT") != nullptr;
+        auto debug_emit = [&](const char* wrapped) {
+            if (!debug_wrap_output) {
+                return;
+            }
+            std::fprintf(stderr,
+                         "[wrap_output] path=%s kind=%d wrapped=%s\n",
+                         view.short_path().to_string().c_str(),
+                         static_cast<int>(meta->kind),
+                         wrapped);
+        };
+
         switch (meta->kind) {
             case TSKind::TSValue:
+                debug_emit("TimeSeriesValueOutput");
                 return nb::cast(PyTimeSeriesValueOutput(std::move(view)));
 
             case TSKind::TSB:
+                debug_emit("TimeSeriesBundleOutput");
                 return nb::cast(PyTimeSeriesBundleOutput(std::move(view)));
 
             case TSKind::TSL:
+                debug_emit("TimeSeriesListOutput");
                 return nb::cast(PyTimeSeriesListOutput(std::move(view)));
 
             case TSKind::TSD:
+                debug_emit("TimeSeriesDictOutput");
                 return nb::cast(PyTimeSeriesDictOutput(std::move(view)));
 
             case TSKind::TSS:
+                debug_emit("TimeSeriesSetOutput");
                 return nb::cast(PyTimeSeriesSetOutput(std::move(view)));
 
             case TSKind::TSW:
                 if (meta->is_duration_based()) {
+                    debug_emit("TimeSeriesTimeWindowOutput");
                     return nb::cast(PyTimeSeriesTimeWindowOutput(std::move(view)));
                 } else {
+                    debug_emit("TimeSeriesFixedWindowOutput");
                     return nb::cast(PyTimeSeriesFixedWindowOutput(std::move(view)));
                 }
 
             case TSKind::REF:
+                debug_emit("TimeSeriesReferenceOutput");
                 return nb::cast(PyTimeSeriesReferenceOutput(std::move(view)));
 
             case TSKind::SIGNAL:

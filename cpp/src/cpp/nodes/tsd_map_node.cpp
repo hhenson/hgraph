@@ -581,6 +581,7 @@ namespace hgraph
         scheduled_keys_.clear();
         pending_keys_.clear();
         local_input_values_.clear();
+        force_emit_keys_.clear();
     }
 
     void TsdMapNode::dispose() {}
@@ -852,6 +853,9 @@ namespace hgraph
             if (auto pending_it = pending_keys_.find(key_value); pending_it != pending_keys_.end()) {
                 pending_keys_.erase(pending_it);
             }
+            if (auto emit_it = force_emit_keys_.find(key_value); emit_it != force_emit_keys_.end()) {
+                force_emit_keys_.erase(emit_it);
+            }
             for (auto& [_, values] : local_input_values_) {
                 values.erase(key.clone());
             }
@@ -882,6 +886,7 @@ namespace hgraph
             return MAX_DT;
         }
         const value::Value key_value = it->first.view().clone();
+        const bool force_emit = force_emit_keys_.find(key_value) != force_emit_keys_.end();
         const bool debug_tsd_map_copy = std::getenv("HGRAPH_DEBUG_TSD_MAP_COPY") != nullptr;
 
         auto &nested = it->second;
@@ -980,6 +985,7 @@ namespace hgraph
                             !outer_existing.valid() ||
                             inner_effective.modified() ||
                             output_init_pending ||
+                            force_emit ||
                             !ref_target_matches;
                         if (should_rebind_ref) {
                             auto outer_key = outer.create(key);
@@ -987,12 +993,15 @@ namespace hgraph
                             if (auto pending_it = pending_keys_.find(key_value); pending_it != pending_keys_.end()) {
                                 pending_keys_.erase(pending_it);
                             }
+                            if (auto emit_it = force_emit_keys_.find(key_value); emit_it != force_emit_keys_.end()) {
+                                force_emit_keys_.erase(emit_it);
+                            }
                         }
                     }
                 } else if (inner_effective.valid()) {
                     auto outer_key = outer.create(key);
                     const bool outer_was_valid = outer_key.valid();
-                    const bool outer_needs_init = !outer_was_valid || output_init_pending;
+                    const bool outer_needs_init = !outer_was_valid || output_init_pending || force_emit;
                     if (inner_effective.modified()) {
                         // Python parity: keyed map outputs copy full nested output
                         // state for evaluated keys, which preserves removals when
@@ -1003,12 +1012,18 @@ namespace hgraph
                         if (auto pending_it = pending_keys_.find(key_value); pending_it != pending_keys_.end()) {
                             pending_keys_.erase(pending_it);
                         }
+                        if (auto emit_it = force_emit_keys_.find(key_value); emit_it != force_emit_keys_.end()) {
+                            force_emit_keys_.erase(emit_it);
+                        }
                     } else if (outer_needs_init) {
                         ViewData dst_vd = outer_key.as_ts_view().view_data();
                         ViewData src_vd = inner_effective.view_data();
                         copy_view_data_value(dst_vd, src_vd, node_time(*this));
                         if (auto pending_it = pending_keys_.find(key_value); pending_it != pending_keys_.end()) {
                             pending_keys_.erase(pending_it);
+                        }
+                        if (auto emit_it = force_emit_keys_.find(key_value); emit_it != force_emit_keys_.end()) {
+                            force_emit_keys_.erase(emit_it);
                         }
                     }
                 } else if (has_outer_entry) {

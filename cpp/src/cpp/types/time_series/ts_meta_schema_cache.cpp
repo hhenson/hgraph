@@ -303,11 +303,21 @@ const TypeMeta* TSMetaSchemaCache::generate_link_schema_impl(const TSMeta* meta,
 
     switch (meta->kind) {
         case TSKind::TSValue:
-        case TSKind::TSD:
         case TSKind::TSW:
         case TSKind::TSS:
         case TSKind::SIGNAL:
             return leaf;
+
+        case TSKind::TSD:
+            {
+                // Dynamic dict containers carry a container link slot (0) plus
+                // per-key child link storage in slot 1.
+                const TypeMeta* child_link = generate_link_schema_impl(meta->element_ts(), input_mode);
+                auto builder = registry.tuple();
+                builder.add_element(leaf);  // container slot 0
+                builder.add_element(registry.list(child_link != nullptr ? child_link : leaf).build());
+                return builder.build();
+            }
 
         case TSKind::REF:
             {

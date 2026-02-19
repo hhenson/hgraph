@@ -112,6 +112,13 @@ void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
         projection == target.projection &&
         ops == target.ops &&
         meta == target.meta;
+
+    // Python parity: rebinding to the exact same endpoint is a no-op and
+    // must not tick wrapper modified/rebind state.
+    if (same_binding) {
+        return;
+    }
+
     const bool preserve_resolved_target = same_binding && has_resolved_target;
     const ViewData preserved_resolved_target = preserve_resolved_target ? resolved_target : ViewData{};
 

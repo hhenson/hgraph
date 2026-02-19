@@ -13,6 +13,7 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/constants.h>
+#include <hgraph/types/node.h>
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/value.h>
 
@@ -82,7 +83,10 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
                 break;
 
             case TSKind::TSD:
-                crossed_dynamic_boundary = true;
+                out.push_back(1);  // per-key child link list in slot 1
+                out.push_back(index);
+                meta = meta->element_ts();
+                break;
             case TSKind::REF:
                 meta = meta->element_ts();
                 break;
@@ -93,6 +97,8 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
     }
 
     if (!crossed_dynamic_boundary && meta != nullptr && meta->kind == TSKind::TSB) {
+        out.push_back(0);
+    } else if (!crossed_dynamic_boundary && meta != nullptr && meta->kind == TSKind::TSD) {
         out.push_back(0);
     } else if (!crossed_dynamic_boundary && meta != nullptr && meta->kind == TSKind::TSL && meta->fixed_size() > 0) {
         out.push_back(0);
@@ -825,6 +831,7 @@ private:
     void update_ref_output(const value::View& key, TSDRefOutputState& state, engine_time_t current_time) {
         const std::optional<ViewData> target = resolve_target_for_key(key, current_time);
         const bool target_present = target.has_value();
+        const bool debug_tsd_ref = std::getenv("HGRAPH_DEBUG_TSD_REF_OUTPUT") != nullptr;
 
         bool changed = !state.has_cached_target;
         if (!changed && state.cached_has_target != target_present) {
@@ -834,11 +841,46 @@ private:
             changed = !view_data_identity_equals(state.cached_target, *target);
         }
 
+        if (debug_tsd_ref) {
+            std::string key_repr{"<repr_error>"};
+            try {
+                key_repr = nb::cast<std::string>(nb::repr(key.to_python()));
+            } catch (...) {}
+            std::string target_path = target_present ? target->path.to_string() : std::string{"<none>"};
+            std::string cached_path = state.cached_has_target ? state.cached_target.path.to_string() : std::string{"<none>"};
+            std::fprintf(stderr,
+                         "[tsd_ref_update] source=%s key=%s now=%lld target_present=%d target=%s cached=%d cached_target=%s changed=%d\n",
+                         source_.path.to_string().c_str(),
+                         key_repr.c_str(),
+                         static_cast<long long>(current_time.time_since_epoch().count()),
+                         target_present ? 1 : 0,
+                         target_path.c_str(),
+                         state.cached_has_target ? 1 : 0,
+                         cached_path.c_str(),
+                         changed ? 1 : 0);
+        }
+
         if (!changed) {
             return;
         }
 
         set_output_reference(state.output_value, target, current_time);
+        if (debug_tsd_ref && state.output_value) {
+            TSView out_view = state.output_value->ts_view(current_time);
+            std::string out_repr{"<repr_error>"};
+            try {
+                out_repr = nb::cast<std::string>(nb::repr(out_view.to_python()));
+            } catch (...) {}
+            std::fprintf(stderr,
+                         "[tsd_ref_update_applied] source=%s now=%lld out_path=%s out_valid=%d out_mod=%d out_lmt=%lld out=%s\n",
+                         source_.path.to_string().c_str(),
+                         static_cast<long long>(current_time.time_since_epoch().count()),
+                         out_view.short_path().to_string().c_str(),
+                         out_view.valid() ? 1 : 0,
+                         out_view.modified() ? 1 : 0,
+                         static_cast<long long>(out_view.last_modified_time().time_since_epoch().count()),
+                         out_repr.c_str());
+        }
         state.has_cached_target = true;
         state.cached_has_target = target_present;
         if (target_present) {
@@ -1061,6 +1103,16 @@ std::string tsd_ref_source_runtime_key_for(const TSOutputView& self) {
     return std::string("tsd_ref:") + tss_source_runtime_key_for(self);
 }
 
+engine_time_t resolve_runtime_time_for_view(const TSOutputView& self) {
+    const ViewData& vd = self.as_ts_view().view_data();
+    if (node_ptr owner = vd.path.node; owner != nullptr) {
+        if (const engine_time_t* et = owner->cached_evaluation_time_ptr(); et != nullptr && *et != MIN_DT) {
+            return *et;
+        }
+    }
+    return self.current_time();
+}
+
 std::shared_ptr<TSSFeatureObserver> ensure_tss_feature_observer(const TSOutputView& self) {
     TSLinkObserverRegistry* registry = self.as_ts_view().view_data().link_observer_registry;
     if (registry == nullptr) {
@@ -1104,7 +1156,7 @@ TSOutputView tsd_get_ref_output(TSOutputView& self, const nb::object& key, const
     if (!observer) {
         return {};
     }
-    return observer->get_ref_output(key, requester, self.current_time());
+    return observer->get_ref_output(key, requester, resolve_runtime_time_for_view(self));
 }
 
 void tsd_release_ref_output(TSOutputView& self, const nb::object& key, const nb::object& requester) {
@@ -1139,7 +1191,7 @@ TSOutputView tss_get_contains_output(TSOutputView& self, const nb::object& item,
     if (!observer) {
         return {};
     }
-    return observer->get_contains_output(item, requester, self.current_time());
+    return observer->get_contains_output(item, requester, resolve_runtime_time_for_view(self));
 }
 
 void tss_release_contains_output(TSOutputView& self, const nb::object& item, const nb::object& requester) {
@@ -1159,7 +1211,7 @@ void tss_release_contains_output(TSOutputView& self, const nb::object& item, con
     }
 
     auto observer = std::static_pointer_cast<TSSFeatureObserver>(std::move(existing));
-    observer->release_contains_output(item, requester, self.current_time());
+    observer->release_contains_output(item, requester, resolve_runtime_time_for_view(self));
     if (!observer->has_consumers()) {
         observer->detach();
         registry->clear_feature_state(key);
@@ -1174,7 +1226,7 @@ TSOutputView tss_get_is_empty_output(TSOutputView& self) {
     if (!observer) {
         return {};
     }
-    return observer->get_is_empty_output(self.current_time());
+    return observer->get_is_empty_output(resolve_runtime_time_for_view(self));
 }
 
 void clear_output(TSOutputView& self) {

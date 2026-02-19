@@ -10,6 +10,8 @@
 #include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/time_series/ts_output.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -20,6 +22,21 @@ namespace
 {
     bool has_parent(const ShortPath &path) { return !path.indices.empty(); }
 
+    engine_time_t resolve_notify_time(node_ptr owner, engine_time_t fallback) {
+        if (owner != nullptr) {
+            if (const engine_time_t* et = owner->cached_evaluation_time_ptr(); et != nullptr && *et != MIN_DT) {
+                return *et;
+            }
+            if (auto g = owner->graph(); g != nullptr) {
+                const engine_time_t graph_time = g->evaluation_time();
+                if (graph_time != MIN_DT) {
+                    return graph_time;
+                }
+            }
+        }
+        return fallback;
+    }
+
     bool input_kind_requires_bound_validity(const TSInputView& input_view) {
         const TSMeta* meta = input_view.ts_meta();
         const TSKind kind = meta != nullptr ? meta->kind : input_view.as_ts_view().kind();
@@ -28,7 +45,14 @@ namespace
 
     std::optional<ViewData> resolve_bound_target_view_data(const TSInputView &input_view) {
         const ViewData &vd = input_view.as_ts_view().view_data();
+        const TSMeta* meta = input_view.ts_meta();
         ViewData target{};
+        if (meta != nullptr && meta->kind == TSKind::REF) {
+            if (!hgraph::resolve_direct_bound_view_data(vd, target)) {
+                return std::nullopt;
+            }
+            return target;
+        }
         if (!hgraph::resolve_bound_target_view_data(vd, target)) {
             return std::nullopt;
         }
@@ -288,14 +312,48 @@ namespace
             throw std::runtime_error("bind_output requires a TimeSeriesOutput instance");
         }
 
+        const bool was_bound = input_view().is_bound();
         auto &py_output = nb::cast<PyTimeSeriesOutput &>(output_);
+        if (std::getenv("HGRAPH_DEBUG_REF_BIND_PATH") != nullptr) {
+            const TSMeta* in_meta = input_view().ts_meta();
+            const TSMeta* out_meta = py_output.output_view().ts_meta();
+            std::fprintf(stderr,
+                         "[bind_output] in_path=%s in_kind=%d out_path=%s out_kind=%d bound_before=%d\n",
+                         input_view().short_path().to_string().c_str(),
+                         in_meta != nullptr ? static_cast<int>(in_meta->kind) : -1,
+                         py_output.output_view().short_path().to_string().c_str(),
+                         out_meta != nullptr ? static_cast<int>(out_meta->kind) : -1,
+                         input_view().is_bound() ? 1 : 0);
+        }
         input_view().bind(py_output.output_view());
+        if (std::getenv("HGRAPH_DEBUG_REF_BIND_PATH") != nullptr) {
+            std::fprintf(stderr,
+                         "[bind_output] in_path=%s bound_after=%d\n",
+                         input_view().short_path().to_string().c_str(),
+                         input_view().is_bound() ? 1 : 0);
+        }
+
+        node_ptr owner = input_view().short_path().node;
+        if (owner != nullptr && (owner->is_started() || owner->is_starting()) &&
+            input_view().is_bound() && (was_bound || input_view().valid()) &&
+            input_view().active()) {
+            const engine_time_t notify_time = resolve_notify_time(owner, input_view().current_time());
+            owner->notify(notify_time);
+        }
+
         return nb::bool_(input_view().is_bound());
     }
 
     void PyTimeSeriesInput::un_bind_output(bool unbind_refs) {
         (void)unbind_refs;
+        const bool was_valid = input_view().valid();
+        const bool was_active = input_view().active();
+        node_ptr owner = input_view().short_path().node;
         input_view().unbind();
+        if (owner != nullptr && owner->is_started() && was_valid && was_active) {
+            const engine_time_t notify_time = resolve_notify_time(owner, input_view().current_time());
+            owner->notify(notify_time);
+        }
     }
 
     nb::object PyTimeSeriesInput::reference_output() const {

@@ -3,6 +3,7 @@
 
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/tsd_map_node.h>
+#include <cstdint>
 #include <map>
 #include <set>
 
@@ -45,6 +46,8 @@ namespace hgraph
                                                     ValueHash, ValueEqual>;
         using key_set_map_type = std::unordered_map<value::Value, std::unordered_set<value::Value, ValueHash, ValueEqual>,
                                                     ValueHash, ValueEqual>;
+        using key_sequence_map_type = std::unordered_map<value::Value, uint64_t,
+                                                         ValueHash, ValueEqual>;
 
         MeshNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature, nb::dict scalars,
                  const TSMeta* input_meta, const TSMeta* output_meta,
@@ -92,12 +95,15 @@ namespace hgraph
         std::map<int, engine_time_t>             scheduled_ranks_;
         std::map<int, key_time_map_type>         scheduled_keys_by_rank_;
         key_int_map_type                         active_graphs_rank_;
+        key_sequence_map_type                    active_graphs_sequence_;
         key_set_map_type                         active_graphs_dependencies_;
+        key_set_type                             external_keys_;
         std::vector<std::pair<value::Value, value::Value>> re_rank_requests_;
         key_set_type                             graphs_to_remove_;
         std::optional<int>                       current_eval_rank_;
         std::optional<value::Value>         current_eval_graph_;
         int                                      max_rank_{0};
+        uint64_t                                 next_graph_sequence_{0};
 
         friend MeshNestedEngineEvaluationClock;
     };

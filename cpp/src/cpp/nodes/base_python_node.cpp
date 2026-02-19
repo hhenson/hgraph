@@ -7,6 +7,7 @@
 #include <hgraph/types/constants.h>
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
+#include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/traits.h>
 #include <hgraph/types/tsb.h>
 #include <hgraph/util/date_time.h>
@@ -149,12 +150,17 @@ namespace hgraph
         if (!signature().time_series_inputs.has_value()) { return; }
         auto &signature_args = signature().args;
         // Match main branch behavior: iterate over time_series_inputs
-	        for (const auto &[key, _] : *signature().time_series_inputs) {
-	            if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
-	                auto input_view = root_bundle->field(key);
-	                _kwargs[key.c_str()] = wrap_input_view(input_view);
-	            }
-	        }
+        for (const auto &[key, _] : *signature().time_series_inputs) {
+            if (std::ranges::find(signature_args, key) == std::ranges::end(signature_args)) {
+                continue;
+            }
+
+            auto input_view = root_bundle->field(key);
+            if (!input_view) {
+                continue;
+            }
+            _kwargs[key.c_str()] = wrap_input_view(input_view);
+        }
 
     }
 
@@ -250,8 +256,371 @@ namespace hgraph
     void BasePythonNode::do_eval() {
         _refresh_kwarg_time_views();
         ContextManager context_manager(*this);
+        if (std::getenv("HGRAPH_DEBUG_TSD_GET_ITEMS_KW") != nullptr) {
+            try {
+                nb::object ts_obj = _kwargs.contains(nb::str("ts")) ? _kwargs[nb::str("ts")] : nb::none();
+                auto type_name = [](const nb::object& obj) -> std::string {
+                    if (obj.is_none()) {
+                        return "<none>";
+                    }
+                    try {
+                        return nb::cast<std::string>(nb::str(obj.attr("__class__").attr("__name__")));
+                    } catch (...) {
+                        return "<unknown>";
+                    }
+                };
+
+                std::string ts_type = type_name(ts_obj);
+                std::string ref_type = "<none>";
+                std::string out_type = "<none>";
+                std::string ts_path = "<none>";
+                int ts_kind = -1;
+                std::string bound_path = "<none>";
+                int bound_kind = -1;
+                if (!ts_obj.is_none()) {
+                    nb::object ref_val = nb::getattr(ts_obj, "value", nb::none());
+                    ref_type = type_name(ref_val);
+                    if (!ref_val.is_none()) {
+                        nb::object out_val = nb::getattr(ref_val, "output", nb::none());
+                        out_type = type_name(out_val);
+                    }
+
+                    TSInputView ts_input = unwrap_input_view(ts_obj);
+                    if (ts_input) {
+                        ts_path = ts_input.short_path().to_string();
+                        if (const TSMeta* meta = ts_input.ts_meta(); meta != nullptr) {
+                            ts_kind = static_cast<int>(meta->kind);
+                        }
+                        ViewData bound{};
+                        if (resolve_bound_target_view_data(ts_input.as_ts_view().view_data(), bound)) {
+                            bound_path = bound.path.to_string();
+                            TSView bound_view(bound, ts_input.current_time());
+                            if (const TSMeta* meta = bound_view.ts_meta(); meta != nullptr) {
+                                bound_kind = static_cast<int>(meta->kind);
+                            }
+                        }
+                    }
+                }
+
+                std::fprintf(stderr,
+                             "[tsd_kw] node=%lld name=%s ts=%s ref=%s out=%s ts_path=%s ts_kind=%d bound_path=%s bound_kind=%d\n",
+                             static_cast<long long>(node_ndx()),
+                             signature().name.c_str(),
+                             ts_type.c_str(),
+                             ref_type.c_str(),
+                             out_type.c_str(),
+                             ts_path.c_str(),
+                             ts_kind,
+                             bound_path.c_str(),
+                             bound_kind);
+            } catch (...) {
+                std::fprintf(stderr,
+                             "[tsd_kw] node=%lld name=%s probe_error\n",
+                             static_cast<long long>(node_ndx()),
+                             signature().name.c_str());
+            }
+        }
         try {
+            if (std::getenv("HGRAPH_DEBUG_TSD_GET_ITEMS_STATE") != nullptr &&
+                signature().name == "tsd_get_items") {
+                auto repr_or = [](const nb::object& obj) -> std::string {
+                    try {
+                        return nb::cast<std::string>(nb::repr(obj));
+                    } catch (...) {
+                        return "<repr_error>";
+                    }
+                };
+
+                nb::object key_added = nb::none();
+                nb::object key_removed = nb::none();
+                nb::object source_removed = nb::none();
+                nb::object source_key_set = nb::none();
+                nb::object ref_modified_items = nb::none();
+                nb::object ref_ref_modified_items = nb::none();
+                nb::object ref_in_source_removed = nb::none();
+                nb::object ref_branch_decisions = nb::none();
+                try {
+                    if (_kwargs.contains(nb::str("key"))) {
+                        nb::object key_obj = _kwargs[nb::str("key")];
+                        if (!key_obj.is_none()) {
+                            key_added = nb::getattr(key_obj, "added", nb::none())();
+                            key_removed = nb::getattr(key_obj, "removed", nb::none())();
+                        }
+                    }
+                } catch (...) {}
+                try {
+                    if (_kwargs.contains(nb::str("ts"))) {
+                        nb::object ts_obj = _kwargs[nb::str("ts")];
+                        nb::object ts_value = nb::getattr(ts_obj, "value", nb::none());
+                        nb::object ts_output = nb::getattr(ts_value, "output", nb::none());
+                        if (!ts_output.is_none()) {
+                            nb::object key_set = nb::getattr(ts_output, "key_set", nb::none());
+                            if (!key_set.is_none()) {
+                                source_key_set = key_set;
+                                source_removed = nb::getattr(key_set, "removed", nb::none())();
+                            }
+                        }
+                    }
+                } catch (...) {}
+                try {
+                    if (_kwargs.contains(nb::str("_ref"))) {
+                        nb::object ref_obj = _kwargs[nb::str("_ref")];
+                        if (!ref_obj.is_none()) {
+                            ref_modified_items = nb::list(nb::iter(nb::getattr(ref_obj, "modified_items", nb::none())()));
+                        }
+                    }
+                } catch (...) {}
+                try {
+                    if (_kwargs.contains(nb::str("_ref_ref"))) {
+                        nb::object ref_ref_obj = _kwargs[nb::str("_ref_ref")];
+                        if (!ref_ref_obj.is_none()) {
+                            ref_ref_modified_items =
+                                nb::list(nb::iter(nb::getattr(ref_ref_obj, "modified_items", nb::none())()));
+                        }
+                    }
+                } catch (...) {}
+                try {
+                    if (!ref_modified_items.is_none() && !source_removed.is_none()) {
+                        nb::list in_removed;
+                        for (const auto& item_h : nb::iter(ref_modified_items)) {
+                            nb::object item = nb::cast<nb::object>(item_h);
+                            nb::object key_obj = item[0];
+                            const bool in_set = PySequence_Contains(source_removed.ptr(), key_obj.ptr()) == 1;
+                            in_removed.append(nb::make_tuple(key_obj, nb::bool_(in_set)));
+                        }
+                        ref_in_source_removed = in_removed;
+                    }
+                } catch (...) {}
+                try {
+                    if (!ref_modified_items.is_none()) {
+                        nb::list decisions;
+                        for (const auto& item_h : nb::iter(ref_modified_items)) {
+                            nb::object item = nb::cast<nb::object>(item_h);
+                            nb::object key_obj = item[0];
+                            nb::object ref_input = item[1];
+                            nb::object ref_value = nb::getattr(ref_input, "value", nb::none());
+
+                            bool has_output = false;
+                            bool output_is_reference = false;
+                            bool is_empty = true;
+                            bool in_source_key_set = false;
+                            bool in_ref_ref = false;
+
+                            if (!ref_value.is_none()) {
+                                has_output = nb::cast<bool>(nb::getattr(ref_value, "has_output", nb::bool_(false)));
+                                is_empty = nb::cast<bool>(nb::getattr(ref_value, "is_empty", nb::bool_(true)));
+                                if (has_output) {
+                                    nb::object out_obj = nb::getattr(ref_value, "output", nb::none());
+                                    if (!out_obj.is_none()) {
+                                        nb::object is_ref_callable = nb::getattr(out_obj, "is_reference", nb::none());
+                                        if (!is_ref_callable.is_none()) {
+                                            output_is_reference = nb::cast<bool>(is_ref_callable());
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (!source_key_set.is_none()) {
+                                in_source_key_set = PySequence_Contains(source_key_set.ptr(), key_obj.ptr()) == 1;
+                            }
+
+                            if (_kwargs.contains(nb::str("_ref_ref"))) {
+                                nb::object ref_ref_obj = _kwargs[nb::str("_ref_ref")];
+                                if (!ref_ref_obj.is_none()) {
+                                    in_ref_ref = PySequence_Contains(ref_ref_obj.ptr(), key_obj.ptr()) == 1;
+                                }
+                            }
+
+                            decisions.append(nb::make_tuple(
+                                key_obj,
+                                nb::bool_(has_output),
+                                nb::bool_(output_is_reference),
+                                nb::bool_(is_empty),
+                                nb::bool_(in_source_key_set),
+                                nb::bool_(in_ref_ref)));
+                        }
+                        ref_branch_decisions = decisions;
+                    }
+                } catch (...) {}
+
+                std::fprintf(stderr,
+                             "[tsd_get_items_state] node=%lld time=%lld key_added=%s key_removed=%s source_removed=%s ref_mod=%s ref_in_removed=%s ref_decisions=%s ref_ref_mod=%s\n",
+                             static_cast<long long>(node_ndx()),
+                             static_cast<long long>(node_time(*this).time_since_epoch().count()),
+                             repr_or(key_added).c_str(),
+                             repr_or(key_removed).c_str(),
+                             repr_or(source_removed).c_str(),
+                             repr_or(ref_modified_items).c_str(),
+                             repr_or(ref_in_source_removed).c_str(),
+                             repr_or(ref_branch_decisions).c_str(),
+                             repr_or(ref_ref_modified_items).c_str());
+            }
+            if (std::getenv("HGRAPH_DEBUG_TSD_GET_ITEM_STATE") != nullptr &&
+                signature().name == "tsd_get_item_default") {
+                auto repr_or = [](const nb::object& obj) -> std::string {
+                    try {
+                        return nb::cast<std::string>(nb::repr(obj));
+                    } catch (...) {
+                        return "<repr_error>";
+                    }
+                };
+                nb::object key_repr_obj = nb::none();
+                nb::object key_value_obj = nb::none();
+                nb::object ts_modified = nb::none();
+                nb::object ts_valid = nb::none();
+                nb::object ts_is_empty = nb::none();
+                nb::object key_modified = nb::none();
+                nb::object ref_modified = nb::none();
+                nb::object ref_ref_modified = nb::none();
+                nb::object ref_bound = nb::none();
+                nb::object ref_ref_bound = nb::none();
+                try {
+                    if (_kwargs.contains(nb::str("key"))) {
+                        nb::object key_obj = _kwargs[nb::str("key")];
+                        key_repr_obj = key_obj;
+                        key_value_obj = nb::getattr(key_obj, "value", nb::none());
+                        key_modified = nb::getattr(key_obj, "modified", nb::none());
+                    }
+                } catch (...) {}
+                try {
+                    if (_kwargs.contains(nb::str("ts"))) {
+                        nb::object ts_obj = _kwargs[nb::str("ts")];
+                        ts_modified = nb::getattr(ts_obj, "modified", nb::none());
+                        ts_valid = nb::getattr(ts_obj, "valid", nb::none());
+                        nb::object ts_value = nb::getattr(ts_obj, "value", nb::none());
+                        ts_is_empty = nb::getattr(ts_value, "is_empty", nb::none());
+                    }
+                } catch (...) {}
+                try {
+                    if (_kwargs.contains(nb::str("_ref"))) {
+                        nb::object ref_obj = _kwargs[nb::str("_ref")];
+                        ref_modified = nb::getattr(ref_obj, "modified", nb::none());
+                        ref_bound = nb::getattr(ref_obj, "bound", nb::none());
+                    }
+                } catch (...) {}
+                try {
+                    if (_kwargs.contains(nb::str("_ref_ref"))) {
+                        nb::object ref_ref_obj = _kwargs[nb::str("_ref_ref")];
+                        ref_ref_modified = nb::getattr(ref_ref_obj, "modified", nb::none());
+                        ref_ref_bound = nb::getattr(ref_ref_obj, "bound", nb::none());
+                    }
+                } catch (...) {}
+                std::fprintf(stderr,
+                             "[tsd_get_item_state] node=%lld time=%lld key=%s key_value=%s ts_mod=%s ts_valid=%s ts_empty=%s key_mod=%s ref_mod=%s ref_bound=%s ref_ref_mod=%s ref_ref_bound=%s\n",
+                             static_cast<long long>(node_ndx()),
+                             static_cast<long long>(node_time(*this).time_since_epoch().count()),
+                             repr_or(key_repr_obj).c_str(),
+                             repr_or(key_value_obj).c_str(),
+                             repr_or(ts_modified).c_str(),
+                             repr_or(ts_valid).c_str(),
+                             repr_or(ts_is_empty).c_str(),
+                             repr_or(key_modified).c_str(),
+                             repr_or(ref_modified).c_str(),
+                             repr_or(ref_bound).c_str(),
+                             repr_or(ref_ref_modified).c_str(),
+                             repr_or(ref_ref_bound).c_str());
+            }
             auto out{_eval_fn(**_kwargs)};
+            if (std::getenv("HGRAPH_DEBUG_TSD_GET_ITEMS_OUT") != nullptr &&
+                signature().name == "tsd_get_items") {
+                std::string out_repr{"<repr_error>"};
+                try {
+                    out_repr = nb::cast<std::string>(nb::repr(out));
+                } catch (...) {}
+                std::fprintf(stderr,
+                             "[tsd_get_items_out] node=%lld time=%lld out=%s\n",
+                             static_cast<long long>(node_ndx()),
+                             static_cast<long long>(node_time(*this).time_since_epoch().count()),
+                             out_repr.c_str());
+            }
+            if (std::getenv("HGRAPH_DEBUG_TSD_GET_ITEMS_OUT_KEYS") != nullptr &&
+                signature().name == "tsd_get_items") {
+                auto safe_str = [](const nb::handle& h) -> std::string {
+                    try {
+                        return nb::cast<std::string>(nb::str(h));
+                    } catch (...) {
+                        return "<str_error>";
+                    }
+                };
+                if (nb::isinstance<nb::dict>(out)) {
+                    nb::dict out_dict = nb::cast<nb::dict>(out);
+                    std::string keys_repr;
+                    bool first = true;
+                    for (const auto& kv : out_dict) {
+                        if (!first) {
+                            keys_repr += ",";
+                        }
+                        first = false;
+                        keys_repr += safe_str(kv.first);
+                    }
+                    std::string post_ref_ref{"<none>"};
+                    try {
+                        if (_kwargs.contains(nb::str("_ref_ref"))) {
+                            nb::object ref_ref_obj = _kwargs[nb::str("_ref_ref")];
+                            if (!ref_ref_obj.is_none()) {
+                                nb::object items = nb::getattr(ref_ref_obj, "modified_items", nb::none())();
+                                post_ref_ref = safe_str(items);
+                            }
+                        }
+                    } catch (...) {
+                        post_ref_ref = "<error>";
+                    }
+                    std::fprintf(stderr,
+                                 "[tsd_get_items_out_keys] node=%lld time=%lld keys=[%s] post_ref_ref_mod=%s\n",
+                                 static_cast<long long>(node_ndx()),
+                                 static_cast<long long>(node_time(*this).time_since_epoch().count()),
+                                 keys_repr.c_str(),
+                                 post_ref_ref.c_str());
+                }
+            }
+            if (std::getenv("HGRAPH_DEBUG_TSD_GET_ITEM_OUT") != nullptr &&
+                signature().name == "tsd_get_item_default") {
+                std::string out_repr{"<repr_error>"};
+                try {
+                    out_repr = nb::cast<std::string>(nb::repr(out));
+                } catch (...) {}
+                std::string key_repr{"<none>"};
+                std::string key_value_repr{"<none>"};
+                std::string ref_bound_post{"<none>"};
+                std::string ref_mod_post{"<none>"};
+                std::string ref_ref_bound_post{"<none>"};
+                std::string ref_ref_mod_post{"<none>"};
+                try {
+                    if (_kwargs.contains(nb::str("key"))) {
+                        nb::object key_obj = _kwargs[nb::str("key")];
+                        key_repr = nb::cast<std::string>(nb::repr(key_obj));
+                        nb::object key_value = nb::getattr(key_obj, "value", nb::none());
+                        if (!key_value.is_none()) {
+                            key_value_repr = nb::cast<std::string>(nb::repr(key_value));
+                        }
+                    }
+                } catch (...) {}
+                try {
+                    if (_kwargs.contains(nb::str("_ref"))) {
+                        nb::object ref_obj = _kwargs[nb::str("_ref")];
+                        ref_bound_post = nb::cast<std::string>(nb::repr(nb::getattr(ref_obj, "bound", nb::none())));
+                        ref_mod_post = nb::cast<std::string>(nb::repr(nb::getattr(ref_obj, "modified", nb::none())));
+                    }
+                } catch (...) {}
+                try {
+                    if (_kwargs.contains(nb::str("_ref_ref"))) {
+                        nb::object ref_ref_obj = _kwargs[nb::str("_ref_ref")];
+                        ref_ref_bound_post = nb::cast<std::string>(nb::repr(nb::getattr(ref_ref_obj, "bound", nb::none())));
+                        ref_ref_mod_post = nb::cast<std::string>(nb::repr(nb::getattr(ref_ref_obj, "modified", nb::none())));
+                    }
+                } catch (...) {}
+                std::fprintf(stderr,
+                             "[tsd_get_item_out] node=%lld time=%lld key=%s key_value=%s out=%s ref_bound=%s ref_mod=%s ref_ref_bound=%s ref_ref_mod=%s\n",
+                             static_cast<long long>(node_ndx()),
+                             static_cast<long long>(node_time(*this).time_since_epoch().count()),
+                             key_repr.c_str(),
+                             key_value_repr.c_str(),
+                             out_repr.c_str(),
+                             ref_bound_post.c_str(),
+                             ref_mod_post.c_str(),
+                             ref_ref_bound_post.c_str(),
+                             ref_ref_mod_post.c_str());
+            }
             if (!out.is_none()) {
                 auto out_port = output(node_time(*this));
                 if (out_port) { out_port.from_python(out); }
