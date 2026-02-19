@@ -12,6 +12,8 @@ from hgraph._types._scalar_types import is_compound_scalar, CompoundScalar
 
 _DATACLASS_CS_CACHE: dict[Type, Type] = {}
 
+__all__ = ("CS",)
+
 
 class CS:
     """
@@ -153,9 +155,7 @@ PASSTHROUGH_TYPES = {
 
 
 def _convert_type(field_type: Type) -> Type:
-    if isinstance(field_type, type) and (
-            field_type.__module__ == "builtins" or field_type in PASSTHROUGH_TYPES
-    ):
+    if isinstance(field_type, type) and (field_type.__module__ == "builtins" or field_type in PASSTHROUGH_TYPES):
         return field_type
 
     if (origin_type := get_origin(field_type)) is not None:
