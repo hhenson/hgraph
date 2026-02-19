@@ -29,43 +29,6 @@ namespace hgraph
 	        constexpr int64_t ERROR_PATH = -1;
 	        constexpr int64_t STATE_PATH = -2;
 	        constexpr int64_t KEY_SET_PATH_ID = -3;
-
-	        void bind_static_container_recursive(TSInputView input_view, TSOutputView output_view) {
-            if (!input_view || !output_view) {
-                return;
-            }
-
-            const TSMeta* input_meta = input_view.ts_meta();
-            const bool bind_parent =
-                !(input_meta != nullptr &&
-                  input_meta->kind == TSKind::TSL &&
-                  input_meta->fixed_size() > 0 &&
-                  input_meta->element_ts() != nullptr &&
-                  input_meta->element_ts()->kind == TSKind::REF);
-
-            if (bind_parent) {
-                input_view.bind(output_view);
-            }
-
-            if (input_meta == nullptr) {
-                return;
-            }
-
-	            if (input_meta->kind == TSKind::TSB) {
-	                const size_t n = input_meta->field_count();
-	                for (size_t i = 0; i < n; ++i) {
-	                    bind_static_container_recursive(input_child_at(input_view, i), output_child_at(output_view, i));
-	                }
-	                return;
-	            }
-
-	            if (input_meta->kind == TSKind::TSL && input_meta->fixed_size() > 0) {
-	                const size_t n = input_meta->fixed_size();
-	                for (size_t i = 0; i < n; ++i) {
-	                    bind_static_container_recursive(input_child_at(input_view, i), output_child_at(output_view, i));
-	                }
-	            }
-	        }
     }  // namespace
 
 	    bool _bind_ts_endpoint(node_ptr src_node, const std::vector<int64_t> &output_path,
@@ -166,15 +129,7 @@ namespace hgraph
 	            // Python wiring implicitly adapts TSD -> SIGNAL via key_set ticks.
 	            output_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
 	        }
-	        if (input_meta != nullptr &&
-                (input_meta->kind == TSKind::TSB ||
-                 (input_meta->kind == TSKind::TSL && input_meta->fixed_size() > 0))) {
-                // Python parity: static containers bind through children first,
-                // then optionally retain parent peering when fully peer-compatible.
-                bind_static_container_recursive(input_view, output_view);
-	        } else {
             input_view.bind(output_view);
-        }
         return true;
     }
 

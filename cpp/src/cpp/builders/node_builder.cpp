@@ -28,6 +28,49 @@
 
 namespace hgraph {
     namespace {
+        const value::TypeMeta *scalar_meta_from_signature_object(const nb::object &obj) {
+            if (!obj.is_valid() || obj.is_none()) {
+                return nullptr;
+            }
+
+            if (nb::hasattr(obj, "cpp_type")) {
+                try {
+                    nb::object cpp_type = nb::getattr(obj, "cpp_type");
+                    if (cpp_type.is_valid() && !cpp_type.is_none()) {
+                        return nb::cast<const value::TypeMeta *>(cpp_type);
+                    }
+                } catch (...) {
+                    // Fall through to py_type/object fallback.
+                }
+            }
+
+            if (nb::hasattr(obj, "py_type")) {
+                try {
+                    nb::object py_type = nb::getattr(obj, "py_type");
+                    if (py_type.is_valid() && !py_type.is_none()) {
+                        if (const auto *meta = value::TypeRegistry::instance().from_python_type(py_type); meta != nullptr) {
+                            return meta;
+                        }
+
+                        try {
+                            auto value_mod = nb::module_::import_("hgraph._hgraph").attr("value");
+                            nb::object resolved = value_mod.attr("get_scalar_type_meta")(py_type);
+                            if (resolved.is_valid() && !resolved.is_none()) {
+                                return nb::cast<const value::TypeMeta *>(resolved);
+                            }
+                        } catch (...) {
+                            // Fallback below.
+                        }
+                    }
+                } catch (...) {
+                    // Fall through to object fallback.
+                }
+            }
+
+            // Python parity: unknown scalar schemas are represented as object.
+            return value::TypeRegistry::instance().get_scalar<nb::object>();
+        }
+
         const TSMeta *meta_from_ts_signature_object(const nb::object &obj) {
             if (!obj.is_valid() || obj.is_none()) {
                 return nullptr;
@@ -38,6 +81,65 @@ namespace hgraph {
                     nb::object cpp_type = nb::getattr(obj, "cpp_type");
                     if (cpp_type.is_valid() && !cpp_type.is_none()) {
                         return nb::cast<const TSMeta *>(cpp_type);
+                    }
+                }
+
+                // TSL fallback when element schema can be synthesized but cpp_type on the
+                // list metadata is unavailable (for example TSL[TS[type[...]], Size[N]]).
+                if (nb::hasattr(obj, "value_tp") && nb::hasattr(obj, "size_tp")) {
+                    const TSMeta *element_meta = meta_from_ts_signature_object(nb::getattr(obj, "value_tp"));
+                    if (element_meta != nullptr) {
+                        size_t fixed_size = 0;
+                        nb::object size_tp = nb::getattr(obj, "size_tp");
+                        if (size_tp.is_valid() && !size_tp.is_none() && nb::hasattr(size_tp, "py_type")) {
+                            nb::object size_type = nb::getattr(size_tp, "py_type");
+                            if (size_type.is_valid() && !size_type.is_none() &&
+                                nb::hasattr(size_type, "FIXED_SIZE") &&
+                                nb::cast<bool>(nb::getattr(size_type, "FIXED_SIZE")) &&
+                                nb::hasattr(size_type, "SIZE")) {
+                                fixed_size = nb::cast<size_t>(nb::getattr(size_type, "SIZE"));
+                            }
+                        }
+                        return TSTypeRegistry::instance().tsl(element_meta, fixed_size);
+                    }
+                }
+
+                // TSB fallback for schemas that include fields whose Python metadata
+                // does not expose cpp_type (for example TS[Frame[...]] lanes).
+                if (nb::hasattr(obj, "bundle_schema_tp")) {
+                    nb::object bundle_schema = nb::getattr(obj, "bundle_schema_tp");
+                    if (bundle_schema.is_valid() && !bundle_schema.is_none() &&
+                        nb::hasattr(bundle_schema, "meta_data_schema")) {
+                        std::vector<std::pair<std::string, const TSMeta *>> fields;
+                        nb::dict meta_schema = nb::cast<nb::dict>(nb::getattr(bundle_schema, "meta_data_schema"));
+                        fields.reserve(meta_schema.size());
+
+                        for (auto item : meta_schema) {
+                            std::string name = nb::cast<std::string>(item.first);
+                            nb::object child_obj = nb::cast<nb::object>(item.second);
+                            const TSMeta *child_meta = meta_from_ts_signature_object(child_obj);
+                            if (child_meta == nullptr) {
+                                return nullptr;
+                            }
+                            fields.emplace_back(std::move(name), child_meta);
+                        }
+
+                        std::string schema_name = "__AnonymousTSB";
+                        nb::object python_type = nb::none();
+                        if (nb::hasattr(bundle_schema, "py_type")) {
+                            python_type = nb::getattr(bundle_schema, "py_type");
+                            if (python_type.is_valid() && !python_type.is_none() && nb::hasattr(python_type, "__name__")) {
+                                schema_name = nb::cast<std::string>(nb::getattr(python_type, "__name__"));
+                            }
+                        }
+                        return TSTypeRegistry::instance().tsb(fields, schema_name, python_type);
+                    }
+                }
+
+                if (nb::hasattr(obj, "value_scalar_tp")) {
+                    nb::object scalar_meta_obj = nb::getattr(obj, "value_scalar_tp");
+                    if (const auto *scalar_meta = scalar_meta_from_signature_object(scalar_meta_obj); scalar_meta != nullptr) {
+                        return TSTypeRegistry::instance().ts(scalar_meta);
                     }
                 }
 
@@ -100,16 +202,43 @@ namespace hgraph {
             return TSTypeRegistry::instance().tsb(fields, fmt::format("__NodeInput_{}", signature.name));
         }
 
-        const TSMeta *error_meta_from_signature(const NodeSignature &signature) {
+        const TSMeta *error_meta_from_signature(const NodeSignature &signature, const TSMeta *output_meta) {
             if (!signature.capture_exception) {
                 return nullptr;
             }
 
             const value::TypeMeta *node_error_type = value::TypeRegistry::instance().get_by_name("NodeError");
             if (node_error_type == nullptr) {
+                try {
+                    auto hgraph_mod = nb::module_::import_("hgraph");
+                    nb::object node_error_py_type = hgraph_mod.attr("NodeError");
+                    if (node_error_py_type.is_valid() && !node_error_py_type.is_none()) {
+                        node_error_type = value::TypeRegistry::instance().from_python_type(node_error_py_type);
+                        if (node_error_type == nullptr) {
+                            auto value_mod = nb::module_::import_("hgraph._hgraph").attr("value");
+                            nb::object resolved = value_mod.attr("get_scalar_type_meta")(node_error_py_type);
+                            if (resolved.is_valid() && !resolved.is_none()) {
+                                node_error_type = nb::cast<const value::TypeMeta *>(resolved);
+                            }
+                        }
+                    }
+                } catch (...) {
+                    node_error_type = nullptr;
+                }
+            }
+
+            if (node_error_type == nullptr) {
                 return nullptr;
             }
-            return TSTypeRegistry::instance().ts(node_error_type);
+
+            const TSMeta *node_error_ts = TSTypeRegistry::instance().ts(node_error_type);
+            if (output_meta != nullptr && output_meta->kind == TSKind::TSD) {
+                const value::TypeMeta *key_type = output_meta->key_type();
+                if (key_type != nullptr) {
+                    return TSTypeRegistry::instance().tsd(key_type, node_error_ts);
+                }
+            }
+            return node_error_ts;
         }
 
         const TSMeta *recordable_meta_from_signature(const NodeSignature &signature) {
@@ -134,7 +263,7 @@ namespace hgraph {
             _output_meta = signature->time_series_output.has_value()
                 ? meta_from_ts_signature_object(signature->time_series_output.value())
                 : nullptr;
-            _error_meta = error_meta_from_signature(*signature);
+            _error_meta = error_meta_from_signature(*signature, _output_meta);
             _recordable_state_meta = recordable_meta_from_signature(*signature);
         }
     }

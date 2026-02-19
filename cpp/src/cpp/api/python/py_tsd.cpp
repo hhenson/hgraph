@@ -152,8 +152,14 @@ namespace
         // Key-set bridge deltas can expose rebind additions/removals that are not
         // present in the raw tuple slots.
         if (tuple_index == 1) {
-            out = nb::list{};
-            seen = nb::set{};
+            if (ref_valued) {
+                out = nb::list{};
+                seen = nb::set{};
+                for (const auto &k : key_set_added) {
+                    append_unique(nb::cast<nb::object>(k));
+                }
+                return out;
+            }
             for (const auto &k : key_set_added) {
                 append_unique(nb::cast<nb::object>(k));
             }
@@ -450,15 +456,18 @@ namespace
         const auto* meta = dict.ts_meta();
         const bool ref_valued =
             meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
+        const bool debug_delta_simple = std::getenv("HGRAPH_DEBUG_PY_TSD_DELTA_SIMPLE") != nullptr;
 
         nb::dict out;
         nb::set added_key_set;
-        for (const auto& key_item : nb::cast<nb::list>(added_keys())) {
+        nb::list added_keys_list = nb::cast<nb::list>(added_keys());
+        for (const auto& key_item : added_keys_list) {
             added_key_set.add(nb::cast<nb::object>(key_item));
         }
 
         nb::set current_keys;
-        for (const auto& key_item : nb::cast<nb::list>(keys())) {
+        nb::list current_keys_list = nb::cast<nb::list>(keys());
+        for (const auto& key_item : current_keys_list) {
             current_keys.add(nb::cast<nb::object>(key_item));
         }
 
@@ -502,12 +511,57 @@ namespace
             out[key] = std::move(child_delta);
         }
 
-        for (const auto& key_item : nb::cast<nb::list>(removed_keys())) {
+        nb::list removed_keys_list = nb::cast<nb::list>(removed_keys());
+        if (debug_delta_simple) {
+            std::fprintf(stderr,
+                         "[py_tsd_delta] path=%s now=%lld added=%s current=%s removed=%s\n",
+                         view.as_ts_view().short_path().to_string().c_str(),
+                         static_cast<long long>(view.current_time().time_since_epoch().count()),
+                         nb::cast<std::string>(nb::repr(added_keys_list)).c_str(),
+                         nb::cast<std::string>(nb::repr(current_keys_list)).c_str(),
+                         nb::cast<std::string>(nb::repr(removed_keys_list)).c_str());
+        }
+
+        value::View previous_map{};
+        ViewData previous_bound{};
+        if (resolve_previous_bound_target_view_data(view.as_ts_view().view_data(), previous_bound) &&
+            previous_bound.ops != nullptr &&
+            previous_bound.ops->value != nullptr) {
+            value::View previous_value = previous_bound.ops->value(previous_bound);
+            if (previous_value.valid() && previous_value.is_map()) {
+                previous_map = previous_value;
+            }
+        }
+
+        for (const auto& key_item : removed_keys_list) {
             nb::object key = nb::cast<nb::object>(key_item);
             if (PySet_Contains(current_keys.ptr(), key.ptr()) == 1) {
                 continue;
             }
-            out[key] = get_remove();
+            if (PySet_Contains(added_key_set.ptr(), key.ptr()) == 1) {
+                // Python parity: keys that were added and removed within the same
+                // cycle (or removed without a visible value) should not emit REMOVE.
+                continue;
+            }
+            auto key_val = key_from_python_with_meta(key, meta);
+            if (key_val.schema() == nullptr) {
+                continue;
+            }
+
+            bool include_remove = false;
+            if (previous_map.valid()) {
+                const value::MapView previous_entries = previous_map.as_map();
+                if (previous_entries.contains(key_val.view())) {
+                    value::View previous_child = previous_entries.at(key_val.view());
+                    include_remove = previous_child.valid();
+                }
+            } else {
+                include_remove = true;
+            }
+
+            if (include_remove) {
+                out[key] = get_remove();
+            }
         }
 
         return get_frozendict()(std::move(out));
@@ -1058,6 +1112,10 @@ namespace
         for (const auto& key_item : nb::cast<nb::list>(removed_keys())) {
             nb::object key = nb::cast<nb::object>(key_item);
             if (PySet_Contains(current_keys.ptr(), key.ptr()) == 1) {
+                continue;
+            }
+            if (PySet_Contains(added_key_set.ptr(), key.ptr()) == 1) {
+                // Keys that churn within the same cycle should not surface as REMOVE.
                 continue;
             }
             auto key_val = key_from_python_with_meta(key, meta);

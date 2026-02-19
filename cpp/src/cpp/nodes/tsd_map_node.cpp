@@ -278,6 +278,39 @@ namespace hgraph
             }
         }
 
+        std::optional<ViewData> resolve_outer_binding_target(const TSView &outer_any) {
+            if (!outer_any) {
+                return std::nullopt;
+            }
+
+            const TSMeta *outer_meta = outer_any.ts_meta();
+            ViewData bound_target{};
+            if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
+                if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
+                    return bound_target;
+                }
+
+                value::View ref_view = outer_any.value();
+                if (!ref_view.valid()) {
+                    return std::nullopt;
+                }
+                try {
+                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
+                    if (const ViewData *target = ref.bound_view(); target != nullptr) {
+                        return *target;
+                    }
+                } catch (...) {
+                    return std::nullopt;
+                }
+                return std::nullopt;
+            }
+
+            if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
+                return bound_target;
+            }
+            return outer_any.view_data();
+        }
+
         bool collect_current_map_keys(const TSInputView& keys_view, TsdMapNode::key_set_type& out) {
             out.clear();
             value::View keys_value = keys_view.value();
@@ -605,52 +638,62 @@ namespace hgraph
             std::vector<value::Value> added_keys;
             std::vector<value::Value> removed_keys;
             const bool has_key_delta = extract_key_delta(keys_view, key_type_meta_, added_keys, removed_keys);
+            key_set_type current_keys;
+            const bool have_current_keys = collect_current_map_keys(keys_view, current_keys);
+
+            bool use_full_diff = !has_key_delta;
             if (has_key_delta) {
                 for (const auto& key : added_keys) {
-                    if (debug_tsd_map) {
-                        std::fprintf(stderr, "[tsd_map]  key_delta add=%s\n", key_repr(key.view(), key_type_meta_).c_str());
-                    }
-                    if (active_graphs_.find(key) == active_graphs_.end()) {
-                        create_new_graph(key.view());
-                    } else {
-                        throw std::runtime_error(
-                            fmt::format("[{}] Key {} already exists in active graphs", signature().wiring_path_name,
-                                        key_repr(key.view(), key_type_meta_)));
+                    if (active_graphs_.find(key.view()) != active_graphs_.end()) {
+                        use_full_diff = true;
+                        break;
                     }
                 }
-                for (const auto& key : removed_keys) {
-                    if (debug_tsd_map) {
-                        std::fprintf(stderr, "[tsd_map]  key_delta remove=%s\n", key_repr(key.view(), key_type_meta_).c_str());
-                    }
-                    if (active_graphs_.find(key) != active_graphs_.end()) {
-                        remove_graph(key.view());
-                        scheduled_keys_.erase(key);
-                    } else {
-                        throw std::runtime_error(
-                            fmt::format("[{}] Key {} does not exist in active graphs", signature().wiring_path_name,
-                                        key_repr(key.view(), key_type_meta_)));
+                if (!use_full_diff) {
+                    for (const auto& key : removed_keys) {
+                        if (active_graphs_.find(key.view()) == active_graphs_.end()) {
+                            use_full_diff = true;
+                            break;
+                        }
                     }
                 }
-            } else {
-                key_set_type current_keys;
-                if (!collect_current_map_keys(keys_view, current_keys)) {
+            }
+
+            if (use_full_diff) {
+                if (!have_current_keys) {
                     throw std::runtime_error("TsdMapNode expected set/map value for __keys__");
                 }
 
+                added_keys.clear();
+                removed_keys.clear();
+
                 for (const auto& key : current_keys) {
                     if (active_graphs_.find(key.view()) == active_graphs_.end()) {
-                        create_new_graph(key.view());
+                        added_keys.push_back(key.view().clone());
                     }
                 }
 
-                std::vector<value::Value> keys_to_remove;
-                keys_to_remove.reserve(active_graphs_.size());
                 for (const auto& [key, _] : active_graphs_) {
                     if (current_keys.find(key.view()) == current_keys.end()) {
-                        keys_to_remove.push_back(key.view().clone());
+                        removed_keys.push_back(key.view().clone());
                     }
                 }
-                for (const auto& key : keys_to_remove) {
+            }
+
+            for (const auto& key : added_keys) {
+                if (debug_tsd_map) {
+                    std::fprintf(stderr, "[tsd_map]  key_add=%s\n", key_repr(key.view(), key_type_meta_).c_str());
+                }
+                if (active_graphs_.find(key.view()) == active_graphs_.end()) {
+                    create_new_graph(key.view());
+                }
+            }
+
+            for (const auto& key : removed_keys) {
+                if (debug_tsd_map) {
+                    std::fprintf(stderr, "[tsd_map]  key_remove=%s\n", key_repr(key.view(), key_type_meta_).c_str());
+                }
+                if (active_graphs_.find(key.view()) != active_graphs_.end()) {
                     remove_graph(key.view());
                     scheduled_keys_.erase(key);
                 }
@@ -1272,10 +1315,23 @@ namespace hgraph
                     }
                 }
                 mux_all_valid = mux_all_valid && outer_key_value.valid();
+                std::optional<ViewData> current_inner_target;
+                ViewData current_bound_target{};
+                if (resolve_bound_target_view_data(inner_ts.as_ts_view().view_data(), current_bound_target)) {
+                    current_inner_target = current_bound_target;
+                }
+                const std::optional<ViewData> desired_outer_target = resolve_outer_binding_target(outer_key_value);
+                const bool binding_changed =
+                    current_inner_target.has_value() != desired_outer_target.has_value() ||
+                    (current_inner_target.has_value() && desired_outer_target.has_value() &&
+                     !same_view_identity(*current_inner_target, *desired_outer_target));
+                const bool key_value_modified = outer_key_value.valid() && outer_key_value.modified();
                 stage_id = 5;
                 bind_inner_from_outer(outer_key_value, inner_ts);
                 stage_id = 6;
-                node->notify();
+                if (key_value_modified || binding_changed) {
+                    node->notify();
+                }
             } catch (const std::exception& e) {
                 if (std::getenv("HGRAPH_DEBUG_TSD_MAP_BIND") != nullptr) {
                     std::fprintf(stderr,

@@ -82,13 +82,10 @@ namespace hgraph {
     void NestedGraphNode::wire_outputs() {
         if (m_output_node_id_ >= 0) {
             auto node = m_active_graph_->nodes()[m_output_node_id_];
-
-            auto outer_view = output(node_time(*this));
-            auto inner_view = node->output(node_time(*node));
-            if (!outer_view || !inner_view) {
-                return;
+            if (node != nullptr) {
+                m_wired_output_node_ = node.get();
+                m_wired_output_node_->set_output_override(this);
             }
-            outer_view.as_ts_view().bind(inner_view.as_ts_view());
         }
     }
 
@@ -106,6 +103,12 @@ namespace hgraph {
 
     void NestedGraphNode::dispose() {
         if (m_active_graph_ == nullptr) { return; }
+
+        if (m_wired_output_node_ != nullptr) {
+            m_wired_output_node_->clear_output_override();
+            m_wired_output_node_ = nullptr;
+        }
+
         // Release the graph back to the builder pool (which will call the dispose life-cycle)
         m_nested_graph_builder_->release_instance(m_active_graph_);
         m_active_graph_ = nullptr;

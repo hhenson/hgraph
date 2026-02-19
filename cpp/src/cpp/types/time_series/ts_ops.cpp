@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <optional>
 #include <stdexcept>
 #include <unordered_set>
@@ -45,6 +46,96 @@ bool is_prefix_path(const std::vector<size_t>& lhs, const std::vector<size_t>& r
 
 bool paths_related(const std::vector<size_t>& lhs, const std::vector<size_t>& rhs) {
     return is_prefix_path(lhs, rhs) || is_prefix_path(rhs, lhs);
+}
+
+bool is_static_container_meta(const TSMeta* meta) {
+    return meta != nullptr && meta->kind == TSKind::TSB;
+}
+
+bool find_link_target_path(const ViewData& root_view,
+                           const TSMeta* root_meta,
+                           const LinkTarget* needle,
+                           std::vector<size_t>& out_path) {
+    if (needle == nullptr || root_meta == nullptr) {
+        return false;
+    }
+
+    std::vector<size_t> path;
+    std::function<bool(const TSMeta*)> visit = [&](const TSMeta* meta) -> bool {
+        if (LinkTarget* current = resolve_link_target(root_view, path); current == needle) {
+            out_path = path;
+            return true;
+        }
+
+        const TSMeta* cursor = meta;
+        while (cursor != nullptr && cursor->kind == TSKind::REF) {
+            cursor = cursor->element_ts();
+        }
+        if (cursor == nullptr) {
+            return false;
+        }
+
+        switch (cursor->kind) {
+            case TSKind::TSB:
+                if (cursor->fields() == nullptr) {
+                    return false;
+                }
+                for (size_t i = 0; i < cursor->field_count(); ++i) {
+                    path.push_back(i);
+                    if (visit(cursor->fields()[i].ts_type)) {
+                        return true;
+                    }
+                    path.pop_back();
+                }
+                return false;
+
+            case TSKind::TSL:
+                if (cursor->fixed_size() == 0) {
+                    return false;
+                }
+                for (size_t i = 0; i < cursor->fixed_size(); ++i) {
+                    path.push_back(i);
+                    if (visit(cursor->element_ts())) {
+                        return true;
+                    }
+                    path.pop_back();
+                }
+                return false;
+
+            default:
+                return false;
+        }
+    };
+
+    return visit(root_meta);
+}
+
+bool observer_under_static_ref_container(const LinkTarget& observer) {
+    auto* active_input = dynamic_cast<TSInput*>(observer.active_notifier);
+    if (active_input == nullptr || active_input->meta() == nullptr) {
+        return false;
+    }
+
+    TSView root = active_input->view(MIN_DT);
+    if (!root) {
+        return false;
+    }
+
+    std::vector<size_t> observer_path;
+    if (!find_link_target_path(root.view_data(), active_input->meta(), &observer, observer_path)) {
+        return false;
+    }
+    if (observer_path.empty()) {
+        return false;
+    }
+
+    std::vector<size_t> parent_path = observer_path;
+    parent_path.pop_back();
+    const TSMeta* parent_meta = meta_at_path(active_input->meta(), parent_path);
+    if (parent_meta == nullptr || parent_meta->kind != TSKind::REF) {
+        return false;
+    }
+    return is_static_container_meta(parent_meta->element_ts());
 }
 
 engine_time_t resolve_input_current_time(const TSInput* input) {
@@ -451,6 +542,9 @@ bool suppress_static_ref_child_notification(const LinkTarget& observer, engine_t
         return false;
     }
     if (observer.meta != nullptr && observer.meta->kind == TSKind::REF) {
+        return false;
+    }
+    if (!observer_under_static_ref_container(observer)) {
         return false;
     }
     return true;
@@ -2272,14 +2366,10 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
         if (direct_ref_link != nullptr && direct_ref_link->is_linked) {
             REFLink* ref_link = direct_ref_link;
             ViewData resolved = ref_link->resolved_view_data();
-            const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
-            if (resolved.path.indices.size() < vd.path.indices.size() &&
-                target_can_accept_residual(resolved_meta)) {
-                const auto residual = link_residual_ts_path(vd.meta, vd.path.indices);
-                if (!residual.empty()) {
-                    resolved.path.indices.insert(resolved.path.indices.end(), residual.begin(), residual.end());
-                }
-            }
+            // Direct REF links already represent the fully resolved target for
+            // this exact path. Appending residual indices here would duplicate
+            // keyed TSD slots (for example out/1 -> out/1/1) and collapse
+            // nested REF[TSD] reads to scalar children.
             resolved.sampled = resolved.sampled || vd.sampled;
             resolved.projection = merge_projection(vd.projection, resolved.projection);
             log_resolve("ref-direct", resolved);
@@ -3328,6 +3418,19 @@ bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewDat
             // Empty local REF values are placeholders used by REF->REF bind.
             // Fall through to binding resolution if a link exists.
             if (!ref.is_empty()) {
+                const bool self_static_container =
+                    self_meta != nullptr &&
+                    (self_meta->kind == TSKind::TSB ||
+                     (self_meta->kind == TSKind::TSL && self_meta->fixed_size() > 0));
+                if (self_static_container) {
+                    // Static container consumers can be driven by unbound REF
+                    // payloads (for example switch-style REF[TSB] wrappers).
+                    // Keep reads on the local container view so child paths can
+                    // resolve through REF descendants.
+                    out = vd;
+                    out.sampled = out.sampled || vd.sampled;
+                    return true;
+                }
                 return false;
             }
         }
@@ -3763,6 +3866,21 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
             element_meta != nullptr &&
             (element_meta->kind == TSKind::TSD || element_meta->kind == TSKind::TSS);
         bool suppress_wrapper_local_time = vd.uses_link_target && dynamic_ref_container;
+        bool resolved_target_modified = false;
+        std::string resolved_target_path{"<none>"};
+        if (vd.uses_link_target &&
+            !dynamic_ref_container &&
+            (!static_ref_container || !has_bound_ref_static_children(vd))) {
+            ViewData resolved_target{};
+            if (resolve_bound_target_view_data(vd, resolved_target) &&
+                !same_view_identity(resolved_target, vd)) {
+                suppress_wrapper_local_time = true;
+                resolved_target_path = resolved_target.path.to_string();
+                if (resolved_target.ops != nullptr && resolved_target.ops->modified != nullptr) {
+                    resolved_target_modified = resolved_target.ops->modified(resolved_target, current_time);
+                }
+            }
+        }
         if (!suppress_wrapper_local_time && vd.uses_link_target && static_ref_container) {
             if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices);
                 link_target != nullptr && link_target->peered && !has_bound_ref_static_children(vd)) {
@@ -3798,19 +3916,22 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
                 peered = link_target->peered ? 1 : 0;
             }
             std::fprintf(stderr,
-                         "[ref_mod] path=%s sampled=%d local=%lld now=%lld rebind=%lld suppress=%d linked=%d peered=%d has_children=%d\n",
+                         "[ref_mod] path=%s sampled=%d local=%lld now=%lld rebind=%lld suppress=%d resolved_mod=%d resolved_path=%s linked=%d peered=%d has_children=%d\n",
                          vd.path.to_string().c_str(),
                          vd.sampled ? 1 : 0,
                          static_cast<long long>(local_time.time_since_epoch().count()),
                          static_cast<long long>(current_time.time_since_epoch().count()),
                          static_cast<long long>(rebind_time.time_since_epoch().count()),
                          suppress_wrapper_local_time ? 1 : 0,
+                         resolved_target_modified ? 1 : 0,
+                         resolved_target_path.c_str(),
                          linked,
                          peered,
                          has_children);
         }
         if (vd.sampled ||
             rebind_time == current_time ||
+            resolved_target_modified ||
             (!suppress_wrapper_local_time &&
              local_time == current_time)) {
             return true;
@@ -4056,6 +4177,20 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
             }
         }
     }
+
+    if (self_meta != nullptr &&
+        (self_meta->kind == TSKind::TSB ||
+         (self_meta->kind == TSKind::TSL && self_meta->fixed_size() > 0))) {
+        const size_t n = static_container_child_count(self_meta);
+        for (size_t i = 0; i < n; ++i) {
+            ViewData child = vd;
+            child.path.indices.push_back(i);
+            if (op_modified(child, current_time)) {
+                return true;
+            }
+        }
+    }
+
     const engine_time_t last_modified = op_last_modified_time(vd);
     if (vd.sampled || last_modified == current_time) {
         return true;
@@ -4591,18 +4726,54 @@ nb::object op_to_python(const ViewData& vd) {
             return out;
         }
 
+        nb::object scalar_type = nb::none();
+        const nb::object& bundle_python_type = current->python_type();
+        if (bundle_python_type.is_valid() && !bundle_python_type.is_none()) {
+            try {
+                if (nb::hasattr(bundle_python_type, "scalar_type")) {
+                    scalar_type = bundle_python_type.attr("scalar_type")();
+                }
+            } catch (...) {
+                scalar_type = nb::none();
+            }
+        }
+
+        nb::dict scalar_kwargs;
         for (size_t i = 0; i < current->field_count(); ++i) {
             ViewData child = vd;
             child.path.indices.push_back(i);
-            if (!op_valid(child)) {
-                continue;
-            }
 
             const char* field_name = current->fields()[i].name;
             if (field_name == nullptr) {
                 continue;
             }
-            out[nb::str(field_name)] = op_to_python(child);
+
+            const bool child_valid = op_valid(child);
+            if (child_valid) {
+                nb::object child_py = op_to_python(child);
+                out[nb::str(field_name)] = child_py;
+                if (!scalar_type.is_none()) {
+                    scalar_kwargs[nb::str(field_name)] = child_py;
+                }
+                continue;
+            }
+
+            if (!scalar_type.is_none()) {
+                bool include_invalid = false;
+                try {
+                    nb::object class_attr = nb::getattr(scalar_type, field_name, nb::none());
+                    include_invalid = class_attr.is_none();
+                } catch (...) {
+                    include_invalid = true;
+                }
+                if (include_invalid) {
+                    scalar_kwargs[nb::str(field_name)] = op_to_python(child);
+                }
+            }
+        }
+
+        if (!scalar_type.is_none()) {
+            return scalar_type(**scalar_kwargs);
         }
         return out;
     }
@@ -5087,7 +5258,24 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                 const bool has_added_set = added_keys.valid() && added_keys.is_set();
                 nb::object remove = get_remove();
                 for (View key : set) {
-                    if (has_added_set && added_keys.as_set().contains(key)) {
+                    bool in_added_set = has_added_set && added_keys.as_set().contains(key);
+                    if (!in_added_set && has_added_set) {
+                        for (View added_key : added_keys.as_set()) {
+                            if (added_key.equals(key)) {
+                                in_added_set = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (debug_tsd_delta) {
+                        std::fprintf(stderr,
+                                     "[tsd_delta_dbg] remove_probe path=%s key=%s has_added=%d in_added=%d\n",
+                                     vd.path.to_string().c_str(),
+                                     key.to_string().c_str(),
+                                     has_added_set ? 1 : 0,
+                                     in_added_set ? 1 : 0);
+                    }
+                    if (in_added_set) {
                         continue;
                     }
                     delta_out[key.to_python()] = remove;
@@ -5096,11 +5284,19 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
 
             if (debug_tsd_delta) {
                 size_t changed_size = 0;
+                size_t added_size = 0;
+                size_t removed_size = 0;
                 if (changed_values.valid() && changed_values.is_map()) {
                     changed_size = changed_values.as_map().size();
                 }
+                if (added_keys.valid() && added_keys.is_set()) {
+                    added_size = added_keys.as_set().size();
+                }
+                if (removed_keys.valid() && removed_keys.is_set()) {
+                    removed_size = removed_keys.as_set().size();
+                }
                 std::fprintf(stderr,
-                             "[tsd_delta_dbg] path=%s kind=%d elem=%d modified=1 sampled=%d sampled_like=%d rebind=%lld wrapper=%lld changed=%zu now=%lld\n",
+                             "[tsd_delta_dbg] path=%s kind=%d elem=%d modified=1 sampled=%d sampled_like=%d rebind=%lld wrapper=%lld changed=%zu added=%zu removed=%zu now=%lld\n",
                              vd.path.to_string().c_str(),
                              static_cast<int>(current->kind),
                              element_meta != nullptr ? static_cast<int>(element_meta->kind) : -1,
@@ -5109,7 +5305,25 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                              static_cast<long long>(rebind_time.time_since_epoch().count()),
                              static_cast<long long>(wrapper_time.time_since_epoch().count()),
                              changed_size,
+                             added_size,
+                             removed_size,
                              static_cast<long long>(current_time.time_since_epoch().count()));
+                if (added_keys.valid() && added_keys.is_set()) {
+                    for (View dbg_key : added_keys.as_set()) {
+                        std::fprintf(stderr,
+                                     "[tsd_delta_dbg] added_key path=%s key=%s\n",
+                                     vd.path.to_string().c_str(),
+                                     dbg_key.to_string().c_str());
+                    }
+                }
+                if (removed_keys.valid() && removed_keys.is_set()) {
+                    for (View dbg_key : removed_keys.as_set()) {
+                        std::fprintf(stderr,
+                                     "[tsd_delta_dbg] removed_key path=%s key=%s\n",
+                                     vd.path.to_string().c_str(),
+                                     dbg_key.to_string().c_str());
+                    }
+                }
                 if (changed_values.valid() && changed_values.is_map()) {
                     for (View dbg_key : changed_values.as_map().keys()) {
                         std::string key_s{"<key>"};
@@ -5274,6 +5488,16 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
 
         }
 
+        if (debug_tsd_delta) {
+            std::string out_repr{"<repr_error>"};
+            try {
+                out_repr = nb::cast<std::string>(nb::repr(delta_out));
+            } catch (...) {}
+            std::fprintf(stderr,
+                         "[tsd_delta_dbg] final_delta path=%s out=%s\n",
+                         vd.path.to_string().c_str(),
+                         out_repr.c_str());
+        }
         return get_frozendict()(delta_out);
     }
 
@@ -5300,10 +5524,89 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
 
     if (current != nullptr && current->kind == TSKind::TSL) {
         nb::dict delta_out;
+        const engine_time_t wrapper_time = ref_wrapper_last_modified_time_on_read_path(vd);
+        const engine_time_t rebind_time = rebind_time_for_view(vd);
+        const bool wrapper_ticked =
+            wrapper_time == current_time ||
+            rebind_time == current_time;
+        const bool debug_tsl_delta = std::getenv("HGRAPH_DEBUG_TSL_DELTA") != nullptr;
+        if (debug_tsl_delta) {
+            int has_bound = 0;
+            int bound_kind = -1;
+            ViewData bound_dbg{};
+            if (resolve_bound_target_view_data(vd, bound_dbg)) {
+                has_bound = 1;
+                if (const TSMeta* bm = meta_at_path(bound_dbg.meta, bound_dbg.path.indices); bm != nullptr) {
+                    bound_kind = static_cast<int>(bm->kind);
+                }
+            }
+            std::fprintf(stderr,
+                         "[tsl_delta] path=%s now=%lld wrapper_ticked=%d wrapper_time=%lld rebind=%lld has_bound=%d bound_kind=%d\n",
+                         vd.path.to_string().c_str(),
+                         static_cast<long long>(current_time.time_since_epoch().count()),
+                         wrapper_ticked ? 1 : 0,
+                         static_cast<long long>(wrapper_time.time_since_epoch().count()),
+                         static_cast<long long>(rebind_time.time_since_epoch().count()),
+                         has_bound,
+                         bound_kind);
+        }
+
+        bool sample_all = wrapper_ticked;
+        if (sample_all) {
+            const size_t n = op_list_size(*data);
+            for (size_t i = 0; i < n; ++i) {
+                ViewData child = *data;
+                child.path.indices.push_back(i);
+                if (op_modified(child, current_time)) {
+                    sample_all = false;
+                    break;
+                }
+            }
+        }
+
+        if (sample_all) {
+            const size_t n = op_list_size(*data);
+            for (size_t i = 0; i < n; ++i) {
+                ViewData child = *data;
+                child.path.indices.push_back(i);
+                if (debug_tsl_delta) {
+                    std::fprintf(stderr,
+                                 "[tsl_delta]  sampled_child path=%s valid=%d modified=%d\n",
+                                 child.path.to_string().c_str(),
+                                 op_valid(child) ? 1 : 0,
+                                 op_modified(child, current_time) ? 1 : 0);
+                }
+                if (!op_valid(child)) {
+                    continue;
+                }
+
+                ViewData sampled_child = child;
+                sampled_child.sampled = true;
+                nb::object child_delta = op_delta_to_python(sampled_child, current_time);
+                if (child_delta.is_none()) {
+                    View child_value = op_value(child);
+                    if (child_value.valid()) {
+                        child_delta = delta_view_to_python(child_value);
+                    }
+                }
+                if (!child_delta.is_none()) {
+                    delta_out[nb::int_(i)] = std::move(child_delta);
+                }
+            }
+            return delta_out;
+        }
+
         const size_t n = op_list_size(*data);
         for (size_t i = 0; i < n; ++i) {
             ViewData child = *data;
             child.path.indices.push_back(i);
+            if (debug_tsl_delta) {
+                std::fprintf(stderr,
+                             "[tsl_delta]  child path=%s valid=%d modified=%d\n",
+                             child.path.to_string().c_str(),
+                             op_valid(child) ? 1 : 0,
+                             op_modified(child, current_time) ? 1 : 0);
+            }
             if (!op_modified(child, current_time) || !op_valid(child)) {
                 continue;
             }
@@ -5354,10 +5657,70 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             }
         }
 
+        const engine_time_t wrapper_time = ref_wrapper_last_modified_time_on_read_path(vd);
+        const engine_time_t rebind_time = rebind_time_for_view(vd);
         const bool wrapper_ticked =
-            ref_wrapper_last_modified_time_on_read_path(vd) == current_time ||
-            rebind_time_for_view(vd) == current_time;
-        if (wrapper_ticked) {
+            wrapper_time == current_time ||
+            rebind_time == current_time;
+        bool suppress_wrapper_sampling = false;
+        if (wrapper_ticked &&
+            rebind_time != current_time &&
+            !vd.path.indices.empty()) {
+            std::vector<size_t> parent_path = vd.path.indices;
+            parent_path.pop_back();
+            const TSMeta* parent_meta = meta_at_path(vd.meta, parent_path);
+            if (parent_meta != nullptr && parent_meta->kind == TSKind::TSD) {
+                ViewData bound_target{};
+                if (resolve_bound_target_view_data(vd, bound_target)) {
+                    const TSMeta* bound_meta = meta_at_path(bound_target.meta, bound_target.path.indices);
+                    suppress_wrapper_sampling = bound_meta != nullptr && bound_meta->kind == TSKind::REF;
+                }
+            }
+        }
+        if (std::getenv("HGRAPH_DEBUG_TSB_DELTA") != nullptr) {
+            int has_bound = 0;
+            int bound_kind = -1;
+            ViewData bound_dbg{};
+            if (resolve_bound_target_view_data(vd, bound_dbg)) {
+                has_bound = 1;
+                if (const TSMeta* bm = meta_at_path(bound_dbg.meta, bound_dbg.path.indices); bm != nullptr) {
+                    bound_kind = static_cast<int>(bm->kind);
+                }
+            }
+            int has_prev = 0;
+            int prev_kind = -1;
+            int same_prev = -1;
+            ViewData prev_dbg{};
+            if (resolve_previous_bound_target_view_data(vd, prev_dbg)) {
+                has_prev = 1;
+                if (const TSMeta* pm = meta_at_path(prev_dbg.meta, prev_dbg.path.indices); pm != nullptr) {
+                    prev_kind = static_cast<int>(pm->kind);
+                }
+                if (has_bound) {
+                    same_prev =
+                        prev_dbg.value_data == bound_dbg.value_data &&
+                        prev_dbg.time_data == bound_dbg.time_data &&
+                        prev_dbg.observer_data == bound_dbg.observer_data &&
+                        prev_dbg.delta_data == bound_dbg.delta_data &&
+                        prev_dbg.link_data == bound_dbg.link_data &&
+                        prev_dbg.path.indices == bound_dbg.path.indices ? 1 : 0;
+                }
+            }
+            std::fprintf(stderr,
+                         "[tsb_delta] path=%s now=%lld wrapper_ticked=%d wrapper_time=%lld rebind=%lld suppress=%d has_bound=%d bound_kind=%d has_prev=%d prev_kind=%d same_prev=%d\n",
+                         vd.path.to_string().c_str(),
+                         static_cast<long long>(current_time.time_since_epoch().count()),
+                         wrapper_ticked ? 1 : 0,
+                         static_cast<long long>(wrapper_time.time_since_epoch().count()),
+                         static_cast<long long>(rebind_time.time_since_epoch().count()),
+                         suppress_wrapper_sampling ? 1 : 0,
+                         has_bound,
+                         bound_kind,
+                         has_prev,
+                         prev_kind,
+                         same_prev);
+        }
+        if (wrapper_ticked && !suppress_wrapper_sampling) {
             for (size_t i = 0; i < current->field_count(); ++i) {
                 ViewData child = *data;
                 child.path.indices.push_back(i);
@@ -5726,6 +6089,13 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
             }
         } else if (nb::isinstance<nb::list>(src) || nb::isinstance<nb::tuple>(src)) {
             handled = true;
+            if (current->fixed_size() > 0) {
+                const size_t provided_size = static_cast<size_t>(nb::len(src));
+                if (provided_size != child_count) {
+                    throw nb::value_error(
+                        fmt::format("Expected {} elements, got {}", child_count, provided_size).c_str());
+                }
+            }
             size_t index = 0;
             for (const auto& item : nb::iter(src)) {
                 apply_child(index++, nb::cast<nb::object>(item));
@@ -6171,11 +6541,22 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
     const TSMeta* current = resolve_meta_or_ancestor(vd, used_ancestor_meta);
     const TSMeta* target_meta = meta_at_path(target.meta, target.path.indices);
     const bool signal_descendant_bind = used_ancestor_meta && current != nullptr && current->kind == TSKind::SIGNAL;
+    const bool current_is_ref_value =
+        current != nullptr &&
+        current->kind == TSKind::TSValue &&
+        current->value_type != nullptr &&
+        current->value_type == ts_reference_meta();
     if (debug_op_bind) {
+        const char* node_name = (vd.path.node != nullptr) ? vd.path.node->signature().name.c_str() : "<none>";
         std::fprintf(stderr,
-                     "[op_bind] vd=%s kind=%d target=%s target_kind=%d uses_lt=%d used_anc=%d sig_desc=%d now=%lld\n",
+                     "[op_bind] node=%s vd=%s kind=%d val_ref=%d val_type=%s target=%s target_kind=%d uses_lt=%d used_anc=%d sig_desc=%d now=%lld\n",
+                     node_name,
                      vd.path.to_string().c_str(),
                      current != nullptr ? static_cast<int>(current->kind) : -1,
+                     current_is_ref_value ? 1 : 0,
+                     (current != nullptr && current->value_type != nullptr && current->value_type->name != nullptr)
+                         ? current->value_type->name
+                         : "<none>",
                      target.path.to_string().c_str(),
                      target_meta != nullptr ? static_cast<int>(target_meta->kind) : -1,
                      vd.uses_link_target ? 1 : 0,
@@ -6192,13 +6573,20 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         unregister_link_target_observer(*link_target);
         link_target->owner_time_ptr = resolve_owner_time_ptr(vd);
         link_target->parent_link = resolve_parent_link_target(vd);
-        // Non-REF consumers bound to REF wrappers are driven by resolved-target
-        // writes/rebind ticks. REF consumers must still observe REF wrapper
-        // writes so empty->bound transitions propagate (for example nested
-        // tsd_get_items REF->REF chains).
+        // Non-REF scalar consumers bound to REF wrappers are driven by
+        // resolved-target writes/rebind ticks. REF consumers must still observe
+        // REF wrapper writes so empty->bound transitions propagate (for example
+        // nested tsd_get_items REF->REF chains). Static container consumers
+        // (TSB/fixed TSL) also need wrapper writes because unbound REF static
+        // payloads are surfaced through wrapper-local state.
         const bool target_is_ref_wrapper = target_meta != nullptr && target_meta->kind == TSKind::REF;
         const bool observer_is_ref_wrapper = current != nullptr && current->kind == TSKind::REF;
-        link_target->notify_on_ref_wrapper_write = !target_is_ref_wrapper || observer_is_ref_wrapper;
+        const bool observer_is_static_container =
+            current != nullptr &&
+            (current->kind == TSKind::TSB ||
+             (current->kind == TSKind::TSL && current->fixed_size() > 0));
+        link_target->notify_on_ref_wrapper_write =
+            !target_is_ref_wrapper || observer_is_ref_wrapper || observer_is_static_container;
         if (debug_op_bind) {
             std::fprintf(stderr,
                          "[op_bind]  lt=%p notify_on_ref_wrapper_write=%d\n",
@@ -6244,19 +6632,6 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
             link_target->resolved_target = {};
             register_link_target_observer(*link_target);
             return;
-        }
-
-        if (current != nullptr && current->kind == TSKind::REF &&
-            target_meta != nullptr && target_meta->kind != TSKind::REF) {
-            const TSMeta* element_meta = current->element_ts();
-            if (element_meta != nullptr && element_meta->kind == TSKind::TSB) {
-                // Python parity for direct REF[TSB] <- TSB binds: retain a local
-                // reference wrapper value without a live target subscription.
-                link_target->unbind(current_time);
-                link_target->peered = false;
-                assign_ref_value_from_target(vd, target);
-                return;
-            }
         }
 
         link_target->bind(target, current_time);

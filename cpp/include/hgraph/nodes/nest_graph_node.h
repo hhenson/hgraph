@@ -39,6 +39,7 @@ namespace hgraph {
         std::unordered_map<std::string, int> m_input_node_ids_;
         int m_output_node_id_;
         graph_s_ptr m_active_graph_;
+        node_ptr m_wired_output_node_{nullptr};
     };
 } // namespace hgraph
 

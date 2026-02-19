@@ -63,9 +63,11 @@ public:
 private:
     void set_active_recursive(const TSView& ts_view, value::ValueView active_view, bool active);
 
+    // Must outlive TSValue teardown because LinkTarget/REFLink destructors
+    // unregister against this registry.
+    std::shared_ptr<TSLinkObserverRegistry> link_observer_registry_{};
     TSValue value_;
     value::Value active_;
-    std::shared_ptr<TSLinkObserverRegistry> link_observer_registry_{};
     const TSMeta* meta_{nullptr};
     node_ptr owning_node_{nullptr};
     bool active_root_{false};

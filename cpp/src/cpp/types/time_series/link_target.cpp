@@ -1,7 +1,27 @@
 #include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/link_observer_registry.h>
 #include <hgraph/types/time_series/ts_ops.h>
 
 namespace hgraph {
+namespace {
+
+void redirect_link_target_registrations(TSLinkObserverRegistry* registry,
+                                        const LinkTarget* from,
+                                        LinkTarget* to) {
+    if (registry == nullptr || from == nullptr || to == nullptr || from == to) {
+        return;
+    }
+
+    for (auto& [_, registrations] : registry->entries) {
+        for (auto& registration : registrations) {
+            if (registration.link_target == from) {
+                registration.link_target = to;
+            }
+        }
+    }
+}
+
+}  // namespace
 
 LinkTarget::~LinkTarget() {
     unregister_ts_link_observer(*this);
@@ -15,10 +35,14 @@ LinkTarget::LinkTarget(const LinkTarget& other) {
     previous_target = other.previous_target;
     has_resolved_target = other.has_resolved_target;
     resolved_target = other.resolved_target;
+    if (is_linked) {
+        register_ts_link_observer(*this);
+    }
 }
 
 LinkTarget& LinkTarget::operator=(const LinkTarget& other) {
     if (this != &other) {
+        unregister_ts_link_observer(*this);
         copy_target_data_from(other);
         // Preserve owner-local structural fields.
         last_rebind_time = other.last_rebind_time;
@@ -26,6 +50,9 @@ LinkTarget& LinkTarget::operator=(const LinkTarget& other) {
         previous_target = other.previous_target;
         has_resolved_target = other.has_resolved_target;
         resolved_target = other.resolved_target;
+        if (is_linked) {
+            register_ts_link_observer(*this);
+        }
     }
     return *this;
 }
@@ -46,6 +73,7 @@ LinkTarget::LinkTarget(LinkTarget&& other) noexcept {
 
 LinkTarget& LinkTarget::operator=(LinkTarget&& other) noexcept {
     if (this != &other) {
+        unregister_ts_link_observer(*this);
         move_target_data_from(std::move(other));
         last_rebind_time = other.last_rebind_time;
         has_previous_target = other.has_previous_target;
@@ -78,7 +106,21 @@ void LinkTarget::copy_target_data_from(const LinkTarget& other) {
 }
 
 void LinkTarget::move_target_data_from(LinkTarget&& other) noexcept {
+    TSLinkObserverRegistry* direct_registry = other.link_observer_registry;
+    TSLinkObserverRegistry* resolved_registry =
+        other.has_resolved_target ? other.resolved_target.link_observer_registry : nullptr;
+
     copy_target_data_from(other);
+
+    redirect_link_target_registrations(direct_registry, &other, this);
+    if (resolved_registry != direct_registry) {
+        redirect_link_target_registrations(resolved_registry, &other, this);
+    }
+
+    if (is_linked) {
+        register_ts_link_observer(*this);
+    }
+
     other.clear_target_data();
 }
 

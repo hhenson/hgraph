@@ -8,6 +8,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/util/lifecycle.h>
 #include <format>
 
@@ -35,6 +36,61 @@ namespace hgraph {
             }
             return bundle_opt->field(name);
         }
+
+        TSInputView node_inner_ts_input(Node &node) {
+            auto root = node.input(node_time(node));
+            if (!root) {
+                return {};
+            }
+
+            auto bundle_opt = root.try_as_bundle();
+            if (!bundle_opt.has_value()) {
+                return {};
+            }
+
+            auto ts = bundle_opt->field("ts");
+            if (!ts && bundle_opt->count() > 0) {
+                ts = bundle_opt->at(0);
+            }
+            return ts;
+        }
+
+        void bind_inner_from_outer(const TSView &outer_any, TSInputView inner_any) {
+            if (!inner_any) {
+                return;
+            }
+
+            if (!outer_any) {
+                inner_any.unbind();
+                return;
+            }
+
+            const TSMeta *outer_meta = outer_any.ts_meta();
+            if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
+                value::View ref_view = outer_any.value();
+                if (ref_view.valid()) {
+                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
+                    ref.bind_input(inner_any);
+                    return;
+                }
+
+                ViewData bound_target{};
+                if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
+                    inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+                    return;
+                }
+
+                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
+                return;
+            }
+
+            ViewData bound_target{};
+            if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
+                inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+            } else {
+                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
+            }
+        }
     }  // namespace
 
     static bool _get_ts_valid(const TSInputView &ts) {
@@ -48,7 +104,13 @@ namespace hgraph {
         // In Python: TimeSeriesReference.is_instance(value)
         try {
             auto ref = nb::cast<TimeSeriesReference>(value);
-            return ref.is_bound() && ref.output()->valid();
+            if (!ref.is_bound()) {
+                return false;
+            }
+            if (const ViewData* bound = ref.bound_view(); bound != nullptr) {
+                return bound->ops != nullptr ? bound->ops->valid(*bound) : false;
+            }
+            return ref.has_output() && ref.output() && ref.output()->valid();
         } catch (const nb::cast_error &) {
             // Not a TimeSeriesReference, that's fine
             return true;
@@ -63,6 +125,10 @@ namespace hgraph {
             auto ref = nb::cast<TimeSeriesReference>(value);
             // Must have output and it must be valid
             if (ref.is_bound()) {
+                if (const ViewData* bound = ref.bound_view(); bound != nullptr) {
+                    TSView bound_view(*bound, ts.current_time());
+                    return bound_view.to_python();
+                }
                 return ref.output()->py_value();
             }
             return value;
@@ -215,34 +281,20 @@ namespace hgraph {
                 continue;
             }
 
-            auto inner_root = node->input(node_time(*node));
-            if (!inner_root) {
-                continue;
-            }
-
-            auto inner_bundle_opt = inner_root.try_as_bundle();
-            if (!inner_bundle_opt.has_value()) {
-                continue;
-            }
-
-            auto inner_ts = inner_bundle_opt->field("ts");
-            if (!inner_ts && inner_bundle_opt->count() > 0) {
-                inner_ts = inner_bundle_opt->at(0);
-            }
+            auto inner_ts = node_inner_ts_input(*node);
             if (!inner_ts) {
                 continue;
             }
 
-            inner_ts.as_ts_view().bind(outer_view.as_ts_view());
+            bind_inner_from_outer(outer_view.as_ts_view(), inner_ts);
         }
 
         // Wire outputs
         if (m_output_node_id_ >= 0) {
             auto node = m_active_graph_->nodes()[m_output_node_id_];
-            auto outer_view = output(node_time(*this));
-            auto inner_view = node->output(node_time(*node));
-            if (outer_view && inner_view) {
-                outer_view.as_ts_view().bind(inner_view.as_ts_view());
+            if (node != nullptr) {
+                m_wired_output_node_ = node.get();
+                m_wired_output_node_->set_output_override(this);
             }
         }
 
@@ -284,6 +336,10 @@ namespace hgraph {
 
     void ComponentNode::dispose() {
         if (m_active_graph_) {
+            if (m_wired_output_node_ != nullptr) {
+                m_wired_output_node_->clear_output_override();
+                m_wired_output_node_ = nullptr;
+            }
             auto id_ = nb::cast<std::string>(m_active_graph_->traits().get_trait(RECORDABLE_ID_TRAIT));
             GlobalState::remove(keys::component_key(id_));
 

@@ -50,6 +50,27 @@ namespace hgraph {
                 get())) {
                 nec->reset_next_scheduled_evaluation_time();
             }
+
+            // Python parity: try_except exposes the nested graph output through
+            // the `out` slot of its bundle output. A direct bind is not always
+            // sufficient for REF-heavy paths, so materialize the nested output
+            // into the outer endpoint on ticks where the nested output updates.
+            if (m_output_node_id_ >= 0) {
+                auto node = m_active_graph_->nodes()[m_output_node_id_];
+                auto inner_view = node->output(node_time(*node));
+                auto outer_view = output(node_time(*this));
+                if (inner_view && outer_view && inner_view.modified()) {
+                    auto outer_bundle = outer_view.try_as_bundle();
+                    if (outer_bundle.has_value()) {
+                        auto out_ts = outer_bundle->field("out");
+                        if (out_ts) {
+                            out_ts.copy_from_output(inner_view);
+                        }
+                    } else {
+                        outer_view.copy_from_output(inner_view);
+                    }
+                }
+            }
         } catch (const std::exception &e) {
             // Capture the exception and publish it to the error output, mirroring Python behavior
             auto err = NodeError::capture_error(e, *this, "");

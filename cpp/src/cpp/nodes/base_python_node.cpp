@@ -107,7 +107,7 @@ namespace hgraph
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
                         auto recordable = recordable_state(node_time(*this));
                         if (recordable) {
-                            wrapped_value = nb::cast(recordable);
+                            wrapped_value = wrap_output_view(recordable);
                         } else {
                             wrapped_value = nb::none();
                         }
@@ -227,6 +227,9 @@ namespace hgraph
                     auto context_view = node_input_field_view(node, context_key);
                     if (context_view && context_view.valid()) {
                         nb::object context_value = context_view.to_python();
+                        if (!nb::hasattr(context_value, "__enter__") || !nb::hasattr(context_value, "__exit__")) {
+                            continue;
+                        }
                         context_value.attr("__enter__")();
                         contexts_.push_back(context_value);
                     }

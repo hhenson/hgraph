@@ -2,6 +2,8 @@
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/time_series/ts_ops.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <fmt/format.h>
 #include <stdexcept>
 #include <type_traits>
@@ -338,56 +340,7 @@ namespace
             .def("modified_values", &PyTS_Type::modified_values)
             .def("modified_items", &PyTS_Type::modified_items)
             .def_prop_ro("delta_value", [](const PyTS_Type& self) -> nb::object {
-                nb::dict out;
-                const auto* meta = self.view().ts_meta();
-                if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
-                    return out;
-                }
-
-                bool through_ref_wrapper = false;
-                ViewData bound_target{};
-                if (resolve_bound_target_view_data(self.view().view_data(), bound_target)) {
-                    TSView bound_view(bound_target, self.view().current_time());
-                    through_ref_wrapper = bound_view.kind() == TSKind::REF;
-                }
-
-                for (size_t i = 0; i < meta->field_count(); ++i) {
-                    const char* field_name = meta->fields()[i].name;
-                    if (field_name == nullptr) {
-                        continue;
-                    }
-                    auto child = child_at(self, i);
-                    if (!child) {
-                        continue;
-                    }
-                    nb::object child_delta = child.delta_to_python();
-                    if (through_ref_wrapper &&
-                        !child_delta.is_none() &&
-                        child.valid()) {
-                        const TSMeta* child_meta = meta->fields()[i].ts_type;
-                        const bool is_container_like =
-                            child_meta != nullptr &&
-                            (child_meta->kind == TSKind::TSB ||
-                             child_meta->kind == TSKind::TSL ||
-                             child_meta->kind == TSKind::TSD ||
-                             child_meta->kind == TSKind::TSS);
-                        if (is_container_like) {
-                            bool empty_delta = false;
-                            try {
-                                empty_delta = nb::len(child_delta) == 0;
-                            } catch (...) {
-                                empty_delta = false;
-                            }
-                            if (empty_delta) {
-                                child_delta = child.to_python();
-                            }
-                        }
-                    }
-                    if (!child_delta.is_none()) {
-                        out[nb::str(field_name)] = child_delta;
-                    }
-                }
-                return out;
+                return self.view().delta_to_python();
             })
             .def("key_from_value", &PyTS_Type::key_from_value)
             .def_prop_ro("empty", &PyTS_Type::empty)

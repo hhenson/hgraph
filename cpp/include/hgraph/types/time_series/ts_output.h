@@ -59,9 +59,11 @@ private:
     TSValue& get_or_create_alternative(const TSMeta* schema);
     void establish_default_binding(TSValue& alternative);
 
+    // Must outlive TSValue teardown because LinkTarget/REFLink destructors
+    // unregister against this registry.
+    std::shared_ptr<TSLinkObserverRegistry> link_observer_registry_{};
     TSValue native_value_;
     std::unordered_map<const TSMeta*, TSValue> alternatives_;
-    std::shared_ptr<TSLinkObserverRegistry> link_observer_registry_{};
     node_ptr owning_node_{nullptr};
     size_t port_index_{0};
 };
