@@ -4725,55 +4725,41 @@ nb::object op_to_python(const ViewData& vd) {
         if (current->fields() == nullptr) {
             return out;
         }
-
-        nb::object scalar_type = nb::none();
-        const nb::object& bundle_python_type = current->python_type();
-        if (bundle_python_type.is_valid() && !bundle_python_type.is_none()) {
-            try {
-                if (nb::hasattr(bundle_python_type, "scalar_type")) {
-                    scalar_type = bundle_python_type.attr("scalar_type")();
-                }
-            } catch (...) {
-                scalar_type = nb::none();
-            }
-        }
-
-        nb::dict scalar_kwargs;
         for (size_t i = 0; i < current->field_count(); ++i) {
             ViewData child = vd;
             child.path.indices.push_back(i);
+            if (!op_valid(child)) {
+                continue;
+            }
 
             const char* field_name = current->fields()[i].name;
             if (field_name == nullptr) {
                 continue;
             }
-
-            const bool child_valid = op_valid(child);
-            if (child_valid) {
-                nb::object child_py = op_to_python(child);
-                out[nb::str(field_name)] = child_py;
-                if (!scalar_type.is_none()) {
-                    scalar_kwargs[nb::str(field_name)] = child_py;
-                }
-                continue;
-            }
-
-            if (!scalar_type.is_none()) {
-                bool include_invalid = false;
-                try {
-                    nb::object class_attr = nb::getattr(scalar_type, field_name, nb::none());
-                    include_invalid = class_attr.is_none();
-                } catch (...) {
-                    include_invalid = true;
-                }
-                if (include_invalid) {
-                    scalar_kwargs[nb::str(field_name)] = op_to_python(child);
-                }
-            }
+            out[nb::str(field_name)] = op_to_python(child);
         }
 
-        if (!scalar_type.is_none()) {
-            return scalar_type(**scalar_kwargs);
+        // Mirror Python TSB.value semantics: if schema has a scalar_type,
+        // materialize that scalar instance from field values.
+        try {
+            nb::object schema_py = current->python_type();
+            if (!schema_py.is_none()) {
+                nb::object scalar_type_fn = nb::getattr(schema_py, "scalar_type", nb::none());
+                if (!scalar_type_fn.is_none() && PyCallable_Check(scalar_type_fn.ptr()) != 0) {
+                    nb::object scalar_type = scalar_type_fn();
+                    if (!scalar_type.is_none()) {
+                        PyObject* empty_args = PyTuple_New(0);
+                        PyObject* scalar_obj = PyObject_Call(scalar_type.ptr(), empty_args, out.ptr());
+                        Py_DECREF(empty_args);
+                        if (scalar_obj != nullptr) {
+                            return nb::steal<nb::object>(scalar_obj);
+                        }
+                        PyErr_Clear();
+                    }
+                }
+            }
+        } catch (...) {
+            // Fall back to dict representation when scalar materialization fails.
         }
         return out;
     }
@@ -5653,6 +5639,9 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                     }
                     delta_out[nb::str(field_name)] = std::move(child_delta);
                 }
+                if (PyDict_Size(delta_out.ptr()) == 0) {
+                    return nb::none();
+                }
                 return delta_out;
             }
         }
@@ -5746,6 +5735,9 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                     delta_out[nb::str(field_name)] = std::move(child_delta);
                 }
             }
+            if (PyDict_Size(delta_out.ptr()) == 0) {
+                return nb::none();
+            }
             return delta_out;
         }
 
@@ -5761,10 +5753,26 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                 continue;
             }
 
-            View child_delta = op_delta_value(child);
-            if (child_delta.valid()) {
-                delta_out[nb::str(field_name)] = delta_view_to_python(child_delta);
+            const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
+            if (child_meta != nullptr && is_scalar_like_ts_kind(child_meta->kind)) {
+                View child_delta = op_delta_value(child);
+                if (!has_delta_payload(child_delta)) {
+                    continue;
+                }
+                nb::object child_delta_py = delta_view_to_python(child_delta);
+                if (!child_delta_py.is_none()) {
+                    delta_out[nb::str(field_name)] = std::move(child_delta_py);
+                }
+                continue;
             }
+
+            nb::object child_delta = op_delta_to_python(child, current_time);
+            if (!child_delta.is_none()) {
+                delta_out[nb::str(field_name)] = std::move(child_delta);
+            }
+        }
+        if (PyDict_Size(delta_out.ptr()) == 0) {
+            return nb::none();
         }
         return delta_out;
     }
