@@ -96,6 +96,8 @@ namespace hgraph
 
         engine_time_t evaluate_graph(const value::View &key);
 
+        void notify_graph_input_nodes(graph_s_ptr &graph, engine_time_t modified_time);
+
         void un_wire_graph(const value::View &key, graph_s_ptr &graph);
 
         void wire_graph(const value::View &key, graph_s_ptr &graph);

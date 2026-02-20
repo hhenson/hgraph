@@ -35,6 +35,10 @@ struct HGRAPH_EXPORT LinkTarget : Notifiable {
     // For non-REF consumers bound via REF wrappers, wrapper-local writes should
     // not drive notifications when the resolved target is unchanged.
     bool notify_on_ref_wrapper_write{true};
+    bool observer_is_signal{false};
+    // REF inputs bound to non-REF targets should not receive downstream target
+    // value-write notifications; they only tick on rebind/sample events.
+    bool observer_ref_to_nonref_target{false};
     engine_time_t last_rebind_time{MIN_DT};
     bool has_previous_target{false};
     ViewData previous_target{};

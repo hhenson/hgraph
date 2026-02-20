@@ -102,6 +102,7 @@ namespace hgraph
         key_set_type                             graphs_to_remove_;
         std::optional<int>                       current_eval_rank_;
         std::optional<value::Value>         current_eval_graph_;
+        key_set_type                            refresh_before_eval_keys_;
         int                                      max_rank_{0};
         uint64_t                                 next_graph_sequence_{0};
 

@@ -1004,6 +1004,16 @@ namespace hgraph
                     std::string value_s{"<none>"};
                     bool raw_valid = inner_raw.valid();
                     bool raw_modified = inner_raw.modified();
+                    engine_time_t inner_lmt = MIN_DT;
+                    engine_time_t raw_lmt = MIN_DT;
+                    if (inner_effective) {
+                        inner_lmt = inner_effective.last_modified_time();
+                    }
+                    if (inner_raw) {
+                        raw_lmt = inner_raw.last_modified_time();
+                    }
+                    std::string inner_path = inner_effective ? inner_effective.short_path().to_string() : "<none>";
+                    std::string raw_path = inner_raw ? inner_raw.short_path().to_string() : "<none>";
                     std::string raw_value_s{"<none>"};
                     std::string raw_delta_s{"<none>"};
                     try {
@@ -1019,11 +1029,15 @@ namespace hgraph
                         raw_delta_s = nb::cast<std::string>(nb::repr(inner_raw.delta_to_python()));
                     } catch (...) {}
                     std::fprintf(stderr,
-                                 "[tsd_map_copy] key=%s now=%lld inner_valid=%d inner_modified=%d raw_valid=%d raw_modified=%d outer_has=%d inner_delta=%s inner_value=%s raw_delta=%s raw_value=%s\n",
+                                 "[tsd_map_copy] key=%s now=%lld inner_path=%s inner_lmt=%lld inner_valid=%d inner_modified=%d raw_path=%s raw_lmt=%lld raw_valid=%d raw_modified=%d outer_has=%d inner_delta=%s inner_value=%s raw_delta=%s raw_value=%s\n",
                                  key_repr(key, key_type_meta_).c_str(),
                                  static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
+                                 inner_path.c_str(),
+                                 static_cast<long long>(inner_lmt.time_since_epoch().count()),
                                  inner_effective.valid() ? 1 : 0,
                                  inner_effective.modified() ? 1 : 0,
+                                 raw_path.c_str(),
+                                 static_cast<long long>(raw_lmt.time_since_epoch().count()),
                                  raw_valid ? 1 : 0,
                                  raw_modified ? 1 : 0,
                                  has_outer_entry ? 1 : 0,
@@ -1107,6 +1121,18 @@ namespace hgraph
             nec->reset_next_scheduled_evaluation_time();
         }
         return next;
+    }
+
+    void TsdMapNode::notify_graph_input_nodes(graph_s_ptr &graph, engine_time_t modified_time) {
+        if (!graph) {
+            return;
+        }
+        for (const auto &[_, node_ndx] : input_node_ids_) {
+            auto node = graph->nodes()[node_ndx];
+            if (node) {
+                node->notify(modified_time);
+            }
+        }
     }
 
     void TsdMapNode::un_wire_graph(const value::View &key, graph_s_ptr &graph) {

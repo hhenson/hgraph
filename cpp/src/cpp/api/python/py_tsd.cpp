@@ -567,6 +567,7 @@ namespace
                 continue;
             }
             nb::object bridge_value = lookup_bridge_delta(key);
+            const bool bridge_explicit_remove = !bridge_value.is_none() && is_remove_marker(bridge_value);
             if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
                 continue;
             }
@@ -575,15 +576,17 @@ namespace
                 continue;
             }
 
-            bool include_remove = false;
-            if (previous_map.valid()) {
-                const value::MapView previous_entries = previous_map.as_map();
-                if (previous_entries.contains(key_val.view())) {
-                    value::View previous_child = previous_entries.at(key_val.view());
-                    include_remove = previous_child.valid();
+            bool include_remove = bridge_explicit_remove;
+            if (!include_remove) {
+                if (previous_map.valid()) {
+                    const value::MapView previous_entries = previous_map.as_map();
+                    if (previous_entries.contains(key_val.view())) {
+                        value::View previous_child = previous_entries.at(key_val.view());
+                        include_remove = previous_child.valid();
+                    }
+                } else {
+                    include_remove = true;
                 }
-            } else {
-                include_remove = true;
             }
 
             if (include_remove) {
@@ -1172,6 +1175,7 @@ namespace
                 continue;
             }
             nb::object bridge_value = lookup_bridge_delta(key);
+            const bool bridge_explicit_remove = !bridge_value.is_none() && is_remove_marker(bridge_value);
             if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
                 continue;
             }
@@ -1180,15 +1184,17 @@ namespace
                 continue;
             }
 
-            bool include_remove = false;
-            if (previous_map.valid()) {
-                const value::MapView previous_entries = previous_map.as_map();
-                if (previous_entries.contains(key_val.view())) {
-                    value::View previous_child = previous_entries.at(key_val.view());
-                    include_remove = previous_child.valid();
+            bool include_remove = bridge_explicit_remove;
+            if (!include_remove) {
+                if (previous_map.valid()) {
+                    const value::MapView previous_entries = previous_map.as_map();
+                    if (previous_entries.contains(key_val.view())) {
+                        value::View previous_child = previous_entries.at(key_val.view());
+                        include_remove = previous_child.valid();
+                    }
+                } else {
+                    include_remove = true;
                 }
-            } else {
-                include_remove = true;
             }
 
             if (include_remove) {

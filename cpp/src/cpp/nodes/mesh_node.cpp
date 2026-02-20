@@ -464,6 +464,14 @@ namespace hgraph {
                     for (const auto& [k, dtg] : ordered_graphs) {
                         engine_time_t next_dtg = dtg;
                         if (dtg == dt) {
+                            if (auto refresh_it = refresh_before_eval_keys_.find(k.view());
+                                refresh_it != refresh_before_eval_keys_.end()) {
+                                if (auto graph_it = active_graphs_.find(k.view());
+                                    graph_it != active_graphs_.end() && graph_it->second) {
+                                    notify_graph_input_nodes(graph_it->second, last_evaluation_time());
+                                }
+                                refresh_before_eval_keys_.erase(refresh_it);
+                            }
                             current_eval_graph_ = k.view().clone();
                             if (debug_dep) {
                                 std::fprintf(stderr,
@@ -583,6 +591,9 @@ namespace hgraph {
 
         if (auto key_it = external_keys_.find(key); key_it != external_keys_.end()) {
             external_keys_.erase(key_it);
+        }
+        if (auto refresh_it = refresh_before_eval_keys_.find(key); refresh_it != refresh_before_eval_keys_.end()) {
+            refresh_before_eval_keys_.erase(refresh_it);
         }
 
         re_rank_requests_.erase(
@@ -757,6 +768,7 @@ namespace hgraph {
         const int new_rank = below + 1;
         max_rank_ = std::max(max_rank_, new_rank);
         active_graphs_rank_.insert_or_assign(key.clone(), new_rank);
+        refresh_before_eval_keys_.insert(key.clone());
         if (debug_dep) {
             std::fprintf(stderr,
                          "[mesh_dep] rerank key=%s old_rank=%d new_rank=%d dep=%s dep_rank=%d\n",
@@ -769,6 +781,10 @@ namespace hgraph {
 
         if (schedule != MIN_DT) {
             schedule_graph(key, schedule);
+        } else if (last_evaluation_time() != MIN_DT) {
+            // If a key is reranked after its prior due entry has already been
+            // consumed this cycle, ensure it is not stranded unscheduled.
+            schedule_graph(key, last_evaluation_time() + MIN_TD);
         }
 
         if (auto deps_it = active_graphs_dependencies_.find(key); deps_it != active_graphs_dependencies_.end()) {
