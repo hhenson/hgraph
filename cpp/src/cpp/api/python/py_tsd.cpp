@@ -188,6 +188,14 @@ namespace
         // For slot 0, derive modified keys from delta_to_python() so carry-forward
         // bridge entries (for example rebind snapshots) are preserved.
         const bool prefer_python_delta_for_slot0 = tuple_index == 0;
+        const auto append_ref_added_keys_if_empty = [&]() {
+            if (!prefer_python_delta_for_slot0 || !ref_valued || nb::len(out) != 0) {
+                return;
+            }
+            for (const auto& k : key_set_added) {
+                append_unique(nb::cast<nb::object>(k));
+            }
+        };
 
         // If we successfully parsed a non-slot-0 tuple and it just had no entries,
         // preserve that. Only fall through when tuple data was unavailable/incompatible.
@@ -197,11 +205,7 @@ namespace
 
         nb::object delta_obj = view.delta_to_python();
         if (delta_obj.is_none()) {
-            if (prefer_python_delta_for_slot0 && ref_valued) {
-                for (const auto &k : key_set_added) {
-                    append_unique(nb::cast<nb::object>(k));
-                }
-            }
+            append_ref_added_keys_if_empty();
             return out;
         }
 
@@ -225,16 +229,19 @@ namespace
             for (const auto &kv : delta_dict) {
                 emit_from_pair(nb::cast<nb::object>(kv.first), nb::cast<nb::object>(kv.second));
             }
+            append_ref_added_keys_if_empty();
             return out;
         }
 
         auto items_attr = nb::getattr(delta_obj, "items", nb::none());
         if (items_attr.is_none()) {
+            append_ref_added_keys_if_empty();
             return out;
         }
         for (const auto &kv : nb::iter(items_attr())) {
             emit_from_pair(nb::cast<nb::object>(kv[0]), nb::cast<nb::object>(kv[1]));
         }
+        append_ref_added_keys_if_empty();
         return out;
     }
 
@@ -505,7 +512,7 @@ namespace
             auto child = dict.at_key(key_val.view());
             if (!child) {
                 nb::object bridge_value = lookup_bridge_delta(key);
-                if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
+                if (ref_valued && !bridge_value.is_none() && !is_remove_marker(bridge_value)) {
                     out[key] = std::move(bridge_value);
                 }
                 continue;
@@ -517,12 +524,19 @@ namespace
             const bool in_previous_set = PySet_Contains(previous_keys.ptr(), key.ptr()) == 1;
             const bool structural_added = in_added_set && in_current_set && !in_previous_set;
             const bool rebound = child_rebound_this_tick(child.as_ts_view());
-            if (child_delta.is_none() && (ref_valued || structural_added || rebound || !child_modified)) {
+            if (!child_modified && !structural_added && !rebound) {
+                nb::object bridge_value = lookup_bridge_delta(key);
+                if (ref_valued && !bridge_value.is_none() && !is_remove_marker(bridge_value)) {
+                    out[key] = std::move(bridge_value);
+                }
+                continue;
+            }
+            if (child_delta.is_none() && (ref_valued || structural_added || rebound)) {
                 child_delta = child.as_ts_view().to_python();
             }
             if (child_delta.is_none()) {
                 nb::object bridge_value = lookup_bridge_delta(key);
-                if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
+                if (ref_valued && !bridge_value.is_none() && !is_remove_marker(bridge_value)) {
                     out[key] = std::move(bridge_value);
                 }
                 continue;
@@ -567,7 +581,6 @@ namespace
                 continue;
             }
             nb::object bridge_value = lookup_bridge_delta(key);
-            const bool bridge_explicit_remove = !bridge_value.is_none() && is_remove_marker(bridge_value);
             if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
                 continue;
             }
@@ -576,17 +589,15 @@ namespace
                 continue;
             }
 
-            bool include_remove = bridge_explicit_remove;
-            if (!include_remove) {
-                if (previous_map.valid()) {
-                    const value::MapView previous_entries = previous_map.as_map();
-                    if (previous_entries.contains(key_val.view())) {
-                        value::View previous_child = previous_entries.at(key_val.view());
-                        include_remove = previous_child.valid();
-                    }
-                } else {
-                    include_remove = true;
+            bool include_remove = false;
+            if (previous_map.valid()) {
+                const value::MapView previous_entries = previous_map.as_map();
+                if (previous_entries.contains(key_val.view())) {
+                    value::View previous_child = previous_entries.at(key_val.view());
+                    include_remove = previous_child.valid();
                 }
+            } else {
+                include_remove = true;
             }
 
             if (include_remove) {
@@ -607,23 +618,14 @@ namespace
             meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
         if (ref_valued) {
             const bool debug_child = std::getenv("HGRAPH_DEBUG_TSD_MOD_KEYS_CHILD") != nullptr;
-            nb::list current_keys = nb::cast<nb::list>(keys());
-            nb::set current_key_set;
-            for (const auto &key_item : current_keys) {
-                current_key_set.add(nb::cast<nb::object>(key_item));
-            }
-
-            TSOutputView key_set_view = view;
-            key_set_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
-            const bool key_set_modified = key_set_view.modified();
             if (debug_child) {
                 std::fprintf(stderr,
-                             "[py_tsd_mod_keys_keyset_out] path=%s now=%lld key_set_modified=%d\n",
+                             "[py_tsd_mod_keys_raw_out] path=%s now=%lld out=%s\n",
                              view.as_ts_view().short_path().to_string().c_str(),
                              static_cast<long long>(view.current_time().time_since_epoch().count()),
-                             key_set_modified ? 1 : 0);
+                             nb::cast<std::string>(nb::repr(out)).c_str());
             }
-
+            nb::list current_keys = nb::cast<nb::list>(keys());
             nb::set previous_key_set;
             ViewData previous_bound{};
             if (resolve_previous_bound_target_view_data(view.as_ts_view().view_data(), previous_bound) &&
@@ -637,102 +639,33 @@ namespace
                 }
             }
 
-            nb::set structural_added;
-            for (const auto &key_item : tsd_delta_keys_slot(view.as_ts_view(), 1, false)) {
-                nb::object key = nb::cast<nb::object>(key_item);
-                const bool in_current = PySet_Contains(current_key_set.ptr(), key.ptr()) == 1;
-                const bool in_previous = PySet_Contains(previous_key_set.ptr(), key.ptr()) == 1;
-                const bool structural_allowed = key_set_modified && in_current && !in_previous;
-                if (debug_child) {
-                    std::fprintf(stderr,
-                                 "[py_tsd_mod_keys_struct_out] path=%s key=%s in_current=%d in_previous=%d allow=%d\n",
-                                 view.as_ts_view().short_path().to_string().c_str(),
-                                 nb::cast<std::string>(nb::repr(key)).c_str(),
-                                 in_current ? 1 : 0,
-                                 in_previous ? 1 : 0,
-                                 structural_allowed ? 1 : 0);
-                }
-                if (structural_allowed) {
-                    structural_added.add(key);
-                }
-            }
-
-            nb::set resolved_modified_set;
-            for (const auto &key_item : current_keys) {
-                nb::object key = nb::cast<nb::object>(key_item);
+            nb::list filtered;
+            nb::set seen;
+            auto append_if_selected = [&](const nb::object& key) {
                 auto key_val = key_from_python_with_meta(key, meta);
                 if (key_val.schema() == nullptr) {
-                    continue;
+                    return;
                 }
                 auto child = dict.at_key(key_val.view());
                 if (!child) {
-                    continue;
+                    return;
                 }
 
-                bool child_modified = child.modified();
+                const bool child_modified = child.modified();
                 bool resolved_modified = false;
-                bool resolved_has_delta = false;
                 ViewData resolved{};
                 if (resolve_bound_target_view_data(child.as_ts_view().view_data(), resolved) &&
                     resolved.ops != nullptr &&
                     resolved.ops->modified != nullptr) {
                     resolved_modified = resolved.ops->modified(resolved, view.current_time());
-                    if (resolved.ops->delta_to_python != nullptr) {
-                        nb::object resolved_delta = resolved.ops->delta_to_python(resolved, view.current_time());
-                        resolved_has_delta = !resolved_delta.is_none();
-                    }
                 }
                 const bool effective_modified = child_modified || resolved_modified;
-
-                if (debug_child) {
-                    value::View child_delta_view = child.as_ts_view().delta_value();
-                    const bool child_delta_valid = child_delta_view.valid();
-                    std::string child_delta_repr = "<none>";
-                    if (child_delta_valid) {
-                        try {
-                            child_delta_repr = child_delta_view.to_string();
-                        } catch (...) {}
-                    }
-                    const std::string resolved_path = resolved.ops != nullptr
-                                                          ? resolved.path.to_string()
-                                                          : std::string{"<none>"};
-                    std::fprintf(stderr,
-                                 "[py_tsd_mod_keys_child_in] path=%s key=%s child=%s child_mod=%d child_delta_valid=%d child_delta=%s resolved=%s resolved_mod=%d resolved_has_delta=%d effective=%d\n",
-                                 view.as_ts_view().short_path().to_string().c_str(),
-                                 nb::cast<std::string>(nb::repr(key)).c_str(),
-                                 child.short_path().to_string().c_str(),
-                                 child_modified ? 1 : 0,
-                                 child_delta_valid ? 1 : 0,
-                                 child_delta_repr.c_str(),
-                                 resolved_path.c_str(),
-                                 resolved_modified ? 1 : 0,
-                                 resolved_has_delta ? 1 : 0,
-                                 effective_modified ? 1 : 0);
-                }
-
-                if (effective_modified) {
-                    resolved_modified_set.add(key);
-                }
-            }
-
-            nb::set raw_delta_keys;
-            for (const auto &key_item : out) {
-                raw_delta_keys.add(nb::cast<nb::object>(key_item));
-            }
-
-            nb::list filtered;
-            nb::set seen;
-            auto append_if_selected = [&](const nb::object &key) {
-                if (PySet_Contains(current_key_set.ptr(), key.ptr()) != 1) {
+                const bool in_previous = PySet_Contains(previous_key_set.ptr(), key.ptr()) == 1;
+                const bool structural_added = !in_previous;
+                if (!effective_modified && !structural_added) {
                     return;
                 }
-                const bool include =
-                    PySet_Contains(raw_delta_keys.ptr(), key.ptr()) == 1 ||
-                    PySet_Contains(structural_added.ptr(), key.ptr()) == 1 ||
-                    PySet_Contains(resolved_modified_set.ptr(), key.ptr()) == 1;
-                if (!include) {
-                    return;
-                }
+
                 if (PySet_Contains(seen.ptr(), key.ptr()) == 1) {
                     return;
                 }
@@ -740,10 +673,18 @@ namespace
                 filtered.append(key);
             };
 
-            for (const auto &key_item : current_keys) {
+            for (const auto& key_item : current_keys) {
                 append_if_selected(nb::cast<nb::object>(key_item));
             }
             out = std::move(filtered);
+
+            if (debug_child) {
+                std::fprintf(stderr,
+                             "[py_tsd_mod_keys_filtered_out] path=%s now=%lld out=%s\n",
+                             view.as_ts_view().short_path().to_string().c_str(),
+                             static_cast<long long>(view.current_time().time_since_epoch().count()),
+                             nb::cast<std::string>(nb::repr(out)).c_str());
+            }
         }
         if (std::getenv("HGRAPH_DEBUG_TSD_MOD_KEYS") != nullptr) {
             const std::string keys_repr = nb::cast<std::string>(nb::repr(out));
@@ -1077,6 +1018,7 @@ namespace
         TSInputView view = input_view();
         auto dict = view.as_dict();
         const auto* meta = dict.ts_meta();
+        const bool debug_delta_simple = std::getenv("HGRAPH_DEBUG_PY_TSD_DELTA_SIMPLE") != nullptr;
         const bool ref_valued =
             meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
         nb::object bridge_delta_obj = view.as_ts_view().delta_to_python();
@@ -1125,7 +1067,7 @@ namespace
             auto child = dict.at_key(key_val.view());
             if (!child) {
                 nb::object bridge_value = lookup_bridge_delta(key);
-                if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
+                if (ref_valued && !bridge_value.is_none() && !is_remove_marker(bridge_value)) {
                     out[key] = std::move(bridge_value);
                 }
                 continue;
@@ -1137,12 +1079,19 @@ namespace
             const bool in_previous_set = PySet_Contains(previous_keys.ptr(), key.ptr()) == 1;
             const bool structural_added = in_added_set && in_current_set && !in_previous_set;
             const bool rebound = child_rebound_this_tick(child.as_ts_view());
-            if (child_delta.is_none() && (ref_valued || structural_added || rebound || !child_modified)) {
+            if (!child_modified && !structural_added && !rebound) {
+                nb::object bridge_value = lookup_bridge_delta(key);
+                if (ref_valued && !bridge_value.is_none() && !is_remove_marker(bridge_value)) {
+                    out[key] = std::move(bridge_value);
+                }
+                continue;
+            }
+            if (child_delta.is_none() && (ref_valued || structural_added || rebound)) {
                 child_delta = child.as_ts_view().to_python();
             }
             if (child_delta.is_none()) {
                 nb::object bridge_value = lookup_bridge_delta(key);
-                if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
+                if (ref_valued && !bridge_value.is_none() && !is_remove_marker(bridge_value)) {
                     out[key] = std::move(bridge_value);
                 }
                 continue;
@@ -1175,7 +1124,6 @@ namespace
                 continue;
             }
             nb::object bridge_value = lookup_bridge_delta(key);
-            const bool bridge_explicit_remove = !bridge_value.is_none() && is_remove_marker(bridge_value);
             if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
                 continue;
             }
@@ -1184,17 +1132,15 @@ namespace
                 continue;
             }
 
-            bool include_remove = bridge_explicit_remove;
-            if (!include_remove) {
-                if (previous_map.valid()) {
-                    const value::MapView previous_entries = previous_map.as_map();
-                    if (previous_entries.contains(key_val.view())) {
-                        value::View previous_child = previous_entries.at(key_val.view());
-                        include_remove = previous_child.valid();
-                    }
-                } else {
-                    include_remove = true;
+            bool include_remove = false;
+            if (previous_map.valid()) {
+                const value::MapView previous_entries = previous_map.as_map();
+                if (previous_entries.contains(key_val.view())) {
+                    value::View previous_child = previous_entries.at(key_val.view());
+                    include_remove = previous_child.valid();
                 }
+            } else {
+                include_remove = true;
             }
 
             if (include_remove) {
@@ -1215,23 +1161,14 @@ namespace
             meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
         if (ref_valued) {
             const bool debug_child = std::getenv("HGRAPH_DEBUG_TSD_MOD_KEYS_CHILD") != nullptr;
-            nb::list current_keys = nb::cast<nb::list>(keys());
-            nb::set current_key_set;
-            for (const auto &key_item : current_keys) {
-                current_key_set.add(nb::cast<nb::object>(key_item));
-            }
-
-            TSInputView key_set_view = view;
-            key_set_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
-            const bool key_set_modified = key_set_view.modified();
             if (debug_child) {
                 std::fprintf(stderr,
-                             "[py_tsd_mod_keys_keyset_in] path=%s now=%lld key_set_modified=%d\n",
+                             "[py_tsd_mod_keys_raw_in] path=%s now=%lld out=%s\n",
                              view.as_ts_view().short_path().to_string().c_str(),
                              static_cast<long long>(view.current_time().time_since_epoch().count()),
-                             key_set_modified ? 1 : 0);
+                             nb::cast<std::string>(nb::repr(out)).c_str());
             }
-
+            nb::list current_keys = nb::cast<nb::list>(keys());
             nb::set previous_key_set;
             ViewData previous_bound{};
             if (resolve_previous_bound_target_view_data(view.as_ts_view().view_data(), previous_bound) &&
@@ -1245,102 +1182,33 @@ namespace
                 }
             }
 
-            nb::set structural_added;
-            for (const auto &key_item : tsd_delta_keys_slot(view.as_ts_view(), 1, false)) {
-                nb::object key = nb::cast<nb::object>(key_item);
-                const bool in_current = PySet_Contains(current_key_set.ptr(), key.ptr()) == 1;
-                const bool in_previous = PySet_Contains(previous_key_set.ptr(), key.ptr()) == 1;
-                const bool structural_allowed = key_set_modified && in_current && !in_previous;
-                if (debug_child) {
-                    std::fprintf(stderr,
-                                 "[py_tsd_mod_keys_struct_in] path=%s key=%s in_current=%d in_previous=%d allow=%d\n",
-                                 view.as_ts_view().short_path().to_string().c_str(),
-                                 nb::cast<std::string>(nb::repr(key)).c_str(),
-                                 in_current ? 1 : 0,
-                                 in_previous ? 1 : 0,
-                                 structural_allowed ? 1 : 0);
-                }
-                if (structural_allowed) {
-                    structural_added.add(key);
-                }
-            }
-
-            nb::set resolved_modified_set;
-            for (const auto &key_item : current_keys) {
-                nb::object key = nb::cast<nb::object>(key_item);
+            nb::list filtered;
+            nb::set seen;
+            auto append_if_selected = [&](const nb::object& key) {
                 auto key_val = key_from_python_with_meta(key, meta);
                 if (key_val.schema() == nullptr) {
-                    continue;
+                    return;
                 }
                 auto child = dict.at_key(key_val.view());
                 if (!child) {
-                    continue;
+                    return;
                 }
 
                 const bool child_modified = child.modified();
                 bool resolved_modified = false;
-                bool resolved_has_delta = false;
                 ViewData resolved{};
                 if (resolve_bound_target_view_data(child.as_ts_view().view_data(), resolved) &&
                     resolved.ops != nullptr &&
                     resolved.ops->modified != nullptr) {
                     resolved_modified = resolved.ops->modified(resolved, view.current_time());
-                    if (resolved.ops->delta_to_python != nullptr) {
-                        nb::object resolved_delta = resolved.ops->delta_to_python(resolved, view.current_time());
-                        resolved_has_delta = !resolved_delta.is_none();
-                    }
                 }
                 const bool effective_modified = child_modified || resolved_modified;
-
-                if (debug_child) {
-                    value::View child_delta_view = child.as_ts_view().delta_value();
-                    const bool child_delta_valid = child_delta_view.valid();
-                    std::string child_delta_repr = "<none>";
-                    if (child_delta_valid) {
-                        try {
-                            child_delta_repr = child_delta_view.to_string();
-                        } catch (...) {}
-                    }
-                    const std::string resolved_path = resolved.ops != nullptr
-                                                          ? resolved.path.to_string()
-                                                          : std::string{"<none>"};
-                    std::fprintf(stderr,
-                                 "[py_tsd_mod_keys_child_in] path=%s key=%s child=%s child_mod=%d child_delta_valid=%d child_delta=%s resolved=%s resolved_mod=%d resolved_has_delta=%d effective=%d\n",
-                                 view.as_ts_view().short_path().to_string().c_str(),
-                                 nb::cast<std::string>(nb::repr(key)).c_str(),
-                                 child.short_path().to_string().c_str(),
-                                 child_modified ? 1 : 0,
-                                 child_delta_valid ? 1 : 0,
-                                 child_delta_repr.c_str(),
-                                 resolved_path.c_str(),
-                                 resolved_modified ? 1 : 0,
-                                 resolved_has_delta ? 1 : 0,
-                                 effective_modified ? 1 : 0);
-                }
-
-                if (effective_modified) {
-                    resolved_modified_set.add(key);
-                }
-            }
-
-            nb::set raw_delta_keys;
-            for (const auto &key_item : out) {
-                raw_delta_keys.add(nb::cast<nb::object>(key_item));
-            }
-
-            nb::list filtered;
-            nb::set seen;
-            auto append_if_selected = [&](const nb::object &key) {
-                if (PySet_Contains(current_key_set.ptr(), key.ptr()) != 1) {
+                const bool in_previous = PySet_Contains(previous_key_set.ptr(), key.ptr()) == 1;
+                const bool structural_added = !in_previous;
+                if (!effective_modified && !structural_added) {
                     return;
                 }
-                const bool include =
-                    PySet_Contains(raw_delta_keys.ptr(), key.ptr()) == 1 ||
-                    PySet_Contains(structural_added.ptr(), key.ptr()) == 1 ||
-                    PySet_Contains(resolved_modified_set.ptr(), key.ptr()) == 1;
-                if (!include) {
-                    return;
-                }
+
                 if (PySet_Contains(seen.ptr(), key.ptr()) == 1) {
                     return;
                 }
@@ -1348,10 +1216,18 @@ namespace
                 filtered.append(key);
             };
 
-            for (const auto &key_item : current_keys) {
+            for (const auto& key_item : current_keys) {
                 append_if_selected(nb::cast<nb::object>(key_item));
             }
             out = std::move(filtered);
+
+            if (debug_child) {
+                std::fprintf(stderr,
+                             "[py_tsd_mod_keys_filtered_in] path=%s now=%lld out=%s\n",
+                             view.as_ts_view().short_path().to_string().c_str(),
+                             static_cast<long long>(view.current_time().time_since_epoch().count()),
+                             nb::cast<std::string>(nb::repr(out)).c_str());
+            }
         }
         if (std::getenv("HGRAPH_DEBUG_TSD_MOD_KEYS") != nullptr) {
             const std::string keys_repr = nb::cast<std::string>(nb::repr(out));

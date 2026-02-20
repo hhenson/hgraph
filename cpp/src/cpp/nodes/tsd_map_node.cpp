@@ -928,7 +928,9 @@ namespace hgraph
                 (current_inner_target.has_value() && desired_outer_target.has_value() &&
                  !same_view_identity(*current_inner_target, *desired_outer_target));
 
-            bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts);
+            if (!inner_ts.is_bound() || binding_changed) {
+                bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts);
+            }
             if (outer_arg.modified() || binding_changed) {
                 node->notify();
             }
@@ -1093,8 +1095,14 @@ namespace hgraph
                             force_emit_keys_.erase(emit_it);
                         }
                     }
-                } else if (has_outer_entry) {
-                    outer.remove(key);
+                } else if (has_outer_entry && inner_effective.modified()) {
+                    // Python parity: keyed map outputs keep key membership stable for
+                    // active graphs and only invalidate the keyed child when the nested
+                    // output becomes invalid.
+                    auto outer_key = outer.at_key(key);
+                    if (outer_key) {
+                        outer_key.invalidate();
+                    }
                 }
 
                 if (debug_tsd_map_copy) {
@@ -1136,6 +1144,7 @@ namespace hgraph
     }
 
     void TsdMapNode::un_wire_graph(const value::View &key, graph_s_ptr &graph) {
+        const bool debug_tsd_map = std::getenv("HGRAPH_DEBUG_TSD_MAP") != nullptr;
         for (const auto &[arg, node_ndx] : input_node_ids_) {
             if (arg == key_arg_) {
                 continue;
@@ -1159,7 +1168,15 @@ namespace hgraph
         if (output_node_id_ >= 0) {
             auto out = tsd_output(node_time(*this));
             if (out) {
-                out.remove(key);
+                const bool removed = out.remove(key);
+                if (debug_tsd_map) {
+                    std::fprintf(stderr,
+                                 "[tsd_map]  un_wire remove key=%s removed=%d out_size=%zu out_valid=%d\n",
+                                 key_repr(key, key_type_meta_).c_str(),
+                                 removed ? 1 : 0,
+                                 out.count(),
+                                 out.valid() ? 1 : 0);
+                }
             }
         }
     }
@@ -1255,10 +1272,8 @@ namespace hgraph
         }
 
         if (output_node_id_ >= 0) {
-            auto node = graph->nodes()[output_node_id_];
-            auto inner_out = node->output(node_time(*node));
             auto out = tsd_output(node_time(*this));
-            if (!inner_out || !out) {
+            if (!out) {
                 return;
             }
             (void)out.create(key);
@@ -1337,7 +1352,9 @@ namespace hgraph
                      !same_view_identity(*current_inner_target, *desired_outer_target));
                 const bool key_value_modified = outer_key_value.valid() && outer_key_value.modified();
                 stage_id = 5;
-                bind_inner_from_outer(outer_key_value, inner_ts);
+                if (!inner_ts.is_bound() || key_value_modified || binding_changed) {
+                    bind_inner_from_outer(outer_key_value, inner_ts);
+                }
                 stage_id = 6;
                 if (key_value_modified || binding_changed) {
                     node->notify();

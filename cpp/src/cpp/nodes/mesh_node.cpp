@@ -466,9 +466,21 @@ namespace hgraph {
                         if (dtg == dt) {
                             if (auto refresh_it = refresh_before_eval_keys_.find(k.view());
                                 refresh_it != refresh_before_eval_keys_.end()) {
+                                if (debug_dep) {
+                                    std::fprintf(stderr,
+                                                 "[mesh_dep] refresh_before_eval rank=%d key=%s now=%lld\n",
+                                                 rank,
+                                                 key_repr(k.view(), key_type_meta_).c_str(),
+                                                 static_cast<long long>(last_evaluation_time().time_since_epoch().count()));
+                                }
                                 if (auto graph_it = active_graphs_.find(k.view());
                                     graph_it != active_graphs_.end() && graph_it->second) {
                                     notify_graph_input_nodes(graph_it->second, last_evaluation_time());
+                                    for (const auto& nested_node : graph_it->second->nodes()) {
+                                        if (nested_node) {
+                                            nested_node->notify(last_evaluation_time());
+                                        }
+                                    }
                                 }
                                 refresh_before_eval_keys_.erase(refresh_it);
                             }
