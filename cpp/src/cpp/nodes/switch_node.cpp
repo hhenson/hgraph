@@ -118,53 +118,6 @@ namespace hgraph {
             }
         }
 
-        std::optional<value::Value> snapshot_ref_target_value(const TSOutputView& output_view) {
-            if (!output_view) {
-                return std::nullopt;
-            }
-            const TSMeta* meta = output_view.ts_meta();
-            if (meta == nullptr || meta->kind != TSKind::REF) {
-                return std::nullopt;
-            }
-
-            ViewData target{};
-            if (!resolve_bound_target_view_data(output_view.as_ts_view().view_data(), target) ||
-                target.ops == nullptr ||
-                target.ops->value == nullptr) {
-                return std::nullopt;
-            }
-
-            value::View target_value = target.ops->value(target);
-            if (!target_value.valid()) {
-                return std::nullopt;
-            }
-            return target_value.clone();
-        }
-
-        void seed_ref_target_value(const TSOutputView& output_view,
-                                   const value::Value& snapshot,
-                                   engine_time_t current_time) {
-            if (!output_view || !snapshot.has_value()) {
-                return;
-            }
-            const TSMeta* meta = output_view.ts_meta();
-            if (meta == nullptr || meta->kind != TSKind::REF) {
-                return;
-            }
-
-            ViewData target{};
-            if (!resolve_bound_target_view_data(output_view.as_ts_view().view_data(), target)) {
-                return;
-            }
-
-            TSView target_view(target, current_time);
-            value::View current_value = target_view.value();
-            const value::TypeMeta* current_schema = current_value.schema();
-            if (current_schema != nullptr && current_schema != snapshot.schema()) {
-                return;
-            }
-            target_view.from_python(snapshot.to_python());
-        }
     }  // namespace
 
     SwitchNode::SwitchNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
@@ -261,7 +214,6 @@ namespace hgraph {
     void SwitchNode::eval() {
         const bool debug_switch = std::getenv("HGRAPH_DEBUG_SWITCH") != nullptr;
         mark_evaluated();
-        std::optional<value::Value> graph_reset_ref_snapshot;
 
         if (_key_type == nullptr) {
             throw std::runtime_error("SwitchNode key type meta is not initialised");
@@ -323,7 +275,6 @@ namespace hgraph {
             if (_reload_on_ticked || key_changed) {
                 if (_active_key.has_value()) {
                     graph_reset = true;
-                    graph_reset_ref_snapshot = snapshot_ref_target_value(output(node_time(*this)));
                     stop_component(*_active_graph);
                     unwire_graph(_active_graph);
                     // Schedule deferred disposal via lambda capture
@@ -384,10 +335,6 @@ namespace hgraph {
 
         // Evaluate the active graph if it exists
         if (_active_graph != nullptr) {
-            if (graph_reset && graph_reset_ref_snapshot.has_value()) {
-                seed_ref_target_value(output(node_time(*this)), *graph_reset_ref_snapshot, node_time(*this));
-            }
-
             // REF-valued outer args can rebind without key changes (for example
             // reduce tree growth changing the root reference). Refresh these
             // bindings on REF ticks so inner graphs track the new target.
@@ -455,12 +402,16 @@ namespace hgraph {
                 auto out_dbg = output(node_time(*this));
                 std::string out_value{"<none>"};
                 std::string out_delta{"<none>"};
+                const int out_kind = (out_dbg && out_dbg.ts_meta() != nullptr)
+                                         ? static_cast<int>(out_dbg.ts_meta()->kind)
+                                         : -1;
                 try { out_value = nb::cast<std::string>(nb::repr(out_dbg.to_python())); } catch (...) {}
                 try { out_delta = nb::cast<std::string>(nb::repr(out_dbg.delta_to_python())); } catch (...) {}
                 std::fprintf(stderr,
-                             "[switch] post_eval now=%lld graph_reset=%d out_mod=%d out_valid=%d out_value=%s out_delta=%s\n",
+                             "[switch] post_eval now=%lld graph_reset=%d out_kind=%d out_mod=%d out_valid=%d out_value=%s out_delta=%s\n",
                              static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
                              graph_reset ? 1 : 0,
+                             out_kind,
                              out_dbg.modified() ? 1 : 0,
                              out_dbg.valid() ? 1 : 0,
                              out_value.c_str(),
@@ -483,6 +434,7 @@ namespace hgraph {
 
     void SwitchNode::wire_graph(graph_s_ptr &graph) {
         if (!_active_key.has_value()) return;
+        const bool debug_switch = std::getenv("HGRAPH_DEBUG_SWITCH") != nullptr;
 
         auto active_key_view = _active_key->view();
 
@@ -541,6 +493,13 @@ namespace hgraph {
         if (output_node_id >= 0) {
             auto node = graph->nodes()[output_node_id];
             if (node != nullptr) {
+                if (debug_switch) {
+                    std::fprintf(stderr,
+                                 "[switch] wire_output key=%s output_node_id=%d node_name=%s\n",
+                                 _key_type->ops().to_string(_active_key->data(), _key_type).c_str(),
+                                 output_node_id,
+                                 node->signature().name.c_str());
+                }
                 _wired_output_node = node.get();
                 _wired_output_node->set_output_override(this);
             }

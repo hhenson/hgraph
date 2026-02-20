@@ -76,30 +76,6 @@ namespace hgraph
                    lhs.meta == rhs.meta;
         }
 
-        bool ref_entry_targets_view(const TSView& ref_entry, const TSView& target) {
-            if (!ref_entry || !target) {
-                return false;
-            }
-
-            value::View ref_payload = ref_entry.value();
-            if (!ref_payload.valid()) {
-                return false;
-            }
-
-            TimeSeriesReference ref = TimeSeriesReference::make();
-            try {
-                ref = nb::cast<TimeSeriesReference>(ref_payload.to_python());
-            } catch (...) {
-                return false;
-            }
-
-            const ViewData* existing_target = ref.bound_view();
-            if (existing_target == nullptr) {
-                return false;
-            }
-            return same_view_identity(*existing_target, target.view_data());
-        }
-
         TSView resolve_effective_view(TSView view);
 
         TSView resolve_outer_key_view(TSView outer_ts, const value::View &key) {
@@ -641,7 +617,10 @@ namespace hgraph
             key_set_type current_keys;
             const bool have_current_keys = collect_current_map_keys(keys_view, current_keys);
 
-            bool use_full_diff = !has_key_delta;
+            // When starting from an empty active set, key deltas alone are
+            // insufficient (delta may only include incremental additions).
+            // Bootstrap from the full current key snapshot in that case.
+            bool use_full_diff = !has_key_delta || active_graphs_.empty();
             if (has_key_delta) {
                 for (const auto& key : added_keys) {
                     if (active_graphs_.find(key.view()) != active_graphs_.end()) {
@@ -849,32 +828,6 @@ namespace hgraph
         wire_graph(key, graph_);
         start_component(*graph_);
 
-        // BasePythonNode::start() initializes/activates inputs from signature
-        // defaults. Keep shared/non-multiplexed map arg stubs passive so keyed
-        // execution is driven by outer delta routing rather than broad inner
-        // root notifications.
-        for (const auto &[arg, node_ndx] : input_node_ids_) {
-            if (arg == key_arg_ || multiplexed_args_.find(arg) != multiplexed_args_.end()) {
-                continue;
-            }
-            auto node = graph_->nodes()[node_ndx];
-            auto root_input = node->input(node_time(*node));
-            if (root_input && root_input.active()) {
-                if (std::getenv("HGRAPH_DEBUG_TSD_MAP") != nullptr) {
-                    std::fprintf(stderr,
-                                 "[tsd_map]  post-start passivate arg=%s node_ndx=%lld root=%s\n",
-                                 arg.c_str(),
-                                 static_cast<long long>(node->node_ndx()),
-                                 root_input.short_path().to_string().c_str());
-                }
-                root_input.make_passive();
-            } else if (std::getenv("HGRAPH_DEBUG_TSD_MAP") != nullptr) {
-                std::fprintf(stderr,
-                             "[tsd_map]  post-start arg=%s node_ndx=%lld already passive\n",
-                             arg.c_str(),
-                             static_cast<long long>(node->node_ndx()));
-            }
-        }
         scheduled_keys_.insert_or_assign(key.clone(), last_evaluation_time());
         pending_keys_.insert(key.clone());
     }
@@ -933,6 +886,54 @@ namespace hgraph
         const bool debug_tsd_map_copy = std::getenv("HGRAPH_DEBUG_TSD_MAP_COPY") != nullptr;
 
         auto &nested = it->second;
+
+        auto outer_root = input(node_time(*this));
+        std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
+        for (const auto &[arg, node_ndx] : input_node_ids_) {
+            if (arg == key_arg_ || multiplexed_args_.find(arg) != multiplexed_args_.end()) {
+                continue;
+            }
+
+            auto node = nested->nodes()[node_ndx];
+            auto inner_ts = node_inner_ts_input(*node);
+            if (!inner_ts) {
+                continue;
+            }
+
+            if (!outer_bundle.has_value()) {
+                if (inner_ts.is_bound()) {
+                    inner_ts.unbind();
+                    node->notify();
+                }
+                continue;
+            }
+
+            auto outer_arg = outer_bundle->field(arg);
+            if (!outer_arg) {
+                if (inner_ts.is_bound()) {
+                    inner_ts.unbind();
+                    node->notify();
+                }
+                continue;
+            }
+
+            std::optional<ViewData> current_inner_target;
+            ViewData current_bound_target{};
+            if (resolve_bound_target_view_data(inner_ts.as_ts_view().view_data(), current_bound_target)) {
+                current_inner_target = current_bound_target;
+            }
+            const std::optional<ViewData> desired_outer_target = resolve_outer_binding_target(outer_arg.as_ts_view());
+            const bool binding_changed =
+                current_inner_target.has_value() != desired_outer_target.has_value() ||
+                (current_inner_target.has_value() && desired_outer_target.has_value() &&
+                 !same_view_identity(*current_inner_target, *desired_outer_target));
+
+            bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts);
+            if (outer_arg.modified() || binding_changed) {
+                node->notify();
+            }
+        }
+
         bool all_mux_inputs_valid = true;
         refresh_multiplexed_bindings(key, nested, &all_mux_inputs_valid);
         if (auto *nec = dynamic_cast<NestedEngineEvaluationClock *>(nested->evaluation_engine_clock().get())) {
@@ -1001,38 +1002,47 @@ namespace hgraph
                 if (debug_tsd_map_copy) {
                     std::string delta_s{"<none>"};
                     std::string value_s{"<none>"};
+                    bool raw_valid = inner_raw.valid();
+                    bool raw_modified = inner_raw.modified();
+                    std::string raw_value_s{"<none>"};
+                    std::string raw_delta_s{"<none>"};
                     try {
                         delta_s = nb::cast<std::string>(nb::repr(inner_effective.delta_to_python()));
                     } catch (...) {}
                     try {
                         value_s = nb::cast<std::string>(nb::repr(inner_effective.to_python()));
                     } catch (...) {}
+                    try {
+                        raw_value_s = nb::cast<std::string>(nb::repr(inner_raw.to_python()));
+                    } catch (...) {}
+                    try {
+                        raw_delta_s = nb::cast<std::string>(nb::repr(inner_raw.delta_to_python()));
+                    } catch (...) {}
                     std::fprintf(stderr,
-                                 "[tsd_map_copy] key=%s now=%lld inner_valid=%d inner_modified=%d outer_has=%d inner_delta=%s inner_value=%s\n",
+                                 "[tsd_map_copy] key=%s now=%lld inner_valid=%d inner_modified=%d raw_valid=%d raw_modified=%d outer_has=%d inner_delta=%s inner_value=%s raw_delta=%s raw_value=%s\n",
                                  key_repr(key, key_type_meta_).c_str(),
                                  static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
                                  inner_effective.valid() ? 1 : 0,
                                  inner_effective.modified() ? 1 : 0,
+                                 raw_valid ? 1 : 0,
+                                 raw_modified ? 1 : 0,
                                  has_outer_entry ? 1 : 0,
                                  delta_s.c_str(),
-                                 value_s.c_str());
+                                 value_s.c_str(),
+                                 raw_delta_s.c_str(),
+                                 raw_value_s.c_str());
                 }
 
                 if (ref_output) {
-                    if (inner_effective.valid()) {
-                        const bool ref_target_matches =
-                            has_outer_entry && outer_existing.valid() &&
-                            ref_entry_targets_view(outer_existing, inner_effective);
-                        const bool should_rebind_ref =
-                            !has_outer_entry ||
-                            !outer_existing.valid() ||
-                            inner_effective.modified() ||
-                            output_init_pending ||
-                            force_emit ||
-                            !ref_target_matches;
-                        if (should_rebind_ref) {
-                            auto outer_key = outer.create(key);
-                            outer_key.from_python(nb::cast(TimeSeriesReference::make(inner_effective.view_data())));
+                    // Python map-node semantics for REF outputs: keyed entries carry
+                    // the inner REF payload itself (including empty/sentinel refs),
+                    // not a reference to the inner node's REF output wrapper.
+                    if (inner_raw.valid()) {
+                        auto outer_key = outer.create(key);
+                        const bool outer_was_valid = outer_key.valid();
+                        const bool outer_needs_init = !outer_was_valid || output_init_pending || force_emit;
+                        if (inner_raw.modified() || outer_needs_init) {
+                            outer_key.from_python(inner_raw.to_python());
                             if (auto pending_it = pending_keys_.find(key_value); pending_it != pending_keys_.end()) {
                                 pending_keys_.erase(pending_it);
                             }
@@ -1215,32 +1225,6 @@ namespace hgraph
                 bind_inner_from_outer(outer_key_value, inner_ts);
             } else {
                 bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts);
-                // Shared/non-multiplexed inputs are scheduled by outer map-node
-                // delta routing. Keep inner bindings passive to avoid duplicate
-                // eager notifications across all keyed graphs on container writes.
-                auto node_root = node->input(node_time(*node));
-                if (node_root && node_root.active()) {
-                    if (debug_tsd_map) {
-                        std::fprintf(stderr,
-                                     "[tsd_map]  passivate non-mux arg=%s node_ndx=%lld root_active=1\n",
-                                     arg.c_str(),
-                                     static_cast<long long>(node->node_ndx()));
-                    }
-                    node_root.make_passive();
-                } else if (inner_ts.active()) {
-                    if (debug_tsd_map) {
-                        std::fprintf(stderr,
-                                     "[tsd_map]  passivate non-mux arg=%s node_ndx=%lld inner_active=1\n",
-                                     arg.c_str(),
-                                     static_cast<long long>(node->node_ndx()));
-                    }
-                    inner_ts.make_passive();
-                } else if (debug_tsd_map) {
-                    std::fprintf(stderr,
-                                 "[tsd_map]  non-mux arg=%s node_ndx=%lld already passive\n",
-                                 arg.c_str(),
-                                 static_cast<long long>(node->node_ndx()));
-                }
             }
         }
 

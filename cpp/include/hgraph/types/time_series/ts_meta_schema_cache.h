@@ -36,6 +36,7 @@ private:
 
     TSMetaSchemaSet generate(const TSMeta* meta);
 
+    const value::TypeMeta* generate_value_schema_impl(const TSMeta* meta);
     const value::TypeMeta* generate_time_schema_impl(const TSMeta* meta);
     const value::TypeMeta* generate_observer_schema_impl(const TSMeta* meta);
     const value::TypeMeta* generate_link_schema_impl(const TSMeta* meta, bool input_mode);

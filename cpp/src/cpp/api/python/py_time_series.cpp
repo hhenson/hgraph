@@ -15,6 +15,7 @@
 #include <cstdlib>
 #include <optional>
 #include <stdexcept>
+#include <typeinfo>
 #include <utility>
 
 namespace hgraph
@@ -89,32 +90,79 @@ namespace
     }
 
     nb::object PyTimeSeriesType::value() const {
+        const auto value_from_view = [](const TSView& ts_view) -> nb::object {
+            const TSMeta* meta = ts_view.ts_meta();
+            // Python scalar TS outputs expose `None` until first valid write.
+            if (meta != nullptr && meta->kind == TSKind::TSValue && !ts_view.valid()) {
+                return nb::none();
+            }
+            return ts_view.to_python();
+        };
+
         if (auto* ref_input = dynamic_cast<const PyTimeSeriesReferenceInput*>(this)) {
             return ref_input->ref_value();
         }
         if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
-            return input->input_view().as_ts_view().to_python();
+            return value_from_view(input->input_view().as_ts_view());
         }
         if (auto* output = dynamic_cast<const PyTimeSeriesOutput*>(this)) {
-            return output->output_view().as_ts_view().to_python();
+            return value_from_view(output->output_view().as_ts_view());
         }
-        return view().to_python();
+        return value_from_view(view());
     }
 
     nb::object PyTimeSeriesType::delta_value() const {
+        const bool debug_delta_dispatch = std::getenv("HGRAPH_DEBUG_TS_DELTA_DISPATCH") != nullptr;
         if (auto* input = dynamic_cast<const PyTimeSeriesDictInput*>(this)) {
-            return input->delta_value();
+            nb::object out = input->delta_value();
+            if (debug_delta_dispatch) {
+                std::fprintf(stderr,
+                             "[ts_delta_dispatch] kind=dict_input path=%s out=%s\n",
+                             input->input_view().short_path().to_string().c_str(),
+                             nb::cast<std::string>(nb::repr(out)).c_str());
+            }
+            return out;
         }
         if (auto* output = dynamic_cast<const PyTimeSeriesDictOutput*>(this)) {
-            return output->delta_value();
+            nb::object out = output->delta_value();
+            if (debug_delta_dispatch) {
+                std::fprintf(stderr,
+                             "[ts_delta_dispatch] kind=dict_output path=%s out=%s\n",
+                             output->output_view().short_path().to_string().c_str(),
+                             nb::cast<std::string>(nb::repr(out)).c_str());
+            }
+            return out;
         }
         if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
-            return input->input_view().as_ts_view().delta_to_python();
+            nb::object out = input->input_view().as_ts_view().delta_to_python();
+            if (debug_delta_dispatch) {
+                std::fprintf(stderr,
+                             "[ts_delta_dispatch] kind=input type=%s path=%s out=%s\n",
+                             typeid(*input).name(),
+                             input->input_view().short_path().to_string().c_str(),
+                             nb::cast<std::string>(nb::repr(out)).c_str());
+            }
+            return out;
         }
         if (auto* output = dynamic_cast<const PyTimeSeriesOutput*>(this)) {
-            return output->output_view().as_ts_view().delta_to_python();
+            nb::object out = output->output_view().as_ts_view().delta_to_python();
+            if (debug_delta_dispatch) {
+                std::fprintf(stderr,
+                             "[ts_delta_dispatch] kind=output type=%s path=%s out=%s\n",
+                             typeid(*output).name(),
+                             output->output_view().short_path().to_string().c_str(),
+                             nb::cast<std::string>(nb::repr(out)).c_str());
+            }
+            return out;
         }
-        return view().delta_to_python();
+        nb::object out = view().delta_to_python();
+        if (debug_delta_dispatch) {
+            std::fprintf(stderr,
+                         "[ts_delta_dispatch] kind=base path=%s out=%s\n",
+                         view().short_path().to_string().c_str(),
+                         nb::cast<std::string>(nb::repr(out)).c_str());
+        }
+        return out;
     }
 
     engine_time_t PyTimeSeriesType::last_modified_time() const {

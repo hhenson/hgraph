@@ -57,6 +57,44 @@ namespace
 
         return target;
     }
+
+    TimeSeriesReference make_reference_from_input_view(const TSInputView& input_view) {
+        const TSMeta* meta = input_view.ts_meta();
+        if (meta != nullptr && meta->kind == TSKind::REF) {
+            nb::object ref_obj = input_view.to_python();
+            if (ref_obj.is_none()) {
+                return TimeSeriesReference::make();
+            }
+            if (nb::isinstance<TimeSeriesReference>(ref_obj)) {
+                return nb::cast<TimeSeriesReference>(ref_obj);
+            }
+            return TimeSeriesReference::make();
+        }
+
+        if (auto bound = resolve_bound_target_view(input_view); bound.has_value()) {
+            return TimeSeriesReference::make(*bound);
+        }
+
+        if (auto list = input_view.try_as_list(); list.has_value()) {
+            std::vector<TimeSeriesReference> refs;
+            refs.reserve(list->count());
+            for (size_t i = 0; i < list->count(); ++i) {
+                refs.emplace_back(make_reference_from_input_view(list->at(i)));
+            }
+            return TimeSeriesReference::make(std::move(refs));
+        }
+
+        if (auto bundle = input_view.try_as_bundle(); bundle.has_value()) {
+            std::vector<TimeSeriesReference> refs;
+            refs.reserve(bundle->count());
+            for (size_t i = 0; i < bundle->count(); ++i) {
+                refs.emplace_back(make_reference_from_input_view(bundle->at(i)));
+            }
+            return TimeSeriesReference::make(std::move(refs));
+        }
+
+        return TimeSeriesReference::make();
+    }
 }  // namespace
 
     void ref_register_with_nanobind(nb::module_ &m) {
@@ -129,24 +167,7 @@ namespace
                                 auto &out = nb::cast<PyTimeSeriesOutput &>(out_obj);
                                 return TimeSeriesReference::make(out.output_view().as_ts_view().view_data());
                             }
-
-                            if (auto list = py_input.input_view().try_as_list(); list.has_value()) {
-                                std::vector<TimeSeriesReference> refs;
-                                refs.reserve(list->count());
-                                for (size_t i = 0; i < list->count(); ++i) {
-                                    refs.emplace_back(TimeSeriesReference::make(list->at(i).as_ts_view().view_data()));
-                                }
-                                return TimeSeriesReference::make(std::move(refs));
-                            }
-
-                            if (auto bundle = py_input.input_view().try_as_bundle(); bundle.has_value()) {
-                                std::vector<TimeSeriesReference> refs;
-                                refs.reserve(bundle->count());
-                                for (size_t i = 0; i < bundle->count(); ++i) {
-                                    refs.emplace_back(TimeSeriesReference::make(bundle->at(i).as_ts_view().view_data()));
-                                }
-                                return TimeSeriesReference::make(std::move(refs));
-                            }
+                            return make_reference_from_input_view(py_input.input_view());
                         }
                     } else if (!items.is_none()) {
                         return TimeSeriesReference::make(nb::cast<std::vector<TimeSeriesReference>>(items));
@@ -191,6 +212,32 @@ namespace
         nb::class_<PyTimeSeriesReferenceOutput, PyTimeSeriesOutput>(m, "TimeSeriesReferenceOutput")
             .def("__str__", &PyTimeSeriesReferenceOutput::to_string)
             .def("__repr__", &PyTimeSeriesReferenceOutput::to_repr)
+            .def("items", [](const PyTimeSeriesReferenceOutput& self) -> nb::object {
+                nb::list out;
+                const TSView& base_view = self.output_view().as_ts_view();
+                const TSMeta* meta = base_view.ts_meta();
+                while (meta != nullptr && meta->kind == TSKind::REF) {
+                    meta = meta->element_ts();
+                }
+                if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+                    return out;
+                }
+
+                for (size_t i = 0; i < meta->field_count(); ++i) {
+                    TSView child = base_view.child_at(i);
+                    if (!child) {
+                        continue;
+                    }
+                    const char* field_name = meta->fields()[i].name;
+                    if (field_name == nullptr) {
+                        continue;
+                    }
+                    out.append(nb::make_tuple(
+                        nb::str(field_name),
+                        wrap_output_view(TSOutputView(nullptr, std::move(child)))));
+                }
+                return out;
+            })
             .def("__getitem__", [](const PyTimeSeriesReferenceOutput& self, const nb::object& key) -> nb::object {
                 const TSView& base_view = self.output_view().as_ts_view();
                 const TSMeta* meta = base_view.ts_meta();

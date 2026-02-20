@@ -457,6 +457,17 @@ namespace
         const bool ref_valued =
             meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
         const bool debug_delta_simple = std::getenv("HGRAPH_DEBUG_PY_TSD_DELTA_SIMPLE") != nullptr;
+        nb::object bridge_delta_obj = view.as_ts_view().delta_to_python();
+        const auto lookup_bridge_delta = [&](const nb::object& key) -> nb::object {
+            if (bridge_delta_obj.is_none()) {
+                return nb::none();
+            }
+            nb::object get_fn = nb::getattr(bridge_delta_obj, "get", nb::none());
+            if (get_fn.is_none()) {
+                return nb::none();
+            }
+            return get_fn(key, nb::none());
+        };
 
         nb::dict out;
         nb::set added_key_set;
@@ -492,7 +503,11 @@ namespace
             }
 
             auto child = dict.at_key(key_val.view());
-            if (!child || !child.valid()) {
+            if (!child) {
+                nb::object bridge_value = lookup_bridge_delta(key);
+                if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
+                    out[key] = std::move(bridge_value);
+                }
                 continue;
             }
             const bool child_modified = child.modified();
@@ -506,6 +521,10 @@ namespace
                 child_delta = child.as_ts_view().to_python();
             }
             if (child_delta.is_none()) {
+                nb::object bridge_value = lookup_bridge_delta(key);
+                if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
+                    out[key] = std::move(bridge_value);
+                }
                 continue;
             }
             out[key] = std::move(child_delta);
@@ -535,12 +554,20 @@ namespace
 
         for (const auto& key_item : removed_keys_list) {
             nb::object key = nb::cast<nb::object>(key_item);
+            if (PyDict_Contains(out.ptr(), key.ptr()) == 1) {
+                // Preserve already materialized modified/carry-forward payloads.
+                continue;
+            }
             if (PySet_Contains(current_keys.ptr(), key.ptr()) == 1) {
                 continue;
             }
             if (PySet_Contains(added_key_set.ptr(), key.ptr()) == 1) {
                 // Python parity: keys that were added and removed within the same
                 // cycle (or removed without a visible value) should not emit REMOVE.
+                continue;
+            }
+            nb::object bridge_value = lookup_bridge_delta(key);
+            if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
                 continue;
             }
             auto key_val = key_from_python_with_meta(key, meta);
@@ -685,6 +712,11 @@ namespace
                 }
             }
 
+            nb::set raw_delta_keys;
+            for (const auto &key_item : out) {
+                raw_delta_keys.add(nb::cast<nb::object>(key_item));
+            }
+
             nb::list filtered;
             nb::set seen;
             auto append_if_selected = [&](const nb::object &key) {
@@ -692,6 +724,7 @@ namespace
                     return;
                 }
                 const bool include =
+                    PySet_Contains(raw_delta_keys.ptr(), key.ptr()) == 1 ||
                     PySet_Contains(structural_added.ptr(), key.ptr()) == 1 ||
                     PySet_Contains(resolved_modified_set.ptr(), key.ptr()) == 1;
                 if (!include) {
@@ -704,9 +737,6 @@ namespace
                 filtered.append(key);
             };
 
-            for (const auto &key_item : out) {
-                append_if_selected(nb::cast<nb::object>(key_item));
-            }
             for (const auto &key_item : current_keys) {
                 append_if_selected(nb::cast<nb::object>(key_item));
             }
@@ -1046,6 +1076,17 @@ namespace
         const auto* meta = dict.ts_meta();
         const bool ref_valued =
             meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
+        nb::object bridge_delta_obj = view.as_ts_view().delta_to_python();
+        const auto lookup_bridge_delta = [&](const nb::object& key) -> nb::object {
+            if (bridge_delta_obj.is_none()) {
+                return nb::none();
+            }
+            nb::object get_fn = nb::getattr(bridge_delta_obj, "get", nb::none());
+            if (get_fn.is_none()) {
+                return nb::none();
+            }
+            return get_fn(key, nb::none());
+        };
 
         nb::dict out;
         nb::set added_key_set;
@@ -1079,7 +1120,11 @@ namespace
             }
 
             auto child = dict.at_key(key_val.view());
-            if (!child || !child.valid()) {
+            if (!child) {
+                nb::object bridge_value = lookup_bridge_delta(key);
+                if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
+                    out[key] = std::move(bridge_value);
+                }
                 continue;
             }
             const bool child_modified = child.modified();
@@ -1093,6 +1138,10 @@ namespace
                 child_delta = child.as_ts_view().to_python();
             }
             if (child_delta.is_none()) {
+                nb::object bridge_value = lookup_bridge_delta(key);
+                if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
+                    out[key] = std::move(bridge_value);
+                }
                 continue;
             }
             out[key] = std::move(child_delta);
@@ -1111,11 +1160,19 @@ namespace
 
         for (const auto& key_item : nb::cast<nb::list>(removed_keys())) {
             nb::object key = nb::cast<nb::object>(key_item);
+            if (PyDict_Contains(out.ptr(), key.ptr()) == 1) {
+                // Preserve already materialized modified/carry-forward payloads.
+                continue;
+            }
             if (PySet_Contains(current_keys.ptr(), key.ptr()) == 1) {
                 continue;
             }
             if (PySet_Contains(added_key_set.ptr(), key.ptr()) == 1) {
                 // Keys that churn within the same cycle should not surface as REMOVE.
+                continue;
+            }
+            nb::object bridge_value = lookup_bridge_delta(key);
+            if (!bridge_value.is_none() && !is_remove_marker(bridge_value)) {
                 continue;
             }
             auto key_val = key_from_python_with_meta(key, meta);
@@ -1260,6 +1317,11 @@ namespace
                 }
             }
 
+            nb::set raw_delta_keys;
+            for (const auto &key_item : out) {
+                raw_delta_keys.add(nb::cast<nb::object>(key_item));
+            }
+
             nb::list filtered;
             nb::set seen;
             auto append_if_selected = [&](const nb::object &key) {
@@ -1267,6 +1329,7 @@ namespace
                     return;
                 }
                 const bool include =
+                    PySet_Contains(raw_delta_keys.ptr(), key.ptr()) == 1 ||
                     PySet_Contains(structural_added.ptr(), key.ptr()) == 1 ||
                     PySet_Contains(resolved_modified_set.ptr(), key.ptr()) == 1;
                 if (!include) {
@@ -1279,9 +1342,6 @@ namespace
                 filtered.append(key);
             };
 
-            for (const auto &key_item : out) {
-                append_if_selected(nb::cast<nb::object>(key_item));
-            }
             for (const auto &key_item : current_keys) {
                 append_if_selected(nb::cast<nb::object>(key_item));
             }

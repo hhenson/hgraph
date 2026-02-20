@@ -626,7 +626,31 @@ namespace hgraph
             }
             if (!out.is_none()) {
                 auto out_port = output(node_time(*this));
-                if (out_port) { out_port.from_python(out); }
+                if (out_port) {
+                    if (std::getenv("HGRAPH_DEBUG_PY_OUT_APPLY") != nullptr) {
+                        int out_kind = -1;
+                        if (const TSMeta* out_meta = out_port.ts_meta(); out_meta != nullptr) {
+                            out_kind = static_cast<int>(out_meta->kind);
+                        }
+                        std::string out_type{"<type_error>"};
+                        std::string out_repr{"<repr_error>"};
+                        try {
+                            out_type = nb::cast<std::string>(nb::str(out.attr("__class__").attr("__name__")));
+                        } catch (...) {}
+                        try {
+                            out_repr = nb::cast<std::string>(nb::repr(out));
+                        } catch (...) {}
+                        std::fprintf(stderr,
+                                     "[py_out_apply] node=%lld name=%s now=%lld out_kind=%d out_type=%s out=%s\n",
+                                     static_cast<long long>(node_ndx()),
+                                     signature().name.c_str(),
+                                     static_cast<long long>(node_time(*this).time_since_epoch().count()),
+                                     out_kind,
+                                     out_type.c_str(),
+                                     out_repr.c_str());
+                    }
+                    out_port.from_python(out);
+                }
             }
         } catch (nb::python_error &e) { throw NodeException::capture_error(e, *this, "During Python node evaluation"); }
     }

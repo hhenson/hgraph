@@ -141,6 +141,7 @@ bool has_delta_descendants(const TSMeta* meta) {
     switch (meta->kind) {
         case TSKind::TSS:
         case TSKind::TSD:
+        case TSKind::TSW:
             return true;
         case TSKind::TSB:
             for (size_t i = 0; i < meta->field_count(); ++i) {
@@ -180,7 +181,7 @@ TSMetaSchemaSet TSMetaSchemaCache::generate(const TSMeta* meta) {
         return out;
     }
 
-    out.value_schema = meta->value_type;
+    out.value_schema = generate_value_schema_impl(meta);
     out.time_schema = generate_time_schema_impl(meta);
     out.observer_schema = generate_observer_schema_impl(meta);
     out.delta_schema = generate_delta_schema_impl(meta);
@@ -191,9 +192,27 @@ TSMetaSchemaSet TSMetaSchemaCache::generate(const TSMeta* meta) {
     return out;
 }
 
+const TypeMeta* TSMetaSchemaCache::generate_value_schema_impl(const TSMeta* meta) {
+    if (meta == nullptr) {
+        return nullptr;
+    }
+
+    if (meta->kind != TSKind::TSW) {
+        return meta->value_type;
+    }
+
+    auto& registry = TypeRegistry::instance();
+    const TypeMeta* element_type = meta->value_type != nullptr ? meta->value_type : ensure_object_meta();
+    if (meta->is_duration_based()) {
+        return registry.queue(element_type).build();
+    }
+    return registry.cyclic_buffer(element_type, meta->period()).build();
+}
+
 const TypeMeta* TSMetaSchemaCache::generate_time_schema_impl(const TSMeta* meta) {
     auto& registry = TypeRegistry::instance();
     const TypeMeta* time_meta = value::scalar_type_meta<engine_time_t>();
+    const TypeMeta* bool_meta = value::scalar_type_meta<bool>();
 
     if (meta == nullptr) {
         return time_meta;
@@ -202,10 +221,23 @@ const TypeMeta* TSMetaSchemaCache::generate_time_schema_impl(const TSMeta* meta)
     switch (meta->kind) {
         case TSKind::TSValue:
         case TSKind::TSS:
-        case TSKind::TSW:
         case TSKind::REF:
         case TSKind::SIGNAL:
             return time_meta;
+
+        case TSKind::TSW:
+            {
+                auto builder = registry.tuple();
+                builder.add_element(time_meta);
+                if (meta->is_duration_based()) {
+                    builder.add_element(registry.queue(time_meta).build());
+                    builder.add_element(time_meta);
+                    builder.add_element(bool_meta);
+                } else {
+                    builder.add_element(registry.cyclic_buffer(time_meta, meta->period()).build());
+                }
+                return builder.build();
+            }
 
         case TSKind::TSB:
             {
@@ -410,6 +442,7 @@ const TypeMeta* TSMetaSchemaCache::generate_active_schema_impl(const TSMeta* met
 const TypeMeta* TSMetaSchemaCache::generate_delta_schema_impl(const TSMeta* meta) {
     auto& registry = TypeRegistry::instance();
     const TypeMeta* object_meta = ensure_object_meta();
+    const TypeMeta* bool_meta = value::scalar_type_meta<bool>();
 
     if (meta == nullptr || !has_delta_descendants(meta)) {
         return nullptr;
@@ -421,6 +454,20 @@ const TypeMeta* TSMetaSchemaCache::generate_delta_schema_impl(const TSMeta* meta
                 auto builder = registry.tuple();
                 builder.add_element(meta->value_type);
                 builder.add_element(meta->value_type);
+                return builder.build();
+            }
+
+        case TSKind::TSW:
+            {
+                const TypeMeta* element_type = meta->value_type != nullptr ? meta->value_type : object_meta;
+                auto builder = registry.tuple();
+                if (meta->is_duration_based()) {
+                    builder.add_element(bool_meta);
+                    builder.add_element(registry.queue(element_type).build());
+                } else {
+                    builder.add_element(element_type);
+                    builder.add_element(bool_meta);
+                }
                 return builder.build();
             }
 
