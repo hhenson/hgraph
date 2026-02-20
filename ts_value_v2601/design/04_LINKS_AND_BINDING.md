@@ -89,10 +89,10 @@ TSView TSLView::element(size_t index) {
     LinkTarget* link = get_collection_link();
     if (link && link->is_linked) {
         // Navigate through the linked target
-        TSView target = make_view_from_link(*link, current_time_);
+        TSView target = make_view_from_link(*link, engine_time_ptr_);
         return target[index];
     }
-    return TSView{make_local_view_data(index), current_time_};
+    return TSView{make_local_view_data(index), engine_time_ptr_};
 }
 
 // TSB navigation - check per-field LinkTarget
@@ -100,9 +100,9 @@ TSView TSBView::field(size_t index) {
     LinkTarget* field_link = get_field_link(index);
     if (field_link && field_link->is_linked) {
         // Return target view for this field
-        return make_view_from_link(*field_link, current_time_);
+        return make_view_from_link(*field_link, engine_time_ptr_);
     }
-    return TSView{make_local_view_data(index), current_time_};
+    return TSView{make_local_view_data(index), engine_time_ptr_};
 }
 ```
 

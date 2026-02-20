@@ -346,13 +346,13 @@ TSInputView wraps a Link for O(1) data access without runtime navigation:
 class TSInputView {
     Link* link_;                    // ViewData: path + data + ops
     Value* active_value_;           // Active state at this path
-    engine_time_t current_time_;
+    const engine_time_t* engine_time_ptr_;
     TSInput* input_;
 
 public:
-    // Convert Link to TSView (just adds current_time)
+    // Convert Link to TSView (attaches engine-time pointer)
     TSView ts_view() const {
-        return TSView{link_->view_data, current_time_};
+        return TSView{link_->view_data, engine_time_ptr_};
     }
 
     // Delegate to Link's ViewData for data access
@@ -521,7 +521,7 @@ ViewData (base)
     │
     ├── Link (no time) - stored in TSInput.value_
     │
-    └── TSView (+ time) - returned from access methods
+    └── TSView (+ engine time reference) - returned from access methods
 ```
 
 ## Graph Topology

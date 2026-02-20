@@ -205,7 +205,7 @@ This supports efficient partial subscriptions (e.g., subscribe only to `tsb.fiel
 
 Delta tracking uses a single `delta_value_` component that contains actual delta data - only exists where needed (TSS/TSD and their containers).
 
-**Key insight**: Delta validity can be derived from `time_` data since modifications bubble up. When `current_time > time_[container]`, the delta for that subtree needs clearing. This eliminates the need for a separate `delta_time_` parallel structure.
+**Key insight**: Delta validity can be derived from `time_` data since modifications bubble up. When `engine_time_ptr != nullptr && *engine_time_ptr > time_[container]`, the delta for that subtree needs clearing. This eliminates the need for a separate `delta_time_` parallel structure.
 
 **Modified status**: Can be derived from `time_` data, so delta tracking is only needed for TSS/TSD which have dynamic add/remove operations. TSB/TSL only appear in delta_value_ as navigation scaffolding when they contain TSS/TSD.
 
@@ -377,7 +377,7 @@ delta_value_: MapDelta {
 
 #### Lazy Clearing
 
-Delta validity is derived from `time_`. When accessing delta with `current_time > time_[container]`, the delta is automatically cleared. Since modifications bubble up through `time_`, the container-level timestamp indicates whether any subtree has been modified.
+Delta validity is derived from `time_`. When accessing delta with `engine_time_ptr != nullptr && *engine_time_ptr > time_[container]`, the delta is automatically cleared. Since modifications bubble up through `time_`, the container-level timestamp indicates whether any subtree has been modified.
 
 ```cpp
 void clear_delta(SetDelta& d) {
@@ -526,11 +526,11 @@ public:
     View observer_view() { return observer_.view(); }
 
     // Delta access (with lazy clearing based on time_)
-    View delta_value_view(engine_time_t current_time);  // Triggers lazy clear
-    DeltaView delta(engine_time_t current_time);
+    View delta_value_view(const engine_time_t* engine_time_ptr);  // Triggers lazy clear via *engine_time_ptr
+    DeltaView delta(const engine_time_t* engine_time_ptr);
 
     // TSView creation
-    TSView ts_view(engine_time_t current_time);
+    TSView ts_view(const engine_time_t* engine_time_ptr);
 };
 ```
 
@@ -539,11 +539,11 @@ public:
 Delta validity is derived from `time_` - since modifications bubble up, the container-level timestamp in `time_` tells us if the structure has been modified. When accessing delta_value_:
 
 ```cpp
-View TSValue::delta_value_view(engine_time_t current_time) {
-    if (current_time > last_delta_clear_time_) {
+View TSValue::delta_value_view(const engine_time_t* engine_time_ptr) {
+    if (engine_time_ptr != nullptr && *engine_time_ptr > last_delta_clear_time_) {
         // Lazy clear: reset delta_value_ contents
         clear_delta_value();
-        last_delta_clear_time_ = current_time;
+        last_delta_clear_time_ = *engine_time_ptr;
     }
     return delta_value_.view();
 }
@@ -662,7 +662,7 @@ delta_value_: void                      // No TSS/TSD
 ## TSView
 
 ### Purpose
-Type-erased non-owning reference to time-series data with current time context. TSView provides coordinated access to the four parallel structures (value, time, observer, delta_value) in TSValue.
+Type-erased non-owning reference to time-series data with engine-time context. TSView provides coordinated access to the four parallel structures (value, time, observer, delta_value) in TSValue and reads current time via an engine-time pointer (no per-view copied timestamp).
 
 ### Structure
 
@@ -673,24 +673,24 @@ class TSView {
     View observer_view_;             // View into TSValue::observer_
     View delta_value_view_;          // View into TSValue::delta_value_ (lazily cleared)
     const TSMeta* meta_;             // Time-series schema
-    engine_time_t current_time_;     // Engine's current time
-
+    const engine_time_t* engine_time_ptr_;  // Engine time reference (typically Node::cached_evaluation_time_ptr)
+ 
 public:
     // Construction (handles lazy delta clearing)
-    TSView(TSValue& ts_value, engine_time_t current_time)
+    TSView(TSValue& ts_value, const engine_time_t* engine_time_ptr)
         : value_view_(ts_value.value_view())
         , time_view_(ts_value.time_view())
         , observer_view_(ts_value.observer_view())
-        , delta_value_view_(ts_value.delta_value_view(current_time))  // Lazy clear on access
+        , delta_value_view_(ts_value.delta_value_view(engine_time_ptr))  // Lazy clear on access via pointer
         , meta_(ts_value.schema())
-        , current_time_(current_time)
+        , engine_time_ptr_(engine_time_ptr)
     {}
 
     // Schema access
     const TSMeta* meta() const { return meta_; }
 
     // State queries
-    bool modified() const { return time_view_.as<engine_time_t>() >= current_time_; }
+    bool modified() const { return time_view_.as<engine_time_t>() >= current_time(); }
     bool valid() const { return time_view_.as<engine_time_t>() != MIN_ENGINE_TIME; }
 
     // Data access
@@ -702,7 +702,9 @@ public:
 
     // Time access
     engine_time_t last_modified_time() const { return time_view_.as<engine_time_t>(); }
-    engine_time_t current_time() const { return current_time_; }
+    engine_time_t current_time() const {
+        return engine_time_ptr_ != nullptr ? *engine_time_ptr_ : MIN_ENGINE_TIME;
+    }
 
     // Observer access (for internal use)
     View observer() const { return observer_view_; }
@@ -780,7 +782,7 @@ For collections (TSL, TSD, TSS), `time_` contains per-element timestamps that tr
 
 ```cpp
 bool TSView::modified() const {
-    return time_value() >= current_time_;
+    return time_value() >= current_time();
 }
 ```
 
@@ -799,7 +801,7 @@ For TSL, TSD, TSS - each element has its own timestamp in `time_`, indexed by th
 ```cpp
 // TSL example - time_ is a parallel array of timestamps
 bool TSLView::element_modified(size_t idx) const {
-    return time_.at(idx) >= current_time_;
+    return time_.at(idx) >= current_time();
 }
 
 // TSD example - time_ is parallel array, shares slot index with MapStorage
@@ -807,7 +809,7 @@ bool TSDView::key_modified(const Key& key) const {
     // 1. Look up slot index from value_'s index_set
     size_t idx = value_.index_of(key);
     // 2. Access timestamp at same index
-    return time_.at(idx) >= current_time_;
+    return time_.at(idx) >= current_time();
 }
 ```
 
@@ -916,29 +918,27 @@ public:
 
 ### TS Extension: Delta Storage (in delta_ Value)
 
-Delta tracking for TSS/TSD is stored in the `delta_` Value of TSValue. The delta schema includes a `delta_time` timestamp as its first field for lazy clearing. Delta uses **slot-based tracking** - storing slot indices, not element copies. See `07_DELTA.md` for full delta design.
+Delta tracking for TSS/TSD is stored in the `delta_` Value of TSValue. Delta uses **slot-based tracking** - storing slot indices, not element copies. The engine time is read from the shared `engine_time_ptr` on access (not copied into delta structures). See `07_DELTA.md` for full delta design.
 
 **SetDelta Schema** (for TSS):
 ```cpp
 struct SetDelta {
-    engine_time_t delta_time;     // When delta was last computed
-    std::vector<size_t> added;    // Slot indices added since delta_time
-    std::vector<size_t> removed;  // Slot indices removed since delta_time
+    std::vector<size_t> added;    // Slot indices added this tick
+    std::vector<size_t> removed;  // Slot indices removed this tick
 };
 ```
 
 **MapDelta Schema** (for TSD):
 ```cpp
 struct MapDelta {
-    engine_time_t delta_time;     // When delta was last computed
-    std::vector<size_t> added;    // Slot indices added since delta_time
-    std::vector<size_t> removed;  // Slot indices removed since delta_time
+    std::vector<size_t> added;    // Slot indices added this tick
+    std::vector<size_t> removed;  // Slot indices removed this tick
 };
 ```
 
-**Lazy Clearing**: When accessing delta with `current_time > delta_time`:
+**Lazy Clearing**: When accessing delta with `engine_time_ptr != nullptr && *engine_time_ptr > last_delta_clear_time_`:
 1. Clear added/removed slot vectors
-2. Update `delta_time = current_time`
+2. Update `last_delta_clear_time_ = *engine_time_ptr`
 3. Return cleared delta view
 
 This replaces explicit `begin_tick()` calls with automatic management on access.
@@ -1019,7 +1019,7 @@ struct SetDelta : public SlotObserver {
     }
 };
 
-// Lazy clearing is handled by checking delta_time_ before accessing delta_value_
+// Lazy clearing is handled by checking *engine_time_ptr against last_delta_clear_time_
 ```
 
 ### TSD: Four Parallel Values
@@ -1088,7 +1088,7 @@ struct MapDelta : public SlotObserver {
     }
 };
 
-// Lazy clearing is handled by checking delta_time_ before accessing delta_value_
+// Lazy clearing is handled by checking *engine_time_ptr against last_delta_clear_time_
 ```
 
 ### Composition Diagram
@@ -1172,7 +1172,7 @@ engine_time_t* times = tsd.times_.data();
 |----------|-----------|
 | Four parallel Values | Clean separation: value_, time_, observer_, delta_value_ each have distinct schema |
 | Delta validity from time_ | Modifications bubble up through time_; no separate delta_time_ structure needed |
-| Lazy clearing via time_ | No explicit begin_tick(); delta auto-clears when current_time > last_delta_clear_time_ |
+| Lazy clearing via time_ | No explicit begin_tick(); delta auto-clears when `engine_time_ptr != nullptr && *engine_time_ptr > last_delta_clear_time_` |
 | SlotObserver protocol | Decouples TS extensions from core storage; each owns its memory |
 | Slot-based delta tracking | Zero-copy during tick; slots reference live KeySet data |
 | No tombstoning in KeySet | KeySet liveness bits handle alive/dead slots; delta tracks slots |
