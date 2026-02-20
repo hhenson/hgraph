@@ -56,6 +56,7 @@ namespace hgraph {
             input_meta(), output_meta(), error_output_meta(), recordable_state_meta(),
             _key_type, _nested_graph_builders, _input_node_ids, _output_node_ids,
             _reload_on_ticked, _default_graph_builder, _default_input_node_ids, _default_output_node_id);
+        configure_node_instance(node);
         return node;
     }
 

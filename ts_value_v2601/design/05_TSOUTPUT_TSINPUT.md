@@ -416,6 +416,16 @@ void TSInputView::unbind() {
 }
 ```
 
+### SIGNAL Bind-Time Resolution
+
+For `TSInputView` / `TSInput` binding of SIGNAL inputs, target selection is resolved at bind-time (not on each read):
+
+1. `SIGNAL[impl]`: bind directly to implementation target.
+2. Plain `SIGNAL` + `TSD[...]` source: bind to `key_set` projection (`ViewProjection::TSD_KEY_SET`).
+3. Otherwise: bind directly to source view.
+
+This keeps SIGNAL behavior in the binding layer and avoids runtime fallback branches in `modified`, `valid`, and `last_modified_time`.
+
 ### Active State
 
 The `active_value_` mirrors the TS schema structure, tracking which parts are subscribed:

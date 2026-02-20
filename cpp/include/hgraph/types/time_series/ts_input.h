@@ -7,6 +7,7 @@
 #include <hgraph/types/time_series/ts_view.h>
 
 #include <memory>
+#include <vector>
 
 namespace hgraph {
 
@@ -48,6 +49,9 @@ public:
     [[nodiscard]] TSValue& value() noexcept { return value_; }
     [[nodiscard]] const TSValue& value() const noexcept { return value_; }
 
+    void set_signal_input_impl_flags(std::vector<bool> flags);
+    [[nodiscard]] bool signal_input_has_impl(const std::vector<size_t>& path_indices) const;
+
     [[nodiscard]] ShortPath root_path() const {
         return ShortPath{owning_node_, PortType::INPUT, {}};
     }
@@ -68,6 +72,7 @@ private:
     std::shared_ptr<TSLinkObserverRegistry> link_observer_registry_{};
     TSValue value_;
     value::Value active_;
+    std::vector<bool> signal_input_impl_flags_;
     const TSMeta* meta_{nullptr};
     node_ptr owning_node_{nullptr};
     bool active_root_{false};

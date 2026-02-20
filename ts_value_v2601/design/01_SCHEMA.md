@@ -110,137 +110,144 @@ struct ViewPairRange {
 
 ### type_ops Vtable
 
+All `type_ops` function pointers receive a trailing `const TypeMeta* schema` parameter.
+This is necessary because **compound type operations are recursive**: to `construct` a
+bundle you must `construct` each field, to `copy` a list you must `copy` each element.
+The `schema` pointer carries the recursion context — child types, field offsets, element
+schemas — that cannot be derived from the raw `void*` data pointer alone.
+
 ```cpp
 // Kind-specific extension ops
 
 struct atomic_ops {
     // Ordering for sorted containers and comparison operators
-    bool (*less_than)(const void* a, const void* b);
+    bool (*less_than)(const void* a, const void* b, const TypeMeta* schema);
 };
 
 struct bundle_ops {
     // Field access by index
-    size_t (*size)(const void* ptr);
-    View (*at)(void* ptr, size_t idx);
-    void (*set_at)(void* ptr, size_t idx, View value);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
+    View (*at)(void* ptr, size_t idx, const TypeMeta* schema);
+    void (*set_at)(void* ptr, size_t idx, View value, const TypeMeta* schema);
     // Field access by name
-    View (*get_field)(void* ptr, std::string_view name);
-    void (*set_field)(void* ptr, std::string_view name, View value);
+    View (*get_field)(void* ptr, std::string_view name, const TypeMeta* schema);
+    void (*set_field)(void* ptr, std::string_view name, View value, const TypeMeta* schema);
     // Iteration (ViewPairRange: field_name -> value)
-    ViewPairRange (*items)(const void* ptr);
+    ViewPairRange (*items)(const void* ptr, const TypeMeta* schema);
 };
 
 struct tuple_ops {
     // Element access (positional only, no names)
-    size_t (*size)(const void* ptr);
-    View (*at)(void* ptr, size_t idx);
-    void (*set_at)(void* ptr, size_t idx, View value);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
+    View (*at)(void* ptr, size_t idx, const TypeMeta* schema);
+    void (*set_at)(void* ptr, size_t idx, View value, const TypeMeta* schema);
     // Iteration (ViewPairRange: index -> value)
-    ViewPairRange (*items)(const void* ptr);
+    ViewPairRange (*items)(const void* ptr, const TypeMeta* schema);
 };
 
 struct list_ops {
     // Element access
-    size_t (*size)(const void* ptr);
-    View (*at)(void* ptr, size_t idx);
-    void (*set_at)(void* ptr, size_t idx, View value);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
+    View (*at)(void* ptr, size_t idx, const TypeMeta* schema);
+    void (*set_at)(void* ptr, size_t idx, View value, const TypeMeta* schema);
 
     // Mutation
-    void (*append)(void* ptr, View elem);
-    void (*clear)(void* ptr);
+    void (*append)(void* ptr, View elem, const TypeMeta* schema);
+    void (*clear)(void* ptr, const TypeMeta* schema);
 
     // Iteration
-    ViewRange (*values)(const void* ptr);
-    ViewPairRange (*items)(const void* ptr);  // index -> value
+    ViewRange (*values)(const void* ptr, const TypeMeta* schema);
+    ViewPairRange (*items)(const void* ptr, const TypeMeta* schema);  // index -> value
 };
 
 struct set_ops {
     // Membership
-    bool (*contains)(const void* ptr, View elem);
-    size_t (*size)(const void* ptr);
+    bool (*contains)(const void* ptr, View elem, const TypeMeta* schema);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
 
     // Mutation
-    void (*add)(void* ptr, View elem);
-    bool (*remove)(void* ptr, View elem);
-    void (*clear)(void* ptr);
+    void (*add)(void* ptr, View elem, const TypeMeta* schema);
+    bool (*remove)(void* ptr, View elem, const TypeMeta* schema);
+    void (*clear)(void* ptr, const TypeMeta* schema);
 
     // Iteration
-    ViewRange (*values)(const void* ptr);
+    ViewRange (*values)(const void* ptr, const TypeMeta* schema);
 };
 
 struct map_ops {
     // Entry access
-    View (*at)(void* ptr, View key);
-    bool (*contains)(const void* ptr, View key);
-    size_t (*size)(const void* ptr);
+    View (*at)(void* ptr, View key, const TypeMeta* schema);
+    bool (*contains)(const void* ptr, View key, const TypeMeta* schema);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
 
     // Mutation
-    void (*set_item)(void* ptr, View key, View val);
-    bool (*remove)(void* ptr, View key);
-    void (*clear)(void* ptr);
+    void (*set_item)(void* ptr, View key, View val, const TypeMeta* schema);
+    bool (*remove)(void* ptr, View key, const TypeMeta* schema);
+    void (*clear)(void* ptr, const TypeMeta* schema);
 
     // Iteration
-    ViewRange (*keys)(const void* ptr);
-    ViewPairRange (*items)(const void* ptr);  // key -> value
+    ViewRange (*keys)(const void* ptr, const TypeMeta* schema);
+    ViewPairRange (*items)(const void* ptr, const TypeMeta* schema);  // key -> value
 };
 
 struct cyclic_buffer_ops {
     // Element access
-    size_t (*size)(const void* ptr);
-    View (*at)(void* ptr, size_t idx);
-    void (*set_at)(void* ptr, size_t idx, View value);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
+    View (*at)(void* ptr, size_t idx, const TypeMeta* schema);
+    void (*set_at)(void* ptr, size_t idx, View value, const TypeMeta* schema);
 
     // Mutation
-    void (*push)(void* ptr, View elem);
-    void (*pop)(void* ptr);
-    void (*clear)(void* ptr);
+    void (*push)(void* ptr, View elem, const TypeMeta* schema);
+    void (*pop)(void* ptr, const TypeMeta* schema);
+    void (*clear)(void* ptr, const TypeMeta* schema);
 
     // Capacity
-    size_t (*capacity)(const void* ptr);
+    size_t (*capacity)(const void* ptr, const TypeMeta* schema);
 
     // Iteration
-    ViewRange (*values)(const void* ptr);
+    ViewRange (*values)(const void* ptr, const TypeMeta* schema);
 };
 
 struct queue_ops {
     // Element access
-    size_t (*size)(const void* ptr);
-    View (*at)(void* ptr, size_t idx);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
+    View (*at)(void* ptr, size_t idx, const TypeMeta* schema);
 
     // Mutation
-    void (*push)(void* ptr, View elem);
-    void (*pop)(void* ptr);
-    void (*clear)(void* ptr);
+    void (*push)(void* ptr, View elem, const TypeMeta* schema);
+    void (*pop)(void* ptr, const TypeMeta* schema);
+    void (*clear)(void* ptr, const TypeMeta* schema);
 
     // Capacity
-    size_t (*max_capacity)(const void* ptr);
+    size_t (*max_capacity)(const void* ptr, const TypeMeta* schema);
 
     // Iteration
-    ViewRange (*values)(const void* ptr);
+    ViewRange (*values)(const void* ptr, const TypeMeta* schema);
 };
 
 struct type_ops {
     // === Common operations (all kinds) ===
+    // All take trailing `const TypeMeta* schema` for recursive compound dispatch.
 
     // Lifecycle
-    void (*construct)(void* dst);
-    void (*destroy)(void* ptr);
-    void (*copy)(void* dst, const void* src);
-    void (*move)(void* dst, void* src);
-    void (*move_construct)(void* dst, void* src);
+    void (*construct)(void* dst, const TypeMeta* schema);
+    void (*destroy)(void* ptr, const TypeMeta* schema);
+    void (*copy)(void* dst, const void* src, const TypeMeta* schema);
+    void (*move)(void* dst, void* src, const TypeMeta* schema);
+    void (*move_construct)(void* dst, void* src, const TypeMeta* schema);
 
     // Comparison
-    bool (*equals)(const void* a, const void* b);
+    bool (*equals)(const void* a, const void* b, const TypeMeta* schema);
 
     // Hashing
-    size_t (*hash)(const void* ptr);
+    size_t (*hash)(const void* ptr, const TypeMeta* schema);
 
     // String representation
-    std::string (*to_string)(const void* ptr);
+    std::string (*to_string)(const void* ptr, const TypeMeta* schema);
 
     // Python conversion (all types)
-    nb::object (*to_python)(const void* ptr);
-    void (*from_python)(void* ptr, nb::object obj);
+    nb::object (*to_python)(const void* ptr, const TypeMeta* schema);
+    void (*from_python)(void* ptr, nb::object obj, const TypeMeta* schema);
 
     // === Kind-specific extension ops (tagged by TypeMeta::kind_) ===
     TypeKind kind;
@@ -256,6 +263,11 @@ struct type_ops {
     } specific;
 };
 ```
+
+**Design rationale**: The `const TypeMeta* schema` parameter is passed explicitly rather
+than embedded in data for three reasons: (1) it avoids per-instance overhead — millions of
+values share one schema; (2) it keeps the function pointer signatures uniform and simple;
+(3) it enables the same ops table to be reused across all instances of a type.
 
 **Note**: The `specific` union is tagged by the `kind` field in type_ops. Only access the union member corresponding to the type's kind. This keeps all operations inline in a single struct, avoiding additional pointer chasing for kind-specific operations.
 

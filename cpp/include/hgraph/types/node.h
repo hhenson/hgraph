@@ -7,6 +7,7 @@
 #include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 #include <memory>
+#include <vector>
 
 #include <ddv/visitable.h>
 
@@ -222,6 +223,7 @@ namespace hgraph
 
         [[nodiscard]] TSInputView input(engine_time_t current_time) const;
         [[nodiscard]] TSInputView input() const;
+        void set_signal_input_impl_flags(std::vector<bool> flags);
 
         auto start_inputs() const { return _start_inputs; }
 

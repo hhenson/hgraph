@@ -23,6 +23,8 @@
 #include <hgraph/builders/nodes/mesh_node_builder.h>
 #include <hgraph/builders/nodes/last_value_pull_node_builder.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <unordered_set>
 #include <utility>
 
@@ -248,6 +250,66 @@ namespace hgraph {
             }
             return meta_from_ts_signature_object(*recordable);
         }
+
+        bool signal_input_has_impl_from_signature_object(const nb::object& obj) {
+            if (!obj.is_valid() || obj.is_none()) {
+                return false;
+            }
+
+            try {
+                if (!nb::hasattr(obj, "cpp_type")) {
+                    return false;
+                }
+
+                nb::object cpp_type = nb::getattr(obj, "cpp_type");
+                if (!cpp_type.is_valid() || cpp_type.is_none()) {
+                    return false;
+                }
+
+                const auto* meta = nb::cast<const TSMeta*>(cpp_type);
+                if (meta == nullptr || meta->kind != TSKind::SIGNAL) {
+                    return false;
+                }
+
+                if (!nb::hasattr(obj, "value_tp")) {
+                    return false;
+                }
+
+                nb::object value_tp = nb::getattr(obj, "value_tp");
+                return value_tp.is_valid() && !value_tp.is_none();
+            } catch (...) {
+                return false;
+            }
+        }
+
+        std::vector<bool> signal_input_impl_flags_from_signature(const NodeSignature& signature) {
+            std::vector<bool> flags;
+            if (!signature.time_series_inputs.has_value() || signature.time_series_inputs->empty()) {
+                return flags;
+            }
+
+            flags.reserve(signature.time_series_inputs->size());
+            std::unordered_set<std::string> seen;
+            seen.reserve(signature.time_series_inputs->size());
+
+            for (const auto& arg : signature.args) {
+                auto it = signature.time_series_inputs->find(arg);
+                if (it == signature.time_series_inputs->end()) {
+                    continue;
+                }
+                flags.push_back(signal_input_has_impl_from_signature_object(it->second));
+                seen.insert(arg);
+            }
+
+            for (const auto& [name, ts_meta_obj] : *signature.time_series_inputs) {
+                if (seen.contains(name)) {
+                    continue;
+                }
+                flags.push_back(signal_input_has_impl_from_signature_object(ts_meta_obj));
+            }
+
+            return flags;
+        }
     }  // namespace
 
     NodeBuilder::NodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
@@ -265,6 +327,7 @@ namespace hgraph {
                 : nullptr;
             _error_meta = error_meta_from_signature(*signature, _output_meta);
             _recordable_state_meta = recordable_meta_from_signature(*signature);
+            _signal_input_impl_flags = signal_input_impl_flags_from_signature(*signature);
         }
     }
 
@@ -273,7 +336,8 @@ namespace hgraph {
           output_builder(other.output_builder), error_builder(other.error_builder),
           recordable_state_builder(other.recordable_state_builder), _input_meta(other._input_meta),
           _output_meta(other._output_meta), _error_meta(other._error_meta),
-          _recordable_state_meta(other._recordable_state_meta) {
+          _recordable_state_meta(other._recordable_state_meta),
+          _signal_input_impl_flags(other._signal_input_impl_flags) {
     }
 
     NodeBuilder &NodeBuilder::operator=(NodeBuilder &&other) noexcept {
@@ -289,6 +353,7 @@ namespace hgraph {
             _output_meta = other._output_meta;
             _error_meta = other._error_meta;
             _recordable_state_meta = other._recordable_state_meta;
+            _signal_input_impl_flags = other._signal_input_impl_flags;
         }
         return *this;
     }
@@ -307,6 +372,22 @@ namespace hgraph {
 
     const TSMeta* NodeBuilder::recordable_state_meta() const {
         return _recordable_state_meta;
+    }
+
+    void NodeBuilder::configure_node_instance(const node_s_ptr& node) const {
+        if (!node) {
+            return;
+        }
+        if (std::getenv("HGRAPH_DEBUG_SIGNAL_IMPL") != nullptr && !_signal_input_impl_flags.empty()) {
+            std::fprintf(stderr,
+                         "[signal_impl] node=%s flags=",
+                         signature ? signature->name.c_str() : "<null>");
+            for (bool flag : _signal_input_impl_flags) {
+                std::fprintf(stderr, "%d", flag ? 1 : 0);
+            }
+            std::fprintf(stderr, "\n");
+        }
+        node->set_signal_input_impl_flags(_signal_input_impl_flags);
     }
 
     void NodeBuilder::release_instance(const node_s_ptr &item) const {

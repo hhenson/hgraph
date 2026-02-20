@@ -17,6 +17,7 @@ namespace hgraph {
         auto node = arena_make_shared_as<LastValuePullNode, Node>(
             node_ndx, owning_graph_id, signature, scalars,
             input_meta(), output_meta(), error_output_meta(), recordable_state_meta());
+        configure_node_instance(node);
         return node;
     }
 

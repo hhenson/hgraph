@@ -69,6 +69,7 @@ namespace hgraph {
             node_ndx, owning_graph_id, signature, scalars,
             input_meta(), output_meta(), error_output_meta(), recordable_state_meta(),
             nested_graph_builder, input_node_ids, output_node_id);
+        configure_node_instance(node);
         return node;
     }
 

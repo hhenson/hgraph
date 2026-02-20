@@ -730,6 +730,12 @@ namespace hgraph
         return input(et);
     }
 
+    void Node::set_signal_input_impl_flags(std::vector<bool> flags) {
+        if (_input.has_value()) {
+            _input->set_signal_input_impl_flags(std::move(flags));
+        }
+    }
+
     bool Node::has_input() const {
         return _input.has_value();
     }
@@ -912,6 +918,7 @@ namespace hgraph
     void Node::eval() {
         bool scheduled{has_scheduler() ? _scheduler->is_scheduled_now() : false};
         bool should_eval{true};
+        const bool debug_node_eval = std::getenv("HGRAPH_DEBUG_NODE_EVAL") != nullptr;
 
         auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
         _last_eval_time = et;
@@ -925,6 +932,16 @@ namespace hgraph
                 if (signature().valid_inputs.has_value()) {
                     for (const auto &name : *signature().valid_inputs) {
                         auto view = bundle->field(name);
+                        if (debug_node_eval) {
+                            std::fprintf(stderr,
+                                         "[node_eval] node=%s now=%lld input=%s valid=%d modified=%d active=%d check=valid_inputs\n",
+                                         signature().name.c_str(),
+                                         static_cast<long long>(et.time_since_epoch().count()),
+                                         name.c_str(),
+                                         (view && view.valid()) ? 1 : 0,
+                                         (view && view.modified()) ? 1 : 0,
+                                         (view && view.active()) ? 1 : 0);
+                        }
                         if (!view || !view.valid()) {
                             should_eval = false;
                             break;
@@ -933,6 +950,16 @@ namespace hgraph
                 } else {
                     for (const auto &[name, _] : *signature().time_series_inputs) {
                         auto view = bundle->field(name);
+                        if (debug_node_eval) {
+                            std::fprintf(stderr,
+                                         "[node_eval] node=%s now=%lld input=%s valid=%d modified=%d active=%d check=all_inputs\n",
+                                         signature().name.c_str(),
+                                         static_cast<long long>(et.time_since_epoch().count()),
+                                         name.c_str(),
+                                         (view && view.valid()) ? 1 : 0,
+                                         (view && view.modified()) ? 1 : 0,
+                                         (view && view.active()) ? 1 : 0);
+                        }
                         if (!view || !view.valid()) {
                             should_eval = false;
                             break;
@@ -954,7 +981,15 @@ namespace hgraph
                     bool any_modified = false;
                     for (const auto &[name, _] : *signature().time_series_inputs) {
                         auto view = bundle->field(name);
-                        if (view && view.modified() && view.active()) {
+                        if (debug_node_eval) {
+                            std::fprintf(stderr,
+                                         "[node_eval] node=%s now=%lld sched_check input=%s modified=%d\n",
+                                         signature().name.c_str(),
+                                         static_cast<long long>(et.time_since_epoch().count()),
+                                         name.c_str(),
+                                         (view && view.modified()) ? 1 : 0);
+                        }
+                        if (view && view.modified()) {
                             any_modified = true;
                             break;
                         }
@@ -962,6 +997,15 @@ namespace hgraph
                     should_eval = any_modified;
                 }
             }
+        }
+
+        if (debug_node_eval) {
+            std::fprintf(stderr,
+                         "[node_eval] node=%s now=%lld scheduled=%d should_eval=%d\n",
+                         signature().name.c_str(),
+                         static_cast<long long>(et.time_since_epoch().count()),
+                         scheduled ? 1 : 0,
+                         should_eval ? 1 : 0);
         }
 
         if (should_eval) {

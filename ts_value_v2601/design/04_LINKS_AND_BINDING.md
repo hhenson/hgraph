@@ -728,6 +728,22 @@ REF participates in three binding modes:
 | REF → REF | REF[TS[T]] | REF[TS[T]] | Normal LINK (TSReference is the value) |
 | REF → TS | REF[TS[T]] | TS[T] | REFLink that follows the reference |
 
+### SIGNAL Binding Mode (TSInput)
+
+`SIGNAL` follows a bind-time alternative resolution model, similar to REF: the input binds once to a concrete source view and read-path logic does not perform runtime fallback selection.
+
+Bind-time rules:
+
+1. `SIGNAL[impl]` binds directly to the implementation target.
+2. Plain `SIGNAL` bound to `TSD[...]` binds to the source `key_set` projection (`ViewProjection::TSD_KEY_SET`).
+3. Otherwise, plain `SIGNAL` binds directly to the source view.
+
+Invariants:
+
+1. SIGNAL mode selection happens at bind/unbind/rebind boundaries only.
+2. `modified` / `last_modified_time` / `valid` read paths do not apply SIGNAL-specific fallback heuristics.
+3. This keeps semantics deterministic and localized to binding.
+
 ### REF → TS (Dereferencing)
 
 When an input needs `TS[T]` but output provides `REF[TS[T]]`, the alternative uses REFLink:

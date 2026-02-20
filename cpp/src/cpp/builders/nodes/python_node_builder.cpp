@@ -49,6 +49,7 @@ namespace hgraph {
                 input_meta(), output_meta(), error_output_meta(), recordable_state_meta());
             // Provide the eval function so the node can expose a sender in start()
             node->set_eval_fn(eval_fn_to_use);
+            configure_node_instance(node);
             return node;
         }
 
@@ -57,6 +58,7 @@ namespace hgraph {
             input_meta(), output_meta(), error_output_meta(), recordable_state_meta(),
             eval_fn_to_use, start_fn, stop_fn);
 
+        configure_node_instance(node);
         return node;
     }
 

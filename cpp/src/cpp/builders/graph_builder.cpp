@@ -118,17 +118,6 @@ namespace hgraph
                              out_meta_dbg != nullptr ? static_cast<int>(out_meta_dbg->kind) : -1);
             }
 
-	        const TSMeta* input_meta = input_view.ts_meta();
-	        const TSMeta* output_meta = output_view.ts_meta();
-	        if (input_meta != nullptr &&
-	            input_meta->kind == TSKind::SIGNAL &&
-	            dst_node->signature().active_inputs.has_value() &&
-	            output_meta != nullptr &&
-	            output_meta->kind == TSKind::TSD &&
-	            output_view.as_ts_view().view_data().projection == ViewProjection::NONE) {
-	            // Python wiring implicitly adapts TSD -> SIGNAL via key_set ticks.
-	            output_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
-	        }
             input_view.bind(output_view);
         return true;
     }

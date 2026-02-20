@@ -6,6 +6,7 @@
 #define NODE_BUILDER_H
 
 #include <hgraph/builders/builder.h>
+#include <vector>
 
 namespace hgraph {
     struct TSMeta;
@@ -65,12 +66,16 @@ namespace hgraph {
         std::optional<output_builder_s_ptr> error_builder;
         std::optional<output_builder_s_ptr> recordable_state_builder;
 
+      protected:
+        void configure_node_instance(const node_s_ptr& node) const;
+
       private:
         // Precomputed once at builder construction for fast node instantiation.
         const TSMeta* _input_meta{nullptr};
         const TSMeta* _output_meta{nullptr};
         const TSMeta* _error_meta{nullptr};
         const TSMeta* _recordable_state_meta{nullptr};
+        std::vector<bool> _signal_input_impl_flags{};
     };
 
     struct BaseNodeBuilder : NodeBuilder {

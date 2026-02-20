@@ -280,6 +280,19 @@ TSInputView TSInput::input_view(engine_time_t current_time, const TSMeta* schema
     return TSInputView(this, view(current_time, schema));
 }
 
+void TSInput::set_signal_input_impl_flags(std::vector<bool> flags) {
+    signal_input_impl_flags_ = std::move(flags);
+}
+
+bool TSInput::signal_input_has_impl(const std::vector<size_t>& path_indices) const {
+    if (path_indices.empty()) {
+        return false;
+    }
+
+    const size_t root_index = path_indices.front();
+    return root_index < signal_input_impl_flags_.size() && signal_input_impl_flags_[root_index];
+}
+
 void TSInput::bind(TSOutput& output, engine_time_t current_time) {
     TSView input_view = view(current_time);
     TSView native_output_view = output.view(current_time);
