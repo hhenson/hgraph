@@ -624,9 +624,9 @@ namespace hgraph
                              ref_ref_bound_post.c_str(),
                              ref_ref_mod_post.c_str());
             }
-            if (!out.is_none()) {
-                auto out_port = output(node_time(*this));
-                if (out_port) {
+            auto out_port = output(node_time(*this));
+            if (out_port) {
+                if (!out.is_none()) {
                     if (std::getenv("HGRAPH_DEBUG_PY_OUT_APPLY") != nullptr) {
                         int out_kind = -1;
                         if (const TSMeta* out_meta = out_port.ts_meta(); out_meta != nullptr) {
@@ -650,6 +650,23 @@ namespace hgraph
                                      out_repr.c_str());
                     }
                     out_port.from_python(out);
+                } else {
+                    const TSMeta* out_meta = out_port.ts_meta();
+                    const bool static_ref_container =
+                        out_meta != nullptr &&
+                        out_meta->kind == TSKind::REF &&
+                        out_meta->element_ts() != nullptr &&
+                        (out_meta->element_ts()->kind == TSKind::TSB ||
+                         (out_meta->element_ts()->kind == TSKind::TSL &&
+                          out_meta->element_ts()->fixed_size() > 0));
+                    if (out_meta != nullptr &&
+                        static_ref_container &&
+                        out_port.modified()) {
+                        // REF outputs can keep the same reference identity while the
+                        // bound referee ticks. Mirror Python runtime behavior by
+                        // surfacing the tick on the wrapper even when eval returns None.
+                        out_port.from_python(out_port.to_python());
+                    }
                 }
             }
         } catch (nb::python_error &e) { throw NodeException::capture_error(e, *this, "During Python node evaluation"); }

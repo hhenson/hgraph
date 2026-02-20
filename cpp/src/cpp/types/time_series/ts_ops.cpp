@@ -3011,6 +3011,16 @@ nb::object tsd_bridge_delta_to_python(const ViewData& previous_data,
 
     auto previous_value = resolve_value_slot_const(previous_data);
     auto current_value = resolve_value_slot_const(current_data);
+    const TSMeta* previous_meta = meta_at_path(previous_data.meta, previous_data.path.indices);
+    const TSMeta* current_meta = meta_at_path(current_data.meta, current_data.path.indices);
+    const auto is_tsd_of_ref = [](const TSMeta* meta) {
+        return meta != nullptr &&
+               meta->kind == TSKind::TSD &&
+               meta->element_ts() != nullptr &&
+               meta->element_ts()->kind == TSKind::REF;
+    };
+    const bool bridge_prefers_carry_on_missing =
+        is_tsd_of_ref(previous_meta) || is_tsd_of_ref(current_meta);
 
     const auto extract_delta_key_sets = [&](const ViewData& data, View& added_keys, View& removed_keys) {
         if (!op_modified(data, current_time)) {
@@ -3161,13 +3171,15 @@ nb::object tsd_bridge_delta_to_python(const ViewData& previous_data,
                 return;
             }
 
-            if (same_source_identity) {
+            if (same_source_identity || bridge_prefers_carry_on_missing) {
                 nb::object carried = bridge_entry_to_python(previous_map.at(key));
                 if (!carried.is_none()) {
                     if (debug_bridge_delta) {
                         std::fprintf(stderr,
-                                     "[tsd_bridge_delta] key=%s action=carry(same_source_missing)\n",
-                                     key.to_string().c_str());
+                                     "[tsd_bridge_delta] key=%s action=carry(missing) same_source=%d pref_carry=%d\n",
+                                     key.to_string().c_str(),
+                                     same_source_identity ? 1 : 0,
+                                     bridge_prefers_carry_on_missing ? 1 : 0);
                     }
                     delta_out[key.to_python()] = std::move(carried);
                     return;
