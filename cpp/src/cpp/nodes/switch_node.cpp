@@ -67,6 +67,7 @@ namespace hgraph {
                 return;
             }
 
+            const engine_time_t* inner_time_ptr = inner_any.as_ts_view().view_data().engine_time_ptr;
             const TSMeta *outer_meta = outer_any.ts_meta();
             if (debug_bind) {
                 std::fprintf(stderr,
@@ -93,14 +94,14 @@ namespace hgraph {
                     if (debug_bind) {
                         std::fprintf(stderr, "[switch_bind] using resolve_bound_target_view_data path (REF)\n");
                     }
-                    inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+                    inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
                     return;
                 }
 
                 if (debug_bind) {
                     std::fprintf(stderr, "[switch_bind] using outer REF view fallback bind path\n");
                 }
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
+                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
                 return;
             }
 
@@ -109,12 +110,12 @@ namespace hgraph {
                 if (debug_bind) {
                     std::fprintf(stderr, "[switch_bind] using resolve_bound_target_view_data path (non-REF)\n");
                 }
-                inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+                inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
             } else {
                 if (debug_bind) {
                     std::fprintf(stderr, "[switch_bind] using direct outer view bind path (non-REF)\n");
                 }
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
+                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
             }
         }
 
@@ -460,8 +461,6 @@ namespace hgraph {
         if (input_ids_to_use) {
             for (const auto &[arg, node_ndx]: *input_ids_to_use) {
                 auto node = graph->nodes()[node_ndx];
-                node->notify();
-
                 if (arg == "key") {
                     // The key node is a Python stub whose eval function exposes a 'key' attribute.
                     auto &key_node = dynamic_cast<PythonNode &>(*node);
@@ -477,7 +476,11 @@ namespace hgraph {
                         continue;
                     }
                     bind_inner_from_outer(outer_any.as_ts_view(), inner_any);
+                    if (!inner_any.active()) {
+                        inner_any.make_active();
+                    }
                 }
+                node->notify();
             }
         }
 

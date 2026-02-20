@@ -39,15 +39,14 @@ class TSInputView;
 class TSOutputView;
 
 /**
- * Non-owning time-series cursor (ViewData + current time).
+ * Non-owning time-series cursor (ViewData + engine-time reference).
  */
 class HGRAPH_EXPORT TSView {
 public:
     TSView() = default;
-    TSView(ViewData view_data, engine_time_t current_time) noexcept
-        : view_data_(std::move(view_data)), current_time_(current_time) {}
+    TSView(ViewData view_data, const engine_time_t* engine_time_ptr) noexcept;
 
-    TSView(const TSValue& value, engine_time_t current_time, ShortPath path = {});
+    TSView(const TSValue& value, const engine_time_t* engine_time_ptr, ShortPath path = {});
 
     explicit operator bool() const noexcept {
         return view_data_.meta != nullptr && view_data_.ops != nullptr;
@@ -55,8 +54,13 @@ public:
 
     [[nodiscard]] const TSMeta* ts_meta() const noexcept;
 
-    [[nodiscard]] engine_time_t current_time() const noexcept { return current_time_; }
-    void set_current_time(engine_time_t time) noexcept { current_time_ = time; }
+    [[nodiscard]] engine_time_t current_time() const noexcept {
+        return view_data_.engine_time_ptr != nullptr ? *view_data_.engine_time_ptr : MIN_DT;
+    }
+    void set_current_time(engine_time_t time) noexcept;
+    void set_current_time_ptr(const engine_time_t* engine_time_ptr) noexcept {
+        view_data_.engine_time_ptr = engine_time_ptr;
+    }
 
     [[nodiscard]] const ShortPath& short_path() const noexcept { return view_data_.path; }
     [[nodiscard]] FQPath fq_path() const { return view_data_.path.to_fq(); }
@@ -115,7 +119,6 @@ public:
 
 private:
     ViewData view_data_{};
-    engine_time_t current_time_{MIN_DT};
 };
 
 class HGRAPH_EXPORT TSWView : public TSView {
@@ -201,6 +204,7 @@ public:
     [[nodiscard]] const TSMeta* ts_meta() const noexcept { return ts_view_.ts_meta(); }
     [[nodiscard]] engine_time_t current_time() const noexcept { return ts_view_.current_time(); }
     void set_current_time(engine_time_t time) noexcept { ts_view_.set_current_time(time); }
+    void set_current_time_ptr(const engine_time_t* engine_time_ptr) noexcept { ts_view_.set_current_time_ptr(engine_time_ptr); }
 
     [[nodiscard]] FQPath fq_path() const;
 
@@ -324,6 +328,7 @@ public:
     [[nodiscard]] const TSMeta* ts_meta() const noexcept { return ts_view_.ts_meta(); }
     [[nodiscard]] engine_time_t current_time() const noexcept { return ts_view_.current_time(); }
     void set_current_time(engine_time_t time) noexcept { ts_view_.set_current_time(time); }
+    void set_current_time_ptr(const engine_time_t* engine_time_ptr) noexcept { ts_view_.set_current_time_ptr(engine_time_ptr); }
 
     [[nodiscard]] FQPath fq_path() const;
 

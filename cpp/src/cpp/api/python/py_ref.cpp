@@ -13,18 +13,30 @@ namespace hgraph
 {
 namespace
 {
+    const engine_time_t* resolve_bound_view_current_time_ptr(const ViewData& vd) {
+        if (vd.engine_time_ptr != nullptr) {
+            return vd.engine_time_ptr;
+        }
+        node_ptr owner = vd.path.node;
+        if (owner == nullptr) {
+            return nullptr;
+        }
+        if (const engine_time_t* et = owner->cached_evaluation_time_ptr(); et != nullptr) {
+            return et;
+        }
+        graph_ptr g = owner->graph();
+        return g != nullptr ? g->cached_evaluation_time_ptr() : nullptr;
+    }
+
     engine_time_t resolve_bound_view_current_time(const ViewData& vd) {
+        if (const engine_time_t* et = resolve_bound_view_current_time_ptr(vd); et != nullptr && *et != MIN_DT) {
+            return *et;
+        }
+
         node_ptr owner = vd.path.node;
         if (owner == nullptr) {
             return MIN_DT;
         }
-
-        if (const engine_time_t* et = owner->cached_evaluation_time_ptr(); et != nullptr) {
-            if (*et != MIN_DT) {
-                return *et;
-            }
-        }
-
         graph_ptr g = owner->graph();
         if (g == nullptr) {
             return MIN_DT;
@@ -126,7 +138,7 @@ namespace
             .def_prop_ro("output", [](TimeSeriesReference &self) -> nb::object {
                 if (const ViewData *bound = self.bound_view(); bound != nullptr) {
                     const engine_time_t current_time = resolve_bound_view_current_time(*bound);
-                    TSView bound_view(*bound, current_time);
+                    TSView bound_view(*bound, resolve_bound_view_current_time_ptr(*bound));
                     if (std::getenv("HGRAPH_DEBUG_REF_OUTPUT") != nullptr) {
                         const TSMeta* root_meta = bound->meta;
                         const TSMeta* cur_meta = bound_view.ts_meta();
@@ -292,7 +304,7 @@ namespace
         // For TS->REF (non-peered), value is a bound reference to the target TS output.
         // For REF->REF (peered), value is the bound REF output payload itself.
         if (auto target = resolve_bound_target_view(input_view()); target.has_value()) {
-            TSView target_view(*target, input_view().current_time());
+            TSView target_view(*target, input_view().as_ts_view().view_data().engine_time_ptr);
             const TSMeta* target_meta = target_view.ts_meta();
             if (target_meta != nullptr && target_meta->kind != TSKind::REF) {
                 return nb::cast(TimeSeriesReference::make(*target));

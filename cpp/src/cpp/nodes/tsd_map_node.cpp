@@ -119,7 +119,7 @@ namespace hgraph
             // value. Fall back to the bound source child in that case.
             ViewData bound_target{};
             if (resolve_bound_target_view_data(outer_ts.view_data(), bound_target)) {
-                TSView bound_child = TSView(bound_target, outer_ts.current_time()).child_by_key(key);
+                TSView bound_child = TSView(bound_target, outer_ts.view_data().engine_time_ptr).child_by_key(key);
                 TSView effective_bound_child = resolve_effective_view(bound_child);
                 if (debug_bind) {
                     std::string bound_child_value{"<none>"};
@@ -170,7 +170,7 @@ namespace hgraph
 
                 ViewData bound_target{};
                 if (resolve_bound_target_view_data(current.view_data(), bound_target)) {
-                    if (!(bound_target.path.indices == current.view_data().path.indices &&
+                        if (!(bound_target.path.indices == current.view_data().path.indices &&
                           bound_target.value_data == current.view_data().value_data &&
                           bound_target.time_data == current.view_data().time_data &&
                           bound_target.observer_data == current.view_data().observer_data &&
@@ -178,7 +178,7 @@ namespace hgraph
                           bound_target.link_data == current.view_data().link_data &&
                           bound_target.projection == current.view_data().projection &&
                           bound_target.meta == current.view_data().meta)) {
-                        current = TSView(bound_target, current.current_time());
+                        current = TSView(bound_target, current.view_data().engine_time_ptr);
                         advanced = true;
                     }
                 }
@@ -201,7 +201,7 @@ namespace hgraph
                                       ref_target->link_data == current.view_data().link_data &&
                                       ref_target->projection == current.view_data().projection &&
                                       ref_target->meta == current.view_data().meta)) {
-                                    current = TSView(*ref_target, current.current_time());
+                                    current = TSView(*ref_target, current.view_data().engine_time_ptr);
                                     advanced = true;
                                 }
                             }
@@ -229,11 +229,12 @@ namespace hgraph
                 return;
             }
 
+            const engine_time_t* inner_time_ptr = inner_any.as_ts_view().view_data().engine_time_ptr;
             const TSMeta *outer_meta = outer_any.ts_meta();
             if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
                 ViewData bound_target{};
                 if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                    inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+                    inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
                     return;
                 }
 
@@ -248,9 +249,9 @@ namespace hgraph
 
             ViewData bound_target{};
             if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+                inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
             } else {
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
+                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
             }
         }
 
@@ -1242,7 +1243,7 @@ namespace hgraph
                                 per_arg_values.emplace(key.clone(), std::make_unique<TSValue>(fallback_meta));
                             it = inserted_it;
                         }
-                        TSView fallback_view = it->second->ts_view(inner_ts.current_time());
+                        TSView fallback_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
                         fallback_view.from_python(*delta_value);
                         outer_key_value = fallback_view;
                         used_local_fallback = true;
@@ -1334,7 +1335,7 @@ namespace hgraph
                             it = inserted_it;
                         }
                         stage_id = 4;
-                        TSView fallback_view = it->second->ts_view(inner_ts.current_time());
+                        TSView fallback_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
                         fallback_view.from_python(*delta_value);
                         outer_key_value = fallback_view;
                     }

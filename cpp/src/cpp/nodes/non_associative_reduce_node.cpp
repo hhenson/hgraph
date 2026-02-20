@@ -60,6 +60,7 @@ namespace hgraph {
                 return;
             }
 
+            const engine_time_t* inner_time_ptr = inner_any.as_ts_view().view_data().engine_time_ptr;
             const TSMeta* outer_meta = outer_any.ts_meta();
             if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
                 value::View ref_view = outer_any.value();
@@ -71,19 +72,19 @@ namespace hgraph {
 
                 ViewData bound_target{};
                 if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                    inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+                    inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
                     return;
                 }
 
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
+                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
                 return;
             }
 
             ViewData bound_target{};
             if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+                inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
             } else {
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
+                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
             }
         }
 
@@ -123,7 +124,8 @@ namespace hgraph {
             }
             const value::View key = key_opt->view();
 
-            auto normalize_child = [current_time = tsd_input.current_time()](TSView child) -> TSView {
+            const engine_time_t* input_time_ptr = tsd_input.as_ts_view().view_data().engine_time_ptr;
+            auto normalize_child = [input_time_ptr](TSView child) -> TSView {
                 if (!child) {
                     return {};
                 }
@@ -132,7 +134,7 @@ namespace hgraph {
                 }
                 ViewData resolved_target{};
                 if (resolve_bound_target_view_data(child.view_data(), resolved_target)) {
-                    return TSView(resolved_target, current_time);
+                    return TSView(resolved_target, input_time_ptr);
                 }
                 return child;
             };
@@ -149,7 +151,7 @@ namespace hgraph {
 
             ViewData bound_target{};
             if (resolve_bound_target_view_data(tsd_opt->as_ts_view().view_data(), bound_target)) {
-                TSView bound_child = normalize_child(TSView(bound_target, tsd_input.current_time()).child_by_key(key));
+                TSView bound_child = normalize_child(TSView(bound_target, input_time_ptr).child_by_key(key));
                 if (bound_child && bound_child.valid()) {
                     return bound_child;
                 }

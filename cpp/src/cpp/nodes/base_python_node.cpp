@@ -15,6 +15,14 @@
 namespace hgraph
 {
 	namespace {
+            const engine_time_t *node_time_ptr(const Node &node) {
+            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
+                return et;
+            }
+            auto g = node.graph();
+            return g != nullptr ? g->cached_evaluation_time_ptr() : nullptr;
+        }
+
 	        engine_time_t node_time(const Node &node) {
             if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
                 return *et;
@@ -295,13 +303,13 @@ namespace hgraph
                             ts_kind = static_cast<int>(meta->kind);
                         }
                         ViewData bound{};
-                        if (resolve_bound_target_view_data(ts_input.as_ts_view().view_data(), bound)) {
-                            bound_path = bound.path.to_string();
-                            TSView bound_view(bound, ts_input.current_time());
-                            if (const TSMeta* meta = bound_view.ts_meta(); meta != nullptr) {
-                                bound_kind = static_cast<int>(meta->kind);
-                            }
-                        }
+	                        if (resolve_bound_target_view_data(ts_input.as_ts_view().view_data(), bound)) {
+	                            bound_path = bound.path.to_string();
+	                            TSView bound_view(bound, ts_input.as_ts_view().view_data().engine_time_ptr);
+	                            if (const TSMeta* meta = bound_view.ts_meta(); meta != nullptr) {
+	                                bound_kind = static_cast<int>(meta->kind);
+	                            }
+	                        }
                     }
                 }
 
@@ -756,19 +764,19 @@ namespace hgraph
     }
 
     void BasePythonNode::_refresh_kwarg_time_views() {
-        const auto et = node_time(*this);
+        const engine_time_t* et_ptr = node_time_ptr(*this);
         for (const WrappedInputRef& tracked : _kwarg_wrapped_inputs) {
             if (tracked.owner.is_valid()) {
                 auto& wrapped = nb::cast<PyTimeSeriesInput&>(tracked.owner);
-                wrapped.view().set_current_time(et);
-                wrapped.input_view().set_current_time(et);
+                wrapped.view().set_current_time_ptr(et_ptr);
+                wrapped.input_view().set_current_time_ptr(et_ptr);
             }
         }
         for (const WrappedOutputRef& tracked : _kwarg_wrapped_outputs) {
             if (tracked.owner.is_valid()) {
                 auto& wrapped = nb::cast<PyTimeSeriesOutput&>(tracked.owner);
-                wrapped.view().set_current_time(et);
-                wrapped.output_view().set_current_time(et);
+                wrapped.view().set_current_time_ptr(et_ptr);
+                wrapped.output_view().set_current_time_ptr(et_ptr);
             }
         }
     }

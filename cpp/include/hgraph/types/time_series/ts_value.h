@@ -57,8 +57,8 @@ public:
         link_observer_registry_ = registry;
     }
 
-    [[nodiscard]] ViewData make_view_data(ShortPath path = {}) const;
-    [[nodiscard]] TSView ts_view(engine_time_t current_time, ShortPath path = {}) const;
+    [[nodiscard]] ViewData make_view_data(ShortPath path = {}, const engine_time_t* engine_time_ptr = nullptr) const;
+    [[nodiscard]] TSView ts_view(const engine_time_t* engine_time_ptr, ShortPath path = {}) const;
 
 private:
     void initialize(const TSMeta* meta, const value::TypeMeta* link_schema, bool uses_link_target);

@@ -29,8 +29,12 @@ public:
 
     [[nodiscard]] TSView view(engine_time_t current_time);
     [[nodiscard]] TSView view(engine_time_t current_time, const TSMeta* schema);
+    [[nodiscard]] TSView view(const engine_time_t* engine_time_ptr);
+    [[nodiscard]] TSView view(const engine_time_t* engine_time_ptr, const TSMeta* schema);
     [[nodiscard]] TSInputView input_view(engine_time_t current_time);
     [[nodiscard]] TSInputView input_view(engine_time_t current_time, const TSMeta* schema);
+    [[nodiscard]] TSInputView input_view(const engine_time_t* engine_time_ptr);
+    [[nodiscard]] TSInputView input_view(const engine_time_t* engine_time_ptr, const TSMeta* schema);
 
     void bind(TSOutput& output, engine_time_t current_time);
     void unbind(engine_time_t current_time);
@@ -65,6 +69,7 @@ public:
     void notify(engine_time_t et) override;
 
 private:
+    [[nodiscard]] const engine_time_t* owner_engine_time_ptr() const noexcept;
     void set_active_recursive(const TSView& ts_view, value::ValueView active_view, bool active);
 
     // Must outlive TSValue teardown because LinkTarget/REFLink destructors

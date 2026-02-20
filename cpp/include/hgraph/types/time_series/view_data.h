@@ -85,6 +85,7 @@ struct ShortPath {
  */
 struct ViewData {
     ShortPath path;
+    const engine_time_t* engine_time_ptr{nullptr};
 
     void* value_data{nullptr};
     void* time_data{nullptr};

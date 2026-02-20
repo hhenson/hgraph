@@ -65,6 +65,7 @@ namespace hgraph {
                 return;
             }
 
+            const engine_time_t* inner_time_ptr = inner_any.as_ts_view().view_data().engine_time_ptr;
             const TSMeta *outer_meta = outer_any.ts_meta();
             if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
                 value::View ref_view = outer_any.value();
@@ -76,19 +77,19 @@ namespace hgraph {
 
                 ViewData bound_target{};
                 if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                    inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+                    inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
                     return;
                 }
 
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
+                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
                 return;
             }
 
             ViewData bound_target{};
             if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                inner_any.as_ts_view().bind(TSView(bound_target, inner_any.current_time()));
+                inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
             } else {
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_any.current_time()));
+                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
             }
         }
     }  // namespace
@@ -126,7 +127,7 @@ namespace hgraph {
             // Must have output and it must be valid
             if (ref.is_bound()) {
                 if (const ViewData* bound = ref.bound_view(); bound != nullptr) {
-                    TSView bound_view(*bound, ts.current_time());
+                    TSView bound_view(*bound, ts.as_ts_view().view_data().engine_time_ptr);
                     return bound_view.to_python();
                 }
                 return ref.output()->py_value();

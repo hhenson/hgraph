@@ -144,9 +144,10 @@ bool TSValue::has_delta() const {
     return delta_value_.schema() != nullptr;
 }
 
-ViewData TSValue::make_view_data(ShortPath path) const {
+ViewData TSValue::make_view_data(ShortPath path, const engine_time_t* engine_time_ptr) const {
     ViewData vd;
     vd.path = std::move(path);
+    vd.engine_time_ptr = engine_time_ptr;
     vd.value_data = value_.schema() != nullptr ? const_cast<value::Value*>(&value_) : nullptr;
     vd.time_data = time_.schema() != nullptr ? const_cast<value::Value*>(&time_) : nullptr;
     vd.observer_data = observer_.schema() != nullptr ? const_cast<value::Value*>(&observer_) : nullptr;
@@ -162,8 +163,8 @@ ViewData TSValue::make_view_data(ShortPath path) const {
     return vd;
 }
 
-TSView TSValue::ts_view(engine_time_t current_time, ShortPath path) const {
-    return TSView(make_view_data(std::move(path)), current_time);
+TSView TSValue::ts_view(const engine_time_t* engine_time_ptr, ShortPath path) const {
+    return TSView(make_view_data(std::move(path), engine_time_ptr), engine_time_ptr);
 }
 
 }  // namespace hgraph

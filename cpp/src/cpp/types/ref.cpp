@@ -205,7 +205,7 @@ namespace hgraph
                         ts_input.unbind();
                     }
 
-                    TSView target(*_bound_view, ts_input.current_time());
+                    TSView target(*_bound_view, ts_input.as_ts_view().view_data().engine_time_ptr);
                     ts_input.as_ts_view().bind(target);
 
                     if (reactivate) {

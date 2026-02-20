@@ -33,6 +33,18 @@ namespace {
 
 using value::View;
 
+const engine_time_t* resolve_engine_time_ptr(const ViewData& vd) {
+    if (vd.engine_time_ptr != nullptr) {
+        return vd.engine_time_ptr;
+    }
+    if (node_ptr owner = vd.path.node; owner != nullptr) {
+        if (const engine_time_t* et = owner->cached_evaluation_time_ptr(); et != nullptr) {
+            return et;
+        }
+    }
+    return nullptr;
+}
+
 std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
     std::vector<size_t> out;
     const TSMeta* meta = root_meta;
@@ -711,7 +723,8 @@ class TSDRefFeatureObserver final : public LinkTarget {
 public:
     explicit TSDRefFeatureObserver(ViewData source)
         : source_(std::move(source)) {
-        TSView source_view(source_, MIN_DT);
+        engine_time_ptr_ = resolve_engine_time_ptr(source_);
+        TSView source_view(source_, engine_time_ptr_);
         const TSMeta* meta = source_view.ts_meta();
         if (meta != nullptr && meta->kind == TSKind::TSD) {
             key_type_ = meta->key_type();
@@ -721,7 +734,7 @@ public:
             }
         }
 
-        bind(source_, MIN_DT);
+        bind(source_, engine_time_ptr_ != nullptr ? *engine_time_ptr_ : MIN_DT);
         register_ts_link_observer(*this);
         registered_ = true;
     }
@@ -738,7 +751,7 @@ public:
         registered_ = false;
     }
 
-    TSOutputView get_ref_output(const nb::object& key_obj, const nb::object& requester, engine_time_t current_time) {
+    TSOutputView get_ref_output(const nb::object& key_obj, const nb::object& requester) {
         if (key_type_ == nullptr || ref_meta_ == nullptr) {
             return {};
         }
@@ -758,8 +771,8 @@ public:
         }
 
         it->second.requesters.insert(requester.ptr());
-        update_ref_output(it->first.view(), it->second, current_time);
-        return TSOutputView(nullptr, it->second.output_value->ts_view(current_time));
+        update_ref_output(it->first.view(), it->second);
+        return TSOutputView(nullptr, it->second.output_value->ts_view(engine_time_ptr_));
     }
 
     void release_ref_output(const nb::object& key_obj, const nb::object& requester) {
@@ -786,8 +799,9 @@ public:
     }
 
     void notify(engine_time_t et) override {
+        (void)et;
         for (auto& [key, state] : ref_outputs_) {
-            update_ref_output(key.view(), state, et);
+            update_ref_output(key.view(), state);
         }
     }
 
@@ -801,8 +815,8 @@ private:
         return out;
     }
 
-    [[nodiscard]] std::optional<ViewData> resolve_target_for_key(const value::View& key, engine_time_t current_time) const {
-        TSView source_view(source_, current_time);
+    [[nodiscard]] std::optional<ViewData> resolve_target_for_key(const value::View& key) const {
+        TSView source_view(source_, engine_time_ptr_);
         if (!source_view || source_view.kind() != TSKind::TSD) {
             return std::nullopt;
         }
@@ -815,12 +829,11 @@ private:
     }
 
     void set_output_reference(const std::shared_ptr<TSValue>& output_value,
-                              const std::optional<ViewData>& target,
-                              engine_time_t current_time) const {
+                              const std::optional<ViewData>& target) const {
         if (!output_value) {
             return;
         }
-        TSView out = output_value->ts_view(current_time);
+        TSView out = output_value->ts_view(engine_time_ptr_);
         if (target.has_value()) {
             out.from_python(nb::cast(TimeSeriesReference::make(*target)));
             return;
@@ -828,9 +841,10 @@ private:
         out.from_python(nb::cast(TimeSeriesReference::make()));
     }
 
-    void update_ref_output(const value::View& key, TSDRefOutputState& state, engine_time_t current_time) {
-        const std::optional<ViewData> target = resolve_target_for_key(key, current_time);
+    void update_ref_output(const value::View& key, TSDRefOutputState& state) {
+        const std::optional<ViewData> target = resolve_target_for_key(key);
         const bool target_present = target.has_value();
+        const engine_time_t current_time = engine_time_ptr_ != nullptr ? *engine_time_ptr_ : MIN_DT;
         const bool debug_tsd_ref = std::getenv("HGRAPH_DEBUG_TSD_REF_OUTPUT") != nullptr;
 
         bool changed = !state.has_cached_target;
@@ -864,9 +878,9 @@ private:
             return;
         }
 
-        set_output_reference(state.output_value, target, current_time);
+        set_output_reference(state.output_value, target);
         if (debug_tsd_ref && state.output_value) {
-            TSView out_view = state.output_value->ts_view(current_time);
+            TSView out_view = state.output_value->ts_view(engine_time_ptr_);
             std::string out_repr{"<repr_error>"};
             try {
                 out_repr = nb::cast<std::string>(nb::repr(out_view.to_python()));
@@ -895,6 +909,7 @@ private:
     const TSMeta* element_meta_{nullptr};
     const TSMeta* ref_meta_{nullptr};
     std::unordered_map<value::Value, TSDRefOutputState, ValueHash, ValueEqual> ref_outputs_{};
+    const engine_time_t* engine_time_ptr_{nullptr};
     bool registered_{false};
     std::shared_ptr<TSLinkObserverRegistry> output_registry_{std::make_shared<TSLinkObserverRegistry>()};
 };
@@ -903,14 +918,15 @@ class TSSFeatureObserver final : public LinkTarget {
 public:
     explicit TSSFeatureObserver(ViewData source)
         : source_(std::move(source)) {
-        TSView source_view(source_, MIN_DT);
+        engine_time_ptr_ = resolve_engine_time_ptr(source_);
+        TSView source_view(source_, engine_time_ptr_);
         const TSMeta* meta = source_view.ts_meta();
         if (meta != nullptr && meta->kind == TSKind::TSS && meta->value_type != nullptr) {
             // TSS element type is carried on the value schema (set[element_type]).
             element_type_ = meta->value_type->element_type;
         }
 
-        bind(source_, MIN_DT);
+        bind(source_, engine_time_ptr_ != nullptr ? *engine_time_ptr_ : MIN_DT);
         register_ts_link_observer(*this);
         registered_ = true;
     }
@@ -927,8 +943,8 @@ public:
         registered_ = false;
     }
 
-    TSOutputView get_contains_output(const nb::object& item, const nb::object& requester, engine_time_t current_time) {
-        auto maybe_key = value_from_python(resolve_element_type(current_time), item);
+    TSOutputView get_contains_output(const nb::object& item, const nb::object& requester) {
+        auto maybe_key = value_from_python(resolve_element_type(), item);
         if (!maybe_key.has_value()) {
             return {};
         }
@@ -945,12 +961,11 @@ public:
         }
 
         it->second.requesters.insert(requester_key);
-        update_contains_output(it->first.view(), it->second, current_time);
-        return TSOutputView(nullptr, it->second.output_value->ts_view(current_time));
+        update_contains_output(it->first.view(), it->second);
+        return TSOutputView(nullptr, it->second.output_value->ts_view(engine_time_ptr_));
     }
 
-    void release_contains_output(const nb::object& item, const nb::object& requester, engine_time_t current_time) {
-        (void)current_time;
+    void release_contains_output(const nb::object& item, const nb::object& requester) {
         auto maybe_key = value_from_python(element_type_, item);
         if (!maybe_key.has_value()) {
             return;
@@ -964,13 +979,13 @@ public:
         it->second.requesters.erase(requester.ptr());
     }
 
-    TSOutputView get_is_empty_output(engine_time_t current_time) {
+    TSOutputView get_is_empty_output() {
         has_is_empty_consumer_ = true;
         if (!is_empty_output_) {
             is_empty_output_ = make_bool_output();
         }
-        update_is_empty_output(current_time);
-        return TSOutputView(nullptr, is_empty_output_->ts_view(current_time));
+        update_is_empty_output();
+        return TSOutputView(nullptr, is_empty_output_->ts_view(engine_time_ptr_));
     }
 
     bool has_consumers() const {
@@ -981,15 +996,16 @@ public:
     }
 
     void notify(engine_time_t et) override {
+        (void)et;
         for (auto& [key, state] : contains_outputs_) {
-            update_contains_output(key.view(), state, et);
+            update_contains_output(key.view(), state);
         }
-        update_is_empty_output(et);
+        update_is_empty_output();
     }
 
 private:
-    [[nodiscard]] const value::TypeMeta* resolve_element_type(engine_time_t current_time) const {
-        TSView source_view(source_, current_time);
+    [[nodiscard]] const value::TypeMeta* resolve_element_type() const {
+        TSView source_view(source_, engine_time_ptr_);
         value::View source_value = source_view.value();
         if (!source_value.valid()) {
             return element_type_;
@@ -1010,8 +1026,8 @@ private:
         return out;
     }
 
-    bool contains_key(const value::View& key, engine_time_t current_time) const {
-        TSView source_view(source_, current_time);
+    bool contains_key(const value::View& key) const {
+        TSView source_view(source_, engine_time_ptr_);
         nb::object source_obj = source_view.to_python();
         if (source_obj.is_none()) {
             return false;
@@ -1026,8 +1042,8 @@ private:
         return contains == 1;
     }
 
-    bool is_empty(engine_time_t current_time) const {
-        TSView source_view(source_, current_time);
+    bool is_empty() const {
+        TSView source_view(source_, engine_time_ptr_);
         nb::object source_obj = source_view.to_python();
         if (source_obj.is_none()) {
             return true;
@@ -1041,30 +1057,30 @@ private:
         return size == 0;
     }
 
-    void set_output_value(const std::shared_ptr<TSValue>& output_value, bool value, engine_time_t current_time) const {
+    void set_output_value(const std::shared_ptr<TSValue>& output_value, bool value) const {
         if (!output_value) {
             return;
         }
-        TSView out = output_value->ts_view(current_time);
+        TSView out = output_value->ts_view(engine_time_ptr_);
         out.from_python(nb::bool_(value));
     }
 
-    void update_contains_output(const value::View& key, ContainsOutputState& state, engine_time_t current_time) {
-        const bool contains = contains_key(key, current_time);
+    void update_contains_output(const value::View& key, ContainsOutputState& state) {
+        const bool contains = contains_key(key);
         if (!state.has_cached_value || state.cached_value != contains) {
-            set_output_value(state.output_value, contains, current_time);
+            set_output_value(state.output_value, contains);
             state.has_cached_value = true;
             state.cached_value = contains;
         }
     }
 
-    void update_is_empty_output(engine_time_t current_time) {
+    void update_is_empty_output() {
         if (!has_is_empty_consumer_ || !is_empty_output_) {
             return;
         }
-        const bool empty = is_empty(current_time);
+        const bool empty = is_empty();
         if (!has_is_empty_cached_ || is_empty_cached_ != empty) {
-            set_output_value(is_empty_output_, empty, current_time);
+            set_output_value(is_empty_output_, empty);
             has_is_empty_cached_ = true;
             is_empty_cached_ = empty;
         }
@@ -1072,6 +1088,7 @@ private:
 
     ViewData source_{};
     const value::TypeMeta* element_type_{nullptr};
+    const engine_time_t* engine_time_ptr_{nullptr};
 
     std::unordered_map<value::Value, ContainsOutputState, ValueHash, ValueEqual> contains_outputs_{};
 
@@ -1101,16 +1118,6 @@ std::string tss_source_runtime_key_for(const TSOutputView& self) {
 
 std::string tsd_ref_source_runtime_key_for(const TSOutputView& self) {
     return std::string("tsd_ref:") + tss_source_runtime_key_for(self);
-}
-
-engine_time_t resolve_runtime_time_for_view(const TSOutputView& self) {
-    const ViewData& vd = self.as_ts_view().view_data();
-    if (node_ptr owner = vd.path.node; owner != nullptr) {
-        if (const engine_time_t* et = owner->cached_evaluation_time_ptr(); et != nullptr && *et != MIN_DT) {
-            return *et;
-        }
-    }
-    return self.current_time();
 }
 
 std::shared_ptr<TSSFeatureObserver> ensure_tss_feature_observer(const TSOutputView& self) {
@@ -1156,7 +1163,7 @@ TSOutputView tsd_get_ref_output(TSOutputView& self, const nb::object& key, const
     if (!observer) {
         return {};
     }
-    return observer->get_ref_output(key, requester, resolve_runtime_time_for_view(self));
+    return observer->get_ref_output(key, requester);
 }
 
 void tsd_release_ref_output(TSOutputView& self, const nb::object& key, const nb::object& requester) {
@@ -1191,7 +1198,7 @@ TSOutputView tss_get_contains_output(TSOutputView& self, const nb::object& item,
     if (!observer) {
         return {};
     }
-    return observer->get_contains_output(item, requester, resolve_runtime_time_for_view(self));
+    return observer->get_contains_output(item, requester);
 }
 
 void tss_release_contains_output(TSOutputView& self, const nb::object& item, const nb::object& requester) {
@@ -1211,7 +1218,7 @@ void tss_release_contains_output(TSOutputView& self, const nb::object& item, con
     }
 
     auto observer = std::static_pointer_cast<TSSFeatureObserver>(std::move(existing));
-    observer->release_contains_output(item, requester, resolve_runtime_time_for_view(self));
+    observer->release_contains_output(item, requester);
     if (!observer->has_consumers()) {
         observer->detach();
         registry->clear_feature_state(key);
@@ -1226,7 +1233,7 @@ TSOutputView tss_get_is_empty_output(TSOutputView& self) {
     if (!observer) {
         return {};
     }
-    return observer->get_is_empty_output(resolve_runtime_time_for_view(self));
+    return observer->get_is_empty_output();
 }
 
 void clear_output(TSOutputView& self) {
@@ -1282,6 +1289,16 @@ void clear_output(TSOutputView& self) {
         default:
             return;
     }
+}
+
+engine_time_t& runtime_test_time_slot() {
+    static thread_local engine_time_t slot = MIN_DT;
+    return slot;
+}
+
+const engine_time_t* runtime_test_time_ptr(engine_time_t current_time) {
+    runtime_test_time_slot() = current_time;
+    return &runtime_test_time_slot();
 }
 
 }  // namespace
@@ -1423,11 +1440,13 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             new (self) TSOutput(meta, nullptr, port_index);
         }, "meta"_a, "port_index"_a = 0)
         .def("output_view",
-             [](TSOutput& self, engine_time_t current_time) { return self.output_view(current_time); },
+             [](TSOutput& self, engine_time_t current_time) {
+                 return self.output_view(runtime_test_time_ptr(current_time));
+             },
              "current_time"_a, nb::keep_alive<0, 1>())
         .def("output_view",
              [](TSOutput& self, engine_time_t current_time, const TSMeta* schema) {
-                 return self.output_view(current_time, schema);
+                 return self.output_view(runtime_test_time_ptr(current_time), schema);
              },
              "current_time"_a, "schema"_a, nb::keep_alive<0, 1>());
 
@@ -1436,11 +1455,13 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             new (self) TSInput(meta, nullptr);
         }, "meta"_a)
         .def("input_view",
-             [](TSInput& self, engine_time_t current_time) { return self.input_view(current_time); },
+             [](TSInput& self, engine_time_t current_time) {
+                 return self.input_view(runtime_test_time_ptr(current_time));
+             },
              "current_time"_a, nb::keep_alive<0, 1>())
         .def("input_view",
              [](TSInput& self, engine_time_t current_time, const TSMeta* schema) {
-                 return self.input_view(current_time, schema);
+                 return self.input_view(runtime_test_time_ptr(current_time), schema);
              },
              "current_time"_a, "schema"_a, nb::keep_alive<0, 1>())
         .def("bind", &TSInput::bind, "output"_a, "current_time"_a)

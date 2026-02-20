@@ -1,4 +1,5 @@
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/node.h>
 
 namespace hgraph {
 namespace {
@@ -92,17 +93,34 @@ TSOutput::TSOutput(const TSMeta* meta, node_ptr owning_node, size_t port_index)
     native_value_.set_link_observer_registry(link_observer_registry_.get());
 }
 
+const engine_time_t* TSOutput::owner_engine_time_ptr() const noexcept {
+    if (owning_node_ == nullptr) {
+        return nullptr;
+    }
+    return owning_node_->cached_evaluation_time_ptr();
+}
+
 TSView TSOutput::view(engine_time_t current_time) {
-    return TSView(native_value_, current_time, root_path());
+    (void)current_time;
+    return view(owner_engine_time_ptr());
 }
 
 TSView TSOutput::view(engine_time_t current_time, const TSMeta* schema) {
+    (void)current_time;
+    return view(owner_engine_time_ptr(), schema);
+}
+
+TSView TSOutput::view(const engine_time_t* engine_time_ptr) {
+    return TSView(native_value_, engine_time_ptr, root_path());
+}
+
+TSView TSOutput::view(const engine_time_t* engine_time_ptr, const TSMeta* schema) {
     if (schema == nullptr || schema == native_value_.meta()) {
-        return view(current_time);
+        return view(engine_time_ptr);
     }
 
     TSValue& alt = get_or_create_alternative(schema);
-    return TSView(alt, current_time, root_path());
+    return TSView(alt, engine_time_ptr, root_path());
 }
 
 TSOutputView TSOutput::output_view(engine_time_t current_time) {
@@ -111,6 +129,14 @@ TSOutputView TSOutput::output_view(engine_time_t current_time) {
 
 TSOutputView TSOutput::output_view(engine_time_t current_time, const TSMeta* schema) {
     return TSOutputView(this, view(current_time, schema));
+}
+
+TSOutputView TSOutput::output_view(const engine_time_t* engine_time_ptr) {
+    return TSOutputView(this, view(engine_time_ptr));
+}
+
+TSOutputView TSOutput::output_view(const engine_time_t* engine_time_ptr, const TSMeta* schema) {
+    return TSOutputView(this, view(engine_time_ptr, schema));
 }
 
 TSValue& TSOutput::get_or_create_alternative(const TSMeta* schema) {
@@ -126,8 +152,8 @@ TSValue& TSOutput::get_or_create_alternative(const TSMeta* schema) {
 }
 
 void TSOutput::establish_default_binding(TSValue& alternative) {
-    TSView target_view(native_value_, MIN_DT, root_path());
-    TSView alt_view(alternative, MIN_DT, root_path());
+    TSView target_view(native_value_, static_cast<const engine_time_t*>(nullptr), root_path());
+    TSView alt_view(alternative, static_cast<const engine_time_t*>(nullptr), root_path());
 
     establish_links_recursive(target_view, native_value_.meta(), alt_view, alternative.meta());
 }

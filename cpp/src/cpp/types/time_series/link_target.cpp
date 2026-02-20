@@ -97,6 +97,7 @@ void LinkTarget::copy_target_data_from(const LinkTarget& other) {
     observer_data = other.observer_data;
     delta_data = other.delta_data;
     link_data = other.link_data;
+    engine_time_ptr = other.engine_time_ptr;
     link_observer_registry = other.link_observer_registry;
     projection = other.projection;
     ops = other.ops;
@@ -134,6 +135,7 @@ void LinkTarget::clear_target_data() {
     observer_data = nullptr;
     delta_data = nullptr;
     link_data = nullptr;
+    engine_time_ptr = nullptr;
     link_observer_registry = nullptr;
     projection = ViewProjection::NONE;
     ops = nullptr;
@@ -145,6 +147,8 @@ void LinkTarget::clear_target_data() {
 }
 
 void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
+    const engine_time_t* bind_engine_time_ptr =
+        owner_time_ptr != nullptr ? owner_time_ptr : target.engine_time_ptr;
     const bool was_linked = is_linked;
     const bool same_binding =
         was_linked &&
@@ -154,6 +158,7 @@ void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
         observer_data == target.observer_data &&
         delta_data == target.delta_data &&
         link_data == target.link_data &&
+        engine_time_ptr == bind_engine_time_ptr &&
         link_observer_registry == target.link_observer_registry &&
         projection == target.projection &&
         ops == target.ops &&
@@ -183,6 +188,7 @@ void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
     observer_data = target.observer_data;
     delta_data = target.delta_data;
     link_data = target.link_data;
+    engine_time_ptr = bind_engine_time_ptr;
     link_observer_registry = target.link_observer_registry;
     projection = target.projection;
     ops = target.ops;
@@ -242,6 +248,7 @@ bool LinkTarget::modified(engine_time_t current_time) const {
 ViewData LinkTarget::as_view_data(bool sampled) const {
     ViewData vd;
     vd.path = target_path;
+    vd.engine_time_ptr = engine_time_ptr != nullptr ? engine_time_ptr : owner_time_ptr;
     vd.value_data = value_data;
     vd.time_data = time_data;
     vd.observer_data = observer_data;
@@ -258,6 +265,9 @@ ViewData LinkTarget::as_view_data(bool sampled) const {
 
 ViewData LinkTarget::previous_view_data(bool sampled) const {
     ViewData vd = previous_target;
+    if (vd.engine_time_ptr == nullptr) {
+        vd.engine_time_ptr = engine_time_ptr != nullptr ? engine_time_ptr : owner_time_ptr;
+    }
     vd.sampled = sampled;
     return vd;
 }

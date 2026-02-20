@@ -357,7 +357,7 @@ namespace
         if (!target.has_value()) {
             return nb::none();
         }
-        return wrap_output_view(TSOutputView(nullptr, TSView(*target, input_view().current_time())));
+        return wrap_output_view(TSOutputView(nullptr, TSView(*target, input_view().as_ts_view().view_data().engine_time_ptr)));
     }
 
     nb::bool_ PyTimeSeriesInput::has_output() const { return nb::bool_(input_view().is_bound()); }

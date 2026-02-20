@@ -719,15 +719,18 @@ namespace hgraph
     }
 
     TSInputView Node::input(engine_time_t current_time) const {
+        (void)current_time;
         if (!_input.has_value()) {
             return {};
         }
-        return const_cast<TSInput &>(*_input).input_view(current_time);
+        return const_cast<TSInput &>(*_input).input_view(_cached_evaluation_time_ptr);
     }
 
     TSInputView Node::input() const {
-        auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
-        return input(et);
+        if (!_input.has_value()) {
+            return {};
+        }
+        return const_cast<TSInput &>(*_input).input_view(_cached_evaluation_time_ptr);
     }
 
     void Node::set_signal_input_impl_flags(std::vector<bool> flags) {
@@ -741,18 +744,24 @@ namespace hgraph
     }
 
     TSOutputView Node::output(engine_time_t current_time) const {
+        (void)current_time;
         if (_output_override_node != nullptr && _output_override_node != this) {
-            return _output_override_node->output(current_time);
+            return _output_override_node->output();
         }
         if (!_output.has_value()) {
             return {};
         }
-        return const_cast<TSOutput &>(*_output).output_view(current_time);
+        return const_cast<TSOutput &>(*_output).output_view(_cached_evaluation_time_ptr);
     }
 
     TSOutputView Node::output() const {
-        auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
-        return output(et);
+        if (_output_override_node != nullptr && _output_override_node != this) {
+            return _output_override_node->output();
+        }
+        if (!_output.has_value()) {
+            return {};
+        }
+        return const_cast<TSOutput &>(*_output).output_view(_cached_evaluation_time_ptr);
     }
 
     bool Node::has_output() const {
@@ -764,15 +773,18 @@ namespace hgraph
     void Node::clear_output_override() noexcept { _output_override_node = nullptr; }
 
     TSOutputView Node::error_output(engine_time_t current_time) const {
+        (void)current_time;
         if (!_error_output.has_value()) {
             return {};
         }
-        return const_cast<TSOutput &>(*_error_output).output_view(current_time);
+        return const_cast<TSOutput &>(*_error_output).output_view(_cached_evaluation_time_ptr);
     }
 
     TSOutputView Node::error_output() const {
-        auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
-        return error_output(et);
+        if (!_error_output.has_value()) {
+            return {};
+        }
+        return const_cast<TSOutput &>(*_error_output).output_view(_cached_evaluation_time_ptr);
     }
 
     bool Node::has_error_output() const {
@@ -780,15 +792,18 @@ namespace hgraph
     }
 
     TSOutputView Node::recordable_state(engine_time_t current_time) const {
+        (void)current_time;
         if (!_recordable_state.has_value()) {
             return {};
         }
-        return const_cast<TSOutput &>(*_recordable_state).output_view(current_time);
+        return const_cast<TSOutput &>(*_recordable_state).output_view(_cached_evaluation_time_ptr);
     }
 
     TSOutputView Node::recordable_state() const {
-        auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
-        return recordable_state(et);
+        if (!_recordable_state.has_value()) {
+            return {};
+        }
+        return const_cast<TSOutput &>(*_recordable_state).output_view(_cached_evaluation_time_ptr);
     }
 
     bool Node::has_recordable_state() const { return _recordable_state.has_value(); }

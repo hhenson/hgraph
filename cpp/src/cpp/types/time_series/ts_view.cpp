@@ -1,5 +1,6 @@
 #include <hgraph/types/time_series/ts_view.h>
 
+#include <hgraph/types/node.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -125,13 +126,13 @@ std::optional<size_t> map_slot_for_key(const value::View& map_view, const value:
     return slot;
 }
 
-TSView child_at_impl(const ViewData& view_data, size_t index, engine_time_t current_time) {
+TSView child_at_impl(const ViewData& view_data, size_t index, const engine_time_t* engine_time_ptr) {
     ViewData child = view_data;
     child.path.indices.push_back(index);
-    return TSView(child, current_time);
+    return TSView(child, engine_time_ptr);
 }
 
-TSView child_by_name_impl(const ViewData& view_data, std::string_view name, engine_time_t current_time) {
+TSView child_by_name_impl(const ViewData& view_data, std::string_view name, const engine_time_t* engine_time_ptr) {
     const TSMeta* current = meta_at_path(view_data.meta, view_data.path.indices);
     if (current == nullptr || current->kind != TSKind::TSB || current->fields() == nullptr) {
         return {};
@@ -139,16 +140,16 @@ TSView child_by_name_impl(const ViewData& view_data, std::string_view name, engi
 
     for (size_t i = 0; i < current->field_count(); ++i) {
         if (name == current->fields()[i].name) {
-            return child_at_impl(view_data, i, current_time);
+            return child_at_impl(view_data, i, engine_time_ptr);
         }
     }
     return {};
 }
 
-TSView child_by_key_impl(const ViewData& view_data, const value::View& key, engine_time_t current_time) {
+TSView child_by_key_impl(const ViewData& view_data, const value::View& key, const engine_time_t* engine_time_ptr) {
     if (view_data.uses_link_target) {
         if (auto local_slot = map_slot_for_key(resolve_local_navigation_value(view_data), key); local_slot.has_value()) {
-            return child_at_impl(view_data, *local_slot, current_time);
+            return child_at_impl(view_data, *local_slot, engine_time_ptr);
         }
     }
 
@@ -168,7 +169,7 @@ TSView child_by_key_impl(const ViewData& view_data, const value::View& key, engi
                      v.as_map().size(),
                      *slot);
     }
-    return child_at_impl(view_data, *slot, current_time);
+    return child_at_impl(view_data, *slot, engine_time_ptr);
 }
 
 size_t child_count_impl(const ViewData& view_data) {
@@ -198,8 +199,23 @@ size_t child_count_impl(const ViewData& view_data) {
 
 }  // namespace
 
-TSView::TSView(const TSValue& value, engine_time_t current_time, ShortPath path)
-    : view_data_(value.make_view_data(std::move(path))), current_time_(current_time) {}
+TSView::TSView(ViewData view_data, const engine_time_t* engine_time_ptr) noexcept
+    : view_data_(std::move(view_data)) {
+    view_data_.engine_time_ptr = engine_time_ptr;
+}
+
+TSView::TSView(const TSValue& value, const engine_time_t* engine_time_ptr, ShortPath path)
+    : TSView(value.make_view_data(std::move(path), engine_time_ptr), engine_time_ptr) {}
+
+void TSView::set_current_time(engine_time_t time) noexcept {
+    (void)time;
+    if (view_data_.path.node != nullptr) {
+        if (const engine_time_t* owner_time_ptr = view_data_.path.node->cached_evaluation_time_ptr();
+            owner_time_ptr != nullptr) {
+            view_data_.engine_time_ptr = owner_time_ptr;
+        }
+    }
+}
 
 const TSMeta* TSView::ts_meta() const noexcept {
     if (view_data_.ops != nullptr) {
@@ -221,7 +237,7 @@ bool TSView::modified() const {
     if (view_data_.ops == nullptr) {
         return false;
     }
-    return view_data_.ops->modified(view_data_, current_time_);
+    return view_data_.ops->modified(view_data_, current_time());
 }
 
 bool TSView::valid() const {
@@ -277,28 +293,28 @@ nb::object TSView::delta_to_python() const {
     if (view_data_.ops == nullptr || view_data_.ops->delta_to_python == nullptr) {
         return nb::none();
     }
-    return view_data_.ops->delta_to_python(view_data_, current_time_);
+    return view_data_.ops->delta_to_python(view_data_, current_time());
 }
 
 void TSView::set_value(const value::View& src) {
     if (view_data_.ops == nullptr) {
         return;
     }
-    view_data_.ops->set_value(view_data_, src, current_time_);
+    view_data_.ops->set_value(view_data_, src, current_time());
 }
 
 void TSView::from_python(const nb::object& src) {
     if (view_data_.ops == nullptr || view_data_.ops->from_python == nullptr) {
         return;
     }
-    view_data_.ops->from_python(view_data_, src, current_time_);
+    view_data_.ops->from_python(view_data_, src, current_time());
 }
 
 void TSView::apply_delta(const value::View& delta) {
     if (view_data_.ops == nullptr) {
         return;
     }
-    view_data_.ops->apply_delta(view_data_, delta, current_time_);
+    view_data_.ops->apply_delta(view_data_, delta, current_time());
 }
 
 void TSView::invalidate() {
@@ -309,18 +325,18 @@ void TSView::invalidate() {
 }
 
 TSView TSView::child_at(size_t index) const {
-    return child_at_impl(view_data_, index, current_time_);
+    return child_at_impl(view_data_, index, view_data_.engine_time_ptr);
 }
 
 TSView TSView::child_by_name(std::string_view name) const {
-    return child_by_name_impl(view_data_, name, current_time_);
+    return child_by_name_impl(view_data_, name, view_data_.engine_time_ptr);
 }
 
 TSView TSView::child_by_key(const value::View& key) const {
     if (view_data_.meta == nullptr) {
         return {};
     }
-    return child_by_key_impl(view_data_, key, current_time_);
+    return child_by_key_impl(view_data_, key, view_data_.engine_time_ptr);
 }
 
 size_t TSView::child_count() const {
@@ -556,14 +572,14 @@ void TSView::bind(const TSView& target) {
     if (view_data_.ops == nullptr) {
         return;
     }
-    view_data_.ops->bind(view_data_, target.view_data_, current_time_);
+    view_data_.ops->bind(view_data_, target.view_data_, current_time());
 }
 
 void TSView::unbind() {
     if (view_data_.ops == nullptr) {
         return;
     }
-    view_data_.ops->unbind(view_data_, current_time_);
+    view_data_.ops->unbind(view_data_, current_time());
 }
 
 bool TSView::is_bound() const {
