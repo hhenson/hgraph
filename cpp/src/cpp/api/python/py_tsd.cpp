@@ -147,12 +147,17 @@ namespace
         }
 
         if (tuple_index == 2) {
-            out = nb::list{};
-            seen = nb::set{};
-            for (const auto &k : key_set_removed) {
-                append_unique(nb::cast<nb::object>(k));
+            if (nb::len(key_set_removed) > 0) {
+                out = nb::list{};
+                seen = nb::set{};
+                for (const auto &k : key_set_removed) {
+                    append_unique(nb::cast<nb::object>(k));
+                }
+                return out;
             }
-            return out;
+            if (tuple_slot_compatible) {
+                return out;
+            }
         }
 
         if (tuple_index != 0 && tuple_slot_compatible) {
@@ -458,6 +463,22 @@ namespace
                          view.as_ts_view().short_path().to_string().c_str(),
                          static_cast<long long>(view.current_time().time_since_epoch().count()),
                          keys_repr.c_str());
+        }
+        if (ref_valued && nb::len(out) == 0 && view.as_ts_view().modified()) {
+            nb::list fallback;
+            auto dict = view.as_dict();
+            for (const auto &key_item : nb::cast<nb::list>(keys())) {
+                nb::object key = nb::cast<nb::object>(key_item);
+                auto key_val = key_from_python_with_meta(key, meta);
+                if (key_val.schema() == nullptr) {
+                    continue;
+                }
+                auto child = dict.at_key(key_val.view());
+                if (child && child.modified()) {
+                    fallback.append(key);
+                }
+            }
+            return fallback;
         }
         return out;
     }
@@ -850,6 +871,22 @@ namespace
                          view.as_ts_view().short_path().to_string().c_str(),
                          static_cast<long long>(view.current_time().time_since_epoch().count()),
                          keys_repr.c_str());
+        }
+        if (ref_valued && nb::len(out) == 0 && view.as_ts_view().modified()) {
+            nb::list fallback;
+            auto dict = view.as_dict();
+            for (const auto &key_item : nb::cast<nb::list>(keys())) {
+                nb::object key = nb::cast<nb::object>(key_item);
+                auto key_val = key_from_python_with_meta(key, meta);
+                if (key_val.schema() == nullptr) {
+                    continue;
+                }
+                auto child = dict.at_key(key_val.view());
+                if (child && child.modified()) {
+                    fallback.append(key);
+                }
+            }
+            return fallback;
         }
         return out;
     }

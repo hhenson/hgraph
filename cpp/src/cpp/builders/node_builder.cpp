@@ -104,6 +104,19 @@ namespace hgraph {
                     }
                 }
 
+                // TSD/TSD_OUT fallback when cpp_type is unavailable (for example
+                // TSD[str, TS[Frame[...]]], where Frame scalar metadata has no
+                // native cpp_type and must degrade to TS[object]).
+                if (nb::hasattr(obj, "key_tp") && nb::hasattr(obj, "value_tp")) {
+                    nb::object key_tp = nb::getattr(obj, "key_tp");
+                    nb::object value_tp = nb::getattr(obj, "value_tp");
+                    const value::TypeMeta *key_meta = scalar_meta_from_signature_object(key_tp);
+                    const TSMeta *value_meta = meta_from_ts_signature_object(value_tp);
+                    if (key_meta != nullptr && value_meta != nullptr) {
+                        return TSTypeRegistry::instance().tsd(key_meta, value_meta);
+                    }
+                }
+
                 // TSB fallback for schemas that include fields whose Python metadata
                 // does not expose cpp_type (for example TS[Frame[...]] lanes).
                 if (nb::hasattr(obj, "bundle_schema_tp")) {

@@ -4483,25 +4483,28 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
 
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta != nullptr && self_meta->kind == TSKind::TSValue) {
-        // Scalar TS modified semantics follow value validity. Invalid scalar
-        // views (for example bound-to-empty REF transitions) should not present
-        // as modified ticks.
-        if (!op_valid(vd)) {
-            return false;
+        const bool valid_now = op_valid(vd);
+
+        // Scalar values read via REF/link-target paths should tick on valid
+        // rebind edges (winner switches), even when the newly bound target has
+        // no local modification this cycle.
+        if (rebind_time_for_view(vd) == current_time && valid_now) {
+            return true;
         }
-    }
-    if (self_meta != nullptr && self_meta->kind == TSKind::TSValue && vd.uses_link_target) {
-        if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices);
-            link_target != nullptr && !link_target->is_linked) {
-            ViewData bound_target{};
-            if (resolve_bound_target_view_data(vd, bound_target)) {
-                // Child links in peered/static container paths can be unlinked
-                // while still reading through a bound ancestor link.
-                // Only treat as unbound when no bound target is resolvable.
-            } else {
-            // Scalar/link-target inputs that are fully unbound should not surface
-            // rebind-edge modified ticks through generic TS modified semantics.
+
+        if (vd.uses_link_target) {
+            // Suppress transitions where the resolved target is invalid/unbound.
+            if (!valid_now) {
                 return false;
+            }
+
+            ViewData bound_target{};
+            if (resolve_bound_target_view_data(vd, bound_target) &&
+                !same_view_identity(bound_target, vd)) {
+                if (bound_target.ops != nullptr && bound_target.ops->modified != nullptr) {
+                    return bound_target.ops->modified(bound_target, current_time);
+                }
+                return op_last_modified_time(bound_target) == current_time;
             }
         }
     }
@@ -4548,11 +4551,15 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
                 }
 
                 if (direct_target_is_ref) {
-                    // Propagate only true source-wrapper rebinds. Wrapper-local
-                    // same-identity writes are handled on the source wrapper but
-                    // should not force downstream REF consumers to tick.
-                    const engine_time_t direct_rebind = rebind_time_for_view(direct_target);
-                    resolved_target_modified = direct_rebind == current_time;
+                    // Mirror Python behavior for REF->REF chains: downstream
+                    // wrappers should tick only when the immediate source REF
+                    // is itself modified this cycle.
+                    if (direct_target.ops != nullptr && direct_target.ops->modified != nullptr) {
+                        resolved_target_modified = direct_target.ops->modified(direct_target, current_time);
+                    } else {
+                        const engine_time_t direct_rebind = rebind_time_for_view(direct_target);
+                        resolved_target_modified = direct_rebind == current_time;
+                    }
                 } else if (resolved_target.ops != nullptr && resolved_target.ops->modified != nullptr) {
                     resolved_target_modified = resolved_target.ops->modified(resolved_target, current_time);
                 }
@@ -5730,20 +5737,6 @@ nb::object op_to_python(const ViewData& vd) {
         return tsd_key_set_to_python(key_set_source);
     }
 
-    if (self_meta != nullptr && (self_meta->kind == TSKind::TSS || self_meta->kind == TSKind::TSD)) {
-        const engine_time_t current_time = view_evaluation_time(vd);
-        if (current_time != MIN_DT) {
-            ViewData previous_bridge{};
-            ViewData current_bridge{};
-            if (resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge)) {
-                if (self_meta->kind == TSKind::TSS) {
-                    return tss_bridge_delta_to_python(previous_bridge, current_bridge, current_time);
-                }
-                return tsd_bridge_delta_to_python(previous_bridge, current_bridge, current_time);
-            }
-        }
-    }
-
     const TSMeta* current = self_meta;
     if (current != nullptr && current->kind == TSKind::TSL) {
         const size_t n = op_list_size(vd);
@@ -5784,8 +5777,23 @@ nb::object op_to_python(const ViewData& vd) {
                 if (!scalar_type_fn.is_none() && PyCallable_Check(scalar_type_fn.ptr()) != 0) {
                     nb::object scalar_type = scalar_type_fn();
                     if (!scalar_type.is_none()) {
+                        nb::dict scalar_kwargs;
+                        if (current->fields() != nullptr) {
+                            for (size_t i = 0; i < current->field_count(); ++i) {
+                                const char* field_name = current->fields()[i].name;
+                                if (field_name == nullptr) {
+                                    continue;
+                                }
+                                nb::object key_obj = nb::str(field_name);
+                                if (PyDict_Contains(out.ptr(), key_obj.ptr()) == 1) {
+                                    scalar_kwargs[key_obj] = out[key_obj];
+                                } else {
+                                    scalar_kwargs[key_obj] = nb::none();
+                                }
+                            }
+                        }
                         PyObject* empty_args = PyTuple_New(0);
-                        PyObject* scalar_obj = PyObject_Call(scalar_type.ptr(), empty_args, out.ptr());
+                        PyObject* scalar_obj = PyObject_Call(scalar_type.ptr(), empty_args, scalar_kwargs.ptr());
                         Py_DECREF(empty_args);
                         if (scalar_obj != nullptr) {
                             return nb::steal<nb::object>(scalar_obj);
@@ -6955,7 +6963,10 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             if (!sampled_like && has_changed_map) {
                 const auto changed_map = changed_values.as_map();
                 const bool debug_changed_map = std::getenv("HGRAPH_DEBUG_TSD_CHANGED_MAP") != nullptr;
-                for (View key : changed_map.keys()) {
+                for_each_map_key_slot(value_map, [&](View key, size_t /*slot_index*/) {
+                    if (!map_slot_for_key(changed_map, key).has_value()) {
+                        return;
+                    }
                     auto slot = map_slot_for_key(value_map, key);
                     if (!slot.has_value()) {
                         if (debug_changed_map) {
@@ -6964,7 +6975,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                                          vd.path.to_string().c_str(),
                                          key.to_string().c_str());
                         }
-                        continue;
+                        return;
                     }
                     View changed_entry = changed_map.at(key);
                     const bool changed_entry_has_delta = has_delta_payload(changed_entry);
@@ -7004,7 +7015,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                             if (!child_delta.is_none()) {
                                 delta_out[key.to_python()] = std::move(child_delta);
                             }
-                            continue;
+                            return;
                         }
                         if (!child_valid) {
                             if (debug_changed_map) {
@@ -7014,7 +7025,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                                              key.to_string().c_str(),
                                              *slot);
                             }
-                            continue;
+                            return;
                         }
                         const bool include_unmodified_nested_payload = key_in_added_set(key);
                         nb::object child_delta;
@@ -7068,10 +7079,10 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                             if (!child_delta_py.is_none()) {
                                 delta_out[key.to_python()] = std::move(child_delta_py);
                             }
-                            continue;
+                            return;
                         }
                         if (!child_valid) {
-                            continue;
+                            return;
                         }
                         View child_delta = op_delta_value(child);
                         if (has_delta_payload(child_delta)) {
@@ -7079,7 +7090,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                             if (!child_delta_py.is_none()) {
                                 delta_out[key.to_python()] = std::move(child_delta_py);
                             }
-                            continue;
+                            return;
                         }
 
                         // changed_values already identified an effective visible value change
@@ -7087,14 +7098,14 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                         // scalar child has no native delta payload.
                         View child_value = op_value(child);
                         if (!child_value.valid()) {
-                            continue;
+                            return;
                         }
                         nb::object child_value_py = delta_view_to_python(child_value);
                         if (!child_value_py.is_none()) {
                             delta_out[key.to_python()] = std::move(child_value_py);
                         }
                     }
-                }
+                });
             } else {
                 const bool include_unmodified = sampled_like;
                 const auto key_visible_in_previous_map = [&](View key) -> std::optional<bool> {
@@ -8405,7 +8416,6 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
             if (!set.add(elem)) {
                 return false;
             }
-
             if (slots.removed_set.valid() && slots.removed_set.is_set()) {
                 auto removed = slots.removed_set.as_set();
                 if (removed.contains(elem)) {
@@ -8426,7 +8436,6 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
             if (!set.remove(elem)) {
                 return false;
             }
-
             if (slots.added_set.valid() && slots.added_set.is_set()) {
                 auto added = slots.added_set.as_set();
                 if (added.contains(elem)) {
@@ -8857,6 +8866,13 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
             const bool scalar_like_element = element_meta == nullptr || is_scalar_like_ts_kind(element_meta->kind);
 
             if (scalar_like_element) {
+                if (nb::isinstance<TimeSeriesReference>(value_obj)) {
+                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(value_obj);
+                    if (!ref.is_valid()) {
+                        continue;
+                    }
+                }
+
                 value::Value value_value(value_type);
                 value_value.emplace();
                 value_type->ops().from_python(value_value.data(), value_obj, value_type);
@@ -10056,11 +10072,11 @@ bool op_dict_remove(ViewData& vd, const View& key, engine_time_t current_time) {
     }
 
     if (!added_this_cycle) {
-        if (removed_was_valid &&
-            slots.removed_set.valid() && slots.removed_set.is_set()) {
+        if (slots.removed_set.valid() && slots.removed_set.is_set()) {
             slots.removed_set.as_set().add(canonical_key);
-        } else if (!removed_was_valid &&
-                   slots.added_set.valid() && slots.added_set.is_set()) {
+        }
+        if (!removed_was_valid &&
+            slots.added_set.valid() && slots.added_set.is_set()) {
             // Marker: removed from key-space without a visible value removal.
             slots.added_set.as_set().add(canonical_key);
         }
@@ -10459,9 +10475,10 @@ void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
             compact_tsd_child_delta_slot(dst, *removed_slot);
             compact_tsd_child_link_slot(dst, *removed_slot);
         }
-        if (removed_was_valid && slots.removed_set.valid() && slots.removed_set.is_set()) {
+        if (slots.removed_set.valid() && slots.removed_set.is_set()) {
             slots.removed_set.as_set().add(key.view());
-        } else if (!removed_was_valid && slots.added_set.valid() && slots.added_set.is_set()) {
+        }
+        if (!removed_was_valid && slots.added_set.valid() && slots.added_set.is_set()) {
             // Marker for key-set change without visible value removal.
             slots.added_set.as_set().add(key.view());
         }

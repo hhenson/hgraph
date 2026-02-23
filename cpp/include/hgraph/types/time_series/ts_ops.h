@@ -6,6 +6,7 @@
 
 #include <nanobind/nanobind.h>
 
+#include <optional>
 #include <string_view>
 
 namespace nb = nanobind;
@@ -163,6 +164,10 @@ HGRAPH_EXPORT void store_to_ref_link(REFLink& target, const ViewData& source);
 HGRAPH_EXPORT bool resolve_direct_bound_view_data(const ViewData& source, ViewData& out);
 HGRAPH_EXPORT bool resolve_bound_target_view_data(const ViewData& source, ViewData& out);
 HGRAPH_EXPORT bool resolve_previous_bound_target_view_data(const ViewData& source, ViewData& out);
+HGRAPH_EXPORT std::optional<TSView> resolve_tsd_removed_child_snapshot(
+    const ViewData& parent_view,
+    const value::View& key,
+    engine_time_t current_time);
 HGRAPH_EXPORT void copy_view_data_value(ViewData& dst, const ViewData& src, engine_time_t current_time);
 HGRAPH_EXPORT void notify_ts_link_observers(const ViewData& target_view, engine_time_t current_time);
 
