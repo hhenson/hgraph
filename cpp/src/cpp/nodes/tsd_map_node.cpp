@@ -1345,9 +1345,37 @@ namespace hgraph
                     (current_inner_target.has_value() && desired_outer_target.has_value() &&
                      !same_view_identity(*current_inner_target, *desired_outer_target));
                 const bool key_value_modified = outer_key_value.valid() && outer_key_value.modified();
+                if (std::getenv("HGRAPH_DEBUG_TSD_MAP_BIND") != nullptr) {
+                    std::fprintf(stderr,
+                                 "[tsd_map_bind] refresh arg=%s key=%s inner_path=%s inner_bound=%d inner_valid=%d inner_mod=%d inner_lmt=%lld outer_valid=%d outer_mod=%d current_target=%d desired_target=%d binding_changed=%d key_value_modified=%d\n",
+                                 arg.c_str(),
+                                 key_repr(key, key_type_meta_).c_str(),
+                                 inner_ts.as_ts_view().short_path().to_string().c_str(),
+                                 inner_ts.is_bound() ? 1 : 0,
+                                 inner_ts.as_ts_view().valid() ? 1 : 0,
+                                 inner_ts.as_ts_view().modified() ? 1 : 0,
+                                 static_cast<long long>(inner_ts.as_ts_view().last_modified_time().time_since_epoch().count()),
+                                 outer_key_value.valid() ? 1 : 0,
+                                 outer_key_value.modified() ? 1 : 0,
+                                 current_inner_target.has_value() ? 1 : 0,
+                                 desired_outer_target.has_value() ? 1 : 0,
+                                 binding_changed ? 1 : 0,
+                                 key_value_modified ? 1 : 0);
+                }
                 stage_id = 5;
                 if (!inner_ts.is_bound() || key_value_modified || binding_changed) {
                     bind_inner_from_outer(outer_key_value, inner_ts);
+                }
+                if (std::getenv("HGRAPH_DEBUG_TSD_MAP_BIND") != nullptr) {
+                    std::fprintf(stderr,
+                                 "[tsd_map_bind] refresh_post arg=%s key=%s inner_path=%s inner_bound=%d inner_valid=%d inner_mod=%d inner_lmt=%lld\n",
+                                 arg.c_str(),
+                                 key_repr(key, key_type_meta_).c_str(),
+                                 inner_ts.as_ts_view().short_path().to_string().c_str(),
+                                 inner_ts.is_bound() ? 1 : 0,
+                                 inner_ts.as_ts_view().valid() ? 1 : 0,
+                                 inner_ts.as_ts_view().modified() ? 1 : 0,
+                                 static_cast<long long>(inner_ts.as_ts_view().last_modified_time().time_since_epoch().count()));
                 }
                 stage_id = 6;
                 if (key_value_modified || binding_changed) {

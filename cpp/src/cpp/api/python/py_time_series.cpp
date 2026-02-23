@@ -113,26 +113,6 @@ namespace
 
     nb::object PyTimeSeriesType::delta_value() const {
         const bool debug_delta_dispatch = std::getenv("HGRAPH_DEBUG_TS_DELTA_DISPATCH") != nullptr;
-        if (auto* input = dynamic_cast<const PyTimeSeriesDictInput*>(this)) {
-            nb::object out = input->delta_value();
-            if (debug_delta_dispatch) {
-                std::fprintf(stderr,
-                             "[ts_delta_dispatch] kind=dict_input path=%s out=%s\n",
-                             input->input_view().short_path().to_string().c_str(),
-                             nb::cast<std::string>(nb::repr(out)).c_str());
-            }
-            return out;
-        }
-        if (auto* output = dynamic_cast<const PyTimeSeriesDictOutput*>(this)) {
-            nb::object out = output->delta_value();
-            if (debug_delta_dispatch) {
-                std::fprintf(stderr,
-                             "[ts_delta_dispatch] kind=dict_output path=%s out=%s\n",
-                             output->output_view().short_path().to_string().c_str(),
-                             nb::cast<std::string>(nb::repr(out)).c_str());
-            }
-            return out;
-        }
         if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
             nb::object out = input->input_view().as_ts_view().delta_to_python();
             if (debug_delta_dispatch) {

@@ -26,6 +26,42 @@ namespace
             return self.input_view().as_list().at(index);
         }
     }
+
+    template <typename ChildViewT>
+    bool list_child_effectively_modified(const ChildViewT& child) {
+        if (!child) {
+            return false;
+        }
+
+        const auto* meta = child.ts_meta();
+        const bool ref_valued_tsd =
+            meta != nullptr &&
+            meta->kind == TSKind::TSD &&
+            meta->element_ts() != nullptr &&
+            meta->element_ts()->kind == TSKind::REF;
+        if (!ref_valued_tsd) {
+            return child.modified();
+        }
+
+        value::View delta = child.as_ts_view().delta_value();
+        if (delta.valid() && delta.is_tuple()) {
+            auto tuple = delta.as_tuple();
+            if (tuple.size() > 1) {
+                value::View added = tuple.at(1);
+                if (added.valid() && added.is_set() && added.as_set().size() > 0) {
+                    return true;
+                }
+            }
+            if (tuple.size() > 2) {
+                value::View removed = tuple.at(2);
+                if (removed.valid() && removed.is_set() && removed.as_set().size() > 0) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
 }  // namespace
 
     template <typename T_TS>
@@ -93,7 +129,7 @@ namespace
         const auto count = this->view().as_list().count();
         for (size_t i = 0; i < count; ++i) {
             auto child = child_at(*this, i);
-            if (child && child.modified()) {
+            if (list_child_effectively_modified(child)) {
                 out.append(nb::int_(i));
             }
         }
@@ -151,7 +187,7 @@ namespace
         const auto count = this->view().as_list().count();
         for (size_t i = 0; i < count; ++i) {
             auto child = child_at(*this, i);
-            if (child && child.modified()) {
+            if (list_child_effectively_modified(child)) {
                 out.append(wrap_child<T_TS>(std::move(child)));
             }
         }
@@ -164,7 +200,7 @@ namespace
         const auto count = this->view().as_list().count();
         for (size_t i = 0; i < count; ++i) {
             auto child = child_at(*this, i);
-            if (child && child.modified()) {
+            if (list_child_effectively_modified(child)) {
                 out.append(nb::make_tuple(nb::int_(i), wrap_child<T_TS>(std::move(child))));
             }
         }
