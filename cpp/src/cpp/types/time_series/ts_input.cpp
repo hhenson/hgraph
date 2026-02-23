@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_output.h>
@@ -22,6 +23,15 @@ static inline bool is_collection_kind(TSKind kind) {
         default:
             return false;
     }
+}
+
+// ============================================================================
+// TSInputView Implementation
+// ============================================================================
+
+bool TSInputView::modified() const {
+    if (ts_view_.modified()) return true;
+    return input_ && input_->sampled_at() >= ts_view_.current_time();
 }
 
 // ============================================================================
@@ -203,7 +213,8 @@ TSInput::~TSInput() {
 }
 
 void TSInput::notify(engine_time_t et) {
-    if (owning_node_) {
+    if (owning_node_ && notify_time_ != et) {
+        notify_time_ = et;
         owning_node_->notify(et);
     }
 }
@@ -259,8 +270,31 @@ void RefBindingProxy::notify(engine_time_t et) {
         try {
             TSView target_view = ts_ref->resolve(et);
             const ViewData& target_vd = target_view.view_data();
+
+            const void* old_value_data = nullptr;
+            if (input_vd.link_data) {
+                auto* lt = static_cast<const LinkTarget*>(input_vd.link_data);
+                if (lt->is_linked) old_value_data = lt->value_data;
+            }
+
             input_vd.ops->bind(input_vd, target_vd);
-        } catch (...) {}
+
+            if (old_value_data != target_vd.value_data) {
+                bool target_valid = input_vd.ops->valid(input_vd);
+                if (target_valid) {
+                    input->set_sampled_at(et);
+                }
+            }
+        }
+#ifndef NDEBUG
+        catch (const std::exception& e) {
+            fprintf(stderr, "[WARN] RefBindingProxy::notify: bind failed: %s\n", e.what());
+        } catch (...) {
+            fprintf(stderr, "[WARN] RefBindingProxy::notify: bind failed (unknown exception)\n");
+        }
+#else
+        catch (...) {}
+#endif
         input->notify(et);
     }
     // For PYTHON_BOUND refs: do NOT notify — the standard bind (LinkTarget)
@@ -390,7 +424,6 @@ void TSInputView::unbind() {
             skip_unsubscribe = true;
         }
         if (!skip_unsubscribe) {
-            // Get a view of the bound output at current time to unsubscribe
             output_view.unsubscribe(input_);
         }
     }

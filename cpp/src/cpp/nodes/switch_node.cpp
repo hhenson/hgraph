@@ -19,6 +19,8 @@
 #include <hgraph/util/lifecycle.h>
 #include <stdexcept>
 
+
+
 namespace hgraph {
 
     SwitchNode::SwitchNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
@@ -216,10 +218,11 @@ namespace hgraph {
 
                 auto& old_vd = *_saved_old_target_vd;
 
+                // TSD-TSD merge: when new branch emits a partial TSD delta, retain
+                // previously-valid keys that were not explicitly removed.
+                bool did_tsd_merge = false;
                 if (new_graph_produced_output && new_target_vd) {
                     auto& new_vd = *new_target_vd;
-                    // Python parity: on branch switches where the new branch emits a partial
-                    // TSD delta, retain previously-valid keys that were not explicitly removed.
                     if (old_vd.meta && old_vd.meta->kind == TSKind::TSD &&
                         new_vd.meta && new_vd.meta->kind == TSKind::TSD &&
                         old_vd.ops && new_vd.ops && new_vd.ops->from_python) {
@@ -253,9 +256,13 @@ namespace hgraph {
                                 new_vd.ops->from_python(new_vd, nb::cast<nb::object>(merge_payload), time);
                             }
                         }
+                        did_tsd_merge = true;
                     }
-                } else {
+                }
 
+                // For non-TSD types, always emit removal/invalidation when switching away
+                // from the old branch — even when the new branch produced output on the same tick.
+                if (!did_tsd_merge) {
                     if (old_vd.meta && old_vd.meta->kind == TSKind::TSS
                         && old_vd.ops && old_vd.ops->set_remove) {
                         // Clear stale delta to prevent cancellation
@@ -286,6 +293,40 @@ namespace hgraph {
                 }
 
                 _saved_old_target_vd = std::nullopt;
+            }
+
+            // Direct TSS output: emit removal deltas on branch switch when new branch
+            // produced nothing. Matches Python: self.output.value = None on TSS output
+            // which calls TSS.invalidate() → clear() → generates removal delta.
+            if (_graph_reset && ts_output() && !_saved_old_target_vd) {
+                auto eval_time = graph()->evaluation_time();
+                auto out_vd = ts_output()->native_value().make_view_data();
+                bool output_produced = out_vd.ops &&
+                    (out_vd.ops->last_modified_time(out_vd) >= eval_time);
+
+                if (!output_produced && out_vd.meta &&
+                    out_vd.meta->kind == TSKind::TSS &&
+                    out_vd.ops && out_vd.ops->set_remove) {
+                    // Clear stale delta to prevent cancellation of removals
+                    if (out_vd.delta_data) {
+                        auto* sd = static_cast<SetDelta*>(out_vd.delta_data);
+                        sd->clear();
+                    }
+                    // Collect and remove all current TSS elements (generates removal delta)
+                    TSSView tss_v(out_vd, eval_time);
+                    std::vector<value::PlainValue> to_remove;
+                    for (auto v : tss_v.values()) {
+                        to_remove.emplace_back(v);
+                    }
+                    for (auto& v : to_remove) {
+                        out_vd.ops->set_remove(out_vd, v.const_view(), eval_time);
+                    }
+                    // Notify downstream observers of the removal delta
+                    if (!to_remove.empty() && out_vd.observer_data) {
+                        auto* obs = static_cast<ObserverList*>(out_vd.observer_data);
+                        obs->notify_modified(eval_time);
+                    }
+                }
             }
 
             if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(
@@ -347,29 +388,80 @@ namespace hgraph {
                     // Resolve outer field through its LinkTarget to get upstream output data,
                     // then bind the inner stub's REF input to it.
                     auto field_view = outer_input_view.field(arg);
+                    const auto& fvd = field_view.ts_view().view_data();
 
-                    ViewData resolved = resolve_through_link(field_view.ts_view().view_data());
-                    {
-                        auto& vd = field_view.ts_view().view_data();
-                        if (vd.uses_link_target && vd.link_data) {
-                            auto* lt = static_cast<LinkTarget*>(vd.link_data);
-                            if (lt->is_linked && lt->target_path.valid()) {
-                                resolved.path = lt->target_path;
+                    // Detect NON_PEERED deferred case: graph_builder stores a NON_PEERED
+                    // TSReference directly in the outer field's value_data with lt_linked=false
+                    // intentionally. The normal bind path (REFBindingHelper::rebind for
+                    // NON_PEERED + REF→REF) does nothing to the inner stub's LT, leaving it
+                    // unlinked so valid() returns false. Fix: set the inner stub's LT directly
+                    // so that valid() returns true and ref_value() returns the NON_PEERED ref.
+                    bool handled_non_peered = false;
+                    if (fvd.meta && fvd.meta->kind == TSKind::REF &&
+                        fvd.uses_link_target && fvd.link_data) {
+                        const auto* outer_lt = static_cast<const LinkTarget*>(fvd.link_data);
+                        if (!outer_lt->is_linked && fvd.value_data) {
+                            const auto* outer_ref = static_cast<const TSReference*>(fvd.value_data);
+                            if (outer_ref && !outer_ref->is_empty() && outer_ref->is_non_peered()) {
+                                if (inner_node->ts_input()) {
+                                    auto inner_input_view = inner_node->ts_input()->view(
+                                        this->graph()->evaluation_time());
+                                    const TSMeta* inner_meta_np = inner_node->ts_input()->meta();
+
+                                    auto set_inner_lt_direct = [&](TSView& tv) {
+                                        auto& ivd = tv.view_data();
+                                        if (ivd.meta && ivd.meta->kind == TSKind::REF &&
+                                            ivd.uses_link_target && ivd.link_data) {
+                                            auto* inner_lt = static_cast<LinkTarget*>(ivd.link_data);
+                                            inner_lt->is_linked = true;
+                                            inner_lt->target_path = fvd.path;
+                                            inner_lt->value_data = fvd.value_data;
+                                            inner_lt->time_data = fvd.time_data;
+                                            inner_lt->observer_data = fvd.observer_data;
+                                            inner_lt->delta_data = fvd.delta_data;
+                                            inner_lt->link_data = nullptr;
+                                            inner_lt->ops = fvd.ops;
+                                            inner_lt->meta = fvd.meta;
+                                            handled_non_peered = true;
+                                        }
+                                    };
+
+                                    if (inner_meta_np && inner_meta_np->kind == TSKind::TSB) {
+                                        for (size_t fi = 0; fi < inner_meta_np->field_count; ++fi) {
+                                            auto inner_field_view = inner_input_view[fi];
+                                            set_inner_lt_direct(inner_field_view.ts_view());
+                                        }
+                                    } else {
+                                        set_inner_lt_direct(inner_input_view.ts_view());
+                                    }
+                                }
                             }
                         }
                     }
-                    TSView resolved_target(resolved, this->graph()->evaluation_time());
-
-                    if (inner_node->ts_input()) {
-                        auto inner_input_view = inner_node->ts_input()->view(this->graph()->evaluation_time());
-                        const TSMeta* inner_meta = inner_node->ts_input()->meta();
-                        if (inner_meta && inner_meta->kind == TSKind::TSB) {
-                            for (size_t fi = 0; fi < inner_meta->field_count; ++fi) {
-                                auto inner_field_view = inner_input_view[fi];
-                                inner_field_view.ts_view().bind(resolved_target);
+                    if (!handled_non_peered) {
+                        ViewData resolved = resolve_through_link(fvd);
+                        {
+                            if (fvd.uses_link_target && fvd.link_data) {
+                                auto* lt = static_cast<LinkTarget*>(fvd.link_data);
+                                if (lt->is_linked && lt->target_path.valid()) {
+                                    resolved.path = lt->target_path;
+                                }
                             }
-                        } else {
-                            inner_input_view.ts_view().bind(resolved_target);
+                        }
+                        TSView resolved_target(resolved, this->graph()->evaluation_time());
+
+                        if (inner_node->ts_input()) {
+                            auto inner_input_view = inner_node->ts_input()->view(
+                                this->graph()->evaluation_time());
+                            const TSMeta* inner_meta = inner_node->ts_input()->meta();
+                            if (inner_meta && inner_meta->kind == TSKind::TSB) {
+                                for (size_t fi = 0; fi < inner_meta->field_count; ++fi) {
+                                    auto inner_field_view = inner_input_view[fi];
+                                    inner_field_view.ts_view().bind(resolved_target);
+                                }
+                            } else {
+                                inner_input_view.ts_view().bind(resolved_target);
+                            }
                         }
                     }
                 }

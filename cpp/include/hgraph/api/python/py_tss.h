@@ -74,6 +74,7 @@ namespace hgraph
         [[nodiscard]] nb::object removed() const;
         [[nodiscard]] nb::bool_ was_added(const nb::object &item) const;
         [[nodiscard]] nb::bool_ was_removed(const nb::object &item) const;
+        [[nodiscard]] nb::object delta_value() const;
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
     };

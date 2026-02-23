@@ -73,6 +73,8 @@ struct LinkTarget : public Notifiable {
     struct ActiveNotifier : public Notifiable {
         TSInput* owning_input{nullptr};
         void notify(engine_time_t et) override;
+        /// Clear owning_input so make_passive won't try to remove from dead observer list.
+        void on_source_destroyed() override { owning_input = nullptr; }
     };
 
     // ========== Target-data fields (copied by store_to_link_target) ==========
@@ -178,6 +180,23 @@ struct LinkTarget : public Notifiable {
      */
     void (*ref_binding_deleter_)(void*){nullptr};
 
+    /**
+     * @brief Called from on_source_destroyed() when a REF binding exists.
+     *
+     * When the resolved target's ObserverList is destroyed, this handler
+     * attempts to immediately rebind to the current REF target. This handles
+     * the case where the resolved target is replaced (e.g., switch branch
+     * changes key set) and the REF still points to a valid new target.
+     *
+     * Parameters:
+     *   ref_binding        - opaque pointer to REFBindingHelper
+     *   dying_obs          - observer_data of the dying obs (to skip unsafe remove)
+     *   owner_time_ptr     - pointer to current engine time (for rebind)
+     *   saved_owning_input - saved active_notifier.owning_input (cleared before this call,
+     *                        passed so rebind can restore it and subscribe active_notifier)
+     */
+    void (*ref_binding_osd_fn_)(void* ref_binding, void* dying_obs, engine_time_t* owner_time_ptr, TSInput* saved_owning_input){nullptr};
+
     // ========== Construction ==========
 
     /**
@@ -242,6 +261,16 @@ struct LinkTarget : public Notifiable {
         if (owner_time_ptr) *owner_time_ptr = et;
         if (parent_link) parent_link->notify(et);
     }
+
+    /**
+     * @brief Called when the bound output's ObserverList is being destroyed.
+     *
+     * Clears all target-data back-references so that unbind() won't attempt
+     * to call remove_observer() on the freed observer list.
+     * Structural fields (owner_time_ptr, parent_link) are NOT cleared — they
+     * belong to the INPUT hierarchy and remain valid.
+     */
+    void on_source_destroyed() override;
 };
 
 /**

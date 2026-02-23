@@ -259,13 +259,46 @@ namespace hgraph {
         auto keys_field = outer_input.field(KEYS_ARG).ts_view();
         ViewData keys_resolved = resolve_through_link(keys_field.view_data());
 
-        if (keys_resolved.valid() && keys_resolved.ops && keys_resolved.ops->valid(keys_resolved)) {
-            TSSView keys_view(keys_resolved, time);
+        bool keys_tss_valid = keys_resolved.valid() && keys_resolved.ops &&
+                              keys_resolved.ops->valid(keys_resolved);
 
-            std::unordered_set<value::PlainValue, PlainValueHash, PlainValueEqual> current_keys;
-            for (auto key_val : keys_view.values()) {
-                current_keys.emplace(key_val);
+        // Detect when the __keys__ binding changed this tick via REFBindingHelper rebind.
+        // When the switch changes branches, REFBindingHelper rebinds to the new branch's TSS
+        // and calls owner->notify(et), which stamps lt->owner_time_ptr = et. However,
+        // keys_field.modified() delegates through the link to the resolved TSS (which may not
+        // have produced yet on the new branch), so modified()=false even though the binding
+        // changed. We must detect this so orphaned keys from the old branch can be removed.
+        // This matches Python switch: when branch changes, __keys__ is "modified" even if
+        // the new branch's TSS is initially empty/invalid.
+        //
+        // NOTE: We deliberately do NOT use keys_field.modified() here. Using it would fire
+        // during reduce-tree swaps when the TSS is temporarily invalid (due to a removed key
+        // being transiently referenced), causing all active graphs to be cleared with an empty
+        // current_keys set, losing valid state. keys_binding_changed_this_tick is more precise:
+        // it only fires when the REF binding itself changed (i.e., switch branch change), not
+        // for transient invalidity during graph restructuring.
+        bool keys_binding_changed_this_tick = false;
+        {
+            auto& vd = keys_field.view_data();
+            if (vd.uses_link_target && vd.link_data) {
+                auto* lt = static_cast<LinkTarget*>(vd.link_data);
+                if (lt->ref_binding_ && lt->owner_time_ptr && *lt->owner_time_ptr >= time) {
+                    keys_binding_changed_this_tick = true;
+                }
             }
+        }
+
+        if (keys_tss_valid || keys_binding_changed_this_tick) {
+            // Compute current key set from TSS (empty if TSS not yet valid).
+            std::unordered_set<value::PlainValue, PlainValueHash, PlainValueEqual> current_keys;
+            if (keys_tss_valid) {
+                TSSView keys_view(keys_resolved, time);
+                for (auto key_val : keys_view.values()) {
+                    current_keys.emplace(key_val);
+                }
+            }
+            // (if keys_modified but !keys_tss_valid: current_keys stays empty →
+            //  all active keys become orphaned, e.g. switch to empty branch)
 
             // Remove graphs for keys no longer present.
             {

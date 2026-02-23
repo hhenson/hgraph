@@ -414,6 +414,7 @@ void AlternativeStructuralObserver::on_insert(size_t slot) {
         target_elem_meta,
         native_elem_meta
     );
+
 }
 
 void AlternativeStructuralObserver::on_erase(size_t slot) {
@@ -700,6 +701,15 @@ void TSOutput::establish_links_recursive(
         if (value_data) {
             auto* ref_ptr = static_cast<TSReference*>(value_data);
             *ref_ptr = std::move(ref);
+
+            // Mark the alternative as valid by updating time_data to MIN_ST.
+            // Without this, last_modified_time stays MIN_DT → ts.valid = false,
+            // which causes _stub to return an empty reference instead of the
+            // peered one, breaking the subscription chain to the native output.
+            void* time_data = alt_view.view_data().time_data;
+            if (time_data) {
+                *static_cast<engine_time_t*>(time_data) = MIN_ST;
+            }
         }
         return;
     }

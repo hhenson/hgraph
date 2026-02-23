@@ -190,6 +190,20 @@ namespace hgraph
         : PyTimeSeriesType(view.ts_view())
         , input_view_{std::move(view)} {}
 
+    nb::bool_ PyTimeSeriesInput::modified() const {
+        return nb::bool_(input_view_.modified());
+    }
+
+    engine_time_t PyTimeSeriesInput::last_modified_time() const {
+        const auto& vd = input_view_.ts_view().view_data();
+        auto* inp = input_view_.input();
+        engine_time_t sampled_at = inp ? inp->sampled_at() : MIN_DT;
+        if (vd.ops && vd.ops->last_modified_time_sampled) {
+            return vd.ops->last_modified_time_sampled(vd, sampled_at, input_view_.current_time());
+        }
+        return view().last_modified_time();
+    }
+
     nb::object PyTimeSeriesInput::parent_input() const {
         const ShortPath& path = input_view().short_path();
         if (path.is_root()) {
@@ -245,13 +259,12 @@ namespace hgraph
         return nb::bool_(false);
     }
 
-    nb::object PyTimeSeriesInput::output() const {
-        // First try the view's stored bound_output (set during bind on same view)
-        TSOutput* bound = input_view().bound_output();
-
-        // If not available (transient view), recover from link structure
+    // Recover the bound TSOutput* from link structure when bound_output() returns nullptr.
+    // This handles transient views where the TSInputView wasn't the one that performed the bind.
+    static TSOutput* recover_bound_output(const TSInputView& iv) {
+        TSOutput* bound = iv.bound_output();
         if (!bound) {
-            const auto& vd = input_view().ts_view().view_data();
+            const auto& vd = iv.ts_view().view_data();
             if (vd.uses_link_target && vd.link_data) {
                 auto* lt = static_cast<const LinkTarget*>(vd.link_data);
                 if (lt->is_linked && lt->target_path.node()) {
@@ -259,7 +272,11 @@ namespace hgraph
                 }
             }
         }
+        return bound;
+    }
 
+    nb::object PyTimeSeriesInput::output() const {
+        TSOutput* bound = recover_bound_output(input_view());
         if (!bound) {
             return nb::none();
         }
@@ -296,17 +313,7 @@ namespace hgraph
         if (!bound_meta || bound_meta->kind != TSKind::REF) {
             return nb::none();
         }
-        TSOutput* bound = input_view().bound_output();
-        // If not available, recover from link structure
-        if (!bound) {
-            const auto& vd = input_view().ts_view().view_data();
-            if (vd.uses_link_target && vd.link_data) {
-                auto* lt = static_cast<const LinkTarget*>(vd.link_data);
-                if (lt->is_linked && lt->target_path.node()) {
-                    bound = lt->target_path.node()->ts_output();
-                }
-            }
-        }
+        TSOutput* bound = recover_bound_output(input_view());
         if (!bound) {
             return nb::none();
         }
@@ -329,6 +336,7 @@ namespace hgraph
             .def_prop_ro("output", &PyTimeSeriesInput::output)
             .def_prop_ro("reference_output", &PyTimeSeriesInput::reference_output)
             .def_prop_ro("active", &PyTimeSeriesInput::active)
+            .def_prop_ro("last_modified_time", &PyTimeSeriesInput::last_modified_time)
             .def("__getitem__", &PyTimeSeriesInput::get_input, "index"_a)
             .def("bind_output", &PyTimeSeriesInput::bind_output, "output"_a)
             .def("un_bind_output", &PyTimeSeriesInput::un_bind_output, "unbind_refs"_a = false)

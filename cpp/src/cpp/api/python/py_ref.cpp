@@ -13,6 +13,50 @@
 
 namespace hgraph
 {
+    // Implements TSReference.bind_input() protocol:
+    //   EMPTY      → unbind the input
+    //   PEERED     → rebind input to the resolved output (with reactivation if needed)
+    //   NON_PEERED → iterate children and recursively bind each child ref
+    static void ts_reference_bind_input(TSReference& self, nb::object input) {
+        if (self.is_empty()) {
+            input.attr("un_bind_output")();
+        } else if (self.is_peered()) {
+            bool is_bound = nb::cast<bool>(input.attr("bound"));
+            bool reactivate = false;
+            if (is_bound && !nb::cast<bool>(input.attr("has_peer"))) {
+                reactivate = nb::cast<bool>(input.attr("active"));
+                if (reactivate) input.attr("make_passive")();
+                input.attr("un_bind_output")();
+            }
+            nb::object output = nb::cast(self).attr("output");
+            if (!output.is_none()) {
+                input.attr("bind_output")(output);
+            }
+            if (reactivate) input.attr("make_active")();
+        } else if (self.is_non_peered()) {
+            bool is_bound = nb::cast<bool>(input.attr("bound"));
+            bool reactivate = false;
+            if (is_bound && nb::cast<bool>(input.attr("has_peer"))) {
+                reactivate = nb::cast<bool>(input.attr("active"));
+                if (reactivate) input.attr("make_passive")();
+                input.attr("un_bind_output")();
+            }
+            auto items = self.items();
+            size_t idx = 0;
+            for (auto child : input) {
+                if (idx < items.size()) {
+                    auto& ref = items[idx];
+                    if (!ref.is_empty()) {
+                        nb::cast(ref).attr("bind_input")(child);
+                    } else if (nb::cast<bool>(nb::borrow(child).attr("bound"))) {
+                        nb::borrow(child).attr("un_bind_output")();
+                    }
+                }
+                idx++;
+            }
+            if (reactivate) input.attr("make_active")();
+        }
+    }
 
     void ref_register_with_nanobind(nb::module_ &m) {
         // ============================================================
@@ -129,18 +173,12 @@ namespace hgraph
                                     inner_ref.set_resolve_time(self.resolve_time());
                                     TSView target = inner_ref.resolve(self.resolve_time());
                                     if (target) {
-                                        // Clear link_data: the resolved TSValue's link storage
-                                        // may contain REFLinks from internal graph wiring that
-                                        // would cause bundle_ops::child_at to navigate to garbage.
-                                        target.view_data().link_data = nullptr;
                                         TSOutputView target_ov(std::move(target), nullptr);
                                         return wrap_output_view(std::move(target_ov));
                                     }
                                 }
                             }
                         }
-                        // Clear link_data: same rationale as above.
-                        resolved.view_data().link_data = nullptr;
                         TSOutputView output_view(std::move(resolved), nullptr);
                         return wrap_output_view(std::move(output_view));
                     }
@@ -174,50 +212,7 @@ namespace hgraph
             })
             // bind_input: matches Python TimeSeriesReference.bind_input() behavior
             // Called by operators like valid_impl: ts.value.bind_input(ts_value)
-            .def("bind_input", [](TSReference& self, nb::object input) {
-                if (self.is_empty()) {
-                    // EmptyTimeSeriesReference.bind_input: just unbind
-                    input.attr("un_bind_output")();
-                } else if (self.is_peered()) {
-                    // BoundTimeSeriesReference.bind_input: rebind to resolved output
-                    bool reactivate = false;
-                    bool is_bound = nb::cast<bool>(input.attr("bound"));
-                    if (is_bound && !nb::cast<bool>(input.attr("has_peer"))) {
-                        reactivate = nb::cast<bool>(input.attr("active"));
-                        if (reactivate) input.attr("make_passive")();
-                        input.attr("un_bind_output")();
-                    }
-                    // Resolve the PEERED reference to its target output
-                    nb::object output = nb::cast(self).attr("output");
-                    if (!output.is_none()) {
-                        input.attr("bind_output")(output);
-                    }
-                    if (reactivate) input.attr("make_active")();
-                } else if (self.is_non_peered()) {
-                    // UnBoundTimeSeriesReference.bind_input: iterate children
-                    bool reactivate = false;
-                    bool is_bound = nb::cast<bool>(input.attr("bound"));
-                    if (is_bound && nb::cast<bool>(input.attr("has_peer"))) {
-                        reactivate = nb::cast<bool>(input.attr("active"));
-                        if (reactivate) input.attr("make_passive")();
-                        input.attr("un_bind_output")();
-                    }
-                    auto items = self.items();
-                    size_t idx = 0;
-                    for (auto child : input) {
-                        if (idx < items.size()) {
-                            auto& ref = items[idx];
-                            if (!ref.is_empty()) {
-                                nb::cast(ref).attr("bind_input")(child);
-                            } else if (nb::cast<bool>(nb::borrow(child).attr("bound"))) {
-                                nb::borrow(child).attr("un_bind_output")();
-                            }
-                        }
-                        idx++;
-                    }
-                    if (reactivate) input.attr("make_active")();
-                }
-            }, "input"_a);
+            .def("bind_input", &ts_reference_bind_input, "input"_a);
 
         // TSReference::Kind enum
         nb::enum_<TSReference::Kind>(m, "TSReferenceKind")
@@ -327,37 +322,6 @@ namespace hgraph
     PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput(TSInputView view)
         : PyTimeSeriesInput(std::move(view)) {}
 
-    // Helper: given a REF output's stored TSReference, return the appropriate Python
-    // TimeSeriesReference object. Matches Python's PythonTimeSeriesReferenceOutput.value
-    // which returns NonPeeredTimeSeriesReference(self._tp) for concrete outputs.
-    static nb::object ref_output_value_to_python(const TSReference& stored_ref, engine_time_t time) {
-        if (stored_ref.is_peered()) {
-            // PEERED inner ref → resolve to concrete output → BoundTimeSeriesReference
-            TSReference ref_copy = stored_ref;
-            ref_copy.set_resolve_time(time);
-            TSView target = ref_copy.resolve(time);
-            if (target && target.view_data().ops &&
-                target.view_data().ops->valid(target.view_data())) {
-                // Clear link_data: the resolved TSValue's link storage may contain
-                // REFLinks from internal graph wiring that would cause
-                // bundle_ops::child_at to navigate to garbage.
-                target.view_data().link_data = nullptr;
-                TSOutputView ov(std::move(target), nullptr);
-                nb::object wrapper = wrap_output_view(std::move(ov));
-                auto ref_module = nb::module_::import_("hgraph._types._ref_type");
-                auto make_fn = ref_module.attr("TimeSeriesReference").attr("make");
-                return make_fn(wrapper);
-            }
-        }
-        if (stored_ref.is_non_peered()) {
-            // NON_PEERED → return as-is (dereference uses .items path)
-            TSReference ref_copy = stored_ref;
-            ref_copy.set_resolve_time(time);
-            return nb::cast(std::move(ref_copy));
-        }
-        return nb::cast(TSReference::empty());
-    }
-
     // Helper: wrap a concrete (non-REF) output TSView as BoundTimeSeriesReference
     static nb::object make_bound_ref(TSView&& target_view) {
         // Ensure link_data is clear: resolved TSValue link storage may contain
@@ -371,85 +335,24 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesReferenceInput::ref_value() const {
-        // Match Python PythonTimeSeriesReferenceInput.value semantics:
-        //   if self._output is not None: return self._output.value
-        //   return self._value
-        //
-        // Three binding scenarios:
-        // 1. TS→REF (non-peered): LinkTarget points to non-REF output → BoundTimeSeriesReference
-        // 2. REF→REF (peered): LinkTarget points to REF output → read output's stored ref
-        // 3. Unbound/direct: TSReference stored in own value_data → may need resolution
-
         const auto& iv = input_view();
         const auto& vd = iv.ts_view().view_data();
         const engine_time_t time = iv.ts_view().current_time();
 
-        if (vd.uses_link_target && vd.link_data) {
-            auto* lt = static_cast<const LinkTarget*>(vd.link_data);
-            if (lt->valid()) {
-                if (lt->meta->kind != TSKind::REF) {
-                    // Case 1: Non-peered binding (TS→REF) → BoundTimeSeriesReference
-                    ViewData target_vd;
-                    target_vd.path = lt->target_path;
-                    target_vd.value_data = lt->value_data;
-                    target_vd.time_data = lt->time_data;
-                    target_vd.observer_data = lt->observer_data;
-                    target_vd.delta_data = lt->delta_data;
-                    target_vd.link_data = lt->link_data;
-                    target_vd.ops = lt->ops;
-                    target_vd.meta = lt->meta;
-
-                    return make_bound_ref(TSView(target_vd, time));
-                }
-                if (lt->value_data) {
-                    // Case 2: REF→REF (peered) → read the output's stored TSReference
-                    auto* output_ref = static_cast<const TSReference*>(lt->value_data);
-                    return ref_output_value_to_python(*output_ref, time);
-                }
+        if (vd.ops && vd.ops->ref_resolve_value) {
+            auto result = vd.ops->ref_resolve_value(vd, time);
+            switch (result.case_type) {
+                case RefValueResolution::CONCRETE_OUTPUT:
+                    return make_bound_ref(TSView(result.output_vd, time));
+                case RefValueResolution::REF_AS_IS:
+                    return nb::cast(std::move(result.ref));
+                case RefValueResolution::EMPTY:
+                default:
+                    return nb::cast(TSReference::empty());
             }
         }
 
-        // Case 3: Unbound/direct — TSReference in own value_data
-        // Used by reduce inner stubs where set_ref_input_value writes directly,
-        // and by TSD elements accessed through resolved_dict_view where the ViewData
-        // has uses_link_target=false (resolved through LinkTarget to output storage).
-        //
-        // IMPORTANT: Read the TSReference directly from value_data instead of calling
-        // iv.ts_view().value() which goes through scalar_ops::value() →
-        // resolve_delegation_target() → get_active_link(). When uses_link_target=false,
-        // get_active_link() would misinterpret link_data as REFLink* even though it
-        // might not be (e.g., when link_data comes from an alternative TSD view's
-        // per-element link storage that doesn't match the expected REFLink layout).
-        if (vd.value_data) {
-            auto* ref_ptr = static_cast<const TSReference*>(vd.value_data);
-            TSReference ref = *ref_ptr;
-            if (ref.is_peered()) {
-                // Resolve the PEERED ref to its target
-                ref.set_resolve_time(time);
-                TSView resolved = ref.resolve(time);
-                if (resolved && resolved.view_data().meta) {
-                    if (resolved.view_data().meta->kind == TSKind::REF) {
-                        // Target is a REF output → return what IT stores
-                        // (matches Python: self._output.value where _output is REF output)
-                        auto inner_val = resolved.value();
-                        if (inner_val.valid()) {
-                            return ref_output_value_to_python(inner_val.as<TSReference>(), time);
-                        }
-                        return nb::cast(TSReference::empty());
-                    }
-                    // Target is concrete output → BoundTimeSeriesReference
-                    resolved.view_data().link_data = nullptr;
-                    return make_bound_ref(std::move(resolved));
-                }
-                // Keep the peered ref when resolution fails in this direct-value path.
-                // Nested collapse/ref compositions can legitimately carry a peered
-                // reference that is resolved by the consumer's context.
-                return nb::cast(std::move(ref));
-            }
-            // NON_PEERED or EMPTY: return as-is
-            ref.set_resolve_time(time);
-            return nb::cast(std::move(ref));
-        }
+        // Fallback for non-REF ops (shouldn't happen for REF inputs)
         return nb::cast(TSReference::empty());
     }
 

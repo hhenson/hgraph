@@ -18,8 +18,6 @@
 #include <hgraph/util/date_time.h>
 
 #include <algorithm>
-#include <cstdio>
-#include <typeinfo>
 #include <vector>
 
 namespace hgraph {
@@ -48,7 +46,16 @@ public:
     ObserverList& operator=(const ObserverList& o) { observers_ = o.observers_; trace_ = o.trace_; return *this; }
     ObserverList& operator=(ObserverList&& o) noexcept { observers_ = std::move(o.observers_); trace_ = o.trace_; return *this; }
 
-    ~ObserverList() { sentinel_ = 0xDEAD'0B5E; }
+    ~ObserverList() {
+        // Mark as dead BEFORE notifying subscribers.
+        // This prevents any add_observer() calls (e.g., from rebind() during OSD callbacks)
+        // from modifying the observers_ vector while we iterate it — which would be UB.
+        // remove_observer() also checks is_alive() and bails early when dead.
+        sentinel_ = 0xDEAD'0B5E;
+        for (auto* obs : observers_) {
+            if (obs && obs->is_alive()) obs->on_source_destroyed();
+        }
+    }
 
     [[nodiscard]] bool is_alive() const { return sentinel_ == ALIVE_SENTINEL; }
 
@@ -62,15 +69,19 @@ public:
     void add_observer(Notifiable* obs) {
         if (obs) {
             if (!is_alive()) {
+#ifndef NDEBUG
                 fprintf(stderr, "[OBSERVER] add_observer to DEAD ObserverList %p sentinel=0x%08X\n",
                         (void*)this, sentinel_);
+#endif
                 return;  // Skip subscription to freed observer list
             }
             observers_.push_back(obs);
+#ifndef NDEBUG
             if (trace_) {
                 fprintf(stderr, "[OBS_TRACE] add_observer(%p) to list %p now size=%zu\n",
                         (void*)obs, (void*)this, observers_.size());
             }
+#endif
         }
     }
 

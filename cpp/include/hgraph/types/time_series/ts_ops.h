@@ -10,6 +10,7 @@
  */
 
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_reference_ops.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/date_time.h>
 
@@ -24,6 +25,23 @@ struct ViewData;
 class TSView;
 class ShortPath;
 class TSInput;
+
+/**
+ * @brief Result of resolving a REF input's value through links.
+ *
+ * Used by ref_resolve_value to communicate the resolution result
+ * without requiring the ts_ops layer to depend on Python wrapper types.
+ */
+struct RefValueResolution {
+    enum Case {
+        EMPTY,           ///< No value -- return TSReference::empty()
+        CONCRETE_OUTPUT, ///< Resolved to concrete (non-REF) output -> wrap as BoundTimeSeriesReference
+        REF_AS_IS        ///< TSReference to return directly to Python (peered or non-peered)
+    };
+    Case case_type = EMPTY;
+    ViewData output_vd{};    ///< Valid when case_type == CONCRETE_OUTPUT (link_data pre-cleared)
+    TSReference ref{};       ///< Valid when case_type == REF_AS_IS
+};
 
 /**
  * @brief Operations vtable for time-series types.
@@ -410,6 +428,100 @@ struct ts_ops {
      * @return TSView for the value entry
      */
     TSView (*dict_set)(ViewData& vd, const value::View& key, const value::View& value, engine_time_t current_time);
+
+    // ========== Python Interop Extensions ==========
+    // These extend the basic Python interop with sampling-aware and kind-specific operations.
+    // They are the last fields in the struct to allow clean macro grouping.
+
+    /**
+     * @brief Follow input link_data to the bound output's ViewData.
+     *
+     * Takes the original input ViewData (uses_link_target=true) and resolves it
+     * to the bound output's ViewData. For TSD, also handles alternative schema
+     * resolution when input schema != native output schema.
+     *
+     * Only valid for TSS and TSD. nullptr for other kinds.
+     *
+     * @param input_vd The TSInput's own ViewData (uses_link_target=true)
+     * @param current_time Current engine time (needed for alternative view resolution)
+     * @return Resolved output ViewData, or invalid ViewData if not bound
+     */
+    ViewData (*resolve_bound_output)(const ViewData& input_vd, engine_time_t current_time);
+
+    /**
+     * @brief last_modified_time with sampling-aware override.
+     *
+     * Returns max(lmt, sampled_at) when sampled_at >= current_time.
+     * Used by TSInput wrappers that track sampled_at from TSValue.
+     * Valid for all kinds.
+     */
+    engine_time_t (*last_modified_time_sampled)(const ViewData& vd, engine_time_t sampled_at,
+                                                 engine_time_t current_time);
+
+    /**
+     * @brief TSS: Convert added-set to Python, synthesizing full set when sampled.
+     *
+     * When sampled_at >= current_time, returns all current values as "added" set.
+     * Otherwise returns the normal delta's added set (empty if not modified).
+     *
+     * Only valid for TSS. nullptr for other kinds.
+     */
+    nb::object (*set_added_to_python)(const ViewData& vd, engine_time_t sampled_at,
+                                      engine_time_t current_time);
+
+    /**
+     * @brief TSS: Convert delta to Python (PythonSetDelta), synthesizing when sampled.
+     *
+     * When sampled_at >= current_time, returns PythonSetDelta(all_values, frozenset()).
+     * Otherwise delegates to normal delta_to_python.
+     *
+     * Only valid for TSS. nullptr for other kinds.
+     */
+    nb::object (*set_delta_to_python_sampled)(const ViewData& vd, engine_time_t sampled_at,
+                                               engine_time_t current_time);
+
+    /**
+     * @brief TSD: Crash-safe delta-to-python.
+     *
+     * Falls back to key-level manual reconstruction when nested TSD removal
+     * causes dict_ops::delta_to_python() to crash.
+     *
+     * Only valid for TSD. nullptr for other kinds.
+     */
+    nb::object (*dict_delta_to_python_safe)(const ViewData& vd);
+
+    /**
+     * @brief TSD: Prepare REF-wrapped element in the alternative TSD schema.
+     *
+     * Builds a TSD[K, REF[elem_ts]] alternative on the owning TSOutput,
+     * creates the element at the given key if it doesn't exist, writes the
+     * TSReference (PEERED if key exists in native, EMPTY otherwise), marks the
+     * element as modified, and returns the element's ViewData.
+     *
+     * The caller is responsible for wrapping the returned ViewData into Python.
+     *
+     * @param vd The TSD output's ViewData (must have valid path with owning node)
+     * @param key The key as a value::View
+     * @param current_time Current engine time
+     * @return ViewData for the alt TSD element, or invalid ViewData on failure
+     *
+     * Only valid for TSD. nullptr for other kinds.
+     */
+    ViewData (*dict_prepare_ref_entry)(const ViewData& vd, const value::View& key,
+                                       engine_time_t current_time);
+
+    /**
+     * @brief REF: Resolve the value of a REF input through link structure.
+     *
+     * Handles all REF binding cases:
+     * - Case 1 (TS->REF): LinkTarget points to non-REF output -> CONCRETE_OUTPUT
+     * - Case 2 (REF->REF peered): Read TSReference from linked REF output, resolve -> CONCRETE_OUTPUT or REF_AS_IS
+     * - Case 2b (REF non-peered): Read TSReference from linked REF output -> REF_AS_IS
+     * - Case 3 (direct): Read TSReference from own value_data, resolve if peered -> appropriate case
+     *
+     * Only valid for REF kind. nullptr for other kinds.
+     */
+    RefValueResolution (*ref_resolve_value)(const ViewData& vd, engine_time_t current_time);
 };
 
 /**

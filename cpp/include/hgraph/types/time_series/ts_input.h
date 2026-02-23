@@ -250,6 +250,23 @@ public:
      */
     [[nodiscard]] bool valid() const noexcept { return meta_ != nullptr; }
 
+    // ========== Sampled-At Tracking ==========
+
+    /**
+     * @brief Get the time this input was last "sampled" via a binding event.
+     *
+     * When a REF binding proxy binds this input to a valid target at tick T,
+     * sampled_at_ is set to T. This allows modified() to return true for that
+     * tick even if the bound target's last_modified_time < T.
+     * Mirrors Python's _sample_time / _sampled mechanism.
+     */
+    [[nodiscard]] engine_time_t sampled_at() const noexcept { return sampled_at_; }
+
+    /**
+     * @brief Set sampled_at (called by RefBindingProxy when binding to a valid target).
+     */
+    void set_sampled_at(engine_time_t t) noexcept { sampled_at_ = t; }
+
     // ========== Bound Output Tracking ==========
 
     /**
@@ -298,6 +315,8 @@ private:
     const TSMeta* meta_{nullptr};       ///< Schema
     node_ptr owning_node_{nullptr};     ///< For scheduling
     TSOutput* bound_output_{nullptr};   ///< Persistent bound output reference
+    engine_time_t notify_time_{MIN_DT}; ///< Last notified time (dedup guard, mirrors Python _notify_time)
+    engine_time_t sampled_at_{MIN_DT};  ///< Last binding-sampled time (mirrors Python _sample_time)
     std::vector<std::unique_ptr<SignalSubscription>> signal_subscriptions_;  ///< Non-peered SIGNAL subscriptions
     std::vector<std::unique_ptr<RefBindingProxy>> ref_binding_proxies_;     ///< REF→non-REF binding proxies
 };

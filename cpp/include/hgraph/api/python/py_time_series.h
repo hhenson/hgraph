@@ -46,7 +46,7 @@ namespace hgraph
         // When was this time-series last modified?
         [[nodiscard]] engine_time_t last_modified_time() const;
         // State of the value checks
-        [[nodiscard]] nb::bool_ modified() const;
+        [[nodiscard]] virtual nb::bool_ modified() const;
         [[nodiscard]] nb::bool_ valid() const;
         [[nodiscard]] nb::bool_ all_valid() const;
 
@@ -119,6 +119,12 @@ namespace hgraph
         // Reference and child access
         [[nodiscard]] nb::object reference_output() const;
         [[nodiscard]] nb::object get_input(size_t index) const;
+
+        // Override modified() to use TSInputView which checks sampled_at_
+        [[nodiscard]] nb::bool_ modified() const override;
+
+        // Override last_modified_time() to return max(lmt, sampled_at) when sampled
+        [[nodiscard]] engine_time_t last_modified_time() const;
 
         // Get the input view
         [[nodiscard]] TSInputView& input_view() { return input_view_; }

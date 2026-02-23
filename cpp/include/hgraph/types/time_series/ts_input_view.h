@@ -108,9 +108,13 @@ public:
     /**
      * @brief Check if modified at current time.
      *
-     * Returns true if the linked output was modified at current_time.
+     * Returns true if the linked output was modified at current_time, OR if
+     * the input was bound to a valid target this tick (sampled event). The
+     * sampled case mirrors Python's _sampled mechanism: when a REF binding
+     * proxy establishes a new binding to a valid target at tick T, the input
+     * reports modified=true for that tick even if the target's lmt < T.
      */
-    [[nodiscard]] bool modified() const { return ts_view_.modified(); }
+    [[nodiscard]] bool modified() const;
 
     /**
      * @brief Check if the value has ever been set.

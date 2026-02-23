@@ -1,5 +1,6 @@
 #include <hgraph/api/python/py_tss.h>
 #include <hgraph/api/python/wrapper_factory.h>
+#include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_set_view.h>
 #include <hgraph/types/time_series/ts_dict_view.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
@@ -286,23 +287,8 @@ namespace hgraph
     static ViewData resolve_input_view_data(const PyTimeSeriesSetInput& input) {
         auto ts = input.input_view().ts_view();
         const auto& vd = ts.view_data();
-
-        if (vd.uses_link_target && vd.link_data) {
-            auto* lt = static_cast<const LinkTarget*>(vd.link_data);
-            if (lt && lt->valid()) {
-                ViewData resolved;
-                resolved.value_data = lt->value_data;
-                resolved.time_data = lt->time_data;
-                resolved.observer_data = lt->observer_data;
-                resolved.delta_data = lt->delta_data;
-                resolved.link_data = lt->link_data;
-                resolved.meta = lt->meta ? lt->meta : vd.meta;
-                resolved.ops = lt->ops ? lt->ops : vd.ops;
-                resolved.path = vd.path;
-                resolved.uses_link_target = false;
-                resolved.sampled = vd.sampled;
-                return resolved;
-            }
+        if (vd.ops && vd.ops->resolve_bound_output) {
+            return vd.ops->resolve_bound_output(vd, input.input_view().current_time());
         }
         return vd;
     }
@@ -351,11 +337,25 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesSetInput::added() const {
-        auto delta = get_input_delta(*this);
-        if (delta.is_none()) return nb::set();
-        auto added = delta.attr("added");
-        if (nb::isinstance<nb::set>(added)) return added;
-        return nb::steal(PySet_New(added.ptr()));
+        auto ts = input_view().ts_view();
+        const auto& vd = ts.view_data();
+        auto* inp = input_view().input();
+        engine_time_t sampled_at = inp ? inp->sampled_at() : MIN_DT;
+        if (vd.ops && vd.ops->set_added_to_python) {
+            return vd.ops->set_added_to_python(vd, sampled_at, input_view().current_time());
+        }
+        return nb::set();
+    }
+
+    nb::object PyTimeSeriesSetInput::delta_value() const {
+        auto ts = input_view().ts_view();
+        const auto& vd = ts.view_data();
+        auto* inp = input_view().input();
+        engine_time_t sampled_at = inp ? inp->sampled_at() : MIN_DT;
+        if (vd.ops && vd.ops->set_delta_to_python_sampled) {
+            return vd.ops->set_delta_to_python_sampled(vd, sampled_at, input_view().current_time());
+        }
+        return view().delta_to_python();
     }
 
     nb::object PyTimeSeriesSetInput::removed() const {
@@ -392,6 +392,7 @@ namespace hgraph
     void tss_register_with_nanobind(nb::module_ &m) {
         auto tss_input = nb::class_<PyTimeSeriesSetInput, PyTimeSeriesInput>(m, "TimeSeriesSetInput");
         tss_input.def_prop_ro("value", &PyTimeSeriesSetInput::value)
+            .def_prop_ro("delta_value", &PyTimeSeriesSetInput::delta_value)
             .def("__contains__", &PyTimeSeriesSetInput::contains)
             .def("__len__", &PyTimeSeriesSetInput::size)
             .def("empty", &PyTimeSeriesSetInput::empty)

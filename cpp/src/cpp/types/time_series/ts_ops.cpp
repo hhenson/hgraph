@@ -13,6 +13,9 @@
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/types/time_series/ts_dict_view.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/ref_link.h>
@@ -360,8 +363,7 @@ struct REFBindingHelper : public Notifiable {
 
     explicit REFBindingHelper(LinkTarget* lt, const ViewData& ref_src, bool ref_to_ref = false,
                               void* input_obs = nullptr)
-        : owner(lt), ref_source(ref_src), input_observer_data(input_obs), is_ref_to_ref_(ref_to_ref) {
-    }
+        : owner(lt), ref_source(ref_src), input_observer_data(input_obs), is_ref_to_ref_(ref_to_ref) {}
 
     ~REFBindingHelper() override {
         // Do NOT call unsubscribe_all() here.
@@ -389,7 +391,7 @@ struct REFBindingHelper : public Notifiable {
     }
 
     void unsubscribe_from_resolved() {
-        if (resolved_obs && owner->is_linked) {
+        if (resolved_obs) {
             auto* obs = static_cast<ObserverList*>(resolved_obs);
             if (obs->is_alive()) {
                 obs->remove_observer(owner);  // time-accounting chain
@@ -668,6 +670,31 @@ void delete_ref_binding_helper(void* ptr) {
     delete static_cast<REFBindingHelper*>(ptr);
 }
 
+// Called from LinkTarget::on_source_destroyed() when the resolved target's ObserverList
+// is destroyed while a REF binding is active. Attempts immediate rebind so that
+// the LinkTarget is reconnected to the current REF target (if still valid).
+//
+// This handles the case where a resolved intermediate target (e.g., a `nothing` branch
+// output) is destroyed before the next tick while the REF source (switch output) still
+// points to a valid new target.
+static void ref_binding_rebind_on_osd(void* rb, void* dying_obs, engine_time_t* owner_time_ptr, TSInput* saved_owning_input) {
+    auto* helper = static_cast<REFBindingHelper*>(rb);
+    // If helper's resolved_obs is the dying obs, clear it now so that
+    // unsubscribe_from_resolved() won't try to erase from a vector being iterated.
+    if (helper->resolved_obs == dying_obs) {
+        helper->resolved_obs = nullptr;
+    }
+    // Use the owner's current time if available, otherwise MIN_DT.
+    engine_time_t rebind_time = MIN_DT;
+    if (owner_time_ptr && *owner_time_ptr != MIN_DT) {
+        rebind_time = *owner_time_ptr;
+    }
+    // Restore owning_input so rebind() can subscribe active_notifier to the new target.
+    // on_source_destroyed() cleared it before calling us; restore it so the subscription works.
+    helper->owner->active_notifier.owning_input = saved_owning_input;
+    helper->rebind(rebind_time);
+}
+
 } // anonymous namespace
 
 // ============================================================================
@@ -912,6 +939,10 @@ void bind(ViewData& vd, const ViewData& target) {
         throw std::runtime_error("bind on scalar without link data");
     }
 
+    // DEBUG: log all scalar_ops::bind calls when target is REF
+    if (target.meta && target.meta->kind == TSKind::REF) {
+    }
+
     if (vd.uses_link_target) {
         // TSInput: Store directly in LinkTarget
         auto* lt = get_link_target(vd.link_data);
@@ -930,6 +961,7 @@ void bind(ViewData& vd, const ViewData& target) {
             // Clean up existing REF binding if any (prevents leak/double subscription
             // when bind_output is called multiple times without unbind)
             if (lt->ref_binding_) {
+                // DEBUG: check if we're overwriting a BundleREFBindingHelper
                 auto* old_helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
                 old_helper->unsubscribe_all();
                 if (lt->ref_binding_deleter_) {
@@ -957,6 +989,7 @@ void bind(ViewData& vd, const ViewData& target) {
             auto* helper = new REFBindingHelper(lt, target, is_ref_to_ref, vd.observer_data);
             lt->ref_binding_ = helper;
             lt->ref_binding_deleter_ = &delete_ref_binding_helper;
+            lt->ref_binding_osd_fn_ = &ref_binding_rebind_on_osd;
 
             if (is_ref_to_ref) {
                 // REF→REF: Store REF source data in LinkTarget so that
@@ -982,7 +1015,22 @@ void bind(ViewData& vd, const ViewData& target) {
             return;
         }
 
-        // Non-REF target: store directly and subscribe
+        // Non-REF target: unsubscribe from old observer list before rebinding.
+        // ObserverList::~ObserverList() calls on_source_destroyed() on remaining
+        // subscribers. Without unsubscribing here, when the old target is later
+        // destroyed it would call on_source_destroyed() on this LinkTarget (and its
+        // active_notifier), clearing our NEW binding.
+        if (lt->is_linked && lt->observer_data) {
+            auto* old_obs = static_cast<ObserverList*>(lt->observer_data);
+            if (old_obs->is_alive() && old_obs != target.observer_data) {
+                old_obs->remove_observer(lt);
+                // Also remove active_notifier if it was subscribed to the old observer list.
+                // active_notifier is added to the observer list when make_active() is called.
+                if (lt->active_notifier.owning_input != nullptr) {
+                    old_obs->remove_observer(&lt->active_notifier);
+                }
+            }
+        }
         store_to_link_target(*lt, target);
 
         // For TS→REF binding (REF input binding to non-REF output):
@@ -2108,10 +2156,12 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
 // ============================================================================
 
 struct BundleREFBindingHelper : public Notifiable {
+    static constexpr uint64_t BRBH_MAGIC = 0xBEEFCAFE'DEADBA11ULL;
     LinkTarget* container_lt;
     ViewData input_vd;           // TSB input's ViewData (for reconstructing link/time tuples)
     ViewData ref_source;         // REF output's ViewData
     bool subscribed_to_ref{false};
+    uint64_t magic_before_fields{BRBH_MAGIC};  // canary to detect corruption
 
     // Track per-field observer subscriptions for cleanup
     struct FieldSub {
@@ -2121,7 +2171,8 @@ struct BundleREFBindingHelper : public Notifiable {
     std::vector<FieldSub> field_subs;
 
     explicit BundleREFBindingHelper(LinkTarget* ct, const ViewData& ivd, const ViewData& ref_src)
-        : container_lt(ct), input_vd(ivd), ref_source(ref_src) {}
+        : container_lt(ct), input_vd(ivd), ref_source(ref_src) {
+    }
 
     ~BundleREFBindingHelper() override {
         // Don't unsubscribe here — done explicitly before delete to avoid use-after-free
@@ -2138,19 +2189,29 @@ struct BundleREFBindingHelper : public Notifiable {
     void unsubscribe_from_ref_source() {
         if (subscribed_to_ref && ref_source.observer_data) {
             auto* obs = static_cast<ObserverList*>(ref_source.observer_data);
-            obs->remove_observer(this);
+            if (obs->is_alive()) {
+                obs->remove_observer(this);
+            }
             subscribed_to_ref = false;
+            ref_source.observer_data = nullptr;
         }
     }
 
     void unsubscribe_fields() {
         for (auto& fs : field_subs) {
-            if (fs.observer_data && fs.lt) {
-                auto* obs = static_cast<ObserverList*>(fs.observer_data);
-                obs->remove_observer(fs.lt);
-                if (fs.lt->active_notifier.owning_input != nullptr) {
-                    obs->remove_observer(&fs.lt->active_notifier);
+            if (fs.lt) {
+                // Use lt->observer_data dynamically — it may have been cleared by
+                // on_source_destroyed() when the target field's ObserverList was destroyed.
+                if (fs.lt->observer_data) {
+                    auto* obs = static_cast<ObserverList*>(fs.lt->observer_data);
+                    if (obs->is_alive()) {
+                        obs->remove_observer(fs.lt);
+                        if (fs.lt->active_notifier.owning_input != nullptr) {
+                            obs->remove_observer(&fs.lt->active_notifier);
+                        }
+                    }
                 }
+                fs.lt->active_notifier.owning_input = nullptr;
             }
         }
         field_subs.clear();
@@ -2159,6 +2220,13 @@ struct BundleREFBindingHelper : public Notifiable {
     void unsubscribe_all() {
         unsubscribe_fields();
         unsubscribe_from_ref_source();
+    }
+
+    // Called by ObserverList::~ObserverList() when the REF source's observer list is being
+    // destroyed. Clears our back-reference to prevent use-after-free in unsubscribe_all().
+    void on_source_destroyed() override {
+        subscribed_to_ref = false;
+        ref_source.observer_data = nullptr;
     }
 
     void clear_field_link_targets() {
@@ -2594,7 +2662,9 @@ void unbind(ViewData& vd) {
     }
 
     auto link_schema = get_bundle_link_schema(vd);
-    if (!link_schema) return;
+    if (!link_schema) {
+        return;
+    }
 
     value::View link_view(vd.link_data, link_schema);
     auto link_tuple = link_view.as_tuple();
@@ -2604,8 +2674,13 @@ void unbind(ViewData& vd) {
         auto* container_lt = static_cast<LinkTarget*>(link_tuple.at(0).data());
         if (container_lt && container_lt->ref_binding_) {
             auto* helper = static_cast<BundleREFBindingHelper*>(container_lt->ref_binding_);
-            helper->unsubscribe_all();
-            container_lt->cleanup_ref_binding();
+            if (helper->magic_before_fields != BundleREFBindingHelper::BRBH_MAGIC) {
+                container_lt->ref_binding_ = nullptr;
+                container_lt->ref_binding_deleter_ = nullptr;
+            } else {
+                helper->unsubscribe_all();
+                container_lt->cleanup_ref_binding();
+            }
         }
     }
 
@@ -3571,6 +3646,7 @@ void bind(ViewData& vd, const ViewData& target) {
                         auto* helper = new REFBindingHelper(lt, elem_vd, is_ref_to_ref);
                         lt->ref_binding_ = helper;
                         lt->ref_binding_deleter_ = &delete_ref_binding_helper;
+                        lt->ref_binding_osd_fn_ = &ref_binding_rebind_on_osd;
 
                         if (is_ref_to_ref) {
                             // REF→REF: Store REF source data in LinkTarget so that
@@ -3653,6 +3729,7 @@ void bind(ViewData& vd, const ViewData& target) {
             auto* helper = new REFBindingHelper(lt, target, false);
             lt->ref_binding_ = helper;
             lt->ref_binding_deleter_ = &delete_ref_binding_helper;
+            lt->ref_binding_osd_fn_ = &ref_binding_rebind_on_osd;
             helper->subscribe_to_ref_source();
             helper->rebind(MIN_DT);
             return;
@@ -4628,6 +4705,7 @@ void bind(ViewData& vd, const ViewData& target) {
             auto* helper = new REFBindingHelper(lt, target, false);
             lt->ref_binding_ = helper;
             lt->ref_binding_deleter_ = &delete_ref_binding_helper;
+            lt->ref_binding_osd_fn_ = &ref_binding_rebind_on_osd;
             helper->subscribe_to_ref_source();
             helper->rebind(MIN_DT);
             return;
@@ -4899,6 +4977,63 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     }
 }
 
+// ========== Python Interop Extension Functions ==========
+
+ViewData resolve_bound_output(const ViewData& input_vd, engine_time_t /*current_time*/) {
+    // Follow the LinkTarget to get the bound output's ViewData.
+    // Preserves input's meta/ops as fallback and sampled flag.
+    if (input_vd.uses_link_target && input_vd.link_data) {
+        auto* lt = static_cast<const LinkTarget*>(input_vd.link_data);
+        if (lt && lt->valid()) {
+            ViewData resolved;
+            resolved.value_data = lt->value_data;
+            resolved.time_data = lt->time_data;
+            resolved.observer_data = lt->observer_data;
+            resolved.delta_data = lt->delta_data;
+            resolved.link_data = lt->link_data;
+            resolved.meta = lt->meta ? lt->meta : input_vd.meta;
+            resolved.ops = lt->ops ? lt->ops : input_vd.ops;
+            resolved.path = input_vd.path;
+            resolved.uses_link_target = false;
+            resolved.sampled = input_vd.sampled;
+            return resolved;
+        }
+    }
+    return input_vd;
+}
+
+nb::object set_added_to_python(const ViewData& vd, engine_time_t sampled_at,
+                                engine_time_t current_time) {
+    if (sampled_at >= current_time) {
+        // Sampled: all current values count as "added"
+        return to_python(vd);  // returns the set contents
+    }
+    // Normal: return delta's added set
+    if (!valid(vd)) return nb::set();
+    auto delta = delta_to_python(vd);
+    if (delta.is_none()) return nb::set();
+    auto added = delta.attr("added");
+    if (nb::isinstance<nb::set>(added)) return added;
+    return nb::steal(PySet_New(added.ptr()));
+}
+
+nb::object set_delta_to_python_sampled(const ViewData& vd, engine_time_t sampled_at,
+                                        engine_time_t current_time) {
+    if (sampled_at >= current_time) {
+        // Sampled: synthesize delta with all current values as additions
+        auto py_vals = to_python(vd);
+        nb::frozenset all_values;
+        if (!py_vals.is_none()) {
+            all_values = nb::frozenset(nb::cast<nb::set>(py_vals));
+        } else {
+            all_values = nb::frozenset(nb::set());
+        }
+        auto tss_mod = nb::module_::import_("hgraph._impl._types._tss");
+        return tss_mod.attr("PythonSetDelta")(all_values, nb::frozenset(nb::set()));
+    }
+    return delta_to_python(vd);
+}
+
 void clear_caches() {
     cached_py_deltas_.clear();
 }
@@ -5058,7 +5193,9 @@ engine_time_t last_modified_time(const ViewData& vd) {
 }
 
 bool modified(const ViewData& vd, engine_time_t current_time) {
-    if (auto target = resolve_delegation_target(vd)) return target->ops->modified(*target, current_time);
+    if (auto target = resolve_delegation_target(vd)) {
+        return target->ops->modified(*target, current_time);
+    }
     return last_modified_time(vd) >= current_time;
 }
 
@@ -6032,6 +6169,7 @@ void bind(ViewData& vd, const ViewData& target) {
             auto* helper = new REFBindingHelper(lt, target, false);
             lt->ref_binding_ = helper;
             lt->ref_binding_deleter_ = &delete_ref_binding_helper;
+            lt->ref_binding_osd_fn_ = &ref_binding_rebind_on_osd;
             helper->subscribe_to_ref_source();
             helper->rebind(MIN_DT);
             return;
@@ -6191,6 +6329,11 @@ bool dict_remove(ViewData& vd, const value::View& key, engine_time_t current_tim
 }
 
 TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_time) {
+    {
+        // Debug: print the link_data to understand if REFLink is set
+        auto* rl_chk = (!vd.uses_link_target) ? get_ref_link(vd.link_data) : nullptr;
+        bool has_active = rl_chk && rl_chk->target().valid();
+    }
     // If linked, delegate to target (write through)
     if (vd.path.is_root()) {
         if (auto* rl = get_active_link(vd)) {
@@ -6312,7 +6455,9 @@ TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_t
         map_delta->set_key_time(current_time);
         if (auto* key_obs = map_delta->key_observers()) {
             key_obs->notify_modified(current_time);
+        } else {
         }
+    } else {
     }
 
     // Update container timestamp
@@ -6554,6 +6699,180 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
             }
         }
     }
+}
+
+// ========== Python Interop Extension Functions ==========
+
+ViewData resolve_bound_output(const ViewData& input_vd, engine_time_t current_time) {
+    // Step 1: Follow the LinkTarget to get the native output's ViewData
+    ViewData vd = resolve_through_link(input_vd);
+
+    // Step 2: Check if the input's declared schema differs from the native output's schema.
+    // If so, we need an alternative view from the bound TSOutput.
+    const TSMeta* input_meta = input_vd.meta;
+    bool needs_alt = input_meta && vd.meta && input_meta != vd.meta;
+    if (needs_alt) {
+        // Find TSOutput* — recover from the LinkTarget's target_path
+        TSOutput* bound = nullptr;
+        if (input_vd.uses_link_target && input_vd.link_data) {
+            auto* lt = static_cast<const LinkTarget*>(input_vd.link_data);
+            // Collection-level link may be in a tuple — use the outer namespace's helper
+            // Note: dict_ops::get_active_link_target uses path.is_root() check;
+            // for the root TSD input, walk through the tuple link layout.
+            const void* cld = nullptr;
+            if (input_vd.path.is_root() && input_vd.link_data) {
+                auto* schema = TSMetaSchemaCache::instance().get_input_link_schema(input_vd.meta);
+                if (schema) {
+                    value::View lv(input_vd.link_data, schema);
+                    if (lv.valid()) {
+                        if (auto tpl = lv.try_as_tuple()) {
+                            cld = tpl->at(0).data();
+                        }
+                    }
+                }
+            }
+            if (!cld) cld = input_vd.link_data;
+            auto* root_lt = static_cast<const LinkTarget*>(cld);
+            if (root_lt && root_lt->is_linked && root_lt->target_path.node()) {
+                bound = root_lt->target_path.node()->ts_output();
+            }
+        }
+
+        if (bound) {
+            TSOutputView alt_view = bound->view(current_time, input_meta);
+            ViewData alt_vd = alt_view.ts_view().view_data();
+
+            // Use alternative's value/meta/ops/link for correct element types,
+            // but native's time/delta/observer for modification tracking.
+            ViewData native_vd = bound->native_value().make_view_data();
+            vd.value_data = alt_vd.value_data;
+            vd.meta = alt_vd.meta;
+            vd.ops = alt_vd.ops;
+            vd.link_data = alt_vd.link_data;
+            vd.time_data = native_vd.time_data;
+            vd.delta_data = native_vd.delta_data;
+            vd.observer_data = native_vd.observer_data;
+        }
+    }
+
+    return vd;
+}
+
+nb::object dict_delta_to_python_safe(const ViewData& vd) {
+    if (!valid(vd)) return nb::none();  // never set
+
+    // Check if we have the crash condition: nested TSD with removed slots
+    const TSMeta* elem_meta = vd.meta ? vd.meta->element_ts : nullptr;
+    const bool nested_tsd = elem_meta && elem_meta->kind == TSKind::TSD;
+    bool has_removed = false;
+    if (vd.delta_data) {
+        auto* map_delta = static_cast<MapDelta*>(vd.delta_data);
+        has_removed = !map_delta->removed().empty();
+    }
+
+    if (!(has_removed && nested_tsd)) {
+        // Fast path: no nested TSD removal, use normal delta_to_python
+        return delta_to_python(vd);
+    }
+
+    // Slow path: build delta from key-level changes to avoid nested-removal crash
+    nb::dict out;
+    TSDView dict_view(vd, MIN_DT);
+
+    for (auto key : dict_view.modified_keys()) {
+        TSView elem_view = dict_view.at(key);
+        const ViewData& elem_vd = elem_view.view_data();
+        if (!elem_vd.ops) continue;
+
+        nb::object py_delta = elem_vd.ops->delta_to_python(elem_vd);
+        if (py_delta.is_none()) {
+            py_delta = elem_vd.ops->to_python(elem_vd);
+        }
+        if (!py_delta.is_none()) {
+            out[key.to_python()] = py_delta;
+        }
+    }
+
+    // Add REMOVE sentinels for removed keys
+    if (vd.delta_data) {
+        auto* map_delta = static_cast<MapDelta*>(vd.delta_data);
+        if (!map_delta->removed().empty()) {
+            nb::module_ tsd_mod = nb::module_::import_("hgraph._types._tsd_type");
+            nb::object remove_sentinel = tsd_mod.attr("REMOVE");
+            auto* storage = vd.value_data ? static_cast<value::MapStorage*>(vd.value_data) : nullptr;
+            const TSMeta* meta = vd.meta;
+            const value::TypeMeta* key_tm = meta ? meta->key_type : nullptr;
+            if (storage && key_tm) {
+                for (auto slot : map_delta->removed()) {
+                    if (!map_delta->was_removed_valid(slot)) continue;
+                    const void* key_data = storage->key_at_slot(slot);
+                    if (key_data) {
+                        value::View key_view(key_data, key_tm);
+                        out[key_view.to_python()] = remove_sentinel;
+                    }
+                }
+            }
+        }
+    }
+
+    return out.size() > 0 ? nb::cast<nb::object>(out) : nb::none();
+}
+
+ViewData dict_prepare_ref_entry(const ViewData& vd, const value::View& key,
+                                 engine_time_t current_time) {
+    // Find the owning TSOutput from the ViewData's path
+    TSOutput* ts_output = nullptr;
+    if (vd.path.valid() && vd.path.node()) {
+        ts_output = vd.path.node()->ts_output();
+    }
+    if (!ts_output) return ViewData{};
+
+    // Build alternative schema: TSD[K, REF[elem_ts]]
+    const TSMeta* tsd_meta = vd.meta;
+    if (!tsd_meta || !tsd_meta->element_ts || !tsd_meta->key_type) return ViewData{};
+
+    auto& registry = TSTypeRegistry::instance();
+    const TSMeta* ref_elem_meta = registry.ref(tsd_meta->element_ts);
+    const TSMeta* ref_tsd_meta = registry.tsd(tsd_meta->key_type, ref_elem_meta);
+
+    // Get the alternative TSD[K, REF[elem_ts]] view from the output
+    TSOutputView alt_view = ts_output->view(current_time, ref_tsd_meta);
+    TSDView alt_dict = alt_view.ts_view().as_dict();
+
+    // Create element in alternative if it doesn't exist yet
+    if (!alt_dict.contains(key)) {
+        alt_dict.create(key);
+    }
+
+    // Build TSReference: PEERED if key exists in native, EMPTY if not
+    TSView alt_elem = alt_dict.at(key);
+    TSReference ref;
+    TSDView native_dict(vd, current_time);
+    if (native_dict.contains(key)) {
+        TSView native_elem = native_dict.at(key);
+        if (native_elem) {
+            ref = TSReference::peered(native_elem.short_path());
+        }
+    }
+
+    if (!alt_elem) return ViewData{};
+
+    // Write TSReference directly to the alternative's LOCAL value storage
+    // (NOT through value() which might delegate through active REFLink)
+    void* value_data = alt_elem.view_data().value_data;
+    if (value_data) {
+        auto* ref_ptr = static_cast<TSReference*>(value_data);
+        *ref_ptr = std::move(ref);
+    }
+
+    // Mark element as modified at current time
+    auto* elem_time = static_cast<engine_time_t*>(alt_elem.view_data().time_data);
+    if (elem_time) *elem_time = current_time;
+    if (auto* elem_obs = static_cast<ObserverList*>(alt_elem.view_data().observer_data)) {
+        elem_obs->notify_modified(current_time);
+    }
+
+    return alt_elem.view_data();
 }
 
 } // namespace dict_ops
@@ -7703,8 +8022,141 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     .dict_create = ns::dict_create, \
     .dict_set = ns::dict_set
 
+// ============================================================================
+// ref_ops — REF-specific ts_ops implementations
+// ============================================================================
+
+namespace ref_ops {
+
+// Helper: try to resolve a peered TSReference to a concrete output ViewData.
+// Returns CONCRETE_OUTPUT on success, EMPTY on failure.
+// The keep_on_fail flag controls behavior when resolution fails:
+//   false (Cases 2/2b): return EMPTY (matches old ref_output_value_to_python)
+//   true  (Case 3):     return REF_AS_IS (nested collapse/ref compositions need
+//                        the peered ref for consumer-context resolution)
+static RefValueResolution resolve_ref(const TSReference& stored_ref, engine_time_t time,
+                                       bool keep_on_fail = false) {
+    if (stored_ref.is_peered()) {
+        TSReference ref_copy = stored_ref;
+        ref_copy.set_resolve_time(time);
+        TSView target = ref_copy.resolve(time);
+        if (target && target.view_data().ops &&
+            target.view_data().ops->valid(target.view_data())) {
+            if (target.view_data().meta && target.view_data().meta->kind == TSKind::REF) {
+                // Target is a REF output -> read what IT stores and resolve recursively
+                auto inner_val = target.value();
+                if (inner_val.valid()) {
+                    return resolve_ref(inner_val.as<TSReference>(), time, keep_on_fail);
+                }
+                return {RefValueResolution::EMPTY, {}, TSReference::empty()};
+            }
+            // Target is concrete output -> return as CONCRETE_OUTPUT with link_data cleared
+            ViewData resolved = target.view_data();
+            resolved.link_data = nullptr;  // Clear stale REFLinks from internal wiring
+            return {RefValueResolution::CONCRETE_OUTPUT, resolved, {}};
+        }
+        // Resolution failed
+        if (keep_on_fail) {
+            // Case 3: keep peered ref for consumer-context resolution
+            TSReference ref_result = stored_ref;
+            ref_result.set_resolve_time(time);
+            return {RefValueResolution::REF_AS_IS, {}, std::move(ref_result)};
+        }
+        return {RefValueResolution::EMPTY, {}, TSReference::empty()};
+    }
+    if (stored_ref.is_non_peered()) {
+        TSReference ref_copy = stored_ref;
+        ref_copy.set_resolve_time(time);
+        return {RefValueResolution::REF_AS_IS, {}, std::move(ref_copy)};
+    }
+    return {RefValueResolution::EMPTY, {}, TSReference::empty()};
+}
+
+static RefValueResolution ref_resolve_value(const ViewData& vd, engine_time_t current_time) {
+    // Linked cases: LinkTarget present
+    if (vd.uses_link_target && vd.link_data) {
+        auto* lt = static_cast<const LinkTarget*>(vd.link_data);
+
+        // Cases 2/2b: linked to a REF output -> read TSReference from output's value_data
+        if (lt->meta && lt->meta->kind == TSKind::REF && lt->value_data) {
+            // Valid linked (Case 2) or non-peered unlinked (Case 2b)
+            if (lt->valid() || (!lt->is_linked && lt->ops)) {
+                auto* output_ref = static_cast<const TSReference*>(lt->value_data);
+                return resolve_ref(*output_ref, current_time);
+            }
+        }
+
+        // Case 1: linked to non-REF output -> build ViewData for BoundTimeSeriesReference
+        if (lt->valid() && lt->meta && lt->meta->kind != TSKind::REF) {
+            ViewData target_vd;
+            target_vd.path = lt->target_path;
+            target_vd.value_data = lt->value_data;
+            target_vd.time_data = lt->time_data;
+            target_vd.observer_data = lt->observer_data;
+            target_vd.delta_data = lt->delta_data;
+            target_vd.link_data = nullptr;  // Clear: not needed, avoids stale pointers
+            target_vd.ops = lt->ops;
+            target_vd.meta = lt->meta;
+            return {RefValueResolution::CONCRETE_OUTPUT, target_vd, {}};
+        }
+    }
+
+    // Case 3: Direct -- TSReference in own value_data
+    if (vd.value_data) {
+        auto* ref_ptr = static_cast<const TSReference*>(vd.value_data);
+        return resolve_ref(*ref_ptr, current_time, /*keep_on_fail=*/true);
+    }
+
+    return {RefValueResolution::EMPTY, {}, TSReference::empty()};
+}
+
+} // namespace ref_ops
+
+// Python Interop Extension groups — placed after dict_set in the struct.
+// generic_lmt_sampled is a free function usable by all kinds.
+static engine_time_t generic_lmt_sampled(const ViewData& vd, engine_time_t sa, engine_time_t ct) {
+    engine_time_t lmt = vd.ops ? vd.ops->last_modified_time(vd) : MIN_DT;
+    return (sa >= ct) ? (lmt > sa ? lmt : sa) : lmt;
+}
+
+#define TS_NO_PY_INTEROP \
+    .resolve_bound_output = nullptr, \
+    .last_modified_time_sampled = generic_lmt_sampled, \
+    .set_added_to_python = nullptr, \
+    .set_delta_to_python_sampled = nullptr, \
+    .dict_delta_to_python_safe = nullptr, \
+    .dict_prepare_ref_entry = nullptr, \
+    .ref_resolve_value = nullptr
+
+#define TS_SET_PY_INTEROP(ns) \
+    .resolve_bound_output = ns::resolve_bound_output, \
+    .last_modified_time_sampled = generic_lmt_sampled, \
+    .set_added_to_python = ns::set_added_to_python, \
+    .set_delta_to_python_sampled = ns::set_delta_to_python_sampled, \
+    .dict_delta_to_python_safe = nullptr, \
+    .dict_prepare_ref_entry = nullptr, \
+    .ref_resolve_value = nullptr
+
+#define TS_DICT_PY_INTEROP(ns) \
+    .resolve_bound_output = ns::resolve_bound_output, \
+    .last_modified_time_sampled = generic_lmt_sampled, \
+    .set_added_to_python = nullptr, \
+    .set_delta_to_python_sampled = nullptr, \
+    .dict_delta_to_python_safe = ns::dict_delta_to_python_safe, \
+    .dict_prepare_ref_entry = ns::dict_prepare_ref_entry, \
+    .ref_resolve_value = nullptr
+
+#define TS_REF_PY_INTEROP \
+    .resolve_bound_output = nullptr, \
+    .last_modified_time_sampled = generic_lmt_sampled, \
+    .set_added_to_python = nullptr, \
+    .set_delta_to_python_sampled = nullptr, \
+    .dict_delta_to_python_safe = nullptr, \
+    .dict_prepare_ref_entry = nullptr, \
+    .ref_resolve_value = ref_ops::ref_resolve_value
+
 // Single unified macro: common fields from ns, optional groups passed as parameters
-#define MAKE_TS_OPS(ns, WINDOW, SET, DICT) ts_ops { \
+#define MAKE_TS_OPS(ns, WINDOW, SET, DICT, PYINTEROP) ts_ops { \
     .ts_meta = [](const ViewData& vd) { return vd.meta; }, \
     .last_modified_time = ns::last_modified_time, \
     .modified = ns::modified, \
@@ -7733,16 +8185,18 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     .set_active = ns::set_active, \
     WINDOW, \
     SET, \
-    DICT \
+    DICT, \
+    PYINTEROP \
 }
 
-static const ts_ops scalar_ts_ops       = MAKE_TS_OPS(scalar_ops,       TS_NO_WINDOW_OPS, TS_NO_SET_OPS,          TS_NO_DICT_OPS);
-static const ts_ops bundle_ts_ops       = MAKE_TS_OPS(bundle_ops,       TS_NO_WINDOW_OPS, TS_NO_SET_OPS,          TS_NO_DICT_OPS);
-static const ts_ops list_ts_ops         = MAKE_TS_OPS(list_ops,         TS_NO_WINDOW_OPS, TS_NO_SET_OPS,          TS_NO_DICT_OPS);
-static const ts_ops set_ts_ops          = MAKE_TS_OPS(set_ops,          TS_NO_WINDOW_OPS, TS_SET_OPS(set_ops),    TS_NO_DICT_OPS);
-static const ts_ops dict_ts_ops         = MAKE_TS_OPS(dict_ops,         TS_NO_WINDOW_OPS, TS_NO_SET_OPS,          TS_DICT_OPS(dict_ops));
-static const ts_ops fixed_window_ts_ops = MAKE_TS_OPS(fixed_window_ops, TS_WINDOW_OPS(fixed_window_ops), TS_NO_SET_OPS, TS_NO_DICT_OPS);
-static const ts_ops time_window_ts_ops  = MAKE_TS_OPS(time_window_ops,  TS_WINDOW_OPS(time_window_ops),  TS_NO_SET_OPS, TS_NO_DICT_OPS);
+static const ts_ops scalar_ts_ops       = MAKE_TS_OPS(scalar_ops,       TS_NO_WINDOW_OPS, TS_NO_SET_OPS,          TS_NO_DICT_OPS,          TS_NO_PY_INTEROP);
+static const ts_ops bundle_ts_ops       = MAKE_TS_OPS(bundle_ops,       TS_NO_WINDOW_OPS, TS_NO_SET_OPS,          TS_NO_DICT_OPS,          TS_NO_PY_INTEROP);
+static const ts_ops list_ts_ops         = MAKE_TS_OPS(list_ops,         TS_NO_WINDOW_OPS, TS_NO_SET_OPS,          TS_NO_DICT_OPS,          TS_NO_PY_INTEROP);
+static const ts_ops set_ts_ops          = MAKE_TS_OPS(set_ops,          TS_NO_WINDOW_OPS, TS_SET_OPS(set_ops),    TS_NO_DICT_OPS,          TS_SET_PY_INTEROP(set_ops));
+static const ts_ops dict_ts_ops         = MAKE_TS_OPS(dict_ops,         TS_NO_WINDOW_OPS, TS_NO_SET_OPS,          TS_DICT_OPS(dict_ops),   TS_DICT_PY_INTEROP(dict_ops));
+static const ts_ops fixed_window_ts_ops = MAKE_TS_OPS(fixed_window_ops, TS_WINDOW_OPS(fixed_window_ops), TS_NO_SET_OPS, TS_NO_DICT_OPS, TS_NO_PY_INTEROP);
+static const ts_ops time_window_ts_ops  = MAKE_TS_OPS(time_window_ops,  TS_WINDOW_OPS(time_window_ops),  TS_NO_SET_OPS, TS_NO_DICT_OPS, TS_NO_PY_INTEROP);
+static const ts_ops ref_ts_ops          = MAKE_TS_OPS(scalar_ops,       TS_NO_WINDOW_OPS, TS_NO_SET_OPS,          TS_NO_DICT_OPS,          TS_REF_PY_INTEROP);
 
 #undef MAKE_TS_OPS
 #undef TS_NO_WINDOW_OPS
@@ -7751,6 +8205,10 @@ static const ts_ops time_window_ts_ops  = MAKE_TS_OPS(time_window_ops,  TS_WINDO
 #undef TS_SET_OPS
 #undef TS_NO_DICT_OPS
 #undef TS_DICT_OPS
+#undef TS_NO_PY_INTEROP
+#undef TS_SET_PY_INTEROP
+#undef TS_DICT_PY_INTEROP
+#undef TS_REF_PY_INTEROP
 
 // ============================================================================
 // get_ts_ops Implementation
@@ -7760,8 +8218,9 @@ const ts_ops* get_ts_ops(TSKind kind) {
     switch (kind) {
         case TSKind::TSValue:
         case TSKind::SIGNAL:
-        case TSKind::REF:
             return &scalar_ts_ops;
+        case TSKind::REF:
+            return &ref_ts_ops;
 
         case TSKind::TSW:
             // For TSW without TSMeta, default to fixed window
