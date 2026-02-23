@@ -429,7 +429,7 @@ namespace hgraph
 
         input_builder_s_ptr _ts_builder;
 
-        TimeSeriesDictOutputImpl::ptr _prev_output;
+        TimeSeriesDictOutputImpl::ptr _prev_output{nullptr};
 
         engine_time_t _last_modified_time{MIN_DT};
         bool          _has_peer{false};

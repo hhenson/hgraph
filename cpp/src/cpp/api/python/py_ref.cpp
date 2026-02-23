@@ -52,7 +52,7 @@ namespace hgraph
                             return unwrap_input_as<TimeSeriesReferenceInput>(ts)->value();
                         if (nb::isinstance<PyTimeSeriesInput>(ts)) {
                             auto ts_input = unwrap_input(ts);
-                            if (ts_input->has_peer()) return TimeSeriesReference::make(ts_input->output());
+                            if (ts_input->has_peer()) return TimeSeriesReference::make(ts_input->output()->shared_from_this());
                             // Deal with list of inputs
                             std::vector<TimeSeriesReference> items_list;
                             auto                             ts_ndx{std::dynamic_pointer_cast<IndexedTimeSeriesInput>(ts_input)};

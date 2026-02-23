@@ -361,6 +361,7 @@ namespace hgraph {
 
             // Use component lifecycle functions like TsdMapNode does
             stop_component(*graph);
+            nested_graph_builder_->release_instance(graph);
         }
     }
 

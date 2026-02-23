@@ -366,12 +366,14 @@ def _receive_table_edits_tsd(
     if empty_row:
         index_mapping = GlobalState.instance().setdefault(f"perspective_table_index_to_id_{name}", dict())
 
-    def on_update(data: View):
-        logger.info(f"Update from perspective: {data.to_records()}")
+    def on_update(data: bytes):
+        import pyarrow
+        items = pyarrow.RecordBatchStreamReader(data).read_all().to_pylist()
+        logger.info(f"Update from perspective: {items}")
 
         edits = {}
         removes = set()
-        for row in data.to_records():
+        for row in items:
             if empty_row:
                 _id = row.get("_id")
                 key = process_key(row, index)
@@ -405,7 +407,6 @@ def _receive_table_edits_tsd(
                 edits[key] = process_row(row, index)
 
         sender({"edits": edits, "removes": removes})
-        data.delete()
 
     manager = PerspectiveTablesManager.current()
     manager.subscribe_table_updates(name, on_update)

@@ -147,7 +147,7 @@ namespace hgraph {
 
     void TsdNonAssociativeReduceNode::erase_nodes_from(int64_t ndx) {
         // Remove nodes from index onwards (matches Python lines 416-421)
-        nested_graph_->reduce_graph(ndx * node_size());
+        nested_graph_->reduce_graph(*nested_graph_builder_, ndx * node_size());
     }
 
     void TsdNonAssociativeReduceNode::bind_output() {

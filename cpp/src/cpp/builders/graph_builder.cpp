@@ -22,7 +22,7 @@ namespace hgraph
     time_series_output_s_ptr _extract_output(node_ptr node, const std::vector<int64_t> &path) {
         if (path.empty()) { throw std::runtime_error("No path to find an output for"); }
 
-        time_series_output_s_ptr output = node->output();
+        auto output = node->output();
         for (auto index : path) {
             if (index == KEY_SET) {
                 auto tsd_output = std::dynamic_pointer_cast<TimeSeriesDictOutput>(output);
@@ -42,7 +42,7 @@ namespace hgraph
 
         time_series_input_s_ptr input = std::static_pointer_cast<TimeSeriesInput>(node->input());
 
-        for (const auto &ndx : path) { input = input->get_input(ndx); }
+        for (const auto &ndx : path) { input = input->get_input(ndx)->shared_from_this(); }
         return input;
     }
 
@@ -127,7 +127,7 @@ namespace hgraph
 
     void GraphBuilder::release_instance(graph_s_ptr item) const {
         auto &nodes = item->nodes();
-        for (size_t i = 0, l = nodes.size(); i < l; ++i) { node_builders[i]->release_instance(nodes[i]); }
+        for (size_t i = 0, l = nodes.size(), b = node_builders.size(); i < l; ++i) { node_builders[i % b]->release_instance(nodes[i]); }
         dispose_component(*item);
     }
 

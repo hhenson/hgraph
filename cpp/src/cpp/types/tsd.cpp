@@ -845,7 +845,7 @@ namespace hgraph
 
         register_clear_key_changes();
 
-        if (value->parent_input().get() == this) {
+        if (value->parent_input() == this) {
             if (value->active()) { value->make_passive(); }
             // Use emplace instead of insert for move-only Value keys
             _removed_items.emplace(key.clone(), std::make_pair(value, was_valid));
@@ -939,7 +939,7 @@ namespace hgraph
             removed_map_type to_keep{};
             for (auto &[pv_key, v] : _removed_items) {
                 auto &[value, was_valid] = v;
-                if (value->parent_input().get() != this) {
+                if (value->parent_input() != this) {
                     // Transplanted items - un-bind and put back
                     value->un_bind_output(unbind_refs);
                     // Use emplace instead of insert for move-only Value keys
@@ -1072,7 +1072,7 @@ namespace hgraph
             // This is an approximate solution but at this point the information about active state is lost
             for (auto &[_, value] : _ts_values) {
                 // Check if this input was transplanted from another parent
-                if (value->parent_input().get() != this) { value->make_active(); }
+                if (value->parent_input() != this) { value->make_active(); }
             }
         } else {
             set_active(true);

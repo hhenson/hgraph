@@ -1,6 +1,7 @@
 import gc
 import sys
 import warnings
+import time
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -121,6 +122,7 @@ class GraphConfiguration:
     capture_values: bool = False
     default_log_level: int = DEBUG
     logger_formatter: Callable = None
+    cleanup_on_error: bool = True
 
     def __post_init__(self):
         if self.start_time is MIN_DT:
@@ -189,7 +191,9 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
     with GlobalState() if not GlobalState.has_instance() else nullcontext():
         signature: WiringNodeSignature = None
         if not isinstance(graph, GraphBuilder):
+            start = time.perf_counter_ns()
             graph_builder, signature = _build_main_graph(graph, config, args, kwargs)
+            config.graph_logger.debug(f"Graph wiring completed in {(time.perf_counter_ns() - start) / 1e9:.2f} seconds")
         else:
             graph_builder = graph
 

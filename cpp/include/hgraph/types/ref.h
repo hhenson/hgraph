@@ -47,6 +47,8 @@ namespace hgraph
         static TimeSeriesReference make(const std::vector<TimeSeriesReferenceInput*>& items);
         static TimeSeriesReference make(const std::vector<std::shared_ptr<TimeSeriesReferenceInput>>& items);
 
+        static const TimeSeriesReference& empty();
+
       private:
         // Private constructors - must use make() factory methods
         TimeSeriesReference() noexcept;                                        // Empty
@@ -155,7 +157,7 @@ namespace hgraph
 
         [[nodiscard]] nb::object py_delta_value() const override;
 
-        [[nodiscard]] virtual TimeSeriesReference value() const;
+        [[nodiscard]] virtual const TimeSeriesReference& value() const;
 
         // Duplicate binding of another input
         virtual void clone_binding(const TimeSeriesReferenceInput::ptr other);
@@ -245,7 +247,7 @@ namespace hgraph
 
         TimeSeriesInput::s_ptr            get_input(size_t index) override;
         size_t                            size() const { return _size; }
-        [[nodiscard]] TimeSeriesReference value() const override;
+        [[nodiscard]] const TimeSeriesReference& value() const override;
 
         [[nodiscard]] bool          bound() const override;
         [[nodiscard]] bool          modified() const override;
@@ -281,7 +283,7 @@ namespace hgraph
         TimeSeriesBundleReferenceInput(Node *owning_node, std::vector<InputBuilder::ptr> value_builders, size_t size);
         TimeSeriesBundleReferenceInput(TimeSeriesInput *parent_input, std::vector<InputBuilder::ptr> value_builders, size_t size);
 
-        TimeSeriesReference         value() const override;
+        const TimeSeriesReference&  value() const override;
         size_t                      size() const { return _size; }
         [[nodiscard]] bool          bound() const override;
         [[nodiscard]] bool          modified() const override;

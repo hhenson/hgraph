@@ -36,6 +36,7 @@ namespace hgraph {
         }
         // if (dict->output()) dict->output_t().remove_key_observer(dict);
         for (auto &value: dict->_ts_values) { ts_builder->release_instance(value.second.get()); }
+        for (auto &value: dict->_removed_items) { ts_builder->release_instance(value.second.first.get()); }
         InputBuilder::release_instance(&dict->key_set());
         InputBuilder::release_instance(item);
     }

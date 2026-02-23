@@ -105,8 +105,9 @@ export function columnSettings(view, column, setting) {
 }
 
 let lock_callback = null;
-export async function updateLockedMode(workspace, mode, locked, cb){
+export async function updateLockedMode(workspace, mode, locked, cb, call_cb){
     if (cb) {
+        if (lock_callback && mode.locked == locked) return;
         lock_callback = cb;
     }
 
@@ -116,17 +117,17 @@ export async function updateLockedMode(workspace, mode, locked, cb){
         lockLayout(workspace);
         mode.editable = false;
         addCustomContextMenuItems(workspace, [
-            {name: 'Unlock Layout', action: () => updateLockedMode(workspace, mode, false)}
+            {name: 'Unlock Layout', action: () => updateLockedMode(workspace, mode, false, undefined, true)}
         ], 
         {disableBuiltInItems: ['New Table', 'Duplicate', 'Create Global Filter', 'Open Settings', 'Reset', 'Close'], checkItems: ['New Table']});
 
-        if (lock_callback) {
+        if (call_cb) {
             lock_callback();
         }
     } else {
         unlockLayout(workspace);
         addCustomContextMenuItems(workspace, [
-            {name: 'Lock Layout', action: () => updateLockedMode(workspace, mode, true)}
+            {name: 'Lock Layout', action: () => updateLockedMode(workspace, mode, true, undefined, true)}
         ],
         {checkItems: ['New Table']});
     }
@@ -139,7 +140,7 @@ export async function installTableWorkarounds(mode, lockCallback) {
 
     const config = await window.workspace.save();
 
-    await updateLockedMode(window.workspace, mode, mode.locked || false, lockCallback);
+    await updateLockedMode(window.workspace, mode, mode.locked || false, lockCallback, false);
 
     for (const g of document.querySelectorAll("perspective-viewer")) {
         if (!g.dataset.events_set_up) {
@@ -169,7 +170,7 @@ export async function installTableWorkarounds(mode, lockCallback) {
 
             g.addEventListener("perspective-config-update", async (event) => {
                 if (g.dataset.config_open === 'false') {
-                    await refreshTimeSensitiveViews(event, g);
+                    await refreshTimeSensitiveViews(event, g, mode);
                 }
                 if (g.dataset.config_open !== 'true') {
                     const title = view_config.title;
@@ -187,7 +188,7 @@ export async function installTableWorkarounds(mode, lockCallback) {
                     }
                 }
             });
-            await refreshTimeSensitiveViews({detail: config.viewers[g.slot]}, g);
+            await refreshTimeSensitiveViews({detail: config.viewers[g.slot]}, g, mode);
 
             g.dataset.events_set_up = "true";
         }
@@ -785,7 +786,7 @@ async function focusin(event, viewer, table, model, table_config) {
     }
 }
 
-async function refreshTimeSensitiveViews(event, viewer) {
+async function refreshTimeSensitiveViews(event, viewer, mode) {
     if (!event.detail || !event.detail.expressions) return;
     
     const has_now = Object.entries(event.detail.expressions)
@@ -797,9 +798,12 @@ async function refreshTimeSensitiveViews(event, viewer) {
             viewer.dataset.refresh_timeout = setInterval(async () => {
                 const config = await viewer.save();
                 config.expressions = Object.fromEntries(Object.entries(config.expressions)
-                    .map(([k, v]) => [k, v.replace(/^var refresh := now\(\).+$/, `var refresh := now(); // ${new Date()}`)])
+                    .map(([k, v]) => [k, v.replace(/var refresh := now\(\).*$/m, `var refresh := now(); // ${new Date()}`)])
                 );
+                const mode_editable = mode.editable;
+                mode.editable = false;
                 await viewer.restore(config);
+                mode.editable = mode_editable;
             }, 60000);
         }
     } else {

@@ -95,7 +95,9 @@ namespace hgraph {
         }
         if (!_ts_values.empty()) {
             for (auto &item: _ts_values) { item->un_bind_output(unbind_refs); }
-            _ts_values.clear();
+        }
+        if (has_peer()){
+            BaseTimeSeriesInput::do_un_bind_output(unbind_refs);
         }
     }
 

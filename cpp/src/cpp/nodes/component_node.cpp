@@ -235,7 +235,7 @@ namespace hgraph {
             auto id_ = nb::cast<std::string>(m_active_graph_->traits().get_trait(RECORDABLE_ID_TRAIT));
             GlobalState::remove(keys::component_key(id_));
 
-            dispose_component(*m_active_graph_);
+            m_nested_graph_builder_->release_instance(m_active_graph_);
             m_active_graph_ = nullptr;
         }
     }

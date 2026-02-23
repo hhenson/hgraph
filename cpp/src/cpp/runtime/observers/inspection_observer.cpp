@@ -115,19 +115,36 @@ namespace hgraph {
     }
 
     void InspectionObserver::subscribe_graph(const std::vector<int64_t>& graph_id) {
-        _graph_subscriptions.insert(graph_id);
+        if (auto graph_info = get_graph_info(graph_id)) {
+            _subscribed_graphs.insert(graph_info->graph);
+            _graph_subscriptions[graph_id] = graph_info->graph;
+        }
     }
 
     void InspectionObserver::unsubscribe_graph(const std::vector<int64_t>& graph_id) {
-        _graph_subscriptions.erase(graph_id);
+        if (auto it = _graph_subscriptions.find(graph_id); it != _graph_subscriptions.end()) {
+            _subscribed_graphs.erase(it->second);
+            _graph_subscriptions.erase(it);
+        }
     }
 
     void InspectionObserver::subscribe_node(const std::vector<int64_t>& node_id) {
-        _node_subscriptions.insert(node_id);
+        auto graph_id = std::vector<int64_t>(node_id.begin(), node_id.end() - 1);
+        if (auto graph_info = get_graph_info(graph_id)) {
+            auto& nodes = graph_info->graph->nodes();
+            auto node = nodes[node_id.back()].get();
+            if (node) {
+                _subscribed_nodes.insert(node);
+                _node_subscriptions[node_id] = node;
+            }
+        }
     }
 
     void InspectionObserver::unsubscribe_node(const std::vector<int64_t>& node_id) {
-        _node_subscriptions.erase(node_id);
+        if (auto it = _node_subscriptions.find(node_id); it != _node_subscriptions.end()) {
+            _subscribed_nodes.erase(it->second);
+            _node_subscriptions.erase(it);
+        }
     }
 
     GraphInfoPtr InspectionObserver::get_graph_info(const std::vector<int64_t>& graph_id) const {
@@ -414,9 +431,7 @@ namespace hgraph {
             _current_graph->node_sizes[ndx] = node_size;
         }
         
-        auto nid = node->node_id();
-        std::vector<int64_t> node_vec_id(nid.begin(), nid.end());
-        if (_callback_node && _node_subscriptions.count(node_vec_id)) {
+        if (_callback_node && _subscribed_nodes.count(node)) {
             try {
                 _callback_node(node);
             } catch (const std::exception& e) {
@@ -474,9 +489,7 @@ namespace hgraph {
             _current_graph = nullptr;
         }
 
-        auto gid = graph->graph_id();
-        std::vector<int64_t> graph_vec_id(gid.begin(), gid.end());
-        if (_callback_graph && _graph_subscriptions.count(graph_vec_id)) {
+        if (_callback_graph && _subscribed_graphs.count(graph)) {
             try {
                 _callback_graph(graph);
             } catch (const std::exception& e) {
@@ -500,6 +513,14 @@ namespace hgraph {
             // Remove from both maps when graph is stopped
             _graphs_by_id.erase(gi->id);
             _graphs.erase(it);
+
+            _subscribed_graphs.erase(graph);
+            _graph_subscriptions.erase(gi->id);
+
+            for (const auto& node : graph->nodes()) {
+                _subscribed_nodes.erase(node.get());
+                _node_subscriptions.erase(node->node_id());
+            }
         }
     }
 

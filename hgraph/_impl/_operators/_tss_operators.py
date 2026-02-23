@@ -92,7 +92,7 @@ def bit_or_tsss(
     added = lhs.added() | rhs.added()
     lhs_value = lhs.value if lhs.valid else set()
     rhs_value = rhs.value if rhs.valid else set()
-    removed = lhs.removed() - rhs_value
+    removed = set(lhs.removed() - rhs_value)
     for i in rhs.removed():
         if i not in lhs_value:
             removed.add(i)

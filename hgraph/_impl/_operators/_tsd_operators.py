@@ -763,7 +763,9 @@ def partition_tsd(
 
     # Track changes in partitions
     for k, partition in partitions.removed_items():
-        out[partition.value][k] = REMOVE_IF_EXISTS
+        prev_partition = prev.get(k)
+        if prev_partition is not None:
+            out[prev_partition][k] = REMOVE_IF_EXISTS
 
     for k, partition in partitions.modified_items():
         partition = partition.value

@@ -82,8 +82,7 @@ namespace hgraph {
 
     void ReduceNode::dispose() {
         if (nested_graph_ == nullptr) { return; }
-        dispose_component(*nested_graph_);
-        nested_graph_ = nullptr;
+        nested_graph_builder_->release_instance(nested_graph_);
     }
 
     void ReduceNode::eval() {
@@ -110,7 +109,7 @@ namespace hgraph {
             auto tsd_output = tsd->output();
             if (tsd_output->has_owning_node()) {
                 auto accessor_node = tsd_output->owning_node();
-                auto accessor_input = accessor_node->input();
+                const auto& accessor_input = accessor_node->input();
                 if (accessor_input) {
                     for (size_t i = 0; i < accessor_input->size(); ++i) {
                         auto input_item = (*accessor_input)[i];
@@ -349,7 +348,7 @@ namespace hgraph {
         int64_t start = last_node;
 
         // Delete the high nodes - the left-based invariant ensures no bound keys are in nodes >= start
-        nested_graph_->reduce_graph(start * node_size());
+        nested_graph_->reduce_graph(*nested_graph_builder_, start * node_size());
 
         // Keep only the low free positions (first halved_capacity - active_count when sorted)
         std::sort(free_node_indexes_.begin(), free_node_indexes_.end(),

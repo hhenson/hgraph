@@ -192,6 +192,11 @@ namespace hgraph
     // Factory methods
     TimeSeriesReference TimeSeriesReference::make() { return TimeSeriesReference(); }
 
+    const TimeSeriesReference &TimeSeriesReference::empty() {
+        static const TimeSeriesReference empty_ref;
+        return empty_ref;
+    }
+
     TimeSeriesReference TimeSeriesReference::make(time_series_output_s_ptr output) {
         if (output == nullptr) {
             return make();
@@ -327,10 +332,17 @@ namespace hgraph
 
     nb::object TimeSeriesReferenceInput::py_delta_value() const { return py_value(); }
 
-    TimeSeriesReference TimeSeriesReferenceInput::value() const {
-        if (has_output()) { return output_t()->py_value_or_empty(); }
+    const TimeSeriesReference& TimeSeriesReferenceInput::value() const {
+        if (has_output()) { 
+            auto ref_output = static_cast<TimeSeriesReferenceOutput*>(output());
+            if (ref_output->has_value()) {
+                return ref_output->value();
+            } else {
+                return TimeSeriesReference::empty();
+            }
+        }
         if (has_value()) { return *_value; }
-        return TimeSeriesReference::make();
+        return TimeSeriesReference::empty();
     }
 
     bool TimeSeriesReferenceInput::bound() const { return BaseTimeSeriesInput::bound(); }
@@ -352,7 +364,7 @@ namespace hgraph
     void TimeSeriesReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr other) {
         un_bind_output(false);
         if (other->has_output()) {
-            bind_output(other->output());
+            bind_output(other->output()->shared_from_this());
         } else if (other->has_value()) {
             _value = other->_value;
             if (owning_node()->is_started()) {
@@ -449,7 +461,7 @@ namespace hgraph
 
     TimeSeriesReferenceOutput *TimeSeriesReferenceInput::output_t() {
         auto _output{output()};
-        auto _result{dynamic_cast<TimeSeriesReferenceOutput *>(_output.get())};
+        auto _result{dynamic_cast<TimeSeriesReferenceOutput *>(_output)};
         if (_result == nullptr) {
             throw std::runtime_error("TimeSeriesReferenceInput::output_t: Expected TimeSeriesReferenceOutput*");
         }
@@ -490,14 +502,21 @@ namespace hgraph
 
     TimeSeriesInput::s_ptr TimeSeriesListReferenceInput::get_input(size_t index) { return get_ref_input(index)->shared_from_this(); }
 
-    TimeSeriesReference TimeSeriesListReferenceInput::value() const {
-        if (has_output()) { return output_t()->py_value_or_empty(); }
+    const TimeSeriesReference& TimeSeriesListReferenceInput::value() const {
+        if (has_output()) { 
+            auto ref_output = static_cast<TimeSeriesReferenceOutput*>(output());
+            if (ref_output->has_value()) {
+                return ref_output->value();
+            } else {
+                return TimeSeriesReference::empty();
+            }
+        }
         if (has_value()) { return *_value; }
         if (_items.has_value()) {
             _value = TimeSeriesReference::make(*_items);
             return *_value;
         }
-        return TimeSeriesReference::make();
+        return TimeSeriesReference::empty();
     }
 
     bool TimeSeriesListReferenceInput::bound() const { return TimeSeriesReferenceInput::bound() || _items.has_value(); }
@@ -544,7 +563,7 @@ namespace hgraph
         }
         un_bind_output(false);
         if (other_->has_output()) {
-            bind_output(other_->output());
+            bind_output(other_->output()->shared_from_this());
         } else if (other_->_items.has_value()) {
             for (size_t i = 0; i < other_->_items->size(); ++i) { this->get_ref_input(i)->clone_binding((*other_->_items)[i].get()); }
         } else if (other_->has_value()) {
@@ -655,7 +674,7 @@ namespace hgraph
         }
         un_bind_output(false);
         if (other_->has_output()) {
-            bind_output(other_->output());
+            bind_output(other_->output()->shared_from_this());
         } else if (other_->_items.has_value()) {
             for (size_t i = 0; i < other_->_items->size(); ++i) { this->get_ref_input(i)->clone_binding((*other_->_items)[i].get()); }
         } else if (other_->has_value()) {
@@ -682,14 +701,21 @@ namespace hgraph
         return _items.has_value() ? *_items : empty_items;
     }
 
-    TimeSeriesReference TimeSeriesBundleReferenceInput::value() const {
-        if (has_output()) { return output_t()->py_value_or_empty(); }
+    const TimeSeriesReference& TimeSeriesBundleReferenceInput::value() const {
+        if (has_output()) { 
+            auto ref_output = static_cast<TimeSeriesReferenceOutput*>(output());
+            if (ref_output->has_value()) {
+                return ref_output->value();
+            } else {
+                return TimeSeriesReference::empty();
+            }
+        }
         if (has_value()) { return *_value; }
         if (_items.has_value()) {
             _value = TimeSeriesReference::make(*_items);
             return *_value;
         }
-        return TimeSeriesReference::make();
+        return TimeSeriesReference::empty();
     }
 
     void TimeSeriesBundleReferenceInput::make_active() {

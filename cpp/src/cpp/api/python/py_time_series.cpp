@@ -99,7 +99,7 @@ namespace hgraph
 
     TimeSeriesOutput *PyTimeSeriesOutput::impl() const { return static_cast_impl<TimeSeriesOutput>(); }
 
-    nb::object PyTimeSeriesInput::parent_input() const { return impl()->parent_input() ? wrap_input(impl()->parent_input()) : nb::none(); }
+    nb::object PyTimeSeriesInput::parent_input() const { return impl()->parent_input() ? wrap_input(impl()->parent_input()->shared_from_this()) : nb::none(); }
 
     nb::bool_ PyTimeSeriesInput::has_parent_input() const { return nb::bool_(impl()->has_parent_input()); }
 
@@ -113,7 +113,7 @@ namespace hgraph
 
     nb::bool_ PyTimeSeriesInput::has_peer() const { return nb::bool_(impl()->has_peer()); }
 
-    nb::object PyTimeSeriesInput::output() const { return wrap_output(impl()->output()); }
+    nb::object PyTimeSeriesInput::output() const { return wrap_output(impl()->output() ? impl()->output()->shared_from_this() : nullptr); }
 
     nb::bool_ PyTimeSeriesInput::has_output() const { return nb::bool_(impl()->has_output()); }
 

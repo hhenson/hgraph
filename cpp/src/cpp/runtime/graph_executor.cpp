@@ -76,8 +76,10 @@ namespace hgraph
     }
 
     GraphExecutor::GraphExecutor(graph_builder_s_ptr graph_builder, EvaluationMode run_mode,
-                                 std::vector<EvaluationLifeCycleObserver::s_ptr> observers)
-        : _graph_builder(graph_builder), _run_mode(run_mode), _observers{std::move(observers)} {}
+                                 std::vector<EvaluationLifeCycleObserver::s_ptr> observers,
+                                 bool cleanup_on_error
+                                )
+        : _graph_builder(graph_builder), _run_mode(run_mode), _observers{std::move(observers)}, _cleanup_on_error(cleanup_on_error) {}
 
     EvaluationMode GraphExecutor::run_mode() const { return _run_mode; }
 
@@ -113,8 +115,13 @@ namespace hgraph
             initialise_component(*graph);
             // Use RAII; StartStopContext destructor will stop and set Python error if exception occurs
             {
-                auto startStopContext = StartStopContext(*graph);
-                while (clock->evaluation_time() < end_time) { _evaluate(*evaluationEngine, *graph); }
+                auto startStopContext = StartStopContext(graph.get());
+                try {
+                    while (clock->evaluation_time() < end_time) { _evaluate(*evaluationEngine, *graph); }
+                } catch (...) {
+                    if (!_cleanup_on_error) startStopContext.cancel();
+                    throw;
+                }
             }
             // After StartStopContext destruction, check if a Python error was set during stop
             if (PyErr_Occurred()) { throw nb::python_error(); }

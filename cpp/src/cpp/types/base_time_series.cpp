@@ -279,12 +279,12 @@ namespace hgraph {
         }
     }
 
-    TimeSeriesInput::s_ptr BaseTimeSeriesInput::parent_input() const {
+    TimeSeriesInput::ptr BaseTimeSeriesInput::parent_input() const {
         if (_has_parent_input()) {
             auto p = std::get<time_series_input_ptr>(*_parent_ts_or_node);
-            return p ? p->shared_from_this() : time_series_input_s_ptr{};
+            return p;
         }
-        return {};
+        return nullptr;
     }
 
     bool BaseTimeSeriesInput::has_parent_input() const { return _has_parent_input(); }
@@ -297,7 +297,7 @@ namespace hgraph {
         return _output != nullptr;
     }
 
-    time_series_output_s_ptr BaseTimeSeriesInput::output() const { return _output; }
+    time_series_output_ptr BaseTimeSeriesInput::output() const { return _output.get(); }
 
     bool BaseTimeSeriesInput::has_output() const { return _output != nullptr; }
 
@@ -416,7 +416,7 @@ namespace hgraph {
             _notify_time = modified_time;
             if (has_parent_input()) {
                 // Cast to BaseTimeSeriesInput to access protected notify_parent
-                auto parent = std::static_pointer_cast<BaseTimeSeriesInput>(parent_input());
+                auto parent = static_cast<BaseTimeSeriesInput*>(parent_input());
                 parent->notify_parent(this, modified_time);
             } else {
                 auto node = owning_node();

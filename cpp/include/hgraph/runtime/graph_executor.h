@@ -56,7 +56,7 @@ namespace hgraph {
 
     struct HGRAPH_EXPORT GraphExecutor {
         GraphExecutor(graph_builder_s_ptr graph_builder, EvaluationMode run_mode,
-                          std::vector<EvaluationLifeCycleObserver::s_ptr> observers = {});
+                          std::vector<EvaluationLifeCycleObserver::s_ptr> observers = {}, bool cleanup_on_error = true);
 
         EvaluationMode run_mode() const;
 
@@ -71,6 +71,7 @@ namespace hgraph {
         graph_builder_s_ptr _graph_builder;
         EvaluationMode _run_mode;
         std::vector<EvaluationLifeCycleObserver::s_ptr> _observers;
+        bool _cleanup_on_error;
     };
 } // namespace hgraph
 #endif  // GRAPH_EXECUTOR_H

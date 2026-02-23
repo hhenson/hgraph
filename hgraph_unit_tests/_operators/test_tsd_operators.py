@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Set, Tuple
 
 import pytest
@@ -18,10 +19,13 @@ from hgraph import (
     TSL,
     TSS,
     K,
+    CompoundScalar,
     Removed,
     Size,
     TimeSeriesSchema,
+    add_,
     collapse_keys,
+    combine,
     compute_node,
     const,
     default_path,
@@ -432,6 +436,26 @@ def test_tsd_partition():
         {"even": {2: REMOVE}},
         {"prime": {3: 6}, "odd": {3: REMOVE}},
     ]
+
+
+def test_partition_with_reduce():
+    @dataclass(frozen=True)
+    class MockKey(CompoundScalar):
+        a: str = None
+        b: str = None
+        c: str = None
+
+    @graph
+    def g(tsd: TSD[MockKey, TS[float]]) -> TSD[MockKey, TS[float]]:
+        partitioned = partition(tsd, map_(lambda key: combine[TS[MockKey]](a=key.a, b=key.b), __keys__=tsd.key_set))
+        return map_(lambda x: x.reduce(add_), partitioned)
+
+    key1 = MockKey(a="a", b="b", c="c")
+    key2 = MockKey(a="a", b="b", c="d")
+    results = eval_node(g, [{key1: 20.0, key2: 100.0}, {key2: REMOVE}], __elide__=True)
+    for result in results:
+        for key in result:
+            assert key is not None
 
 
 def test_tsd_unpartition():

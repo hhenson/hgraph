@@ -1,4 +1,5 @@
 #include <hgraph/builders/graph_builder.h>
+#include <hgraph/builders/node_builder.h>
 #include <hgraph/nodes/push_queue_node.h>
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/error_type.h>
@@ -128,12 +129,12 @@ namespace hgraph
 
         for (size_t i = push_source_nodes_end(); i < nodes.size(); ++i) {
             auto  scheduled_time = schedule[i];
-            auto  nodep          = nodes[i];
-            auto &node           = *nodep;
+            auto  pnode          = nodes[i].get();
+            auto &node           = *pnode;
 
             if (scheduled_time == now) {
                 try {
-                    NotifyNodeEvaluation nne{evaluation_engine().get(), nodep.get()};
+                    NotifyNodeEvaluation nne{evaluation_engine().get(), pnode};
                     node.eval();
                 } catch (const NodeException &e) { throw e; } catch (const std::exception &e) {
                     throw NodeException::capture_error(e, node, "During evaluation");
@@ -177,10 +178,10 @@ namespace hgraph
         if (!delay_start && is_started()) { start_subgraph(first_node_index, capacity); }
     }
 
-    void Graph::reduce_graph(int64_t start_node) {
+    void Graph::reduce_graph(const GraphBuilder &graph_builder, int64_t start_node) {
         auto end{_nodes.size()};
         if (is_started()) { stop_subgraph(start_node, end); }
-        dispose_subgraph(start_node, end);
+        dispose_subgraph(graph_builder, start_node, end);
 
         _nodes.erase(_nodes.begin() + start_node, _nodes.end());
         _schedule.erase(_schedule.begin() + start_node, _schedule.end());
@@ -229,10 +230,11 @@ namespace hgraph
         }
     }
 
-    void Graph::dispose_subgraph(int64_t start, int64_t end) {
+    void Graph::dispose_subgraph(const GraphBuilder &graph_builder, int64_t start, int64_t end) {
+        const auto& node_builders = graph_builder.node_builders;
+        auto b = node_builders.size();
         for (auto i = start; i < end; ++i) {
-            auto node{_nodes[i]};
-            dispose_component(*node);
+            node_builders[i % b]->release_instance(_nodes[i]);
         }
     }
 

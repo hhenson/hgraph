@@ -118,11 +118,11 @@ namespace hgraph {
         void re_parent(const time_series_type_ptr parent) override;
 
         // Inherited interface implementations
-        [[nodiscard]] TimeSeriesInput::s_ptr parent_input() const override;
+        [[nodiscard]] TimeSeriesInput::ptr parent_input() const override;
         [[nodiscard]] bool has_parent_input() const override;
         [[nodiscard]] bool bound() const override;
         [[nodiscard]] bool has_peer() const override;
-        [[nodiscard]] time_series_output_s_ptr output() const override;
+        [[nodiscard]] time_series_output_ptr output() const override;
 
         bool bind_output(time_series_output_s_ptr output_) override;
         void un_bind_output(bool unbind_refs) override;

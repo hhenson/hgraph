@@ -81,7 +81,7 @@ namespace hgraph
 
         void extend_graph(const GraphBuilder &graph_builder, bool delay_start = false);
 
-        void reduce_graph(int64_t start_node);
+        void reduce_graph(const GraphBuilder &graph_builder, int64_t start_node);
 
         void initialise_subgraph(int64_t start, int64_t end);
 
@@ -89,7 +89,7 @@ namespace hgraph
 
         void stop_subgraph(int64_t start, int64_t end);
 
-        void dispose_subgraph(int64_t start, int64_t end);
+        void dispose_subgraph(const GraphBuilder &graph_builder, int64_t start, int64_t end);
 
         // Performance: Cached clock pointer and evaluation time reference set during initialization
         [[nodiscard]] EngineEvaluationClock *cached_engine_clock() const { return _cached_engine_clock; }
