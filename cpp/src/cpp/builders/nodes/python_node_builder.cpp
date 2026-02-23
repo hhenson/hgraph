@@ -14,16 +14,9 @@ namespace hgraph {
         return std::max(sizeof(PythonNode), sizeof(PushQueueNode));
     }
 
-    PythonNodeBuilder::PythonNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
-                                         std::optional<input_builder_s_ptr> input_builder_,
-                                         std::optional<output_builder_s_ptr> output_builder_,
-                                         std::optional<output_builder_s_ptr> error_builder_,
-                                         std::optional<output_builder_s_ptr> recordable_state_builder_,
-                                         nb::callable eval_fn,
+    PythonNodeBuilder::PythonNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_, nb::callable eval_fn,
                                          nb::callable start_fn, nb::callable stop_fn)
-        : BaseNodeBuilder(std::move(signature_), std::move(scalars_), std::move(input_builder_),
-                          std::move(output_builder_),
-                          std::move(error_builder_), std::move(recordable_state_builder_)),
+        : BaseNodeBuilder(std::move(signature_), std::move(scalars_)),
           eval_fn{std::move(eval_fn)}, start_fn{std::move(start_fn)}, stop_fn{std::move(stop_fn)} {
     }
 
@@ -69,22 +62,16 @@ namespace hgraph {
                          auto signature_ = nb::cast<node_signature_s_ptr>(kwargs["signature"]);
                          auto scalars_ = nb::cast<nb::dict>(kwargs["scalars"]);
 
-                         std::optional<input_builder_s_ptr> input_builder_ =
-                                 kwargs.contains("input_builder")
-                                     ? nb::cast<std::optional<input_builder_s_ptr> >(kwargs["input_builder"])
-                                     : std::nullopt;
-                         std::optional<output_builder_s_ptr> output_builder_ =
-                                 kwargs.contains("output_builder")
-                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["output_builder"])
-                                     : std::nullopt;
-                         std::optional<output_builder_s_ptr> error_builder_ =
-                                 kwargs.contains("error_builder")
-                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["error_builder"])
-                                     : std::nullopt;
-                         std::optional<output_builder_s_ptr> recordable_state_builder_ =
-                                 kwargs.contains("recordable_state_builder")
-                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["recordable_state_builder"])
-                                     : std::nullopt;
+                         auto require_none = [&](const char *name) {
+                             if (kwargs.contains(name) && !kwargs[name].is_none()) {
+                                 throw nb::type_error(
+                                     "Legacy input/output/error/recordable builders are not supported in C++ runtime node builders");
+                             }
+                         };
+                         require_none("input_builder");
+                         require_none("output_builder");
+                         require_none("error_builder");
+                         require_none("recordable_state_builder");
                          nb::handle eval_fn_ = kwargs.contains("eval_fn")
                                                    ? nb::cast<nb::handle>(kwargs["eval_fn"])
                                                    : nb::handle{};
@@ -108,12 +95,8 @@ namespace hgraph {
                                      ? nb::cast<nb::callable>(stop_fn_)
                                      : nb::callable{};
 
-                         new(self) PythonNodeBuilder(std::move(signature_), std::move(scalars_),
-                                                     std::move(input_builder_),
-                                                     std::move(output_builder_), std::move(error_builder_),
-                                                     std::move(recordable_state_builder_), std::move(eval_fn),
-                                                     std::move(start_fn),
-                                                     std::move(stop_fn));
+                         new(self) PythonNodeBuilder(std::move(signature_), std::move(scalars_), std::move(eval_fn),
+                                                     std::move(start_fn), std::move(stop_fn));
                      })
                 .def_ro("eval_fn", &PythonNodeBuilder::eval_fn)
                 .def_ro("start_fn", &PythonNodeBuilder::start_fn)

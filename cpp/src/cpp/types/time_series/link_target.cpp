@@ -276,7 +276,8 @@ void LinkTarget::notify(engine_time_t et) {
     if (owner_time_ptr != nullptr && *owner_time_ptr < et) {
         *owner_time_ptr = et;
     }
-    if (parent_link != nullptr) {
+    // Parent propagation is only valid for linked parent chains.
+    if (parent_link != nullptr && parent_link->is_linked) {
         parent_link->notify(et);
     }
     if (active_notifier != nullptr) {

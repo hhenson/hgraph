@@ -12,11 +12,7 @@ namespace hgraph {
     struct TSMeta;
 
     struct NodeBuilder : Builder {
-        NodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
-                    std::optional<input_builder_s_ptr> input_builder_ = std::nullopt,
-                    std::optional<output_builder_s_ptr> output_builder_ = std::nullopt,
-                    std::optional<output_builder_s_ptr> error_builder_ = std::nullopt,
-                    std::optional<output_builder_s_ptr> recordable_state_builder_ = std::nullopt);
+        NodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_);
 
         // Explicitly define move operations to avoid leaving Python-visible instances in a moved-from (null) state.
         NodeBuilder(NodeBuilder &&other) noexcept;
@@ -61,10 +57,6 @@ namespace hgraph {
 
         node_signature_s_ptr signature;
         nb::dict scalars;
-        std::optional<input_builder_s_ptr> input_builder;
-        std::optional<output_builder_s_ptr> output_builder;
-        std::optional<output_builder_s_ptr> error_builder;
-        std::optional<output_builder_s_ptr> recordable_state_builder;
 
       protected:
         void configure_node_instance(const node_s_ptr& node) const;

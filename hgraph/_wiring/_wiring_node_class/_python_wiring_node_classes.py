@@ -15,6 +15,10 @@ if TYPE_CHECKING:
 __all__ = ("PythonWiringNodeClass", "PythonPushQueueWiringNodeClass", "PythonGeneratorWiringNodeClass")
 
 
+def _is_cpp_node_builder(builder_cls: Any) -> bool:
+    return getattr(builder_cls, "__module__", "") == "hgraph._hgraph"
+
+
 class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(
@@ -116,7 +120,7 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
                     v: RecordableStateInjector
                     recordable_state_builder = TimeSeriesBuilderFactory.instance().make_output_builder(v.tsb_type)
                     break
-            if recordable_state_builder is None:
+            if recordable_state_builder is None and not _is_cpp_node_builder(PythonWiringNodeClass.BUILDER_CLASS):
                 raise CustomMessageWiringError("Recordable state injectable not found")
 
         return PythonWiringNodeClass.BUILDER_CLASS(

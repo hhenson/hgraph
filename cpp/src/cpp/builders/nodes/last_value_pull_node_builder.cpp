@@ -1,6 +1,4 @@
 #include <hgraph/builders/nodes/last_value_pull_node_builder.h>
-#include <hgraph/builders/input_builder.h>
-#include <hgraph/builders/output_builder.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsb.h>
 #include <hgraph/nodes/last_value_pull_node.h>
@@ -28,27 +26,18 @@ namespace hgraph {
                          auto signature_ = nb::cast<node_signature_s_ptr>(kwargs["signature"]);
                          auto scalars_ = nb::cast<nb::dict>(kwargs["scalars"]);
 
-                         std::optional<input_builder_s_ptr> input_builder_ =
-                                 kwargs.contains("input_builder")
-                                     ? nb::cast<std::optional<input_builder_s_ptr> >(kwargs["input_builder"])
-                                     : std::nullopt;
-                         std::optional<output_builder_s_ptr> output_builder_ =
-                                 kwargs.contains("output_builder")
-                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["output_builder"])
-                                     : std::nullopt;
-                         std::optional<output_builder_s_ptr> error_builder_ =
-                                 kwargs.contains("error_builder")
-                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["error_builder"])
-                                     : std::nullopt;
-                         std::optional<output_builder_s_ptr> recordable_state_builder_ =
-                                 kwargs.contains("recordable_state_builder")
-                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["recordable_state_builder"])
-                                     : std::nullopt;
+                         auto require_none = [&](const char *name) {
+                             if (kwargs.contains(name) && !kwargs[name].is_none()) {
+                                 throw nb::type_error(
+                                     "Legacy input/output/error/recordable builders are not supported in C++ runtime node builders");
+                             }
+                         };
+                         require_none("input_builder");
+                         require_none("output_builder");
+                         require_none("error_builder");
+                         require_none("recordable_state_builder");
 
-                         new(self) LastValuePullNodeBuilder(std::move(signature_), std::move(scalars_),
-                                                            std::move(input_builder_),
-                                                            std::move(output_builder_), std::move(error_builder_),
-                                                            std::move(recordable_state_builder_));
+                         new(self) LastValuePullNodeBuilder(std::move(signature_), std::move(scalars_));
                      });
     }
 } // namespace hgraph

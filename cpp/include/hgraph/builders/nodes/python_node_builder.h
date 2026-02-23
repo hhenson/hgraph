@@ -6,16 +6,11 @@
 #define PYTHON_NODE_BUILDER_H
 
 #include <hgraph/builders/node_builder.h>
-#include <hgraph/builders/input_builder.h>
-#include <hgraph/builders/output_builder.h>
 
 namespace hgraph {
     struct PythonNodeBuilder : BaseNodeBuilder {
         PythonNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
-                          std::optional<input_builder_s_ptr> input_builder_,
-                          std::optional<output_builder_s_ptr> output_builder_,
-                          std::optional<output_builder_s_ptr> error_builder_,
-                          std::optional<output_builder_s_ptr> recordable_state_builder_, nb::callable eval_fn,
+                          nb::callable eval_fn,
                           nb::callable start_fn,
                           nb::callable stop_fn);
 

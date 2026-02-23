@@ -1,6 +1,5 @@
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/types/graph.h>
-#include <hgraph/types/time_series_type.h>
 
 namespace hgraph {
     namespace {
@@ -71,32 +70,6 @@ namespace hgraph {
                 return new_delta;
             };
         }
-    }
-
-    void LastValuePullNode::copy_from_input(const TimeSeriesInput &input) {
-        auto delta = input.py_delta_value();
-
-        if (_delta_value.has_value()) {
-            _delta_value = _delta_combine_fn(_delta_value.value(), delta);
-        } else {
-            _delta_value = delta;
-        }
-
-        // Notify for the next cycle since we're copying the value now
-        notify_next_cycle();
-    }
-
-    void LastValuePullNode::copy_from_output(const TimeSeriesOutput &output) {
-        auto delta = output.py_delta_value();
-
-        if (_delta_value.has_value()) {
-            _delta_value = _delta_combine_fn(_delta_value.value(), delta);
-        } else {
-            _delta_value = delta;
-        }
-
-        // Notify for the next cycle since we're copying the value now
-        notify_next_cycle();
     }
 
     void LastValuePullNode::apply_value(const nb::object &new_value) {

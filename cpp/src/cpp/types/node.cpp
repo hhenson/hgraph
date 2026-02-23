@@ -768,6 +768,28 @@ namespace hgraph
         return _output_override_node != nullptr || _output.has_value();
     }
 
+    void Node::release_endpoints_for_arena() noexcept {
+        // Best-effort explicit teardown for arena aliasing allocations where
+        // normal destructors may not run. Input unbind unregisters link observers.
+        if (_input.has_value()) {
+            auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
+            auto in = input(et);
+            if (in) {
+                in.unbind();
+            }
+        }
+
+        _start_inputs.clear();
+        _scheduler.reset();
+        _output_override_node = nullptr;
+        _recordable_state.reset();
+        _error_output.reset();
+        _output.reset();
+        _input.reset();
+        _cached_evaluation_time_ptr = nullptr;
+        _graph = nullptr;
+    }
+
     void Node::set_output_override(node_ptr source_node) noexcept { _output_override_node = source_node; }
 
     void Node::clear_output_override() noexcept { _output_override_node = nullptr; }

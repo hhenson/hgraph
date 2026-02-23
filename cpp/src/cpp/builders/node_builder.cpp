@@ -4,9 +4,7 @@
 
 #include <hgraph/builders/builder.h>
 #include <hgraph/builders/graph_builder.h>
-#include <hgraph/builders/input_builder.h>
 #include <hgraph/builders/node_builder.h>
-#include <hgraph/builders/output_builder.h>
 
 // Include all the extracted builder headers
 #include <hgraph/builders/nodes/python_node_builder.h>
@@ -312,14 +310,8 @@ namespace hgraph {
         }
     }  // namespace
 
-    NodeBuilder::NodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
-                             std::optional<input_builder_s_ptr> input_builder_,
-                             std::optional<output_builder_s_ptr> output_builder_,
-                             std::optional<output_builder_s_ptr> error_builder_,
-                             std::optional<output_builder_s_ptr> recordable_state_builder_)
-        : signature(std::move(signature_)), scalars(std::move(scalars_)), input_builder(std::move(input_builder_)),
-          output_builder(std::move(output_builder_)), error_builder(std::move(error_builder_)),
-          recordable_state_builder(std::move(recordable_state_builder_)) {
+    NodeBuilder::NodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_)
+        : signature(std::move(signature_)), scalars(std::move(scalars_)) {
         if (signature) {
             _input_meta = input_meta_from_signature(*signature);
             _output_meta = signature->time_series_output.has_value()
@@ -332,9 +324,7 @@ namespace hgraph {
     }
 
     NodeBuilder::NodeBuilder(NodeBuilder &&other) noexcept
-        : signature(other.signature), scalars(std::move(other.scalars)), input_builder(other.input_builder),
-          output_builder(other.output_builder), error_builder(other.error_builder),
-          recordable_state_builder(other.recordable_state_builder), _input_meta(other._input_meta),
+        : signature(other.signature), scalars(std::move(other.scalars)), _input_meta(other._input_meta),
           _output_meta(other._output_meta), _error_meta(other._error_meta),
           _recordable_state_meta(other._recordable_state_meta),
           _signal_input_impl_flags(other._signal_input_impl_flags) {
@@ -345,10 +335,6 @@ namespace hgraph {
             // Copy nanobind::ref members (inc_ref) instead of moving them, so both sides stay valid
             signature = other.signature;
             scalars = std::move(other.scalars);
-            input_builder = other.input_builder;
-            output_builder = other.output_builder;
-            error_builder = other.error_builder;
-            recordable_state_builder = other.recordable_state_builder;
             _input_meta = other._input_meta;
             _output_meta = other._output_meta;
             _error_meta = other._error_meta;
@@ -391,9 +377,14 @@ namespace hgraph {
     }
 
     void NodeBuilder::release_instance(const node_s_ptr &item) const {
-        (void)item;
-        // Clean switch: TS endpoints are value-owned on Node; legacy builder instances are no longer created.
+        if (!item) {
+            return;
+        }
+
+        // Dispose lifecycle state first, then explicitly release endpoint storage.
+        // Arena-allocated nodes use aliasing shared_ptrs and may bypass C++ dtors.
         dispose_component(*item);
+        item->release_endpoints_for_arena();
     }
 
     size_t NodeBuilder::node_type_size() const {
@@ -423,10 +414,6 @@ namespace hgraph {
                 .def("release_instance", &NodeBuilder::release_instance, "node"_a)
                 .def_ro("signature", &NodeBuilder::signature)
                 .def_ro("scalars", &NodeBuilder::scalars)
-                .def_ro("input_builder", &NodeBuilder::input_builder)
-                .def_ro("output_builder", &NodeBuilder::output_builder)
-                .def_ro("error_builder", &NodeBuilder::error_builder)
-                .def_ro("recordable_state_builder", &NodeBuilder::recordable_state_builder)
                 .def("__str__", [](const NodeBuilder &self) {
                     return fmt::format("NodeBuilder@{:p}[sig={}]",
                                        static_cast<const void *>(&self), self.signature->name);

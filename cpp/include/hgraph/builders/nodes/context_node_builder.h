@@ -6,8 +6,6 @@
 #define CONTEXT_NODE_BUILDER_H
 
 #include <hgraph/builders/node_builder.h>
-#include <hgraph/builders/input_builder.h>
-#include <hgraph/builders/output_builder.h>
 
 namespace hgraph {
     struct ContextNodeBuilder : BaseNodeBuilder {

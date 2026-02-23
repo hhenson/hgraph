@@ -263,6 +263,10 @@ namespace hgraph
 
         bool has_output() const;
 
+        // Arena-backed nodes are aliasing-shared and may not run C++ dtors.
+        // Explicitly tear down endpoint storage so link observers unregister.
+        void release_endpoints_for_arena() noexcept;
+
         std::string repr() const;
 
         std::string str() const;

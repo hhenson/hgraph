@@ -161,12 +161,19 @@ namespace hgraph {
             return;
         }
         const int rank = rank_it->second;
+        engine_time_t schedule_time = next_time;
 
         if (next_time == let) {
             if ((node_->current_eval_rank_.has_value() && rank == node_->current_eval_rank_.value()) ||
                 (node_->current_eval_graph_.has_value() &&
                  ValueEqual{}(node_->current_eval_graph_->view(), _key.view()))) {
                 return;
+            }
+            if (node_->current_eval_rank_.has_value() &&
+                rank < node_->current_eval_rank_.value()) {
+                // Lower ranks have already been processed this cycle; defer same-tick
+                // callbacks to avoid spurious cycle errors from stale dependency updates.
+                schedule_time = let + MIN_TD;
             }
         }
 
@@ -178,11 +185,11 @@ namespace hgraph {
             }
         }
 
-        if (current_schedule == MIN_DT || current_schedule > next_time || current_schedule < node_->graph()->evaluation_time()) {
-            node_->schedule_graph(_key.view(), next_time);
+        if (current_schedule == MIN_DT || current_schedule > schedule_time || current_schedule < node_->graph()->evaluation_time()) {
+            node_->schedule_graph(_key.view(), schedule_time);
         }
 
-        NestedEngineEvaluationClock::update_next_scheduled_evaluation_time(next_time);
+        NestedEngineEvaluationClock::update_next_scheduled_evaluation_time(schedule_time);
     }
 
     MeshNode::MeshNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
@@ -698,10 +705,7 @@ namespace hgraph {
             return;
         }
 
-        auto keys_view = node_input_field(*this, KEYS_ARG);
-        key_set_type current_keys;
-        const bool present_in_external_keys =
-            keys_view && collect_current_map_keys(keys_view, current_keys) && current_keys.find(depends_on) != current_keys.end();
+        const bool present_in_external_keys = external_keys_.find(depends_on) != external_keys_.end();
         if (!present_in_external_keys) {
             graphs_to_remove_.insert(depends_on.clone());
         }

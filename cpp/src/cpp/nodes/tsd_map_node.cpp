@@ -1150,9 +1150,6 @@ namespace hgraph
             if (arg == key_arg_) {
                 continue;
             }
-            if (multiplexed_args_.find(arg) == multiplexed_args_.end()) {
-                continue;
-            }
 
             auto node = graph->nodes()[node_ndx];
             auto inner_ts = node_inner_ts_input(*node);
@@ -1272,13 +1269,9 @@ namespace hgraph
             }
         }
 
-        if (output_node_id_ >= 0) {
-            auto out = tsd_output(node_time(*this));
-            if (!out) {
-                return;
-            }
-            (void)out.create(key);
-        }
+        // Output key slots are materialized lazily in evaluate_graph() when the
+        // nested output has a value to publish. Eager create here can surface
+        // spurious REMOVE deltas for keys that never became visible.
     }
 
     bool TsdMapNode::refresh_multiplexed_bindings(const value::View &key, graph_s_ptr &graph, bool* all_mux_inputs_valid) {
