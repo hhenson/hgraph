@@ -32,6 +32,7 @@ struct HGRAPH_EXPORT LinkTarget : Notifiable {
     engine_time_t* owner_time_ptr{nullptr};
     LinkTarget* parent_link{nullptr};
     Notifiable* active_notifier{nullptr};
+    ViewData observer_view{};
     bool peered{false};
     // For non-REF consumers bound via REF wrappers, wrapper-local writes should
     // not drive notifications when the resolved target is unchanged.
@@ -47,7 +48,7 @@ struct HGRAPH_EXPORT LinkTarget : Notifiable {
     ViewData resolved_target{};
     std::vector<ViewData> fan_in_targets{};
 
-    LinkTarget() = default;
+    LinkTarget();
     ~LinkTarget() override;
 
     LinkTarget(const LinkTarget& other);
@@ -70,5 +71,7 @@ private:
     void move_target_data_from(LinkTarget&& other) noexcept;
     void clear_target_data();
 };
+
+HGRAPH_EXPORT bool is_live_link_target(const LinkTarget* link_target) noexcept;
 
 }  // namespace hgraph

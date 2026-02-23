@@ -36,6 +36,7 @@ using value::Value;
 using value::ValueView;
 
 LinkTarget* resolve_link_target(const ViewData& vd, const std::vector<size_t>& ts_path);
+REFLink* resolve_ref_link(const ViewData& vd, const std::vector<size_t>& ts_path);
 bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewData& out);
 bool same_view_identity(const ViewData& lhs, const ViewData& rhs);
 bool same_or_descendant_view(const ViewData& base, const ViewData& candidate);
@@ -50,6 +51,14 @@ void record_tsd_removed_child_snapshot(const ViewData& parent_view,
                                        const View& key,
                                        const ViewData& child_view,
                                        engine_time_t current_time);
+
+TSInput* notifier_as_live_input(Notifiable* notifier) {
+    if (notifier == nullptr) {
+        return nullptr;
+    }
+    TSInput* input = reinterpret_cast<TSInput*>(notifier);
+    return is_live_ts_input(input) ? input : nullptr;
+}
 
 engine_time_t view_evaluation_time(const ViewData& vd) {
     return vd.engine_time_ptr != nullptr ? *vd.engine_time_ptr : MIN_DT;
@@ -129,7 +138,7 @@ bool find_link_target_path(const ViewData& root_view,
 }
 
 bool observer_under_static_ref_container(const LinkTarget& observer) {
-    auto* active_input = dynamic_cast<TSInput*>(observer.active_notifier);
+    auto* active_input = notifier_as_live_input(observer.active_notifier);
     if (active_input == nullptr || active_input->meta() == nullptr) {
         return false;
     }
@@ -165,7 +174,7 @@ bool signal_input_has_bind_impl(const ViewData& vd, const TSMeta* current_meta, 
         return false;
     }
 
-    auto* signal_input = dynamic_cast<TSInput*>(signal_link->active_notifier);
+    auto* signal_input = notifier_as_live_input(signal_link->active_notifier);
     if (signal_input == nullptr) {
         if (debug_signal_impl) {
             std::fprintf(stderr,
@@ -287,7 +296,9 @@ void notify_activation_if_modified(REFLink* payload, TSInput* input) {
     payload->notify(sampled_on_rebind ? current_time : target_vd.ops->last_modified_time(target_vd));
 }
 
-void unregister_link_target_observer_from_registry(const LinkTarget& link_target, TSLinkObserverRegistry* registry) {
+void unregister_link_target_observer_from_registry(const LinkTarget& link_target,
+                                                   TSLinkObserverRegistry* registry,
+                                                   const ViewData* observer_view = nullptr) {
     if (registry == nullptr || registry->entries.empty()) {
         return;
     }
@@ -295,11 +306,17 @@ void unregister_link_target_observer_from_registry(const LinkTarget& link_target
     for (auto it = registry->entries.begin(); it != registry->entries.end();) {
         auto& registrations = it->second;
         registrations.erase(
-            std::remove_if(
-                registrations.begin(),
-                registrations.end(),
-                [&link_target](const LinkObserverRegistration& registration) {
-                    return registration.link_target == &link_target;
+                std::remove_if(
+                    registrations.begin(),
+                    registrations.end(),
+                [&link_target, observer_view](const LinkObserverRegistration& registration) {
+                    if (registration.link_target == &link_target) {
+                        return true;
+                    }
+                    if (observer_view == nullptr) {
+                        return false;
+                    }
+                    return same_view_identity(registration.observer_view, *observer_view);
                 }),
             registrations.end());
 
@@ -311,7 +328,9 @@ void unregister_link_target_observer_from_registry(const LinkTarget& link_target
     }
 }
 
-void unregister_ref_link_observer_from_registry(const REFLink& ref_link, TSLinkObserverRegistry* registry) {
+void unregister_ref_link_observer_from_registry(const REFLink& ref_link,
+                                                TSLinkObserverRegistry* registry,
+                                                const ViewData* observer_view = nullptr) {
     if (registry == nullptr || registry->ref_entries.empty()) {
         return;
     }
@@ -322,8 +341,14 @@ void unregister_ref_link_observer_from_registry(const REFLink& ref_link, TSLinkO
             std::remove_if(
                 registrations.begin(),
                 registrations.end(),
-                [&ref_link](const REFLinkObserverRegistration& registration) {
-                    return registration.ref_link == &ref_link;
+                [&ref_link, observer_view](const REFLinkObserverRegistration& registration) {
+                    if (registration.ref_link == &ref_link) {
+                        return true;
+                    }
+                    if (observer_view == nullptr) {
+                        return false;
+                    }
+                    return same_view_identity(registration.observer_view, *observer_view);
                 }),
             registrations.end());
 
@@ -336,12 +361,25 @@ void unregister_ref_link_observer_from_registry(const REFLink& ref_link, TSLinkO
 }
 
 void unregister_link_target_observer(const LinkTarget& link_target) {
-    TSLinkObserverRegistry* direct_registry = link_target.link_observer_registry;
-    TSLinkObserverRegistry* resolved_registry = link_target.has_resolved_target ? link_target.resolved_target.link_observer_registry : nullptr;
+    std::unordered_set<TSLinkObserverRegistry*> registries;
+    if (link_target.link_observer_registry != nullptr) {
+        registries.insert(link_target.link_observer_registry);
+    }
+    if (link_target.has_resolved_target && link_target.resolved_target.link_observer_registry != nullptr) {
+        registries.insert(link_target.resolved_target.link_observer_registry);
+    }
+    for (const ViewData& fan_in_target : link_target.fan_in_targets) {
+        if (fan_in_target.link_observer_registry != nullptr) {
+            registries.insert(fan_in_target.link_observer_registry);
+        }
+    }
 
-    unregister_link_target_observer_from_registry(link_target, direct_registry);
-    if (resolved_registry != direct_registry) {
-        unregister_link_target_observer_from_registry(link_target, resolved_registry);
+    const ViewData* observer_view =
+        link_target.observer_view.meta != nullptr && link_target.observer_view.link_data != nullptr
+            ? &link_target.observer_view
+            : nullptr;
+    for (TSLinkObserverRegistry* registry : registries) {
+        unregister_link_target_observer_from_registry(link_target, registry, observer_view);
     }
 }
 
@@ -360,7 +398,8 @@ void unregister_ref_link_observer(const REFLink& ref_link) {
 void register_link_target_observer_entry(TSLinkObserverRegistry* registry,
                                          void* value_data,
                                          const std::vector<size_t>& path,
-                                         LinkTarget* target) {
+                                         LinkTarget* target,
+                                         const ViewData* observer_view) {
     if (registry == nullptr || value_data == nullptr || target == nullptr) {
         return;
     }
@@ -376,16 +415,22 @@ void register_link_target_observer_entry(TSLinkObserverRegistry* registry,
 
     if (existing != registrations.end()) {
         existing->path = path;
+        existing->observer_view = observer_view != nullptr ? *observer_view : ViewData{};
         return;
     }
 
-    registrations.push_back(LinkObserverRegistration{path, target});
+    registrations.push_back(LinkObserverRegistration{
+        path,
+        target,
+        observer_view != nullptr ? *observer_view : ViewData{},
+    });
 }
 
 void register_ref_link_observer_entry(TSLinkObserverRegistry* registry,
                                       void* value_data,
                                       const std::vector<size_t>& path,
-                                      REFLink* target) {
+                                      REFLink* target,
+                                      const ViewData* observer_view) {
     if (registry == nullptr || value_data == nullptr || target == nullptr) {
         return;
     }
@@ -401,10 +446,15 @@ void register_ref_link_observer_entry(TSLinkObserverRegistry* registry,
 
     if (existing != registrations.end()) {
         existing->path = path;
+        existing->observer_view = observer_view != nullptr ? *observer_view : ViewData{};
         return;
     }
 
-    registrations.push_back(REFLinkObserverRegistration{path, target});
+    registrations.push_back(REFLinkObserverRegistration{
+        path,
+        target,
+        observer_view != nullptr ? *observer_view : ViewData{},
+    });
 }
 
 void register_link_target_observer(const LinkTarget& link_target) {
@@ -413,12 +463,17 @@ void register_link_target_observer(const LinkTarget& link_target) {
     }
 
     auto* mutable_target = const_cast<LinkTarget*>(&link_target);
-    auto register_target_view = [mutable_target](const ViewData& target_view) {
+    const ViewData* observer_view =
+        link_target.observer_view.meta != nullptr && link_target.observer_view.link_data != nullptr
+            ? &link_target.observer_view
+            : nullptr;
+    auto register_target_view = [mutable_target, observer_view](const ViewData& target_view) {
         register_link_target_observer_entry(
             target_view.link_observer_registry,
             target_view.value_data,
             target_view.path.indices,
-            mutable_target);
+            mutable_target,
+            observer_view);
     };
 
     register_target_view(link_target.as_view_data(false));
@@ -588,7 +643,7 @@ bool view_path_contains_tsd_ancestor(const ViewData& view) {
     return current != nullptr && current->kind == TSKind::TSD;
 }
 
-void register_ref_link_observer(const REFLink& ref_link) {
+void register_ref_link_observer(const REFLink& ref_link, const ViewData* observer_view = nullptr) {
     if (!ref_link.is_linked) {
         return;
     }
@@ -599,7 +654,8 @@ void register_ref_link_observer(const REFLink& ref_link) {
         target_view.link_observer_registry,
         target_view.value_data,
         target_view.path.indices,
-        mutable_target);
+        mutable_target,
+        observer_view);
 }
 
 bool suppress_static_ref_child_notification(const LinkTarget& observer, engine_time_t current_time) {
@@ -645,35 +701,46 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
 
     std::unordered_set<LinkTarget*> dedupe;
     if (it != target_view.link_observer_registry->entries.end()) {
-        for (const LinkObserverRegistration& registration : it->second) {
-            if (registration.link_target == nullptr) {
+        auto& registrations = it->second;
+        for (auto registration_it = registrations.begin(); registration_it != registrations.end();) {
+            LinkObserverRegistration& registration = *registration_it;
+            LinkTarget* observer = registration.link_target;
+            if (observer == nullptr) {
+                registration_it = registrations.erase(registration_it);
+                continue;
+            }
+
+            if (!is_live_link_target(observer)) {
+                registration_it = registrations.erase(registration_it);
                 continue;
             }
             if (debug_notify) {
                 std::fprintf(stderr,
                              "[notify_obs]  reg path=%s linked=%d obs=%p\n",
                              ShortPath{target_view.path.node, target_view.path.port_type, registration.path}.to_string().c_str(),
-                             registration.link_target->is_linked ? 1 : 0,
-                             static_cast<void*>(registration.link_target));
+                             observer->is_linked ? 1 : 0,
+                             static_cast<void*>(observer));
             }
             if (!paths_related(registration.path, target_view.path.indices)) {
                 if (debug_notify) {
                     std::fprintf(stderr, "[notify_obs]   skip unrelated\n");
                 }
+                ++registration_it;
                 continue;
             }
             // Projection observers (for example, TSD key_set viewed as SIGNAL)
             // must only tick when that projection is modified, not on every
             // write to the backing root path.
-            if (registration.link_target->projection != ViewProjection::NONE) {
+            if (observer->projection != ViewProjection::NONE) {
                 ViewData projected = target_view;
                 projected.path.indices = registration.path;
-                projected.projection = registration.link_target->projection;
+                projected.projection = observer->projection;
                 projected.sampled = false;
                 if (projected.ops == nullptr || !projected.ops->modified(projected, current_time)) {
                     if (debug_notify) {
                         std::fprintf(stderr, "[notify_obs]   skip projection unmodified\n");
                     }
+                    ++registration_it;
                     continue;
                 }
             }
@@ -707,6 +774,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                                      target_is_ref ? 1 : 0,
                                      observed.path.to_string().c_str());
                     }
+                    ++registration_it;
                     continue;
                 }
             }
@@ -714,8 +782,8 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                 is_prefix_path(registration.path, target_view.path.indices) &&
                 registration.path.size() < target_view.path.indices.size();
             if (descendant_to_ancestor) {
-                if (registration.link_target->notify_on_ref_wrapper_write) {
-                    ViewData observer_view = registration.link_target->as_view_data(false);
+                if (observer->notify_on_ref_wrapper_write) {
+                    ViewData observer_view = observer->as_view_data(false);
                     observer_view.sampled = false;
                     if (observer_view.ops != nullptr &&
                         !observer_view.ops->modified(observer_view, current_time)) {
@@ -724,6 +792,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                                          "[notify_obs]   skip descendant->ancestor observer-unmodified path=%s\n",
                                          observer_view.path.to_string().c_str());
                         }
+                        ++registration_it;
                         continue;
                     }
                 }
@@ -741,20 +810,28 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                     if (debug_notify) {
                         std::fprintf(stderr, "[notify_obs]   skip descendant->ancestor unmodified\n");
                     }
+                    ++registration_it;
                     continue;
                 }
             }
-            if (dedupe.insert(registration.link_target).second) {
-                observers.push_back(registration.link_target);
+            if (dedupe.insert(observer).second) {
+                observers.push_back(observer);
                 if (debug_notify) {
                     std::fprintf(stderr, "[notify_obs]   enqueue observer\n");
                 }
             }
+            ++registration_it;
+        }
+        if (registrations.empty()) {
+            target_view.link_observer_registry->entries.erase(target_view.value_data);
         }
     }
 
     for (LinkTarget* observer : observers) {
-        if (observer != nullptr && observer->is_linked) {
+        if (observer == nullptr || !is_live_link_target(observer)) {
+            continue;
+        }
+        if (observer->is_linked) {
             // Keep REF-resolved bridge state up to date on source writes so
             // consumers can observe bind/unbind transitions in the same tick.
             refresh_dynamic_ref_binding_for_link_target(observer, false, current_time);
@@ -833,7 +910,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                 observer_meta != nullptr &&
                 observer_meta->kind == TSKind::REF) {
                 bool observer_modified = true;
-                if (auto* active_input = dynamic_cast<TSInput*>(observer->active_notifier);
+                if (auto* active_input = notifier_as_live_input(observer->active_notifier);
                     active_input != nullptr && active_input->meta() != nullptr) {
                     TSView input_root = active_input->view(current_time);
                     if (input_root) {
@@ -893,7 +970,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
             }
             if (debug_notify) {
                 const TSMeta* observer_meta = meta_at_path(observer_view.meta, observer_view.path.indices);
-                const auto* active_input = dynamic_cast<TSInput*>(observer->active_notifier);
+                const auto* active_input = notifier_as_live_input(observer->active_notifier);
                 std::string active_path{"<none>"};
                 int active_kind = -1;
                 if (active_input != nullptr) {
@@ -928,11 +1005,33 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
     }
 
     std::unordered_set<REFLink*> ref_dedupe;
-    for (const REFLinkObserverRegistration& registration : ref_it->second) {
-        if (registration.ref_link == nullptr) {
+    auto& registrations = ref_it->second;
+    for (auto registration_it = registrations.begin(); registration_it != registrations.end();) {
+        REFLinkObserverRegistration& registration = *registration_it;
+        REFLink* observer = registration.ref_link;
+        if (observer == nullptr) {
+            registration_it = registrations.erase(registration_it);
             continue;
         }
+
+        // REF link payloads can move as container storage grows. Re-resolve by
+        // the observer path when available and prune stale registrations.
+        if (registration.observer_view.meta != nullptr &&
+            registration.observer_view.link_data != nullptr) {
+            if (REFLink* resolved = resolve_ref_link(
+                    registration.observer_view,
+                    registration.observer_view.path.indices);
+                resolved != nullptr) {
+                observer = resolved;
+                registration.ref_link = resolved;
+            } else {
+                registration_it = registrations.erase(registration_it);
+                continue;
+            }
+        }
+
         if (!paths_related(registration.path, target_view.path.indices)) {
+            ++registration_it;
             continue;
         }
         const bool ancestor_to_descendant =
@@ -943,6 +1042,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
             observed.path.indices = registration.path;
             observed.sampled = false;
             if (observed.ops == nullptr) {
+                ++registration_it;
                 continue;
             }
             const TSMeta* target_meta = meta_at_path(target_view.meta, target_view.path.indices);
@@ -952,12 +1052,18 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
             const bool is_valid = observed.ops->valid(observed);
             const bool is_modified = observed.ops->modified(observed, current_time);
             if (!target_is_ref && is_valid && !is_modified) {
+                ++registration_it;
                 continue;
             }
         }
-        if (ref_dedupe.insert(registration.ref_link).second) {
-            ref_observers.push_back(registration.ref_link);
+        if (ref_dedupe.insert(observer).second) {
+            ref_observers.push_back(observer);
         }
+        ++registration_it;
+    }
+
+    if (registrations.empty()) {
+        target_view.link_observer_registry->ref_entries.erase(target_view.value_data);
     }
 
     for (REFLink* observer : ref_observers) {
@@ -8441,7 +8547,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
 
         if (auto* ref_link = resolve_ref_link(vd, vd.path.indices); ref_link != nullptr) {
             if (vd.link_observer_registry != nullptr) {
-                unregister_ref_link_observer_from_registry(*ref_link, vd.link_observer_registry);
+                unregister_ref_link_observer_from_registry(*ref_link, vd.link_observer_registry, &vd);
             } else {
                 unregister_ref_link_observer(*ref_link);
             }
@@ -8463,7 +8569,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
             }
 
             if (has_bound_target) {
-                register_ref_link_observer(*ref_link);
+                register_ref_link_observer(*ref_link, &vd);
             }
         }
 
@@ -9510,8 +9616,9 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         if (link_target == nullptr) {
             return;
         }
+        link_target->observer_view = vd;
         if (vd.link_observer_registry != nullptr) {
-            unregister_link_target_observer_from_registry(*link_target, vd.link_observer_registry);
+            unregister_link_target_observer_from_registry(*link_target, vd.link_observer_registry, &vd);
         } else {
             unregister_link_target_observer(*link_target);
         }
@@ -9616,7 +9723,9 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
                 child_path.push_back(i);
                 if (LinkTarget* child_link = resolve_link_target(vd, child_path); child_link != nullptr) {
                     if (vd.link_observer_registry != nullptr) {
-                        unregister_link_target_observer_from_registry(*child_link, vd.link_observer_registry);
+                        ViewData child_vd = vd;
+                        child_vd.path.indices = child_path;
+                        unregister_link_target_observer_from_registry(*child_link, vd.link_observer_registry, &child_vd);
                     } else {
                         unregister_link_target_observer(*child_link);
                     }
@@ -9640,7 +9749,9 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
                     if (parent_meta->kind == TSKind::TSB) {
                         // Any direct child bind transitions TSB from peered to un-peered.
                         if (vd.link_observer_registry != nullptr) {
-                            unregister_link_target_observer_from_registry(*parent_link, vd.link_observer_registry);
+                            ViewData parent_vd = vd;
+                            parent_vd.path.indices = parent_path;
+                            unregister_link_target_observer_from_registry(*parent_link, vd.link_observer_registry, &parent_vd);
                         } else {
                             unregister_link_target_observer(*parent_link);
                         }
@@ -9676,7 +9787,9 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
                         parent_link->peered = keep_parent_bound;
                         if (!keep_parent_bound) {
                             if (vd.link_observer_registry != nullptr) {
-                                unregister_link_target_observer_from_registry(*parent_link, vd.link_observer_registry);
+                                ViewData parent_vd = vd;
+                                parent_vd.path.indices = parent_path;
+                                unregister_link_target_observer_from_registry(*parent_link, vd.link_observer_registry, &parent_vd);
                             } else {
                                 unregister_link_target_observer(*parent_link);
                             }
@@ -9702,7 +9815,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         }
         const bool was_linked = ref_link->is_linked;
         if (vd.link_observer_registry != nullptr) {
-            unregister_ref_link_observer_from_registry(*ref_link, vd.link_observer_registry);
+            unregister_ref_link_observer_from_registry(*ref_link, vd.link_observer_registry, &vd);
         } else {
             unregister_ref_link_observer(*ref_link);
         }
@@ -9712,7 +9825,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         } else if (!was_linked) {
             ref_link->last_rebind_time = MIN_DT;
         }
-        register_ref_link_observer(*ref_link);
+        register_ref_link_observer(*ref_link, &vd);
 
         if (current != nullptr && current->kind == TSKind::REF) {
             const TSMeta* target_meta = meta_at_path(target.meta, target.path.indices);
@@ -9738,7 +9851,8 @@ void op_unbind(ViewData& vd, engine_time_t current_time) {
             return;
         }
         if (vd.link_observer_registry != nullptr) {
-            unregister_link_target_observer_from_registry(*lt, vd.link_observer_registry);
+            lt->observer_view = vd;
+            unregister_link_target_observer_from_registry(*lt, vd.link_observer_registry, &vd);
         } else {
             unregister_link_target_observer(*lt);
         }
@@ -9751,7 +9865,7 @@ void op_unbind(ViewData& vd, engine_time_t current_time) {
         }
         const bool was_linked = ref_link->is_linked;
         if (vd.link_observer_registry != nullptr) {
-            unregister_ref_link_observer_from_registry(*ref_link, vd.link_observer_registry);
+            unregister_ref_link_observer_from_registry(*ref_link, vd.link_observer_registry, &vd);
         } else {
             unregister_ref_link_observer(*ref_link);
         }

@@ -6,11 +6,32 @@
 #include <hgraph/types/time_series/ts_output.h>
 
 #include <algorithm>
+#include <mutex>
 #include <optional>
+#include <unordered_set>
 
 namespace hgraph {
 
 namespace {
+
+std::mutex& live_ts_input_mutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::unordered_set<const TSInput*>& live_ts_inputs() {
+    static std::unordered_set<const TSInput*> pointers;
+    return pointers;
+}
+
+void track_live_ts_input(const TSInput* input, bool live) {
+    std::lock_guard<std::mutex> lock(live_ts_input_mutex());
+    if (live) {
+        live_ts_inputs().insert(input);
+    } else {
+        live_ts_inputs().erase(input);
+    }
+}
 
 value::View to_const_view_or_empty(const value::Value& value) {
     if (value.schema() == nullptr || !value.has_value()) {
@@ -243,11 +264,24 @@ void unbind_links_recursive(const TSMeta* meta, TSView input_view) {
 
 }  // namespace
 
+bool is_live_ts_input(const TSInput* input) noexcept {
+    if (input == nullptr) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(live_ts_input_mutex());
+    return live_ts_inputs().contains(input);
+}
+
+TSInput::TSInput() {
+    track_live_ts_input(this, true);
+}
+
 TSInput::TSInput(const TSMeta* meta, node_ptr owning_node)
     : link_observer_registry_(std::make_shared<TSLinkObserverRegistry>()),
       value_(meta, meta != nullptr ? TSMetaSchemaCache::instance().get(meta).input_link_schema : nullptr),
       meta_(meta),
       owning_node_(owning_node) {
+    track_live_ts_input(this, true);
     value_.set_link_observer_registry(link_observer_registry_.get());
 
     if (meta_ == nullptr) {
@@ -259,6 +293,40 @@ TSInput::TSInput(const TSMeta* meta, node_ptr owning_node)
         active_ = value::Value(schemas.active_schema);
         active_.emplace();
     }
+}
+
+TSInput::TSInput(TSInput&& other) noexcept
+    : link_observer_registry_(std::move(other.link_observer_registry_)),
+      value_(std::move(other.value_)),
+      active_(std::move(other.active_)),
+      signal_input_impl_flags_(std::move(other.signal_input_impl_flags_)),
+      meta_(other.meta_),
+      owning_node_(other.owning_node_),
+      active_root_(other.active_root_) {
+    track_live_ts_input(this, true);
+    if (link_observer_registry_ != nullptr) {
+        value_.set_link_observer_registry(link_observer_registry_.get());
+    }
+}
+
+TSInput& TSInput::operator=(TSInput&& other) noexcept {
+    if (this != &other) {
+        link_observer_registry_ = std::move(other.link_observer_registry_);
+        value_ = std::move(other.value_);
+        active_ = std::move(other.active_);
+        signal_input_impl_flags_ = std::move(other.signal_input_impl_flags_);
+        meta_ = other.meta_;
+        owning_node_ = other.owning_node_;
+        active_root_ = other.active_root_;
+        if (link_observer_registry_ != nullptr) {
+            value_.set_link_observer_registry(link_observer_registry_.get());
+        }
+    }
+    return *this;
+}
+
+TSInput::~TSInput() {
+    track_live_ts_input(this, false);
 }
 
 const engine_time_t* TSInput::owner_engine_time_ptr() const noexcept {

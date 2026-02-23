@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/view_data.h>
 
 #include <cstddef>
 #include <memory>
@@ -17,11 +18,13 @@ struct REFLink;
 struct LinkObserverRegistration {
     std::vector<size_t> path;
     LinkTarget* link_target{nullptr};
+    ViewData observer_view{};
 };
 
 struct REFLinkObserverRegistration {
     std::vector<size_t> path;
     REFLink* ref_link{nullptr};
+    ViewData observer_view{};
 };
 
 /**

@@ -2,8 +2,30 @@
 #include <hgraph/types/time_series/link_observer_registry.h>
 #include <hgraph/types/time_series/ts_ops.h>
 
+#include <mutex>
+#include <unordered_set>
+
 namespace hgraph {
 namespace {
+
+std::mutex& live_link_target_mutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::unordered_set<const LinkTarget*>& live_link_targets() {
+    static std::unordered_set<const LinkTarget*> pointers;
+    return pointers;
+}
+
+void track_live_link_target(const LinkTarget* link_target, bool live) {
+    std::lock_guard<std::mutex> lock(live_link_target_mutex());
+    if (live) {
+        live_link_targets().insert(link_target);
+    } else {
+        live_link_targets().erase(link_target);
+    }
+}
 
 void redirect_link_target_registrations(TSLinkObserverRegistry* registry,
                                         const LinkTarget* from,
@@ -23,13 +45,28 @@ void redirect_link_target_registrations(TSLinkObserverRegistry* registry,
 
 }  // namespace
 
+bool is_live_link_target(const LinkTarget* link_target) noexcept {
+    if (link_target == nullptr) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(live_link_target_mutex());
+    return live_link_targets().contains(link_target);
+}
+
+LinkTarget::LinkTarget() {
+    track_live_link_target(this, true);
+}
+
 LinkTarget::~LinkTarget() {
+    track_live_link_target(this, false);
     unregister_ts_link_observer(*this);
 }
 
 LinkTarget::LinkTarget(const LinkTarget& other) {
+    track_live_link_target(this, true);
     copy_target_data_from(other);
     // Structural fields remain owner-local by contract.
+    observer_view = other.observer_view;
     last_rebind_time = other.last_rebind_time;
     has_previous_target = other.has_previous_target;
     previous_target = other.previous_target;
@@ -45,6 +82,7 @@ LinkTarget& LinkTarget::operator=(const LinkTarget& other) {
         unregister_ts_link_observer(*this);
         copy_target_data_from(other);
         // Preserve owner-local structural fields.
+        observer_view = other.observer_view;
         last_rebind_time = other.last_rebind_time;
         has_previous_target = other.has_previous_target;
         previous_target = other.previous_target;
@@ -58,12 +96,15 @@ LinkTarget& LinkTarget::operator=(const LinkTarget& other) {
 }
 
 LinkTarget::LinkTarget(LinkTarget&& other) noexcept {
+    track_live_link_target(this, true);
     move_target_data_from(std::move(other));
+    observer_view = other.observer_view;
     last_rebind_time = other.last_rebind_time;
     has_previous_target = other.has_previous_target;
     previous_target = other.previous_target;
     has_resolved_target = other.has_resolved_target;
     resolved_target = other.resolved_target;
+    other.observer_view = {};
     other.last_rebind_time = MIN_DT;
     other.has_previous_target = false;
     other.previous_target = {};
@@ -75,11 +116,13 @@ LinkTarget& LinkTarget::operator=(LinkTarget&& other) noexcept {
     if (this != &other) {
         unregister_ts_link_observer(*this);
         move_target_data_from(std::move(other));
+        observer_view = other.observer_view;
         last_rebind_time = other.last_rebind_time;
         has_previous_target = other.has_previous_target;
         previous_target = other.previous_target;
         has_resolved_target = other.has_resolved_target;
         resolved_target = other.resolved_target;
+        other.observer_view = {};
         other.last_rebind_time = MIN_DT;
         other.has_previous_target = false;
         other.previous_target = {};
@@ -109,15 +152,24 @@ void LinkTarget::copy_target_data_from(const LinkTarget& other) {
 }
 
 void LinkTarget::move_target_data_from(LinkTarget&& other) noexcept {
-    TSLinkObserverRegistry* direct_registry = other.link_observer_registry;
-    TSLinkObserverRegistry* resolved_registry =
-        other.has_resolved_target ? other.resolved_target.link_observer_registry : nullptr;
+    std::unordered_set<TSLinkObserverRegistry*> registries;
+    if (other.link_observer_registry != nullptr) {
+        registries.insert(other.link_observer_registry);
+    }
+    if (other.has_resolved_target && other.resolved_target.link_observer_registry != nullptr) {
+        registries.insert(other.resolved_target.link_observer_registry);
+    }
+    for (const ViewData& fan_in_target : other.fan_in_targets) {
+        if (fan_in_target.link_observer_registry != nullptr) {
+            registries.insert(fan_in_target.link_observer_registry);
+        }
+    }
 
     copy_target_data_from(other);
+    observer_view = other.observer_view;
 
-    redirect_link_target_registrations(direct_registry, &other, this);
-    if (resolved_registry != direct_registry) {
-        redirect_link_target_registrations(resolved_registry, &other, this);
+    for (TSLinkObserverRegistry* registry : registries) {
+        redirect_link_target_registrations(registry, &other, this);
     }
 
     if (is_linked) {

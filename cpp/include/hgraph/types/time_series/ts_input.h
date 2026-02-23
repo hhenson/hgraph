@@ -18,14 +18,14 @@ class TSOutput;
  */
 class HGRAPH_EXPORT TSInput : public Notifiable {
 public:
-    TSInput() = default;
+    TSInput();
     TSInput(const TSMeta* meta, node_ptr owning_node);
 
     TSInput(const TSInput&) = delete;
     TSInput& operator=(const TSInput&) = delete;
-    TSInput(TSInput&&) noexcept = default;
-    TSInput& operator=(TSInput&&) noexcept = default;
-    ~TSInput() override = default;
+    TSInput(TSInput&&) noexcept;
+    TSInput& operator=(TSInput&&) noexcept;
+    ~TSInput() override;
 
     [[nodiscard]] TSView view(engine_time_t current_time);
     [[nodiscard]] TSView view(engine_time_t current_time, const TSMeta* schema);
@@ -82,5 +82,7 @@ private:
     node_ptr owning_node_{nullptr};
     bool active_root_{false};
 };
+
+HGRAPH_EXPORT bool is_live_ts_input(const TSInput* input) noexcept;
 
 }  // namespace hgraph
