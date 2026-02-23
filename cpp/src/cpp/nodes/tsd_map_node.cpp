@@ -676,23 +676,34 @@ namespace hgraph {
         }
 
         auto eval_time = *inner_graph->evaluation_engine_clock()->evaluation_time_ptr();
+
+        // Capture the compute predecessor's output time BEFORE inner eval.
+        // The inner graph is reused across keys, so node output times persist
+        // between key evaluations. By comparing before/after, we detect if
+        // the compute chain actually produced output for THIS specific key.
+        // The predecessor is the node just before the output stub (output_node_id_ - 1).
+        engine_time_t pred_time_before{};
+        bool have_pred_time = false;
+        if (output_node_id_ > 0) {
+            auto& pred_node = inner_graph->nodes()[output_node_id_ - 1];
+            if (pred_node->ts_output()) {
+                ViewData pred_vd = pred_node->ts_output()->native_value().make_view_data();
+                if (pred_vd.time_data) {
+                    pred_time_before = *static_cast<engine_time_t*>(pred_vd.time_data);
+                    have_pred_time = true;
+                }
+            }
+        }
+
         if (force_full_inner_eval_) {
-            // Some pass-through collection inputs update through REF paths that do not reliably
-            // propagate scheduling through observers. Force a full inner pass for this tick.
+            // Force all non-output-stub nodes to run. The output stub is scheduled
+            // conditionally after we confirm the compute chain produced output.
             auto& sched = inner_graph->schedule();
             for (size_t i = 0; i < sched.size(); ++i) {
+                if (static_cast<int>(i) == output_node_id_) continue;
                 if (sched[i] < eval_time) {
                     sched[i] = eval_time;
                 }
-            }
-        } else if (output_node_id_ >= 0) {
-            // Explicitly schedule the output stub so it evaluates during this inner graph pass.
-            // The output stub's REF input is TS->REF (non-peered, set up by graph_builder's deferred
-            // binding path), which does not subscribe to the compute node's output observer list.
-            // Without this, the output stub would only run at initial wiring and never again.
-            auto& sched = inner_graph->schedule()[output_node_id_];
-            if (sched < eval_time) {
-                sched = eval_time;
             }
         }
 
@@ -700,13 +711,12 @@ namespace hgraph {
             try {
                 inner_graph->evaluate_graph();
             } catch (const std::exception& e) {
-                // Write error to the error output TSD element for this key
                 if (auto* err_out = ts_error_output()) {
                     auto ne = NodeError::capture_error(e, *this, "key: " +
                         (key_type_meta_ ? key_type_meta_->ops->to_string(key.data(), key_type_meta_) : "?"));
                     auto error_ptr = nb::ref<NodeError>(new NodeError(ne));
                     ViewData err_vd = err_out->native_value().make_view_data();
-                    err_vd.link_data = nullptr;  // Navigate local TSD, not linked target
+                    err_vd.link_data = nullptr;
                     TSView elem_view = err_vd.ops->dict_create(err_vd, key, eval_time);
                     if (elem_view.view_data().valid()) {
                         elem_view.from_python(nb::cast(error_ptr));
@@ -717,12 +727,50 @@ namespace hgraph {
             inner_graph->evaluate_graph();
         }
 
-        // Check inner graph schedule state
-        {
-            auto& sched = inner_graph->schedule();
-            int scheduled_count = 0;
-            for (size_t i = 0; i < sched.size(); ++i) {
-                if (sched[i] >= eval_time) scheduled_count++;
+        // Check if the compute predecessor's output time changed during this eval.
+        // If it changed, the compute chain produced new output for this key.
+        // Schedule and run the output stub to forward the result to the TSD element.
+        if (output_node_id_ > 0) {
+            bool compute_produced = false;
+            auto& pred_node = inner_graph->nodes()[output_node_id_ - 1];
+            if (pred_node->ts_output()) {
+                ViewData pred_vd = pred_node->ts_output()->native_value().make_view_data();
+                if (pred_vd.time_data) {
+                    auto pred_time_after = *static_cast<engine_time_t*>(pred_vd.time_data);
+                    compute_produced = !have_pred_time || pred_time_after != pred_time_before;
+                }
+            }
+
+            if (compute_produced) {
+                auto& sched = inner_graph->schedule()[output_node_id_];
+                sched = eval_time;
+                inner_graph->evaluate_graph();
+            }
+        }
+
+        // The inner graph writes to the TSD element via forwarded_target, which
+        // bypasses MapStorage's SlotObserver. Explicitly mark the slot as updated
+        // in the MapDelta so that modified_items() includes it.
+        // The output stub was only run if the compute node actually produced output
+        // (see two-pass logic above), so we can safely mark the slot.
+        if (output_node_id_ >= 0 && ts_output()) {
+            auto inner_node = inner_graph->nodes()[output_node_id_];
+            if (inner_node->ts_output() && inner_node->ts_output()->is_forwarded()) {
+                LinkTarget& ft = inner_node->ts_output()->forwarded_target();
+                if (ft.time_data) {
+                    auto ft_time = *static_cast<engine_time_t*>(ft.time_data);
+                    if (ft_time >= eval_time) {
+                        ViewData outer_data = ts_output()->native_value().make_view_data();
+                        if (outer_data.delta_data) {
+                            auto* storage = static_cast<value::MapStorage*>(outer_data.value_data);
+                            size_t slot = storage->key_set().find(key.data());
+                            if (slot != static_cast<size_t>(-1)) {
+                                auto* map_delta = static_cast<MapDelta*>(outer_data.delta_data);
+                                map_delta->on_update(slot);
+                            }
+                        }
+                    }
+                }
             }
         }
 

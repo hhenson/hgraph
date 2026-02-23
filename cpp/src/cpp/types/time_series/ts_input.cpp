@@ -280,6 +280,15 @@ void RefBindingProxy::notify(engine_time_t et) {
             input_vd.ops->bind(input_vd, target_vd);
 
             if (old_value_data != target_vd.value_data) {
+                // Target changed — re-subscribe element-level active notifiers.
+                // After rebinding, the LinkTargets point to new target elements but
+                // their active_notifiers aren't subscribed (set_active ran before binding).
+                // Call set_active to properly subscribe through the normal path.
+                // This matches Python's PythonBoundTimeSeriesInput.bind_input() + make_active().
+                if (input->active()) {
+                    value::View active_view = input->active_view();
+                    input_vd.ops->set_active(input_vd, active_view, true, input);
+                }
                 bool target_valid = input_vd.ops->valid(input_vd);
                 if (target_valid) {
                     input->set_sampled_at(et);
@@ -314,6 +323,7 @@ void RefBindingProxy::unsubscribe() {
         subscribed = false;
     }
 }
+
 
 void TSInput::clear_ref_binding_proxies() {
     for (auto& proxy : ref_binding_proxies_) {
@@ -404,8 +414,7 @@ void TSInputView::bind(TSOutputView& output) {
     // _output=None, so make_active() skips subscription.
     if (input_ && input_->active()) {
         bool is_ts_to_ref = (vd.meta && vd.meta->kind == TSKind::REF &&
-                             out_vd.meta && out_vd.meta->kind != TSKind::REF &&
-                             !is_collection_kind(out_vd.meta->kind));
+                             out_vd.meta && out_vd.meta->kind != TSKind::REF);
         if (!is_ts_to_ref && !is_signal_to_tsd) {
             output.subscribe(input_);
         }

@@ -3,7 +3,6 @@
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/api/python/py_time_series.h>
-
 namespace hgraph {
 
 // ============================================================================
@@ -21,11 +20,15 @@ REFLink::REFLink(REFLink&& other) noexcept
     , ref_source_bound_(other.ref_source_bound_)
     , owner_time_ptr_(other.owner_time_ptr_)
     , parent_link_(other.parent_link_)
-    , last_notify_time_(other.last_notify_time_) {
+    , last_notify_time_(other.last_notify_time_)
+    , native_storage_(other.native_storage_)
+    , native_slot_(other.native_slot_) {
     other.ref_source_bound_ = false;
     other.owner_time_ptr_ = nullptr;
     other.parent_link_ = nullptr;
     other.last_notify_time_ = MIN_DT;
+    other.native_storage_ = nullptr;
+    other.native_slot_ = 0;
     // Move active_notifier state
     active_notifier_.owning_input = other.active_notifier_.owning_input;
     other.active_notifier_.owning_input = nullptr;
@@ -43,12 +46,16 @@ REFLink& REFLink::operator=(REFLink&& other) noexcept {
         parent_link_ = other.parent_link_;
         last_notify_time_ = other.last_notify_time_;
         active_notifier_.owning_input = other.active_notifier_.owning_input;
+        native_storage_ = other.native_storage_;
+        native_slot_ = other.native_slot_;
 
         other.ref_source_bound_ = false;
         other.owner_time_ptr_ = nullptr;
         other.parent_link_ = nullptr;
         other.last_notify_time_ = MIN_DT;
         other.active_notifier_.owning_input = nullptr;
+        other.native_storage_ = nullptr;
+        other.native_slot_ = 0;
     }
     return *this;
 }

@@ -187,12 +187,29 @@ public:
     /**
      * @brief Set the parent link for upward time propagation.
      */
-    void set_parent_link(LinkTarget* parent) { parent_link_ = parent; }
+    void set_parent_link(Notifiable* parent) { parent_link_ = parent; }
 
     /**
      * @brief Get the embedded ActiveNotifier for node-scheduling subscription.
      */
     LinkTarget::ActiveNotifier& active_notifier() { return active_notifier_; }
+
+    // ========== Lazy Resolution (for alt elements) ==========
+
+    /**
+     * @brief Set lazy resolution context for alt elements.
+     *
+     * When alt TSB elements can't bind to native REF at creation time (VarList
+     * resize invalidates observer pointers), store the native MapStorage* and
+     * slot for poll-based resolution at access time.
+     */
+    void set_lazy_context(void* native_storage, size_t native_slot) {
+        native_storage_ = native_storage;
+        native_slot_ = native_slot;
+    }
+
+    [[nodiscard]] void* native_storage() const noexcept { return native_storage_; }
+    [[nodiscard]] size_t native_slot() const noexcept { return native_slot_; }
 
 private:
     /**
@@ -210,11 +227,15 @@ private:
 
     // Time-accounting chain (structural, owned by this REFLink)
     engine_time_t* owner_time_ptr_{nullptr};   ///< Ptr to this level's time slot in INPUT's TSValue
-    LinkTarget* parent_link_{nullptr};          ///< Parent level's LinkTarget (nullptr at root)
+    Notifiable* parent_link_{nullptr};          ///< Parent level's Notifiable (nullptr at root)
     engine_time_t last_notify_time_{MIN_DT};   ///< Dedup guard
 
     // Node-scheduling wrapper
     LinkTarget::ActiveNotifier active_notifier_;  ///< Embedded notifier for set_active
+
+    // Lazy resolution for alt elements (avoids VarList resize pointer invalidation)
+    void* native_storage_{nullptr};    ///< MapStorage* for the native TSD (stable address)
+    size_t native_slot_{0};            ///< Slot index in the native MapStorage
 };
 
 /**

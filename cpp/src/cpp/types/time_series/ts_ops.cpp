@@ -947,9 +947,6 @@ void bind(ViewData& vd, const ViewData& target) {
         throw std::runtime_error("bind on scalar without link data");
     }
 
-    // DEBUG: log all scalar_ops::bind calls when target is REF
-    if (target.meta && target.meta->kind == TSKind::REF) {
-    }
 
     if (vd.uses_link_target) {
         // TSInput: Store directly in LinkTarget
@@ -1176,11 +1173,10 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
 
             if (is_ts_to_ref) {
                 // TS→REF: Fixed reference to non-REF target.
-                // Python's PythonTimeSeriesReferenceInput.make_active() subscribes
-                // to the output observer list, so the node IS scheduled when the
-                // underlying value changes. We must do the same.
-                observer_data = lt->observer_data;
-                bound_lt = lt;
+                // Python's PythonTimeSeriesReferenceInput.do_bind_output sets _output=None
+                // so make_active() skips subscription. The node only ticks at bind/start time.
+                // Do NOT subscribe to target's observer list. Only set mutable_lt so we can
+                // fire the initial notification below.
                 mutable_lt = lt;
             } else if (lt && lt->is_linked) {
                 observer_data = lt->observer_data;
@@ -1318,6 +1314,9 @@ inline LinkTarget* get_scalar_field_link_target(const ViewData& vd, size_t field
     return static_cast<LinkTarget*>(link_data);
 }
 
+// Forward declaration for lazy binding
+inline bool try_lazy_bind_alt_bundle(const ViewData& vd);
+
 // Helper: Check if any field is linked (only checks scalar fields)
 inline bool any_field_linked(const ViewData& vd) {
     if (!vd.link_data || !vd.meta) return false;
@@ -1346,7 +1345,127 @@ inline bool any_field_linked(const ViewData& vd) {
             }
         }
     }
+    // For TSOutput alternatives: per-field REFLinks may not be bound yet (VarList resize
+    // invalidated observer pointers during element creation). Try lazy binding now.
+    if (!vd.uses_link_target && try_lazy_bind_alt_bundle(vd)) {
+        return true;
+    }
     return false;
+}
+
+/// Lazy binding for alternative TSB elements: when per-field REFLinks aren't bound
+/// but the container-level REFLink (element 0 of the link tuple) has since resolved,
+/// bind per-field REFLinks to the target TSB's fields.
+/// Returns true if per-field links are now set up (either already were or just bound).
+inline bool try_lazy_bind_alt_bundle(const ViewData& vd) {
+    if (!vd.link_data || !vd.meta || vd.uses_link_target) return false;
+    auto link_schema = get_bundle_link_schema(vd);
+    if (!link_schema) return false;
+
+    // Element 0 is the container-level REFLink
+    value::View link_view(vd.link_data, link_schema);
+    auto link_tuple = link_view.as_tuple();
+    auto* container_rl = static_cast<REFLink*>(link_tuple.at(0).data());
+    if (!container_rl) return false;
+
+    // Check for lazy context (MapStorage* + slot stored during on_insert)
+    auto* native_storage = static_cast<value::MapStorage*>(container_rl->native_storage());
+    if (!native_storage) return false;
+
+    size_t slot = container_rl->native_slot();
+
+    // Read the native REF element's TSReference from the current (stable) MapStorage
+    void* native_value = native_storage->value_at_slot(slot);
+    if (!native_value) return false;
+
+    auto* ref = static_cast<TSReference*>(native_value);
+    if (ref->is_empty()) return false;
+
+    // Resolve the TSReference to get the target TSB
+    // Handle PEERED, PYTHON_BOUND, and NON_PEERED (composite) references
+    if (ref->is_non_peered()) {
+        // NON_PEERED: composite TSB reference — each item is a sub-reference per field
+        const auto& items = ref->items();
+        size_t n = std::min(items.size(), vd.meta->field_count);
+        bool any_linked = false;
+        for (size_t i = 0; i < n; ++i) {
+            const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+            if (!field_meta || !field_meta->is_scalar_ts()) continue;
+            auto* rl = static_cast<REFLink*>(link_tuple.at(i + 1).data());
+            if (!rl) { continue; }
+
+            const TSReference& sub_ref = items[i];
+            if (sub_ref.is_empty()) continue;
+
+            // Resolve the sub-reference to get field ViewData
+            ViewData field_vd;
+            if (sub_ref.is_peered()) {
+                TSView resolved = sub_ref.resolve(MIN_DT);
+                if (!resolved) continue;
+                field_vd = resolved.view_data();
+
+                // If resolved to REF, dereference one more level:
+                // read TSReference from value_data, resolve recursively
+                while (field_vd.meta && field_vd.meta->kind == TSKind::REF && field_vd.value_data) {
+                    auto* inner_ref = static_cast<const TSReference*>(field_vd.value_data);
+                    if (inner_ref->is_empty()) { field_vd = {}; break; }
+                    if (inner_ref->is_peered()) {
+                        TSView inner = inner_ref->resolve(MIN_DT);
+                        if (!inner) { field_vd = {}; break; }
+                        field_vd = inner.view_data();
+                    } else if (inner_ref->is_python_bound()) {
+                        auto inner = resolve_python_bound_reference(inner_ref, MIN_DT);
+                        if (!inner) { field_vd = {}; break; }
+                        field_vd = *inner;
+                    } else {
+                        field_vd = {}; break;
+                    }
+                }
+            } else if (sub_ref.is_python_bound()) {
+                auto resolved = resolve_python_bound_reference(&sub_ref, MIN_DT);
+                if (!resolved) continue;
+                field_vd = *resolved;
+            } else {
+                continue;
+            }
+
+            if (field_vd.value_data) {
+                store_link_target(*rl, field_vd);
+                any_linked = true;
+            }
+        }
+        return any_linked;
+    }
+
+    // PEERED or PYTHON_BOUND: resolve to whole TSB, then bind per-field
+    ViewData target_vd;
+    if (ref->is_peered()) {
+        TSView resolved = ref->resolve(MIN_DT);
+        if (!resolved || !resolved.view_data().ops) return false;
+        target_vd = resolved.view_data();
+    } else if (ref->is_python_bound()) {
+        auto resolved = resolve_python_bound_reference(ref, MIN_DT);
+        if (!resolved || !resolved->ops) return false;
+        target_vd = *resolved;
+    } else {
+        return false;
+    }
+    if (!target_vd.ops) return false;
+
+    // Bind per-field REFLinks to the target TSB's fields
+    for (size_t i = 0; i < vd.meta->field_count; ++i) {
+        const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+        if (field_meta && field_meta->is_scalar_ts()) {
+            auto* rl = static_cast<REFLink*>(link_tuple.at(i + 1).data());
+            if (rl) {
+                TSView target_field = target_vd.ops->child_at(target_vd, i, MIN_DT);
+                if (target_field) {
+                    store_link_target(*rl, target_field.view_data());
+                }
+            }
+        }
+    }
+    return true;
 }
 
 engine_time_t last_modified_time(const ViewData& vd) {
@@ -1436,6 +1555,23 @@ bool valid(const ViewData& vd) {
                 field_vd.ops = get_ts_ops(field_meta);
                 if (field_vd.ops && field_vd.ops->valid(field_vd)) {
                     return true;
+                }
+            }
+        }
+    }
+
+    // Lazy binding for alt TSB elements: per-field REFLinks may not be bound yet
+    if (!vd.uses_link_target && try_lazy_bind_alt_bundle(vd)) {
+        // Re-check validity through the now-bound per-field links
+        for (size_t i = 0; i < vd.meta->field_count; ++i) {
+            const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+            if (field_meta && field_meta->is_scalar_ts()) {
+                auto* rl = static_cast<const REFLink*>(link_tuple.at(i + 1).data());
+                if (rl && rl->target().is_linked && rl->target().ops) {
+                    ViewData field_vd = make_view_data_from_link(*rl, vd.path);
+                    if (rl->target().ops->valid(field_vd)) {
+                        return true;
+                    }
                 }
             }
         }
@@ -1625,6 +1761,13 @@ nb::object to_python(const ViewData& vd) {
                     }
                 }
             }
+            // Lazy binding for alternative TSB elements where per-field REFLinks
+            // weren't set up at creation time (VarList resize invalidated pointers).
+            // Always re-resolve to pick up newly-available sub-references (e.g., field b
+            // becomes available at tick 2 when it was empty at tick 1).
+            if (!vd.uses_link_target) {
+                if (try_lazy_bind_alt_bundle(vd)) has_links = true;
+            }
 
             if (has_links) {
                 // Build dict from linked field values
@@ -1779,6 +1922,10 @@ nb::object delta_to_python(const ViewData& vd) {
         // are linked, collection fields (TSD/TSL) need link_data propagation via child_at.
         // For outputs, only use linked path if any scalar field has an active REFLink.
         bool has_links = link_schema && (vd.uses_link_target || any_field_linked(vd));
+        // Always re-resolve lazy bindings to pick up newly-available sub-references
+        if (!vd.uses_link_target) {
+            if (try_lazy_bind_alt_bundle(vd)) has_links = true;
+        }
         if (has_links) {
             value::View link_view(vd.link_data, link_schema);
             auto link_tuple = link_view.as_tuple();
@@ -1794,6 +1941,13 @@ nb::object delta_to_python(const ViewData& vd) {
                         auto* lt = static_cast<const LinkTarget*>(link_tuple.at(i + 1).data());
                         if (lt && lt->is_linked && lt->ops) {
                             ViewData target_vd = make_view_data_from_link_target(*lt, vd.path.child(i));
+                            engine_time_t ft = target_vd.ops->last_modified_time(target_vd);
+                            if (ft > current_time) current_time = ft;
+                        }
+                    } else {
+                        auto* rl = static_cast<const REFLink*>(link_tuple.at(i + 1).data());
+                        if (rl && rl->target().is_linked && rl->target().ops) {
+                            ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(i));
                             engine_time_t ft = target_vd.ops->last_modified_time(target_vd);
                             if (ft > current_time) current_time = ft;
                         }
@@ -2088,12 +2242,24 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
     // For TSInput: do NOT follow LinkTarget early - scalar_ops handle it lazily
     //             (preserves link_data so is_bound() works correctly)
     if (field_meta && field_meta->is_scalar_ts() && !vd.uses_link_target) {
-        // TSOutput: Check REFLink
+        // TSOutput: Check per-field REFLink
         auto* rl = get_scalar_field_ref_link(vd, index);
         if (rl && rl->target().valid()) {
             bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
             ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(index), is_sampled);
             return TSView(target_vd, current_time);
+        }
+
+        // Fallback for alternative TSB: per-field REFLinks were never set up because
+        // the native REF was empty when establish_links_recursive Case 2 ran.
+        // Try lazy binding now, then retry the per-field REFLink check.
+        if (try_lazy_bind_alt_bundle(vd)) {
+            rl = get_scalar_field_ref_link(vd, index);
+            if (rl && rl->target().valid()) {
+                bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
+                ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(index), is_sampled);
+                return TSView(target_vd, current_time);
+            }
         }
     }
 
@@ -3955,19 +4121,32 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                     value::View link_view(vd.link_data, link_schema);
                     auto link_list = link_view.as_list();
 
+                    const TSMeta* elem_meta = vd.meta->element_ts;
                     for (size_t i = 0; i < link_list.size() && i < static_cast<size_t>(vd.meta->fixed_size); ++i) {
                         auto* lt = static_cast<LinkTarget*>(link_list.at(i).data());
                         if (lt && lt->is_linked && lt->observer_data) {
-                            auto* observers = static_cast<ObserverList*>(lt->observer_data);
-                            if (active) {
-                                if (lt->active_notifier.owning_input == nullptr) {
+                            // TS→REF: REF element bound to non-REF target — skip subscription.
+                            // Python's PythonTimeSeriesReferenceInput sets _output=None so
+                            // make_active() never subscribes for TS→REF bindings.
+                            bool is_ts_to_ref = (elem_meta && elem_meta->kind == TSKind::REF &&
+                                                 lt->meta && lt->meta->kind != TSKind::REF);
+                            if (is_ts_to_ref) {
+                                // Only set owning_input for initial notification, no subscription
+                                if (active && lt->active_notifier.owning_input == nullptr) {
                                     lt->active_notifier.owning_input = input;
-                                    observers->add_observer(&lt->active_notifier);
                                 }
                             } else {
-                                if (lt->active_notifier.owning_input != nullptr) {
-                                    observers->remove_observer(&lt->active_notifier);
-                                    lt->active_notifier.owning_input = nullptr;
+                                auto* observers = static_cast<ObserverList*>(lt->observer_data);
+                                if (active) {
+                                    if (lt->active_notifier.owning_input == nullptr) {
+                                        lt->active_notifier.owning_input = input;
+                                        observers->add_observer(&lt->active_notifier);
+                                    }
+                                } else {
+                                    if (lt->active_notifier.owning_input != nullptr) {
+                                        observers->remove_observer(&lt->active_notifier);
+                                        lt->active_notifier.owning_input = nullptr;
+                                    }
                                 }
                             }
                         } else if (lt && lt->ref_binding_) {
@@ -5599,10 +5778,13 @@ nb::object delta_to_python(const ViewData& vd) {
     }
     // If linked via REFLink (TSOutput), delegate to target
     if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
+        ViewData rl_target_vd = make_view_data_from_link(*rl, vd.path);
+        return rl->target().ops->delta_to_python(rl_target_vd);
     }
     // Check time-series validity first (has value been set?)
-    if (!valid(vd)) { return nb::none(); }
+    if (!valid(vd)) {
+        return nb::none();
+    }
 
     // TSD delta_value: frozendict of modified+valid elements' delta_values
     // Python: frozendict(chain(((k, v.delta_value) for k,v in items if v.modified and v.valid),
@@ -5686,6 +5868,8 @@ nb::object delta_to_python(const ViewData& vd) {
                         elem_vd.meta = elem_ts;
                         if (link_list.valid() && slot < link_list.size()) {
                             elem_vd.link_data = link_list.at(slot).data();
+                        }
+                        {
                         }
                         nb::object py_delta = elem_vd.ops->delta_to_python(elem_vd);
                         bool include = !py_delta.is_none();
@@ -6778,6 +6962,7 @@ ViewData resolve_bound_output(const ViewData& input_vd, engine_time_t current_ti
             // Use alternative's value/meta/ops/link for correct element types,
             // but native's time/delta/observer for modification tracking.
             ViewData native_vd = bound->native_value().make_view_data();
+            // Check alternative element count
             vd.value_data = alt_vd.value_data;
             vd.meta = alt_vd.meta;
             vd.ops = alt_vd.ops;

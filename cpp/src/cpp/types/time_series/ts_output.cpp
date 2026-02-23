@@ -296,11 +296,17 @@ struct IsEmptyTracking : Notifiable {
 struct AlternativeTimePropagator : Notifiable {
     engine_time_t* native_container_time{nullptr};
     engine_time_t* alt_container_time{nullptr};
+    ObserverList* alt_container_obs{nullptr};
 
     void notify(engine_time_t et) override {
         if (et == MIN_DT) return;
         if (native_container_time && alt_container_time) {
             *alt_container_time = *native_container_time;
+        }
+        // Also fire the alt's container observers so that any INPUT
+        // LinkTarget subscribed to the alt gets notified (schedules the node).
+        if (alt_container_obs) {
+            alt_container_obs->notify_modified(et);
         }
     }
 };
@@ -406,7 +412,32 @@ void AlternativeStructuralObserver::on_insert(size_t slot) {
     const TSMeta* native_elem_meta = native_view.ts_meta()->element_ts;
     const TSMeta* target_elem_meta = alt_view.ts_meta()->element_ts;
 
-    // Establish the link for this new element
+    // For REF[X] → X conversion where X = TSB, use lazy resolution
+    // instead of establish_links_recursive. VarList resize during subsequent
+    // dict_create calls invalidates observer pointers, making REFLink subscriptions
+    // unreliable. Instead, store the stable MapStorage* and slot so the element
+    // can be resolved at access time.
+    if (native_elem_meta->kind == TSKind::REF &&
+        target_elem_meta == native_elem_meta->element_ts &&
+        target_elem_meta->kind == TSKind::TSB) {
+        void* link_data = alt_elem.view_data().link_data;
+        if (link_data) {
+            auto link_schema = TSMetaSchemaCache::instance().get_link_schema(target_elem_meta);
+            if (link_schema) {
+                value::View link_view(link_data, link_schema);
+                auto link_tuple = link_view.as_tuple();
+                auto* container_rl = static_cast<REFLink*>(link_tuple.at(0).data());
+                if (container_rl) {
+                    container_rl->set_lazy_context(native_storage, slot);
+                }
+            }
+        }
+        return;
+    }
+
+    // Establish the link for this new element (handles all other cases
+    // including non-TSB REF[X] → X where establish_links_recursive
+    // sets up a REFLink for proper value delegation)
     output_->establish_links_recursive(
         *alt_,
         alt_elem,
@@ -659,11 +690,12 @@ void TSOutput::establish_links_recursive(
             if (ref_link->valid()) {
                 TSView target = ref_link->target_view(MIN_DT);
                 if (target) {
-                    // For simple dereference, the alternative's value access
-                    // goes through the REFLink's target
                     alt_view.bind(target);
                 }
             }
+            // If REFLink is not yet valid (native REF empty at creation time),
+            // leave per-field REFLinks unbound. They will be lazily bound at
+            // access time by try_lazy_bind_alt_bundle() in ts_ops.cpp.
         } else {
             // REF[X] → Y where X != Y: REFLink + nested conversion
             // Example: REF[TSD[str, TS[int]]] → TSD[str, REF[TS[int]]]
@@ -787,6 +819,14 @@ void TSOutput::establish_links_recursive(
                     propagator->native_container_time = &native_time.as_tuple().at(0).as<engine_time_t>();
                     propagator->alt_container_time = &alt_time.as_tuple().at(0).as<engine_time_t>();
 
+                    // Set up alt container observer firing so INPUT LinkTargets get notified
+                    auto* alt_obs_schema = cache.get_observer_schema(target_meta);
+                    if (alt_obs_schema && alt_vd.observer_data) {
+                        value::View alt_obs(alt_vd.observer_data, alt_obs_schema);
+                        propagator->alt_container_obs = static_cast<ObserverList*>(
+                            alt_obs.as_tuple().at(0).data());
+                    }
+
                     // Subscribe to native container's ObserverList
                     auto* native_container_obs = static_cast<ObserverList*>(
                         native_obs.as_tuple().at(0).data());
@@ -801,26 +841,56 @@ void TSOutput::establish_links_recursive(
 
         // Process existing elements
         if (target_meta->kind == TSKind::TSD) {
-            // For TSD, iterate over all slots using the iterator
             TSDView native_dict = native_view.as_dict();
             TSDView alt_dict = alt_view.as_dict();
+            auto* native_storage = static_cast<value::MapStorage*>(native_view.view_data().value_data);
 
+            // Detect REF[X] → X conversion where X = TSB (needs lazy binding)
+            bool is_ref_to_tsb = (native_elem->kind == TSKind::REF &&
+                                  target_elem == native_elem->element_ts &&
+                                  target_elem->kind == TSKind::TSB);
+
+            // Phase 1: Create all alt elements first.
+            // This triggers all VarList resizes upfront, so that Phase 2
+            // operates on stable addresses (REFLink subscriptions won't
+            // be invalidated by subsequent creates).
+            std::vector<std::pair<const void*, size_t>> element_keys; // (key_data_ptr, native_slot)
             auto native_items = native_dict.items();
             for (auto it = native_items.begin(); it != native_items.end(); ++it) {
                 value::View key_view = it.key();
-                TSView native_elem_view = *it;
+                alt_dict.create(key_view);
+                size_t slot = native_storage->key_set().find(key_view.data());
+                element_keys.emplace_back(key_view.data(), slot);
+            }
 
-                // Create the corresponding element in alternative (alternative starts empty)
-                TSView alt_elem_view = alt_dict.create(key_view);
+            // Phase 2: Set up links (alt VarList is now stable)
+            for (auto& [key_data, native_slot] : element_keys) {
+                value::View key_view(key_data, target_meta->key_type);
+                TSView native_elem_view = native_dict.at(key_view);
+                TSView alt_elem_view = alt_dict.at(key_view);
 
-                // Establish links for this element
-                establish_links_recursive(
-                    alt,
-                    alt_elem_view,
-                    native_elem_view,
-                    target_elem,
-                    native_elem
-                );
+                if (is_ref_to_tsb) {
+                    // REF[TSB] → TSB: use lazy context (same as on_insert).
+                    // Don't call establish_links_recursive because bind_to_ref
+                    // subscriptions would be invalidated if native VarList resizes later.
+                    // Instead, store MapStorage* + slot for poll-based resolution
+                    // at access time via try_lazy_bind_alt_bundle().
+                    void* link_data = alt_elem_view.view_data().link_data;
+                    if (link_data) {
+                        auto link_schema = TSMetaSchemaCache::instance().get_link_schema(target_elem);
+                        if (link_schema) {
+                            value::View link_view(link_data, link_schema);
+                            auto link_tuple = link_view.as_tuple();
+                            auto* container_rl = static_cast<REFLink*>(link_tuple.at(0).data());
+                            if (container_rl) {
+                                container_rl->set_lazy_context(native_storage, native_slot);
+                            }
+                        }
+                    }
+                } else {
+                    establish_links_recursive(
+                        alt, alt_elem_view, native_elem_view, target_elem, native_elem);
+                }
             }
         } else {
             // For TSL, iterate by index
