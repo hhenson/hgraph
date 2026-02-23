@@ -1730,8 +1730,10 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
     if (ts_path.empty()) {
         if (meta->kind == TSKind::REF) {
             out.push_back(0);  // REF root link slot.
-        } else if (meta->kind == TSKind::TSB || meta->kind == TSKind::TSL || meta->kind == TSKind::TSD) {
+        } else if (meta->kind == TSKind::TSB) {
             out.push_back(0);  // container link slot.
+        } else if (meta->kind == TSKind::TSL && meta->fixed_size() > 0) {
+            out.push_back(0);  // fixed-size TSL container link slot.
         }
         return out;
     }
@@ -1783,8 +1785,7 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
                 meta = meta->element_ts();
                 break;
             case TSKind::TSD:
-                out.push_back(1);  // per-key child link list in slot 1.
-                out.push_back(index);
+                crossed_dynamic_boundary = true;
                 meta = meta->element_ts();
                 break;
             default:
@@ -1797,8 +1798,6 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
         if (meta->kind == TSKind::REF) {
             out.push_back(0);
         } else if (meta->kind == TSKind::TSB) {
-            out.push_back(0);
-        } else if (meta->kind == TSKind::TSD) {
             out.push_back(0);
         } else if (meta->kind == TSKind::TSL && meta->fixed_size() > 0) {
             out.push_back(0);
@@ -5894,10 +5893,6 @@ nb::object op_to_python(const ViewData& vd) {
                     return;
                 }
 
-                if (child_meta->kind != TSKind::REF && !op_valid(child)) {
-                    return;
-                }
-
                 nb::object child_py = op_to_python(child);
                 if (child_meta != nullptr && child_meta->kind == TSKind::REF && child_py.is_none()) {
                     // Keep key-space stable internally, but hide unresolved REF entries
@@ -6534,7 +6529,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                              vd.path.to_string().c_str(),
                              static_cast<long long>(current_time.time_since_epoch().count()));
             }
-            return nb::none();
+            // Non-scalar delta contract: containers return empty payloads, not None.
+            return get_frozendict()(nb::dict{});
         }
 
         nb::dict delta_out;
@@ -7616,7 +7612,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                     delta_out[nb::str(field_name)] = std::move(child_delta);
                 }
                 if (PyDict_Size(delta_out.ptr()) == 0) {
-                    return nb::none();
+                    // Non-scalar delta contract: containers return empty payloads, not None.
+                    return delta_out;
                 }
                 return delta_out;
             }
@@ -7861,7 +7858,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                 }
             }
             if (PyDict_Size(delta_out.ptr()) == 0) {
-                return nb::none();
+                // Non-scalar delta contract: containers return empty payloads, not None.
+                return delta_out;
             }
             return delta_out;
         }
@@ -7923,7 +7921,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             }
         }
         if (PyDict_Size(delta_out.ptr()) == 0) {
-            return nb::none();
+            // Non-scalar delta contract: containers return empty payloads, not None.
+            return delta_out;
         }
         return delta_out;
     }
@@ -8413,15 +8412,16 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
             if (!elem.valid()) {
                 return false;
             }
-            if (!set.add(elem)) {
-                return false;
-            }
+            // Python parity for SetDelta inputs: when an element is marked
+            // removed in this tick, do not re-add it via the added set.
             if (slots.removed_set.valid() && slots.removed_set.is_set()) {
                 auto removed = slots.removed_set.as_set();
                 if (removed.contains(elem)) {
-                    removed.remove(elem);
                     return true;
                 }
+            }
+            if (!set.add(elem)) {
+                return false;
             }
             if (slots.added_set.valid() && slots.added_set.is_set()) {
                 slots.added_set.as_set().add(elem);
@@ -9420,12 +9420,27 @@ void op_unbind(ViewData& vd, engine_time_t current_time) {
 
 bool op_is_bound(const ViewData& vd) {
     if (vd.uses_link_target) {
-        ViewData bound{};
-        if (resolve_bound_target_view_data(vd, bound)) {
+        if (LinkTarget* payload = resolve_link_target(vd, vd.path.indices); payload != nullptr && payload->is_linked) {
             return true;
         }
-        if (LinkTarget* payload = resolve_link_target(vd, vd.path.indices); payload != nullptr) {
-            return payload->is_linked;
+
+        ViewData bound{};
+        if (resolve_bound_target_view_data(vd, bound)) {
+            // Peered container links (for example TSB root binds) allow child
+            // value reads via ancestor resolution, but child links are still
+            // considered unbound.
+            if (!vd.path.indices.empty()) {
+                for (size_t depth = vd.path.indices.size(); depth > 0; --depth) {
+                    const std::vector<size_t> parent_path(
+                        vd.path.indices.begin(),
+                        vd.path.indices.begin() + static_cast<std::ptrdiff_t>(depth - 1));
+                    if (LinkTarget* parent = resolve_link_target(vd, parent_path);
+                        parent != nullptr && parent->is_linked) {
+                        return !parent->peered;
+                    }
+                }
+            }
+            return true;
         }
         return false;
     }

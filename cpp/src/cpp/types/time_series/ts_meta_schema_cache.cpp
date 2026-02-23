@@ -341,15 +341,8 @@ const TypeMeta* TSMetaSchemaCache::generate_link_schema_impl(const TSMeta* meta,
             return leaf;
 
         case TSKind::TSD:
-            {
-                // Dynamic dict containers carry a container link slot (0) plus
-                // per-key child link storage in slot 1.
-                const TypeMeta* child_link = generate_link_schema_impl(meta->element_ts(), input_mode);
-                auto builder = registry.tuple();
-                builder.add_element(leaf);  // container slot 0
-                builder.add_element(registry.list(child_link != nullptr ? child_link : leaf).build());
-                return builder.build();
-            }
+            // Dynamic dict links are represented by a single root link payload.
+            return leaf;
 
         case TSKind::REF:
             {

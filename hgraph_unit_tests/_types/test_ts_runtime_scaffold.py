@@ -88,9 +88,9 @@ def test_input_tsb_switches_between_peered_and_unpeered_bind():
     ts_output = runtime.TSOutput(pair_meta, 0)
 
     in_root = ts_input.input_view(MIN_DT)
-    in_x = in_root.child_by_name("x")
     out_root = ts_output.output_view(MIN_DT)
-    out_x = out_root.child_by_name("x")
+    in_x = in_root.as_bundle().field("x")
+    out_x = out_root.as_bundle().field("x")
 
     ts_input.bind(ts_output, MIN_DT)
     assert in_root.is_bound()
@@ -115,21 +115,22 @@ def test_tsl_fixed_bind_unbind_binds_each_index():
     ts_input = runtime.TSInput(fixed_meta)
     ts_output = runtime.TSOutput(fixed_meta, 0)
     root = ts_input.input_view(MIN_DT)
+    list_root = root.as_list()
 
     ts_input.bind(ts_output, MIN_DT)
     assert not root.is_bound()
-    assert root.child_at(0).is_bound()
-    assert root.child_at(1).is_bound()
-    assert root.child_at(2).is_bound()
-    assert root.child_at(0).linked_target_indices() == [0]
-    assert root.child_at(1).linked_target_indices() == [1]
-    assert root.child_at(2).linked_target_indices() == [2]
+    assert list_root.at(0).is_bound()
+    assert list_root.at(1).is_bound()
+    assert list_root.at(2).is_bound()
+    assert list_root.at(0).linked_target_indices() == [0]
+    assert list_root.at(1).linked_target_indices() == [1]
+    assert list_root.at(2).linked_target_indices() == [2]
 
     ts_input.unbind(MIN_DT)
     assert not root.is_bound()
-    assert not root.child_at(0).is_bound()
-    assert not root.child_at(1).is_bound()
-    assert not root.child_at(2).is_bound()
+    assert not list_root.at(0).is_bound()
+    assert not list_root.at(1).is_bound()
+    assert not list_root.at(2).is_bound()
 
 
 @pytest.mark.parametrize(
@@ -148,8 +149,14 @@ def test_collection_level_links_for_dynamic_structures(meta_factory):
 
     ts_input.bind(ts_output, MIN_DT)
     assert root.is_bound()
-    assert root.child_at(0).is_bound()
-    assert root.child_at(0).linked_target_indices() == []
+    if root.is_list():
+        first = root.as_list().at(0)
+    else:
+        alpha = _str_value("alpha")
+        ts_output.output_view(MIN_DT).as_dict().set(alpha.view(), _int_value(1).view())
+        first = root.as_dict().at_key(alpha.view())
+    assert first.is_bound()
+    assert first.linked_target_indices() == []
 
 
 def test_output_fq_path_uses_port_index_only_for_serialization():
@@ -158,7 +165,7 @@ def test_output_fq_path_uses_port_index_only_for_serialization():
 
     output = runtime.TSOutput(pair_meta, 3)
     root = output.output_view(MIN_DT)
-    field_x = root.child_by_name("x")
+    field_x = root.as_bundle().field("x")
 
     assert root.short_indices() == []
     assert field_x.short_indices() == [0]
@@ -172,7 +179,7 @@ def test_output_fq_path_nested_tsb_uses_field_names():
     outer_meta = _tsb_meta("OuterPath", [("left", ts_int), ("inner", inner_meta)])
 
     output = runtime.TSOutput(outer_meta, 5)
-    nested = output.output_view(MIN_DT).child_by_name("inner").child_by_name("v")
+    nested = output.output_view(MIN_DT).as_bundle().field("inner").as_bundle().field("v")
     assert nested.fq_path_str().endswith(":out/5/inner/v")
 
 
@@ -186,21 +193,23 @@ def test_output_fq_path_tsd_uses_key_when_value_present():
 
     map_value = value.Value(tsd_meta.value_type, {"alpha": 7})
     root.set_value(map_value.view())
+    dict_view = root.as_dict()
 
-    first_child = root.child_at(0)
+    alpha_key = next(k for k in map_value.as_map().keys() if k.as_string() == "alpha")
+    first_child = dict_view.at_key(alpha_key)
     assert first_child.fq_path_str().endswith(":out/1/alpha")
 
 
-def test_output_fq_path_tsd_falls_back_to_index_without_value():
+def test_output_fq_path_tsd_create_uses_key_path():
     ts_int = _ts_int_meta()
     key_type = value.scalar_type_meta_string()
     tsd_meta = _tsd_meta(key_type, ts_int)
 
     output = runtime.TSOutput(tsd_meta, 2)
-    root = output.output_view(MIN_DT)
-
-    first_child = root.child_at(0)
-    assert first_child.fq_path_str().endswith(":out/2/0")
+    root = output.output_view(MIN_DT).as_dict()
+    beta = _str_value("beta")
+    created = root.create(beta.view())
+    assert created.fq_path_str().endswith(":out/2/beta")
 
 
 def test_output_child_by_key_navigates_to_keyed_entry():
@@ -208,35 +217,37 @@ def test_output_child_by_key_navigates_to_keyed_entry():
     tsd_meta = _tsd_meta(value.scalar_type_meta_string(), ts_int)
 
     output = runtime.TSOutput(tsd_meta, 4)
-    root = output.output_view(MIN_DT)
+    root = output.output_view(MIN_DT).as_dict()
     map_value = value.Value(tsd_meta.value_type, {"alpha": 11, "beta": 22})
-    root.set_value(map_value.view())
+    output.output_view(MIN_DT).set_value(map_value.view())
 
     beta_key = next(k for k in map_value.as_map().keys() if k.as_string() == "beta")
-    keyed_child = root.child_by_key(beta_key)
+    keyed_child = root.at_key(beta_key)
     assert keyed_child.fq_path_str().endswith(":out/4/beta")
 
 
-def test_output_view_navigation_uses_at_field_and_at_key_aliases():
+def test_output_view_navigation_uses_typed_container_navigation():
     ts_int = _ts_int_meta()
     pair_meta = _tsb_meta("PairAtAlias", [("x", ts_int), ("y", ts_int)])
     root = runtime.TSOutput(pair_meta, 6).output_view(MIN_DT)
+    bundle_root = root.as_bundle()
 
-    field_x = root.field("x")
-    idx_0 = root.at(0)
+    field_x = bundle_root.field("x")
+    idx_0 = bundle_root.at(0)
     assert field_x.fq_path_str().endswith(":out/6/x")
     assert idx_0.fq_path_str().endswith(":out/6/x")
-    assert root.count() == root.size() == 2
+    assert bundle_root.count() == bundle_root.size() == 2
 
     tsd_meta = _tsd_meta(value.scalar_type_meta_string(), ts_int)
     dict_root = runtime.TSOutput(tsd_meta, 7).output_view(MIN_DT)
+    typed_dict = dict_root.as_dict()
     map_value = value.Value(tsd_meta.value_type, {"alpha": 11, "beta": 22})
     dict_root.set_value(map_value.view())
     beta_key = next(k for k in map_value.as_map().keys() if k.as_string() == "beta")
 
-    at_key_child = dict_root.at_key(beta_key)
+    at_key_child = typed_dict.at_key(beta_key)
     assert at_key_child.fq_path_str().endswith(":out/7/beta")
-    assert dict_root.count() == dict_root.size() == 2
+    assert typed_dict.count() == typed_dict.size() == 2
 
 
 @pytest.mark.parametrize(
@@ -269,10 +280,12 @@ def test_input_view_scoped_active_state_is_recursive():
 
     ts_input = runtime.TSInput(outer_meta)
     root = ts_input.input_view(MIN_DT)
-    left = root.child_by_name("left")
-    inner = root.child_by_name("inner")
-    inner_x = inner.child_by_name("x")
-    inner_y = inner.child_by_name("y")
+    root_bundle = root.as_bundle()
+    left = root_bundle.field("left")
+    inner = root_bundle.field("inner")
+    inner_bundle = inner.as_bundle()
+    inner_x = inner_bundle.field("x")
+    inner_y = inner_bundle.field("y")
 
     assert not ts_input.active()
     assert not root.active
@@ -308,8 +321,8 @@ def test_input_active_root_tracks_any_active_branch():
 
     ts_input = runtime.TSInput(pair_meta)
     root = ts_input.input_view(MIN_DT)
-    left = root.child_by_name("left")
-    right = root.child_by_name("right")
+    left = root.as_bundle().field("left")
+    right = root.as_bundle().field("right")
 
     left.make_active()
     right.make_active()
@@ -331,14 +344,15 @@ def test_tsl_fixed_child_scoped_active_updates_root_state():
 
     ts_input = runtime.TSInput(fixed_meta)
     root = ts_input.input_view(MIN_DT)
-    mid = root.child_at(1)
+    list_root = root.as_list()
+    mid = list_root.at(1)
 
     mid.make_active()
     assert ts_input.active()
     assert root.active
-    assert not root.child_at(0).active
-    assert root.child_at(1).active
-    assert not root.child_at(2).active
+    assert not list_root.at(0).active
+    assert list_root.at(1).active
+    assert not list_root.at(2).active
 
     mid.make_passive()
     assert not ts_input.active()
@@ -352,8 +366,9 @@ def test_alternative_binding_recurses_by_tsb_field_name():
 
     output = runtime.TSOutput(native_meta, 0)
     alt_view = output.output_view(MIN_DT, alt_meta)
-    alt_b = alt_view.child_by_name("b")
-    alt_a = alt_view.child_by_name("a")
+    alt_bundle = alt_view.as_bundle()
+    alt_b = alt_bundle.field("b")
+    alt_a = alt_bundle.field("a")
 
     assert alt_view.is_bound()
     assert alt_b.is_bound()
@@ -369,9 +384,10 @@ def test_alternative_tsb_falls_back_to_index_when_names_do_not_match():
 
     output = runtime.TSOutput(native_meta, 0)
     alt_view = output.output_view(MIN_DT, alt_meta)
+    alt_bundle = alt_view.as_bundle()
 
-    assert alt_view.child_by_name("x").linked_source_indices() == [0]
-    assert alt_view.child_by_name("y").linked_source_indices() == [1]
+    assert alt_bundle.field("x").linked_source_indices() == [0]
+    assert alt_bundle.field("y").linked_source_indices() == [1]
 
 
 def test_alternative_tsl_fixed_recurses_into_nested_elements():
@@ -384,12 +400,15 @@ def test_alternative_tsl_fixed_recurses_into_nested_elements():
 
     output = runtime.TSOutput(native_meta, 0)
     alt_view = output.output_view(MIN_DT, alt_meta)
+    alt_list = alt_view.as_list()
+    first = alt_list.at(0)
+    second = alt_list.at(1)
 
     assert not alt_view.is_bound()
-    assert alt_view.child_at(0).is_bound()
-    assert alt_view.child_at(1).is_bound()
-    assert alt_view.child_at(0).child_by_name("b").linked_source_indices() == [0, 1]
-    assert alt_view.child_at(1).child_by_name("a").linked_source_indices() == [1, 0]
+    assert first.is_bound()
+    assert second.is_bound()
+    assert first.as_bundle().field("b").linked_source_indices() == [0, 1]
+    assert second.as_bundle().field("a").linked_source_indices() == [1, 0]
 
 
 def test_ref_alternative_binds_dereferenced_schema_at_root():
@@ -412,8 +431,8 @@ def test_input_unbind_clears_tsb_unpeered_child_links():
     ts_output = runtime.TSOutput(pair_meta, 0)
 
     in_root = ts_input.input_view(MIN_DT)
-    in_x = in_root.child_by_name("x")
-    out_x = ts_output.output_view(MIN_DT).child_by_name("x")
+    in_x = in_root.as_bundle().field("x")
+    out_x = ts_output.output_view(MIN_DT).as_bundle().field("x")
 
     ts_input.bind(ts_output, MIN_DT)
     in_x.bind(out_x)
@@ -431,7 +450,7 @@ def test_sampled_flag_propagates_to_child_views():
 
     root = runtime.TSOutput(pair_meta, 0).output_view(MIN_DT)
     root.set_sampled(True)
-    child = root.child_by_name("x")
+    child = root.as_bundle().field("x")
 
     assert root.sampled()
     assert child.sampled()
@@ -707,18 +726,20 @@ def test_input_tsb_peered_bind_allows_child_value_reads_without_child_links():
 
     ts_output = runtime.TSOutput(pair_meta, 0)
     out_root = ts_output.output_view(MIN_DT)
-    out_root.field("x").from_python(10)
-    out_root.field("y").from_python(20)
+    out_bundle = out_root.as_bundle()
+    out_bundle.field("x").from_python(10)
+    out_bundle.field("y").from_python(20)
 
     ts_input = runtime.TSInput(pair_meta)
     ts_input.bind(ts_output, MIN_DT)
     in_root = ts_input.input_view(MIN_DT)
+    in_bundle = in_root.as_bundle()
 
     assert in_root.is_bound()
-    assert not in_root.field("x").is_bound()
-    assert not in_root.field("y").is_bound()
-    assert in_root.field("x").to_python() == 10
-    assert in_root.field("y").to_python() == 20
+    assert not in_bundle.field("x").is_bound()
+    assert not in_bundle.field("y").is_bound()
+    assert in_bundle.field("x").to_python() == 10
+    assert in_bundle.field("y").to_python() == 20
 
 
 @pytest.mark.parametrize(
@@ -830,11 +851,11 @@ def test_output_view_python_conversion_roundtrip_for_scalar_ts():
     [
         (
             lambda: _registry().tsl(_ts_int_meta(), 2),
-            lambda root: root.at(0).from_python(10),
+            lambda root: root.as_list().at(0).from_python(10),
         ),
         (
             lambda: _tsb_meta("DeltaContractBundle", [("x", _ts_int_meta())]),
-            lambda root: root.field("x").from_python(11),
+            lambda root: root.as_bundle().field("x").from_python(11),
         ),
         (
             lambda: _tsd_meta(value.scalar_type_meta_string(), _ts_int_meta()),
@@ -984,8 +1005,8 @@ def test_typed_dict_view_surface():
 def test_typed_list_view_surface():
     list_meta = _registry().tsl(_ts_int_meta(), 2)
     root = runtime.TSOutput(list_meta, 0).output_view(MIN_DT)
-    root.at(0).from_python(10)
-    root.at(1).from_python(20)
+    root.as_list().at(0).from_python(10)
+    root.as_list().at(1).from_python(20)
 
     list_view = root.as_list()
     assert list_view.count() == 2
@@ -999,8 +1020,8 @@ def test_typed_list_view_surface():
 def test_typed_bundle_view_surface():
     pair_meta = _tsb_meta("TypedBundleOps", [("x", _ts_int_meta()), ("y", _ts_int_meta())])
     root = runtime.TSOutput(pair_meta, 0).output_view(MIN_DT)
-    root.field("x").from_python(11)
-    root.field("y").from_python(22)
+    root.as_bundle().field("x").from_python(11)
+    root.as_bundle().field("y").from_python(22)
 
     bundle_view = root.as_bundle()
     assert bundle_view.count() == 2

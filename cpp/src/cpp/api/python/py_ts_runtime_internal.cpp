@@ -95,8 +95,7 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
                 break;
 
             case TSKind::TSD:
-                out.push_back(1);  // per-key child link list in slot 1
-                out.push_back(index);
+                crossed_dynamic_boundary = true;
                 meta = meta->element_ts();
                 break;
             case TSKind::REF:
@@ -109,8 +108,6 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
     }
 
     if (!crossed_dynamic_boundary && meta != nullptr && meta->kind == TSKind::TSB) {
-        out.push_back(0);
-    } else if (!crossed_dynamic_boundary && meta != nullptr && meta->kind == TSKind::TSD) {
         out.push_back(0);
     } else if (!crossed_dynamic_boundary && meta != nullptr && meta->kind == TSKind::TSL && meta->fixed_size() > 0) {
         out.push_back(0);
