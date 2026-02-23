@@ -17,6 +17,51 @@
 
 namespace hgraph
 {
+    namespace {
+        enum class RemoveMarkerKind {
+            None,
+            Remove,
+            RemoveIfExists,
+        };
+
+        RemoveMarkerKind classify_remove_marker(
+            const nb::object& obj,
+            const nb::object& remove_marker,
+            const nb::object& remove_if_exists_marker) {
+            if (obj.is(remove_marker)) {
+                return RemoveMarkerKind::Remove;
+            }
+            if (obj.is(remove_if_exists_marker)) {
+                return RemoveMarkerKind::RemoveIfExists;
+            }
+
+            // Python deltas can carry wrapped sentinels like Sentinel(REMOVE).
+            // Unwrap a small number of `.name` hops and match by logical marker name.
+            nb::object current = nb::getattr(obj, "name", nb::none());
+            for (size_t depth = 0; depth < 4 && !current.is_none(); ++depth) {
+                if (current.is(remove_marker)) {
+                    return RemoveMarkerKind::Remove;
+                }
+                if (current.is(remove_if_exists_marker)) {
+                    return RemoveMarkerKind::RemoveIfExists;
+                }
+                if (nb::isinstance<nb::str>(current)) {
+                    std::string name = nb::cast<std::string>(current);
+                    if (name == "REMOVE") {
+                        return RemoveMarkerKind::Remove;
+                    }
+                    if (name == "REMOVE_IF_EXISTS") {
+                        return RemoveMarkerKind::RemoveIfExists;
+                    }
+                    return RemoveMarkerKind::None;
+                }
+                current = nb::getattr(current, "name", nb::none());
+            }
+
+            return RemoveMarkerKind::None;
+        }
+    }  // namespace
+
 
     void TimeSeriesDictOutputImpl::apply_result(const nb::object& value) {
         // Ensure any Python API interaction occurs under the GIL and protect against exceptions
@@ -43,8 +88,9 @@ namespace hgraph
             key_val.emplace();
             _key_type->ops().from_python(key_val.data(), k, _key_type);
             auto key_view = key_val.view();
-            if (v_.is(remove) || v_.is(remove_if_exists)) {
-                if (v_.is(remove_if_exists) && !contains(key_view)) { continue; }
+            const RemoveMarkerKind marker = classify_remove_marker(v_, remove, remove_if_exists);
+            if (marker != RemoveMarkerKind::None) {
+                if (marker == RemoveMarkerKind::RemoveIfExists && !contains(key_view)) { continue; }
                 if (was_modified(key_view)) { return false; }
             } else {
                 if (was_removed(key_view)) { return false; }
@@ -285,18 +331,53 @@ namespace hgraph
             auto key_view = key_val.view();
             auto v  = kv[1];
             if (v.is_none()) { continue; }
-            if (v.is(remove) || v.is(remove_if_exists)) {
+            const RemoveMarkerKind marker = classify_remove_marker(v, remove, remove_if_exists);
+            const bool debug_tsd_py_set = std::getenv("HGRAPH_DEBUG_TSD_PY_SET") != nullptr;
+            if (marker != RemoveMarkerKind::None) {
+                if (debug_tsd_py_set) {
+                    std::string key_repr{"<repr_error>"};
+                    try {
+                        key_repr = nb::cast<std::string>(nb::repr(kv[0]));
+                    } catch (...) {}
+                    std::fprintf(stderr,
+                                 "[tsd_py_set] marker key=%s marker=%d contains=%d size=%zu\n",
+                                 key_repr.c_str(),
+                                 static_cast<int>(marker),
+                                 contains(key_view) ? 1 : 0,
+                                 _ts_values.size());
+                }
                 if (contains(key_view)) {
                     erase(key_view);
                 } else {
                     // Python semantics: REMOVE on missing -> KeyError; REMOVE_IF_EXISTS on missing -> no-op
-                    if (v.is(remove)) {
+                    if (marker == RemoveMarkerKind::Remove) {
                         std::string msg = "TSD key not found for REMOVE";
                         throw nb::key_error(msg.c_str());
                     }  // else REMOVE_IF_EXISTS: do nothing
                 }
             } else {
+                if (debug_tsd_py_set) {
+                    std::string key_repr{"<repr_error>"};
+                    std::string value_repr{"<repr_error>"};
+                    try {
+                        key_repr = nb::cast<std::string>(nb::repr(kv[0]));
+                    } catch (...) {}
+                    try {
+                        value_repr = nb::cast<std::string>(nb::repr(v));
+                    } catch (...) {}
+                    std::fprintf(stderr,
+                                 "[tsd_py_set] set key=%s size_before=%zu value=%s\n",
+                                 key_repr.c_str(),
+                                 _ts_values.size(),
+                                 value_repr.c_str());
+                }
                 get_or_create(key_view)->py_set_value(v);
+                if (debug_tsd_py_set) {
+                    std::fprintf(stderr,
+                                 "[tsd_py_set] set_done size_after=%zu contains=%d\n",
+                                 _ts_values.size(),
+                                 contains(key_view) ? 1 : 0);
+                }
             }
         }
     }

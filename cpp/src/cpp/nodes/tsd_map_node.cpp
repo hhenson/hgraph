@@ -1269,9 +1269,15 @@ namespace hgraph
             }
         }
 
-        // Output key slots are materialized lazily in evaluate_graph() when the
-        // nested output has a value to publish. Eager create here can surface
-        // spurious REMOVE deltas for keys that never became visible.
+        if (output_node_id_ >= 0) {
+            // Python map/mesh semantics materialize keyed output slots at wire time.
+            // This ensures subsequent key removals tick the outer TSD even when the
+            // nested graph never published a valid value for that key.
+            auto out = tsd_output(node_time(*this));
+            if (out) {
+                out.create(key);
+            }
+        }
     }
 
     bool TsdMapNode::refresh_multiplexed_bindings(const value::View &key, graph_s_ptr &graph, bool* all_mux_inputs_valid) {

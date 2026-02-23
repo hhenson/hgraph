@@ -1150,6 +1150,7 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd);
 bool op_modified(const ViewData& vd, engine_time_t current_time);
 bool op_valid(const ViewData& vd);
 View op_value(const ViewData& vd);
+engine_time_t op_last_modified_time(const ViewData& vd);
 void clear_tsd_delta_if_new_tick(ViewData& vd, engine_time_t current_time, TSDDeltaSlots slots);
 
 bool tsd_child_was_visible_before_removal(const ViewData& child_vd) {
@@ -1166,12 +1167,35 @@ bool tsd_child_was_visible_before_removal(const ViewData& child_vd) {
     if (ref_like_child) {
         ViewData bound_target{};
         if (resolve_bound_target_view_data(child_vd, bound_target)) {
-            return op_valid(bound_target);
+            if (op_valid(bound_target) || op_last_modified_time(bound_target) > MIN_DT) {
+                return true;
+            }
+        }
+
+        ViewData previous_bound_target{};
+        if (resolve_previous_bound_target_view_data(child_vd, previous_bound_target)) {
+            if (op_valid(previous_bound_target) || op_last_modified_time(previous_bound_target) > MIN_DT) {
+                return true;
+            }
         }
 
         try {
             TimeSeriesReference ref = nb::cast<TimeSeriesReference>(child_value.to_python());
-            return ref.is_valid();
+            if (ref.is_valid()) {
+                return true;
+            }
+            if (const ViewData* bound = ref.bound_view(); bound != nullptr) {
+                if (op_valid(*bound) || op_last_modified_time(*bound) > MIN_DT) {
+                    return true;
+                }
+            }
+            if (ref.has_output()) {
+                auto output = ref.output();
+                if (output && output->last_modified_time() > MIN_DT) {
+                    return true;
+                }
+            }
+            return false;
         } catch (...) {
             return false;
         }
@@ -1663,6 +1687,7 @@ nb::object python_set_delta(const nb::object& added, const nb::object& removed) 
 }
 
 constexpr std::string_view k_tsd_removed_snapshot_state_key{"tsd_removed_child_snapshots"};
+constexpr std::string_view k_tsd_visible_key_history_state_key{"tsd_visible_key_history"};
 
 struct TsdRemovedChildSnapshotRecord {
     std::vector<size_t> parent_path;
@@ -1673,6 +1698,16 @@ struct TsdRemovedChildSnapshotRecord {
 
 struct TsdRemovedChildSnapshotState {
     std::unordered_map<void*, std::vector<TsdRemovedChildSnapshotRecord>> entries;
+};
+
+struct TsdVisibleKeyHistoryRecord {
+    std::vector<size_t> parent_path;
+    value::Value key;
+    engine_time_t last_seen{MIN_DT};
+};
+
+struct TsdVisibleKeyHistoryState {
+    std::unordered_map<void*, std::vector<TsdVisibleKeyHistoryRecord>> entries;
 };
 
 std::shared_ptr<TsdRemovedChildSnapshotState> ensure_tsd_removed_snapshot_state(TSLinkObserverRegistry* registry) {
@@ -1687,6 +1722,21 @@ std::shared_ptr<TsdRemovedChildSnapshotState> ensure_tsd_removed_snapshot_state(
 
     auto state = std::make_shared<TsdRemovedChildSnapshotState>();
     registry->set_feature_state(std::string{k_tsd_removed_snapshot_state_key}, state);
+    return state;
+}
+
+std::shared_ptr<TsdVisibleKeyHistoryState> ensure_tsd_visible_key_history_state(TSLinkObserverRegistry* registry) {
+    if (registry == nullptr) {
+        return {};
+    }
+
+    std::shared_ptr<void> existing = registry->feature_state(k_tsd_visible_key_history_state_key);
+    if (existing) {
+        return std::static_pointer_cast<TsdVisibleKeyHistoryState>(std::move(existing));
+    }
+
+    auto state = std::make_shared<TsdVisibleKeyHistoryState>();
+    registry->set_feature_state(std::string{k_tsd_visible_key_history_state_key}, state);
     return state;
 }
 
@@ -1749,6 +1799,122 @@ void record_tsd_removed_child_snapshot(const ViewData& parent_view,
     record.key = key.clone();
     record.snapshot = std::move(snapshot);
     records.push_back(std::move(record));
+}
+
+void mark_tsd_visible_key_history(const ViewData& parent_view, const value::View& key, engine_time_t current_time) {
+    if (!key.valid() ||
+        current_time == MIN_DT ||
+        parent_view.link_observer_registry == nullptr ||
+        parent_view.value_data == nullptr) {
+        return;
+    }
+
+    auto state = ensure_tsd_visible_key_history_state(parent_view.link_observer_registry);
+    if (!state) {
+        return;
+    }
+
+    auto& records = state->entries[parent_view.value_data];
+    for (auto& record : records) {
+        if (record.parent_path == parent_view.path.indices &&
+            key_matches_relaxed(record.key.view(), key)) {
+            record.last_seen = current_time;
+            return;
+        }
+    }
+
+    TsdVisibleKeyHistoryRecord record{};
+    record.parent_path = parent_view.path.indices;
+    record.key = key.clone();
+    record.last_seen = current_time;
+    records.push_back(std::move(record));
+}
+
+bool has_tsd_visible_key_history(const ViewData& parent_view, const value::View& key) {
+    if (!key.valid() || parent_view.value_data == nullptr) {
+        return false;
+    }
+
+    std::vector<ViewData> lookup_views;
+    lookup_views.push_back(parent_view);
+
+    ViewData bound_parent{};
+    if (resolve_bound_target_view_data(parent_view, bound_parent) &&
+        !same_view_identity(bound_parent, parent_view)) {
+        lookup_views.push_back(bound_parent);
+    }
+
+    for (const ViewData& lookup_view : lookup_views) {
+        if (lookup_view.link_observer_registry == nullptr) {
+            continue;
+        }
+
+        std::shared_ptr<void> existing =
+            lookup_view.link_observer_registry->feature_state(k_tsd_visible_key_history_state_key);
+        if (!existing) {
+            continue;
+        }
+
+        auto state = std::static_pointer_cast<TsdVisibleKeyHistoryState>(std::move(existing));
+        auto it = state->entries.find(lookup_view.value_data);
+        if (it == state->entries.end()) {
+            continue;
+        }
+
+        for (const auto& record : it->second) {
+            if (record.parent_path == lookup_view.path.indices &&
+                key_matches_relaxed(record.key.view(), key) &&
+                record.last_seen > MIN_DT) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+void clear_tsd_visible_key_history(const ViewData& parent_view, const value::View& key) {
+    if (!key.valid() || parent_view.value_data == nullptr) {
+        return;
+    }
+
+    std::vector<ViewData> lookup_views;
+    lookup_views.push_back(parent_view);
+
+    ViewData bound_parent{};
+    if (resolve_bound_target_view_data(parent_view, bound_parent) &&
+        !same_view_identity(bound_parent, parent_view)) {
+        lookup_views.push_back(bound_parent);
+    }
+
+    for (const ViewData& lookup_view : lookup_views) {
+        if (lookup_view.link_observer_registry == nullptr) {
+            continue;
+        }
+
+        std::shared_ptr<void> existing =
+            lookup_view.link_observer_registry->feature_state(k_tsd_visible_key_history_state_key);
+        if (!existing) {
+            continue;
+        }
+
+        auto state = std::static_pointer_cast<TsdVisibleKeyHistoryState>(std::move(existing));
+        auto it = state->entries.find(lookup_view.value_data);
+        if (it == state->entries.end()) {
+            continue;
+        }
+
+        auto& records = it->second;
+        records.erase(
+            std::remove_if(
+                records.begin(),
+                records.end(),
+                [&](const TsdVisibleKeyHistoryRecord& record) {
+                    return record.parent_path == lookup_view.path.indices &&
+                           key_matches_relaxed(record.key.view(), key);
+                }),
+            records.end());
+    }
 }
 
 std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
@@ -6824,22 +6990,71 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                     }
                     return map_slot_for_key(previous_map, key).has_value();
                 };
+                const auto key_visible_in_removed_snapshot = [&](const View& key) -> bool {
+                    auto snapshot = resolve_tsd_removed_child_snapshot(*data, key, current_time);
+                    if (!snapshot.has_value()) {
+                        return false;
+                    }
+
+                    ViewData snapshot_view = snapshot->view_data();
+                    const TSMeta* snapshot_meta = snapshot->ts_meta();
+                    if (snapshot_meta != nullptr && snapshot_meta->kind == TSKind::REF) {
+                        nb::object payload = ref_view_payload_to_python(snapshot_view, snapshot_meta, true);
+                        return !payload.is_none();
+                    }
+
+                    if (!op_valid(snapshot_view)) {
+                        return false;
+                    }
+                    return !op_to_python(snapshot_view).is_none();
+                };
+                const auto removed_snapshot_ref_target_written = [&](const View& key) -> bool {
+                    auto snapshot = resolve_tsd_removed_child_snapshot(*data, key, current_time);
+                    if (!snapshot.has_value()) {
+                        return false;
+                    }
+
+                    ViewData snapshot_view = snapshot->view_data();
+                    ViewData bound_target{};
+                    if (!resolve_bound_target_view_data(snapshot_view, bound_target)) {
+                        return false;
+                    }
+                    return op_last_modified_time(bound_target) > MIN_DT;
+                };
                 for (View key : set) {
                     const bool in_added_set = key_in_added_set(key);
+                    const bool in_changed_map = key_in_changed_map(key);
+                    const bool in_removed_set = key_in_removed_set(key);
+                    const bool seen_visible_before = has_tsd_visible_key_history(*data, key);
                     if (debug_tsd_delta) {
                         std::fprintf(stderr,
-                                     "[tsd_delta_dbg] remove_probe path=%s key=%s has_added=%d in_added=%d\n",
+                                     "[tsd_delta_dbg] remove_probe path=%s key=%s has_added=%d in_added=%d in_removed=%d in_changed=%d seen_visible=%d\n",
                                      vd.path.to_string().c_str(),
                                      key.to_string().c_str(),
                                      has_added_set ? 1 : 0,
-                                     in_added_set ? 1 : 0);
+                                     in_added_set ? 1 : 0,
+                                     in_removed_set ? 1 : 0,
+                                     in_changed_map ? 1 : 0,
+                                     seen_visible_before ? 1 : 0);
                     }
-                    const bool in_changed_map = key_in_changed_map(key);
                     const bool was_visible = key_visible_in_previous_view(key);
                     const bool ref_link_target_input =
                         element_meta != nullptr &&
                         element_meta->kind == TSKind::REF &&
                         vd.uses_link_target;
+                    if (in_added_set &&
+                        in_removed_set &&
+                        !in_changed_map &&
+                        !ref_link_target_input &&
+                        !seen_visible_before) {
+                        if (debug_tsd_delta) {
+                            std::fprintf(stderr,
+                                         "[tsd_delta_dbg] remove_skip_structural_unseen path=%s key=%s\n",
+                                         vd.path.to_string().c_str(),
+                                         key.to_string().c_str());
+                        }
+                        continue;
+                    }
                     if (in_added_set &&
                         !in_changed_map &&
                         !was_visible &&
@@ -6875,14 +7090,30 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                             continue;
                         }
                         if (ref_link_target_input && !in_changed_map) {
+                            const bool visible_in_snapshot = key_visible_in_removed_snapshot(key);
+                            const bool target_written =
+                                in_added_set && !visible_in_snapshot && removed_snapshot_ref_target_written(key);
+                            const bool seen_visible_before =
+                                in_added_set && !visible_in_snapshot && has_tsd_visible_key_history(*data, key);
+                            if (!in_added_set || visible_in_snapshot || target_written || seen_visible_before) {
+                                if (debug_tsd_delta) {
+                                    std::fprintf(stderr,
+                                                 "[tsd_delta_dbg] remove_emit_ref_link_target path=%s key=%s snapshot_visible=%d target_written=%d seen_visible=%d\n",
+                                                 vd.path.to_string().c_str(),
+                                                 key.to_string().c_str(),
+                                                 visible_in_snapshot ? 1 : 0,
+                                                 target_written ? 1 : 0,
+                                                 seen_visible_before ? 1 : 0);
+                                }
+                                delta_out[key.to_python()] = remove;
+                                continue;
+                            }
                             if (debug_tsd_delta) {
                                 std::fprintf(stderr,
-                                             "[tsd_delta_dbg] remove_emit_ref_link_target path=%s key=%s\n",
+                                             "[tsd_delta_dbg] remove_skip_ref_link_target_invisible path=%s key=%s\n",
                                              vd.path.to_string().c_str(),
                                              key.to_string().c_str());
                             }
-                            delta_out[key.to_python()] = remove;
-                            continue;
                         }
                         const TSMeta* element_meta = current != nullptr ? current->element_ts() : nullptr;
                         const TSMeta* ref_element_meta =
@@ -7094,7 +7325,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                             const bool include_unmodified_ref_payload =
                                 key_in_added_set(key) ||
                                 !child_valid ||
-                                ref_child_rebound_for_key(child, key);
+                                ref_child_rebound_for_key(child, key) ||
+                                !has_tsd_visible_key_history(*data, key);
                             nb::object child_delta_py =
                                 ref_view_payload_to_python(child, child_meta, include_unmodified_ref_payload);
                             const TSMeta* ref_element_meta = child_meta->element_ts();
@@ -7481,6 +7713,31 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             for (const auto& key_item : keys_to_remove) {
                 nb::object key_obj = nb::cast<nb::object>(key_item);
                 PyDict_DelItem(delta_out.ptr(), key_obj.ptr());
+            }
+        }
+
+        if (PyDict_Size(delta_out.ptr()) > 0) {
+            const value::TypeMeta* key_type = current->key_type();
+            if (key_type != nullptr) {
+                nb::object remove_marker = get_remove();
+                nb::object remove_if_exists_marker = get_remove_if_exists();
+                for (const auto& kv : delta_out) {
+                    nb::object py_key = nb::cast<nb::object>(kv.first);
+                    nb::object py_value = nb::cast<nb::object>(kv.second);
+                    value::Value key_value(key_type);
+                    key_value.emplace();
+                    try {
+                        key_type->ops().from_python(key_value.data(), py_key, key_type);
+                    } catch (...) {
+                        continue;
+                    }
+                    const View key_view = key_value.view();
+                    if (py_value.is(remove_marker) || py_value.is(remove_if_exists_marker)) {
+                        clear_tsd_visible_key_history(*data, key_view);
+                    } else {
+                        mark_tsd_visible_key_history(*data, key_view, current_time);
+                    }
+                }
             }
         }
 
@@ -8793,15 +9050,41 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
         const value::TypeMeta* value_type = current->element_ts() != nullptr ? current->element_ts()->value_type : nullptr;
         nb::object remove = get_remove();
         nb::object remove_if_exists = get_remove_if_exists();
-        const auto is_named_sentinel = [](const nb::object& obj, std::string_view expected_name) -> bool {
-            if (!obj.is_valid() || obj.is_none() || !nb::hasattr(obj, "name")) {
-                return false;
+        enum class RemoveMarkerKind {
+            None,
+            Remove,
+            RemoveIfExists,
+        };
+        const auto classify_remove_marker = [&remove, &remove_if_exists](const nb::object& obj) -> RemoveMarkerKind {
+            if (obj.is(remove)) {
+                return RemoveMarkerKind::Remove;
             }
-            try {
-                return nb::cast<std::string>(obj.attr("name")) == expected_name;
-            } catch (...) {
-                return false;
+            if (obj.is(remove_if_exists)) {
+                return RemoveMarkerKind::RemoveIfExists;
             }
+
+            nb::object current = nb::getattr(obj, "name", nb::none());
+            for (size_t depth = 0; depth < 4 && !current.is_none(); ++depth) {
+                if (current.is(remove)) {
+                    return RemoveMarkerKind::Remove;
+                }
+                if (current.is(remove_if_exists)) {
+                    return RemoveMarkerKind::RemoveIfExists;
+                }
+                if (nb::isinstance<nb::str>(current)) {
+                    std::string name = nb::cast<std::string>(current);
+                    if (name == "REMOVE") {
+                        return RemoveMarkerKind::Remove;
+                    }
+                    if (name == "REMOVE_IF_EXISTS") {
+                        return RemoveMarkerKind::RemoveIfExists;
+                    }
+                    return RemoveMarkerKind::None;
+                }
+                current = nb::getattr(current, "name", nb::none());
+            }
+
+            return RemoveMarkerKind::None;
         };
         bool changed = false;
 
@@ -8831,9 +9114,9 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
                              static_cast<long long>(current_time.time_since_epoch().count()));
             }
 
-            const bool is_remove = value_obj.is(remove) || is_named_sentinel(value_obj, "REMOVE");
-            const bool is_remove_if_exists =
-                value_obj.is(remove_if_exists) || is_named_sentinel(value_obj, "REMOVE_IF_EXISTS");
+            const RemoveMarkerKind marker = classify_remove_marker(value_obj);
+            const bool is_remove = marker == RemoveMarkerKind::Remove;
+            const bool is_remove_if_exists = marker == RemoveMarkerKind::RemoveIfExists;
             if (std::getenv("HGRAPH_DEBUG_TSD_FROM") != nullptr && (is_remove || is_remove_if_exists)) {
                 const char* node_name = "<none>";
                 if (vd.path.node != nullptr) {
@@ -8907,6 +9190,35 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
                 if (nb::isinstance<TimeSeriesReference>(value_obj)) {
                     TimeSeriesReference ref = nb::cast<TimeSeriesReference>(value_obj);
                     if (!ref.is_valid()) {
+                        const bool existed = map_slot_for_key(dst_map, key).has_value();
+                        if (!existed) {
+                            // Python parity: tsd_get_items can emit empty references for keys
+                            // that exist in source key-space. Materialize a placeholder keyed
+                            // slot so later REMOVE/REMOVE_IF_EXISTS deltas can produce key-space
+                            // ticks even if no concrete value was ever published.
+                            value::Value blank_value(value_type);
+                            blank_value.emplace();
+                            dst_map.set(key, blank_value.view());
+
+                            auto slot = map_slot_for_key(dst_map, key);
+                            if (slot.has_value()) {
+                                Value canonical_key_value = canonical_map_key_for_slot(dst_map, *slot, key);
+                                const View canonical_key = canonical_key_value.view();
+                                ensure_tsd_child_time_slot(vd, *slot);
+                                ensure_tsd_child_delta_slot(vd, *slot);
+                                ensure_tsd_child_link_slot(vd, *slot);
+                                if (slots.added_set.valid() && slots.added_set.is_set()) {
+                                    slots.added_set.as_set().add(canonical_key);
+                                }
+                                if (slots.removed_set.valid() && slots.removed_set.is_set()) {
+                                    slots.removed_set.as_set().remove(canonical_key);
+                                }
+                                if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
+                                    slots.changed_values_map.as_map().remove(canonical_key);
+                                }
+                                changed = true;
+                            }
+                        }
                         continue;
                     }
                 }

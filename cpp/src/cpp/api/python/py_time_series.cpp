@@ -60,6 +60,13 @@ namespace
         }
         return target;
     }
+
+    bool input_has_effective_bound_target(const TSInputView &input_view) {
+        if (input_view.is_bound()) {
+            return true;
+        }
+        return resolve_bound_target_view_data(input_view).has_value();
+    }
 }  // namespace
 
     // ========== PyTimeSeriesType Implementation ==========
@@ -148,7 +155,7 @@ namespace
     engine_time_t PyTimeSeriesType::last_modified_time() const {
         if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
             if (input_kind_requires_bound_validity(input->input_view()) &&
-                !input->input_view().is_bound()) {
+                !input_has_effective_bound_target(input->input_view())) {
                 return MIN_DT;
             }
             return input->input_view().as_ts_view().last_modified_time();
@@ -162,7 +169,7 @@ namespace
     nb::bool_ PyTimeSeriesType::valid() const {
         if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
             if (input_kind_requires_bound_validity(input->input_view()) &&
-                !input->input_view().is_bound()) {
+                !input_has_effective_bound_target(input->input_view())) {
                 return nb::bool_(false);
             }
             return nb::bool_(input->input_view().as_ts_view().valid());
@@ -176,7 +183,7 @@ namespace
     nb::bool_ PyTimeSeriesType::all_valid() const {
         if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
             if (input_kind_requires_bound_validity(input->input_view()) &&
-                !input->input_view().is_bound()) {
+                !input_has_effective_bound_target(input->input_view())) {
                 return nb::bool_(false);
             }
             return nb::bool_(input->input_view().as_ts_view().all_valid());
@@ -195,7 +202,7 @@ namespace
     nb::bool_ PyTimeSeriesType::modified() const {
         if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
             if (input_kind_requires_bound_validity(input->input_view()) &&
-                !input->input_view().is_bound()) {
+                !input_has_effective_bound_target(input->input_view())) {
                 return nb::bool_(false);
             }
             return nb::bool_(input->input_view().as_ts_view().modified());
@@ -325,11 +332,13 @@ namespace
 
     void PyTimeSeriesInput::make_passive() { input_view().make_passive(); }
 
-    nb::bool_ PyTimeSeriesInput::bound() const { return nb::bool_(input_view().is_bound()); }
+    nb::bool_ PyTimeSeriesInput::bound() const {
+        return nb::bool_(input_has_effective_bound_target(input_view()));
+    }
 
     nb::bool_ PyTimeSeriesInput::has_peer() const {
         // Input-level default peer semantics match Python: bound implies peer.
-        return nb::bool_(input_view().is_bound());
+        return nb::bool_(input_has_effective_bound_target(input_view()));
     }
 
     nb::object PyTimeSeriesInput::output() const {
@@ -340,7 +349,9 @@ namespace
         return wrap_output_view(TSOutputView(nullptr, TSView(*target, input_view().as_ts_view().view_data().engine_time_ptr)));
     }
 
-    nb::bool_ PyTimeSeriesInput::has_output() const { return nb::bool_(input_view().is_bound()); }
+    nb::bool_ PyTimeSeriesInput::has_output() const {
+        return nb::bool_(input_has_effective_bound_target(input_view()));
+    }
 
     nb::bool_ PyTimeSeriesInput::bind_output(nb::object output_) {
         if (!nb::isinstance<PyTimeSeriesOutput>(output_)) {

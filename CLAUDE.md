@@ -147,3 +147,23 @@ Techniques to apply:
            - Check the symlink for the .so is in the right place and linked
            Otherwise, it results in checks against an incorrect version of the code.
 
+## Agent Self-Check (Mandatory)
+
+Use this exact sequence at the start of each coding iteration:
+
+1. Run environment checks:
+   - ``cat hgraph_features.yaml`` (must show ``use_cpp: true``)
+   - ``ls -l .venv/lib/python3.12/site-packages/hgraph/_hgraph.cpython-312-darwin.so`` (must point to active CMake build)
+2. Confirm change scope in one sentence before editing:
+   - No Python behavior changes outside explicitly requested integration points.
+   - Keep legacy TSD logic out of active paths when migrating to ``TSInput``/``TSOutput``.
+3. Make minimal code changes only in intended layer (ops/runtime/schema as designed).
+4. Rebuild immediately after edits:
+   - ``cmake --build cmake-build-debug``
+5. Run tests in this order:
+   - First failing targeted test
+   - Then related module/file tests
+   - Then broader suite if needed
+6. Do not rollback/refactor-swap large areas mid-debug unless explicitly requested.
+
+If any step fails, stop and fix the failure before proceeding to the next step.

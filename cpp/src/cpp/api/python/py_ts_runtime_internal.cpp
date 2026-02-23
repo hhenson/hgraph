@@ -1406,6 +1406,10 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             if (meta == nullptr) {
                 return nullptr;
             }
+            // Contract view: TSD link shape is collection-level leaf.
+            if (meta->kind == TSKind::TSD) {
+                return value::TypeRegistry::instance().get_by_name("REFLink");
+            }
             return TSMetaSchemaCache::instance().get(meta).link_schema;
         },
         "meta"_a,
@@ -1415,6 +1419,10 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         [](const TSMeta* meta) -> const value::TypeMeta* {
             if (meta == nullptr) {
                 return nullptr;
+            }
+            // Contract view: TSD input link shape is collection-level leaf.
+            if (meta->kind == TSKind::TSD) {
+                return value::TypeRegistry::instance().get_by_name("LinkTarget");
             }
             return TSMetaSchemaCache::instance().get(meta).input_link_schema;
         },

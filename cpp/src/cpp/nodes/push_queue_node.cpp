@@ -15,6 +15,7 @@ namespace hgraph {
 
         value::Value key_from_python(const value::TypeMeta *key_type, const nb::handle &key_obj) {
             value::Value key_value(key_type);
+            key_value.emplace();
             key_type->ops().from_python(key_value.data(), nb::borrow(key_obj), key_type);
             return key_value;
         }
@@ -39,6 +40,11 @@ namespace hgraph {
     }
 
     bool PushQueueNode::apply_message(nb::object message) {
+        // Push queue payloads are Python objects coming from external threads.
+        // Message application runs on the graph thread, so re-acquire the GIL
+        // before any nanobind/Python API interaction.
+        nb::gil_scoped_acquire gil;
+
         auto out_view = output(node_time(*this));
         if (!out_view) {
             return false;
@@ -46,7 +52,6 @@ namespace hgraph {
 
         if (_batch) {
             // Batch mode: accumulate messages into a tuple
-
             if (_is_tsd) {
                 if (!out_view.valid()) {
                     out_view.from_python(nb::dict{});
@@ -62,7 +67,7 @@ namespace hgraph {
                 auto tsd_view = out_view.as_dict();
 
                 // For TSD outputs, iterate over message dict
-                auto msg_dict = nb::cast<nb::dict>(message);
+                nb::dict msg_dict = nb::borrow<nb::dict>(message);
                 for (auto [key, val]: msg_dict) {
                     if (val.is(remove) || val.is(remove_if_exist)) {
                         auto key_value = key_from_python(key_type, key);
