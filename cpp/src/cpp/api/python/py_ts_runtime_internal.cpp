@@ -786,9 +786,6 @@ public:
             return;
         }
         it->second.requesters.erase(requester.ptr());
-        if (it->second.requesters.empty()) {
-            ref_outputs_.erase(it);
-        }
     }
 
     [[nodiscard]] bool has_consumers() const {
@@ -1100,9 +1097,11 @@ private:
 std::string tss_source_runtime_key_for(const TSOutputView& self) {
     const ViewData& vd = self.as_ts_view().view_data();
     std::string key;
-    key.reserve(64 + vd.path.indices.size() * 12);
-    key.append("value:");
-    key.append(std::to_string(reinterpret_cast<uintptr_t>(vd.value_data)));
+    key.reserve(96 + vd.path.indices.size() * 12);
+    key.append("node:");
+    key.append(std::to_string(reinterpret_cast<uintptr_t>(vd.path.node)));
+    key.append("|port:");
+    key.append(std::to_string(static_cast<unsigned>(vd.path.port_type)));
     key.append("|proj:");
     key.append(std::to_string(static_cast<unsigned>(vd.projection)));
     key.append("|path");

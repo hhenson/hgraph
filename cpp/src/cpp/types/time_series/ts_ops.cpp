@@ -231,14 +231,15 @@ void notify_activation_if_modified(LinkTarget* payload, TSInput* input) {
     const bool sampled_on_rebind = payload->last_rebind_time == current_time;
     ViewData target_vd = payload->as_view_data(false);
     if (!payload->ops->valid(target_vd)) {
-        if (sampled_on_rebind) {
+        if (sampled_on_rebind && payload->has_previous_target) {
             payload->notify(current_time);
         }
         if (debug_activate) {
             std::fprintf(stderr,
-                         "[activate_lt] current=%lld target_valid=0 sampled_on_rebind=%d rebind=%lld\n",
+                         "[activate_lt] current=%lld target_valid=0 sampled_on_rebind=%d has_prev=%d rebind=%lld\n",
                          static_cast<long long>(current_time.time_since_epoch().count()),
                          sampled_on_rebind ? 1 : 0,
+                         payload->has_previous_target ? 1 : 0,
                          static_cast<long long>(payload->last_rebind_time.time_since_epoch().count()));
         }
         return;
@@ -825,6 +826,38 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                 }
             }
             ViewData observer_view = observer->as_view_data(false);
+            observer_view.sampled = false;
+            const TSMeta* observer_meta = meta_at_path(observer_view.meta, observer_view.path.indices);
+            if (target_is_ref_wrapper &&
+                observer->observer_is_signal &&
+                observer_meta != nullptr &&
+                observer_meta->kind == TSKind::REF) {
+                bool observer_modified = true;
+                if (auto* active_input = dynamic_cast<TSInput*>(observer->active_notifier);
+                    active_input != nullptr && active_input->meta() != nullptr) {
+                    TSView input_root = active_input->view(current_time);
+                    if (input_root) {
+                        std::vector<size_t> observer_path;
+                        if (find_link_target_path(input_root.view_data(), active_input->meta(), observer, observer_path)) {
+                            ViewData observer_input = input_root.view_data();
+                            observer_input.path.indices = observer_path;
+                            observer_input.sampled = false;
+                            if (observer_input.ops != nullptr) {
+                                observer_modified = observer_input.ops->modified(observer_input, current_time);
+                            }
+                        }
+                    }
+                }
+
+                if (!observer_modified) {
+                    if (debug_notify) {
+                        std::fprintf(stderr,
+                                     "[notify_obs]  skip ref-wrapper write for signal/ref observer obs=%p (observer unmodified)\n",
+                                     static_cast<void*>(observer));
+                    }
+                    continue;
+                }
+            }
             if (!observer->notify_on_ref_wrapper_write) {
                 const bool notify_from_resolved_target =
                     observer->has_resolved_target &&
@@ -1734,6 +1767,8 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
             out.push_back(0);  // container link slot.
         } else if (meta->kind == TSKind::TSL && meta->fixed_size() > 0) {
             out.push_back(0);  // fixed-size TSL container link slot.
+        } else if (meta->kind == TSKind::TSD) {
+            out.push_back(0);  // dynamic TSD container link slot.
         }
         return out;
     }
@@ -1785,7 +1820,8 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
                 meta = meta->element_ts();
                 break;
             case TSKind::TSD:
-                crossed_dynamic_boundary = true;
+                out.push_back(1);
+                out.push_back(index);
                 meta = meta->element_ts();
                 break;
             default:
@@ -1793,13 +1829,15 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
         }
     }
 
-    // TSB/fixed-TSL/REF nodes have a root link slot at 0.
+    // Container/REF nodes have a root link slot at 0.
     if (!crossed_dynamic_boundary && meta != nullptr) {
         if (meta->kind == TSKind::REF) {
             out.push_back(0);
         } else if (meta->kind == TSKind::TSB) {
             out.push_back(0);
         } else if (meta->kind == TSKind::TSL && meta->fixed_size() > 0) {
+            out.push_back(0);
+        } else if (meta->kind == TSKind::TSD) {
             out.push_back(0);
         }
     }

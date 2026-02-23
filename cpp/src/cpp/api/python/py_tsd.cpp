@@ -6,6 +6,7 @@
 #include <hgraph/types/ref.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/time_series/ts_ops.h>
+#include <hgraph/types/value/map_storage.h>
 
 #include <fmt/format.h>
 #include <cstdio>
@@ -18,6 +19,101 @@ namespace hgraph
 {
 namespace
 {
+    std::optional<value::View> map_key_for_index(const value::View& map_view, size_t index) {
+        if (!map_view.valid() || !map_view.is_map()) {
+            return std::nullopt;
+        }
+
+        auto map = map_view.as_map();
+        if (const auto* storage = static_cast<const value::MapStorage*>(map.data()); storage != nullptr) {
+            const auto& key_set = storage->key_set();
+            if (key_set.is_alive(index)) {
+                return value::View(storage->key_at_slot(index), map.key_type());
+            }
+        }
+
+        size_t ordinal = 0;
+        for (value::View key : map.keys()) {
+            if (ordinal++ == index) {
+                return key;
+            }
+        }
+        return std::nullopt;
+    }
+
+    std::optional<value::View> child_value_by_index(const value::View& current, size_t index) {
+        if (!current.valid()) {
+            return std::nullopt;
+        }
+
+        if (current.is_bundle()) {
+            auto bundle = current.as_bundle();
+            if (index < bundle.size()) {
+                return bundle.at(index);
+            }
+            return std::nullopt;
+        }
+
+        if (current.is_tuple()) {
+            auto tuple = current.as_tuple();
+            if (index < tuple.size()) {
+                return tuple.at(index);
+            }
+            return std::nullopt;
+        }
+
+        if (current.is_list()) {
+            auto list = current.as_list();
+            if (index < list.size()) {
+                return list.at(index);
+            }
+            return std::nullopt;
+        }
+
+        if (current.is_map()) {
+            auto maybe_key = map_key_for_index(current, index);
+            if (!maybe_key.has_value()) {
+                return std::nullopt;
+            }
+            return current.as_map().at(*maybe_key);
+        }
+
+        return std::nullopt;
+    }
+
+    value::View resolve_local_navigation_value(const TSView& view) {
+        const ViewData& view_data = view.view_data();
+        auto* value_root = static_cast<const value::Value*>(view_data.value_data);
+        if (value_root == nullptr || !value_root->has_value()) {
+            return {};
+        }
+
+        value::View current = value_root->view();
+        for (size_t index : view_data.path.indices) {
+            auto next = child_value_by_index(current, index);
+            if (!next.has_value()) {
+                return {};
+            }
+            current = *next;
+        }
+        return current;
+    }
+
+    void append_tsd_keys_python(const value::View& value, nb::list& out, nb::set& seen) {
+        if (!value.valid() || !value.is_map()) {
+            return;
+        }
+
+        for (value::View key : value.as_map().keys()) {
+            nb::object key_obj = key.to_python();
+            if (PySet_Contains(seen.ptr(), key_obj.ptr()) == 1) {
+                continue;
+            }
+            seen.add(key_obj);
+            out.append(key_obj);
+        }
+    }
+
     bool is_remove_marker(const nb::object &obj);
 
     value::Value key_from_python_with_meta(const nb::object &key, const TSMeta *meta) {
@@ -32,14 +128,12 @@ namespace
         return key_val;
     }
 
-    nb::list tsd_keys_python(const TSView &view) {
+    nb::list tsd_keys_python(const TSView &view, bool include_local_fallback = false) {
         nb::list out;
-        value::View value = view.value();
-        if (!value.valid() || !value.is_map()) {
-            return out;
-        }
-        for (value::View key : value.as_map().keys()) {
-            out.append(key.to_python());
+        nb::set seen;
+        append_tsd_keys_python(view.value(), out, seen);
+        if (include_local_fallback) {
+            append_tsd_keys_python(resolve_local_navigation_value(view), out, seen);
         }
         return out;
     }
@@ -830,7 +924,11 @@ namespace
             return false;
         }
         value::View value = view().value();
-        return value.valid() && value.is_map() && value.as_map().contains(key_val.view());
+        if (value.valid() && value.is_map() && value.as_map().contains(key_val.view())) {
+            return true;
+        }
+        value::View local = resolve_local_navigation_value(input_view().as_ts_view());
+        return local.valid() && local.is_map() && local.as_map().contains(key_val.view());
     }
 
     nb::object PyTimeSeriesDictInput::key_set() const {
@@ -840,7 +938,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictInput::keys() const {
-        return tsd_keys_python(input_view().as_ts_view());
+        return tsd_keys_python(input_view().as_ts_view(), true);
     }
 
     nb::object PyTimeSeriesDictInput::values() const {
@@ -860,9 +958,6 @@ namespace
         const auto* meta = view.as_dict().ts_meta();
         const bool ref_valued =
             meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
-        if (ref_valued && !view.as_ts_view().modified()) {
-            return nb::list{};
-        }
         nb::list out = tsd_delta_keys_slot(view.as_ts_view(), 0, true);
         if (std::getenv("HGRAPH_DEBUG_TSD_MOD_KEYS") != nullptr) {
             const std::string keys_repr = nb::cast<std::string>(nb::repr(out));
@@ -872,9 +967,10 @@ namespace
                          static_cast<long long>(view.current_time().time_since_epoch().count()),
                          keys_repr.c_str());
         }
-        if (ref_valued && nb::len(out) == 0 && view.as_ts_view().modified()) {
+        if (ref_valued && nb::len(out) == 0) {
             nb::list fallback;
             auto dict = view.as_dict();
+            const engine_time_t current_time = view.current_time();
             for (const auto &key_item : nb::cast<nb::list>(keys())) {
                 nb::object key = nb::cast<nb::object>(key_item);
                 auto key_val = key_from_python_with_meta(key, meta);
@@ -882,7 +978,34 @@ namespace
                     continue;
                 }
                 auto child = dict.at_key(key_val.view());
-                if (child && child.modified()) {
+                if (!child || !child.modified()) {
+                    continue;
+                }
+
+                bool include = child.last_modified_time() == current_time;
+                if (!include && child.valid()) {
+                    value::View child_value = child.value();
+                    if (!child_value.valid()) {
+                        // Empty/unbound REF wrappers can tick modified without
+                        // advancing child LMT; preserve Python parity.
+                        include = true;
+                    } else {
+                        nb::object ref_obj = child_value.to_python();
+                        if (ref_obj.is_none()) {
+                            include = true;
+                        } else {
+                            nb::object is_valid_attr = nb::getattr(ref_obj, "is_valid", nb::none());
+                            if (!is_valid_attr.is_none()) {
+                                if (PyCallable_Check(is_valid_attr.ptr()) != 0) {
+                                    is_valid_attr = is_valid_attr();
+                                }
+                                include = !nb::cast<bool>(is_valid_attr);
+                            }
+                        }
+                    }
+                }
+
+                if (include) {
                     fallback.append(key);
                 }
             }

@@ -90,16 +90,76 @@ value::View resolve_local_navigation_value(const ViewData& view_data) {
         return {};
     }
 
+    const auto map_key_for_index = [](const value::View& map_view, size_t index) -> std::optional<value::View> {
+        if (!map_view.valid() || !map_view.is_map()) {
+            return std::nullopt;
+        }
+
+        auto map = map_view.as_map();
+        if (const auto* storage = static_cast<const value::MapStorage*>(map.data()); storage != nullptr) {
+            const auto& key_set = storage->key_set();
+            if (key_set.is_alive(index)) {
+                return value::View(storage->key_at_slot(index), map.key_type());
+            }
+        }
+
+        size_t ordinal = 0;
+        for (value::View key : map.keys()) {
+            if (ordinal++ == index) {
+                return key;
+            }
+        }
+        return std::nullopt;
+    };
+
+    const auto child_value_by_index = [&](const value::View& current, size_t index) -> std::optional<value::View> {
+        if (!current.valid()) {
+            return std::nullopt;
+        }
+
+        if (current.is_bundle()) {
+            auto bundle = current.as_bundle();
+            if (index < bundle.size()) {
+                return bundle.at(index);
+            }
+            return std::nullopt;
+        }
+
+        if (current.is_tuple()) {
+            auto tuple = current.as_tuple();
+            if (index < tuple.size()) {
+                return tuple.at(index);
+            }
+            return std::nullopt;
+        }
+
+        if (current.is_list()) {
+            auto list = current.as_list();
+            if (index < list.size()) {
+                return list.at(index);
+            }
+            return std::nullopt;
+        }
+
+        if (current.is_map()) {
+            auto maybe_key = map_key_for_index(current, index);
+            if (!maybe_key.has_value()) {
+                return std::nullopt;
+            }
+            auto map = current.as_map();
+            return map.at(*maybe_key);
+        }
+
+        return std::nullopt;
+    };
+
     value::View current = value_root->view();
     for (size_t index : view_data.path.indices) {
-        if (!current.valid() || !current.is_tuple()) {
+        auto next = child_value_by_index(current, index);
+        if (!next.has_value()) {
             return {};
         }
-        auto tuple = current.as_tuple();
-        if (index >= tuple.size()) {
-            return {};
-        }
-        current = tuple.at(index);
+        current = *next;
     }
     return current;
 }
