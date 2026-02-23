@@ -864,6 +864,14 @@ nb::object to_python(const ViewData& vd) {
     if (result == DelegateResult::DELEGATED) return target.ops->to_python(target);
     if (result == DelegateResult::REF_UNRESOLVED) return nb::none();
     if (get_unresolved_bound_link(vd)) return nb::none();
+    // For REF kind: return the stored TSReference directly even if empty.
+    // Python's .value always returns a TimeSeriesReference object (EmptyTimeSeriesReference
+    // or BoundTimeSeriesReference), never None, so valid() must not gate REF serialization.
+    if (vd.meta && vd.meta->kind == TSKind::REF && vd.value_data) {
+        auto v = make_value_view(vd);
+        if (v.valid()) return v.to_python();
+        return nb::cast(TSReference::empty());
+    }
     if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
@@ -1767,7 +1775,10 @@ nb::object delta_to_python(const ViewData& vd) {
     // For input bundles with links, follow links and check per-field modified+valid
     if (vd.link_data && vd.meta) {
         auto* link_schema = get_bundle_link_schema(vd);
-        bool has_links = link_schema && any_field_linked(vd);
+        // For inputs (uses_link_target), always use linked path — even if no scalar fields
+        // are linked, collection fields (TSD/TSL) need link_data propagation via child_at.
+        // For outputs, only use linked path if any scalar field has an active REFLink.
+        bool has_links = link_schema && (vd.uses_link_target || any_field_linked(vd));
         if (has_links) {
             value::View link_view(vd.link_data, link_schema);
             auto link_tuple = link_view.as_tuple();
@@ -3430,12 +3441,20 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
                 // TSInput: Check LinkTarget
                 auto* lt = static_cast<LinkTarget*>(link_view.as_list().at(index).data());
                 if (lt && lt->valid() && elem_meta->kind != TSKind::REF) {
-                    // Non-REF element: delegate to target (standard peered binding)
-                    ViewData target_vd = make_view_data_from_link_target(*lt, vd.path.child(index));
-                    return TSView(target_vd, current_time);
+                    // Compare element kinds rather than pointer equality because
+                    // structurally identical types may have distinct TSMeta pointers.
+                    // When the input's element kind differs from the target's kind
+                    // (e.g., input expects REF but output has TS), fall through to Phase 4
+                    // so resolve_bound_output can detect the mismatch and create an alternative.
+                    bool kinds_match = !lt->meta || (lt->meta->kind == elem_meta->kind);
+                    if (kinds_match) {
+                        ViewData target_vd = make_view_data_from_link_target(*lt, vd.path.child(index));
+                        return TSView(target_vd, current_time);
+                    }
+                    // Kind mismatch (e.g., REF vs TS): fall through to Phase 4 (non-peered)
                 }
-                // REF elements fall through to Phase 4 which preserves REF meta and
-                // sets link_data to the element's LinkTarget (needed by ref_value()).
+                // REF elements and type-mismatched elements fall through to Phase 4
+                // which preserves REF meta and sets link_data to the element's LinkTarget.
             } else {
                 // TSOutput: Check REFLink
                 auto* rl = static_cast<REFLink*>(link_view.as_list().at(index).data());
@@ -5160,16 +5179,17 @@ inline void* get_collection_link_data(const ViewData& vd) {
 // Shadow outer-namespace get_active_link for TSD tuple layout
 inline const REFLink* get_active_link(const ViewData& vd) {
     if (vd.uses_link_target) return nullptr;
-    if (!vd.path.is_root()) return nullptr;
     void* cld = get_collection_link_data(vd);
     auto* rl = get_ref_link(cld);
     return (rl && rl->target().valid()) ? rl : nullptr;
 }
 
 // Shadow outer-namespace get_active_link_target for TSD tuple layout
+// Works for both root TSD inputs and TSD fields within TSB inputs.
+// get_collection_link_data handles the tuple layout extraction for root paths
+// and returns link_data directly for non-root (the data starts with LinkTarget).
 inline const LinkTarget* get_active_link_target(const ViewData& vd) {
     if (!vd.uses_link_target) return nullptr;
-    if (!vd.path.is_root()) return nullptr;
     auto* lt = get_link_target(get_collection_link_data(vd));
     return (lt && lt->valid()) ? lt : nullptr;
 }
@@ -5412,13 +5432,18 @@ nb::object to_python(const ViewData& vd) {
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
     }
-    // Check time-series validity first (has value been set?)
-    if (!valid(vd)) { return nb::none(); }
+    // If the TSD has never been set, return empty frozendict (matching Python semantics
+    // where _output.value on an unset TSD returns frozendict({}), not None).
+    if (!valid(vd)) {
+        nb::module_ frozendict_mod = nb::module_::import_("frozendict");
+        return frozendict_mod.attr("frozendict")(nb::dict());
+    }
 
     // Python: frozendict({k: v.value for k, v in self.items() if v.valid})
     // Iterate elements, skip invalid, convert values to Python
     if (!vd.value_data || !vd.time_data || !vd.meta || !vd.meta->element_ts) {
-        return nb::none();
+        nb::module_ frozendict_mod = nb::module_::import_("frozendict");
+        return frozendict_mod.attr("frozendict")(nb::dict());
     }
 
     auto* storage = static_cast<value::MapStorage*>(vd.value_data);
@@ -5757,6 +5782,8 @@ nb::object delta_to_python(const ViewData& vd) {
             return nb::none();
         }
     }
+
+
 
     nb::module_ frozendict_mod = nb::module_::import_("frozendict");
     return frozendict_mod.attr("frozendict")(result);
@@ -6176,8 +6203,14 @@ void bind(ViewData& vd, const ViewData& target) {
         }
 
         store_to_link_target(*lt, target);
-        // Mark peered: binding happened at the dict level
-        lt->peered = true;
+        // Peered when element kinds match. Non-peered when one has REF elements
+        // and the other doesn't (e.g., input TSD[K, REF[TS[int]]] bound to output TSD[K, TS[int]]).
+        // Compare element kind rather than pointer equality because structurally identical
+        // types may have distinct TSMeta pointers.
+        bool elem_match = !vd.meta || !target.meta ||
+            !vd.meta->element_ts || !target.meta->element_ts ||
+            vd.meta->element_ts->kind == target.meta->element_ts->kind;
+        lt->peered = elem_match;
 
         // Subscribe for time-accounting
         if (lt->observer_data) {

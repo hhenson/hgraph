@@ -3,6 +3,7 @@
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/python_node.h>
 #include <hgraph/runtime/record_replay.h>
+#include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/time_series/ts_input.h>
@@ -597,6 +598,16 @@ namespace hgraph {
 
         active_graphs_.erase(it);
 
+        // Remove the error output entry for this key if capture_exception is enabled
+        if (signature().capture_exception) {
+            if (auto* err_out = ts_error_output()) {
+                ViewData err_vd = err_out->native_value().make_view_data();
+                err_vd.link_data = nullptr;
+                auto time = graph()->evaluation_time();
+                err_vd.ops->dict_remove(err_vd, key, time);
+            }
+        }
+
         // Unbind inputs BEFORE un_wire_graph and stop. un_wire_graph calls dict_remove
         // which notifies the TSD output's observer list. If inner graph nodes have
         // ActiveNotifiers subscribed to the output (e.g., via LinkTarget/TSInput bindings),
@@ -689,10 +700,30 @@ namespace hgraph {
             try {
                 inner_graph->evaluate_graph();
             } catch (const std::exception& e) {
-                // TODO: write to error output TSD element for this key
+                // Write error to the error output TSD element for this key
+                if (auto* err_out = ts_error_output()) {
+                    auto ne = NodeError::capture_error(e, *this, "key: " +
+                        (key_type_meta_ ? key_type_meta_->ops->to_string(key.data(), key_type_meta_) : "?"));
+                    auto error_ptr = nb::ref<NodeError>(new NodeError(ne));
+                    ViewData err_vd = err_out->native_value().make_view_data();
+                    err_vd.link_data = nullptr;  // Navigate local TSD, not linked target
+                    TSView elem_view = err_vd.ops->dict_create(err_vd, key, eval_time);
+                    if (elem_view.view_data().valid()) {
+                        elem_view.from_python(nb::cast(error_ptr));
+                    }
+                }
             }
         } else {
             inner_graph->evaluate_graph();
+        }
+
+        // Check inner graph schedule state
+        {
+            auto& sched = inner_graph->schedule();
+            int scheduled_count = 0;
+            for (size_t i = 0; i < sched.size(); ++i) {
+                if (sched[i] >= eval_time) scheduled_count++;
+            }
         }
 
         engine_time_t next = MAX_DT;

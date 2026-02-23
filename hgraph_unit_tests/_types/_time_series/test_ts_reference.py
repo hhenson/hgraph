@@ -35,10 +35,10 @@ def test_ts_reference_empty():
     # Create empty reference
     ref = _hgraph.TSReference.empty()
 
-    assert ref.is_empty()
-    assert not ref.is_peered()
-    assert not ref.is_non_peered()
-    assert not ref.has_output()
+    assert ref.is_empty
+    assert not ref.is_peered
+    assert not ref.is_non_peered
+    assert not ref.has_output
 
 
 def test_ts_reference_to_string():
@@ -69,8 +69,8 @@ def test_ts_reference_copy():
     ref2 = _hgraph.TSReference(ref1)  # Copy constructor
 
     assert ref1 == ref2
-    assert ref1.is_empty()
-    assert ref2.is_empty()
+    assert ref1.is_empty
+    assert ref2.is_empty
 
 
 def test_fq_reference_empty():
@@ -79,9 +79,9 @@ def test_fq_reference_empty():
 
     fq = _hgraph.FQReference.empty()
 
-    assert fq.is_empty()
-    assert not fq.is_peered()
-    assert not fq.is_non_peered()
+    assert fq.is_empty
+    assert not fq.is_peered
+    assert not fq.is_non_peered
 
 
 def test_fq_reference_peered():
@@ -90,8 +90,8 @@ def test_fq_reference_peered():
 
     fq = _hgraph.FQReference.peered(42, _hgraph.PortType.OUTPUT, [0, 1, 2])
 
-    assert fq.is_peered()
-    assert not fq.is_empty()
+    assert fq.is_peered
+    assert not fq.is_empty
     assert fq.node_id == 42
     assert fq.port_type == _hgraph.PortType.OUTPUT
     assert list(fq.indices) == [0, 1, 2]
@@ -263,10 +263,11 @@ def test_ref_tsvalue_modification_tracking():
     # Set the value - this should mark the time
     ts_view.from_python(_hgraph.TSReference.empty())
 
-    # Check validity
-    assert ts_view.valid()
+    # Empty REF is not "valid" in engine semantics (valid = non-empty reference),
+    # but the modification time should be tracked.
+    assert ts_view.last_modified_time() == t1
 
-    # Retrieve value to verify storage works
+    # Retrieve value to verify storage works — even empty REF should round-trip
     result = ts_view.to_python()
     assert result is not None
     assert result.is_empty  # is_empty is a property
@@ -425,7 +426,7 @@ def test_fq_reference_non_peered():
     # Create non-peered FQReference with items
     fq = _hgraph.FQReference.non_peered([fq1, fq2])
 
-    assert fq.is_non_peered()
-    assert not fq.is_empty()
-    assert not fq.is_peered()
+    assert fq.is_non_peered
+    assert not fq.is_empty
+    assert not fq.is_peered
     assert len(fq.items) == 2
