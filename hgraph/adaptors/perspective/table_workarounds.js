@@ -1751,7 +1751,7 @@ async function recordCollapseState(table, viewer, model) {
         for (const tr of table.children[0].children[1].querySelectorAll("th.psp-tree-label-expand")) {
             const metadata = table.getMeta(tr);
             const ids = model._ids[metadata.y - metadata.y0];
-            if (ids === undefined) {
+            if (ids === undefined || model._ids.length == 1) { // do not persist collapse state when there is only one item (a TOTAL with 0 actual rows)
                 continue;
             }
             const row_header = ids.map((x) => x === null ? '-' : x).join(',')
