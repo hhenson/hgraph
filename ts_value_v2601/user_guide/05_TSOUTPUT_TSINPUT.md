@@ -157,7 +157,7 @@ Observer management is handled by TSValue's `observer_value_` component. The `TS
 ```cpp
 // Usage via view
 TSOutput output(ts_meta);
-TSOutputView view = output.view(current_time, native_schema);
+TSOutputView view = output.output_view();
 
 // Subscribe/unsubscribe through the view
 view.subscribe(input_ptr);
@@ -655,7 +655,7 @@ This is essential for:
 | **Bind** | Not applicable (sources) | `bind()`, `unbind()` |
 | **Active/Passive** | Not applicable | `make_active()`, `make_passive()` |
 | **Observers** | `subscribe()`, `unsubscribe()` | Is an observer, receives notifications |
-| **Cast support** | `view(time, schema)` creates alt if needed | Passes schema to output's `view()` |
+| **Cast support** | `output_view_for_input(input)` resolves native vs alternative internally | `bind(output)` drives output schema selection via input metadata |
 
 ---
 

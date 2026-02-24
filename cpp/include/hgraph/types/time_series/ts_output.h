@@ -26,10 +26,10 @@ public:
     TSOutput& operator=(TSOutput&&) noexcept = default;
     ~TSOutput() = default;
 
-    [[nodiscard]] TSView view(const engine_time_t* engine_time_ptr);
-    [[nodiscard]] TSView view_for_input(const TSInput& input, const engine_time_t* engine_time_ptr);
-    [[nodiscard]] TSOutputView output_view(const engine_time_t* engine_time_ptr);
-    [[nodiscard]] TSOutputView output_view_for_input(const TSInput& input, const engine_time_t* engine_time_ptr);
+    [[nodiscard]] TSView view();
+    [[nodiscard]] TSView view_for_input(const TSInput& input);
+    [[nodiscard]] TSOutputView output_view();
+    [[nodiscard]] TSOutputView output_view_for_input(const TSInput& input);
 
     [[nodiscard]] node_ptr owning_node() const noexcept { return owning_node_; }
     [[nodiscard]] size_t port_index() const noexcept { return port_index_; }
@@ -42,24 +42,34 @@ public:
     [[nodiscard]] bool valid() const noexcept { return native_value_.meta() != nullptr; }
 
     [[nodiscard]] ShortPath root_path() const {
-        // Runtime TS paths are schema-local; output port prefix is only for FQ serialization.
-        return ShortPath{owning_node_, PortType::OUTPUT, {}};
+        return ShortPath{owning_node_, PortType::OUTPUT, {port_index_}};
+    }
+
+    [[nodiscard]] ShortPath to_short_path(const TSView& view) const {
+        ShortPath out = view.short_path();
+        out.node = owning_node_;
+        out.port_type = PortType::OUTPUT;
+        if (out.indices.empty() || out.indices.front() != port_index_) {
+            out.indices.insert(out.indices.begin(), port_index_);
+        }
+        return out;
     }
 
     [[nodiscard]] FQPath to_fq_path(const TSView& view) const {
-        ShortPath fq_path = view.short_path();
-        fq_path.node = owning_node_;
-        fq_path.port_type = PortType::OUTPUT;
-        fq_path.indices.insert(fq_path.indices.begin(), port_index_);
+        ShortPath fq_path = to_short_path(view);
 
         ViewData root = view.view_data();
-        root.path = ShortPath{owning_node_, PortType::OUTPUT, {port_index_}};
+        root.path = root_path();
         return fq_path.to_fq(root);
     }
 
 private:
     [[nodiscard]] const engine_time_t* owner_engine_time_ptr() const noexcept;
-    [[nodiscard]] TSView view_for_schema(const engine_time_t* engine_time_ptr, const TSMeta* schema);
+    [[nodiscard]] ShortPath runtime_root_path() const {
+        // Keep runtime TS navigation schema-local; prepend output slot only for endpoint paths.
+        return ShortPath{owning_node_, PortType::OUTPUT, {}};
+    }
+    [[nodiscard]] TSView view_for_schema(const TSMeta* schema);
     TSValue& get_or_create_alternative(const TSMeta* schema);
     void establish_default_binding(TSValue& alternative);
 

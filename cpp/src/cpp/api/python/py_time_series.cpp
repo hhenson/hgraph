@@ -233,7 +233,7 @@ namespace
         , output_view_(std::move(view)) {}
 
     nb::object PyTimeSeriesOutput::parent_output() const {
-        const ShortPath &path = output_view().short_path();
+        const ShortPath &path = output_view().as_ts_view().short_path();
         if (!has_parent(path) || path.node == nullptr) {
             return nb::none();
         }
@@ -251,7 +251,7 @@ namespace
     }
 
     nb::bool_ PyTimeSeriesOutput::has_parent_output() const {
-        return nb::bool_(has_parent(output_view().short_path()));
+        return nb::bool_(has_parent(output_view().as_ts_view().short_path()));
     }
 
     void PyTimeSeriesOutput::apply_result(nb::object value) {
@@ -282,7 +282,7 @@ namespace
 
     bool PyTimeSeriesOutput::can_apply_result(nb::object value) {
         (void)value;
-        return static_cast<bool>(output_view());
+        return static_cast<bool>(output_view()) && !output_view().modified();
     }
 
     void PyTimeSeriesOutput::register_with_nanobind(nb::module_ &m) {
@@ -305,7 +305,7 @@ namespace
         , input_view_(std::move(view)) {}
 
     nb::object PyTimeSeriesInput::parent_input() const {
-        const ShortPath &path = input_view().short_path();
+        const ShortPath &path = input_view().as_ts_view().short_path();
         if (!has_parent(path) || path.node == nullptr) {
             return nb::none();
         }
@@ -323,7 +323,7 @@ namespace
     }
 
     nb::bool_ PyTimeSeriesInput::has_parent_input() const {
-        return nb::bool_(has_parent(input_view().short_path()));
+        return nb::bool_(has_parent(input_view().as_ts_view().short_path()));
     }
 
     nb::bool_ PyTimeSeriesInput::active() const { return nb::bool_(input_view().active()); }

@@ -101,33 +101,34 @@ const engine_time_t* TSOutput::owner_engine_time_ptr() const noexcept {
     return owning_node_->cached_evaluation_time_ptr();
 }
 
-TSView TSOutput::view(const engine_time_t* engine_time_ptr) {
-    return TSView(native_value_, engine_time_ptr, root_path());
+TSView TSOutput::view() {
+    return TSView(native_value_, owner_engine_time_ptr(), runtime_root_path());
 }
 
-TSView TSOutput::view_for_schema(const engine_time_t* engine_time_ptr, const TSMeta* schema) {
+TSView TSOutput::view_for_schema(const TSMeta* schema) {
+    const engine_time_t* engine_time_ptr = owner_engine_time_ptr();
     if (schema == nullptr || schema == native_value_.meta()) {
-        return view(engine_time_ptr);
+        return view();
     }
 
     TSValue& alt = get_or_create_alternative(schema);
-    return TSView(alt, engine_time_ptr, root_path());
+    return TSView(alt, engine_time_ptr, runtime_root_path());
 }
 
-TSView TSOutput::view_for_input(const TSInput& input, const engine_time_t* engine_time_ptr) {
+TSView TSOutput::view_for_input(const TSInput& input) {
     const TSMeta* input_meta = input.meta();
     if (input_meta == nullptr) {
-        return view(engine_time_ptr);
+        return view();
     }
-    return view_for_schema(engine_time_ptr, input_meta);
+    return view_for_schema(input_meta);
 }
 
-TSOutputView TSOutput::output_view(const engine_time_t* engine_time_ptr) {
-    return TSOutputView(this, view(engine_time_ptr));
+TSOutputView TSOutput::output_view() {
+    return TSOutputView(this, view());
 }
 
-TSOutputView TSOutput::output_view_for_input(const TSInput& input, const engine_time_t* engine_time_ptr) {
-    return TSOutputView(this, view_for_input(input, engine_time_ptr));
+TSOutputView TSOutput::output_view_for_input(const TSInput& input) {
+    return TSOutputView(this, view_for_input(input));
 }
 
 TSValue& TSOutput::get_or_create_alternative(const TSMeta* schema) {
@@ -143,8 +144,8 @@ TSValue& TSOutput::get_or_create_alternative(const TSMeta* schema) {
 }
 
 void TSOutput::establish_default_binding(TSValue& alternative) {
-    TSView target_view(native_value_, static_cast<const engine_time_t*>(nullptr), root_path());
-    TSView alt_view(alternative, static_cast<const engine_time_t*>(nullptr), root_path());
+    TSView target_view(native_value_, static_cast<const engine_time_t*>(nullptr), runtime_root_path());
+    TSView alt_view(alternative, static_cast<const engine_time_t*>(nullptr), runtime_root_path());
 
     establish_links_recursive(target_view, native_value_.meta(), alt_view, alternative.meta());
 }

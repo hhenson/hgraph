@@ -7,6 +7,9 @@
 
 #include <hgraph/types/node.h>
 
+#include <atomic>
+#include <memory>
+
 namespace hgraph {
     /**
      * PushQueueNode - Node that receives messages from external sources
@@ -44,8 +47,7 @@ namespace hgraph {
 
         void do_start() override;
 
-        void do_stop() override {
-        }
+        void do_stop() override;
 
         void initialise() override {
         }
@@ -54,9 +56,15 @@ namespace hgraph {
         }
 
     private:
-        sender_receiver_state_ptr _receiver;
-        int64_t _messages_queued{0};
-        int64_t _messages_dequeued{0};
+        struct SenderContext {
+            sender_receiver_state_ptr receiver{nullptr};
+            int64_t node_ndx{0};
+            std::atomic<bool> active{false};
+            std::atomic<int64_t> queued{0};
+        };
+
+        std::shared_ptr<SenderContext> _sender_context{};
+        std::atomic<int64_t> _messages_dequeued{0};
         bool _elide{false};
         bool _batch{false};
         nb::callable _eval_fn;

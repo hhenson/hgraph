@@ -6,7 +6,6 @@
 #include <hgraph/types/time_series/ts_output.h>
 
 #include <algorithm>
-#include <mutex>
 #include <optional>
 #include <unordered_set>
 
@@ -14,18 +13,12 @@ namespace hgraph {
 
 namespace {
 
-std::mutex& live_ts_input_mutex() {
-    static std::mutex mutex;
-    return mutex;
-}
-
 std::unordered_set<const TSInput*>& live_ts_inputs() {
     static std::unordered_set<const TSInput*> pointers;
     return pointers;
 }
 
 void track_live_ts_input(const TSInput* input, bool live) {
-    std::lock_guard<std::mutex> lock(live_ts_input_mutex());
     if (live) {
         live_ts_inputs().insert(input);
     } else {
@@ -268,7 +261,6 @@ bool is_live_ts_input(const TSInput* input) noexcept {
     if (input == nullptr) {
         return false;
     }
-    std::lock_guard<std::mutex> lock(live_ts_input_mutex());
     return live_ts_inputs().contains(input);
 }
 
@@ -276,11 +268,12 @@ TSInput::TSInput() {
     track_live_ts_input(this, true);
 }
 
-TSInput::TSInput(const TSMeta* meta, node_ptr owning_node)
+TSInput::TSInput(const TSMeta* meta, node_ptr owning_node, size_t port_index)
     : link_observer_registry_(std::make_shared<TSLinkObserverRegistry>()),
       value_(meta, meta != nullptr ? TSMetaSchemaCache::instance().get(meta).input_link_schema : nullptr),
       meta_(meta),
-      owning_node_(owning_node) {
+      owning_node_(owning_node),
+      port_index_(port_index) {
     track_live_ts_input(this, true);
     value_.set_link_observer_registry(link_observer_registry_.get());
 
@@ -302,6 +295,7 @@ TSInput::TSInput(TSInput&& other) noexcept
       signal_input_impl_flags_(std::move(other.signal_input_impl_flags_)),
       meta_(other.meta_),
       owning_node_(other.owning_node_),
+      port_index_(other.port_index_),
       active_root_(other.active_root_) {
     track_live_ts_input(this, true);
     if (link_observer_registry_ != nullptr) {
@@ -317,6 +311,7 @@ TSInput& TSInput::operator=(TSInput&& other) noexcept {
         signal_input_impl_flags_ = std::move(other.signal_input_impl_flags_);
         meta_ = other.meta_;
         owning_node_ = other.owning_node_;
+        port_index_ = other.port_index_;
         active_root_ = other.active_root_;
         if (link_observer_registry_ != nullptr) {
             value_.set_link_observer_registry(link_observer_registry_.get());
@@ -336,14 +331,14 @@ const engine_time_t* TSInput::owner_engine_time_ptr() const noexcept {
     return owning_node_->cached_evaluation_time_ptr();
 }
 
-TSView TSInput::view(const engine_time_t* engine_time_ptr) {
-    TSView out(value_, engine_time_ptr, root_path());
+TSView TSInput::view() {
+    TSView out(value_, owner_engine_time_ptr(), root_path());
     out.view_data().uses_link_target = true;
     return out;
 }
 
-TSInputView TSInput::input_view(const engine_time_t* engine_time_ptr) {
-    return TSInputView(this, view(engine_time_ptr));
+TSInputView TSInput::input_view() {
+    return TSInputView(this, view());
 }
 
 void TSInput::set_signal_input_impl_flags(std::vector<bool> flags) {
@@ -360,16 +355,15 @@ bool TSInput::signal_input_has_impl(const std::vector<size_t>& path_indices) con
 }
 
 void TSInput::bind(TSOutput& output) {
-    const engine_time_t* input_engine_time_ptr = owner_engine_time_ptr();
-    TSView input_view = view(input_engine_time_ptr);
-    TSView native_output_view = output.view(input_engine_time_ptr);
+    TSView input_view = view();
+    TSView native_output_view = output.view();
     const bool input_is_ref = meta_ != nullptr && meta_->kind == TSKind::REF;
     const bool input_is_signal = meta_ != nullptr && meta_->kind == TSKind::SIGNAL;
     const bool output_is_ref = native_output_view.ts_meta() != nullptr &&
                                native_output_view.ts_meta()->kind == TSKind::REF;
     TSView output_view = (input_is_ref || input_is_signal || output_is_ref)
                              ? native_output_view
-                             : output.view_for_input(*this, input_engine_time_ptr);
+                             : output.view_for_input(*this);
 
     if (meta_ != nullptr && !output_is_ref &&
         meta_->kind == TSKind::TSL && meta_->fixed_size() > 0) {
@@ -387,7 +381,7 @@ void TSInput::bind(TSOutput& output) {
 }
 
 void TSInput::unbind() {
-    TSView input_view = view(owner_engine_time_ptr());
+    TSView input_view = view();
 
     if (active_root_) {
         value::ValueView av = active_view_mut();
@@ -407,7 +401,7 @@ void TSInput::set_active(bool active) {
         return;
     }
 
-    TSView root = view(owner_engine_time_ptr());
+    TSView root = view();
     set_active_recursive(root, av, active);
 }
 

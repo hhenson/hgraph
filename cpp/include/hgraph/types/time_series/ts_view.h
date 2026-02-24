@@ -198,7 +198,7 @@ public:
 
     [[nodiscard]] const TSView& as_ts_view() const noexcept { return ts_view_; }
     [[nodiscard]] TSView& as_ts_view() noexcept { return ts_view_; }
-    [[nodiscard]] const ShortPath& short_path() const noexcept { return ts_view_.short_path(); }
+    [[nodiscard]] ShortPath short_path() const;
 
     [[nodiscard]] const TSMeta* ts_meta() const noexcept { return ts_view_.ts_meta(); }
     [[nodiscard]] engine_time_t current_time() const noexcept { return ts_view_.current_time(); }
@@ -321,7 +321,7 @@ public:
 
     [[nodiscard]] const TSView& as_ts_view() const noexcept { return ts_view_; }
     [[nodiscard]] TSView& as_ts_view() noexcept { return ts_view_; }
-    [[nodiscard]] const ShortPath& short_path() const noexcept { return ts_view_.short_path(); }
+    [[nodiscard]] ShortPath short_path() const;
 
     [[nodiscard]] const TSMeta* ts_meta() const noexcept { return ts_view_.ts_meta(); }
     [[nodiscard]] engine_time_t current_time() const noexcept { return ts_view_.current_time(); }

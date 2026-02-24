@@ -8,6 +8,8 @@
 
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node.h>
+#include <cstdio>
+#include <cstdlib>
 
 namespace hgraph
 {
@@ -109,7 +111,23 @@ namespace hgraph
 
     const NodeSignature &PyNode::signature() const { return _impl->signature(); }
 
-    const nb::dict &PyNode::scalars() const { return _impl->scalars(); }
+    const nb::dict &PyNode::scalars() const {
+        const nb::dict& scalars = _impl->scalars();
+        if (std::getenv("HGRAPH_DEBUG_NODE_SCALARS") != nullptr) {
+            std::size_t scalar_count = 0;
+            try {
+                scalar_count = static_cast<std::size_t>(nb::len(scalars));
+            } catch (...) {
+                scalar_count = 0;
+            }
+            std::fprintf(stderr,
+                         "[node_scalars] node=%lld name=%s count=%zu\n",
+                         static_cast<long long>(_impl->node_ndx()),
+                         _impl->signature().name.c_str(),
+                         scalar_count);
+        }
+        return scalars;
+    }
 
     PyGraph PyNode::graph() const {
         auto graph{_impl->graph()};
@@ -118,6 +136,21 @@ namespace hgraph
 
     nb::object PyNode::input() const {
         auto view = _impl->input();
+        if (std::getenv("HGRAPH_DEBUG_NODE_INPUTS") != nullptr) {
+            const TSMeta* meta = view.ts_meta();
+            std::size_t sig_input_count = 0;
+            if (_impl->signature().time_series_inputs.has_value()) {
+                sig_input_count = _impl->signature().time_series_inputs->size();
+            }
+            std::fprintf(stderr,
+                         "[node_input] node=%lld name=%s has_input=%d view=%d sig_inputs=%zu meta_kind=%d\n",
+                         static_cast<long long>(_impl->node_ndx()),
+                         _impl->signature().name.c_str(),
+                         _impl->has_input() ? 1 : 0,
+                         static_cast<bool>(view) ? 1 : 0,
+                         sig_input_count,
+                         meta != nullptr ? static_cast<int>(meta->kind) : -1);
+        }
         return view ? wrap_input_view(view) : nb::none();
     }
 

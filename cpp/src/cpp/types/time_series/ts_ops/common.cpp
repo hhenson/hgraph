@@ -113,7 +113,8 @@ bool observer_under_static_ref_container(const LinkTarget& observer) {
         return false;
     }
 
-    TSView root = active_input->view(&MIN_DT);
+    TSView root = active_input->view();
+    root.set_current_time_ptr(&MIN_DT);
     if (!root) {
         return false;
     }
@@ -269,7 +270,7 @@ void notify_activation_if_modified(REFLink* payload, TSInput* input) {
 void unregister_link_target_observer_from_registry(const LinkTarget& link_target,
                                                    TSLinkObserverRegistry* registry,
                                                    const ViewData* observer_view = nullptr) {
-    if (registry == nullptr || registry->entries.empty()) {
+    if (registry == nullptr || !is_live_link_observer_registry(registry) || registry->entries.empty()) {
         return;
     }
 
@@ -301,7 +302,7 @@ void unregister_link_target_observer_from_registry(const LinkTarget& link_target
 void unregister_ref_link_observer_from_registry(const REFLink& ref_link,
                                                 TSLinkObserverRegistry* registry,
                                                 const ViewData* observer_view = nullptr) {
-    if (registry == nullptr || registry->ref_entries.empty()) {
+    if (registry == nullptr || !is_live_link_observer_registry(registry) || registry->ref_entries.empty()) {
         return;
     }
 
@@ -370,7 +371,8 @@ void register_link_target_observer_entry(TSLinkObserverRegistry* registry,
                                          const std::vector<size_t>& path,
                                          LinkTarget* target,
                                          const ViewData* observer_view) {
-    if (registry == nullptr || value_data == nullptr || target == nullptr) {
+    if (registry == nullptr || !is_live_link_observer_registry(registry) ||
+        value_data == nullptr || target == nullptr) {
         return;
     }
 
@@ -401,7 +403,8 @@ void register_ref_link_observer_entry(TSLinkObserverRegistry* registry,
                                       const std::vector<size_t>& path,
                                       REFLink* target,
                                       const ViewData* observer_view) {
-    if (registry == nullptr || value_data == nullptr || target == nullptr) {
+    if (registry == nullptr || !is_live_link_observer_registry(registry) ||
+        value_data == nullptr || target == nullptr) {
         return;
     }
 
@@ -654,7 +657,8 @@ bool suppress_static_ref_child_notification(const LinkTarget& observer, engine_t
 }
 
 void notify_link_target_observers(const ViewData& target_view, engine_time_t current_time) {
-    if (target_view.value_data == nullptr || target_view.link_observer_registry == nullptr) {
+    if (target_view.value_data == nullptr || target_view.link_observer_registry == nullptr ||
+        !is_live_link_observer_registry(target_view.link_observer_registry)) {
         return;
     }
     const bool debug_notify = std::getenv("HGRAPH_DEBUG_NOTIFY_OBS") != nullptr;
@@ -882,7 +886,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                 bool observer_modified = true;
                 if (auto* active_input = notifier_as_live_input(observer->active_notifier);
                     active_input != nullptr && active_input->meta() != nullptr) {
-                    TSView input_root = active_input->view(&current_time);
+                    TSView input_root = active_input->view();
                     if (input_root) {
                         std::vector<size_t> observer_path;
                         if (find_link_target_path(input_root.view_data(), active_input->meta(), observer, observer_path)) {
@@ -979,25 +983,9 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
     for (auto registration_it = registrations.begin(); registration_it != registrations.end();) {
         REFLinkObserverRegistration& registration = *registration_it;
         REFLink* observer = registration.ref_link;
-        if (observer == nullptr) {
+        if (observer == nullptr || !is_live_ref_link(observer)) {
             registration_it = registrations.erase(registration_it);
             continue;
-        }
-
-        // REF link payloads can move as container storage grows. Re-resolve by
-        // the observer path when available and prune stale registrations.
-        if (registration.observer_view.meta != nullptr &&
-            registration.observer_view.link_data != nullptr) {
-            if (REFLink* resolved = resolve_ref_link(
-                    registration.observer_view,
-                    registration.observer_view.path.indices);
-                resolved != nullptr) {
-                observer = resolved;
-                registration.ref_link = resolved;
-            } else {
-                registration_it = registrations.erase(registration_it);
-                continue;
-            }
         }
 
         if (!paths_related(registration.path, target_view.path.indices)) {
@@ -1035,7 +1023,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
     }
 
     for (REFLink* observer : ref_observers) {
-        if (observer != nullptr && observer->is_linked) {
+        if (observer != nullptr && is_live_ref_link(observer) && observer->is_linked) {
             observer->notify(current_time);
         }
     }
@@ -3839,7 +3827,6 @@ bool resolve_tsd_key_set_source(const ViewData& vd, ViewData& out) {
     if (is_tsd_key_set_projection(vd)) {
         ViewData source = vd;
         source.projection = ViewProjection::NONE;
-
         const TSMeta* source_meta = meta_at_path(source.meta, source.path.indices);
         if (source_meta == nullptr || source_meta->kind != TSKind::TSD) {
             return false;
@@ -5355,6 +5342,36 @@ bool op_valid(const ViewData& vd) {
         // map, fall through to the generic read-view validity path.
     }
 
+    if (self_meta != nullptr && self_meta->kind == TSKind::SIGNAL && vd.uses_link_target) {
+        if (LinkTarget* signal_link = resolve_link_target(vd, vd.path.indices); signal_link != nullptr) {
+            bool source_is_signal = false;
+            ViewData source_view{};
+            if (signal_link->is_linked) {
+                source_view =
+                    signal_link->has_resolved_target ? signal_link->resolved_target : signal_link->as_view_data(vd.sampled);
+                const TSMeta* source_meta = meta_at_path(source_view.meta, source_view.path.indices);
+                source_is_signal = source_meta != nullptr && source_meta->kind == TSKind::SIGNAL;
+            }
+            if (source_is_signal &&
+                signal_link->owner_time_ptr != nullptr &&
+                *signal_link->owner_time_ptr > MIN_DT) {
+                return true;
+            }
+            if (signal_link->is_linked) {
+                const TSMeta* source_meta = meta_at_path(source_view.meta, source_view.path.indices);
+                if (source_meta != nullptr && source_meta->kind == TSKind::REF) {
+                    View ref_value = op_value(source_view);
+                    if (!(ref_value.valid() && ref_value.schema() == ts_reference_meta())) {
+                        return false;
+                    }
+                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value.to_python());
+                    return ref.is_valid();
+                }
+                return op_valid(source_view);
+            }
+        }
+    }
+
     if (self_meta != nullptr && self_meta->kind == TSKind::TSD && vd.uses_link_target && current_time != MIN_DT) {
         ViewData previous_bridge{};
         ViewData current_bridge{};
@@ -5396,36 +5413,6 @@ bool op_valid(const ViewData& vd) {
             std::fprintf(stderr,
                          "[keyset_valid] fallback path=%s bound=<none>\n",
                          vd.path.to_string().c_str());
-        }
-    }
-
-    if (self_meta != nullptr && self_meta->kind == TSKind::SIGNAL && vd.uses_link_target) {
-        if (LinkTarget* signal_link = resolve_link_target(vd, vd.path.indices); signal_link != nullptr) {
-            bool source_is_signal = false;
-            ViewData source_view{};
-            if (signal_link->is_linked) {
-                source_view =
-                    signal_link->has_resolved_target ? signal_link->resolved_target : signal_link->as_view_data(vd.sampled);
-                const TSMeta* source_meta = meta_at_path(source_view.meta, source_view.path.indices);
-                source_is_signal = source_meta != nullptr && source_meta->kind == TSKind::SIGNAL;
-            }
-            if (source_is_signal &&
-                signal_link->owner_time_ptr != nullptr &&
-                *signal_link->owner_time_ptr > MIN_DT) {
-                return true;
-            }
-            if (signal_link->is_linked) {
-                const TSMeta* source_meta = meta_at_path(source_view.meta, source_view.path.indices);
-                if (source_meta != nullptr && source_meta->kind == TSKind::REF) {
-                    View ref_value = op_value(source_view);
-                    if (!(ref_value.valid() && ref_value.schema() == ts_reference_meta())) {
-                        return false;
-                    }
-                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value.to_python());
-                    return ref.is_valid();
-                }
-                return op_valid(source_view);
-            }
         }
     }
 
@@ -5698,6 +5685,10 @@ View op_value(const ViewData& vd) {
 View op_delta_value(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta != nullptr && self_meta->kind == TSKind::REF) {
+        const engine_time_t current_time = view_evaluation_time(vd);
+        if (current_time != MIN_DT && !op_modified(vd, current_time)) {
+            return {};
+        }
         return op_value(vd);
     }
 
@@ -5707,6 +5698,10 @@ View op_delta_value(const ViewData& vd) {
     }
     const ViewData* data = &resolved;
     const TSMeta* current = meta_at_path(data->meta, data->path.indices);
+    const engine_time_t current_time = view_evaluation_time(vd);
+    if (current_time != MIN_DT && !op_modified(vd, current_time)) {
+        return {};
+    }
 
     if (current != nullptr && current->kind == TSKind::TSW) {
         View window_value = op_value(*data);
@@ -5780,6 +5775,11 @@ View op_delta_value(const ViewData& vd) {
 }
 
 bool op_has_delta(const ViewData& vd) {
+    const engine_time_t current_time = view_evaluation_time(vd);
+    if (current_time != MIN_DT && !op_modified(vd, current_time)) {
+        return false;
+    }
+
     ViewData key_set_source{};
     if (resolve_tsd_key_set_source(vd, key_set_source)) {
         return tsd_key_set_has_added_or_removed(key_set_source);
@@ -8268,7 +8268,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         if (!op_modified(vd, current_time)) {
             return nb::none();
         }
-        View v = op_delta_value(*data);
+        View v = op_delta_value(vd);
         return v.valid() ? v.to_python() : nb::none();
     }
 

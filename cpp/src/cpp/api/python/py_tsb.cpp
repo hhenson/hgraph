@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fmt/format.h>
+#include <optional>
 #include <stdexcept>
 #include <type_traits>
 
@@ -121,18 +122,18 @@ namespace
             return nb::none();
         }
 
-        const ShortPath *target_path = nullptr;
+        std::optional<ShortPath> target_path;
         if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
             if (auto *wrapped = nb::inst_ptr<PyTimeSeriesOutput>(value)) {
-                target_path = &wrapped->output_view().short_path();
+                target_path = wrapped->output_view().short_path();
             }
         } else {
             if (auto *wrapped = nb::inst_ptr<PyTimeSeriesInput>(value)) {
-                target_path = &wrapped->input_view().short_path();
+                target_path = wrapped->input_view().short_path();
             }
         }
 
-        if (target_path == nullptr) {
+        if (!target_path.has_value()) {
             return nb::none();
         }
 

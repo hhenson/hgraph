@@ -19,7 +19,7 @@ class TSOutput;
 class HGRAPH_EXPORT TSInput : public Notifiable {
 public:
     TSInput();
-    TSInput(const TSMeta* meta, node_ptr owning_node);
+    TSInput(const TSMeta* meta, node_ptr owning_node, size_t port_index = 0);
 
     TSInput(const TSInput&) = delete;
     TSInput& operator=(const TSInput&) = delete;
@@ -27,8 +27,8 @@ public:
     TSInput& operator=(TSInput&&) noexcept;
     ~TSInput() override;
 
-    [[nodiscard]] TSView view(const engine_time_t* engine_time_ptr);
-    [[nodiscard]] TSInputView input_view(const engine_time_t* engine_time_ptr);
+    [[nodiscard]] TSView view();
+    [[nodiscard]] TSInputView input_view();
 
     void bind(TSOutput& output);
     void unbind();
@@ -43,6 +43,7 @@ public:
 
     [[nodiscard]] const TSMeta* meta() const noexcept { return meta_; }
     [[nodiscard]] node_ptr owning_node() const noexcept { return owning_node_; }
+    [[nodiscard]] size_t port_index() const noexcept { return port_index_; }
 
     [[nodiscard]] TSValue& value() noexcept { return value_; }
     [[nodiscard]] const TSValue& value() const noexcept { return value_; }
@@ -54,10 +55,28 @@ public:
         return ShortPath{owning_node_, PortType::INPUT, {}};
     }
 
+    [[nodiscard]] ShortPath endpoint_root_path() const {
+        if (port_index_ == 0) {
+            return root_path();
+        }
+        return ShortPath{owning_node_, PortType::INPUT, {port_index_}};
+    }
+
+    [[nodiscard]] ShortPath to_short_path(const TSView& view) const {
+        ShortPath out = view.short_path();
+        out.node = owning_node_;
+        out.port_type = PortType::INPUT;
+        if (port_index_ != 0 && (out.indices.empty() || out.indices.front() != port_index_)) {
+            out.indices.insert(out.indices.begin(), port_index_);
+        }
+        return out;
+    }
+
     [[nodiscard]] FQPath to_fq_path(const TSView& view) const {
+        ShortPath fq_path = to_short_path(view);
         ViewData root = view.view_data();
-        root.path = root_path();
-        return view.short_path().to_fq(root);
+        root.path = endpoint_root_path();
+        return fq_path.to_fq(root);
     }
 
     void notify(engine_time_t et) override;
@@ -74,6 +93,7 @@ private:
     std::vector<bool> signal_input_impl_flags_;
     const TSMeta* meta_{nullptr};
     node_ptr owning_node_{nullptr};
+    size_t port_index_{0};
     bool active_root_{false};
 };
 

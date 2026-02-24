@@ -257,6 +257,7 @@ namespace hgraph
 
     void Graph::start() {
         auto &engine = *_evaluation_engine;
+        _receiver.mark_running();
         engine.notify_before_start_graph(graph_ptr{this});
         for (auto &node : _nodes) {
             engine.notify_before_start_node(node.get());
@@ -268,6 +269,8 @@ namespace hgraph
 
     void Graph::stop() {
         auto &engine = *_evaluation_engine;
+        // Stop accepting external push messages before node teardown.
+        _receiver.mark_stopped();
         engine.notify_before_stop_graph(graph_ptr{this});
         std::exception_ptr first_exc;
         for (auto &node : _nodes) {

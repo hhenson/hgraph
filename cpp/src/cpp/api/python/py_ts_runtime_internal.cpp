@@ -1,4 +1,5 @@
 #include <hgraph/api/python/py_ts_runtime_internal.h>
+#include <hgraph/api/python/py_time_series.h>
 
 #include <hgraph/python/chrono.h>
 #include <hgraph/types/feature_extension.h>
@@ -14,6 +15,7 @@
 #include <hgraph/types/ref.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/graph.h>
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/value.h>
 
@@ -34,6 +36,13 @@ namespace {
 using value::View;
 
 const engine_time_t* resolve_engine_time_ptr(const ViewData& vd) {
+    if (node_ptr owner = vd.path.node; owner != nullptr) {
+        if (graph_ptr g = owner->graph(); g != nullptr) {
+            if (const engine_time_t* et = g->cached_evaluation_time_ptr(); et != nullptr) {
+                return et;
+            }
+        }
+    }
     if (vd.engine_time_ptr != nullptr) {
         return vd.engine_time_ptr;
     }
@@ -748,7 +757,7 @@ public:
         registered_ = false;
     }
 
-    TSOutputView get_ref_output(const nb::object& key_obj, const nb::object& requester) {
+    TSOutputView get_ref_output(const nb::object& key_obj, const nb::object& requester, engine_time_t requester_time) {
         if (key_type_ == nullptr || ref_meta_ == nullptr) {
             return {};
         }
@@ -768,7 +777,7 @@ public:
         }
 
         it->second.requesters.insert(requester.ptr());
-        update_ref_output(it->first.view(), it->second);
+        update_ref_output(it->first.view(), it->second, requester_time);
         return TSOutputView(nullptr, it->second.output_value->ts_view(engine_time_ptr_));
     }
 
@@ -793,9 +802,8 @@ public:
     }
 
     void notify(engine_time_t et) override {
-        (void)et;
         for (auto& [key, state] : ref_outputs_) {
-            update_ref_output(key.view(), state);
+            update_ref_output(key.view(), state, et);
         }
     }
 
@@ -823,22 +831,31 @@ private:
     }
 
     void set_output_reference(const std::shared_ptr<TSValue>& output_value,
-                              const std::optional<ViewData>& target) const {
+                              const std::optional<ViewData>& target,
+                              engine_time_t stamp_time) const {
         if (!output_value) {
             return;
         }
         TSView out = output_value->ts_view(engine_time_ptr_);
-        if (target.has_value()) {
-            out.from_python(nb::cast(TimeSeriesReference::make(*target)));
+        ViewData out_vd = out.view_data();
+        if (out_vd.ops == nullptr || out_vd.ops->from_python == nullptr) {
             return;
         }
-        out.from_python(nb::cast(TimeSeriesReference::make()));
+        const engine_time_t effective_time = stamp_time != MIN_DT ? stamp_time : out.current_time();
+        if (target.has_value()) {
+            out_vd.ops->from_python(out_vd, nb::cast(TimeSeriesReference::make(*target)), effective_time);
+            return;
+        }
+        out_vd.ops->from_python(out_vd, nb::cast(TimeSeriesReference::make()), effective_time);
     }
 
-    void update_ref_output(const value::View& key, TSDRefOutputState& state) {
+    void update_ref_output(const value::View& key, TSDRefOutputState& state, engine_time_t request_time) {
         const std::optional<ViewData> target = resolve_target_for_key(key);
         const bool target_present = target.has_value();
-        const engine_time_t current_time = engine_time_ptr_ != nullptr ? *engine_time_ptr_ : MIN_DT;
+        engine_time_t current_time = engine_time_ptr_ != nullptr ? *engine_time_ptr_ : MIN_DT;
+        if (request_time != MIN_DT && request_time > current_time) {
+            current_time = request_time;
+        }
         const bool debug_tsd_ref = std::getenv("HGRAPH_DEBUG_TSD_REF_OUTPUT") != nullptr;
 
         bool changed = !state.has_cached_target;
@@ -872,7 +889,7 @@ private:
             return;
         }
 
-        set_output_reference(state.output_value, target);
+        set_output_reference(state.output_value, target, current_time);
         if (debug_tsd_ref && state.output_value) {
             TSView out_view = state.output_value->ts_view(engine_time_ptr_);
             std::string out_repr{"<repr_error>"};
@@ -1159,7 +1176,38 @@ TSOutputView tsd_get_ref_output(TSOutputView& self, const nb::object& key, const
     if (!observer) {
         return {};
     }
-    return observer->get_ref_output(key, requester);
+    engine_time_t requester_time = self.current_time();
+    if (nb::isinstance<PyTimeSeriesInput>(requester)) {
+        requester_time = nb::cast<PyTimeSeriesInput&>(requester).input_view().current_time();
+    } else if (nb::isinstance<PyTimeSeriesOutput>(requester)) {
+        requester_time = nb::cast<PyTimeSeriesOutput&>(requester).output_view().current_time();
+    } else if (nb::isinstance<TSInputView>(requester)) {
+        requester_time = nb::cast<const TSInputView&>(requester).current_time();
+    } else if (nb::isinstance<TSOutputView>(requester)) {
+        requester_time = nb::cast<const TSOutputView&>(requester).current_time();
+    } else {
+        try {
+            nb::object owning_graph = nb::getattr(requester, "owning_graph", nb::none());
+            if (owning_graph.is_none()) {
+                nb::object owning_node = nb::getattr(requester, "owning_node", nb::none());
+                if (!owning_node.is_none()) {
+                    owning_graph = nb::getattr(owning_node, "graph", nb::none());
+                }
+            }
+            if (!owning_graph.is_none()) {
+                nb::object eval_clock = nb::getattr(owning_graph, "evaluation_clock", nb::none());
+                if (!eval_clock.is_none()) {
+                    nb::object eval_time = nb::getattr(eval_clock, "evaluation_time", nb::none());
+                    if (!eval_time.is_none()) {
+                        requester_time = nb::cast<engine_time_t>(eval_time);
+                    }
+                }
+            }
+        } catch (...) {
+            // Leave requester_time as-is when requester does not expose graph/clock state.
+        }
+    }
+    return observer->get_ref_output(key, requester, requester_time);
 }
 
 void tsd_release_ref_output(TSOutputView& self, const nb::object& key, const nb::object& requester) {
@@ -1292,8 +1340,7 @@ engine_time_t& runtime_test_time_slot() {
     return slot;
 }
 
-const engine_time_t* runtime_test_time_ptr(engine_time_t current_time) {
-    runtime_test_time_slot() = current_time;
+const engine_time_t* runtime_test_time_ptr() {
     return &runtime_test_time_slot();
 }
 
@@ -1327,6 +1374,11 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
     using namespace nanobind::literals;
 
     auto test_mod = m.def_submodule("_ts_runtime", "Private TS runtime scaffolding bindings for tests");
+    test_mod.def(
+        "set_test_current_time",
+        [](engine_time_t current_time) { runtime_test_time_slot() = current_time; },
+        "current_time"_a);
+    test_mod.def("test_current_time", []() { return runtime_test_time_slot(); });
 
     test_mod.def(
         "ops_ptr_for_kind",
@@ -1444,25 +1496,37 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             new (self) TSOutput(meta, nullptr, port_index);
         }, "meta"_a, "port_index"_a = 0)
         .def("output_view",
-             [](TSOutput& self, engine_time_t current_time) {
-                 return self.output_view(runtime_test_time_ptr(current_time));
+             [](TSOutput& self) {
+                 auto out = self.output_view();
+                 if (self.owning_node() == nullptr) {
+                     out.set_current_time_ptr(runtime_test_time_ptr());
+                 }
+                 return out;
              },
-             "current_time"_a, nb::keep_alive<0, 1>())
+             nb::keep_alive<0, 1>())
         .def("output_view_for_input",
-             [](TSOutput& self, engine_time_t current_time, const TSInput& input) {
-                 return self.output_view_for_input(input, runtime_test_time_ptr(current_time));
+             [](TSOutput& self, const TSInput& input) {
+                 auto out = self.output_view_for_input(input);
+                 if (self.owning_node() == nullptr) {
+                     out.set_current_time_ptr(runtime_test_time_ptr());
+                 }
+                 return out;
              },
-             "current_time"_a, "input"_a, nb::keep_alive<0, 1>());
+             "input"_a, nb::keep_alive<0, 1>());
 
     nb::class_<TSInput>(test_mod, "TSInput")
-        .def("__init__", [](TSInput* self, const TSMeta* meta) {
-            new (self) TSInput(meta, nullptr);
-        }, "meta"_a)
+        .def("__init__", [](TSInput* self, const TSMeta* meta, size_t port_index) {
+            new (self) TSInput(meta, nullptr, port_index);
+        }, "meta"_a, "port_index"_a = 0)
         .def("input_view",
-             [](TSInput& self, engine_time_t current_time) {
-                 return self.input_view(runtime_test_time_ptr(current_time));
+             [](TSInput& self) {
+                 auto out = self.input_view();
+                 if (self.owning_node() == nullptr) {
+                     out.set_current_time_ptr(runtime_test_time_ptr());
+                 }
+                 return out;
              },
-             "current_time"_a, nb::keep_alive<0, 1>())
+             nb::keep_alive<0, 1>())
         .def("bind", &TSInput::bind, "output"_a)
         .def("unbind", &TSInput::unbind)
         .def("set_active", nb::overload_cast<bool>(&TSInput::set_active), "active"_a)

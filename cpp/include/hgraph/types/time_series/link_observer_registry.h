@@ -34,6 +34,13 @@ struct REFLinkObserverRegistration {
  * TSOutput instances and accessed through ViewData.
  */
 struct HGRAPH_EXPORT TSLinkObserverRegistry {
+    TSLinkObserverRegistry();
+    TSLinkObserverRegistry(const TSLinkObserverRegistry&) = delete;
+    TSLinkObserverRegistry& operator=(const TSLinkObserverRegistry&) = delete;
+    TSLinkObserverRegistry(TSLinkObserverRegistry&&) = delete;
+    TSLinkObserverRegistry& operator=(TSLinkObserverRegistry&&) = delete;
+    ~TSLinkObserverRegistry();
+
     std::unordered_map<void*, std::vector<LinkObserverRegistration>> entries;
     std::unordered_map<void*, std::vector<REFLinkObserverRegistration>> ref_entries;
     std::unordered_map<std::string, std::shared_ptr<void>> feature_states;
@@ -64,5 +71,7 @@ struct HGRAPH_EXPORT TSLinkObserverRegistry {
         feature_states.clear();
     }
 };
+
+HGRAPH_EXPORT bool is_live_link_observer_registry(const TSLinkObserverRegistry* registry) noexcept;
 
 }  // namespace hgraph

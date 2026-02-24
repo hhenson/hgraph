@@ -646,6 +646,13 @@ FQPath TSOutputView::fq_path() const {
     return owner_->to_fq_path(ts_view_);
 }
 
+ShortPath TSOutputView::short_path() const {
+    if (owner_ == nullptr) {
+        return ts_view_.short_path();
+    }
+    return owner_->to_short_path(ts_view_);
+}
+
 void TSOutputView::copy_from_input(const TSInputView& input) {
     ViewData dst = ts_view_.view_data();
     const ViewData& src = input.as_ts_view().view_data();
@@ -814,6 +821,13 @@ FQPath TSInputView::fq_path() const {
         return ts_view_.fq_path();
     }
     return owner_->to_fq_path(ts_view_);
+}
+
+ShortPath TSInputView::short_path() const {
+    if (owner_ == nullptr) {
+        return ts_view_.short_path();
+    }
+    return owner_->to_short_path(ts_view_);
 }
 
 std::optional<TSWInputView> TSInputView::try_as_window() const {

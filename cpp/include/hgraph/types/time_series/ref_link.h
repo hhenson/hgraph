@@ -19,8 +19,8 @@ struct HGRAPH_EXPORT REFLink : Notifiable {
     Notifiable* active_notifier{nullptr};
     engine_time_t last_rebind_time{MIN_DT};
 
-    REFLink() = default;
-    ~REFLink() override = default;
+    REFLink();
+    ~REFLink() override;
 
     REFLink(const REFLink& other);
     REFLink& operator=(const REFLink& other);
@@ -39,5 +39,7 @@ struct HGRAPH_EXPORT REFLink : Notifiable {
 
     void notify(engine_time_t et) override;
 };
+
+HGRAPH_EXPORT bool is_live_ref_link(const REFLink* ref_link) noexcept;
 
 }  // namespace hgraph

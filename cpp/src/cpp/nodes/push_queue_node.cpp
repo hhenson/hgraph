@@ -27,8 +27,16 @@ namespace hgraph {
     }
 
     void PushQueueNode::enqueue_message(nb::object message) {
-        ++_messages_queued;
-        _receiver->enqueue({node_ndx(), std::move(message)});
+        auto sender_context = _sender_context;
+        if (!sender_context || !sender_context->active.load(std::memory_order_acquire)) {
+            return;
+        }
+        if (sender_context->receiver == nullptr) {
+            return;
+        }
+
+        sender_context->receiver->enqueue({sender_context->node_ndx, std::move(message)});
+        sender_context->queued.fetch_add(1, std::memory_order_relaxed);
     }
 
     bool PushQueueNode::apply_message(nb::object message) {
@@ -103,29 +111,56 @@ namespace hgraph {
                 }
             }
 
-            ++_messages_dequeued;
+            _messages_dequeued.fetch_add(1, std::memory_order_relaxed);
             return true;
         }
 
         if (_elide) {
             out_view.from_python(std::move(message));
-            ++_messages_dequeued;
+            _messages_dequeued.fetch_add(1, std::memory_order_relaxed);
             return true;
         }
+
+        // Python parity: in non-elide mode, only accept one message per cycle.
+        // If output already has an unconsumed value, keep this message in queue.
+        if (out_view.modified()) {
+            return false;
+        }
+
         try {
             out_view.from_python(std::move(message));
-            ++_messages_dequeued;
+            _messages_dequeued.fetch_add(1, std::memory_order_relaxed);
             return true;
         } catch (...) {}
         return false;
     }
 
-    int64_t PushQueueNode::messages_in_queue() const { return _messages_queued - _messages_dequeued; }
+    int64_t PushQueueNode::messages_in_queue() const {
+        const auto sender_context = _sender_context;
+        const int64_t queued =
+            sender_context ? sender_context->queued.load(std::memory_order_relaxed) : 0;
+        const int64_t dequeued = _messages_dequeued.load(std::memory_order_relaxed);
+        return queued - dequeued;
+    }
 
-    void PushQueueNode::set_receiver(sender_receiver_state_ptr value) { _receiver = value; }
+    void PushQueueNode::set_receiver(sender_receiver_state_ptr value) {
+        if (!_sender_context) {
+            _sender_context = std::make_shared<SenderContext>();
+        }
+        _sender_context->receiver = value;
+        _sender_context->node_ndx = node_ndx();
+    }
 
     void PushQueueNode::do_start() {
-        _receiver = &graph()->receiver();
+        if (!_sender_context) {
+            _sender_context = std::make_shared<SenderContext>();
+        }
+        _sender_context->receiver = &graph()->receiver();
+        _sender_context->node_ndx = node_ndx();
+        _sender_context->queued.store(0, std::memory_order_relaxed);
+        _sender_context->active.store(true, std::memory_order_release);
+        _messages_dequeued.store(0, std::memory_order_relaxed);
+
         _elide = scalars().contains("elide") ? nb::cast<bool>(scalars()["elide"]) : false;
         _batch = scalars().contains("batch") ? nb::cast<bool>(scalars()["batch"]) : false;
         auto out_view = output();
@@ -134,16 +169,32 @@ namespace hgraph {
         // If an eval function was provided (from push_queue decorator), call it with a sender and scalar kwargs
         if (_eval_fn.is_valid() && !_eval_fn.is_none()) {
             // Create a Python-callable sender that enqueues messages into this node
-            // The sender will be called from a Python thread, so it needs to acquire the GIL
-            nb::object sender = nb::cpp_function([this](nb::object m) {
+            // The sender must not capture `this` because it can outlive node teardown.
+            auto weak_sender_context = std::weak_ptr<SenderContext>(_sender_context);
+            nb::object sender = nb::cpp_function([weak_sender_context](nb::object m) {
                 // Acquire GIL in case we're being called from a thread that doesn't have it
                 nb::gil_scoped_acquire gil;
-                this->enqueue_message(std::move(m));
+                auto sender_context = weak_sender_context.lock();
+                if (!sender_context || !sender_context->active.load(std::memory_order_acquire)) {
+                    return;
+                }
+                if (sender_context->receiver == nullptr || sender_context->receiver->stopped()) {
+                    return;
+                }
+
+                sender_context->receiver->enqueue({sender_context->node_ndx, std::move(m)});
+                sender_context->queued.fetch_add(1, std::memory_order_relaxed);
             });
             // Call eval_fn(sender, **scalars)
             try {
                 _eval_fn(sender, **scalars());
             } catch (nb::python_error &e) { throw NodeException::capture_error(e, *this, "During push-queue start"); }
+        }
+    }
+
+    void PushQueueNode::do_stop() {
+        if (_sender_context) {
+            _sender_context->active.store(false, std::memory_order_release);
         }
     }
 } // namespace hgraph

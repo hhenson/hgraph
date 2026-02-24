@@ -722,7 +722,7 @@ namespace hgraph
         if (!_input.has_value()) {
             return {};
         }
-        return const_cast<TSInput &>(*_input).input_view(_cached_evaluation_time_ptr);
+        return const_cast<TSInput &>(*_input).input_view();
     }
 
     void Node::set_signal_input_impl_flags(std::vector<bool> flags) {
@@ -742,7 +742,7 @@ namespace hgraph
         if (!_output.has_value()) {
             return {};
         }
-        return const_cast<TSOutput &>(*_output).output_view(_cached_evaluation_time_ptr);
+        return const_cast<TSOutput &>(*_output).output_view();
     }
 
     bool Node::has_output() const {
@@ -778,7 +778,7 @@ namespace hgraph
         if (!_error_output.has_value()) {
             return {};
         }
-        return const_cast<TSOutput &>(*_error_output).output_view(_cached_evaluation_time_ptr);
+        return const_cast<TSOutput &>(*_error_output).output_view();
     }
 
     bool Node::has_error_output() const {
@@ -789,7 +789,7 @@ namespace hgraph
         if (!_recordable_state.has_value()) {
             return {};
         }
-        return const_cast<TSOutput &>(*_recordable_state).output_view(_cached_evaluation_time_ptr);
+        return const_cast<TSOutput &>(*_recordable_state).output_view();
     }
 
     bool Node::has_recordable_state() const { return _recordable_state.has_value(); }

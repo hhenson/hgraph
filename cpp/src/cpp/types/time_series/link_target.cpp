@@ -2,16 +2,10 @@
 #include <hgraph/types/time_series/link_observer_registry.h>
 #include <hgraph/types/time_series/ts_ops.h>
 
-#include <mutex>
 #include <unordered_set>
 
 namespace hgraph {
 namespace {
-
-std::mutex& live_link_target_mutex() {
-    static std::mutex mutex;
-    return mutex;
-}
 
 std::unordered_set<const LinkTarget*>& live_link_targets() {
     static std::unordered_set<const LinkTarget*> pointers;
@@ -19,7 +13,6 @@ std::unordered_set<const LinkTarget*>& live_link_targets() {
 }
 
 void track_live_link_target(const LinkTarget* link_target, bool live) {
-    std::lock_guard<std::mutex> lock(live_link_target_mutex());
     if (live) {
         live_link_targets().insert(link_target);
     } else {
@@ -49,7 +42,6 @@ bool is_live_link_target(const LinkTarget* link_target) noexcept {
     if (link_target == nullptr) {
         return false;
     }
-    std::lock_guard<std::mutex> lock(live_link_target_mutex());
     return live_link_targets().contains(link_target);
 }
 
