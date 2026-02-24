@@ -1,6 +1,11 @@
 from datetime import datetime
 
+from hgraph.test import eval_node
+import pytest
+
 from hgraph import (
+    MIN_TD,
+    SIGNAL,
     graph,
     compute_node,
     TS,
@@ -11,6 +16,7 @@ from hgraph import (
     EvaluationMode,
     print_,
     debug_print,
+    sink_node,
 )
 
 
@@ -46,3 +52,38 @@ def test_return_result():
         return const(1)
 
     assert evaluate_graph(hello_world, GraphConfiguration()) == [(datetime(1970, 1, 1, 0, 0, 0, 1), 1)]
+
+
+def test_run_no_cleanup():
+    @sink_node
+    def fail(ts: SIGNAL):
+        raise RuntimeError
+    
+    @sink_node
+    def cleanup(ts: SIGNAL):
+        pass
+    
+    cleanup_called = False
+    
+    @cleanup.stop
+    def cleaup_stop():
+        nonlocal cleanup_called
+        cleanup_called = True
+        
+    @graph
+    def g():
+        ts = const(True, delay=MIN_TD*2)
+        fail(ts)
+        cleanup(ts)
+        
+    with pytest.raises(Exception):
+        evaluate_graph(g, GraphConfiguration())
+        
+    assert cleanup_called == True
+    
+    cleanup_called = False
+
+    with pytest.raises(Exception):
+        evaluate_graph(g, GraphConfiguration(cleanup_on_error=False))
+        
+    assert cleanup_called == False

@@ -167,31 +167,36 @@ class WiringNodeSignature:
         return InjectableTypesEnum.OUTPUT in self.injectables
 
     def as_dict(self) -> dict:
-        return dict(
-            node_type=self.node_type,
-            name=self.name,
-            args=self.args,
-            defaults=self.defaults,
-            input_types=self.input_types,
-            output_type=self.output_type,
-            src_location=self.src_location,
-            active_inputs=self.active_inputs,
-            valid_inputs=self.valid_inputs,
-            all_valid_inputs=self.all_valid_inputs,
-            context_inputs=self.context_inputs,
-            unresolved_args=self.unresolved_args,
-            time_series_args=self.time_series_args,
-            injectables=self.injectables,
-            label=self.label,
-            record_and_replay_id=self.record_and_replay_id,
-            deprecated=self.deprecated,
-            requires=self.requires,
-            kw_only_args=self.kw_only_args,
-            var_arg=self.var_arg,
-            var_kwarg=self.var_kwarg,
-            default_type_arg=self.default_type_arg,
-            has_nested_graphs=self.has_nested_graphs,
-        )
+        if d := getattr(self, "_dict", None):
+            return d
+        else:
+            d = dict(
+                node_type=self.node_type,
+                name=self.name,
+                args=self.args,
+                defaults=self.defaults,
+                input_types=self.input_types,
+                output_type=self.output_type,
+                src_location=self.src_location,
+                active_inputs=self.active_inputs,
+                valid_inputs=self.valid_inputs,
+                all_valid_inputs=self.all_valid_inputs,
+                context_inputs=self.context_inputs,
+                unresolved_args=self.unresolved_args,
+                time_series_args=self.time_series_args,
+                injectables=self.injectables,
+                label=self.label,
+                record_and_replay_id=self.record_and_replay_id,
+                deprecated=self.deprecated,
+                requires=self.requires,
+                kw_only_args=self.kw_only_args,
+                var_arg=self.var_arg,
+                var_kwarg=self.var_kwarg,
+                default_type_arg=self.default_type_arg,
+                has_nested_graphs=self.has_nested_graphs,
+            )
+            object.__setattr__(self, "_dict", d)
+            return d
 
     def copy_with(self, **kwargs: Any) -> "WiringNodeSignature":
         kwargs_ = self.as_dict() | kwargs

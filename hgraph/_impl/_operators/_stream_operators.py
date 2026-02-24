@@ -107,7 +107,7 @@ def lag_timedelta(
     buffer: deque[SCALAR] = _state.buffer
     if ts.modified:
         buffer.append(ts.delta_value)
-        _scheduler.schedule(ts.last_modified_time + period, on_wall_clock=on_wall_clock)
+        _scheduler.schedule(period, f"{ts.last_modified_time}", on_wall_clock=on_wall_clock)
 
     if _scheduler.is_scheduled_now:
         return buffer.popleft()
