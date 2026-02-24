@@ -61,17 +61,6 @@ namespace hgraph {
                      [](PythonNodeBuilder *self, const nb::kwargs &kwargs) {
                          auto signature_ = nb::cast<node_signature_s_ptr>(kwargs["signature"]);
                          auto scalars_ = nb::cast<nb::dict>(kwargs["scalars"]);
-
-                         auto require_none = [&](const char *name) {
-                             if (kwargs.contains(name) && !kwargs[name].is_none()) {
-                                 throw nb::type_error(
-                                     "Legacy input/output/error/recordable builders are not supported in C++ runtime node builders");
-                             }
-                         };
-                         require_none("input_builder");
-                         require_none("output_builder");
-                         require_none("error_builder");
-                         require_none("recordable_state_builder");
                          nb::handle eval_fn_ = kwargs.contains("eval_fn")
                                                    ? nb::cast<nb::handle>(kwargs["eval_fn"])
                                                    : nb::handle{};

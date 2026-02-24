@@ -7,12 +7,9 @@
 
 namespace hgraph {
     auto create_tsd_map_node_builder(TsdMapNodeBuilder *self, const nb::args &args) {
-        // Preferred signature (positional):
+        // Signature (positional):
         // (signature, scalars, nested_graph, input_node_ids, output_node_id, multiplexed_args, key_arg)
-        // Transitional signature with legacy builder placeholders:
-        // (signature, scalars, input_builder, output_builder, error_builder, recordable_state_builder,
-        //  nested_graph, input_node_ids, output_node_id, multiplexed_args, key_arg) where builder args must be None.
-        if (args.size() != 7 && args.size() != 11) {
+        if (args.size() != 7) {
             throw nb::type_error("TsdMapNodeBuilder expects 7 positional arguments: "
                 "(signature, scalars, nested_graph, input_node_ids, output_node_id, multiplexed_args, key_arg)");
         }
@@ -25,25 +22,11 @@ namespace hgraph {
         std::unordered_set<std::string> multiplexed_args;
         std::string key_arg;
 
-        if (args.size() == 11) {
-            for (size_t i = 2; i < 6; ++i) {
-                if (!args[i].is_none()) {
-                    throw nb::type_error(
-                        "Legacy input/output/error/recordable builders are not supported in C++ runtime node builders");
-                }
-            }
-            nested_graph_builder = nb::cast<graph_builder_s_ptr>(args[6]);
-            input_node_ids = nb::cast<std::unordered_map<std::string, int64_t>>(args[7]);
-            output_node_id = nb::cast<int64_t>(args[8]);
-            multiplexed_args = nb::cast<std::unordered_set<std::string>>(args[9]);
-            key_arg = nb::cast<std::string>(args[10]);
-        } else {
-            nested_graph_builder = nb::cast<graph_builder_s_ptr>(args[2]);
-            input_node_ids = nb::cast<std::unordered_map<std::string, int64_t>>(args[3]);
-            output_node_id = nb::cast<int64_t>(args[4]);
-            multiplexed_args = nb::cast<std::unordered_set<std::string>>(args[5]);
-            key_arg = nb::cast<std::string>(args[6]);
-        }
+        nested_graph_builder = nb::cast<graph_builder_s_ptr>(args[2]);
+        input_node_ids = nb::cast<std::unordered_map<std::string, int64_t>>(args[3]);
+        output_node_id = nb::cast<int64_t>(args[4]);
+        multiplexed_args = nb::cast<std::unordered_set<std::string>>(args[5]);
+        key_arg = nb::cast<std::string>(args[6]);
 
         if (!nested_graph_builder) {
             throw nb::type_error("TsdMapNodeBuilder requires a nested_graph and it must not be None");

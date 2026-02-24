@@ -153,7 +153,7 @@ namespace hgraph
             case Kind::BOUND:
                 {
                     if (_bound_view.has_value()) {
-                        throw std::runtime_error("Cannot bind legacy TimeSeriesInput to TSView-backed reference");
+                        throw std::runtime_error("Cannot bind TimeSeriesInput with a TSView-backed reference");
                     }
                     bool reactivate = false;
                     // Treat inputs previously bound via a reference as bound, so we unbind to generate correct deltas
@@ -194,7 +194,7 @@ namespace hgraph
             case Kind::BOUND:
                 {
                     if (!_bound_view.has_value()) {
-                        throw std::runtime_error("Cannot bind TSInputView to legacy TimeSeriesOutput reference");
+                        throw std::runtime_error("Cannot bind TSInputView to TimeSeriesOutput reference");
                     }
 
                     const bool reactivate = ts_input.active();

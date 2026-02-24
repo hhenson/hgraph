@@ -33,16 +33,6 @@ namespace hgraph {
                          auto signature_obj = kwargs["signature"];
                          auto signature_ = nb::cast<node_signature_s_ptr>(signature_obj);
                          auto scalars_ = nb::cast<nb::dict>(kwargs["scalars"]);
-
-                         auto require_none = [&](const char *name) {
-                             if (kwargs.contains(name) && !kwargs[name].is_none()) {
-                                 throw nb::type_error(
-                                     "Legacy input/output/error/recordable builders are not supported in C++ runtime node builders");
-                             }
-                         };
-                         require_none("input_builder");
-                         require_none("output_builder");
-                         require_none("error_builder");
                          auto eval_fn = nb::cast<nb::callable>(kwargs["eval_fn"]);
                          new(self)
                                  PythonGeneratorNodeBuilder(std::move(signature_), std::move(scalars_),

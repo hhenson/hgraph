@@ -86,8 +86,7 @@ if is_feature_enabled("use_cpp"):
 
             C++ node builders keep InputBuilder/OutputBuilder constructor slots for
             ABI compatibility, but they no longer construct runtime endpoints from
-            these builders. Return None to keep legacy BaseTimeSeries builders out
-            of active runtime paths.
+            these builders.
             """
 
             def make_error_builder(self, value_tp):

@@ -5,11 +5,107 @@
 
 namespace hgraph {
     namespace {
+        enum class RemoveMarkerKind { None, Remove, RemoveIfExists };
+
+        RemoveMarkerKind classify_remove_marker(
+            const nb::object &obj,
+            const nb::object &remove_marker,
+            const nb::object &remove_if_exists_marker) {
+            if (obj.is(remove_marker)) {
+                return RemoveMarkerKind::Remove;
+            }
+            if (obj.is(remove_if_exists_marker)) {
+                return RemoveMarkerKind::RemoveIfExists;
+            }
+            return RemoveMarkerKind::None;
+        }
+
         value::Value key_from_python(const value::TypeMeta *key_type, const nb::handle &key_obj) {
             value::Value key_value(key_type);
             key_value.emplace();
             key_type->ops().from_python(key_value.data(), nb::borrow(key_obj), key_type);
             return key_value;
+        }
+
+        bool can_apply_result(const TSOutputView &output, const nb::object &value);
+
+        bool can_apply_result_to_bundle(const TSBOutputView &bundle_view, const nb::object &value) {
+            auto marker_items = nb::hasattr(value, "items") ? nb::getattr(value, "items")() : nb::iter(value);
+            for (const auto &pair : nb::iter(marker_items)) {
+                auto key = pair[0];
+                auto v = pair[1];
+                if (v.is_none()) {
+                    continue;
+                }
+
+                auto child = bundle_view.field(nb::cast<std::string>(key));
+                if (!child) {
+                    return false;
+                }
+                if (!can_apply_result(child, v)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool can_apply_result_to_dict(const TSDOutputView &dict_view, const nb::object &value) {
+            auto ts_meta = dict_view.as_ts_view().ts_meta();
+            if (ts_meta == nullptr || ts_meta->key_type() == nullptr) {
+                return false;
+            }
+
+            auto remove = get_remove();
+            auto remove_if_exists = get_remove_if_exists();
+
+            auto marker_items = nb::hasattr(value, "items") ? nb::getattr(value, "items")() : nb::iter(value);
+            for (const auto &pair : nb::iter(marker_items)) {
+                auto key = pair[0];
+                auto v = pair[1];
+                if (v.is_none()) {
+                    continue;
+                }
+
+                value::Value key_value(ts_meta->key_type());
+                key_value.emplace();
+                ts_meta->key_type()->ops().from_python(key_value.data(), key, ts_meta->key_type());
+                auto child = dict_view.at_key(key_value.view());
+
+                auto marker = classify_remove_marker(v, remove, remove_if_exists);
+                if (marker != RemoveMarkerKind::None) {
+                    if (child && child.modified()) {
+                        return false;
+                    }
+                    continue;
+                }
+
+                if (!child) {
+                    continue;
+                }
+                if (!can_apply_result(child, v)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool can_apply_result(const TSOutputView &output, const nb::object &value) {
+            if (value.is_none()) {
+                return true;
+            }
+
+            try {
+                if (auto bundle_view = output.try_as_bundle(); bundle_view.has_value()) {
+                    return can_apply_result_to_bundle(*bundle_view, value);
+                }
+                if (auto dict_view = output.try_as_dict(); dict_view.has_value()) {
+                    return can_apply_result_to_dict(*dict_view, value);
+                }
+
+                return !output.modified();
+            } catch (const nb::python_error &) {
+                return false;
+            }
         }
 
         nb::tuple append_tuple(const nb::object &existing, const nb::object &value) {
@@ -123,7 +219,7 @@ namespace hgraph {
 
         // Python parity: in non-elide mode, only accept one message per cycle.
         // If output already has an unconsumed value, keep this message in queue.
-        if (out_view.modified()) {
+        if (!can_apply_result(out_view, message)) {
             return false;
         }
 

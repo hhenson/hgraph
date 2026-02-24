@@ -7,13 +7,9 @@
 
 namespace hgraph {
     auto create_mesh_node_builder(MeshNodeBuilder *self, const nb::args &args) {
-        // Preferred signature (positional):
+        // Signature (positional):
         // (signature, scalars, nested_graph, input_node_ids, output_node_id, multiplexed_args, key_arg, context_path)
-        // Transitional signature with legacy builder placeholders:
-        // (signature, scalars, input_builder, output_builder, error_builder, recordable_state_builder,
-        //  nested_graph, input_node_ids, output_node_id, multiplexed_args, key_arg, context_path)
-        // where builder args must be None.
-        if (args.size() != 8 && args.size() != 12) {
+        if (args.size() != 8) {
             throw nb::type_error("MeshNodeBuilder expects 8 positional arguments");
         }
 
@@ -26,27 +22,12 @@ namespace hgraph {
         std::string key_arg;
         std::string context_path;
 
-        if (args.size() == 12) {
-            for (size_t i = 2; i < 6; ++i) {
-                if (!args[i].is_none()) {
-                    throw nb::type_error(
-                        "Legacy input/output/error/recordable builders are not supported in C++ runtime node builders");
-                }
-            }
-            nested_graph_builder = nb::cast<graph_builder_s_ptr>(args[6]);
-            input_node_ids = nb::cast<std::unordered_map<std::string, int64_t>>(args[7]);
-            output_node_id = nb::cast<int64_t>(args[8]);
-            multiplexed_args = nb::cast<std::unordered_set<std::string>>(args[9]);
-            key_arg = nb::cast<std::string>(args[10]);
-            context_path = nb::cast<std::string>(args[11]);
-        } else {
-            nested_graph_builder = nb::cast<graph_builder_s_ptr>(args[2]);
-            input_node_ids = nb::cast<std::unordered_map<std::string, int64_t>>(args[3]);
-            output_node_id = nb::cast<int64_t>(args[4]);
-            multiplexed_args = nb::cast<std::unordered_set<std::string>>(args[5]);
-            key_arg = nb::cast<std::string>(args[6]);
-            context_path = nb::cast<std::string>(args[7]);
-        }
+        nested_graph_builder = nb::cast<graph_builder_s_ptr>(args[2]);
+        input_node_ids = nb::cast<std::unordered_map<std::string, int64_t>>(args[3]);
+        output_node_id = nb::cast<int64_t>(args[4]);
+        multiplexed_args = nb::cast<std::unordered_set<std::string>>(args[5]);
+        key_arg = nb::cast<std::string>(args[6]);
+        context_path = nb::cast<std::string>(args[7]);
 
         return new(self) MeshNodeBuilder(std::move(signature_), std::move(scalars_), std::move(nested_graph_builder),
                                          std::move(input_node_ids), std::move(output_node_id),
