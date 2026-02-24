@@ -6,21 +6,12 @@
 #include <hgraph/util/lifecycle.h>
 
 namespace hgraph {
-    namespace {
-        engine_time_t node_time(const Node &node) {
-            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
-                return *et;
-            }
-            auto g = node.graph();
-            return g != nullptr ? g->evaluation_time() : MIN_DT;
-        }
-    }  // namespace
 
     void TryExceptNode::wire_outputs() {
         if (m_output_node_id_ >= 0) {
             auto node = m_active_graph_->nodes()[m_output_node_id_];
-            auto outer_view = output(MIN_DT);
-            auto inner_view = node->output(MIN_DT);
+            auto outer_view = output();
+            auto inner_view = node->output();
             if (!outer_view || !inner_view) {
                 return;
             }
@@ -55,8 +46,8 @@ namespace hgraph {
             // where the nested output produced a concrete value.
             if (m_output_node_id_ >= 0) {
                 auto node = m_active_graph_->nodes()[m_output_node_id_];
-                auto inner_view = node->output(node_time(*node));
-                auto outer_view = output(node_time(*this));
+                auto inner_view = node->output();
+                auto outer_view = output();
                 if (inner_view && outer_view && inner_view.modified() && inner_view.valid()) {
                     auto outer_bundle = outer_view.try_as_bundle();
                     if (outer_bundle.has_value()) {
@@ -76,7 +67,7 @@ namespace hgraph {
             // Create a heap-allocated copy managed by nanobind
             auto error_ptr = nb::ref<NodeError>(new NodeError(err));
 
-            auto out_view = output(node_time(*this));
+            auto out_view = output();
             if (!out_view) {
                 stop_component(*m_active_graph_);
                 return;

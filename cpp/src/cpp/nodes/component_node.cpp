@@ -26,7 +26,7 @@ namespace hgraph {
         }
 
         TSInputView node_input_field(Node &node, std::string_view name) {
-            auto root = node.input(node_time(node));
+            auto root = node.input();
             if (!root) {
                 return {};
             }
@@ -38,7 +38,7 @@ namespace hgraph {
         }
 
         TSInputView node_inner_ts_input(Node &node) {
-            auto root = node.input(node_time(node));
+            auto root = node.input();
             if (!root) {
                 return {};
             }
@@ -264,7 +264,7 @@ namespace hgraph {
         initialise_component(*m_active_graph_);
 
         // Wire inputs
-        auto outer_root = input(node_time(*this));
+        auto outer_root = input();
         if (!outer_root) {
             return;
         }

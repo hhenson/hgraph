@@ -221,13 +221,11 @@ namespace hgraph
 
         void set_graph(graph_ptr value);
 
-        [[nodiscard]] TSInputView input(engine_time_t current_time) const;
         [[nodiscard]] TSInputView input() const;
         void set_signal_input_impl_flags(std::vector<bool> flags);
 
         auto start_inputs() const { return _start_inputs; }
 
-        [[nodiscard]] TSOutputView output(engine_time_t current_time) const;
         [[nodiscard]] TSOutputView output() const;
 
         // Internal runtime hook for nested-node output rewrites (e.g. switch_/map_).
@@ -235,12 +233,10 @@ namespace hgraph
         void clear_output_override() noexcept;
         [[nodiscard]] node_ptr output_override_node() const noexcept { return _output_override_node; }
 
-        [[nodiscard]] TSOutputView error_output(engine_time_t current_time) const;
         [[nodiscard]] TSOutputView error_output() const;
 
         bool has_error_output() const;
 
-        [[nodiscard]] TSOutputView recordable_state(engine_time_t current_time) const;
         [[nodiscard]] TSOutputView recordable_state() const;
 
         bool has_recordable_state() const;

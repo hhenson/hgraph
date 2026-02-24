@@ -78,8 +78,8 @@ namespace hgraph {
             return g != nullptr ? g->evaluation_time() : MIN_DT;
         }
 
-        TSInputView node_input_field(Node &node, std::string_view name, std::optional<engine_time_t> current_time = std::nullopt) {
-            auto root = node.input(current_time.value_or(node_time(node)));
+        TSInputView node_input_field(Node &node, std::string_view name) {
+            auto root = node.input();
             if (!root) {
                 return {};
             }
@@ -90,8 +90,8 @@ namespace hgraph {
             return bundle_opt->field(name);
         }
 
-        TSInputView node_inner_ts_input(Node &node, std::optional<engine_time_t> current_time = std::nullopt) {
-            auto root = node.input(current_time.value_or(node_time(node)));
+        TSInputView node_inner_ts_input(Node &node) {
+            auto root = node.input();
             if (!root) {
                 return {};
             }
@@ -555,7 +555,7 @@ namespace hgraph {
                     }
 
                     auto node = nodes[side];
-                    auto inner_ts = node_inner_ts_input(*node, node_time(*this));
+                    auto inner_ts = node_inner_ts_input(*node);
                     if (!inner_ts) {
                         continue;
                     }
@@ -671,7 +671,7 @@ namespace hgraph {
             nec->reset_next_scheduled_evaluation_time();
         }
 
-        auto out = output(node_time(*this));
+        auto out = output();
         auto l_out = last_output();
         if (!out || !l_out) {
             return;
@@ -781,7 +781,7 @@ namespace hgraph {
         if (!out_node) {
             return {};
         }
-        return out_node->output(node_time(*out_node));
+        return out_node->output();
     }
 
     void ReduceNode::add_nodes_from_views(const std::vector<value::Value> &keys) {
@@ -936,28 +936,28 @@ namespace hgraph {
                 auto left_idx = un_bound_outputs.front();
                 un_bound_outputs.pop_front();
                 auto left_node = get_node(left_idx)[output_node_id_];
-                left_parent = left_node ? left_node->output(node_time(*left_node)) : TSOutputView{};
+                left_parent = left_node ? left_node->output() : TSOutputView{};
 
                 auto right_idx = un_bound_outputs.front();
                 un_bound_outputs.pop_front();
                 auto right_node = get_node(right_idx)[output_node_id_];
-                right_parent = right_node ? right_node->output(node_time(*right_node)) : TSOutputView{};
+                right_parent = right_node ? right_node->output() : TSOutputView{};
             } else if (count > 0) {
                 auto old_root_node = get_node(count - 1)[output_node_id_];
-                left_parent = old_root_node ? old_root_node->output(node_time(*old_root_node)) : TSOutputView{};
+                left_parent = old_root_node ? old_root_node->output() : TSOutputView{};
 
                 auto new_root_idx = un_bound_outputs.front();
                 un_bound_outputs.pop_front();
                 auto new_root_node = get_node(new_root_idx)[output_node_id_];
-                right_parent = new_root_node ? new_root_node->output(node_time(*new_root_node)) : TSOutputView{};
+                right_parent = new_root_node ? new_root_node->output() : TSOutputView{};
             }
 
             auto sub_graph = get_node(i);
             auto lhs_node = sub_graph[std::get<0>(input_node_ids_)];
             auto rhs_node = sub_graph[std::get<1>(input_node_ids_)];
 
-            auto lhs_input = node_inner_ts_input(*lhs_node, node_time(*this));
-            auto rhs_input = node_inner_ts_input(*rhs_node, node_time(*this));
+            auto lhs_input = node_inner_ts_input(*lhs_node);
+            auto rhs_input = node_inner_ts_input(*rhs_node);
 
             if (lhs_input) {
                 bind_inner_from_outer(left_parent ? left_parent.as_ts_view() : TSView{}, lhs_input);
@@ -1031,7 +1031,7 @@ namespace hgraph {
         }
 
         auto node = nodes[side];
-        auto inner_ts = node_inner_ts_input(*node, node_time(*this));
+        auto inner_ts = node_inner_ts_input(*node);
         if (!inner_ts) {
             return;
         }
@@ -1129,7 +1129,7 @@ namespace hgraph {
         }
 
         auto node = nodes[side];
-        auto inner_ts = node_inner_ts_input(*node, node_time(*this));
+        auto inner_ts = node_inner_ts_input(*node);
         if (!inner_ts) {
             return;
         }
@@ -1165,8 +1165,8 @@ namespace hgraph {
             return;
         }
 
-        auto src_input = node_inner_ts_input(*src_node, node_time(*this));
-        auto dst_input = node_inner_ts_input(*dst_node, node_time(*this));
+        auto src_input = node_inner_ts_input(*src_node);
+        auto dst_input = node_inner_ts_input(*dst_node);
         if (!src_input || !dst_input) {
             return;
         }

@@ -238,7 +238,7 @@ namespace
             return nb::none();
         }
 
-        TSOutputView root = path.node->output(output_view().current_time());
+        TSOutputView root = path.node->output();
         if (!root) {
             return nb::none();
         }
@@ -310,7 +310,7 @@ namespace
             return nb::none();
         }
 
-        TSInputView root = path.node->input(input_view().current_time());
+        TSInputView root = path.node->input();
         if (!root) {
             return nb::none();
         }

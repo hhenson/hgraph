@@ -8,15 +8,6 @@
 #include <utility>
 
 namespace hgraph {
-    namespace {
-        engine_time_t node_time(const Node &node) {
-            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
-                return *et;
-            }
-            auto g = node.graph();
-            return g != nullptr ? g->evaluation_time() : MIN_DT;
-        }
-    }
 
     NestedGraphNode::NestedGraphNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id,
                                      NodeSignature::s_ptr signature,
@@ -38,7 +29,7 @@ namespace hgraph {
     void NestedGraphNode::write_inputs() {
         // Bind inner "ts" inputs to outer mapped inputs.
         if (!m_input_node_ids_.empty()) {
-            auto outer_root = input(node_time(*this));
+            auto outer_root = input();
             if (!outer_root) {
                 return;
             }
@@ -57,7 +48,7 @@ namespace hgraph {
                     continue;
                 }
 
-                auto inner_root = node->input(node_time(*node));
+                auto inner_root = node->input();
                 if (!inner_root) {
                     continue;
                 }

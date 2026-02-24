@@ -169,7 +169,7 @@ namespace hgraph {
         }
 
         // Finally, set this node's own REF output to the captured value (may be None)
-        auto out_port = output(node_time(*this));
+        auto out_port = output();
         if (!out_port) {
             throw std::runtime_error("ContextStubSourceNode: missing TS output");
         }

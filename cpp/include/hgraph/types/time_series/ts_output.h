@@ -10,6 +10,8 @@
 
 namespace hgraph {
 
+class TSInput;
+
 /**
  * Output endpoint owning native TSValue plus optional alternative schemas.
  */
@@ -24,14 +26,10 @@ public:
     TSOutput& operator=(TSOutput&&) noexcept = default;
     ~TSOutput() = default;
 
-    [[nodiscard]] TSView view(engine_time_t current_time);
-    [[nodiscard]] TSView view(engine_time_t current_time, const TSMeta* schema);
     [[nodiscard]] TSView view(const engine_time_t* engine_time_ptr);
-    [[nodiscard]] TSView view(const engine_time_t* engine_time_ptr, const TSMeta* schema);
-    [[nodiscard]] TSOutputView output_view(engine_time_t current_time);
-    [[nodiscard]] TSOutputView output_view(engine_time_t current_time, const TSMeta* schema);
+    [[nodiscard]] TSView view_for_input(const TSInput& input, const engine_time_t* engine_time_ptr);
     [[nodiscard]] TSOutputView output_view(const engine_time_t* engine_time_ptr);
-    [[nodiscard]] TSOutputView output_view(const engine_time_t* engine_time_ptr, const TSMeta* schema);
+    [[nodiscard]] TSOutputView output_view_for_input(const TSInput& input, const engine_time_t* engine_time_ptr);
 
     [[nodiscard]] node_ptr owning_node() const noexcept { return owning_node_; }
     [[nodiscard]] size_t port_index() const noexcept { return port_index_; }
@@ -61,6 +59,7 @@ public:
 
 private:
     [[nodiscard]] const engine_time_t* owner_engine_time_ptr() const noexcept;
+    [[nodiscard]] TSView view_for_schema(const engine_time_t* engine_time_ptr, const TSMeta* schema);
     TSValue& get_or_create_alternative(const TSMeta* schema);
     void establish_default_binding(TSValue& alternative);
 

@@ -5,14 +5,6 @@
 
 namespace hgraph {
     namespace {
-        engine_time_t node_time(const Node &node) {
-            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
-                return *et;
-            }
-            auto g = node.graph();
-            return g != nullptr ? g->evaluation_time() : MIN_DT;
-        }
-
         value::Value key_from_python(const value::TypeMeta *key_type, const nb::handle &key_obj) {
             value::Value key_value(key_type);
             key_value.emplace();
@@ -45,7 +37,7 @@ namespace hgraph {
         // before any nanobind/Python API interaction.
         nb::gil_scoped_acquire gil;
 
-        auto out_view = output(node_time(*this));
+        auto out_view = output();
         if (!out_view) {
             return false;
         }
@@ -136,7 +128,7 @@ namespace hgraph {
         _receiver = &graph()->receiver();
         _elide = scalars().contains("elide") ? nb::cast<bool>(scalars()["elide"]) : false;
         _batch = scalars().contains("batch") ? nb::cast<bool>(scalars()["batch"]) : false;
-        auto out_view = output(node_time(*this));
+        auto out_view = output();
         _is_tsd = out_view && out_view.ts_meta() != nullptr && out_view.ts_meta()->kind == TSKind::TSD;
 
         // If an eval function was provided (from push_queue decorator), call it with a sender and scalar kwargs

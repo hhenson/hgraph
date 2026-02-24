@@ -267,16 +267,6 @@ TSView::TSView(ViewData view_data, const engine_time_t* engine_time_ptr) noexcep
 TSView::TSView(const TSValue& value, const engine_time_t* engine_time_ptr, ShortPath path)
     : TSView(value.make_view_data(std::move(path), engine_time_ptr), engine_time_ptr) {}
 
-void TSView::set_current_time(engine_time_t time) noexcept {
-    (void)time;
-    if (view_data_.path.node != nullptr) {
-        if (const engine_time_t* owner_time_ptr = view_data_.path.node->cached_evaluation_time_ptr();
-            owner_time_ptr != nullptr) {
-            view_data_.engine_time_ptr = owner_time_ptr;
-        }
-    }
-}
-
 const TSMeta* TSView::ts_meta() const noexcept {
     if (view_data_.ops != nullptr) {
         if (const TSMeta* meta = view_data_.ops->ts_meta(view_data_); meta != nullptr) {

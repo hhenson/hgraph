@@ -192,8 +192,7 @@ namespace hgraph {
             std::unordered_map<std::string, engine_time_t> input_last_modified_time;
 
             if (node->has_input()) {
-                auto et = node->cached_evaluation_time_ptr() != nullptr ? *node->cached_evaluation_time_ptr() : MIN_DT;
-                TSInputView root = node->input(et);
+                TSInputView root = node->input();
                 auto bundle = root.try_as_bundle();
 
                 if (bundle.has_value() && bundle->ts_meta() != nullptr && bundle->ts_meta()->fields() != nullptr) {

@@ -7,7 +7,7 @@ namespace hgraph {
     void PythonGeneratorNode::do_eval() {
         _refresh_kwarg_time_views();
         auto et = graph()->evaluation_time();
-        auto output_view = output(et);
+        auto output_view = output();
         if (!output_view) {
             throw std::runtime_error("PythonGeneratorNode requires TS output");
         }

@@ -19,16 +19,8 @@
 
 namespace hgraph {
     namespace {
-        engine_time_t node_time(const Node &node) {
-            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
-                return *et;
-            }
-            auto g = node.graph();
-            return g != nullptr ? g->evaluation_time() : MIN_DT;
-        }
-
-        TSInputView node_input_field(Node &node, std::string_view name, std::optional<engine_time_t> current_time = std::nullopt) {
-            auto root = node.input(current_time.value_or(node_time(node)));
+        TSInputView node_input_field(Node &node, std::string_view name) {
+            auto root = node.input();
             if (!root) {
                 return {};
             }
@@ -173,7 +165,7 @@ namespace hgraph {
         // Switch cases consume non-key inputs on every tick while the active
         // nested graph is running. Ensure those inputs are active so upstream
         // notifications wake this node even when key is unchanged.
-        auto root = input(node_time(*this));
+        auto root = input();
         if (root) {
             if (auto bundle = root.try_as_bundle(); bundle.has_value() &&
                 signature().time_series_inputs.has_value()) {
@@ -350,7 +342,7 @@ namespace hgraph {
                 }
             }
 
-            auto outer_root = input(node_time(*this));
+            auto outer_root = input();
             std::optional<TSBInputView> outer_bundle_opt = outer_root ? outer_root.try_as_bundle() : std::nullopt;
             if (input_ids_to_use != nullptr && outer_bundle_opt.has_value()) {
                 for (const auto &[arg, node_ndx] : *input_ids_to_use) {
@@ -359,7 +351,7 @@ namespace hgraph {
                     }
 
                     auto node = _active_graph->nodes()[node_ndx];
-                    auto node_root = node->input(node_time(*node));
+                    auto node_root = node->input();
                     std::optional<TSBInputView> node_bundle_opt = node_root ? node_root.try_as_bundle() : std::nullopt;
                     if (!node_bundle_opt.has_value()) {
                         continue;
@@ -400,7 +392,7 @@ namespace hgraph {
             _active_graph->evaluate_graph();
 
             if (debug_switch) {
-                auto out_dbg = output(node_time(*this));
+                auto out_dbg = output();
                 std::string out_value{"<none>"};
                 std::string out_delta{"<none>"};
                 const int out_kind = (out_dbg && out_dbg.ts_meta() != nullptr)
@@ -422,7 +414,7 @@ namespace hgraph {
             // Mirror Python switch behavior: on graph reset, if the nested graph did
             // not produce a tick for this cycle then invalidate outer output.
             if (graph_reset) {
-                auto out_view = output(node_time(*this));
+                auto out_view = output();
                 if (out_view && !out_view.modified()) {
                     out_view.invalidate();
                 }
@@ -471,7 +463,7 @@ namespace hgraph {
                     if (!outer_any) {
                         continue;
                     }
-                    auto inner_any = node_input_field(*node, "ts", node_time(*this));
+                    auto inner_any = node_input_field(*node, "ts");
                     if (!inner_any) {
                         continue;
                     }

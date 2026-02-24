@@ -718,14 +718,6 @@ namespace hgraph
         _cached_evaluation_time_ptr = _graph->cached_evaluation_time_ptr();
     }
 
-    TSInputView Node::input(engine_time_t current_time) const {
-        (void)current_time;
-        if (!_input.has_value()) {
-            return {};
-        }
-        return const_cast<TSInput &>(*_input).input_view(_cached_evaluation_time_ptr);
-    }
-
     TSInputView Node::input() const {
         if (!_input.has_value()) {
             return {};
@@ -741,17 +733,6 @@ namespace hgraph
 
     bool Node::has_input() const {
         return _input.has_value();
-    }
-
-    TSOutputView Node::output(engine_time_t current_time) const {
-        (void)current_time;
-        if (_output_override_node != nullptr && _output_override_node != this) {
-            return _output_override_node->output();
-        }
-        if (!_output.has_value()) {
-            return {};
-        }
-        return const_cast<TSOutput &>(*_output).output_view(_cached_evaluation_time_ptr);
     }
 
     TSOutputView Node::output() const {
@@ -772,8 +753,7 @@ namespace hgraph
         // Best-effort explicit teardown for arena aliasing allocations where
         // normal destructors may not run. Input unbind unregisters link observers.
         if (_input.has_value()) {
-            auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
-            auto in = input(et);
+            auto in = input();
             if (in) {
                 in.unbind();
             }
@@ -794,14 +774,6 @@ namespace hgraph
 
     void Node::clear_output_override() noexcept { _output_override_node = nullptr; }
 
-    TSOutputView Node::error_output(engine_time_t current_time) const {
-        (void)current_time;
-        if (!_error_output.has_value()) {
-            return {};
-        }
-        return const_cast<TSOutput &>(*_error_output).output_view(_cached_evaluation_time_ptr);
-    }
-
     TSOutputView Node::error_output() const {
         if (!_error_output.has_value()) {
             return {};
@@ -811,14 +783,6 @@ namespace hgraph
 
     bool Node::has_error_output() const {
         return _error_output.has_value();
-    }
-
-    TSOutputView Node::recordable_state(engine_time_t current_time) const {
-        (void)current_time;
-        if (!_recordable_state.has_value()) {
-            return {};
-        }
-        return const_cast<TSOutput &>(*_recordable_state).output_view(_cached_evaluation_time_ptr);
     }
 
     TSOutputView Node::recordable_state() const {
@@ -906,8 +870,7 @@ namespace hgraph
 
             ~Cleanup() {
                 if (node->has_input()) {
-                    auto et = node->_cached_evaluation_time_ptr != nullptr ? *node->_cached_evaluation_time_ptr : MIN_DT;
-                    auto in = node->input(et);
+                    auto in = node->input();
                     if (in) {
                         in.unbind();
                     }
@@ -928,7 +891,7 @@ namespace hgraph
             start_input->start();
         }
 
-        auto root = input(_cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT);
+        auto root = input();
         if (!root) {
             return;
         }
@@ -959,7 +922,7 @@ namespace hgraph
 
         auto et = _cached_evaluation_time_ptr != nullptr ? *_cached_evaluation_time_ptr : MIN_DT;
         _last_eval_time = et;
-        TSInputView root = input(et);
+        TSInputView root = input();
         if (root && signature().time_series_inputs.has_value()) {
             auto bundle = root.try_as_bundle();
 
@@ -1054,13 +1017,13 @@ namespace hgraph
                     try {
                         auto ne{static_cast<const NodeException &>(e)};
                         auto error_ptr{nb::ref<NodeError>(new NodeError(ne))};
-                        error_output(et).from_python(nb::cast(error_ptr));
+                        error_output().from_python(nb::cast(error_ptr));
                     } catch (const std::exception &set_err) {
                         // Fall back to setting a generic Python object (string) to avoid rethrow during error routing
-                        error_output(et).from_python(nb::str(e.to_string().c_str()));
+                        error_output().from_python(nb::str(e.to_string().c_str()));
                     } catch (...) {
                         // As a last resort, set none to signal an error occurred without throwing
-                        error_output(et).from_python(nb::none());
+                        error_output().from_python(nb::none());
                     }
                     return;  // Do not propagate
                 } else {
@@ -1072,11 +1035,11 @@ namespace hgraph
                     // Create a heap-allocated copy managed by nanobind
                     auto error_ptr = nb::ref<NodeError>(new NodeError(ne));
                     try {
-                        error_output(et).from_python(nb::cast(error_ptr));
+                        error_output().from_python(nb::cast(error_ptr));
                     } catch (const std::exception &set_err) {
-                        error_output(et).from_python(nb::str(ne.to_string().c_str()));
+                        error_output().from_python(nb::str(ne.to_string().c_str()));
                     } catch (...) {
-                        error_output(et).from_python(nb::none());
+                        error_output().from_python(nb::none());
                     }
                     return;  // swallow after routing
                 } else {
@@ -1088,11 +1051,11 @@ namespace hgraph
                     // Create a heap-allocated copy managed by nanobind
                     auto error_ptr = nb::ref<NodeError>(new NodeError(ne));
                     try {
-                        error_output(et).from_python(nb::cast(error_ptr));
+                        error_output().from_python(nb::cast(error_ptr));
                     } catch (const std::exception &set_err) {
-                        error_output(et).from_python(nb::str(ne.to_string().c_str()));
+                        error_output().from_python(nb::str(ne.to_string().c_str()));
                     } catch (...) {
-                        error_output(et).from_python(nb::none());
+                        error_output().from_python(nb::none());
                     }
                     return;  // swallow after routing
                 } else {

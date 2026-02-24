@@ -73,7 +73,7 @@ namespace hgraph
 
         void eval() override;
 
-        TSDOutputView tsd_output(engine_time_t current_time) override;
+        TSDOutputView tsd_output() override;
 
         void create_new_graph(const value::View &key, int rank = -1);
 

@@ -26,7 +26,7 @@ namespace hgraph {
         }
 
         TSInputView node_input_field(Node &node, std::string_view name) {
-            auto root = node.input(node_time(node));
+            auto root = node.input();
             if (!root) {
                 return {};
             }
@@ -236,7 +236,7 @@ namespace hgraph {
     void MeshNode::do_start() {
         TsdMapNode::do_start();
 
-        auto root = output(node_time(*this));
+        auto root = output();
         auto bundle_opt = root ? root.try_as_bundle() : std::nullopt;
         if (!bundle_opt.has_value()) {
             return;
@@ -530,8 +530,8 @@ namespace hgraph {
         }
     }
 
-    TSDOutputView MeshNode::tsd_output(engine_time_t current_time) {
-        auto out = output(current_time);
+    TSDOutputView MeshNode::tsd_output() {
+        auto out = output();
         if (!out) {
             return {};
         }

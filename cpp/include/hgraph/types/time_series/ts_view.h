@@ -57,7 +57,6 @@ public:
     [[nodiscard]] engine_time_t current_time() const noexcept {
         return view_data_.engine_time_ptr != nullptr ? *view_data_.engine_time_ptr : MIN_DT;
     }
-    void set_current_time(engine_time_t time) noexcept;
     void set_current_time_ptr(const engine_time_t* engine_time_ptr) noexcept {
         view_data_.engine_time_ptr = engine_time_ptr;
     }
@@ -203,7 +202,6 @@ public:
 
     [[nodiscard]] const TSMeta* ts_meta() const noexcept { return ts_view_.ts_meta(); }
     [[nodiscard]] engine_time_t current_time() const noexcept { return ts_view_.current_time(); }
-    void set_current_time(engine_time_t time) noexcept { ts_view_.set_current_time(time); }
     void set_current_time_ptr(const engine_time_t* engine_time_ptr) noexcept { ts_view_.set_current_time_ptr(engine_time_ptr); }
 
     [[nodiscard]] FQPath fq_path() const;
@@ -327,7 +325,6 @@ public:
 
     [[nodiscard]] const TSMeta* ts_meta() const noexcept { return ts_view_.ts_meta(); }
     [[nodiscard]] engine_time_t current_time() const noexcept { return ts_view_.current_time(); }
-    void set_current_time(engine_time_t time) noexcept { ts_view_.set_current_time(time); }
     void set_current_time_ptr(const engine_time_t* engine_time_ptr) noexcept { ts_view_.set_current_time_ptr(engine_time_ptr); }
 
     [[nodiscard]] FQPath fq_path() const;

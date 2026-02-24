@@ -1448,11 +1448,11 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
                  return self.output_view(runtime_test_time_ptr(current_time));
              },
              "current_time"_a, nb::keep_alive<0, 1>())
-        .def("output_view",
-             [](TSOutput& self, engine_time_t current_time, const TSMeta* schema) {
-                 return self.output_view(runtime_test_time_ptr(current_time), schema);
+        .def("output_view_for_input",
+             [](TSOutput& self, engine_time_t current_time, const TSInput& input) {
+                 return self.output_view_for_input(input, runtime_test_time_ptr(current_time));
              },
-             "current_time"_a, "schema"_a, nb::keep_alive<0, 1>());
+             "current_time"_a, "input"_a, nb::keep_alive<0, 1>());
 
     nb::class_<TSInput>(test_mod, "TSInput")
         .def("__init__", [](TSInput* self, const TSMeta* meta) {
@@ -1463,13 +1463,8 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
                  return self.input_view(runtime_test_time_ptr(current_time));
              },
              "current_time"_a, nb::keep_alive<0, 1>())
-        .def("input_view",
-             [](TSInput& self, engine_time_t current_time, const TSMeta* schema) {
-                 return self.input_view(runtime_test_time_ptr(current_time), schema);
-             },
-             "current_time"_a, "schema"_a, nb::keep_alive<0, 1>())
-        .def("bind", &TSInput::bind, "output"_a, "current_time"_a)
-        .def("unbind", &TSInput::unbind, "current_time"_a)
+        .def("bind", &TSInput::bind, "output"_a)
+        .def("unbind", &TSInput::unbind)
         .def("set_active", nb::overload_cast<bool>(&TSInput::set_active), "active"_a)
         .def("active", nb::overload_cast<>(&TSInput::active, nb::const_))
         .def("active_at", [](const TSInput& self, const TSInputView& view) {
@@ -1639,7 +1634,6 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         }, "key"_a)
         .def("fq_path_str", [](const TSOutputView& self) { return self.fq_path().to_string(); })
         .def("short_indices", [](const TSOutputView& self) { return self.short_path().indices; })
-        .def("set_current_time", &TSOutputView::set_current_time, "time"_a)
         .def("set_value", &TSOutputView::set_value, "value"_a)
         .def("to_python", [](const TSOutputView& self) { return self.to_python(); })
         .def("delta_to_python", [](const TSOutputView& self) { return self.delta_to_python(); })

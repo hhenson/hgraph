@@ -336,41 +336,14 @@ const engine_time_t* TSInput::owner_engine_time_ptr() const noexcept {
     return owning_node_->cached_evaluation_time_ptr();
 }
 
-TSView TSInput::view(engine_time_t current_time) {
-    (void)current_time;
-    return view(owner_engine_time_ptr());
-}
-
-TSView TSInput::view(engine_time_t current_time, const TSMeta* schema) {
-    (void)schema;
-    return view(current_time);
-}
-
 TSView TSInput::view(const engine_time_t* engine_time_ptr) {
     TSView out(value_, engine_time_ptr, root_path());
     out.view_data().uses_link_target = true;
     return out;
 }
 
-TSView TSInput::view(const engine_time_t* engine_time_ptr, const TSMeta* schema) {
-    (void)schema;
-    return view(engine_time_ptr);
-}
-
-TSInputView TSInput::input_view(engine_time_t current_time) {
-    return TSInputView(this, view(current_time));
-}
-
-TSInputView TSInput::input_view(engine_time_t current_time, const TSMeta* schema) {
-    return TSInputView(this, view(current_time, schema));
-}
-
 TSInputView TSInput::input_view(const engine_time_t* engine_time_ptr) {
     return TSInputView(this, view(engine_time_ptr));
-}
-
-TSInputView TSInput::input_view(const engine_time_t* engine_time_ptr, const TSMeta* schema) {
-    return TSInputView(this, view(engine_time_ptr, schema));
 }
 
 void TSInput::set_signal_input_impl_flags(std::vector<bool> flags) {
@@ -386,8 +359,7 @@ bool TSInput::signal_input_has_impl(const std::vector<size_t>& path_indices) con
     return root_index < signal_input_impl_flags_.size() && signal_input_impl_flags_[root_index];
 }
 
-void TSInput::bind(TSOutput& output, engine_time_t current_time) {
-    (void)current_time;
+void TSInput::bind(TSOutput& output) {
     const engine_time_t* input_engine_time_ptr = owner_engine_time_ptr();
     TSView input_view = view(input_engine_time_ptr);
     TSView native_output_view = output.view(input_engine_time_ptr);
@@ -397,7 +369,7 @@ void TSInput::bind(TSOutput& output, engine_time_t current_time) {
                                native_output_view.ts_meta()->kind == TSKind::REF;
     TSView output_view = (input_is_ref || input_is_signal || output_is_ref)
                              ? native_output_view
-                             : output.view(input_engine_time_ptr, meta_);
+                             : output.view_for_input(*this, input_engine_time_ptr);
 
     if (meta_ != nullptr && !output_is_ref &&
         meta_->kind == TSKind::TSL && meta_->fixed_size() > 0) {
@@ -414,8 +386,7 @@ void TSInput::bind(TSOutput& output, engine_time_t current_time) {
     }
 }
 
-void TSInput::unbind(engine_time_t current_time) {
-    (void)current_time;
+void TSInput::unbind() {
     TSView input_view = view(owner_engine_time_ptr());
 
     if (active_root_) {

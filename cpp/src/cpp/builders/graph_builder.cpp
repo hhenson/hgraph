@@ -34,7 +34,7 @@ namespace hgraph
 	    bool _bind_ts_endpoint(node_ptr src_node, const std::vector<int64_t> &output_path,
 	                           node_ptr dst_node, const std::vector<int64_t> &input_path) {
             const bool debug_bind = std::getenv("HGRAPH_DEBUG_BIND_ENDPOINT") != nullptr;
-	        TSInputView input_view = dst_node->input(MIN_DT);
+	        TSInputView input_view = dst_node->input();
 	        if (!input_view) {
 	            return false;
 	        }
@@ -76,13 +76,13 @@ namespace hgraph
 	        TSOutputView output_view;
 	        std::vector<int64_t> normalized_output_path = output_path;
 	        if (output_path.size() == 1 && output_path.front() == ERROR_PATH) {
-	            output_view = src_node->error_output(MIN_DT);
+	            output_view = src_node->error_output();
 	            normalized_output_path.clear();
 	        } else if (output_path.size() == 1 && output_path.front() == STATE_PATH) {
-	            output_view = src_node->recordable_state(MIN_DT);
+	            output_view = src_node->recordable_state();
 	            normalized_output_path.clear();
 	        } else {
-	            output_view = src_node->output(MIN_DT);
+	            output_view = src_node->output();
 	        }
 	        if (!output_view) {
 	            return false;

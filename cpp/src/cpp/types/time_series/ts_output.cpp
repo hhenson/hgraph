@@ -1,4 +1,5 @@
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/node.h>
 
 namespace hgraph {
@@ -100,21 +101,11 @@ const engine_time_t* TSOutput::owner_engine_time_ptr() const noexcept {
     return owning_node_->cached_evaluation_time_ptr();
 }
 
-TSView TSOutput::view(engine_time_t current_time) {
-    (void)current_time;
-    return view(owner_engine_time_ptr());
-}
-
-TSView TSOutput::view(engine_time_t current_time, const TSMeta* schema) {
-    (void)current_time;
-    return view(owner_engine_time_ptr(), schema);
-}
-
 TSView TSOutput::view(const engine_time_t* engine_time_ptr) {
     return TSView(native_value_, engine_time_ptr, root_path());
 }
 
-TSView TSOutput::view(const engine_time_t* engine_time_ptr, const TSMeta* schema) {
+TSView TSOutput::view_for_schema(const engine_time_t* engine_time_ptr, const TSMeta* schema) {
     if (schema == nullptr || schema == native_value_.meta()) {
         return view(engine_time_ptr);
     }
@@ -123,20 +114,20 @@ TSView TSOutput::view(const engine_time_t* engine_time_ptr, const TSMeta* schema
     return TSView(alt, engine_time_ptr, root_path());
 }
 
-TSOutputView TSOutput::output_view(engine_time_t current_time) {
-    return TSOutputView(this, view(current_time));
-}
-
-TSOutputView TSOutput::output_view(engine_time_t current_time, const TSMeta* schema) {
-    return TSOutputView(this, view(current_time, schema));
+TSView TSOutput::view_for_input(const TSInput& input, const engine_time_t* engine_time_ptr) {
+    const TSMeta* input_meta = input.meta();
+    if (input_meta == nullptr) {
+        return view(engine_time_ptr);
+    }
+    return view_for_schema(engine_time_ptr, input_meta);
 }
 
 TSOutputView TSOutput::output_view(const engine_time_t* engine_time_ptr) {
     return TSOutputView(this, view(engine_time_ptr));
 }
 
-TSOutputView TSOutput::output_view(const engine_time_t* engine_time_ptr, const TSMeta* schema) {
-    return TSOutputView(this, view(engine_time_ptr, schema));
+TSOutputView TSOutput::output_view_for_input(const TSInput& input, const engine_time_t* engine_time_ptr) {
+    return TSOutputView(this, view_for_input(input, engine_time_ptr));
 }
 
 TSValue& TSOutput::get_or_create_alternative(const TSMeta* schema) {

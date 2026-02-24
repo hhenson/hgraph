@@ -32,7 +32,7 @@ namespace hgraph
         }
 
 	        TSInputView node_input_field_view(Node &node, std::string_view key) {
-	            TSInputView root = node.input(node_time(node));
+	            TSInputView root = node.input();
 	            if (!root) {
 	                return {};
 	            }
@@ -79,7 +79,7 @@ namespace hgraph
                     if ((injectable & InjectableTypesEnum::NODE) != InjectableTypesEnum::NONE) {
                         wrapped_value = get_node_wrapper();
 	                    } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
-	                        auto out = output(node_time(*this));
+	                        auto out = output();
 	                        if (out) {
 	                            wrapped_value = wrap_output_view(out);
 	                        } else {
@@ -113,7 +113,7 @@ namespace hgraph
                     } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
                         wrapped_value = g ? wrap_traits(&g->traits(), g->shared_from_this()) : nb::none();
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
-                        auto recordable = recordable_state(node_time(*this));
+                        auto recordable = recordable_state();
                         if (recordable) {
                             wrapped_value = wrap_output_view(recordable);
                         } else {
@@ -151,7 +151,7 @@ namespace hgraph
         // This can be called during wiring in the current flow, would be worth looking into that to clean up, but for now protect
         if (graph() == nullptr) { return; }
         // If is not a compute node or sink node, there are no inputs to map
-        TSInputView root = input(node_time(*this));
+        TSInputView root = input();
         if (!root) { return; }
         auto root_bundle = root.try_as_bundle();
         if (!root_bundle.has_value()) { return; }
@@ -219,7 +219,7 @@ namespace hgraph
                                                  nb::arg("tm") = nb::cast(tm), nb::arg("as_of") = as_of);
 
         // Set the value on recordable_state
-        auto recordable = recordable_state(node_time(*this));
+        auto recordable = recordable_state();
         if (recordable) {
             recordable.from_python(restored_state.attr("value"));
         }
@@ -632,7 +632,7 @@ namespace hgraph
                              ref_ref_bound_post.c_str(),
                              ref_ref_mod_post.c_str());
             }
-            auto out_port = output(node_time(*this));
+            auto out_port = output();
             if (out_port) {
                 if (!out.is_none()) {
                     if (std::getenv("HGRAPH_DEBUG_PY_OUT_APPLY") != nullptr) {

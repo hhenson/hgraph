@@ -113,7 +113,7 @@ bool observer_under_static_ref_container(const LinkTarget& observer) {
         return false;
     }
 
-    TSView root = active_input->view(MIN_DT);
+    TSView root = active_input->view(&MIN_DT);
     if (!root) {
         return false;
     }
@@ -882,7 +882,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                 bool observer_modified = true;
                 if (auto* active_input = notifier_as_live_input(observer->active_notifier);
                     active_input != nullptr && active_input->meta() != nullptr) {
-                    TSView input_root = active_input->view(current_time);
+                    TSView input_root = active_input->view(&current_time);
                     if (input_root) {
                         std::vector<size_t> observer_path;
                         if (find_link_target_path(input_root.view_data(), active_input->meta(), observer, observer_path)) {

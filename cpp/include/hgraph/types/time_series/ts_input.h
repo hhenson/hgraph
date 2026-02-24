@@ -27,17 +27,11 @@ public:
     TSInput& operator=(TSInput&&) noexcept;
     ~TSInput() override;
 
-    [[nodiscard]] TSView view(engine_time_t current_time);
-    [[nodiscard]] TSView view(engine_time_t current_time, const TSMeta* schema);
     [[nodiscard]] TSView view(const engine_time_t* engine_time_ptr);
-    [[nodiscard]] TSView view(const engine_time_t* engine_time_ptr, const TSMeta* schema);
-    [[nodiscard]] TSInputView input_view(engine_time_t current_time);
-    [[nodiscard]] TSInputView input_view(engine_time_t current_time, const TSMeta* schema);
     [[nodiscard]] TSInputView input_view(const engine_time_t* engine_time_ptr);
-    [[nodiscard]] TSInputView input_view(const engine_time_t* engine_time_ptr, const TSMeta* schema);
 
-    void bind(TSOutput& output, engine_time_t current_time);
-    void unbind(engine_time_t current_time);
+    void bind(TSOutput& output);
+    void unbind();
 
     void set_active(bool active);
     [[nodiscard]] bool active() const noexcept { return active_root_; }

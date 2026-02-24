@@ -2,15 +2,6 @@
 #include <hgraph/types/graph.h>
 
 namespace hgraph {
-    namespace {
-        engine_time_t node_time(const Node &node) {
-            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
-                return *et;
-            }
-            auto g = node.graph();
-            return g != nullptr ? g->evaluation_time() : MIN_DT;
-        }
-    }  // namespace
 
     void LastValuePullNode::do_start() {
         _setup_combine_function();
@@ -92,7 +83,7 @@ namespace hgraph {
 
     void LastValuePullNode::do_eval() {
         if (_delta_value.has_value()) {
-            auto out_port = output(node_time(*this));
+            auto out_port = output();
             if (out_port) { out_port.from_python(_delta_value.value()); }
             _delta_value.reset();
         }

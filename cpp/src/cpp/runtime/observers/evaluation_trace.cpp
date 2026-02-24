@@ -88,7 +88,7 @@ namespace hgraph {
         if (add_input &&
             node->signature().time_series_inputs.has_value() &&
             node->signature().time_series_inputs.value().size() > 0) {
-            auto input = node->input(node->graph()->evaluation_time());
+            auto input = node->input();
             if (input) {
                 auto delta = input.delta_to_python();
                 node_signature += nb::str(delta).c_str();
@@ -103,7 +103,7 @@ namespace hgraph {
         
         // TODO: Add output value when available
         if (add_output && node->has_output()) {
-            auto out = node->output(node->graph()->evaluation_time());
+            auto out = node->output();
             if (out.modified()) {
                 node_signature += " *->* ";
                 node_signature += nb::str(out.delta_to_python()).c_str();

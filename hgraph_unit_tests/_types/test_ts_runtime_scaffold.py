@@ -74,9 +74,9 @@ def test_root_bind_unbind_roundtrip_for_root_link_kinds(meta_factory):
     root = ts_input.input_view(MIN_DT)
 
     assert not root.is_bound()
-    ts_input.bind(ts_output, MIN_DT)
+    ts_input.bind(ts_output)
     assert root.is_bound()
-    ts_input.unbind(MIN_DT)
+    ts_input.unbind()
     assert not root.is_bound()
 
 
@@ -92,7 +92,7 @@ def test_input_tsb_switches_between_peered_and_unpeered_bind():
     in_x = in_root.as_bundle().field("x")
     out_x = out_root.as_bundle().field("x")
 
-    ts_input.bind(ts_output, MIN_DT)
+    ts_input.bind(ts_output)
     assert in_root.is_bound()
     assert not in_x.is_bound()
     assert in_root.linked_target_indices() == []
@@ -117,7 +117,7 @@ def test_tsl_fixed_bind_unbind_binds_each_index():
     root = ts_input.input_view(MIN_DT)
     list_root = root.as_list()
 
-    ts_input.bind(ts_output, MIN_DT)
+    ts_input.bind(ts_output)
     assert not root.is_bound()
     assert list_root.at(0).is_bound()
     assert list_root.at(1).is_bound()
@@ -126,7 +126,7 @@ def test_tsl_fixed_bind_unbind_binds_each_index():
     assert list_root.at(1).linked_target_indices() == [1]
     assert list_root.at(2).linked_target_indices() == [2]
 
-    ts_input.unbind(MIN_DT)
+    ts_input.unbind()
     assert not root.is_bound()
     assert not list_root.at(0).is_bound()
     assert not list_root.at(1).is_bound()
@@ -147,7 +147,7 @@ def test_collection_level_links_for_dynamic_structures(meta_factory):
     ts_output = runtime.TSOutput(meta, 0)
     root = ts_input.input_view(MIN_DT)
 
-    ts_input.bind(ts_output, MIN_DT)
+    ts_input.bind(ts_output)
     assert root.is_bound()
     if root.is_list():
         first = root.as_list().at(0)
@@ -365,7 +365,8 @@ def test_alternative_binding_recurses_by_tsb_field_name():
     alt_meta = _tsb_meta("AltBA", [("b", ts_int), ("a", ts_int)])
 
     output = runtime.TSOutput(native_meta, 0)
-    alt_view = output.output_view(MIN_DT, alt_meta)
+    alt_input = runtime.TSInput(alt_meta)
+    alt_view = output.output_view_for_input(MIN_DT, alt_input)
     alt_bundle = alt_view.as_bundle()
     alt_b = alt_bundle.field("b")
     alt_a = alt_bundle.field("a")
@@ -383,7 +384,8 @@ def test_alternative_tsb_falls_back_to_index_when_names_do_not_match():
     alt_meta = _tsb_meta("AltIdx", [("x", ts_int), ("y", ts_int)])
 
     output = runtime.TSOutput(native_meta, 0)
-    alt_view = output.output_view(MIN_DT, alt_meta)
+    alt_input = runtime.TSInput(alt_meta)
+    alt_view = output.output_view_for_input(MIN_DT, alt_input)
     alt_bundle = alt_view.as_bundle()
 
     assert alt_bundle.field("x").linked_source_indices() == [0]
@@ -399,7 +401,8 @@ def test_alternative_tsl_fixed_recurses_into_nested_elements():
     alt_meta = _registry().tsl(alt_elem, 2)
 
     output = runtime.TSOutput(native_meta, 0)
-    alt_view = output.output_view(MIN_DT, alt_meta)
+    alt_input = runtime.TSInput(alt_meta)
+    alt_view = output.output_view_for_input(MIN_DT, alt_input)
     alt_list = alt_view.as_list()
     first = alt_list.at(0)
     second = alt_list.at(1)
@@ -417,7 +420,8 @@ def test_ref_alternative_binds_dereferenced_schema_at_root():
     deref_meta = _registry().dereference(ref_meta)
 
     output = runtime.TSOutput(ref_meta, 0)
-    alt_view = output.output_view(MIN_DT, deref_meta)
+    alt_input = runtime.TSInput(deref_meta)
+    alt_view = output.output_view_for_input(MIN_DT, alt_input)
 
     assert alt_view.is_bound()
     assert alt_view.linked_source_indices() == []
@@ -434,12 +438,12 @@ def test_input_unbind_clears_tsb_unpeered_child_links():
     in_x = in_root.as_bundle().field("x")
     out_x = ts_output.output_view(MIN_DT).as_bundle().field("x")
 
-    ts_input.bind(ts_output, MIN_DT)
+    ts_input.bind(ts_output)
     in_x.bind(out_x)
     assert not in_root.is_bound()
     assert in_x.is_bound()
 
-    ts_input.unbind(MIN_DT)
+    ts_input.unbind()
     assert not in_root.is_bound()
     assert not in_x.is_bound()
 
@@ -731,7 +735,7 @@ def test_input_tsb_peered_bind_allows_child_value_reads_without_child_links():
     out_bundle.field("y").from_python(20)
 
     ts_input = runtime.TSInput(pair_meta)
-    ts_input.bind(ts_output, MIN_DT)
+    ts_input.bind(ts_output)
     in_root = ts_input.input_view(MIN_DT)
     in_bundle = in_root.as_bundle()
 

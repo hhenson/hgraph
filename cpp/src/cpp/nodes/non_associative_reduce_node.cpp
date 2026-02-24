@@ -20,8 +20,8 @@ namespace hgraph {
             return g != nullptr ? g->evaluation_time() : MIN_DT;
         }
 
-        TSInputView node_input_field(Node& node, std::string_view name, std::optional<engine_time_t> current_time = std::nullopt) {
-            auto root = node.input(current_time.value_or(node_time(node)));
+        TSInputView node_input_field(Node& node, std::string_view name) {
+            auto root = node.input();
             if (!root) {
                 return {};
             }
@@ -32,8 +32,8 @@ namespace hgraph {
             return bundle_opt->field(name);
         }
 
-        TSInputView node_inner_ts_input(Node& node, std::optional<engine_time_t> current_time = std::nullopt) {
-            auto root = node.input(current_time.value_or(node_time(node)));
+        TSInputView node_inner_ts_input(Node& node) {
+            auto root = node.input();
             if (!root) {
                 return {};
             }
@@ -191,7 +191,7 @@ namespace hgraph {
             return;
         }
 
-        auto tsd = node_input_field(*this, "ts", node_time(*this));
+        auto tsd = node_input_field(*this, "ts");
         if (tsd && tsd.valid()) {
             update_changes();
             notify(node_time(*this));
@@ -219,7 +219,7 @@ namespace hgraph {
             return;
         }
 
-        auto tsd = node_input_field(*this, "ts", node_time(*this));
+        auto tsd = node_input_field(*this, "ts");
         if (tsd && tsd.modified()) {
             update_changes();
         }
@@ -239,7 +239,7 @@ namespace hgraph {
 
     void TsdNonAssociativeReduceNode::update_changes() {
         const int64_t sz = node_count();
-        const int64_t new_size = tsd_size(node_input_field(*this, "ts", node_time(*this)));
+        const int64_t new_size = tsd_size(node_input_field(*this, "ts"));
         if (sz == new_size) {
             return;
         }
@@ -256,8 +256,8 @@ namespace hgraph {
         }
 
         const int64_t curr_size = node_count();
-        auto tsd = node_input_field(*this, "ts", node_time(*this));
-        auto zero = node_input_field(*this, "zero", node_time(*this));
+        auto tsd = node_input_field(*this, "ts");
+        auto zero = node_input_field(*this, "zero");
 
         for (int64_t ndx = curr_size; ndx < sz; ++ndx) {
             nested_graph_->extend_graph(*nested_graph_builder_, true);
@@ -273,8 +273,8 @@ namespace hgraph {
                 continue;
             }
 
-            auto lhs_input = node_inner_ts_input(*lhs_node, node_time(*this));
-            auto rhs_input = node_inner_ts_input(*rhs_node, node_time(*this));
+            auto lhs_input = node_inner_ts_input(*lhs_node);
+            auto rhs_input = node_inner_ts_input(*rhs_node);
 
             if (lhs_input) {
                 if (ndx == 0) {
@@ -286,7 +286,7 @@ namespace hgraph {
                         output_node_id_ >= 0 &&
                         output_node_id_ < static_cast<int64_t>(prev_graph.size()) &&
                         prev_graph[output_node_id_] != nullptr) {
-                        lhs_parent = prev_graph[output_node_id_]->output(node_time(*prev_graph[output_node_id_]));
+                        lhs_parent = prev_graph[output_node_id_]->output();
                     }
                     bind_inner_from_outer(lhs_parent ? lhs_parent.as_ts_view() : TSView{}, lhs_input);
                 }
@@ -319,7 +319,7 @@ namespace hgraph {
     }
 
     void TsdNonAssociativeReduceNode::bind_output() {
-        auto out = output(node_time(*this));
+        auto out = output();
         if (!out) {
             return;
         }
@@ -338,7 +338,7 @@ namespace hgraph {
 
         const int64_t nc = node_count();
         if (nc == 0) {
-            auto zero = node_input_field(*this, "zero", node_time(*this));
+            auto zero = node_input_field(*this, "zero");
             if (!zero) {
                 return;
             }
@@ -366,7 +366,7 @@ namespace hgraph {
             return;
         }
 
-        auto last_out = out_node->output(node_time(*out_node));
+        auto last_out = out_node->output();
         if (!last_out) {
             return;
         }
@@ -388,7 +388,7 @@ namespace hgraph {
     nb::object TsdNonAssociativeReduceNode::last_output_value() {
         const int64_t nc = node_count();
         if (nc == 0) {
-            auto zero = node_input_field(*this, "zero", node_time(*this));
+            auto zero = node_input_field(*this, "zero");
             return zero ? zero.to_python() : nb::none();
         }
 
@@ -400,7 +400,7 @@ namespace hgraph {
         if (!out_node) {
             return nb::none();
         }
-        auto out = out_node->output(node_time(*out_node));
+        auto out = out_node->output();
         return out ? out.to_python() : nb::none();
     }
 

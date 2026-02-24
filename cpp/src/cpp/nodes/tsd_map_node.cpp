@@ -31,7 +31,7 @@ namespace hgraph
         }
 
         TSInputView node_input_field(Node &node, std::string_view name) {
-            auto root = node.input(node_time(node));
+            auto root = node.input();
             if (!root) {
                 return {};
             }
@@ -43,7 +43,7 @@ namespace hgraph
         }
 
         TSInputView node_inner_ts_input(Node &node) {
-            auto root = node.input(node_time(node));
+            auto root = node.input();
             if (!root) {
                 return {};
             }
@@ -561,7 +561,7 @@ namespace hgraph
 
         // Multiplexed and shared args must be active on the outer map node so
         // value-only updates (with stable key sets) can reschedule keyed graphs.
-        auto outer_root = input(node_time(*this));
+        auto outer_root = input();
         auto outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
         if (!outer_bundle.has_value()) {
             return;
@@ -709,7 +709,7 @@ namespace hgraph
             }
         };
 
-        auto outer_root = input(node_time(*this));
+        auto outer_root = input();
         std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
         if (outer_bundle.has_value()) {
             const engine_time_t now = last_evaluation_time();
@@ -789,8 +789,8 @@ namespace hgraph
         }
     }
 
-    TSDOutputView TsdMapNode::tsd_output(engine_time_t current_time) {
-        auto out = output(current_time);
+    TSDOutputView TsdMapNode::tsd_output() {
+        auto out = output();
         if (!out) {
             return {};
         }
@@ -835,7 +835,7 @@ namespace hgraph
 
     void TsdMapNode::remove_graph(const value::View &key) {
         if (signature().capture_exception && has_error_output()) {
-            auto err_out = error_output(node_time(*this));
+            auto err_out = error_output();
             if (err_out) {
                 if (auto err_dict = err_out.try_as_dict(); err_dict.has_value()) {
                     err_dict->remove(key);
@@ -888,7 +888,7 @@ namespace hgraph
 
         auto &nested = it->second;
 
-        auto outer_root = input(node_time(*this));
+        auto outer_root = input();
         std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
         for (const auto &[arg, node_ndx] : input_node_ids_) {
             if (arg == key_arg_ || multiplexed_args_.find(arg) != multiplexed_args_.end()) {
@@ -945,7 +945,7 @@ namespace hgraph
 
         if (signature().capture_exception && has_error_output()) {
             auto capture_nested_error = [&](const NodeError &node_error) {
-                auto err_out = error_output(node_time(*this));
+                auto err_out = error_output();
                 if (!err_out) {
                     return;
                 }
@@ -976,9 +976,9 @@ namespace hgraph
         // key slot in the outer TSD output. We apply the nested output delta
         // to the keyed outer output view after each nested evaluation.
         if (output_node_id_ >= 0) {
-            auto outer = tsd_output(node_time(*this));
+            auto outer = tsd_output();
             auto node = nested->nodes()[output_node_id_];
-            auto inner = node->output(node_time(*node));
+            auto inner = node->output();
             if (outer && inner) {
                 TSView inner_raw = inner.as_ts_view();
                 TSView inner_effective = resolve_effective_view(inner_raw);
@@ -1164,7 +1164,7 @@ namespace hgraph
         }
 
         if (output_node_id_ >= 0) {
-            auto out = tsd_output(node_time(*this));
+            auto out = tsd_output();
             if (out) {
                 const bool removed = out.remove(key);
                 if (debug_tsd_map) {
@@ -1181,7 +1181,7 @@ namespace hgraph
 
     void TsdMapNode::wire_graph(const value::View &key, graph_s_ptr &graph) {
         const bool debug_tsd_map = std::getenv("HGRAPH_DEBUG_TSD_MAP") != nullptr;
-        auto outer_root = input(node_time(*this));
+        auto outer_root = input();
         std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
 
         for (const auto &[arg, node_ndx] : input_node_ids_) {
@@ -1189,7 +1189,7 @@ namespace hgraph
             node->notify();
 
             if (debug_tsd_map) {
-                auto node_root_dbg = node->input(node_time(*node));
+                auto node_root_dbg = node->input();
                 std::string root_path_dbg = node_root_dbg ? node_root_dbg.short_path().to_string() : "<none>";
                 std::fprintf(stderr,
                              "[tsd_map]  wire arg=%s node_ndx=%lld node_name=%s root=%s\n",
@@ -1273,7 +1273,7 @@ namespace hgraph
             // Python map/mesh semantics materialize keyed output slots at wire time.
             // This ensures subsequent key removals tick the outer TSD even when the
             // nested graph never published a valid value for that key.
-            auto out = tsd_output(node_time(*this));
+            auto out = tsd_output();
             if (out) {
                 out.create(key);
             }
@@ -1281,7 +1281,7 @@ namespace hgraph
     }
 
     bool TsdMapNode::refresh_multiplexed_bindings(const value::View &key, graph_s_ptr &graph, bool* all_mux_inputs_valid) {
-        auto outer_root = input(node_time(*this));
+        auto outer_root = input();
         std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
 
         bool mux_all_valid = true;
