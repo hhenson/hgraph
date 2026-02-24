@@ -113,6 +113,10 @@ set(HGRAPH_SOURCES
         types/time_series/ts_input.cpp
         types/time_series/ts_meta_schema_cache.cpp
         types/time_series/ts_ops.cpp
+        types/time_series/ts_ops/common.cpp
+        types/time_series/ts_ops/window_ops.cpp
+        types/time_series/ts_ops/set_ops.cpp
+        types/time_series/ts_ops/dict_ops.cpp
         types/time_series/ts_output.cpp
         types/time_series/ts_type_registry.cpp
         types/time_series/ts_value.cpp
