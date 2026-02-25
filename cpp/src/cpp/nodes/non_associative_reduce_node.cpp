@@ -13,15 +13,6 @@
 
 namespace hgraph {
     namespace {
-        engine_time_t node_time(const Node& node) {
-            if (const auto* et = node.cached_evaluation_time_ptr(); et != nullptr) {
-                return *et;
-            }
-            auto g = node.graph();
-            return g != nullptr ? g->evaluation_time() : MIN_DT;
-        }
-
-
         int64_t tsd_size(const TSInputView& tsd_input) {
             if (!tsd_input || !tsd_input.valid()) {
                 return 0;

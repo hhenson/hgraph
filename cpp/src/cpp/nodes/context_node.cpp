@@ -3,6 +3,7 @@
 #include <fmt/format.h>
 #include <hgraph/api/python/py_ref.h>
 #include <hgraph/nodes/context_node.h>
+#include <hgraph/nodes/node_binding_utils.h>
 #include <hgraph/python/global_keys.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/ref.h>
@@ -23,13 +24,6 @@ namespace hgraph {
                    lhs.meta == rhs.meta;
         }
 
-        engine_time_t node_time(const Node &node) {
-            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
-                return *et;
-            }
-            auto g = node.graph();
-            return g != nullptr ? g->evaluation_time() : MIN_DT;
-        }
     }  // namespace
 
     void ContextStubSourceNode::do_start() {

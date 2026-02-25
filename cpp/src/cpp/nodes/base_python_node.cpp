@@ -3,6 +3,7 @@
 
 #include <fmt/format.h>
 #include <hgraph/nodes/base_python_node.h>
+#include <hgraph/nodes/node_binding_utils.h>
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/error_type.h>
@@ -13,35 +14,6 @@
 
 namespace hgraph
 {
-	namespace {
-            const engine_time_t *node_time_ptr(const Node &node) {
-            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
-                return et;
-            }
-            auto g = node.graph();
-            return g != nullptr ? g->cached_evaluation_time_ptr() : nullptr;
-        }
-
-	        engine_time_t node_time(const Node &node) {
-            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
-                return *et;
-            }
-            auto g = node.graph();
-            return g != nullptr ? g->evaluation_time() : MIN_DT;
-        }
-
-	        TSInputView node_input_field_view(Node &node, std::string_view key) {
-	            TSInputView root = node.input();
-	            if (!root) {
-	                return {};
-	            }
-	            auto bundle = root.try_as_bundle();
-	            if (!bundle.has_value()) {
-	                return {};
-	            }
-	            return bundle->field(key);
-	        }
-	    }  // namespace
 
     BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                                    nb::dict scalars, const TSMeta* input_meta, const TSMeta* output_meta,
@@ -231,7 +203,7 @@ namespace hgraph
             if (node.signature().context_inputs.has_value() && !node.signature().context_inputs->empty()) {
                 contexts_.reserve(node.signature().context_inputs->size());
                 for (const auto &context_key : *node.signature().context_inputs) {
-                    auto context_view = node_input_field_view(node, context_key);
+                    auto context_view = hgraph::node_input_field(node, context_key);
                     if (context_view && context_view.valid()) {
                         nb::object context_value = context_view.to_python();
                         if (!nb::hasattr(context_value, "__enter__") || !nb::hasattr(context_value, "__exit__")) {

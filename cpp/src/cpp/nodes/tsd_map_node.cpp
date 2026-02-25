@@ -23,14 +23,6 @@
 namespace hgraph
 {
     namespace {
-        engine_time_t node_time(const Node &node) {
-            if (const auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
-                return *et;
-            }
-            auto g = node.graph();
-            return g != nullptr ? g->evaluation_time() : MIN_DT;
-        }
-
         bool debug_tsd_map_bind_enabled() {
             static const bool enabled = std::getenv("HGRAPH_DEBUG_TSD_MAP_BIND") != nullptr;
             return enabled;
@@ -138,54 +130,6 @@ namespace hgraph
                 return child;
             }
             return {};
-        }
-
-        std::optional<ViewData> resolve_outer_binding_target(const TSView &outer_any) {
-            if (!outer_any) {
-                return std::nullopt;
-            }
-
-            const TSMeta *outer_meta = outer_any.ts_meta();
-            ViewData bound_target{};
-            if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
-                if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                    return bound_target;
-                }
-
-                ViewData ref_target{};
-                if (hgraph::resolve_ref_value_target_view_data(outer_any, ref_target)) {
-                    return ref_target;
-                }
-                return std::nullopt;
-            }
-
-            if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                return bound_target;
-            }
-            return outer_any.view_data();
-        }
-
-        struct BindingTargetComparison {
-            std::optional<ViewData> current_inner_target;
-            std::optional<ViewData> desired_outer_target;
-            bool                    binding_changed{false};
-        };
-
-        BindingTargetComparison compare_binding_targets(const TSInputView& inner_ts, const TSView& outer_any) {
-            BindingTargetComparison out{};
-
-            ViewData current_bound_target{};
-            if (resolve_bound_target_view_data(inner_ts.as_ts_view().view_data(), current_bound_target)) {
-                out.current_inner_target = current_bound_target;
-            }
-
-            out.desired_outer_target = resolve_outer_binding_target(outer_any);
-            out.binding_changed =
-                out.current_inner_target.has_value() != out.desired_outer_target.has_value() ||
-                (out.current_inner_target.has_value() && out.desired_outer_target.has_value() &&
-                 !hgraph::same_view_identity(*out.current_inner_target, *out.desired_outer_target));
-
-            return out;
         }
 
         nb::object remove_marker() {
@@ -741,7 +685,7 @@ namespace hgraph
                 continue;
             }
 
-            BindingTargetComparison binding_targets = compare_binding_targets(inner_ts, outer_arg.as_ts_view());
+            hgraph::BindingTargetComparison binding_targets = hgraph::compare_binding_targets(inner_ts, outer_arg.as_ts_view());
 
             if (!inner_ts.is_bound() || binding_targets.binding_changed) {
                 hgraph::bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts, RefBindOrder::BoundTargetThenRefValue);
@@ -1154,7 +1098,7 @@ namespace hgraph
                     }
                 }
                 mux_all_valid = mux_all_valid && outer_key_value.valid();
-                BindingTargetComparison binding_targets = compare_binding_targets(inner_ts, outer_key_value);
+                hgraph::BindingTargetComparison binding_targets = hgraph::compare_binding_targets(inner_ts, outer_key_value);
                 const bool key_value_modified = outer_key_value.valid() && outer_key_value.modified();
                 if (debug_tsd_map_bind_enabled()) {
                     std::fprintf(stderr,

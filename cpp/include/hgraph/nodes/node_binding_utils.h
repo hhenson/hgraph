@@ -1,5 +1,6 @@
 #pragma once
 
+#include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series/ts_ops.h>
@@ -26,6 +27,22 @@ inline bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
            lhs.projection == rhs.projection &&
            lhs.path.indices == rhs.path.indices &&
            lhs.meta == rhs.meta;
+}
+
+inline const engine_time_t* node_time_ptr(const Node& node) {
+    if (const auto* et = node.cached_evaluation_time_ptr(); et != nullptr) {
+        return et;
+    }
+    auto g = node.graph();
+    return g != nullptr ? g->cached_evaluation_time_ptr() : nullptr;
+}
+
+inline engine_time_t node_time(const Node& node) {
+    if (const auto* et = node.cached_evaluation_time_ptr(); et != nullptr) {
+        return *et;
+    }
+    auto g = node.graph();
+    return g != nullptr ? g->evaluation_time() : MIN_DT;
 }
 
 inline bool resolve_ref_value_target_view_data(const TSView& ref_view, ViewData& out_target) {
@@ -124,6 +141,53 @@ inline std::optional<ViewData> resolve_non_ref_target_view_data(
     }
 
     return resolved;
+}
+
+inline std::optional<ViewData> resolve_outer_binding_target(const TSView& outer_any) {
+    if (!outer_any) {
+        return std::nullopt;
+    }
+
+    ViewData bound_target{};
+    const TSMeta* outer_meta = outer_any.ts_meta();
+    if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
+        if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
+            return bound_target;
+        }
+        ViewData ref_target{};
+        if (resolve_ref_value_target_view_data(outer_any, ref_target)) {
+            return ref_target;
+        }
+        return std::nullopt;
+    }
+
+    if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
+        return bound_target;
+    }
+    return outer_any.view_data();
+}
+
+struct BindingTargetComparison {
+    std::optional<ViewData> current_inner_target;
+    std::optional<ViewData> desired_outer_target;
+    bool                    binding_changed{false};
+};
+
+inline BindingTargetComparison compare_binding_targets(const TSInputView& inner_ts, const TSView& outer_any) {
+    BindingTargetComparison out{};
+
+    ViewData current_bound_target{};
+    if (resolve_bound_target_view_data(inner_ts.as_ts_view().view_data(), current_bound_target)) {
+        out.current_inner_target = current_bound_target;
+    }
+
+    out.desired_outer_target = resolve_outer_binding_target(outer_any);
+    out.binding_changed =
+        out.current_inner_target.has_value() != out.desired_outer_target.has_value() ||
+        (out.current_inner_target.has_value() && out.desired_outer_target.has_value() &&
+         !same_view_identity(*out.current_inner_target, *out.desired_outer_target));
+
+    return out;
 }
 
 inline TSInputView node_input_field(Node& node, std::string_view name) {

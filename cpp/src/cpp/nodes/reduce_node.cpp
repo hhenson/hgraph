@@ -25,14 +25,6 @@ namespace hgraph {
             return enabled;
         }
 
-        engine_time_t node_time(const Node &node) {
-            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
-                return *et;
-            }
-            auto g = node.graph();
-            return g != nullptr ? g->evaluation_time() : MIN_DT;
-        }
-
         bool collect_tsd_keys(const TSInputView &tsd_input, std::vector<value::Value> &out) {
             out.clear();
             if (!tsd_input) {
@@ -1029,12 +1021,7 @@ namespace hgraph {
                          dst_py.c_str());
         }
 
-        ViewData dst_target{};
-        if (resolve_bound_target_view_data(dst_input.as_ts_view().view_data(), dst_target)) {
-            src_input.as_ts_view().bind(TSView(dst_target, src_input.as_ts_view().view_data().engine_time_ptr));
-        } else {
-            hgraph::bind_inner_from_outer(dst_input.as_ts_view(), src_input);
-        }
+        hgraph::bind_inner_from_outer(dst_input.as_ts_view(), src_input);
         src_node->notify(node_time(*this));
         dst_node->notify(node_time(*this));
     }
