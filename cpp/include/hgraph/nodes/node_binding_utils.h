@@ -155,6 +155,50 @@ inline TSInputView node_inner_ts_input(Node& node, bool fallback_to_first = fals
     return ts;
 }
 
+inline TSView resolve_tsd_child_view(const TSInputView& tsd_input, const value::View& key) {
+    if (!tsd_input || !key.valid()) {
+        return {};
+    }
+
+    const engine_time_t* input_time_ptr = tsd_input.as_ts_view().view_data().engine_time_ptr;
+    const auto normalize_child = [input_time_ptr](TSView child) -> TSView {
+        if (!child) {
+            return {};
+        }
+        if (child.valid()) {
+            return child;
+        }
+        ViewData resolved_target{};
+        if (resolve_bound_target_view_data(child.view_data(), resolved_target)) {
+            return TSView(resolved_target, input_time_ptr);
+        }
+        return child;
+    };
+
+    auto tsd_opt = tsd_input.try_as_dict();
+    if (!tsd_opt.has_value()) {
+        return {};
+    }
+
+    TSView direct_child = normalize_child(tsd_opt->as_ts_view().as_dict().at_key(key));
+    if (direct_child && direct_child.valid()) {
+        return direct_child;
+    }
+
+    ViewData bound_target{};
+    if (resolve_bound_target_view_data(tsd_opt->as_ts_view().view_data(), bound_target)) {
+        TSView bound_child = normalize_child(TSView(bound_target, input_time_ptr).child_by_key(key));
+        if (bound_child && bound_child.valid()) {
+            return bound_child;
+        }
+        if (bound_child) {
+            return bound_child;
+        }
+    }
+
+    return direct_child;
+}
+
 inline void bind_inner_from_outer(const TSView& outer_any,
                                   TSInputView inner_any,
                                   RefBindOrder ref_bind_order = RefBindOrder::RefValueThenBoundTarget) {

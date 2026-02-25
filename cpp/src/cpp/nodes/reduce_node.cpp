@@ -61,50 +61,6 @@ namespace hgraph {
             return true;
         }
 
-        TSView resolve_tsd_key_view(const TSInputView& tsd_input, const value::View& key) {
-            if (!tsd_input || !key.valid()) {
-                return {};
-            }
-
-            const engine_time_t* input_time_ptr = tsd_input.as_ts_view().view_data().engine_time_ptr;
-            auto normalize_child = [input_time_ptr](TSView child) -> TSView {
-                if (!child) {
-                    return {};
-                }
-                if (child.valid()) {
-                    return child;
-                }
-                ViewData resolved_target{};
-                if (resolve_bound_target_view_data(child.view_data(), resolved_target)) {
-                    return TSView(resolved_target, input_time_ptr);
-                }
-                return child;
-            };
-
-            auto tsd_opt = tsd_input.try_as_dict();
-            if (!tsd_opt.has_value()) {
-                return {};
-            }
-
-            TSView direct_child = normalize_child(tsd_opt->as_ts_view().as_dict().at_key(key));
-            if (direct_child && direct_child.valid()) {
-                return direct_child;
-            }
-
-            ViewData bound_target{};
-            if (resolve_bound_target_view_data(tsd_opt->as_ts_view().view_data(), bound_target)) {
-                TSView bound_child = normalize_child(TSView(bound_target, input_time_ptr).child_by_key(key));
-                if (bound_child && bound_child.valid()) {
-                    return bound_child;
-                }
-                if (bound_child) {
-                    return bound_child;
-                }
-            }
-
-            return direct_child;
-        }
-
         std::optional<value::Value> key_from_python_object(const nb::object& key_obj, const value::TypeMeta* key_type_meta) {
             if (key_type_meta == nullptr) {
                 return std::nullopt;
@@ -447,7 +403,7 @@ namespace hgraph {
                         continue;
                     }
 
-                    TSView tsd_key_view = resolve_tsd_key_view(tsd, key.view());
+                    TSView tsd_key_view = hgraph::resolve_tsd_child_view(tsd, key.view());
                     const bool has_tsd_key = static_cast<bool>(tsd_key_view);
                     const bool tsd_key_valid = has_tsd_key && tsd_key_view.valid();
                     bool rebound = false;
@@ -931,7 +887,7 @@ namespace hgraph {
             return;
         }
 
-        TSView tsd_key_view = resolve_tsd_key_view(tsd, key);
+        TSView tsd_key_view = hgraph::resolve_tsd_child_view(tsd, key);
         const bool has_tsd_key = static_cast<bool>(tsd_key_view);
         const bool tsd_key_valid = has_tsd_key && tsd_key_view.valid();
 

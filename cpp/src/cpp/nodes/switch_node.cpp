@@ -41,7 +41,7 @@ namespace hgraph {
             return out;
         }
 
-        void bind_inner_from_outer_debug(const TSView &outer_any, TSInputView inner_any) {
+        void log_switch_bind(const TSView &outer_any, TSInputView inner_any) {
             const bool debug_bind = debug_switch_bind_enabled();
             if (!inner_any) {
                 return;
@@ -54,7 +54,6 @@ namespace hgraph {
                                  static_cast<int>(inner_any.as_ts_view().kind()),
                                  inner_any.as_ts_view().view_data().uses_link_target ? 1 : 0);
                 }
-                inner_any.unbind();
                 return;
             }
 
@@ -68,7 +67,6 @@ namespace hgraph {
                              outer_any.valid() ? 1 : 0,
                              outer_any.modified() ? 1 : 0);
             }
-            hgraph::bind_inner_from_outer(outer_any, inner_any, RefBindOrder::RefValueThenBoundTarget);
         }
 
     }  // namespace
@@ -328,7 +326,9 @@ namespace hgraph {
                         outer_any && outer_meta != nullptr && outer_meta->kind == TSKind::REF && outer_any.modified();
 
                     if (!inner_any.is_bound() || refresh_ref_binding) {
-                        bind_inner_from_outer_debug(outer_any ? outer_any.as_ts_view() : TSView{}, inner_any);
+                        TSView outer_view = outer_any ? outer_any.as_ts_view() : TSView{};
+                        log_switch_bind(outer_view, inner_any);
+                        hgraph::bind_inner_from_outer(outer_view, inner_any, RefBindOrder::RefValueThenBoundTarget);
                         if (!inner_any.active()) {
                             inner_any.make_active();
                         }
@@ -427,7 +427,9 @@ namespace hgraph {
                     if (!inner_any) {
                         continue;
                     }
-                    bind_inner_from_outer_debug(outer_any.as_ts_view(), inner_any);
+                    TSView outer_view = outer_any.as_ts_view();
+                    log_switch_bind(outer_view, inner_any);
+                    hgraph::bind_inner_from_outer(outer_view, inner_any, RefBindOrder::RefValueThenBoundTarget);
                     if (!inner_any.active()) {
                         inner_any.make_active();
                     }
