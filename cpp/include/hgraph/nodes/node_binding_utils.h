@@ -8,6 +8,7 @@
 
 #include <exception>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace hgraph {
@@ -296,6 +297,74 @@ inline bool extract_tsd_key_delta(const TSInputView& keys_view,
     }
 
     return has_delta;
+}
+
+inline nb::object remove_marker() {
+    static nb::object marker = nb::none();
+    if (!marker.is_valid()) {
+        marker = nb::module_::import_("hgraph").attr("REMOVE");
+    }
+    return marker;
+}
+
+inline nb::object remove_if_exists_marker() {
+    static nb::object marker = nb::none();
+    if (!marker.is_valid()) {
+        marker = nb::module_::import_("hgraph").attr("REMOVE_IF_EXISTS");
+    }
+    return marker;
+}
+
+inline bool is_remove_marker(const nb::object& obj) {
+    if (obj.is(remove_marker()) || obj.is(remove_if_exists_marker())) {
+        return true;
+    }
+
+    nb::object current = nb::getattr(obj, "name", nb::none());
+    for (size_t depth = 0; depth < 4 && !current.is_none(); ++depth) {
+        if (current.is(remove_marker()) || current.is(remove_if_exists_marker())) {
+            return true;
+        }
+        if (nb::isinstance<nb::str>(current)) {
+            std::string name = nb::cast<std::string>(current);
+            return name == "REMOVE" || name == "REMOVE_IF_EXISTS";
+        }
+        current = nb::getattr(current, "name", nb::none());
+    }
+
+    return false;
+}
+
+inline std::optional<nb::object> lookup_keyed_delta_value(const TSInputView& input_view,
+                                                           const value::View& key,
+                                                           const value::TypeMeta* key_type_meta) {
+    if (!input_view || !key.valid() || key_type_meta == nullptr) {
+        return std::nullopt;
+    }
+
+    nb::object delta_obj = input_view.delta_to_python();
+    if (!nb::isinstance<nb::dict>(delta_obj)) {
+        return std::nullopt;
+    }
+
+    nb::dict delta_dict = nb::cast<nb::dict>(delta_obj);
+    for (const auto& kv : delta_dict) {
+        auto key_value = key_value_from_python(nb::cast<nb::object>(kv.first), key_type_meta);
+        if (!key_value.has_value()) {
+            continue;
+        }
+        if (!key_type_meta->ops().equals(key.data(), key_value->data(), key_type_meta)) {
+            continue;
+        }
+
+        nb::object value_obj = nb::cast<nb::object>(kv.second);
+        if (value_obj.is_none() || is_remove_marker(value_obj)) {
+            return std::nullopt;
+        }
+        return value_obj;
+    }
+
+    return std::nullopt;
 }
 
 inline TSView resolve_tsd_child_view(const TSInputView& tsd_input, const value::View& key) {

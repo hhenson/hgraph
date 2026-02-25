@@ -132,75 +132,6 @@ namespace hgraph
             return {};
         }
 
-        nb::object remove_marker() {
-            static nb::object marker = nb::none();
-            if (!marker.is_valid()) {
-                marker = nb::module_::import_("hgraph").attr("REMOVE");
-            }
-            return marker;
-        }
-
-        nb::object remove_if_exists_marker() {
-            static nb::object marker = nb::none();
-            if (!marker.is_valid()) {
-                marker = nb::module_::import_("hgraph").attr("REMOVE_IF_EXISTS");
-            }
-            return marker;
-        }
-
-        bool is_remove_marker(const nb::object& obj) {
-            if (obj.is(remove_marker()) || obj.is(remove_if_exists_marker())) {
-                return true;
-            }
-
-            // Python deltas can carry wrapped sentinels like Sentinel(REMOVE).
-            // Unwrap a small number of `.name` hops and match by logical marker name.
-            nb::object current = nb::getattr(obj, "name", nb::none());
-            for (size_t depth = 0; depth < 4 && !current.is_none(); ++depth) {
-                if (current.is(remove_marker()) || current.is(remove_if_exists_marker())) {
-                    return true;
-                }
-                if (nb::isinstance<nb::str>(current)) {
-                    std::string name = nb::cast<std::string>(current);
-                    return name == "REMOVE" || name == "REMOVE_IF_EXISTS";
-                }
-                current = nb::getattr(current, "name", nb::none());
-            }
-
-            return false;
-        }
-
-        std::optional<nb::object> delta_value_for_key(const TSInputView& outer_arg,
-                                                      const value::View& key,
-                                                      const value::TypeMeta* key_type_meta) {
-            if (!outer_arg || !key.valid() || key_type_meta == nullptr) {
-                return std::nullopt;
-            }
-
-            nb::object delta_obj = outer_arg.delta_to_python();
-            if (!nb::isinstance<nb::dict>(delta_obj)) {
-                return std::nullopt;
-            }
-
-            nb::dict delta_dict = nb::cast<nb::dict>(delta_obj);
-            for (const auto& kv : delta_dict) {
-                auto key_value = hgraph::key_value_from_python(nb::cast<nb::object>(kv.first), key_type_meta);
-                if (!key_value.has_value()) {
-                    continue;
-                }
-                if (!key_type_meta->ops().equals(key.data(), key_value->data(), key_type_meta)) {
-                    continue;
-                }
-
-                nb::object value_obj = nb::cast<nb::object>(kv.second);
-                if (value_obj.is_none() || is_remove_marker(value_obj)) {
-                    return std::nullopt;
-                }
-                return value_obj;
-            }
-
-            return std::nullopt;
-        }
     }  // namespace
 
     MapNestedEngineEvaluationClock::MapNestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock,
@@ -986,7 +917,7 @@ namespace hgraph
                 TSView outer_key_value = resolve_outer_key_view(outer_arg.as_ts_view(), key);
                 bool used_local_fallback = false;
                 if (!outer_key_value.valid()) {
-                    auto delta_value = delta_value_for_key(outer_arg, key, key_type_meta_);
+                    auto delta_value = hgraph::lookup_keyed_delta_value(outer_arg, key, key_type_meta_);
                     const TSMeta* inner_meta = inner_ts.ts_meta();
                     const TSMeta* fallback_meta =
                         (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
@@ -1078,7 +1009,7 @@ namespace hgraph
                 TSView outer_key_value = resolve_outer_key_view(outer_arg.as_ts_view(), key);
                 if (!outer_key_value.valid()) {
                     stage_id = 2;
-                    auto delta_value = delta_value_for_key(outer_arg, key, key_type_meta_);
+                    auto delta_value = hgraph::lookup_keyed_delta_value(outer_arg, key, key_type_meta_);
                     const TSMeta* inner_meta = inner_ts.ts_meta();
                     const TSMeta* fallback_meta =
                         (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;

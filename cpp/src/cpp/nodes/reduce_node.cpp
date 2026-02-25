@@ -53,16 +53,6 @@ namespace hgraph {
             return true;
         }
 
-        std::optional<value::Value> key_from_python_object(const nb::object& key_obj, const value::TypeMeta* key_type_meta) {
-            if (key_type_meta == nullptr) {
-                return std::nullopt;
-            }
-            value::Value key_value(key_type_meta);
-            key_value.emplace();
-            key_type_meta->ops().from_python(key_value.data(), key_obj, key_type_meta);
-            return key_value;
-        }
-
         nb::object get_delta_member(const nb::object& delta_obj, const char* name) {
             nb::object member = nb::getattr(delta_obj, name, nb::none());
             if (member.is_none()) {
@@ -83,7 +73,7 @@ namespace hgraph {
 
             bool appended = false;
             for (auto item_h : nb::cast<nb::iterable>(iterable_obj)) {
-                auto key_value = key_from_python_object(nb::cast<nb::object>(item_h), key_type_meta);
+                auto key_value = hgraph::key_value_from_python(nb::cast<nb::object>(item_h), key_type_meta);
                 if (!key_value.has_value()) {
                     continue;
                 }
@@ -142,7 +132,7 @@ namespace hgraph {
             nb::dict delta_dict = nb::cast<nb::dict>(delta_obj);
             out.reserve(delta_dict.size());
             for (auto item : delta_dict) {
-                auto key_value = key_from_python_object(nb::cast<nb::object>(item.first), key_type_meta);
+                auto key_value = hgraph::key_value_from_python(nb::cast<nb::object>(item.first), key_type_meta);
                 if (!key_value.has_value()) {
                     continue;
                 }
@@ -151,73 +141,6 @@ namespace hgraph {
             return true;
         }
 
-        nb::object remove_marker() {
-            static nb::object marker = nb::none();
-            if (!marker.is_valid()) {
-                marker = nb::module_::import_("hgraph").attr("REMOVE");
-            }
-            return marker;
-        }
-
-        nb::object remove_if_exists_marker() {
-            static nb::object marker = nb::none();
-            if (!marker.is_valid()) {
-                marker = nb::module_::import_("hgraph").attr("REMOVE_IF_EXISTS");
-            }
-            return marker;
-        }
-
-        bool is_remove_marker(const nb::object& obj) {
-            if (obj.is(remove_marker()) || obj.is(remove_if_exists_marker())) {
-                return true;
-            }
-
-            nb::object current = nb::getattr(obj, "name", nb::none());
-            for (size_t depth = 0; depth < 4 && !current.is_none(); ++depth) {
-                if (current.is(remove_marker()) || current.is(remove_if_exists_marker())) {
-                    return true;
-                }
-                if (nb::isinstance<nb::str>(current)) {
-                    std::string name = nb::cast<std::string>(current);
-                    return name == "REMOVE" || name == "REMOVE_IF_EXISTS";
-                }
-                current = nb::getattr(current, "name", nb::none());
-            }
-
-            return false;
-        }
-
-        std::optional<nb::object> delta_value_for_key(const TSInputView& tsd_input,
-                                                      const value::View& key,
-                                                      const value::TypeMeta* key_type_meta) {
-            if (!tsd_input || !key.valid() || key_type_meta == nullptr) {
-                return std::nullopt;
-            }
-
-            nb::object delta_obj = tsd_input.delta_to_python();
-            if (!nb::isinstance<nb::dict>(delta_obj)) {
-                return std::nullopt;
-            }
-
-            nb::dict delta_dict = nb::cast<nb::dict>(delta_obj);
-            for (const auto& kv : delta_dict) {
-                auto key_value = key_from_python_object(nb::cast<nb::object>(kv.first), key_type_meta);
-                if (!key_value.has_value()) {
-                    continue;
-                }
-                if (!key_type_meta->ops().equals(key.data(), key_value->data(), key_type_meta)) {
-                    continue;
-                }
-
-                nb::object value_obj = nb::cast<nb::object>(kv.second);
-                if (value_obj.is_none() || is_remove_marker(value_obj)) {
-                    return std::nullopt;
-                }
-                return value_obj;
-            }
-
-            return std::nullopt;
-        }
     }  // namespace
 
     ReduceNode::ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
@@ -445,7 +368,7 @@ namespace hgraph {
                             }
                         }
                     } else {
-                        auto delta_value = delta_value_for_key(tsd, key.view(), key_type_meta);
+                        auto delta_value = hgraph::lookup_keyed_delta_value(tsd, key.view(), key_type_meta);
                         const TSMeta* inner_meta = inner_ts.ts_meta();
                         const TSMeta* fallback_meta =
                             (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
@@ -899,7 +822,7 @@ namespace hgraph {
             const TSMeta* tsd_meta = tsd.ts_meta();
             const value::TypeMeta* key_type_meta =
                 (tsd_meta != nullptr && tsd_meta->kind == TSKind::TSD) ? tsd_meta->key_type() : nullptr;
-            auto delta_value = delta_value_for_key(tsd, key, key_type_meta);
+            auto delta_value = hgraph::lookup_keyed_delta_value(tsd, key, key_type_meta);
 
             const TSMeta* inner_meta = inner_ts.ts_meta();
             const TSMeta* fallback_meta =
