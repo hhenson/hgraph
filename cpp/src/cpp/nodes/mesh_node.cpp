@@ -18,14 +18,6 @@
 
 namespace hgraph {
     namespace {
-        std::string key_repr(const value::View &key, const value::TypeMeta *key_type_meta) {
-            if (!key.valid() || key_type_meta == nullptr) {
-                return "<invalid key>";
-            }
-            nb::object py_key = key_type_meta->ops().to_python(key.data(), key_type_meta);
-            return nb::cast<std::string>(nb::repr(py_key));
-        }
-
         void replace_key_set(TsdMapNode::key_set_type& dst, const TsdMapNode::key_set_type& src) {
             dst.clear();
             for (const auto& key : src) {
@@ -113,28 +105,24 @@ namespace hgraph {
         if (key_type_meta_ == nullptr) {
             return false;
         }
-        value::Value key_val(key_type_meta_);
-        key_val.emplace();
-        key_type_meta_->ops().from_python(key_val.data(), key, key_type_meta_);
-
-        value::Value depends_on_val(key_type_meta_);
-        depends_on_val.emplace();
-        key_type_meta_->ops().from_python(depends_on_val.data(), depends_on, key_type_meta_);
-        return add_graph_dependency(key_val.view(), depends_on_val.view());
+        auto key_val = hgraph::key_value_from_python(key, key_type_meta_);
+        auto depends_on_val = hgraph::key_value_from_python(depends_on, key_type_meta_);
+        if (!key_val.has_value() || !depends_on_val.has_value()) {
+            return false;
+        }
+        return add_graph_dependency(key_val->view(), depends_on_val->view());
     }
 
     void MeshNode::_remove_graph_dependency(const nb::object &key, const nb::object &depends_on) {
         if (key_type_meta_ == nullptr) {
             return;
         }
-        value::Value key_val(key_type_meta_);
-        key_val.emplace();
-        key_type_meta_->ops().from_python(key_val.data(), key, key_type_meta_);
-
-        value::Value depends_on_val(key_type_meta_);
-        depends_on_val.emplace();
-        key_type_meta_->ops().from_python(depends_on_val.data(), depends_on, key_type_meta_);
-        remove_graph_dependency(key_val.view(), depends_on_val.view());
+        auto key_val = hgraph::key_value_from_python(key, key_type_meta_);
+        auto depends_on_val = hgraph::key_value_from_python(depends_on, key_type_meta_);
+        if (!key_val.has_value() || !depends_on_val.has_value()) {
+            return;
+        }
+        remove_graph_dependency(key_val->view(), depends_on_val->view());
     }
 
     void MeshNode::do_start() {

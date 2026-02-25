@@ -46,6 +46,14 @@ inline engine_time_t node_time(const Node& node) {
     return g != nullptr ? g->evaluation_time() : MIN_DT;
 }
 
+inline std::string key_repr(const value::View& key, const value::TypeMeta* key_type_meta) {
+    if (!key.valid() || key_type_meta == nullptr) {
+        return "<invalid key>";
+    }
+    nb::object py_key = key_type_meta->ops().to_python(key.data(), key_type_meta);
+    return nb::cast<std::string>(nb::repr(py_key));
+}
+
 inline bool resolve_ref_value_target_view_data(const TSView& ref_view, ViewData& out_target) {
     const TSMeta* meta = ref_view.ts_meta();
     if (meta == nullptr || meta->kind != TSKind::REF) {

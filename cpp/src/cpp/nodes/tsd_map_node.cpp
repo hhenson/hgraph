@@ -43,14 +43,6 @@ namespace hgraph
             return enabled;
         }
 
-        std::string key_repr(const value::View &key, const value::TypeMeta *key_type_meta) {
-            if (!key.valid() || key_type_meta == nullptr) {
-                return "<invalid key>";
-            }
-            nb::object py_key = key_type_meta->ops().to_python(key.data(), key_type_meta);
-            return nb::cast<std::string>(nb::repr(py_key));
-        }
-
         TSView resolve_outer_key_view(TSView outer_ts, const value::View &key) {
             if (!outer_ts || !key.valid()) {
                 return {};

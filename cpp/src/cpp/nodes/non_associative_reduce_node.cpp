@@ -32,14 +32,7 @@ namespace hgraph {
             const TSMeta* tsd_meta = tsd_input.ts_meta();
             const value::TypeMeta* key_type_meta =
                 (tsd_meta != nullptr && tsd_meta->kind == TSKind::TSD) ? tsd_meta->key_type() : nullptr;
-            if (key_type_meta == nullptr) {
-                return std::nullopt;
-            }
-
-            value::Value key(key_type_meta);
-            key.emplace();
-            key_type_meta->ops().from_python(key.data(), nb::int_(index), key_type_meta);
-            return key;
+            return hgraph::key_value_from_python(nb::int_(index), key_type_meta);
         }
 
         TSView resolve_tsd_index_view(const TSInputView& tsd_input, int64_t index) {
