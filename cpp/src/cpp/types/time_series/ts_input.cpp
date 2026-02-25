@@ -321,6 +321,10 @@ TSInput::TSInput(TSInput&& other) noexcept
     if (link_observer_registry_ != nullptr) {
         value_.set_link_observer_registry(link_observer_registry_.get());
     }
+    if (active_root_) {
+        set_active(true);
+    }
+    other.active_root_ = false;
 }
 
 TSInput& TSInput::operator=(TSInput&& other) noexcept {
@@ -336,6 +340,10 @@ TSInput& TSInput::operator=(TSInput&& other) noexcept {
         if (link_observer_registry_ != nullptr) {
             value_.set_link_observer_registry(link_observer_registry_.get());
         }
+        if (active_root_) {
+            set_active(true);
+        }
+        other.active_root_ = false;
     }
     return *this;
 }
@@ -377,15 +385,13 @@ bool TSInput::signal_input_has_impl(const std::vector<size_t>& path_indices) con
 void TSInput::bind(TSOutput& output) {
     TSView input_view = view();
     TSView native_output_view = output.view();
-    const bool input_is_ref = meta_ != nullptr && meta_->kind == TSKind::REF;
     const bool input_is_signal = meta_ != nullptr && meta_->kind == TSKind::SIGNAL;
-    const bool output_is_ref = native_output_view.ts_meta() != nullptr &&
-                               native_output_view.ts_meta()->kind == TSKind::REF;
-    TSView output_view = (input_is_ref || input_is_signal || output_is_ref)
-                             ? native_output_view
-                             : output.view_for_input(*this);
+    // Schema selection for non-SIGNAL inputs belongs to TSOutput.
+    TSView output_view = input_is_signal ? native_output_view : output.view_for_input(*this);
+    const bool output_view_is_ref =
+        output_view.ts_meta() != nullptr && output_view.ts_meta()->kind == TSKind::REF;
 
-    if (meta_ != nullptr && !output_is_ref &&
+    if (meta_ != nullptr && !output_view_is_ref &&
         meta_->kind == TSKind::TSL && meta_->fixed_size() > 0) {
         bind_static_container_recursive(meta_, input_view, output_view);
     } else {
