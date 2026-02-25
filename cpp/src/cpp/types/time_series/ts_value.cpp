@@ -25,8 +25,8 @@ value::ValueView to_mut_view_or_empty(value::Value& value) {
 }  // namespace
 
 TSValue::TSValue(const TSMeta* meta) {
-    const value::TypeMeta* link_schema = nullptr;
-    if (meta != nullptr) {
+    const value::TypeMeta* link_schema = meta != nullptr ? meta->link_schema() : nullptr;
+    if (meta != nullptr && link_schema == nullptr) {
         link_schema = TSMetaSchemaCache::instance().get(meta).link_schema;
     }
     initialize(meta, link_schema, false);
@@ -44,22 +44,33 @@ void TSValue::initialize(const TSMeta* meta, const value::TypeMeta* link_schema,
         return;
     }
 
-    const auto& schemas = TSMetaSchemaCache::instance().get(meta_);
+    const auto& schema_cache = TSMetaSchemaCache::instance().get(meta_);
 
-    if (schemas.value_schema != nullptr) {
-        value_ = value::Value(schemas.value_schema);
+    const value::TypeMeta* value_schema =
+        meta_->value_schema() != nullptr ? meta_->value_schema() : schema_cache.value_schema;
+    const value::TypeMeta* time_schema =
+        meta_->time_schema() != nullptr ? meta_->time_schema() : schema_cache.time_schema;
+    const value::TypeMeta* observer_schema =
+        meta_->observer_schema() != nullptr ? meta_->observer_schema() : schema_cache.observer_schema;
+    const value::TypeMeta* delta_schema =
+        meta_->delta_value_schema() != nullptr ? meta_->delta_value_schema() : schema_cache.delta_schema;
+    const value::TypeMeta* meta_link_schema =
+        meta_->link_schema() != nullptr ? meta_->link_schema() : schema_cache.link_schema;
+
+    if (value_schema != nullptr) {
+        value_ = value::Value(value_schema);
     }
-    if (schemas.time_schema != nullptr) {
-        time_ = value::Value(schemas.time_schema);
+    if (time_schema != nullptr) {
+        time_ = value::Value(time_schema);
     }
-    if (schemas.observer_schema != nullptr) {
-        observer_ = value::Value(schemas.observer_schema);
+    if (observer_schema != nullptr) {
+        observer_ = value::Value(observer_schema);
     }
-    if (schemas.delta_schema != nullptr) {
-        delta_value_ = value::Value(schemas.delta_schema);
+    if (delta_schema != nullptr) {
+        delta_value_ = value::Value(delta_schema);
     }
 
-    const value::TypeMeta* resolved_link_schema = link_schema != nullptr ? link_schema : schemas.link_schema;
+    const value::TypeMeta* resolved_link_schema = link_schema != nullptr ? link_schema : meta_link_schema;
     if (resolved_link_schema != nullptr) {
         link_ = value::Value(resolved_link_schema);
         link_.emplace();

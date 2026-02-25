@@ -132,6 +132,15 @@ struct TSMeta {
     const value::TypeMeta* value_type = nullptr;
     KindData data{};
 
+    // Parallel runtime schemas derived from this TSMeta.
+    // These are populated by TSTypeRegistry once the kind-specific fields are set.
+    const value::TypeMeta* time_schema_ = nullptr;
+    const value::TypeMeta* observer_schema_ = nullptr;
+    const value::TypeMeta* delta_value_schema_ = nullptr;
+    const value::TypeMeta* link_schema_ = nullptr;
+    const value::TypeMeta* input_link_schema_ = nullptr;
+    const value::TypeMeta* active_schema_ = nullptr;
+
     // TSMeta is always heap-allocated and pointer-referenced; non-copyable due to nb::object in union.
     TSMeta() = default;
     ~TSMeta() { destroy_active_member(); }
@@ -139,7 +148,15 @@ struct TSMeta {
     TSMeta(const TSMeta&) = delete;
     TSMeta& operator=(const TSMeta&) = delete;
 
-    TSMeta(TSMeta&& other) noexcept : kind(other.kind), value_type(other.value_type) {
+    TSMeta(TSMeta&& other) noexcept
+        : kind(other.kind),
+          value_type(other.value_type),
+          time_schema_(other.time_schema_),
+          observer_schema_(other.observer_schema_),
+          delta_value_schema_(other.delta_value_schema_),
+          link_schema_(other.link_schema_),
+          input_link_schema_(other.input_link_schema_),
+          active_schema_(other.active_schema_) {
         move_data_from(std::move(other));
     }
     TSMeta& operator=(TSMeta&& other) noexcept {
@@ -147,6 +164,12 @@ struct TSMeta {
             destroy_active_member();
             kind = other.kind;
             value_type = other.value_type;
+            time_schema_ = other.time_schema_;
+            observer_schema_ = other.observer_schema_;
+            delta_value_schema_ = other.delta_value_schema_;
+            link_schema_ = other.link_schema_;
+            input_link_schema_ = other.input_link_schema_;
+            active_schema_ = other.active_schema_;
             move_data_from(std::move(other));
         }
         return *this;
@@ -232,6 +255,34 @@ struct TSMeta {
     [[nodiscard]] const nb::object& python_type() const noexcept {
         static const nb::object none_obj{};
         return kind == TSKind::TSB ? data.tsb.python_type : none_obj;
+    }
+
+    [[nodiscard]] const value::TypeMeta* value_schema() const noexcept {
+        return value_type;
+    }
+
+    [[nodiscard]] const value::TypeMeta* time_schema() const noexcept {
+        return time_schema_;
+    }
+
+    [[nodiscard]] const value::TypeMeta* observer_schema() const noexcept {
+        return observer_schema_;
+    }
+
+    [[nodiscard]] const value::TypeMeta* delta_value_schema() const noexcept {
+        return delta_value_schema_;
+    }
+
+    [[nodiscard]] const value::TypeMeta* link_schema() const noexcept {
+        return link_schema_;
+    }
+
+    [[nodiscard]] const value::TypeMeta* input_link_schema() const noexcept {
+        return input_link_schema_;
+    }
+
+    [[nodiscard]] const value::TypeMeta* active_schema() const noexcept {
+        return active_schema_;
     }
 
     // ========== Helper Methods ==========

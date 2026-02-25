@@ -40,6 +40,26 @@ value::ValueView to_mut_view_or_empty(value::Value& value) {
     return value.view();
 }
 
+const value::TypeMeta* input_link_schema_for(const TSMeta* meta) {
+    if (meta == nullptr) {
+        return nullptr;
+    }
+    if (meta->input_link_schema() != nullptr) {
+        return meta->input_link_schema();
+    }
+    return TSMetaSchemaCache::instance().get(meta).input_link_schema;
+}
+
+const value::TypeMeta* active_schema_for(const TSMeta* meta) {
+    if (meta == nullptr) {
+        return nullptr;
+    }
+    if (meta->active_schema() != nullptr) {
+        return meta->active_schema();
+    }
+    return TSMetaSchemaCache::instance().get(meta).active_schema;
+}
+
 std::optional<value::View> navigate_active_view(const value::View& root, const TSMeta* meta,
                                                 const std::vector<size_t>& indices) {
     value::View current = root;
@@ -270,7 +290,7 @@ TSInput::TSInput() {
 
 TSInput::TSInput(const TSMeta* meta, node_ptr owning_node, size_t port_index)
     : link_observer_registry_(std::make_shared<TSLinkObserverRegistry>()),
-      value_(meta, meta != nullptr ? TSMetaSchemaCache::instance().get(meta).input_link_schema : nullptr),
+      value_(meta, input_link_schema_for(meta)),
       meta_(meta),
       owning_node_(owning_node),
       port_index_(port_index) {
@@ -281,9 +301,9 @@ TSInput::TSInput(const TSMeta* meta, node_ptr owning_node, size_t port_index)
         return;
     }
 
-    const auto& schemas = TSMetaSchemaCache::instance().get(meta_);
-    if (schemas.active_schema != nullptr) {
-        active_ = value::Value(schemas.active_schema);
+    const value::TypeMeta* active_schema = active_schema_for(meta_);
+    if (active_schema != nullptr) {
+        active_ = value::Value(active_schema);
         active_.emplace();
     }
 }

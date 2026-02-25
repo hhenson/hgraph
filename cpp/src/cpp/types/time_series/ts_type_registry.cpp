@@ -4,6 +4,7 @@
  */
 
 #include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/time_series/ts_meta_schema_cache.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/value/type_registry.h>
 
@@ -112,6 +113,20 @@ TSMeta* TSTypeRegistry::create_schema() {
     return ptr;
 }
 
+void TSTypeRegistry::populate_parallel_schemas(TSMeta* meta) {
+    if (meta == nullptr) {
+        return;
+    }
+
+    const auto& schemas = TSMetaSchemaCache::instance().get(meta);
+    meta->time_schema_ = schemas.time_schema;
+    meta->observer_schema_ = schemas.observer_schema;
+    meta->delta_value_schema_ = schemas.delta_schema;
+    meta->link_schema_ = schemas.link_schema;
+    meta->input_link_schema_ = schemas.input_link_schema;
+    meta->active_schema_ = schemas.active_schema;
+}
+
 // ============================================================================
 // TS[T] - Scalar Time-Series
 // ============================================================================
@@ -125,6 +140,7 @@ const TSMeta* TSTypeRegistry::ts(const value::TypeMeta* value_type) {
     auto* meta = create_schema();
     meta->kind = TSKind::TSValue;
     meta->value_type = value_type;
+    populate_parallel_schemas(meta);
 
     ts_cache_[value_type] = meta;
     return meta;
@@ -151,6 +167,7 @@ const TSMeta* TSTypeRegistry::tss(const value::TypeMeta* element_type) {
     auto* meta = create_schema();
     meta->kind = TSKind::TSS;
     meta->value_type = value_schema;
+    populate_parallel_schemas(meta);
 
     tss_cache_[element_type] = meta;
     return meta;
@@ -179,6 +196,7 @@ const TSMeta* TSTypeRegistry::tsd(const value::TypeMeta* key_type, const TSMeta*
     meta->kind = TSKind::TSD;
     meta->value_type = value_schema;
     meta->set_tsd(key_type, value_ts);
+    populate_parallel_schemas(meta);
 
     tsd_cache_[cache_key] = meta;
     return meta;
@@ -207,6 +225,7 @@ const TSMeta* TSTypeRegistry::tsl(const TSMeta* element_ts, size_t fixed_size) {
     meta->kind = TSKind::TSL;
     meta->value_type = value_schema;
     meta->set_tsl(element_ts, fixed_size);
+    populate_parallel_schemas(meta);
 
     tsl_cache_[cache_key] = meta;
     return meta;
@@ -233,6 +252,7 @@ const TSMeta* TSTypeRegistry::tsw(const value::TypeMeta* value_type,
     meta->kind = TSKind::TSW;
     meta->value_type = value_type;
     meta->set_tsw_tick(period, min_period);
+    populate_parallel_schemas(meta);
 
     tsw_cache_[cache_key] = meta;
     return meta;
@@ -260,6 +280,7 @@ const TSMeta* TSTypeRegistry::tsw_duration(const value::TypeMeta* value_type,
     meta->kind = TSKind::TSW;
     meta->value_type = value_type;
     meta->set_tsw_duration(time_range, min_time_range);
+    populate_parallel_schemas(meta);
 
     tsw_cache_[cache_key] = meta;
     return meta;
@@ -304,6 +325,7 @@ const TSMeta* TSTypeRegistry::tsb(
     meta->value_type = value_schema;
     const char* bundle_name = intern_string(name);
     meta->set_tsb(field_array.get(), field_count, bundle_name, std::move(python_type));
+    populate_parallel_schemas(meta);
 
     field_arrays_.push_back(std::move(field_array));
 
@@ -325,6 +347,7 @@ const TSMeta* TSTypeRegistry::ref(const TSMeta* referenced_ts) {
     meta->kind = TSKind::REF;
     meta->value_type = ts_reference_type_meta();
     meta->set_ref(referenced_ts);
+    populate_parallel_schemas(meta);
 
     ref_cache_[referenced_ts] = meta;
     return meta;
@@ -342,6 +365,7 @@ const TSMeta* TSTypeRegistry::signal() {
     auto* meta = create_schema();
     meta->kind = TSKind::SIGNAL;
     meta->value_type = value::scalar_type_meta<bool>();
+    populate_parallel_schemas(meta);
     signal_singleton_ = meta;
     return meta;
 }
