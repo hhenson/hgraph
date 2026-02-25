@@ -5058,6 +5058,66 @@ bool resolve_signal_source_view(const ViewData& vd,
     return true;
 }
 
+engine_time_t signal_last_modified_time(const ViewData& vd,
+                                        const LinkTarget& signal_link,
+                                        engine_time_t base_time) {
+    bool source_is_signal = false;
+    ViewData source_view{};
+    engine_time_t source_lmt = MIN_DT;
+    const engine_time_t current_eval_time = view_evaluation_time(vd);
+    if (resolve_signal_source_view(vd, signal_link, source_view, source_is_signal)) {
+        if (!source_is_signal && is_tsd_key_set_projection(source_view)) {
+            ViewData key_set_source{};
+            if (resolve_tsd_key_set_source(source_view, key_set_source)) {
+                source_lmt =
+                    (current_eval_time != MIN_DT && tsd_key_set_modified_this_tick(key_set_source, current_eval_time))
+                        ? current_eval_time
+                        : MIN_DT;
+            } else {
+                source_lmt = direct_last_modified_time(source_view);
+            }
+        } else {
+            source_lmt = op_last_modified_time(source_view);
+        }
+    }
+
+    const engine_time_t signal_rebind_time =
+        signal_link.has_previous_target ? signal_link.last_rebind_time : MIN_DT;
+    if (source_is_signal && signal_link.owner_time_ptr != nullptr) {
+        return std::max(signal_rebind_time, *signal_link.owner_time_ptr);
+    }
+    if (signal_link.is_linked) {
+        return std::max(signal_rebind_time, source_lmt);
+    }
+    return base_time;
+}
+
+std::optional<bool> signal_valid_override(const ViewData& vd, const LinkTarget& signal_link) {
+    bool source_is_signal = false;
+    ViewData source_view{};
+    const bool has_source = resolve_signal_source_view(vd, signal_link, source_view, source_is_signal);
+
+    if (source_is_signal &&
+        signal_link.owner_time_ptr != nullptr &&
+        *signal_link.owner_time_ptr > MIN_DT) {
+        return true;
+    }
+    if (!has_source) {
+        return std::nullopt;
+    }
+
+    const TSMeta* source_meta = meta_at_path(source_view.meta, source_view.path.indices);
+    if (source_meta != nullptr && source_meta->kind == TSKind::REF) {
+        View ref_value = op_value(source_view);
+        if (!(ref_value.valid() && ref_value.schema() == ts_reference_meta())) {
+            return false;
+        }
+        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value.to_python());
+        return ref.is_valid();
+    }
+    return op_valid(source_view);
+}
+
 engine_time_t op_last_modified_time(const ViewData& vd) {
     refresh_dynamic_ref_binding(vd, MIN_DT);
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
@@ -5142,34 +5202,7 @@ engine_time_t op_last_modified_time(const ViewData& vd) {
 
     if (self_meta != nullptr && self_meta->kind == TSKind::SIGNAL && vd.uses_link_target) {
         if (LinkTarget* signal_link = resolve_link_target(vd, vd.path.indices); signal_link != nullptr) {
-            bool source_is_signal = false;
-            ViewData source_view{};
-            engine_time_t source_lmt = MIN_DT;
-            const engine_time_t current_eval_time = view_evaluation_time(vd);
-            if (resolve_signal_source_view(vd, *signal_link, source_view, source_is_signal)) {
-                if (!source_is_signal && is_tsd_key_set_projection(source_view)) {
-                    ViewData key_set_source{};
-                    if (resolve_tsd_key_set_source(source_view, key_set_source)) {
-                        source_lmt =
-                            (current_eval_time != MIN_DT && tsd_key_set_modified_this_tick(key_set_source, current_eval_time))
-                                ? current_eval_time
-                                : MIN_DT;
-                    } else {
-                        source_lmt = direct_last_modified_time(source_view);
-                    }
-                } else {
-                    source_lmt = op_last_modified_time(source_view);
-                }
-            }
-            const engine_time_t signal_rebind_time =
-                signal_link->has_previous_target ? signal_link->last_rebind_time : MIN_DT;
-            if (source_is_signal && signal_link->owner_time_ptr != nullptr) {
-                return std::max(signal_rebind_time, *signal_link->owner_time_ptr);
-            }
-            if (signal_link->is_linked) {
-                return std::max(signal_rebind_time, source_lmt);
-            }
-            return base_time;
+            return signal_last_modified_time(vd, *signal_link, base_time);
         }
     }
 
@@ -5865,25 +5898,9 @@ bool op_valid(const ViewData& vd) {
 
     if (self_meta != nullptr && self_meta->kind == TSKind::SIGNAL && vd.uses_link_target) {
         if (LinkTarget* signal_link = resolve_link_target(vd, vd.path.indices); signal_link != nullptr) {
-            bool source_is_signal = false;
-            ViewData source_view{};
-            const bool has_source = resolve_signal_source_view(vd, *signal_link, source_view, source_is_signal);
-            if (source_is_signal &&
-                signal_link->owner_time_ptr != nullptr &&
-                *signal_link->owner_time_ptr > MIN_DT) {
-                return true;
-            }
-            if (has_source) {
-                const TSMeta* source_meta = meta_at_path(source_view.meta, source_view.path.indices);
-                if (source_meta != nullptr && source_meta->kind == TSKind::REF) {
-                    View ref_value = op_value(source_view);
-                    if (!(ref_value.valid() && ref_value.schema() == ts_reference_meta())) {
-                        return false;
-                    }
-                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value.to_python());
-                    return ref.is_valid();
-                }
-                return op_valid(source_view);
+            if (std::optional<bool> signal_valid = signal_valid_override(vd, *signal_link);
+                signal_valid.has_value()) {
+                return *signal_valid;
             }
         }
     }
