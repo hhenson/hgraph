@@ -22,12 +22,20 @@ void record_tsd_removed_child_snapshot(const ViewData& parent_view,
                                        const ViewData& child_view,
                                        engine_time_t current_time);
 
-TSInput* notifier_as_live_input(Notifiable* notifier) {
+template <typename T, typename IsLiveFn>
+T* as_live_observer(Notifiable* notifier, IsLiveFn&& is_live) {
     if (notifier == nullptr) {
         return nullptr;
     }
-    TSInput* input = reinterpret_cast<TSInput*>(notifier);
-    return is_live_ts_input(input) ? input : nullptr;
+    T* candidate = reinterpret_cast<T*>(notifier);
+    return is_live(candidate) ? candidate : nullptr;
+}
+
+TSInput* notifier_as_live_input(Notifiable* notifier) {
+    // Treat notifier pointers as opaque addresses first; some observer slots can
+    // transiently contain stale pointers during teardown and RTTI probes would
+    // touch invalid object memory.
+    return as_live_observer<TSInput>(notifier, is_live_ts_input);
 }
 
 engine_time_t view_evaluation_time(const ViewData& vd) {
@@ -728,51 +736,42 @@ bool suppress_static_ref_child_notification(const LinkTarget& observer, engine_t
 
 namespace {
 
-struct LinkObserverPathRegistration {
-    std::vector<size_t> path;
-    LinkTarget* link_target{nullptr};
-};
-
-struct REFLinkObserverPathRegistration {
-    std::vector<size_t> path;
-    REFLink* ref_link{nullptr};
-};
-
+template <typename LinkFn, typename RefFn>
 void append_observer_list_registrations(
     const ObserverList* observer_list,
     const std::vector<size_t>& path,
-    std::vector<LinkObserverPathRegistration>& link_registrations,
-    std::vector<REFLinkObserverPathRegistration>& ref_registrations) {
+    LinkFn& on_link_observer,
+    RefFn& on_ref_observer) {
     if (observer_list == nullptr) {
         return;
     }
 
     for (Notifiable* observer : observer_list->observers) {
-        if (observer == nullptr) {
+        // Keep pointer probing address-only, then validate liveness via
+        // endpoint-owned registries before use.
+        if (LinkTarget* link_target = as_live_observer<LinkTarget>(observer, is_live_link_target);
+            link_target != nullptr) {
+            on_link_observer(path, link_target);
             continue;
         }
-        LinkTarget* link_target = reinterpret_cast<LinkTarget*>(observer);
-        if (is_live_link_target(link_target)) {
-            link_registrations.push_back(LinkObserverPathRegistration{path, link_target});
-            continue;
-        }
-        REFLink* ref_link = reinterpret_cast<REFLink*>(observer);
-        if (is_live_ref_link(ref_link)) {
-            ref_registrations.push_back(REFLinkObserverPathRegistration{path, ref_link});
+        if (REFLink* ref_link = as_live_observer<REFLink>(observer, is_live_ref_link);
+            ref_link != nullptr) {
+            on_ref_observer(path, ref_link);
         }
     }
 }
 
+template <typename LinkFn, typename RefFn>
 void append_observer_node_registrations(
     const View& observer_node,
     const std::vector<size_t>& path,
-    std::vector<LinkObserverPathRegistration>& link_registrations,
-    std::vector<REFLinkObserverPathRegistration>& ref_registrations) {
+    LinkFn& on_link_observer,
+    RefFn& on_ref_observer) {
     append_observer_list_registrations(
         observer_list_from_node(observer_node),
         path,
-        link_registrations,
-        ref_registrations);
+        on_link_observer,
+        on_ref_observer);
 }
 
 bool advance_observer_subtree_node(const TSMeta*& meta, View& observer_node, size_t child_index) {
@@ -827,15 +826,20 @@ bool advance_observer_subtree_node(const TSMeta*& meta, View& observer_node, siz
     }
 }
 
+template <typename LinkFn, typename RefFn>
 void collect_observer_subtree_registrations(
     const TSMeta* meta,
     const View& observer_node,
     std::vector<size_t>& path,
     bool include_current,
-    std::vector<LinkObserverPathRegistration>& link_registrations,
-    std::vector<REFLinkObserverPathRegistration>& ref_registrations) {
+    LinkFn& on_link_observer,
+    RefFn& on_ref_observer) {
     if (include_current) {
-        append_observer_node_registrations(observer_node, path, link_registrations, ref_registrations);
+        append_observer_node_registrations(
+            observer_node,
+            path,
+            on_link_observer,
+            on_ref_observer);
     }
 
     const TSMeta* cursor = meta;
@@ -867,8 +871,8 @@ void collect_observer_subtree_registrations(
                     child,
                     path,
                     true,
-                    link_registrations,
-                    ref_registrations);
+                    on_link_observer,
+                    on_ref_observer);
                 path.pop_back();
             }
             return;
@@ -894,8 +898,8 @@ void collect_observer_subtree_registrations(
                     child,
                     path,
                     true,
-                    link_registrations,
-                    ref_registrations);
+                    on_link_observer,
+                    on_ref_observer);
                 path.pop_back();
             }
             return;
@@ -905,11 +909,12 @@ void collect_observer_subtree_registrations(
     }
 }
 
+template <typename LinkFn, typename RefFn>
 void collect_related_observers(
     const ViewData& root_view,
     const std::vector<size_t>& target_path,
-    std::vector<LinkObserverPathRegistration>& link_registrations,
-    std::vector<REFLinkObserverPathRegistration>& ref_registrations) {
+    LinkFn& on_link_observer,
+    RefFn& on_ref_observer) {
     auto* observer_root = static_cast<const Value*>(root_view.observer_data);
     if (observer_root == nullptr || !observer_root->has_value() || root_view.meta == nullptr) {
         return;
@@ -922,7 +927,11 @@ void collect_related_observers(
     cursor_path.reserve(target_path.size());
 
     // Collect ancestor registrations (including target path).
-    append_observer_node_registrations(cursor_node, cursor_path, link_registrations, ref_registrations);
+    append_observer_node_registrations(
+        cursor_node,
+        cursor_path,
+        on_link_observer,
+        on_ref_observer);
     bool reached_target = true;
     for (size_t index : target_path) {
         if (!advance_observer_subtree_node(cursor_meta, cursor_node, index)) {
@@ -930,7 +939,11 @@ void collect_related_observers(
             break;
         }
         cursor_path.push_back(index);
-        append_observer_node_registrations(cursor_node, cursor_path, link_registrations, ref_registrations);
+        append_observer_node_registrations(
+            cursor_node,
+            cursor_path,
+            on_link_observer,
+            on_ref_observer);
     }
     if (!reached_target) {
         return;
@@ -942,8 +955,8 @@ void collect_related_observers(
         cursor_node,
         cursor_path,
         false,
-        link_registrations,
-        ref_registrations);
+        on_link_observer,
+        on_ref_observer);
 }
 
 }  // namespace
@@ -1056,87 +1069,81 @@ bool should_skip_descendant_to_ancestor_notification(
     return false;
 }
 
-void collect_link_observers_to_notify(
+void maybe_enqueue_link_observer(
     const ViewData& target_view,
+    const std::vector<size_t>& observer_path,
+    LinkTarget* observer,
     engine_time_t current_time,
     bool debug_notify,
-    const std::vector<LinkObserverPathRegistration>& link_registrations,
+    std::unordered_set<LinkTarget*>& dedupe,
     std::vector<LinkTarget*>& observers) {
-    std::unordered_set<LinkTarget*> dedupe;
-
-    for (const auto& registration : link_registrations) {
-        LinkTarget* observer = registration.link_target;
-        if (observer == nullptr || !is_live_link_target(observer)) {
-            continue;
-        }
+    if (observer == nullptr || !is_live_link_target(observer)) {
+        return;
+    }
+    if (debug_notify) {
+        std::fprintf(stderr,
+                     "[notify_obs]  reg path=%s linked=%d obs=%p\n",
+                     ShortPath{target_view.path.node, target_view.path.port_type, observer_path}.to_string().c_str(),
+                     observer->is_linked ? 1 : 0,
+                     static_cast<void*>(observer));
+    }
+    if (!paths_related(observer_path, target_view.path.indices)) {
         if (debug_notify) {
-            std::fprintf(stderr,
-                         "[notify_obs]  reg path=%s linked=%d obs=%p\n",
-                         ShortPath{target_view.path.node, target_view.path.port_type, registration.path}.to_string().c_str(),
-                         observer->is_linked ? 1 : 0,
-                         static_cast<void*>(observer));
+            std::fprintf(stderr, "[notify_obs]   skip unrelated\n");
         }
-        if (!paths_related(registration.path, target_view.path.indices)) {
-            if (debug_notify) {
-                std::fprintf(stderr, "[notify_obs]   skip unrelated\n");
-            }
-            continue;
-        }
-        if (should_skip_projection_observer_notification(*observer, target_view, registration.path, current_time, debug_notify)) {
-            continue;
-        }
-        if (should_skip_ancestor_to_descendant_notification(target_view, registration.path, current_time, debug_notify)) {
-            continue;
-        }
-        if (should_skip_descendant_to_ancestor_notification(*observer, target_view, registration.path, current_time, debug_notify)) {
-            continue;
-        }
-        if (dedupe.insert(observer).second) {
-            observers.push_back(observer);
-            if (debug_notify) {
-                std::fprintf(stderr, "[notify_obs]   enqueue observer\n");
-            }
+        return;
+    }
+    if (should_skip_projection_observer_notification(*observer, target_view, observer_path, current_time, debug_notify)) {
+        return;
+    }
+    if (should_skip_ancestor_to_descendant_notification(target_view, observer_path, current_time, debug_notify)) {
+        return;
+    }
+    if (should_skip_descendant_to_ancestor_notification(*observer, target_view, observer_path, current_time, debug_notify)) {
+        return;
+    }
+    if (dedupe.insert(observer).second) {
+        observers.push_back(observer);
+        if (debug_notify) {
+            std::fprintf(stderr, "[notify_obs]   enqueue observer\n");
         }
     }
 }
 
-void collect_ref_link_observers_to_notify(
+void maybe_enqueue_ref_link_observer(
     const ViewData& target_view,
+    const std::vector<size_t>& observer_path,
+    REFLink* observer,
     engine_time_t current_time,
-    const std::vector<REFLinkObserverPathRegistration>& ref_registrations,
+    std::unordered_set<REFLink*>& dedupe,
     std::vector<REFLink*>& ref_observers) {
-    std::unordered_set<REFLink*> ref_dedupe;
+    if (observer == nullptr || !is_live_ref_link(observer)) {
+        return;
+    }
 
-    for (const auto& registration : ref_registrations) {
-        REFLink* observer = registration.ref_link;
-        if (observer == nullptr || !is_live_ref_link(observer)) {
-            continue;
+    if (!paths_related(observer_path, target_view.path.indices)) {
+        return;
+    }
+    const bool ancestor_to_descendant =
+        is_prefix_path(target_view.path.indices, observer_path) &&
+        target_view.path.indices.size() < observer_path.size();
+    if (ancestor_to_descendant) {
+        ViewData observed = target_view;
+        observed.path.indices = observer_path;
+        observed.sampled = false;
+        if (observed.ops == nullptr) {
+            return;
         }
-
-        if (!paths_related(registration.path, target_view.path.indices)) {
-            continue;
+        const TSMeta* target_meta = meta_at_path(target_view.meta, target_view.path.indices);
+        const bool target_is_ref = target_meta != nullptr && target_meta->kind == TSKind::REF;
+        const bool is_valid = observed.ops->valid(observed);
+        const bool is_modified = observed.ops->modified(observed, current_time);
+        if (!target_is_ref && is_valid && !is_modified) {
+            return;
         }
-        const bool ancestor_to_descendant =
-            is_prefix_path(target_view.path.indices, registration.path) &&
-            target_view.path.indices.size() < registration.path.size();
-        if (ancestor_to_descendant) {
-            ViewData observed = target_view;
-            observed.path.indices = registration.path;
-            observed.sampled = false;
-            if (observed.ops == nullptr) {
-                continue;
-            }
-            const TSMeta* target_meta = meta_at_path(target_view.meta, target_view.path.indices);
-            const bool target_is_ref = target_meta != nullptr && target_meta->kind == TSKind::REF;
-            const bool is_valid = observed.ops->valid(observed);
-            const bool is_modified = observed.ops->modified(observed, current_time);
-            if (!target_is_ref && is_valid && !is_modified) {
-                continue;
-            }
-        }
-        if (ref_dedupe.insert(observer).second) {
-            ref_observers.push_back(observer);
-        }
+    }
+    if (dedupe.insert(observer).second) {
+        ref_observers.push_back(observer);
     }
 }
 
@@ -1451,16 +1458,34 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                      static_cast<long long>(current_time.time_since_epoch().count()));
     }
 
-    std::vector<LinkObserverPathRegistration> link_registrations;
-    std::vector<REFLinkObserverPathRegistration> ref_registrations;
-    collect_related_observers(target_view, target_view.path.indices, link_registrations, ref_registrations);
-
     std::vector<LinkTarget*> observers;
-    collect_link_observers_to_notify(target_view, current_time, debug_notify, link_registrations, observers);
+    std::unordered_set<LinkTarget*> link_dedupe;
+    std::vector<REFLink*> ref_observers;
+    std::unordered_set<REFLink*> ref_dedupe;
+
+    auto on_link_observer = [&](const std::vector<size_t>& observer_path, LinkTarget* observer) {
+        maybe_enqueue_link_observer(
+            target_view,
+            observer_path,
+            observer,
+            current_time,
+            debug_notify,
+            link_dedupe,
+            observers);
+    };
+    auto on_ref_observer = [&](const std::vector<size_t>& observer_path, REFLink* observer) {
+        maybe_enqueue_ref_link_observer(
+            target_view,
+            observer_path,
+            observer,
+            current_time,
+            ref_dedupe,
+            ref_observers);
+    };
+    collect_related_observers(target_view, target_view.path.indices, on_link_observer, on_ref_observer);
+
     dispatch_link_observers(target_view, current_time, debug_notify, observers);
 
-    std::vector<REFLink*> ref_observers;
-    collect_ref_link_observers_to_notify(target_view, current_time, ref_registrations, ref_observers);
     dispatch_ref_link_observers(current_time, ref_observers);
 }
 
