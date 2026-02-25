@@ -65,6 +65,8 @@ struct HGRAPH_EXPORT LinkTarget : Notifiable {
     [[nodiscard]] ViewData as_view_data(bool sampled = false) const;
     [[nodiscard]] ViewData previous_view_data(bool sampled = false) const;
 
+    void notify_time(engine_time_t et);
+    void notify_active(engine_time_t et);
     void notify(engine_time_t et) override;
 
 private:

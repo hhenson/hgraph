@@ -43,6 +43,8 @@ struct HGRAPH_EXPORT TSLinkObserverRegistry {
 
     std::unordered_map<void*, std::vector<LinkObserverRegistration>> entries;
     std::unordered_map<void*, std::vector<REFLinkObserverRegistration>> ref_entries;
+    std::unordered_map<void*, std::vector<LinkObserverRegistration>> active_entries;
+    std::unordered_map<void*, std::vector<REFLinkObserverRegistration>> active_ref_entries;
     std::unordered_map<std::string, std::shared_ptr<void>> feature_states;
 
     [[nodiscard]] std::shared_ptr<void> feature_state(std::string_view key) const {
@@ -68,6 +70,8 @@ struct HGRAPH_EXPORT TSLinkObserverRegistry {
     void clear() {
         entries.clear();
         ref_entries.clear();
+        active_entries.clear();
+        active_ref_entries.clear();
         feature_states.clear();
     }
 };

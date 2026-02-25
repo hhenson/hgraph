@@ -178,6 +178,10 @@ HGRAPH_EXPORT void register_ts_link_observer(LinkTarget& observer);
 HGRAPH_EXPORT void unregister_ts_link_observer(LinkTarget& observer);
 HGRAPH_EXPORT void register_ts_ref_link_observer(REFLink& observer);
 HGRAPH_EXPORT void unregister_ts_ref_link_observer(REFLink& observer);
+HGRAPH_EXPORT void register_ts_active_link_observer(LinkTarget& observer);
+HGRAPH_EXPORT void unregister_ts_active_link_observer(LinkTarget& observer);
+HGRAPH_EXPORT void register_ts_active_ref_link_observer(REFLink& observer);
+HGRAPH_EXPORT void unregister_ts_active_ref_link_observer(REFLink& observer);
 
 /**
  * Compatibility no-op (registries are endpoint-owned and auto-reset with endpoint lifetime).

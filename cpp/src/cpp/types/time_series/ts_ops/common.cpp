@@ -212,7 +212,7 @@ void notify_activation_if_modified(LinkTarget* payload, TSInput* input) {
     ViewData target_vd = payload->as_view_data(false);
     if (!payload->ops->valid(target_vd)) {
         if (sampled_on_rebind && payload->has_previous_target) {
-            payload->notify(current_time);
+            payload->notify_active(current_time);
         }
         if (debug_activate) {
             std::fprintf(stderr,
@@ -236,7 +236,7 @@ void notify_activation_if_modified(LinkTarget* payload, TSInput* input) {
     if (!target_modified && !sampled_on_rebind) {
         return;
     }
-    payload->notify(sampled_on_rebind ? current_time : payload->ops->last_modified_time(target_vd));
+    payload->notify_active(sampled_on_rebind ? current_time : payload->ops->last_modified_time(target_vd));
 }
 
 void notify_activation_if_modified(REFLink* payload, TSInput* input) {
@@ -255,7 +255,7 @@ void notify_activation_if_modified(REFLink* payload, TSInput* input) {
     }
     if (!target_vd.ops->valid(target_vd)) {
         if (sampled_on_rebind) {
-            payload->notify(current_time);
+            payload->notify_active(current_time);
         }
         return;
     }
@@ -264,22 +264,59 @@ void notify_activation_if_modified(REFLink* payload, TSInput* input) {
     if (!target_modified && !sampled_on_rebind) {
         return;
     }
-    payload->notify(sampled_on_rebind ? current_time : target_vd.ops->last_modified_time(target_vd));
+    payload->notify_active(sampled_on_rebind ? current_time : target_vd.ops->last_modified_time(target_vd));
 }
 
 void unregister_link_target_observer_from_registry(const LinkTarget& link_target,
                                                    TSLinkObserverRegistry* registry,
                                                    const ViewData* observer_view = nullptr) {
-    if (registry == nullptr || !is_live_link_observer_registry(registry) || registry->entries.empty()) {
+    if (registry == nullptr || !is_live_link_observer_registry(registry)) {
         return;
     }
 
-    for (auto it = registry->entries.begin(); it != registry->entries.end();) {
-        auto& registrations = it->second;
-        registrations.erase(
+    auto unregister_from_map = [&link_target, observer_view](auto& observer_map) {
+        for (auto it = observer_map.begin(); it != observer_map.end();) {
+            auto& registrations = it->second;
+            registrations.erase(
                 std::remove_if(
                     registrations.begin(),
                     registrations.end(),
+                    [&link_target, observer_view](const LinkObserverRegistration& registration) {
+                        if (registration.link_target == &link_target) {
+                            return true;
+                        }
+                        if (observer_view == nullptr) {
+                            return false;
+                        }
+                        return same_view_identity(registration.observer_view, *observer_view);
+                    }),
+                registrations.end());
+
+            if (registrations.empty()) {
+                it = observer_map.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    };
+
+    unregister_from_map(registry->entries);
+    unregister_from_map(registry->active_entries);
+}
+
+void unregister_active_link_target_observer_from_registry(const LinkTarget& link_target,
+                                                          TSLinkObserverRegistry* registry,
+                                                          const ViewData* observer_view = nullptr) {
+    if (registry == nullptr || !is_live_link_observer_registry(registry) || registry->active_entries.empty()) {
+        return;
+    }
+
+    for (auto it = registry->active_entries.begin(); it != registry->active_entries.end();) {
+        auto& registrations = it->second;
+        registrations.erase(
+            std::remove_if(
+                registrations.begin(),
+                registrations.end(),
                 [&link_target, observer_view](const LinkObserverRegistration& registration) {
                     if (registration.link_target == &link_target) {
                         return true;
@@ -292,7 +329,7 @@ void unregister_link_target_observer_from_registry(const LinkTarget& link_target
             registrations.end());
 
         if (registrations.empty()) {
-            it = registry->entries.erase(it);
+            it = registry->active_entries.erase(it);
         } else {
             ++it;
         }
@@ -302,11 +339,48 @@ void unregister_link_target_observer_from_registry(const LinkTarget& link_target
 void unregister_ref_link_observer_from_registry(const REFLink& ref_link,
                                                 TSLinkObserverRegistry* registry,
                                                 const ViewData* observer_view = nullptr) {
-    if (registry == nullptr || !is_live_link_observer_registry(registry) || registry->ref_entries.empty()) {
+    if (registry == nullptr || !is_live_link_observer_registry(registry)) {
         return;
     }
 
-    for (auto it = registry->ref_entries.begin(); it != registry->ref_entries.end();) {
+    auto unregister_from_map = [&ref_link, observer_view](auto& observer_map) {
+        for (auto it = observer_map.begin(); it != observer_map.end();) {
+            auto& registrations = it->second;
+            registrations.erase(
+                std::remove_if(
+                    registrations.begin(),
+                    registrations.end(),
+                    [&ref_link, observer_view](const REFLinkObserverRegistration& registration) {
+                        if (registration.ref_link == &ref_link) {
+                            return true;
+                        }
+                        if (observer_view == nullptr) {
+                            return false;
+                        }
+                        return same_view_identity(registration.observer_view, *observer_view);
+                    }),
+                registrations.end());
+
+            if (registrations.empty()) {
+                it = observer_map.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    };
+
+    unregister_from_map(registry->ref_entries);
+    unregister_from_map(registry->active_ref_entries);
+}
+
+void unregister_active_ref_link_observer_from_registry(const REFLink& ref_link,
+                                                       TSLinkObserverRegistry* registry,
+                                                       const ViewData* observer_view = nullptr) {
+    if (registry == nullptr || !is_live_link_observer_registry(registry) || registry->active_ref_entries.empty()) {
+        return;
+    }
+
+    for (auto it = registry->active_ref_entries.begin(); it != registry->active_ref_entries.end();) {
         auto& registrations = it->second;
         registrations.erase(
             std::remove_if(
@@ -324,7 +398,7 @@ void unregister_ref_link_observer_from_registry(const REFLink& ref_link,
             registrations.end());
 
         if (registrations.empty()) {
-            it = registry->ref_entries.erase(it);
+            it = registry->active_ref_entries.erase(it);
         } else {
             ++it;
         }
@@ -366,6 +440,41 @@ void unregister_ref_link_observer(const REFLink& ref_link) {
     }
 }
 
+void unregister_active_link_target_observer(const LinkTarget& link_target) {
+    std::unordered_set<TSLinkObserverRegistry*> registries;
+    if (link_target.link_observer_registry != nullptr) {
+        registries.insert(link_target.link_observer_registry);
+    }
+    if (link_target.has_resolved_target && link_target.resolved_target.link_observer_registry != nullptr) {
+        registries.insert(link_target.resolved_target.link_observer_registry);
+    }
+    for (const ViewData& fan_in_target : link_target.fan_in_targets) {
+        if (fan_in_target.link_observer_registry != nullptr) {
+            registries.insert(fan_in_target.link_observer_registry);
+        }
+    }
+
+    const ViewData* observer_view =
+        link_target.observer_view.meta != nullptr && link_target.observer_view.link_data != nullptr
+            ? &link_target.observer_view
+            : nullptr;
+    for (TSLinkObserverRegistry* registry : registries) {
+        unregister_active_link_target_observer_from_registry(link_target, registry, observer_view);
+    }
+}
+
+void unregister_active_ref_link_observer(const REFLink& ref_link) {
+    TSLinkObserverRegistry* source_registry =
+        ref_link.source.meta != nullptr ? ref_link.source.link_observer_registry : nullptr;
+    TSLinkObserverRegistry* target_registry =
+        ref_link.target.meta != nullptr ? ref_link.target.link_observer_registry : nullptr;
+
+    unregister_active_ref_link_observer_from_registry(ref_link, source_registry);
+    if (target_registry != source_registry) {
+        unregister_active_ref_link_observer_from_registry(ref_link, target_registry);
+    }
+}
+
 void register_link_target_observer_entry(TSLinkObserverRegistry* registry,
                                          void* value_data,
                                          const std::vector<size_t>& path,
@@ -377,6 +486,38 @@ void register_link_target_observer_entry(TSLinkObserverRegistry* registry,
     }
 
     auto& registrations = registry->entries[value_data];
+
+    const auto existing = std::find_if(
+        registrations.begin(),
+        registrations.end(),
+        [target](const LinkObserverRegistration& registration) {
+            return registration.link_target == target;
+        });
+
+    if (existing != registrations.end()) {
+        existing->path = path;
+        existing->observer_view = observer_view != nullptr ? *observer_view : ViewData{};
+        return;
+    }
+
+    registrations.push_back(LinkObserverRegistration{
+        path,
+        target,
+        observer_view != nullptr ? *observer_view : ViewData{},
+    });
+}
+
+void register_active_link_target_observer_entry(TSLinkObserverRegistry* registry,
+                                                void* value_data,
+                                                const std::vector<size_t>& path,
+                                                LinkTarget* target,
+                                                const ViewData* observer_view) {
+    if (registry == nullptr || !is_live_link_observer_registry(registry) ||
+        value_data == nullptr || target == nullptr) {
+        return;
+    }
+
+    auto& registrations = registry->active_entries[value_data];
 
     const auto existing = std::find_if(
         registrations.begin(),
@@ -430,6 +571,38 @@ void register_ref_link_observer_entry(TSLinkObserverRegistry* registry,
     });
 }
 
+void register_active_ref_link_observer_entry(TSLinkObserverRegistry* registry,
+                                             void* value_data,
+                                             const std::vector<size_t>& path,
+                                             REFLink* target,
+                                             const ViewData* observer_view) {
+    if (registry == nullptr || !is_live_link_observer_registry(registry) ||
+        value_data == nullptr || target == nullptr) {
+        return;
+    }
+
+    auto& registrations = registry->active_ref_entries[value_data];
+
+    const auto existing = std::find_if(
+        registrations.begin(),
+        registrations.end(),
+        [target](const REFLinkObserverRegistration& registration) {
+            return registration.ref_link == target;
+        });
+
+    if (existing != registrations.end()) {
+        existing->path = path;
+        existing->observer_view = observer_view != nullptr ? *observer_view : ViewData{};
+        return;
+    }
+
+    registrations.push_back(REFLinkObserverRegistration{
+        path,
+        target,
+        observer_view != nullptr ? *observer_view : ViewData{},
+    });
+}
+
 void register_link_target_observer(const LinkTarget& link_target) {
     if (!link_target.is_linked) {
         return;
@@ -442,6 +615,43 @@ void register_link_target_observer(const LinkTarget& link_target) {
             : nullptr;
     auto register_target_view = [mutable_target, observer_view](const ViewData& target_view) {
         register_link_target_observer_entry(
+            target_view.link_observer_registry,
+            target_view.value_data,
+            target_view.path.indices,
+            mutable_target,
+            observer_view);
+        if (mutable_target->active_notifier.active()) {
+            register_active_link_target_observer_entry(
+                target_view.link_observer_registry,
+                target_view.value_data,
+                target_view.path.indices,
+                mutable_target,
+                observer_view);
+        }
+    };
+
+    register_target_view(link_target.as_view_data(false));
+    for (const ViewData& extra_target : link_target.fan_in_targets) {
+        register_target_view(extra_target);
+    }
+
+    if (link_target.has_resolved_target && link_target.resolved_target.value_data != nullptr) {
+        register_target_view(link_target.resolved_target);
+    }
+}
+
+void register_active_link_target_observer(const LinkTarget& link_target) {
+    if (!link_target.is_linked || !link_target.active_notifier.active()) {
+        return;
+    }
+
+    auto* mutable_target = const_cast<LinkTarget*>(&link_target);
+    const ViewData* observer_view =
+        link_target.observer_view.meta != nullptr && link_target.observer_view.link_data != nullptr
+            ? &link_target.observer_view
+            : nullptr;
+    auto register_target_view = [mutable_target, observer_view](const ViewData& target_view) {
+        register_active_link_target_observer_entry(
             target_view.link_observer_registry,
             target_view.value_data,
             target_view.path.indices,
@@ -629,6 +839,29 @@ void register_ref_link_observer(const REFLink& ref_link, const ViewData* observe
         target_view.path.indices,
         mutable_target,
         observer_view);
+    if (ref_link.active_notifier.active()) {
+        register_active_ref_link_observer_entry(
+            target_view.link_observer_registry,
+            target_view.value_data,
+            target_view.path.indices,
+            mutable_target,
+            observer_view);
+    }
+}
+
+void register_active_ref_link_observer(const REFLink& ref_link, const ViewData* observer_view = nullptr) {
+    if (!ref_link.is_linked || !ref_link.active_notifier.active()) {
+        return;
+    }
+
+    auto* mutable_target = const_cast<REFLink*>(&ref_link);
+    const ViewData& target_view = ref_link.has_target() ? ref_link.target : ref_link.source;
+    register_active_ref_link_observer_entry(
+        target_view.link_observer_registry,
+        target_view.value_data,
+        target_view.path.indices,
+        mutable_target,
+        observer_view);
 }
 
 bool suppress_static_ref_child_notification(const LinkTarget& observer, engine_time_t current_time) {
@@ -801,6 +1034,29 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
         }
     }
 
+    std::unordered_set<LinkTarget*> active_observer_set;
+    auto active_it = target_view.link_observer_registry->active_entries.find(target_view.value_data);
+    if (active_it != target_view.link_observer_registry->active_entries.end()) {
+        auto& active_regs = active_it->second;
+        for (auto registration_it = active_regs.begin(); registration_it != active_regs.end();) {
+            LinkObserverRegistration& registration = *registration_it;
+            LinkTarget* observer = registration.link_target;
+            if (observer == nullptr || !is_live_link_target(observer)) {
+                registration_it = active_regs.erase(registration_it);
+                continue;
+            }
+            if (!paths_related(registration.path, target_view.path.indices)) {
+                ++registration_it;
+                continue;
+            }
+            active_observer_set.insert(observer);
+            ++registration_it;
+        }
+        if (active_regs.empty()) {
+            target_view.link_observer_registry->active_entries.erase(target_view.value_data);
+        }
+    }
+
     for (LinkTarget* observer : observers) {
         if (observer == nullptr || !is_live_link_target(observer)) {
             continue;
@@ -965,7 +1221,10 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                              observer->has_resolved_target ? 1 : 0,
                              static_cast<long long>(observer->last_rebind_time.time_since_epoch().count()));
             }
-            observer->notify(current_time);
+            observer->notify_time(current_time);
+            if (active_observer_set.contains(observer)) {
+                observer->notify_active(current_time);
+            }
             if (debug_notify) {
                 std::fprintf(stderr, "[notify_obs]  notified obs=%p\n", static_cast<void*>(observer));
             }
@@ -1022,9 +1281,35 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
         target_view.link_observer_registry->ref_entries.erase(target_view.value_data);
     }
 
+    std::unordered_set<REFLink*> active_ref_observer_set;
+    auto active_ref_it = target_view.link_observer_registry->active_ref_entries.find(target_view.value_data);
+    if (active_ref_it != target_view.link_observer_registry->active_ref_entries.end()) {
+        auto& active_regs = active_ref_it->second;
+        for (auto registration_it = active_regs.begin(); registration_it != active_regs.end();) {
+            REFLinkObserverRegistration& registration = *registration_it;
+            REFLink* observer = registration.ref_link;
+            if (observer == nullptr || !is_live_ref_link(observer)) {
+                registration_it = active_regs.erase(registration_it);
+                continue;
+            }
+            if (!paths_related(registration.path, target_view.path.indices)) {
+                ++registration_it;
+                continue;
+            }
+            active_ref_observer_set.insert(observer);
+            ++registration_it;
+        }
+        if (active_regs.empty()) {
+            target_view.link_observer_registry->active_ref_entries.erase(target_view.value_data);
+        }
+    }
+
     for (REFLink* observer : ref_observers) {
         if (observer != nullptr && is_live_ref_link(observer) && observer->is_linked) {
-            observer->notify(current_time);
+            observer->notify_time(current_time);
+            if (active_ref_observer_set.contains(observer)) {
+                observer->notify_active(current_time);
+            }
         }
     }
 }
@@ -9873,9 +10158,26 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
                                      current != nullptr &&
                                      current->kind == TSKind::REF &&
                                      has_bound_ref_static_children(vd);
+    auto set_link_target_active = [input](LinkTarget* target, bool make_active) {
+        if (target == nullptr) {
+            return;
+        }
+        Notifiable* new_target = make_active ? static_cast<Notifiable*>(input) : nullptr;
+        Notifiable* previous_target = target->active_notifier.target();
+        if (previous_target == new_target) {
+            return;
+        }
+        if (target->is_linked && previous_target != nullptr) {
+            unregister_active_link_target_observer(*target);
+        }
+        target->active_notifier.set_target(new_target);
+        if (target->is_linked && new_target != nullptr) {
+            register_active_link_target_observer(*target);
+        }
+    };
+
     if (vd.uses_link_target) {
         if (LinkTarget* payload = resolve_link_target(vd, vd.path.indices); payload != nullptr) {
-            payload->active_notifier.set_target(active ? static_cast<Notifiable*>(input) : nullptr);
             if (ref_local_wrapper && input != nullptr) {
                 const engine_time_t current_time = resolve_input_current_time(input);
                 if (current_time != MIN_DT) {
@@ -9884,6 +10186,11 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
             }
 
             if (ref_static_children) {
+                if (payload->is_linked && payload->active_notifier.active()) {
+                    unregister_active_link_target_observer(*payload);
+                }
+                payload->active_notifier.set_target(nullptr);
+
                 const TSMeta* element_meta = current != nullptr ? current->element_ts() : nullptr;
                 size_t child_count = 0;
                 if (element_meta != nullptr) {
@@ -9898,7 +10205,7 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
                     std::vector<size_t> child_path = vd.path.indices;
                     child_path.push_back(i);
                     if (LinkTarget* child_link = resolve_link_target(vd, child_path); child_link != nullptr) {
-                        child_link->active_notifier.set_target(active ? static_cast<Notifiable*>(input) : nullptr);
+                        set_link_target_active(child_link, active);
                         if (active) {
                             notify_activation_if_modified(child_link, input);
                         }
@@ -9913,9 +10220,10 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
                         input->notify(current_time);
                     }
                 }
-                payload->active_notifier.set_target(nullptr);
                 return;
             }
+
+            set_link_target_active(payload, active);
 
             if (!payload->is_linked) {
                 if (active &&
@@ -9945,7 +10253,17 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
         }
     } else {
         if (REFLink* payload = resolve_ref_link(vd, vd.path.indices); payload != nullptr) {
-            payload->active_notifier.set_target(active ? static_cast<Notifiable*>(input) : nullptr);
+            Notifiable* new_target = active ? static_cast<Notifiable*>(input) : nullptr;
+            Notifiable* previous_target = payload->active_notifier.target();
+            if (previous_target != new_target) {
+                if (payload->is_linked && previous_target != nullptr) {
+                    unregister_active_ref_link_observer(*payload);
+                }
+                payload->active_notifier.set_target(new_target);
+                if (payload->is_linked && new_target != nullptr) {
+                    register_active_ref_link_observer(*payload, &vd);
+                }
+            }
             if (active) {
                 notify_activation_if_modified(payload, input);
             }
@@ -10565,6 +10883,22 @@ void register_ts_ref_link_observer(REFLink& observer) {
 
 void unregister_ts_ref_link_observer(REFLink& observer) {
     unregister_ref_link_observer(observer);
+}
+
+void register_ts_active_link_observer(LinkTarget& observer) {
+    register_active_link_target_observer(observer);
+}
+
+void unregister_ts_active_link_observer(LinkTarget& observer) {
+    unregister_active_link_target_observer(observer);
+}
+
+void register_ts_active_ref_link_observer(REFLink& observer) {
+    register_active_ref_link_observer(observer);
+}
+
+void unregister_ts_active_ref_link_observer(REFLink& observer) {
+    unregister_active_ref_link_observer(observer);
 }
 
 void reset_ts_link_observers() {

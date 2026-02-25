@@ -27,13 +27,18 @@ void redirect_link_target_registrations(TSLinkObserverRegistry* registry,
         return;
     }
 
-    for (auto& [_, registrations] : registry->entries) {
-        for (auto& registration : registrations) {
-            if (registration.link_target == from) {
-                registration.link_target = to;
+    auto redirect_map = [from, to](auto& observer_map) {
+        for (auto& [_, registrations] : observer_map) {
+            for (auto& registration : registrations) {
+                if (registration.link_target == from) {
+                    registration.link_target = to;
+                }
             }
         }
-    }
+    };
+
+    redirect_map(registry->entries);
+    redirect_map(registry->active_entries);
 }
 
 }  // namespace
@@ -308,17 +313,24 @@ ViewData LinkTarget::previous_view_data(bool sampled) const {
     return vd;
 }
 
-void LinkTarget::notify(engine_time_t et) {
+void LinkTarget::notify_time(engine_time_t et) {
     if (owner_time_ptr != nullptr && *owner_time_ptr < et) {
         *owner_time_ptr = et;
     }
     // Parent propagation is only valid for linked parent chains.
     if (parent_link != nullptr && parent_link->is_linked) {
-        parent_link->notify(et);
+        parent_link->notify_time(et);
     }
+}
+
+void LinkTarget::notify_active(engine_time_t et) {
     if (active_notifier.active()) {
         active_notifier.notify(et);
     }
+}
+
+void LinkTarget::notify(engine_time_t et) {
+    notify_time(et);
 }
 
 }  // namespace hgraph

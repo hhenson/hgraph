@@ -27,13 +27,18 @@ void redirect_ref_link_registrations(TSLinkObserverRegistry* registry,
         return;
     }
 
-    for (auto& [_, registrations] : registry->ref_entries) {
-        for (auto& registration : registrations) {
-            if (registration.ref_link == from) {
-                registration.ref_link = to;
+    auto redirect_map = [from, to](auto& observer_map) {
+        for (auto& [_, registrations] : observer_map) {
+            for (auto& registration : registrations) {
+                if (registration.ref_link == from) {
+                    registration.ref_link = to;
+                }
             }
         }
-    }
+    };
+
+    redirect_map(registry->ref_entries);
+    redirect_map(registry->active_ref_entries);
 }
 
 void redirect_ref_link_registries(const REFLink& payload,
@@ -184,11 +189,18 @@ ViewData REFLink::resolved_view_data() const {
     return has_target() ? target : source;
 }
 
-void REFLink::notify(engine_time_t et) {
+void REFLink::notify_time(engine_time_t et) {
     last_rebind_time = et;
+}
+
+void REFLink::notify_active(engine_time_t et) {
     if (active_notifier.active()) {
         active_notifier.notify(et);
     }
+}
+
+void REFLink::notify(engine_time_t et) {
+    notify_time(et);
 }
 
 }  // namespace hgraph

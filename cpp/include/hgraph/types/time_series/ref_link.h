@@ -38,6 +38,8 @@ struct HGRAPH_EXPORT REFLink : Notifiable {
     [[nodiscard]] bool modified(engine_time_t current_time) const;
     [[nodiscard]] ViewData resolved_view_data() const;
 
+    void notify_time(engine_time_t et);
+    void notify_active(engine_time_t et);
     void notify(engine_time_t et) override;
 };
 
