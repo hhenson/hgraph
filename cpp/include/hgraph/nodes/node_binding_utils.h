@@ -7,6 +7,7 @@
 
 #include <exception>
 #include <optional>
+#include <vector>
 
 namespace hgraph {
 
@@ -153,6 +154,84 @@ inline TSInputView node_inner_ts_input(Node& node, bool fallback_to_first = fals
         ts = bundle_opt->at(0);
     }
     return ts;
+}
+
+template <typename KeySetT>
+inline bool collect_tsd_key_set(const TSInputView& keys_view, KeySetT& out) {
+    out.clear();
+    value::View keys_value = keys_view.value();
+    if (!keys_value.valid()) {
+        return true;
+    }
+
+    if (keys_value.is_set()) {
+        for (value::View key : keys_value.as_set()) {
+            out.insert(key.clone());
+        }
+        return true;
+    }
+
+    if (keys_value.is_map()) {
+        for (value::View key : keys_value.as_map().keys()) {
+            out.insert(key.clone());
+        }
+        return true;
+    }
+
+    return false;
+}
+
+inline std::optional<value::Value> key_value_from_python(const nb::object& key_obj, const value::TypeMeta* key_type_meta) {
+    if (key_type_meta == nullptr) {
+        return std::nullopt;
+    }
+    value::Value key_value(key_type_meta);
+    key_value.emplace();
+    key_type_meta->ops().from_python(key_value.data(), key_obj, key_type_meta);
+    return key_value;
+}
+
+inline bool extract_tsd_key_delta(const TSInputView& keys_view,
+                                  const value::TypeMeta* key_type_meta,
+                                  std::vector<value::Value>& added_out,
+                                  std::vector<value::Value>& removed_out) {
+    added_out.clear();
+    removed_out.clear();
+    if (key_type_meta == nullptr) {
+        return false;
+    }
+
+    nb::object delta = keys_view.delta_to_python();
+    if (delta.is_none()) {
+        return false;
+    }
+
+    nb::object added_obj = nb::getattr(delta, "added", nb::none());
+    nb::object removed_obj = nb::getattr(delta, "removed", nb::none());
+
+    bool has_delta = false;
+    if (!added_obj.is_none()) {
+        for (const auto& item : nb::iter(added_obj)) {
+            auto key_value = key_value_from_python(nb::cast<nb::object>(item), key_type_meta);
+            if (!key_value.has_value()) {
+                continue;
+            }
+            added_out.push_back(std::move(*key_value));
+            has_delta = true;
+        }
+    }
+    if (!removed_obj.is_none()) {
+        for (const auto& item : nb::iter(removed_obj)) {
+            auto key_value = key_value_from_python(nb::cast<nb::object>(item), key_type_meta);
+            if (!key_value.has_value()) {
+                continue;
+            }
+            removed_out.push_back(std::move(*key_value));
+            has_delta = true;
+        }
+    }
+
+    return has_delta;
 }
 
 inline TSView resolve_tsd_child_view(const TSInputView& tsd_input, const value::View& key) {

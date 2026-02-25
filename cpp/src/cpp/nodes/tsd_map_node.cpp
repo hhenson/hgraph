@@ -152,17 +152,9 @@ namespace hgraph
                     return bound_target;
                 }
 
-                value::View ref_view = outer_any.value();
-                if (!ref_view.valid()) {
-                    return std::nullopt;
-                }
-                try {
-                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
-                    if (const ViewData *target = ref.bound_view(); target != nullptr) {
-                        return *target;
-                    }
-                } catch (...) {
-                    return std::nullopt;
+                ViewData ref_target{};
+                if (hgraph::resolve_ref_value_target_view_data(outer_any, ref_target)) {
+                    return ref_target;
                 }
                 return std::nullopt;
             }
@@ -173,38 +165,27 @@ namespace hgraph
             return outer_any.view_data();
         }
 
-        bool collect_current_map_keys(const TSInputView& keys_view, TsdMapNode::key_set_type& out) {
-            out.clear();
-            value::View keys_value = keys_view.value();
-            if (!keys_value.valid()) {
-                return true;
+        struct BindingTargetComparison {
+            std::optional<ViewData> current_inner_target;
+            std::optional<ViewData> desired_outer_target;
+            bool                    binding_changed{false};
+        };
+
+        BindingTargetComparison compare_binding_targets(const TSInputView& inner_ts, const TSView& outer_any) {
+            BindingTargetComparison out{};
+
+            ViewData current_bound_target{};
+            if (resolve_bound_target_view_data(inner_ts.as_ts_view().view_data(), current_bound_target)) {
+                out.current_inner_target = current_bound_target;
             }
 
-            if (keys_value.is_set()) {
-                for (value::View key : keys_value.as_set()) {
-                    out.insert(key.clone());
-                }
-                return true;
-            }
+            out.desired_outer_target = resolve_outer_binding_target(outer_any);
+            out.binding_changed =
+                out.current_inner_target.has_value() != out.desired_outer_target.has_value() ||
+                (out.current_inner_target.has_value() && out.desired_outer_target.has_value() &&
+                 !hgraph::same_view_identity(*out.current_inner_target, *out.desired_outer_target));
 
-            if (keys_value.is_map()) {
-                for (value::View key : keys_value.as_map().keys()) {
-                    out.insert(key.clone());
-                }
-                return true;
-            }
-
-            return false;
-        }
-
-        std::optional<value::Value> key_from_python_object(const nb::object& key_obj, const value::TypeMeta* key_type_meta) {
-            if (key_type_meta == nullptr) {
-                return std::nullopt;
-            }
-            value::Value key_value(key_type_meta);
-            key_value.emplace();
-            key_type_meta->ops().from_python(key_value.data(), key_obj, key_type_meta);
-            return key_value;
+            return out;
         }
 
         nb::object remove_marker() {
@@ -259,7 +240,7 @@ namespace hgraph
 
             nb::dict delta_dict = nb::cast<nb::dict>(delta_obj);
             for (const auto& kv : delta_dict) {
-                auto key_value = key_from_python_object(nb::cast<nb::object>(kv.first), key_type_meta);
+                auto key_value = hgraph::key_value_from_python(nb::cast<nb::object>(kv.first), key_type_meta);
                 if (!key_value.has_value()) {
                     continue;
                 }
@@ -275,49 +256,6 @@ namespace hgraph
             }
 
             return std::nullopt;
-        }
-
-        bool extract_key_delta(const TSInputView& keys_view,
-                               const value::TypeMeta* key_type_meta,
-                               std::vector<value::Value>& added_out,
-                               std::vector<value::Value>& removed_out) {
-            added_out.clear();
-            removed_out.clear();
-            if (key_type_meta == nullptr) {
-                return false;
-            }
-
-            nb::object delta = keys_view.delta_to_python();
-            if (delta.is_none()) {
-                return false;
-            }
-
-            nb::object added_obj = nb::getattr(delta, "added", nb::none());
-            nb::object removed_obj = nb::getattr(delta, "removed", nb::none());
-
-            bool has_delta = false;
-            if (!added_obj.is_none()) {
-                for (const auto& item : nb::iter(added_obj)) {
-                    auto key_value = key_from_python_object(nb::cast<nb::object>(item), key_type_meta);
-                    if (!key_value.has_value()) {
-                        continue;
-                    }
-                    added_out.push_back(std::move(*key_value));
-                    has_delta = true;
-                }
-            }
-            if (!removed_obj.is_none()) {
-                for (const auto& item : nb::iter(removed_obj)) {
-                    auto key_value = key_from_python_object(nb::cast<nb::object>(item), key_type_meta);
-                    if (!key_value.has_value()) {
-                        continue;
-                    }
-                    removed_out.push_back(std::move(*key_value));
-                    has_delta = true;
-                }
-            }
-
-            return has_delta;
         }
     }  // namespace
 
@@ -499,9 +437,9 @@ namespace hgraph
         if (keys_view && keys_view.modified()) {
             std::vector<value::Value> added_keys;
             std::vector<value::Value> removed_keys;
-            const bool has_key_delta = extract_key_delta(keys_view, key_type_meta_, added_keys, removed_keys);
+            const bool has_key_delta = hgraph::extract_tsd_key_delta(keys_view, key_type_meta_, added_keys, removed_keys);
             key_set_type current_keys;
-            const bool have_current_keys = collect_current_map_keys(keys_view, current_keys);
+            const bool have_current_keys = hgraph::collect_tsd_key_set(keys_view, current_keys);
 
             // When starting from an empty active set, key deltas alone are
             // insufficient (delta may only include incremental additions).
@@ -565,7 +503,7 @@ namespace hgraph
             }
         } else if (keys_view && active_graphs_.empty()) {
             key_set_type current_keys;
-            if (collect_current_map_keys(keys_view, current_keys)) {
+            if (hgraph::collect_tsd_key_set(keys_view, current_keys)) {
                 for (const auto &key : current_keys) {
                     if (active_graphs_.find(key.view()) == active_graphs_.end()) {
                         create_new_graph(key.view());
@@ -632,7 +570,7 @@ namespace hgraph
                         if (nb::isinstance<nb::dict>(delta)) {
                             nb::dict delta_dict = nb::cast<nb::dict>(delta);
                             for (const auto& kv : delta_dict) {
-                                auto key_value = key_from_python_object(nb::cast<nb::object>(kv.first), key_type_meta_);
+                                auto key_value = hgraph::key_value_from_python(nb::cast<nb::object>(kv.first), key_type_meta_);
                                 if (!key_value.has_value()) {
                                     continue;
                                 }
@@ -803,21 +741,12 @@ namespace hgraph
                 continue;
             }
 
-            std::optional<ViewData> current_inner_target;
-            ViewData current_bound_target{};
-            if (resolve_bound_target_view_data(inner_ts.as_ts_view().view_data(), current_bound_target)) {
-                current_inner_target = current_bound_target;
-            }
-            const std::optional<ViewData> desired_outer_target = resolve_outer_binding_target(outer_arg.as_ts_view());
-            const bool binding_changed =
-                current_inner_target.has_value() != desired_outer_target.has_value() ||
-                (current_inner_target.has_value() && desired_outer_target.has_value() &&
-                 !hgraph::same_view_identity(*current_inner_target, *desired_outer_target));
+            BindingTargetComparison binding_targets = compare_binding_targets(inner_ts, outer_arg.as_ts_view());
 
-            if (!inner_ts.is_bound() || binding_changed) {
+            if (!inner_ts.is_bound() || binding_targets.binding_changed) {
                 hgraph::bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts, RefBindOrder::BoundTargetThenRefValue);
             }
-            if (outer_arg.modified() || binding_changed) {
+            if (outer_arg.modified() || binding_targets.binding_changed) {
                 node->notify();
             }
         }
@@ -1225,16 +1154,7 @@ namespace hgraph
                     }
                 }
                 mux_all_valid = mux_all_valid && outer_key_value.valid();
-                std::optional<ViewData> current_inner_target;
-                ViewData current_bound_target{};
-                if (resolve_bound_target_view_data(inner_ts.as_ts_view().view_data(), current_bound_target)) {
-                    current_inner_target = current_bound_target;
-                }
-                const std::optional<ViewData> desired_outer_target = resolve_outer_binding_target(outer_key_value);
-                const bool binding_changed =
-                    current_inner_target.has_value() != desired_outer_target.has_value() ||
-                    (current_inner_target.has_value() && desired_outer_target.has_value() &&
-                     !hgraph::same_view_identity(*current_inner_target, *desired_outer_target));
+                BindingTargetComparison binding_targets = compare_binding_targets(inner_ts, outer_key_value);
                 const bool key_value_modified = outer_key_value.valid() && outer_key_value.modified();
                 if (debug_tsd_map_bind_enabled()) {
                     std::fprintf(stderr,
@@ -1248,13 +1168,13 @@ namespace hgraph
                                  static_cast<long long>(inner_ts.as_ts_view().last_modified_time().time_since_epoch().count()),
                                  outer_key_value.valid() ? 1 : 0,
                                  outer_key_value.modified() ? 1 : 0,
-                                 current_inner_target.has_value() ? 1 : 0,
-                                 desired_outer_target.has_value() ? 1 : 0,
-                                 binding_changed ? 1 : 0,
+                                 binding_targets.current_inner_target.has_value() ? 1 : 0,
+                                 binding_targets.desired_outer_target.has_value() ? 1 : 0,
+                                 binding_targets.binding_changed ? 1 : 0,
                                  key_value_modified ? 1 : 0);
                 }
                 stage_id = 5;
-                if (!inner_ts.is_bound() || key_value_modified || binding_changed) {
+                if (!inner_ts.is_bound() || key_value_modified || binding_targets.binding_changed) {
                     hgraph::bind_inner_from_outer(outer_key_value, inner_ts, RefBindOrder::BoundTargetThenRefValue);
                 }
                 if (debug_tsd_map_bind_enabled()) {
@@ -1269,7 +1189,7 @@ namespace hgraph
                                  static_cast<long long>(inner_ts.as_ts_view().last_modified_time().time_since_epoch().count()));
                 }
                 stage_id = 6;
-                if (key_value_modified || binding_changed) {
+                if (key_value_modified || binding_targets.binding_changed) {
                     node->notify();
                 }
             } catch (const std::exception& e) {

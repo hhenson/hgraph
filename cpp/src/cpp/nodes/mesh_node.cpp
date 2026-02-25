@@ -26,83 +26,6 @@ namespace hgraph {
             return nb::cast<std::string>(nb::repr(py_key));
         }
 
-        bool collect_current_map_keys(const TSInputView &keys_view, TsdMapNode::key_set_type &out) {
-            out.clear();
-            value::View keys_value = keys_view.value();
-            if (!keys_value.valid()) {
-                return true;
-            }
-
-            if (keys_value.is_set()) {
-                for (value::View key : keys_value.as_set()) {
-                    out.insert(key.clone());
-                }
-                return true;
-            }
-
-            if (keys_value.is_map()) {
-                for (value::View key : keys_value.as_map().keys()) {
-                    out.insert(key.clone());
-                }
-                return true;
-            }
-
-            return false;
-        }
-
-        std::optional<value::Value> key_from_python_object(const nb::object& key_obj, const value::TypeMeta* key_type_meta) {
-            if (key_type_meta == nullptr) {
-                return std::nullopt;
-            }
-            value::Value key_value(key_type_meta);
-            key_value.emplace();
-            key_type_meta->ops().from_python(key_value.data(), key_obj, key_type_meta);
-            return key_value;
-        }
-
-        bool extract_key_delta(const TSInputView& keys_view,
-                               const value::TypeMeta* key_type_meta,
-                               std::vector<value::Value>& added_out,
-                               std::vector<value::Value>& removed_out) {
-            added_out.clear();
-            removed_out.clear();
-            if (key_type_meta == nullptr) {
-                return false;
-            }
-
-            nb::object delta = keys_view.delta_to_python();
-            if (delta.is_none()) {
-                return false;
-            }
-
-            nb::object added_obj = nb::getattr(delta, "added", nb::none());
-            nb::object removed_obj = nb::getattr(delta, "removed", nb::none());
-
-            bool has_delta = false;
-            if (!added_obj.is_none()) {
-                for (const auto& item : nb::iter(added_obj)) {
-                    auto key_value = key_from_python_object(nb::cast<nb::object>(item), key_type_meta);
-                    if (!key_value.has_value()) {
-                        continue;
-                    }
-                    added_out.push_back(std::move(*key_value));
-                    has_delta = true;
-                }
-            }
-            if (!removed_obj.is_none()) {
-                for (const auto& item : nb::iter(removed_obj)) {
-                    auto key_value = key_from_python_object(nb::cast<nb::object>(item), key_type_meta);
-                    if (!key_value.has_value()) {
-                        continue;
-                    }
-                    removed_out.push_back(std::move(*key_value));
-                    has_delta = true;
-                }
-            }
-
-            return has_delta;
-        }
-
         void replace_key_set(TsdMapNode::key_set_type& dst, const TsdMapNode::key_set_type& src) {
             dst.clear();
             for (const auto& key : src) {
@@ -264,7 +187,7 @@ namespace hgraph {
 
         auto keys_view = hgraph::node_input_field(*this, KEYS_ARG);
         key_set_type current_keys;
-        bool have_current_keys = keys_view && collect_current_map_keys(keys_view, current_keys);
+        bool have_current_keys = keys_view && hgraph::collect_tsd_key_set(keys_view, current_keys);
         if (debug_mesh) {
             std::fprintf(stderr,
                          "[mesh_eval] node=%lld time=%lld keys_view=%d modified=%d have_current=%d current_size=%zu active=%zu pending=%zu to_remove=%zu\n",
@@ -282,7 +205,7 @@ namespace hgraph {
         if (keys_view && keys_view.modified()) {
             std::vector<value::Value> added_keys;
             std::vector<value::Value> removed_keys;
-            const bool has_key_delta = extract_key_delta(keys_view, key_type_meta_, added_keys, removed_keys);
+            const bool has_key_delta = hgraph::extract_tsd_key_delta(keys_view, key_type_meta_, added_keys, removed_keys);
 
             if (!has_key_delta && have_current_keys) {
                 for (const auto& key : current_keys) {
@@ -386,7 +309,7 @@ namespace hgraph {
 
         if (!graphs_to_remove_.empty()) {
             if (!have_current_keys && keys_view) {
-                have_current_keys = collect_current_map_keys(keys_view, current_keys);
+                have_current_keys = hgraph::collect_tsd_key_set(keys_view, current_keys);
             }
 
             std::vector<value::Value> to_remove;
