@@ -5042,6 +5042,22 @@ const TSMeta* op_ts_meta(const ViewData& vd) {
     return meta_at_path(vd.meta, vd.path.indices);
 }
 
+bool resolve_signal_source_view(const ViewData& vd,
+                                const LinkTarget& signal_link,
+                                ViewData& source_view,
+                                bool& source_is_signal) {
+    if (!signal_link.is_linked) {
+        return false;
+    }
+
+    source_view = signal_link.has_resolved_target
+                      ? signal_link.resolved_target
+                      : signal_link.as_view_data(vd.sampled);
+    const TSMeta* source_meta = meta_at_path(source_view.meta, source_view.path.indices);
+    source_is_signal = source_meta != nullptr && source_meta->kind == TSKind::SIGNAL;
+    return true;
+}
+
 engine_time_t op_last_modified_time(const ViewData& vd) {
     refresh_dynamic_ref_binding(vd, MIN_DT);
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
@@ -5130,11 +5146,7 @@ engine_time_t op_last_modified_time(const ViewData& vd) {
             ViewData source_view{};
             engine_time_t source_lmt = MIN_DT;
             const engine_time_t current_eval_time = view_evaluation_time(vd);
-            if (signal_link->is_linked) {
-                source_view =
-                    signal_link->has_resolved_target ? signal_link->resolved_target : signal_link->as_view_data(vd.sampled);
-                const TSMeta* source_meta = meta_at_path(source_view.meta, source_view.path.indices);
-                source_is_signal = source_meta != nullptr && source_meta->kind == TSKind::SIGNAL;
+            if (resolve_signal_source_view(vd, *signal_link, source_view, source_is_signal)) {
                 if (!source_is_signal && is_tsd_key_set_projection(source_view)) {
                     ViewData key_set_source{};
                     if (resolve_tsd_key_set_source(source_view, key_set_source)) {
@@ -5855,18 +5867,13 @@ bool op_valid(const ViewData& vd) {
         if (LinkTarget* signal_link = resolve_link_target(vd, vd.path.indices); signal_link != nullptr) {
             bool source_is_signal = false;
             ViewData source_view{};
-            if (signal_link->is_linked) {
-                source_view =
-                    signal_link->has_resolved_target ? signal_link->resolved_target : signal_link->as_view_data(vd.sampled);
-                const TSMeta* source_meta = meta_at_path(source_view.meta, source_view.path.indices);
-                source_is_signal = source_meta != nullptr && source_meta->kind == TSKind::SIGNAL;
-            }
+            const bool has_source = resolve_signal_source_view(vd, *signal_link, source_view, source_is_signal);
             if (source_is_signal &&
                 signal_link->owner_time_ptr != nullptr &&
                 *signal_link->owner_time_ptr > MIN_DT) {
                 return true;
             }
-            if (signal_link->is_linked) {
+            if (has_source) {
                 const TSMeta* source_meta = meta_at_path(source_view.meta, source_view.path.indices);
                 if (source_meta != nullptr && source_meta->kind == TSKind::REF) {
                     View ref_value = op_value(source_view);
