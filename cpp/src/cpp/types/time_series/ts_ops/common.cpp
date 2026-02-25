@@ -1650,6 +1650,27 @@ View op_value(const ViewData& vd);
 engine_time_t op_last_modified_time(const ViewData& vd);
 void clear_tsd_delta_if_new_tick(ViewData& vd, engine_time_t current_time, TSDDeltaSlots slots);
 
+bool view_matches_container_kind(const std::optional<View>& value, TSKind kind) {
+    if (!value.has_value() || !value->valid()) {
+        return false;
+    }
+    switch (kind) {
+        case TSKind::TSD:
+            return value->is_map();
+        case TSKind::TSS:
+            return value->is_set();
+        default:
+            return false;
+    }
+}
+
+bool bridge_has_container_kind_value(const ViewData& previous_bridge,
+                                     const ViewData& current_bridge,
+                                     TSKind kind) {
+    return view_matches_container_kind(resolve_value_slot_const(previous_bridge), kind) ||
+           view_matches_container_kind(resolve_value_slot_const(current_bridge), kind);
+}
+
 bool tsd_child_was_visible_before_removal(const ViewData& child_vd) {
     View child_value = op_value(child_vd);
     if (!child_value.valid()) {
@@ -5468,26 +5489,8 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
             ViewData previous_bridge{};
             ViewData current_bridge{};
             if (resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge)) {
-                if (element_meta->kind == TSKind::TSD) {
-                    auto previous_value = resolve_value_slot_const(previous_bridge);
-                    auto current_value = resolve_value_slot_const(current_bridge);
-                    const bool has_previous =
-                        previous_value.has_value() && previous_value->valid() && previous_value->is_map();
-                    const bool has_current =
-                        current_value.has_value() && current_value->valid() && current_value->is_map();
-                    if (has_previous || has_current) {
-                        return true;
-                    }
-                } else {
-                    auto previous_value = resolve_value_slot_const(previous_bridge);
-                    auto current_value = resolve_value_slot_const(current_bridge);
-                    const bool has_previous =
-                        previous_value.has_value() && previous_value->valid() && previous_value->is_set();
-                    const bool has_current =
-                        current_value.has_value() && current_value->valid() && current_value->is_set();
-                    if (has_previous || has_current) {
-                        return true;
-                    }
+                if (bridge_has_container_kind_value(previous_bridge, current_bridge, element_meta->kind)) {
+                    return true;
                 }
             }
         }
@@ -5591,11 +5594,7 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
         ViewData previous_bridge{};
         ViewData current_bridge{};
         if (resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge)) {
-            auto previous_value = resolve_value_slot_const(previous_bridge);
-            auto current_value = resolve_value_slot_const(current_bridge);
-            const bool has_previous = previous_value.has_value() && previous_value->valid() && previous_value->is_map();
-            const bool has_current = current_value.has_value() && current_value->valid() && current_value->is_map();
-            if (has_previous || has_current) {
+            if (bridge_has_container_kind_value(previous_bridge, current_bridge, TSKind::TSD)) {
                 return true;
             }
         }
@@ -5608,10 +5607,7 @@ bool op_modified(const ViewData& vd, engine_time_t current_time) {
                 link_target->last_rebind_time == current_time) {
                 ViewData current_view =
                     link_target->has_resolved_target ? link_target->resolved_target : link_target->as_view_data(vd.sampled);
-                auto current_value = resolve_value_slot_const(current_view);
-                const bool has_current =
-                    current_value.has_value() && current_value->valid() && current_value->is_map();
-                if (has_current) {
+                if (view_matches_container_kind(resolve_value_slot_const(current_view), TSKind::TSD)) {
                     return true;
                 }
             }
@@ -5909,11 +5905,7 @@ bool op_valid(const ViewData& vd) {
         ViewData previous_bridge{};
         ViewData current_bridge{};
         if (resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge)) {
-            auto previous_value = resolve_value_slot_const(previous_bridge);
-            auto current_value = resolve_value_slot_const(current_bridge);
-            const bool has_previous = previous_value.has_value() && previous_value->valid() && previous_value->is_map();
-            const bool has_current = current_value.has_value() && current_value->valid() && current_value->is_map();
-            if (has_previous || has_current) {
+            if (bridge_has_container_kind_value(previous_bridge, current_bridge, TSKind::TSD)) {
                 return true;
             }
         }
