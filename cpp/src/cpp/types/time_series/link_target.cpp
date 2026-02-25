@@ -214,9 +214,6 @@ void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
         return;
     }
 
-    const bool preserve_resolved_target = same_binding && has_resolved_target;
-    const ViewData preserved_resolved_target = preserve_resolved_target ? resolved_target : ViewData{};
-
     if (is_linked) {
         has_previous_target = true;
         previous_target = as_view_data(false);
@@ -246,13 +243,8 @@ void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
         }
     }
 
-    if (preserve_resolved_target) {
-        has_resolved_target = true;
-        resolved_target = preserved_resolved_target;
-    } else {
-        has_resolved_target = false;
-        resolved_target = {};
-    }
+    has_resolved_target = false;
+    resolved_target = {};
 }
 
 void LinkTarget::unbind(engine_time_t current_time) {
