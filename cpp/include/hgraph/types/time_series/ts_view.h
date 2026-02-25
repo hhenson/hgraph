@@ -225,6 +225,12 @@ public:
     void apply_delta(const value::View& delta) { ts_view_.apply_delta(delta); }
     void invalidate() { ts_view_.invalidate(); }
 
+    [[nodiscard]] TSOutputView field(std::string_view name) const;
+    [[nodiscard]] TSOutputView at(size_t index) const;
+    [[nodiscard]] TSOutputView at_key(const value::View& key) const;
+    [[nodiscard]] TSOutputView operator[](size_t index) const { return at(index); }
+    [[nodiscard]] TSOutputView operator[](const value::View& key) const { return at_key(key); }
+
     [[nodiscard]] std::optional<TSWOutputView> try_as_window() const;
     [[nodiscard]] std::optional<TSSOutputView> try_as_set() const;
     [[nodiscard]] std::optional<TSDOutputView> try_as_dict() const;
@@ -347,6 +353,12 @@ public:
     void make_active();
     void make_passive();
     [[nodiscard]] bool active() const;
+
+    [[nodiscard]] TSInputView field(std::string_view name) const;
+    [[nodiscard]] TSInputView at(size_t index) const;
+    [[nodiscard]] TSInputView at_key(const value::View& key) const;
+    [[nodiscard]] TSInputView operator[](size_t index) const { return at(index); }
+    [[nodiscard]] TSInputView operator[](const value::View& key) const { return at_key(key); }
 
     [[nodiscard]] std::optional<TSWInputView> try_as_window() const;
     [[nodiscard]] std::optional<TSSInputView> try_as_set() const;

@@ -665,6 +665,18 @@ void TSOutputView::copy_from_output(const TSOutputView& output) {
     copy_view_data_value(dst, src, current_time());
 }
 
+TSOutputView TSOutputView::field(std::string_view name) const {
+    return TSOutputView(owner_, as_ts_view().child_by_name(name));
+}
+
+TSOutputView TSOutputView::at(size_t index) const {
+    return TSOutputView(owner_, as_ts_view().child_at(index));
+}
+
+TSOutputView TSOutputView::at_key(const value::View& key) const {
+    return TSOutputView(owner_, as_ts_view().child_by_key(key));
+}
+
 std::optional<TSWOutputView> TSOutputView::try_as_window() const {
     if (!ts_view_.is_window()) {
         return std::nullopt;
@@ -828,6 +840,18 @@ ShortPath TSInputView::short_path() const {
         return ts_view_.short_path();
     }
     return owner_->to_short_path(ts_view_);
+}
+
+TSInputView TSInputView::field(std::string_view name) const {
+    return TSInputView(owner_, as_ts_view().child_by_name(name));
+}
+
+TSInputView TSInputView::at(size_t index) const {
+    return TSInputView(owner_, as_ts_view().child_at(index));
+}
+
+TSInputView TSInputView::at_key(const value::View& key) const {
+    return TSInputView(owner_, as_ts_view().child_by_key(key));
 }
 
 std::optional<TSWInputView> TSInputView::try_as_window() const {
