@@ -1,5 +1,6 @@
 #pragma once
 
+#include <hgraph/types/time_series/active_notifier.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/time_series/view_data.h>
 
@@ -31,7 +32,7 @@ struct HGRAPH_EXPORT LinkTarget : Notifiable {
     // Structural fields (owner-local)
     engine_time_t* owner_time_ptr{nullptr};
     LinkTarget* parent_link{nullptr};
-    Notifiable* active_notifier{nullptr};
+    ActiveNotifier active_notifier{};
     ViewData observer_view{};
     bool peered{false};
     // For non-REF consumers bound via REF wrappers, wrapper-local writes should

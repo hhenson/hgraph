@@ -32,7 +32,7 @@ namespace hgraph {
             _subscribed_link.unbind();
         }
         _owner_time = node_time(*this);
-        _subscribed_link.active_notifier = this;
+        _subscribed_link.active_notifier.set_target(this);
         _subscribed_link.owner_time_ptr = &_owner_time;
         _subscribed_link.parent_link = nullptr;
         notify();
@@ -43,7 +43,7 @@ namespace hgraph {
             unregister_ts_link_observer(_subscribed_link);
             _subscribed_link.unbind();
         }
-        _subscribed_link.active_notifier = nullptr;
+        _subscribed_link.active_notifier.set_target(nullptr);
         _subscribed_link.owner_time_ptr = nullptr;
         _subscribed_link.parent_link = nullptr;
     }
@@ -149,7 +149,7 @@ namespace hgraph {
                     _subscribed_link.unbind();
                 }
                 _owner_time = node_time(*this);
-                _subscribed_link.active_notifier = this;
+                _subscribed_link.active_notifier.set_target(this);
                 _subscribed_link.owner_time_ptr = &_owner_time;
                 _subscribed_link.parent_link = nullptr;
                 _subscribed_link.bind(*subscribed_target, node_time(*this));

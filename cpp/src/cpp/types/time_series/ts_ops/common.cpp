@@ -108,7 +108,7 @@ bool find_link_target_path(const ViewData& root_view,
 }
 
 bool observer_under_static_ref_container(const LinkTarget& observer) {
-    auto* active_input = notifier_as_live_input(observer.active_notifier);
+    auto* active_input = notifier_as_live_input(observer.active_notifier.target());
     if (active_input == nullptr || active_input->meta() == nullptr) {
         return false;
     }
@@ -145,7 +145,7 @@ bool signal_input_has_bind_impl(const ViewData& vd, const TSMeta* current_meta, 
         return false;
     }
 
-    auto* signal_input = notifier_as_live_input(signal_link->active_notifier);
+    auto* signal_input = notifier_as_live_input(signal_link->active_notifier.target());
     if (signal_input == nullptr) {
         if (debug_signal_impl) {
             std::fprintf(stderr,
@@ -635,7 +635,7 @@ bool suppress_static_ref_child_notification(const LinkTarget& observer, engine_t
     if (observer.parent_link == nullptr) {
         return false;
     }
-    if (observer.active_notifier == nullptr) {
+    if (!observer.active_notifier.active()) {
         return false;
     }
     if (observer.owner_time_ptr != nullptr) {
@@ -884,7 +884,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                 observer_meta != nullptr &&
                 observer_meta->kind == TSKind::REF) {
                 bool observer_modified = true;
-                if (auto* active_input = notifier_as_live_input(observer->active_notifier);
+                if (auto* active_input = notifier_as_live_input(observer->active_notifier.target());
                     active_input != nullptr && active_input->meta() != nullptr) {
                     TSView input_root = active_input->view();
                     if (input_root) {
@@ -944,7 +944,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
             }
             if (debug_notify) {
                 const TSMeta* observer_meta = meta_at_path(observer_view.meta, observer_view.path.indices);
-                const auto* active_input = notifier_as_live_input(observer->active_notifier);
+                const auto* active_input = notifier_as_live_input(observer->active_notifier.target());
                 std::string active_path{"<none>"};
                 int active_kind = -1;
                 if (active_input != nullptr) {
@@ -956,7 +956,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
                              static_cast<void*>(observer),
                              observer_view.path.to_string().c_str(),
                              observer_meta != nullptr ? static_cast<int>(observer_meta->kind) : -1,
-                             static_cast<void*>(observer->active_notifier),
+                             static_cast<void*>(observer->active_notifier.target()),
                              active_path.c_str(),
                              active_kind,
                              static_cast<void*>(observer->parent_link),
@@ -9875,7 +9875,7 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
                                      has_bound_ref_static_children(vd);
     if (vd.uses_link_target) {
         if (LinkTarget* payload = resolve_link_target(vd, vd.path.indices); payload != nullptr) {
-            payload->active_notifier = active ? input : nullptr;
+            payload->active_notifier.set_target(active ? static_cast<Notifiable*>(input) : nullptr);
             if (ref_local_wrapper && input != nullptr) {
                 const engine_time_t current_time = resolve_input_current_time(input);
                 if (current_time != MIN_DT) {
@@ -9898,7 +9898,7 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
                     std::vector<size_t> child_path = vd.path.indices;
                     child_path.push_back(i);
                     if (LinkTarget* child_link = resolve_link_target(vd, child_path); child_link != nullptr) {
-                        child_link->active_notifier = active ? input : nullptr;
+                        child_link->active_notifier.set_target(active ? static_cast<Notifiable*>(input) : nullptr);
                         if (active) {
                             notify_activation_if_modified(child_link, input);
                         }
@@ -9913,7 +9913,7 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
                         input->notify(current_time);
                     }
                 }
-                payload->active_notifier = nullptr;
+                payload->active_notifier.set_target(nullptr);
                 return;
             }
 
@@ -9945,7 +9945,7 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
         }
     } else {
         if (REFLink* payload = resolve_ref_link(vd, vd.path.indices); payload != nullptr) {
-            payload->active_notifier = active ? input : nullptr;
+            payload->active_notifier.set_target(active ? static_cast<Notifiable*>(input) : nullptr);
             if (active) {
                 notify_activation_if_modified(payload, input);
             }

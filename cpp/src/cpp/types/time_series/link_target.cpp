@@ -316,8 +316,8 @@ void LinkTarget::notify(engine_time_t et) {
     if (parent_link != nullptr && parent_link->is_linked) {
         parent_link->notify(et);
     }
-    if (active_notifier != nullptr) {
-        active_notifier->notify(et);
+    if (active_notifier.active()) {
+        active_notifier.notify(et);
     }
 }
 

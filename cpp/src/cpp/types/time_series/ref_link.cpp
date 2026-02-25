@@ -74,8 +74,6 @@ REFLink::REFLink(const REFLink& other)
     : is_linked(other.is_linked),
       source(other.source),
       target(other.target),
-      // active_notifier is intentionally owner-local.
-      active_notifier(nullptr),
       last_rebind_time(other.last_rebind_time) {
     track_live_ref_link(this, true);
     if (is_linked) {
@@ -102,14 +100,14 @@ REFLink::REFLink(REFLink&& other) noexcept
     : is_linked(other.is_linked),
       source(std::move(other.source)),
       target(std::move(other.target)),
-      active_notifier(other.active_notifier),
       last_rebind_time(other.last_rebind_time) {
+    active_notifier.set_target(other.active_notifier.target());
     track_live_ref_link(this, true);
     if (is_linked) {
         redirect_ref_link_registries(*this, &other, this);
         register_ts_ref_link_observer(*this);
     }
-    other.active_notifier = nullptr;
+    other.active_notifier.set_target(nullptr);
     other.is_linked = false;
     other.source = {};
     other.target = {};
@@ -122,14 +120,14 @@ REFLink& REFLink::operator=(REFLink&& other) noexcept {
         is_linked = other.is_linked;
         source = std::move(other.source);
         target = std::move(other.target);
-        active_notifier = other.active_notifier;
+        active_notifier.set_target(other.active_notifier.target());
         last_rebind_time = other.last_rebind_time;
         if (is_linked) {
             redirect_ref_link_registries(*this, &other, this);
             register_ts_ref_link_observer(*this);
         }
 
-        other.active_notifier = nullptr;
+        other.active_notifier.set_target(nullptr);
         other.is_linked = false;
         other.source = {};
         other.target = {};
@@ -188,8 +186,8 @@ ViewData REFLink::resolved_view_data() const {
 
 void REFLink::notify(engine_time_t et) {
     last_rebind_time = et;
-    if (active_notifier != nullptr) {
-        active_notifier->notify(et);
+    if (active_notifier.active()) {
+        active_notifier.notify(et);
     }
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <hgraph/types/time_series/active_notifier.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/time_series/view_data.h>
 
@@ -16,7 +17,7 @@ struct HGRAPH_EXPORT REFLink : Notifiable {
     ViewData source{};
     ViewData target{};
 
-    Notifiable* active_notifier{nullptr};
+    ActiveNotifier active_notifier{};
     engine_time_t last_rebind_time{MIN_DT};
 
     REFLink();
