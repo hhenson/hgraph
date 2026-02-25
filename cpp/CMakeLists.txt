@@ -309,6 +309,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/scalar_types.h
         include/hgraph/types/schema_type.h
         include/hgraph/types/traits.h
+        include/hgraph/types/time_series/observer_list.h
         include/hgraph/types/time_series/link_target.h
         include/hgraph/types/time_series/ref_link.h
         include/hgraph/types/time_series/ts_input.h

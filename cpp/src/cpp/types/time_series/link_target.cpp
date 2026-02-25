@@ -1,7 +1,7 @@
 #include <hgraph/types/time_series/link_target.h>
-#include <hgraph/types/time_series/link_observer_registry.h>
 #include <hgraph/types/time_series/ts_ops.h>
 
+#include <utility>
 #include <unordered_set>
 
 namespace hgraph {
@@ -18,27 +18,6 @@ void track_live_link_target(const LinkTarget* link_target, bool live) {
     } else {
         live_link_targets().erase(link_target);
     }
-}
-
-void redirect_link_target_registrations(TSLinkObserverRegistry* registry,
-                                        const LinkTarget* from,
-                                        LinkTarget* to) {
-    if (registry == nullptr || from == nullptr || to == nullptr || from == to) {
-        return;
-    }
-
-    auto redirect_map = [from, to](auto& observer_map) {
-        for (auto& [_, registrations] : observer_map) {
-            for (auto& registration : registrations) {
-                if (registration.link_target == from) {
-                    registration.link_target = to;
-                }
-            }
-        }
-    };
-
-    redirect_map(registry->entries);
-    redirect_map(registry->active_entries);
 }
 
 }  // namespace
@@ -149,25 +128,12 @@ void LinkTarget::copy_target_data_from(const LinkTarget& other) {
 }
 
 void LinkTarget::move_target_data_from(LinkTarget&& other) noexcept {
-    std::unordered_set<TSLinkObserverRegistry*> registries;
-    if (other.link_observer_registry != nullptr) {
-        registries.insert(other.link_observer_registry);
-    }
-    if (other.has_resolved_target && other.resolved_target.link_observer_registry != nullptr) {
-        registries.insert(other.resolved_target.link_observer_registry);
-    }
-    for (const ViewData& fan_in_target : other.fan_in_targets) {
-        if (fan_in_target.link_observer_registry != nullptr) {
-            registries.insert(fan_in_target.link_observer_registry);
-        }
+    if (other.is_linked) {
+        unregister_ts_link_observer(other);
     }
 
     copy_target_data_from(other);
     observer_view = other.observer_view;
-
-    for (TSLinkObserverRegistry* registry : registries) {
-        redirect_link_target_registrations(registry, &other, this);
-    }
 
     if (is_linked) {
         register_ts_link_observer(*this);

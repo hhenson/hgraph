@@ -1,8 +1,5 @@
 #include <hgraph/types/time_series/ref_link.h>
-#include <hgraph/types/time_series/link_observer_registry.h>
 #include <hgraph/types/time_series/ts_ops.h>
-
-#include <unordered_set>
 
 namespace hgraph {
 namespace {
@@ -17,43 +14,6 @@ void track_live_ref_link(const REFLink* ref_link, bool live) {
         live_ref_links().insert(ref_link);
     } else {
         live_ref_links().erase(ref_link);
-    }
-}
-
-void redirect_ref_link_registrations(TSLinkObserverRegistry* registry,
-                                     const REFLink* from,
-                                     REFLink* to) {
-    if (registry == nullptr || from == nullptr || to == nullptr || from == to) {
-        return;
-    }
-
-    auto redirect_map = [from, to](auto& observer_map) {
-        for (auto& [_, registrations] : observer_map) {
-            for (auto& registration : registrations) {
-                if (registration.ref_link == from) {
-                    registration.ref_link = to;
-                }
-            }
-        }
-    };
-
-    redirect_map(registry->ref_entries);
-    redirect_map(registry->active_ref_entries);
-}
-
-void redirect_ref_link_registries(const REFLink& payload,
-                                  const REFLink* from,
-                                  REFLink* to) {
-    std::unordered_set<TSLinkObserverRegistry*> registries;
-    if (payload.source.link_observer_registry != nullptr) {
-        registries.insert(payload.source.link_observer_registry);
-    }
-    if (payload.target.link_observer_registry != nullptr) {
-        registries.insert(payload.target.link_observer_registry);
-    }
-
-    for (TSLinkObserverRegistry* registry : registries) {
-        redirect_ref_link_registrations(registry, from, to);
     }
 }
 
@@ -109,7 +69,7 @@ REFLink::REFLink(REFLink&& other) noexcept
     active_notifier.set_target(other.active_notifier.target());
     track_live_ref_link(this, true);
     if (is_linked) {
-        redirect_ref_link_registries(*this, &other, this);
+        unregister_ts_ref_link_observer(other);
         register_ts_ref_link_observer(*this);
     }
     other.active_notifier.set_target(nullptr);
@@ -128,7 +88,7 @@ REFLink& REFLink::operator=(REFLink&& other) noexcept {
         active_notifier.set_target(other.active_notifier.target());
         last_rebind_time = other.last_rebind_time;
         if (is_linked) {
-            redirect_ref_link_registries(*this, &other, this);
+            unregister_ts_ref_link_observer(other);
             register_ts_ref_link_observer(*this);
         }
 

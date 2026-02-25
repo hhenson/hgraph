@@ -1,5 +1,6 @@
 #include <hgraph/types/time_series/ts_meta_schema_cache.h>
 
+#include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/ref_link.h>
 #include <hgraph/types/value/type_registry.h>
@@ -123,6 +124,59 @@ value::type_ops make_ref_link_ops() {
     return ops;
 }
 
+value::type_ops make_observer_list_ops() {
+    using value::type_ops;
+    type_ops ops{};
+
+    ops.construct = [](void* dst, const TypeMeta*) {
+        new (dst) ObserverList();
+    };
+    ops.destroy = [](void* obj, const TypeMeta*) {
+        static_cast<ObserverList*>(obj)->~ObserverList();
+    };
+    ops.copy = [](void* dst, const void* src, const TypeMeta*) {
+        *static_cast<ObserverList*>(dst) = *static_cast<const ObserverList*>(src);
+    };
+    ops.move = [](void* dst, void* src, const TypeMeta*) {
+        *static_cast<ObserverList*>(dst) = std::move(*static_cast<ObserverList*>(src));
+    };
+    ops.move_construct = [](void* dst, void* src, const TypeMeta*) {
+        new (dst) ObserverList(std::move(*static_cast<ObserverList*>(src)));
+    };
+    ops.equals = [](const void* a, const void* b, const TypeMeta*) {
+        const auto& lhs = *static_cast<const ObserverList*>(a);
+        const auto& rhs = *static_cast<const ObserverList*>(b);
+        return lhs.observers == rhs.observers;
+    };
+    ops.hash = [](const void* obj, const TypeMeta*) {
+        const auto& value = *static_cast<const ObserverList*>(obj);
+        size_t h = 0;
+        for (Notifiable* observer : value.observers) {
+            h ^= std::hash<const void*>{}(observer) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        }
+        return h;
+    };
+    ops.to_string = [](const void* obj, const TypeMeta*) {
+        const auto& value = *static_cast<const ObserverList*>(obj);
+        return "ObserverList(" + std::to_string(value.observers.size()) + ")";
+    };
+    ops.to_python = [](const void*, const TypeMeta*) {
+        return nb::none();
+    };
+    ops.from_python = [](void* dst, const nb::object&, const TypeMeta*) {
+        *static_cast<ObserverList*>(dst) = ObserverList{};
+    };
+
+    ops.kind = value::TypeKind::Atomic;
+    ops.specific.atomic = {
+        [](const void* a, const void* b, const TypeMeta*) {
+            return std::less<const void*>{}(a, b);
+        }
+    };
+
+    return ops;
+}
+
 const TypeMeta* link_target_type_meta() {
     static const TypeMeta* meta = TypeRegistry::instance().register_type<LinkTarget>("LinkTarget", make_link_target_ops());
     return meta;
@@ -130,6 +184,12 @@ const TypeMeta* link_target_type_meta() {
 
 const TypeMeta* ref_link_type_meta() {
     static const TypeMeta* meta = TypeRegistry::instance().register_type<REFLink>("REFLink", make_ref_link_ops());
+    return meta;
+}
+
+const TypeMeta* observer_list_type_meta() {
+    static const TypeMeta* meta =
+        TypeRegistry::instance().register_type<ObserverList>("ObserverList", make_observer_list_ops());
     return meta;
 }
 
@@ -276,7 +336,7 @@ const TypeMeta* TSMetaSchemaCache::generate_time_schema_impl(const TSMeta* meta)
 
 const TypeMeta* TSMetaSchemaCache::generate_observer_schema_impl(const TSMeta* meta) {
     auto& registry = TypeRegistry::instance();
-    const TypeMeta* observer_leaf = ensure_object_meta();
+    const TypeMeta* observer_leaf = observer_list_type_meta();
 
     if (meta == nullptr) {
         return observer_leaf;

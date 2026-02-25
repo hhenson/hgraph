@@ -557,7 +557,7 @@ def test_schema_cache_scalar_contract_surfaces_all_parallel_schemas():
 
     assert value_meta is ts_meta.value_type
     assert time_meta is value.scalar_type_meta_datetime()
-    assert observer_meta is value.TypeMeta.get("object")
+    assert observer_meta is value.TypeMeta.get("ObserverList")
     assert delta_meta is None
     assert link_meta is value.TypeMeta.get("REFLink")
     assert input_link_meta is value.TypeMeta.get("LinkTarget")
@@ -691,7 +691,7 @@ def test_schema_cache_tsl_fixed_time_and_observer_shapes_are_recursive():
     observer_meta = runtime.schema_observer_meta(fixed_meta)
 
     dt_meta = value.scalar_type_meta_datetime()
-    object_meta = value.TypeMeta.get("object")
+    observer_leaf_meta = value.TypeMeta.get("ObserverList")
 
     assert time_meta.kind == value.TypeKind.Tuple
     assert time_meta.field_count == 2
@@ -702,10 +702,10 @@ def test_schema_cache_tsl_fixed_time_and_observer_shapes_are_recursive():
 
     assert observer_meta.kind == value.TypeKind.Tuple
     assert observer_meta.field_count == 2
-    assert observer_meta.fields[0].type is object_meta
+    assert observer_meta.fields[0].type is observer_leaf_meta
     assert observer_meta.fields[1].type.kind == value.TypeKind.List
     assert observer_meta.fields[1].type.fixed_size == 2
-    assert observer_meta.fields[1].type.element_type is object_meta
+    assert observer_meta.fields[1].type.element_type is observer_leaf_meta
 
 
 def test_schema_cache_nested_tsb_parallel_shapes_recurse_per_field():

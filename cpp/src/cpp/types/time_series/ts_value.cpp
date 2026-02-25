@@ -46,8 +46,11 @@ void TSValue::initialize(const TSMeta* meta, const value::TypeMeta* link_schema,
 
     const auto& schema_cache = TSMetaSchemaCache::instance().get(meta_);
 
+    // Use schema-cache value schema as runtime storage shape. For TSW this is
+    // the window container (cyclic buffer / queue), while value_type remains
+    // the element scalar type in TSMeta.
     const value::TypeMeta* value_schema =
-        meta_->value_schema() != nullptr ? meta_->value_schema() : schema_cache.value_schema;
+        schema_cache.value_schema != nullptr ? schema_cache.value_schema : meta_->value_schema();
     const value::TypeMeta* time_schema =
         meta_->time_schema() != nullptr ? meta_->time_schema() : schema_cache.time_schema;
     const value::TypeMeta* observer_schema =

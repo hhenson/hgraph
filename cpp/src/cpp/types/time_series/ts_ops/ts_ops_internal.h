@@ -3,6 +3,7 @@
 #include <hgraph/types/time_series/ts_ops.h>
 
 #include <hgraph/types/time_series/link_observer_registry.h>
+#include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/ref_link.h>
 #include <hgraph/types/time_series/ts_input.h>
@@ -201,6 +202,7 @@ bool has_tsd_visible_key_history(const ViewData& parent_view, const value::View&
 void clear_tsd_visible_key_history(const ViewData& parent_view, const value::View& key);
 std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path);
 std::vector<size_t> ts_path_to_time_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path);
+std::vector<size_t> ts_path_to_observer_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path);
 std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path);
 const ts_ops* get_ts_ops(TSKind kind);
 const ts_ops* get_ts_ops(const TSMeta* meta);

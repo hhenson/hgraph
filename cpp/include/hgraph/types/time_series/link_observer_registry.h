@@ -1,31 +1,17 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
-#include <hgraph/types/time_series/view_data.h>
 
 #include <cstddef>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <vector>
 
 namespace hgraph {
 
 struct LinkTarget;
 struct REFLink;
-
-struct LinkObserverRegistration {
-    std::vector<size_t> path;
-    LinkTarget* link_target{nullptr};
-    ViewData observer_view{};
-};
-
-struct REFLinkObserverRegistration {
-    std::vector<size_t> path;
-    REFLink* ref_link{nullptr};
-    ViewData observer_view{};
-};
 
 /**
  * Endpoint-owned registry used by TS link observers.
@@ -41,10 +27,6 @@ struct HGRAPH_EXPORT TSLinkObserverRegistry {
     TSLinkObserverRegistry& operator=(TSLinkObserverRegistry&&) = delete;
     ~TSLinkObserverRegistry();
 
-    std::unordered_map<void*, std::vector<LinkObserverRegistration>> entries;
-    std::unordered_map<void*, std::vector<REFLinkObserverRegistration>> ref_entries;
-    std::unordered_map<void*, std::vector<LinkObserverRegistration>> active_entries;
-    std::unordered_map<void*, std::vector<REFLinkObserverRegistration>> active_ref_entries;
     std::unordered_map<std::string, std::shared_ptr<void>> feature_states;
 
     [[nodiscard]] std::shared_ptr<void> feature_state(std::string_view key) const {
@@ -68,10 +50,6 @@ struct HGRAPH_EXPORT TSLinkObserverRegistry {
     }
 
     void clear() {
-        entries.clear();
-        ref_entries.clear();
-        active_entries.clear();
-        active_ref_entries.clear();
         feature_states.clear();
     }
 };
