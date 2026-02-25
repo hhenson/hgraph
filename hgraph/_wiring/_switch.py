@@ -204,8 +204,8 @@ def _validate_signature(
             )
             same_output = (
                 check_signature.output_type.dereference().matches(this_signature.output_type.dereference())
-                if check_signature.output_type is not None
-                else this_signature.output_type is None
+                if check_signature.output_type is not None and this_signature.output_type is not None
+                else check_signature.output_type is None and this_signature.output_type is None
             )
             if not (same_arg_no and same_arg_types and same_output):
                 # If the signatures do not match, then we cannot wire the switch.
