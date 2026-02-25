@@ -96,7 +96,7 @@ namespace hgraph {
     }
 
     void SwitchNode::do_start() {
-        auto key_view = node_input_field(*this, "key");
+        auto key_view = hgraph::node_input_field(*this, "key");
         if (!key_view) {
             throw std::runtime_error("SwitchNode requires a 'key' TS input");
         }
@@ -162,7 +162,7 @@ namespace hgraph {
             throw std::runtime_error("SwitchNode key type meta is not initialised");
         }
 
-        auto key_view = node_input_field(*this, "key");
+        auto key_view = hgraph::node_input_field(*this, "key");
         if (!key_view) {
             return; // No key input or invalid
         }
@@ -409,11 +409,11 @@ namespace hgraph {
                     nb::object py_key = _key_type->ops().to_python(_active_key->data(), _key_type);
                     nb::setattr(key_node.eval_fn(), "key", py_key);
                 } else {
-                    auto outer_any = node_input_field(*this, arg);
+                    auto outer_any = hgraph::node_input_field(*this, arg);
                     if (!outer_any) {
                         continue;
                     }
-                    auto inner_any = node_input_field(*node, "ts");
+                    auto inner_any = hgraph::node_input_field(*node, "ts");
                     if (!inner_any) {
                         continue;
                     }

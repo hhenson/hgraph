@@ -133,14 +133,7 @@ namespace hgraph
 
                 ViewData bound_target{};
                 if (resolve_bound_target_view_data(current.view_data(), bound_target)) {
-                        if (!(bound_target.path.indices == current.view_data().path.indices &&
-                          bound_target.value_data == current.view_data().value_data &&
-                          bound_target.time_data == current.view_data().time_data &&
-                          bound_target.observer_data == current.view_data().observer_data &&
-                          bound_target.delta_data == current.view_data().delta_data &&
-                          bound_target.link_data == current.view_data().link_data &&
-                          bound_target.projection == current.view_data().projection &&
-                          bound_target.meta == current.view_data().meta)) {
+                    if (!hgraph::same_view_identity(bound_target, current.view_data())) {
                         current = TSView(bound_target, current.view_data().engine_time_ptr);
                         advanced = true;
                     }
@@ -156,14 +149,7 @@ namespace hgraph
                         try {
                             TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
                             if (const ViewData *ref_target = ref.bound_view(); ref_target != nullptr) {
-                                if (!(ref_target->path.indices == current.view_data().path.indices &&
-                                      ref_target->value_data == current.view_data().value_data &&
-                                      ref_target->time_data == current.view_data().time_data &&
-                                      ref_target->observer_data == current.view_data().observer_data &&
-                                      ref_target->delta_data == current.view_data().delta_data &&
-                                      ref_target->link_data == current.view_data().link_data &&
-                                      ref_target->projection == current.view_data().projection &&
-                                      ref_target->meta == current.view_data().meta)) {
+                                if (!hgraph::same_view_identity(*ref_target, current.view_data())) {
                                     current = TSView(*ref_target, current.view_data().engine_time_ptr);
                                     advanced = true;
                                 }

@@ -125,7 +125,7 @@ namespace hgraph {
             return;
         }
 
-        auto tsd = node_input_field(*this, "ts");
+        auto tsd = hgraph::node_input_field(*this, "ts");
         if (tsd && tsd.valid()) {
             update_changes();
             notify(node_time(*this));
@@ -153,7 +153,7 @@ namespace hgraph {
             return;
         }
 
-        auto tsd = node_input_field(*this, "ts");
+        auto tsd = hgraph::node_input_field(*this, "ts");
         if (tsd && tsd.modified()) {
             update_changes();
         }
@@ -173,7 +173,7 @@ namespace hgraph {
 
     void TsdNonAssociativeReduceNode::update_changes() {
         const int64_t sz = node_count();
-        const int64_t new_size = tsd_size(node_input_field(*this, "ts"));
+        const int64_t new_size = tsd_size(hgraph::node_input_field(*this, "ts"));
         if (sz == new_size) {
             return;
         }
@@ -190,8 +190,8 @@ namespace hgraph {
         }
 
         const int64_t curr_size = node_count();
-        auto tsd = node_input_field(*this, "ts");
-        auto zero = node_input_field(*this, "zero");
+        auto tsd = hgraph::node_input_field(*this, "ts");
+        auto zero = hgraph::node_input_field(*this, "zero");
 
         for (int64_t ndx = curr_size; ndx < sz; ++ndx) {
             nested_graph_->extend_graph(*nested_graph_builder_, true);
@@ -207,12 +207,12 @@ namespace hgraph {
                 continue;
             }
 
-            auto lhs_input = node_inner_ts_input(*lhs_node, true);
-            auto rhs_input = node_inner_ts_input(*rhs_node, true);
+            auto lhs_input = hgraph::node_inner_ts_input(*lhs_node, true);
+            auto rhs_input = hgraph::node_inner_ts_input(*rhs_node, true);
 
             if (lhs_input) {
                 if (ndx == 0) {
-                    bind_inner_from_outer(zero ? zero.as_ts_view() : TSView{}, lhs_input);
+                    hgraph::bind_inner_from_outer(zero ? zero.as_ts_view() : TSView{}, lhs_input);
                 } else {
                     auto prev_graph = get_node(ndx - 1);
                     TSOutputView lhs_parent;
@@ -222,7 +222,7 @@ namespace hgraph {
                         prev_graph[output_node_id_] != nullptr) {
                         lhs_parent = prev_graph[output_node_id_]->output();
                     }
-                    bind_inner_from_outer(lhs_parent ? lhs_parent.as_ts_view() : TSView{}, lhs_input);
+                    hgraph::bind_inner_from_outer(lhs_parent ? lhs_parent.as_ts_view() : TSView{}, lhs_input);
                 }
                 if (!lhs_input.active()) {
                     lhs_input.make_active();
@@ -232,7 +232,7 @@ namespace hgraph {
 
             if (rhs_input) {
                 TSView rhs_outer = resolve_tsd_index_view(tsd, ndx);
-                bind_inner_from_outer(rhs_outer, rhs_input);
+                hgraph::bind_inner_from_outer(rhs_outer, rhs_input);
                 if (!rhs_input.active()) {
                     rhs_input.make_active();
                 }
@@ -272,7 +272,7 @@ namespace hgraph {
 
         const int64_t nc = node_count();
         if (nc == 0) {
-            auto zero = node_input_field(*this, "zero");
+            auto zero = hgraph::node_input_field(*this, "zero");
             if (!zero) {
                 return;
             }
@@ -322,7 +322,7 @@ namespace hgraph {
     nb::object TsdNonAssociativeReduceNode::last_output_value() {
         const int64_t nc = node_count();
         if (nc == 0) {
-            auto zero = node_input_field(*this, "zero");
+            auto zero = hgraph::node_input_field(*this, "zero");
             return zero ? zero.to_python() : nb::none();
         }
 

@@ -124,7 +124,7 @@ namespace hgraph {
 
                 // Check all ts values are valid
                 for (const auto &k: ts_values) {
-                    auto ts = node_input_field(*this, k);
+                    auto ts = hgraph::node_input_field(*this, k);
                     if (!_get_ts_valid(ts)) {
                         return {id_, false}; // Not all inputs valid yet
                     }
@@ -137,7 +137,7 @@ namespace hgraph {
                 if (scalars().contains(k)) {
                     args[k.c_str()] = scalars()[k.c_str()];
                 } else {
-                    args[k.c_str()] = _get_ts_value(node_input_field(*this, k));
+                    args[k.c_str()] = _get_ts_value(hgraph::node_input_field(*this, k));
                 }
             }
 
@@ -203,12 +203,12 @@ namespace hgraph {
                 continue;
             }
 
-            auto inner_ts = node_inner_ts_input(*node, true);
+            auto inner_ts = hgraph::node_inner_ts_input(*node, true);
             if (!inner_ts) {
                 continue;
             }
 
-            bind_inner_from_outer(outer_view.as_ts_view(), inner_ts);
+            hgraph::bind_inner_from_outer(outer_view.as_ts_view(), inner_ts);
         }
 
         // Wire outputs

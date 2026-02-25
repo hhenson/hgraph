@@ -39,7 +39,7 @@ namespace hgraph {
                     try {
                         TimeSeriesReference ref = nb::cast<TimeSeriesReference>(payload.to_python());
                         if (const ViewData* target = ref.bound_view();
-                            target != nullptr && !same_view_identity(*target, cursor)) {
+                            target != nullptr && !hgraph::same_view_identity(*target, cursor)) {
                             cursor = *target;
                             continue;
                         }
@@ -50,7 +50,7 @@ namespace hgraph {
 
                 ViewData bound_target{};
                 if (resolve_bound_target_view_data(cursor, bound_target) &&
-                    !same_view_identity(bound_target, cursor)) {
+                    !hgraph::same_view_identity(bound_target, cursor)) {
                     cursor = std::move(bound_target);
                     continue;
                 }
@@ -333,11 +333,11 @@ namespace hgraph {
     }
 
     TSInputView ReduceNode::ts() {
-        return node_input_field(*this, "ts");
+        return hgraph::node_input_field(*this, "ts");
     }
 
     TSInputView ReduceNode::zero() {
-        return node_input_field(*this, "zero");
+        return hgraph::node_input_field(*this, "zero");
     }
 
     void ReduceNode::initialise() {
@@ -478,7 +478,7 @@ namespace hgraph {
                     }
 
                     auto node = nodes[side];
-                    auto inner_ts = node_inner_ts_input(*node, true);
+                    auto inner_ts = hgraph::node_inner_ts_input(*node, true);
                     if (!inner_ts) {
                         continue;
                     }
@@ -517,7 +517,7 @@ namespace hgraph {
                             local_key_values_.erase(local_it);
                         }
                         if (!preserve_existing_ref_binding) {
-                            bind_inner_from_outer(tsd_key_view, inner_ts);
+                            hgraph::bind_inner_from_outer(tsd_key_view, inner_ts);
                             rebound = true;
                         }
 
@@ -547,7 +547,7 @@ namespace hgraph {
                             }
                             TSView fallback_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
                             fallback_view.from_python(*delta_value);
-                            bind_inner_from_outer(fallback_view, inner_ts);
+                            hgraph::bind_inner_from_outer(fallback_view, inner_ts);
                             rebound = true;
                             if (debug_reduce) {
                                 std::string dv = "<repr-failed>";
@@ -879,15 +879,15 @@ namespace hgraph {
             auto lhs_node = sub_graph[std::get<0>(input_node_ids_)];
             auto rhs_node = sub_graph[std::get<1>(input_node_ids_)];
 
-            auto lhs_input = node_inner_ts_input(*lhs_node, true);
-            auto rhs_input = node_inner_ts_input(*rhs_node, true);
+            auto lhs_input = hgraph::node_inner_ts_input(*lhs_node, true);
+            auto rhs_input = hgraph::node_inner_ts_input(*rhs_node, true);
 
             if (lhs_input) {
-                bind_inner_from_outer(left_parent ? left_parent.as_ts_view() : TSView{}, lhs_input);
+                hgraph::bind_inner_from_outer(left_parent ? left_parent.as_ts_view() : TSView{}, lhs_input);
                 lhs_node->notify(node_time(*this));
             }
             if (rhs_input) {
-                bind_inner_from_outer(right_parent ? right_parent.as_ts_view() : TSView{}, rhs_input);
+                hgraph::bind_inner_from_outer(right_parent ? right_parent.as_ts_view() : TSView{}, rhs_input);
                 rhs_node->notify(node_time(*this));
             }
         }
@@ -954,7 +954,7 @@ namespace hgraph {
         }
 
         auto node = nodes[side];
-        auto inner_ts = node_inner_ts_input(*node, true);
+        auto inner_ts = hgraph::node_inner_ts_input(*node, true);
         if (!inner_ts) {
             return;
         }
@@ -982,7 +982,7 @@ namespace hgraph {
                              static_cast<long long>(std::get<0>(ndx)),
                              static_cast<long long>(std::get<1>(ndx)));
             }
-            bind_inner_from_outer(tsd_key_view, inner_ts);
+            hgraph::bind_inner_from_outer(tsd_key_view, inner_ts);
         } else {
             const TSMeta* tsd_meta = tsd.ts_meta();
             const value::TypeMeta* key_type_meta =
@@ -1015,7 +1015,7 @@ namespace hgraph {
                                  tsd_key_valid ? 1 : 0,
                                  dv.c_str());
                 }
-                bind_inner_from_outer(fallback_view, inner_ts);
+                hgraph::bind_inner_from_outer(fallback_view, inner_ts);
             } else if (has_tsd_key) {
                 if (debug_reduce) {
                     std::fprintf(stderr,
@@ -1024,7 +1024,7 @@ namespace hgraph {
                                  static_cast<long long>(std::get<0>(ndx)),
                                  static_cast<long long>(std::get<1>(ndx)));
                 }
-                bind_inner_from_outer(tsd_key_view, inner_ts);
+                hgraph::bind_inner_from_outer(tsd_key_view, inner_ts);
             } else {
                 if (debug_reduce) {
                     std::fprintf(stderr,
@@ -1052,7 +1052,7 @@ namespace hgraph {
         }
 
         auto node = nodes[side];
-        auto inner_ts = node_inner_ts_input(*node, true);
+        auto inner_ts = hgraph::node_inner_ts_input(*node, true);
         if (!inner_ts) {
             return;
         }
@@ -1061,7 +1061,7 @@ namespace hgraph {
         if (!zero_ref) {
             inner_ts.unbind();
         } else {
-            bind_inner_from_outer(zero_ref.as_ts_view(), inner_ts);
+            hgraph::bind_inner_from_outer(zero_ref.as_ts_view(), inner_ts);
             if (!inner_ts.active()) {
                 inner_ts.make_active();
             }
@@ -1088,8 +1088,8 @@ namespace hgraph {
             return;
         }
 
-        auto src_input = node_inner_ts_input(*src_node, true);
-        auto dst_input = node_inner_ts_input(*dst_node, true);
+        auto src_input = hgraph::node_inner_ts_input(*src_node, true);
+        auto dst_input = hgraph::node_inner_ts_input(*dst_node, true);
         if (!src_input || !dst_input) {
             return;
         }
@@ -1113,7 +1113,7 @@ namespace hgraph {
         if (resolve_bound_target_view_data(dst_input.as_ts_view().view_data(), dst_target)) {
             src_input.as_ts_view().bind(TSView(dst_target, src_input.as_ts_view().view_data().engine_time_ptr));
         } else {
-            bind_inner_from_outer(dst_input.as_ts_view(), src_input);
+            hgraph::bind_inner_from_outer(dst_input.as_ts_view(), src_input);
         }
         src_node->notify(node_time(*this));
         dst_node->notify(node_time(*this));
