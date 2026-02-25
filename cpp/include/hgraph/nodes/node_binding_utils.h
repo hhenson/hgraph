@@ -5,6 +5,9 @@
 #include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/time_series/ts_view.h>
 
+#include <exception>
+#include <optional>
+
 namespace hgraph {
 
 enum class RefBindOrder {
@@ -22,6 +25,104 @@ inline bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
            lhs.projection == rhs.projection &&
            lhs.path.indices == rhs.path.indices &&
            lhs.meta == rhs.meta;
+}
+
+inline bool resolve_ref_value_target_view_data(const TSView& ref_view, ViewData& out_target) {
+    const TSMeta* meta = ref_view.ts_meta();
+    if (meta == nullptr || meta->kind != TSKind::REF) {
+        return false;
+    }
+
+    value::View payload = ref_view.value();
+    if (!payload.valid()) {
+        return false;
+    }
+
+    try {
+        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(payload.to_python());
+        if (const ViewData* target = ref.bound_view();
+            target != nullptr && !same_view_identity(*target, ref_view.view_data())) {
+            out_target = *target;
+            return true;
+        }
+    } catch (const std::exception&) {
+        return false;
+    }
+
+    return false;
+}
+
+inline std::optional<ViewData> resolve_effective_view_data(const TSView& start_view,
+                                                           RefBindOrder ref_bind_order = RefBindOrder::BoundTargetThenRefValue,
+                                                           size_t max_depth = 8) {
+    if (!start_view) {
+        return std::nullopt;
+    }
+
+    ViewData cursor = start_view.view_data();
+    const engine_time_t* current_time_ptr = start_view.view_data().engine_time_ptr;
+
+    for (size_t depth = 0; depth < max_depth; ++depth) {
+        const auto advance_to_bound_target = [&]() -> bool {
+            ViewData bound_target{};
+            if (!resolve_bound_target_view_data(cursor, bound_target) ||
+                same_view_identity(bound_target, cursor)) {
+                return false;
+            }
+            cursor = std::move(bound_target);
+            return true;
+        };
+
+        const auto advance_to_ref_target = [&]() -> bool {
+            ViewData ref_target{};
+            if (!resolve_ref_value_target_view_data(TSView(cursor, current_time_ptr), ref_target)) {
+                return false;
+            }
+            cursor = std::move(ref_target);
+            return true;
+        };
+
+        bool advanced = false;
+        if (ref_bind_order == RefBindOrder::BoundTargetThenRefValue) {
+            advanced = advance_to_bound_target() || advance_to_ref_target();
+        } else {
+            advanced = advance_to_ref_target() || advance_to_bound_target();
+        }
+
+        if (!advanced) {
+            break;
+        }
+    }
+
+    return cursor;
+}
+
+inline TSView resolve_effective_view(const TSView& start_view,
+                                     RefBindOrder ref_bind_order = RefBindOrder::BoundTargetThenRefValue,
+                                     size_t max_depth = 8) {
+    auto resolved = resolve_effective_view_data(start_view, ref_bind_order, max_depth);
+    if (!resolved.has_value()) {
+        return {};
+    }
+    return TSView(*resolved, start_view.view_data().engine_time_ptr);
+}
+
+inline std::optional<ViewData> resolve_non_ref_target_view_data(
+    const TSView& start_view,
+    RefBindOrder ref_bind_order = RefBindOrder::RefValueThenBoundTarget,
+    size_t max_depth = 64) {
+    auto resolved = resolve_effective_view_data(start_view, ref_bind_order, max_depth);
+    if (!resolved.has_value()) {
+        return std::nullopt;
+    }
+
+    TSView resolved_view(*resolved, start_view.view_data().engine_time_ptr);
+    const TSMeta* resolved_meta = resolved_view.ts_meta();
+    if (resolved_meta == nullptr || resolved_meta->kind == TSKind::REF) {
+        return std::nullopt;
+    }
+
+    return resolved;
 }
 
 inline TSInputView node_input_field(Node& node, std::string_view name) {

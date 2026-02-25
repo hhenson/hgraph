@@ -31,6 +31,26 @@ namespace hgraph
             return g != nullptr ? g->evaluation_time() : MIN_DT;
         }
 
+        bool debug_tsd_map_bind_enabled() {
+            static const bool enabled = std::getenv("HGRAPH_DEBUG_TSD_MAP_BIND") != nullptr;
+            return enabled;
+        }
+
+        bool debug_tsd_map_clock_enabled() {
+            static const bool enabled = std::getenv("HGRAPH_DEBUG_TSD_MAP_CLOCK") != nullptr;
+            return enabled;
+        }
+
+        bool debug_tsd_map_enabled() {
+            static const bool enabled = std::getenv("HGRAPH_DEBUG_TSD_MAP") != nullptr;
+            return enabled;
+        }
+
+        bool debug_tsd_map_copy_enabled() {
+            static const bool enabled = std::getenv("HGRAPH_DEBUG_TSD_MAP_COPY") != nullptr;
+            return enabled;
+        }
+
         std::string key_repr(const value::View &key, const value::TypeMeta *key_type_meta) {
             if (!key.valid() || key_type_meta == nullptr) {
                 return "<invalid key>";
@@ -39,16 +59,14 @@ namespace hgraph
             return nb::cast<std::string>(nb::repr(py_key));
         }
 
-        TSView resolve_effective_view(TSView view);
-
         TSView resolve_outer_key_view(TSView outer_ts, const value::View &key) {
             if (!outer_ts || !key.valid()) {
                 return {};
             }
-            const bool debug_bind = std::getenv("HGRAPH_DEBUG_TSD_MAP_BIND") != nullptr;
+            const bool debug_bind = debug_tsd_map_bind_enabled();
 
             TSView child = outer_ts.child_by_key(key);
-            TSView effective_child = resolve_effective_view(child);
+            TSView effective_child = hgraph::resolve_effective_view(child);
             if (debug_bind) {
                 std::string child_value{"<none>"};
                 std::string effective_child_value{"<none>"};
@@ -83,7 +101,7 @@ namespace hgraph
             ViewData bound_target{};
             if (resolve_bound_target_view_data(outer_ts.view_data(), bound_target)) {
                 TSView bound_child = TSView(bound_target, outer_ts.view_data().engine_time_ptr).child_by_key(key);
-                TSView effective_bound_child = resolve_effective_view(bound_child);
+                TSView effective_bound_child = hgraph::resolve_effective_view(bound_child);
                 if (debug_bind) {
                     std::string bound_child_value{"<none>"};
                     std::string effective_bound_child_value{"<none>"};
@@ -120,52 +138,6 @@ namespace hgraph
                 return child;
             }
             return {};
-        }
-
-        TSView resolve_effective_view(TSView view) {
-            if (!view) {
-                return {};
-            }
-
-            TSView current = view;
-            for (size_t depth = 0; depth < 8; ++depth) {
-                bool advanced = false;
-
-                ViewData bound_target{};
-                if (resolve_bound_target_view_data(current.view_data(), bound_target)) {
-                    if (!hgraph::same_view_identity(bound_target, current.view_data())) {
-                        current = TSView(bound_target, current.view_data().engine_time_ptr);
-                        advanced = true;
-                    }
-                }
-                if (advanced) {
-                    continue;
-                }
-
-                const TSMeta *meta = current.ts_meta();
-                if (meta != nullptr && meta->kind == TSKind::REF) {
-                    value::View ref_view = current.value();
-                    if (ref_view.valid()) {
-                        try {
-                            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
-                            if (const ViewData *ref_target = ref.bound_view(); ref_target != nullptr) {
-                                if (!hgraph::same_view_identity(*ref_target, current.view_data())) {
-                                    current = TSView(*ref_target, current.view_data().engine_time_ptr);
-                                    advanced = true;
-                                }
-                            }
-                        } catch (const std::exception &) {
-                            // Not a TSView-backed reference.
-                        }
-                    }
-                }
-
-                if (!advanced) {
-                    break;
-                }
-            }
-
-            return current;
         }
 
         std::optional<ViewData> resolve_outer_binding_target(const TSView &outer_any) {
@@ -358,7 +330,7 @@ namespace hgraph
     void MapNestedEngineEvaluationClock::update_next_scheduled_evaluation_time(engine_time_t next_time) {
         auto &node_{*static_cast<TsdMapNode *>(node())};
         auto let = node_.last_evaluation_time();
-        const bool debug_clock = std::getenv("HGRAPH_DEBUG_TSD_MAP_CLOCK") != nullptr;
+        const bool debug_clock = debug_tsd_map_clock_enabled();
         if (debug_clock) {
             std::fprintf(stderr,
                          "[tsd_map_clock] node=%s ptr=%p ndx=%lld key=%s let=%lld next=%lld stop=%d\n",
@@ -436,7 +408,7 @@ namespace hgraph
     }
 
     void TsdMapNode::do_start() {
-        const bool debug_tsd_map = std::getenv("HGRAPH_DEBUG_TSD_MAP") != nullptr;
+        const bool debug_tsd_map = debug_tsd_map_enabled();
         if (debug_tsd_map) {
             std::string multiplexed;
             bool first = true;
@@ -511,7 +483,7 @@ namespace hgraph
 
     void TsdMapNode::eval() {
         mark_evaluated();
-        const bool debug_tsd_map = std::getenv("HGRAPH_DEBUG_TSD_MAP") != nullptr;
+        const bool debug_tsd_map = debug_tsd_map_enabled();
         if (debug_tsd_map) {
             std::fprintf(stderr,
                          "[tsd_map] eval node=%s ptr=%p ndx=%lld now=%lld active=%zu scheduled=%zu\n",
@@ -652,7 +624,7 @@ namespace hgraph
                 }
 
                 bool scheduled_from_delta = false;
-                TSView effective_arg = resolve_effective_view(outer_arg.as_ts_view());
+                TSView effective_arg = hgraph::resolve_effective_view(outer_arg.as_ts_view());
                 if (effective_arg) {
                     const TSMeta* effective_meta = effective_arg.ts_meta();
                     if (effective_meta != nullptr && effective_meta->kind == TSKind::TSD) {
@@ -797,7 +769,7 @@ namespace hgraph
         }
         const value::Value key_value = it->first.view().clone();
         const bool force_emit = force_emit_keys_.find(key_value) != force_emit_keys_.end();
-        const bool debug_tsd_map_copy = std::getenv("HGRAPH_DEBUG_TSD_MAP_COPY") != nullptr;
+        const bool debug_tsd_map_copy = debug_tsd_map_copy_enabled();
 
         auto &nested = it->second;
 
@@ -894,7 +866,7 @@ namespace hgraph
             auto inner = node->output();
             if (outer && inner) {
                 TSView inner_raw = inner.as_ts_view();
-                TSView inner_effective = resolve_effective_view(inner_raw);
+                TSView inner_effective = hgraph::resolve_effective_view(inner_raw);
                 TSView outer_existing = outer.as_ts_view().as_dict().at_key(key);
                 const bool has_outer_entry = static_cast<bool>(outer_existing);
                 const bool output_init_pending = pending_keys_.find(key_value) != pending_keys_.end();
@@ -1058,7 +1030,7 @@ namespace hgraph
     }
 
     void TsdMapNode::un_wire_graph(const value::View &key, graph_s_ptr &graph) {
-        const bool debug_tsd_map = std::getenv("HGRAPH_DEBUG_TSD_MAP") != nullptr;
+        const bool debug_tsd_map = debug_tsd_map_enabled();
         for (const auto &[arg, node_ndx] : input_node_ids_) {
             if (arg == key_arg_) {
                 continue;
@@ -1093,7 +1065,7 @@ namespace hgraph
     }
 
     void TsdMapNode::wire_graph(const value::View &key, graph_s_ptr &graph) {
-        const bool debug_tsd_map = std::getenv("HGRAPH_DEBUG_TSD_MAP") != nullptr;
+        const bool debug_tsd_map = debug_tsd_map_enabled();
         auto outer_root = input();
         std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
 
@@ -1264,7 +1236,7 @@ namespace hgraph
                     (current_inner_target.has_value() && desired_outer_target.has_value() &&
                      !hgraph::same_view_identity(*current_inner_target, *desired_outer_target));
                 const bool key_value_modified = outer_key_value.valid() && outer_key_value.modified();
-                if (std::getenv("HGRAPH_DEBUG_TSD_MAP_BIND") != nullptr) {
+                if (debug_tsd_map_bind_enabled()) {
                     std::fprintf(stderr,
                                  "[tsd_map_bind] refresh arg=%s key=%s inner_path=%s inner_bound=%d inner_valid=%d inner_mod=%d inner_lmt=%lld outer_valid=%d outer_mod=%d current_target=%d desired_target=%d binding_changed=%d key_value_modified=%d\n",
                                  arg.c_str(),
@@ -1285,7 +1257,7 @@ namespace hgraph
                 if (!inner_ts.is_bound() || key_value_modified || binding_changed) {
                     hgraph::bind_inner_from_outer(outer_key_value, inner_ts, RefBindOrder::BoundTargetThenRefValue);
                 }
-                if (std::getenv("HGRAPH_DEBUG_TSD_MAP_BIND") != nullptr) {
+                if (debug_tsd_map_bind_enabled()) {
                     std::fprintf(stderr,
                                  "[tsd_map_bind] refresh_post arg=%s key=%s inner_path=%s inner_bound=%d inner_valid=%d inner_mod=%d inner_lmt=%lld\n",
                                  arg.c_str(),
@@ -1301,7 +1273,7 @@ namespace hgraph
                     node->notify();
                 }
             } catch (const std::exception& e) {
-                if (std::getenv("HGRAPH_DEBUG_TSD_MAP_BIND") != nullptr) {
+                if (debug_tsd_map_bind_enabled()) {
                     std::fprintf(stderr,
                                  "[tsd_map_bind] refresh exception arg=%s key=%s stage_id=%d what=%s\n",
                                  arg.c_str(),

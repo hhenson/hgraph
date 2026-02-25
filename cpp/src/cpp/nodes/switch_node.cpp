@@ -20,6 +20,16 @@
 
 namespace hgraph {
     namespace {
+        bool debug_switch_enabled() {
+            static const bool enabled = std::getenv("HGRAPH_DEBUG_SWITCH") != nullptr;
+            return enabled;
+        }
+
+        bool debug_switch_bind_enabled() {
+            static const bool enabled = std::getenv("HGRAPH_DEBUG_SWITCH_BIND") != nullptr;
+            return enabled;
+        }
+
         std::optional<value::Value> canonicalise_key(const value::View& key_view, const value::TypeMeta* key_type) {
             if (!key_view.valid() || key_type == nullptr) {
                 return std::nullopt;
@@ -32,7 +42,7 @@ namespace hgraph {
         }
 
         void bind_inner_from_outer_debug(const TSView &outer_any, TSInputView inner_any) {
-            const bool debug_bind = std::getenv("HGRAPH_DEBUG_SWITCH_BIND") != nullptr;
+            const bool debug_bind = debug_switch_bind_enabled();
             if (!inner_any) {
                 return;
             }
@@ -155,7 +165,7 @@ namespace hgraph {
     }
 
     void SwitchNode::eval() {
-        const bool debug_switch = std::getenv("HGRAPH_DEBUG_SWITCH") != nullptr;
+        const bool debug_switch = debug_switch_enabled();
         mark_evaluated();
 
         if (_key_type == nullptr) {
@@ -377,7 +387,7 @@ namespace hgraph {
 
     void SwitchNode::wire_graph(graph_s_ptr &graph) {
         if (!_active_key.has_value()) return;
-        const bool debug_switch = std::getenv("HGRAPH_DEBUG_SWITCH") != nullptr;
+        const bool debug_switch = debug_switch_enabled();
 
         auto active_key_view = _active_key->view();
 

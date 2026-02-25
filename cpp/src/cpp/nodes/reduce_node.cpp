@@ -20,45 +20,9 @@
 
 namespace hgraph {
     namespace {
-        std::optional<ViewData> resolve_non_ref_target_view_data(const TSView& start_view) {
-            ViewData cursor = start_view.view_data();
-            const engine_time_t* current_time_ptr = start_view.view_data().engine_time_ptr;
-
-            for (size_t depth = 0; depth < 64; ++depth) {
-                TSView cursor_view(cursor, current_time_ptr);
-                const TSMeta* meta = cursor_view.ts_meta();
-                if (meta == nullptr) {
-                    return std::nullopt;
-                }
-                if (meta->kind != TSKind::REF) {
-                    return cursor;
-                }
-
-                value::View payload = cursor_view.value();
-                if (payload.valid()) {
-                    try {
-                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(payload.to_python());
-                        if (const ViewData* target = ref.bound_view();
-                            target != nullptr && !hgraph::same_view_identity(*target, cursor)) {
-                            cursor = *target;
-                            continue;
-                        }
-                    } catch (const std::exception&) {
-                        // Not a TimeSeriesReference payload.
-                    }
-                }
-
-                ViewData bound_target{};
-                if (resolve_bound_target_view_data(cursor, bound_target) &&
-                    !hgraph::same_view_identity(bound_target, cursor)) {
-                    cursor = std::move(bound_target);
-                    continue;
-                }
-
-                return std::nullopt;
-            }
-
-            return std::nullopt;
+        bool debug_reduce_enabled() {
+            static const bool enabled = std::getenv("HGRAPH_DEBUG_REDUCE") != nullptr;
+            return enabled;
         }
 
         engine_time_t node_time(const Node &node) {
@@ -382,7 +346,7 @@ namespace hgraph {
         if (nested_graph_ == nullptr) {
             return;
         }
-        const bool debug_reduce = std::getenv("HGRAPH_DEBUG_REDUCE") != nullptr;
+        const bool debug_reduce = debug_reduce_enabled();
 
         TSInputView tsd = ts();
         std::vector<value::Value> current_keys;
@@ -711,7 +675,7 @@ namespace hgraph {
         if (keys.empty()) {
             return;
         }
-        const bool debug_reduce = std::getenv("HGRAPH_DEBUG_REDUCE") != nullptr;
+        const bool debug_reduce = debug_reduce_enabled();
 
         while (free_node_indexes_.size() < keys.size()) {
             grow_tree();
@@ -765,7 +729,7 @@ namespace hgraph {
         if (keys.empty()) {
             return;
         }
-        const bool debug_reduce = std::getenv("HGRAPH_DEBUG_REDUCE") != nullptr;
+        const bool debug_reduce = debug_reduce_enabled();
 
         for (const auto &key : keys) {
             auto it = bound_node_indexes_.find(key.view());
@@ -823,7 +787,7 @@ namespace hgraph {
         if (nested_graph_ == nullptr || nested_graph_builder_ == nullptr) {
             return;
         }
-        const bool debug_reduce = std::getenv("HGRAPH_DEBUG_REDUCE") != nullptr;
+        const bool debug_reduce = debug_reduce_enabled();
 
         int64_t count = node_count();
         int64_t end = 2 * count + 1;  // Not inclusive.
@@ -944,7 +908,7 @@ namespace hgraph {
     }
 
     void ReduceNode::bind_key_to_node(const value::View &key, const std::tuple<int64_t, int64_t> &ndx) {
-        const bool debug_reduce = std::getenv("HGRAPH_DEBUG_REDUCE") != nullptr;
+        const bool debug_reduce = debug_reduce_enabled();
         bound_node_indexes_[key.clone()] = ndx;
 
         auto [node_id, side] = ndx;
@@ -1071,7 +1035,7 @@ namespace hgraph {
     }
 
     void ReduceNode::swap_node(const std::tuple<int64_t, int64_t> &src_ndx, const std::tuple<int64_t, int64_t> &dst_ndx) {
-        const bool debug_reduce = std::getenv("HGRAPH_DEBUG_REDUCE") != nullptr;
+        const bool debug_reduce = debug_reduce_enabled();
         auto [src_node_id, src_side] = src_ndx;
         auto [dst_node_id, dst_side] = dst_ndx;
 
