@@ -2,6 +2,7 @@
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/mesh_node.h>
+#include <hgraph/nodes/node_binding_utils.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/python/global_keys.h>
 #include <hgraph/python/global_state.h>
@@ -23,18 +24,6 @@ namespace hgraph {
             }
             auto g = node.graph();
             return g != nullptr ? g->evaluation_time() : MIN_DT;
-        }
-
-        TSInputView node_input_field(Node &node, std::string_view name) {
-            auto root = node.input();
-            if (!root) {
-                return {};
-            }
-            auto bundle_opt = root.try_as_bundle();
-            if (!bundle_opt.has_value()) {
-                return {};
-            }
-            return bundle_opt->field(name);
         }
 
         std::string key_repr(const value::View &key, const value::TypeMeta *key_type_meta) {
@@ -281,7 +270,7 @@ namespace hgraph {
         const bool debug_mesh = std::getenv("HGRAPH_DEBUG_MESH_KEYS") != nullptr;
         const bool debug_dep = std::getenv("HGRAPH_DEBUG_MESH_DEP") != nullptr;
 
-        auto keys_view = node_input_field(*this, KEYS_ARG);
+        auto keys_view = hgraph::node_input_field(*this, KEYS_ARG);
         key_set_type current_keys;
         bool have_current_keys = keys_view && collect_current_map_keys(keys_view, current_keys);
         if (debug_mesh) {

@@ -4,7 +4,7 @@
  * @file set_delta_value.h
  * @brief Value class representing set delta (added/removed elements).
  *
- * SetDeltaValue is returned by TimeSeriesSetInput::delta_value() and
+ * SetDeltaValue is returned by TSSInputView::delta_value() and
  * represents a snapshot of what was added/removed since last evaluation.
  */
 

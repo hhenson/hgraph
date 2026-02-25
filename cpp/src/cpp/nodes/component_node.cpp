@@ -1,5 +1,6 @@
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/component_node.h>
+#include <hgraph/nodes/node_binding_utils.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/python/global_keys.h>
 #include <hgraph/python/global_state.h>
@@ -14,84 +15,6 @@
 namespace hgraph {
     // Helper functions for checking time-series validity and extracting values
     // These need to handle TimeSeriesReference specially
-
-    namespace {
-        engine_time_t node_time(const Node &node) {
-            if (auto *et = node.cached_evaluation_time_ptr(); et != nullptr) {
-                return *et;
-            }
-            auto g = node.graph();
-            return g != nullptr ? g->evaluation_time() : MIN_DT;
-        }
-
-        TSInputView node_input_field(Node &node, std::string_view name) {
-            auto root = node.input();
-            if (!root) {
-                return {};
-            }
-            auto bundle_opt = root.try_as_bundle();
-            if (!bundle_opt.has_value()) {
-                return {};
-            }
-            return bundle_opt->field(name);
-        }
-
-        TSInputView node_inner_ts_input(Node &node) {
-            auto root = node.input();
-            if (!root) {
-                return {};
-            }
-
-            auto bundle_opt = root.try_as_bundle();
-            if (!bundle_opt.has_value()) {
-                return {};
-            }
-
-            auto ts = bundle_opt->field("ts");
-            if (!ts && bundle_opt->count() > 0) {
-                ts = bundle_opt->at(0);
-            }
-            return ts;
-        }
-
-        void bind_inner_from_outer(const TSView &outer_any, TSInputView inner_any) {
-            if (!inner_any) {
-                return;
-            }
-
-            if (!outer_any) {
-                inner_any.unbind();
-                return;
-            }
-
-            const engine_time_t* inner_time_ptr = inner_any.as_ts_view().view_data().engine_time_ptr;
-            const TSMeta *outer_meta = outer_any.ts_meta();
-            if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
-                value::View ref_view = outer_any.value();
-                if (ref_view.valid()) {
-                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
-                    ref.bind_input(inner_any);
-                    return;
-                }
-
-                ViewData bound_target{};
-                if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                    inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
-                    return;
-                }
-
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
-                return;
-            }
-
-            ViewData bound_target{};
-            if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
-            } else {
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
-            }
-        }
-    }  // namespace
 
     static bool _get_ts_valid(const TSInputView &ts) {
         if (!ts || !ts.valid()) {
@@ -280,7 +203,7 @@ namespace hgraph {
                 continue;
             }
 
-            auto inner_ts = node_inner_ts_input(*node);
+            auto inner_ts = node_inner_ts_input(*node, true);
             if (!inner_ts) {
                 continue;
             }

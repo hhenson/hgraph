@@ -2,6 +2,7 @@
 
 #include <fmt/format.h>
 #include <hgraph/builders/graph_builder.h>
+#include <hgraph/nodes/node_binding_utils.h>
 #include <hgraph/nodes/python_node.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/switch_node.h>
@@ -19,18 +20,6 @@
 
 namespace hgraph {
     namespace {
-        TSInputView node_input_field(Node &node, std::string_view name) {
-            auto root = node.input();
-            if (!root) {
-                return {};
-            }
-            auto bundle_opt = root.try_as_bundle();
-            if (!bundle_opt.has_value()) {
-                return {};
-            }
-            return bundle_opt->field(name);
-        }
-
         std::optional<value::Value> canonicalise_key(const value::View& key_view, const value::TypeMeta* key_type) {
             if (!key_view.valid() || key_type == nullptr) {
                 return std::nullopt;
@@ -42,7 +31,7 @@ namespace hgraph {
             return out;
         }
 
-        void bind_inner_from_outer(const TSView &outer_any, TSInputView inner_any) {
+        void bind_inner_from_outer_debug(const TSView &outer_any, TSInputView inner_any) {
             const bool debug_bind = std::getenv("HGRAPH_DEBUG_SWITCH_BIND") != nullptr;
             if (!inner_any) {
                 return;
@@ -59,7 +48,6 @@ namespace hgraph {
                 return;
             }
 
-            const engine_time_t* inner_time_ptr = inner_any.as_ts_view().view_data().engine_time_ptr;
             const TSMeta *outer_meta = outer_any.ts_meta();
             if (debug_bind) {
                 std::fprintf(stderr,
@@ -70,45 +58,7 @@ namespace hgraph {
                              outer_any.valid() ? 1 : 0,
                              outer_any.modified() ? 1 : 0);
             }
-            if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
-                value::View ref_view = outer_any.value();
-                if (ref_view.valid()) {
-                    if (debug_bind) {
-                        std::fprintf(stderr, "[switch_bind] using ref_view.bind_input path\n");
-                    }
-                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
-                    ref.bind_input(inner_any);
-                    return;
-                }
-
-                ViewData bound_target{};
-                if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                    if (debug_bind) {
-                        std::fprintf(stderr, "[switch_bind] using resolve_bound_target_view_data path (REF)\n");
-                    }
-                    inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
-                    return;
-                }
-
-                if (debug_bind) {
-                    std::fprintf(stderr, "[switch_bind] using outer REF view fallback bind path\n");
-                }
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
-                return;
-            }
-
-            ViewData bound_target{};
-            if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                if (debug_bind) {
-                    std::fprintf(stderr, "[switch_bind] using resolve_bound_target_view_data path (non-REF)\n");
-                }
-                inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
-            } else {
-                if (debug_bind) {
-                    std::fprintf(stderr, "[switch_bind] using direct outer view bind path (non-REF)\n");
-                }
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
-            }
+            hgraph::bind_inner_from_outer(outer_any, inner_any, RefBindOrder::RefValueThenBoundTarget);
         }
 
     }  // namespace
@@ -368,7 +318,7 @@ namespace hgraph {
                         outer_any && outer_meta != nullptr && outer_meta->kind == TSKind::REF && outer_any.modified();
 
                     if (!inner_any.is_bound() || refresh_ref_binding) {
-                        bind_inner_from_outer(outer_any ? outer_any.as_ts_view() : TSView{}, inner_any);
+                        bind_inner_from_outer_debug(outer_any ? outer_any.as_ts_view() : TSView{}, inner_any);
                         if (!inner_any.active()) {
                             inner_any.make_active();
                         }
@@ -467,7 +417,7 @@ namespace hgraph {
                     if (!inner_any) {
                         continue;
                     }
-                    bind_inner_from_outer(outer_any.as_ts_view(), inner_any);
+                    bind_inner_from_outer_debug(outer_any.as_ts_view(), inner_any);
                     if (!inner_any.active()) {
                         inner_any.make_active();
                     }

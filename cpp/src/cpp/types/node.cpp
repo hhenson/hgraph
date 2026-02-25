@@ -612,8 +612,6 @@ namespace hgraph
         }
     }
 
-    static const std::string VERY_LARGE_STRING = "\xFF";
-
     void NodeScheduler::advance() {
         if (_scheduled_events.empty()) { return; }
         // Use node's cached evaluation time pointer - direct memory access, no pointer chasing

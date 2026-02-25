@@ -1,5 +1,6 @@
 #include <fmt/format.h>
 #include <hgraph/builders/graph_builder.h>
+#include <hgraph/nodes/node_binding_utils.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/python_node.h>
 #include <hgraph/nodes/tsd_map_node.h>
@@ -30,50 +31,12 @@ namespace hgraph
             return g != nullptr ? g->evaluation_time() : MIN_DT;
         }
 
-        TSInputView node_input_field(Node &node, std::string_view name) {
-            auto root = node.input();
-            if (!root) {
-                return {};
-            }
-            auto bundle_opt = root.try_as_bundle();
-            if (!bundle_opt.has_value()) {
-                return {};
-            }
-            return bundle_opt->field(name);
-        }
-
-        TSInputView node_inner_ts_input(Node &node) {
-            auto root = node.input();
-            if (!root) {
-                return {};
-            }
-
-            auto bundle_opt = root.try_as_bundle();
-            if (!bundle_opt.has_value()) {
-                return {};
-            }
-
-            return bundle_opt->field("ts");
-        }
-
         std::string key_repr(const value::View &key, const value::TypeMeta *key_type_meta) {
             if (!key.valid() || key_type_meta == nullptr) {
                 return "<invalid key>";
             }
             nb::object py_key = key_type_meta->ops().to_python(key.data(), key_type_meta);
             return nb::cast<std::string>(nb::repr(py_key));
-        }
-
-        bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
-            return lhs.value_data == rhs.value_data &&
-                   lhs.time_data == rhs.time_data &&
-                   lhs.observer_data == rhs.observer_data &&
-                   lhs.delta_data == rhs.delta_data &&
-                   lhs.link_data == rhs.link_data &&
-                   lhs.link_observer_registry == rhs.link_observer_registry &&
-                   lhs.projection == rhs.projection &&
-                   lhs.path.indices == rhs.path.indices &&
-                   lhs.meta == rhs.meta;
         }
 
         TSView resolve_effective_view(TSView view);
@@ -217,42 +180,6 @@ namespace hgraph
             }
 
             return current;
-        }
-
-        void bind_inner_from_outer(const TSView &outer_any, TSInputView inner_any) {
-            if (!inner_any) {
-                return;
-            }
-
-            if (!outer_any) {
-                inner_any.unbind();
-                return;
-            }
-
-            const engine_time_t* inner_time_ptr = inner_any.as_ts_view().view_data().engine_time_ptr;
-            const TSMeta *outer_meta = outer_any.ts_meta();
-            if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
-                ViewData bound_target{};
-                if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                    inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
-                    return;
-                }
-
-                TimeSeriesReference ref = TimeSeriesReference::make();
-                value::View ref_view = outer_any.value();
-                if (ref_view.valid()) {
-                    ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
-                }
-                ref.bind_input(inner_any);
-                return;
-            }
-
-            ViewData bound_target{};
-            if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
-            } else {
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
-            }
         }
 
         std::optional<ViewData> resolve_outer_binding_target(const TSView &outer_any) {
@@ -509,7 +436,7 @@ namespace hgraph
     }
 
     void TsdMapNode::initialise() {
-        auto keys_view = node_input_field(*this, KEYS_ARG);
+        auto keys_view = hgraph::node_input_field(*this, KEYS_ARG);
         const TSMeta *keys_meta = keys_view ? keys_view.ts_meta() : nullptr;
         if (keys_meta == nullptr) {
             key_type_meta_ = nullptr;
@@ -610,7 +537,7 @@ namespace hgraph
                          scheduled_keys_.size());
         }
 
-        auto keys_view = node_input_field(*this, KEYS_ARG);
+        auto keys_view = hgraph::node_input_field(*this, KEYS_ARG);
         if (keys_view && keys_view.modified()) {
             std::vector<value::Value> added_keys;
             std::vector<value::Value> removed_keys;
@@ -896,7 +823,7 @@ namespace hgraph
             }
 
             auto node = nested->nodes()[node_ndx];
-            auto inner_ts = node_inner_ts_input(*node);
+            auto inner_ts = hgraph::node_inner_ts_input(*node, false);
             if (!inner_ts) {
                 continue;
             }
@@ -927,10 +854,10 @@ namespace hgraph
             const bool binding_changed =
                 current_inner_target.has_value() != desired_outer_target.has_value() ||
                 (current_inner_target.has_value() && desired_outer_target.has_value() &&
-                 !same_view_identity(*current_inner_target, *desired_outer_target));
+                 !hgraph::same_view_identity(*current_inner_target, *desired_outer_target));
 
             if (!inner_ts.is_bound() || binding_changed) {
-                bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts);
+                hgraph::bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts, RefBindOrder::BoundTargetThenRefValue);
             }
             if (outer_arg.modified() || binding_changed) {
                 node->notify();
@@ -1152,7 +1079,7 @@ namespace hgraph
             }
 
             auto node = graph->nodes()[node_ndx];
-            auto inner_ts = node_inner_ts_input(*node);
+            auto inner_ts = hgraph::node_inner_ts_input(*node, false);
             if (!inner_ts) {
                 continue;
             }
@@ -1208,7 +1135,7 @@ namespace hgraph
                 continue;
             }
 
-            auto inner_ts = node_inner_ts_input(*node);
+            auto inner_ts = hgraph::node_inner_ts_input(*node, false);
             if (!inner_ts) {
                 continue;
             }
@@ -1263,9 +1190,9 @@ namespace hgraph
                                  used_local_fallback ? 1 : 0,
                                  outer_key_value_py.c_str());
                 }
-                bind_inner_from_outer(outer_key_value, inner_ts);
+                hgraph::bind_inner_from_outer(outer_key_value, inner_ts, RefBindOrder::BoundTargetThenRefValue);
             } else {
-                bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts);
+                hgraph::bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts, RefBindOrder::BoundTargetThenRefValue);
             }
         }
 
@@ -1275,7 +1202,7 @@ namespace hgraph
             // nested graph never published a valid value for that key.
             auto out = tsd_output();
             if (out) {
-                out.create(key);
+                (void)out.create(key);
             }
         }
     }
@@ -1295,7 +1222,7 @@ namespace hgraph
             }
 
             auto node = graph->nodes()[node_ndx];
-            auto inner_ts = node_inner_ts_input(*node);
+            auto inner_ts = hgraph::node_inner_ts_input(*node, false);
             if (!inner_ts) {
                 continue;
             }
@@ -1349,7 +1276,7 @@ namespace hgraph
                 const bool binding_changed =
                     current_inner_target.has_value() != desired_outer_target.has_value() ||
                     (current_inner_target.has_value() && desired_outer_target.has_value() &&
-                     !same_view_identity(*current_inner_target, *desired_outer_target));
+                     !hgraph::same_view_identity(*current_inner_target, *desired_outer_target));
                 const bool key_value_modified = outer_key_value.valid() && outer_key_value.modified();
                 if (std::getenv("HGRAPH_DEBUG_TSD_MAP_BIND") != nullptr) {
                     std::fprintf(stderr,
@@ -1370,7 +1297,7 @@ namespace hgraph
                 }
                 stage_id = 5;
                 if (!inner_ts.is_bound() || key_value_modified || binding_changed) {
-                    bind_inner_from_outer(outer_key_value, inner_ts);
+                    hgraph::bind_inner_from_outer(outer_key_value, inner_ts, RefBindOrder::BoundTargetThenRefValue);
                 }
                 if (std::getenv("HGRAPH_DEBUG_TSD_MAP_BIND") != nullptr) {
                     std::fprintf(stderr,

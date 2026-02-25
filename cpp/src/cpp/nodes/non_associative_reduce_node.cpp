@@ -1,4 +1,5 @@
 #include <hgraph/builders/graph_builder.h>
+#include <hgraph/nodes/node_binding_utils.h>
 #include <hgraph/nodes/non_associative_reduce_node.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/types/graph.h>
@@ -20,73 +21,6 @@ namespace hgraph {
             return g != nullptr ? g->evaluation_time() : MIN_DT;
         }
 
-        TSInputView node_input_field(Node& node, std::string_view name) {
-            auto root = node.input();
-            if (!root) {
-                return {};
-            }
-            auto bundle_opt = root.try_as_bundle();
-            if (!bundle_opt.has_value()) {
-                return {};
-            }
-            return bundle_opt->field(name);
-        }
-
-        TSInputView node_inner_ts_input(Node& node) {
-            auto root = node.input();
-            if (!root) {
-                return {};
-            }
-
-            auto bundle_opt = root.try_as_bundle();
-            if (!bundle_opt.has_value()) {
-                return {};
-            }
-
-            auto ts = bundle_opt->field("ts");
-            if (!ts && bundle_opt->count() > 0) {
-                ts = bundle_opt->at(0);
-            }
-            return ts;
-        }
-
-        void bind_inner_from_outer(const TSView& outer_any, TSInputView inner_any) {
-            if (!inner_any) {
-                return;
-            }
-
-            if (!outer_any) {
-                inner_any.unbind();
-                return;
-            }
-
-            const engine_time_t* inner_time_ptr = inner_any.as_ts_view().view_data().engine_time_ptr;
-            const TSMeta* outer_meta = outer_any.ts_meta();
-            if (outer_meta != nullptr && outer_meta->kind == TSKind::REF) {
-                value::View ref_view = outer_any.value();
-                if (ref_view.valid()) {
-                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
-                    ref.bind_input(inner_any);
-                    return;
-                }
-
-                ViewData bound_target{};
-                if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                    inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
-                    return;
-                }
-
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
-                return;
-            }
-
-            ViewData bound_target{};
-            if (resolve_bound_target_view_data(outer_any.view_data(), bound_target)) {
-                inner_any.as_ts_view().bind(TSView(bound_target, inner_time_ptr));
-            } else {
-                inner_any.as_ts_view().bind(TSView(outer_any.view_data(), inner_time_ptr));
-            }
-        }
 
         int64_t tsd_size(const TSInputView& tsd_input) {
             if (!tsd_input || !tsd_input.valid()) {
@@ -273,8 +207,8 @@ namespace hgraph {
                 continue;
             }
 
-            auto lhs_input = node_inner_ts_input(*lhs_node);
-            auto rhs_input = node_inner_ts_input(*rhs_node);
+            auto lhs_input = node_inner_ts_input(*lhs_node, true);
+            auto rhs_input = node_inner_ts_input(*rhs_node, true);
 
             if (lhs_input) {
                 if (ndx == 0) {
