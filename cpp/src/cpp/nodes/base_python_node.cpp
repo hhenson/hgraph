@@ -9,7 +9,6 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/traits.h>
-#include <hgraph/types/tsb.h>
 #include <hgraph/util/date_time.h>
 
 namespace hgraph

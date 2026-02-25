@@ -7,7 +7,6 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
-#include <hgraph/types/tsb.h>
 #include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/util/lifecycle.h>
 #include <format>
@@ -111,7 +110,7 @@ namespace hgraph {
             if (const ViewData* bound = ref.bound_view(); bound != nullptr) {
                 return bound->ops != nullptr ? bound->ops->valid(*bound) : false;
             }
-            return ref.has_output() && ref.output() && ref.output()->valid();
+            return false;
         } catch (const nb::cast_error &) {
             // Not a TimeSeriesReference, that's fine
             return true;
@@ -130,7 +129,6 @@ namespace hgraph {
                     TSView bound_view(*bound, ts.as_ts_view().view_data().engine_time_ptr);
                     return bound_view.to_python();
                 }
-                return ref.output()->py_value();
             }
             return value;
         } catch (const nb::cast_error &) {

@@ -3,8 +3,9 @@
 
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/nested_node.h>
-#include <hgraph/types/tsd.h>
+#include <hgraph/types/feature_extension.h>
 #include <hgraph/types/time_series/ts_value.h>
+#include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/value/value.h>
 
 #include <memory>

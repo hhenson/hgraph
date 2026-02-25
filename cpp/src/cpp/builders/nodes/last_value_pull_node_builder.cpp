@@ -1,6 +1,5 @@
 #include <hgraph/builders/nodes/last_value_pull_node_builder.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/tsb.h>
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 

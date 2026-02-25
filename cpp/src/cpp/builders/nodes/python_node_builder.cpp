@@ -2,7 +2,6 @@
 #include <hgraph/types/node.h>
 
 #include <algorithm>
-#include <hgraph/types/tsb.h>
 #include <hgraph/nodes/python_node.h>
 #include <hgraph/nodes/push_queue_node.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>

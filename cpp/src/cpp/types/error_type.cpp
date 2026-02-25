@@ -1,5 +1,3 @@
-#include <hgraph/types/ref.h>
-#include <hgraph/types/tsb.h>
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
@@ -229,47 +227,6 @@ namespace hgraph {
                              input_last_modified_time);
         }
         return BackTrace(signature, {}, {}, {}, {}, {});
-    }
-
-    auto BackTrace::capture_input(std::unordered_map<std::string, BackTrace> &active_inputs,
-                                  const TimeSeriesInput &input,
-                                  const std::string &input_name, bool capture_values, int64_t depth) -> void {
-        nb::gil_scoped_acquire gil; // Ensure Python API calls below are protected by the GIL
-        if (input.modified()) {
-            if (input.bound()) {
-                if (input.has_peer()) {
-                    active_inputs.emplace(input_name,
-                                          BackTrace::capture_back_trace(input.output()->owning_node(), capture_values,
-                                                                        depth - 1));
-                } else {
-                    auto iterable_inputs{dynamic_cast<const TimeSeriesBundleInput *>(&input)};
-                    if (iterable_inputs) {
-                        for (const auto &[n, i]: iterable_inputs->items()) {
-                            BackTrace::capture_input(active_inputs, *i, fmt::format("{}[{}]", input_name, n.get()),
-                                                     capture_values,
-                                                     depth - 1);
-                        }
-                    }
-                }
-            } else if (auto ts_ref{dynamic_cast<const TimeSeriesReferenceInput *>(&input)}; ts_ref != nullptr) {
-                // Traverse the referenced target without relying on py_value-casting to a TimeSeriesInput
-                if (auto ref_out = ts_ref->reference_output(); ref_out != nullptr) {
-                    if (auto ref_ts = dynamic_cast<const TimeSeriesReferenceOutput *>(ref_out.get());
-                        ref_ts != nullptr) {
-                        if (ref_ts->valid() && ref_ts->has_value()) {
-                            auto ref = ref_ts->value();
-                            if (ref.is_bound()) {
-                                if (auto tgt = ref.output(); tgt != nullptr) {
-                                    active_inputs.emplace(
-                                        input_name, BackTrace::capture_back_trace(
-                                            tgt->owning_node(), capture_values, depth - 1));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
     std::string traceback_to_string(nb::python_error exception) {

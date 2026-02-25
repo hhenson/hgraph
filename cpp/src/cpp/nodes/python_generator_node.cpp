@@ -1,6 +1,5 @@
 #include <hgraph/nodes/python_generator_node.h>
 #include <hgraph/types/graph.h>
-#include <hgraph/types/time_series_type.h>
 
 namespace hgraph {
 

@@ -7,8 +7,6 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series/ts_ops.h>
-#include <hgraph/types/time_series_type.h>
-#include <hgraph/types/tsb.h>
 #include <nanobind/nanobind.h>
 
 namespace hgraph {

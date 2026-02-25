@@ -224,8 +224,6 @@ namespace hgraph
         [[nodiscard]] TSInputView input() const;
         void set_signal_input_impl_flags(std::vector<bool> flags);
 
-        auto start_inputs() const { return _start_inputs; }
-
         [[nodiscard]] TSOutputView output() const;
 
         // Internal runtime hook for nested-node output rewrites (e.g. switch_/map_).
@@ -252,8 +250,6 @@ namespace hgraph
 
         friend struct Graph;
         friend struct NodeScheduler;
-
-        void add_start_input(const time_series_reference_input_s_ptr &input);
 
         bool has_input() const;
 
@@ -292,9 +288,6 @@ namespace hgraph
         std::optional<TSOutput>         _recordable_state;  // schema-driven endpoint
         node_ptr                        _output_override_node{nullptr}; // delegate output writes/reads to another node
         NodeScheduler::s_ptr            _scheduler;           // owned
-        // I am not a fan of this approach to managing the start inputs, but for now keep consistent with current code base in
-        // Python.
-        std::vector<time_series_reference_input_s_ptr> _start_inputs;  // owned
 
         // Performance optimization: Cache evaluation time pointer from graph
         // Set once when graph is assigned to node, never changes

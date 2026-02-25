@@ -6,8 +6,6 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
-#include <hgraph/types/time_series_type.h>
-#include <hgraph/types/tsb.h>
 #include <ranges>
 #include <sstream>
 #include <cstdio>
@@ -759,7 +757,6 @@ namespace hgraph
             }
         }
 
-        _start_inputs.clear();
         _scheduler.reset();
         _output_override_node = nullptr;
         _recordable_state.reset();
@@ -802,8 +799,6 @@ namespace hgraph
     bool Node::has_scheduler() const { return _scheduler != nullptr; }
 
     void Node::unset_scheduler() { _scheduler.reset(); }
-
-    void Node::add_start_input(const time_series_reference_input_s_ptr& input) { _start_inputs.push_back(input); }
 
     std::string Node::repr() const {
         static auto none_str    = std::string("None");
@@ -885,10 +880,6 @@ namespace hgraph
     void Node::_initialise_inputs() {
         if (!signature().time_series_inputs.has_value()) {
             return;
-        }
-
-        for (auto &start_input : _start_inputs) {
-            start_input->start();
         }
 
         auto root = input();

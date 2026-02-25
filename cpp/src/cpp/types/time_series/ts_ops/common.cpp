@@ -1226,12 +1226,6 @@ bool tsd_child_was_visible_before_removal(const ViewData& child_vd) {
                     return true;
                 }
             }
-            if (ref.has_output()) {
-                auto output = ref.output();
-                if (output && output->last_modified_time() > MIN_DT) {
-                    return true;
-                }
-            }
             return false;
         } catch (...) {
             return false;
@@ -6391,24 +6385,6 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                     return op_to_python(*target);
                 }
 
-                if (ref.has_output()) {
-                    const auto& out = ref.output();
-                    if (!out || !out->valid()) {
-                        return nb::none();
-                    }
-                    if (!include_unmodified && !out->modified()) {
-                        return nb::none();
-                    }
-                    nb::object delta_obj = out->py_delta_value();
-                    if (!delta_obj.is_none()) {
-                        return delta_obj;
-                    }
-                    if (!include_unmodified) {
-                        return nb::none();
-                    }
-                    return out->py_value();
-                }
-
                 if (!ref.is_unbound()) {
                     return nb::none();
                 }
@@ -6992,14 +6968,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                         return !same_view_identity(*current_bound, *previous_bound);
                     }
 
-                    if (current_ref.has_output() || previous_ref.has_output()) {
-                        if (!(current_ref.has_output() && previous_ref.has_output())) {
-                            return true;
-                        }
-                        return current_ref.output().get() != previous_ref.output().get();
-                    }
-
-                    return current_ref.kind() != previous_ref.kind();
+                    return !(current_ref == previous_ref);
                 } catch (...) {
                     return false;
                 }

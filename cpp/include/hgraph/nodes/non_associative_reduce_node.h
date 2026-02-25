@@ -3,7 +3,6 @@
 
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
-#include <hgraph/types/tsd.h>
 
 namespace hgraph {
     void register_non_associative_reduce_node_with_nanobind(nb::module_ & m);

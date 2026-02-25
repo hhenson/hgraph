@@ -5,8 +5,6 @@
 #include <fmt/format.h>
 #include <iostream>
 
-#include "hgraph/types/tsb.h"
-
 namespace hgraph {
 
     // Static member initialization

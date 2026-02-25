@@ -276,9 +276,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/hgraph_forward_declarations.h
         include/hgraph/builders/builder.h
         include/hgraph/builders/graph_builder.h
-        include/hgraph/builders/input_builder.h
         include/hgraph/builders/node_builder.h
-        include/hgraph/builders/output_builder.h
         include/hgraph/nodes/base_python_node.h
         include/hgraph/nodes/component_node.h
         include/hgraph/nodes/last_value_pull_node.h
@@ -301,7 +299,6 @@ set(HGRAPH_INCLUDES
         include/hgraph/runtime/observers/evaluation_profiler.h
         include/hgraph/runtime/observers/evaluation_trace.h
         include/hgraph/runtime/observers/inspection_observer.h
-        include/hgraph/types/base_time_series.h
         include/hgraph/types/constants.h
         include/hgraph/types/error_type.h
         include/hgraph/types/feature_extension.h
@@ -311,16 +308,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/ref.h
         include/hgraph/types/scalar_types.h
         include/hgraph/types/schema_type.h
-        include/hgraph/types/time_series_type.h
         include/hgraph/types/traits.h
-        include/hgraph/types/ts.h
-        include/hgraph/types/ts_signal.h
-        include/hgraph/types/tsd.h
-        include/hgraph/types/tss.h
-        include/hgraph/types/ts_indexed.h
-        include/hgraph/types/tsb.h
-        include/hgraph/types/tsl.h
-        include/hgraph/types/tsw.h
         include/hgraph/types/time_series/link_target.h
         include/hgraph/types/time_series/ref_link.h
         include/hgraph/types/time_series/ts_input.h

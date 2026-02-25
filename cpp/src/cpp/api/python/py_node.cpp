@@ -169,7 +169,7 @@ namespace hgraph
         return d;
     }
 
-    nb::tuple PyNode::start_inputs() const { return nb::tuple(nb::cast(_impl->start_inputs())); }
+    nb::tuple PyNode::start_inputs() const { return nb::tuple(); }
 
     nb::object PyNode::output() {
         auto view = _impl->output();
