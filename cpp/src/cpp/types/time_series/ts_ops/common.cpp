@@ -1693,6 +1693,37 @@ bool is_first_bind_rebind_tick(const LinkTarget* link_target, engine_time_t curr
            link_target->last_rebind_time == current_time;
 }
 
+bool resolve_container_rebind_bridge_views(const ViewData& vd,
+                                           const TSMeta* container_meta,
+                                           engine_time_t current_time,
+                                           bool require_kind_mismatch,
+                                           ViewData& previous_bridge,
+                                           ViewData& current_bridge) {
+    if (container_meta == nullptr ||
+        (container_meta->kind != TSKind::TSS && container_meta->kind != TSKind::TSD)) {
+        return false;
+    }
+
+    if (!resolve_rebind_bridge_views(vd, container_meta, current_time, previous_bridge, current_bridge)) {
+        return false;
+    }
+
+    if (!require_kind_mismatch) {
+        return true;
+    }
+
+    const TSMeta* current_bridge_meta = meta_at_path(current_bridge.meta, current_bridge.path.indices);
+    return current_bridge_meta == nullptr || current_bridge_meta->kind != container_meta->kind;
+}
+
+bool resolve_rebind_current_bridge_view(const ViewData& vd,
+                                        const TSMeta* self_meta,
+                                        engine_time_t current_time,
+                                        ViewData& current_bridge) {
+    ViewData previous_bridge{};
+    return resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge);
+}
+
 bool tsd_child_was_visible_before_removal(const ViewData& child_vd) {
     View child_value = op_value(child_vd);
     if (!child_value.valid()) {
@@ -7054,27 +7085,23 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                 }
                 return payload;
             };
-	    const auto has_delta_payload = [](const View& view) -> bool {
-	        if (!view.valid()) {
-	            return false;
-	        }
-	        if (view.schema() == ts_reference_meta()) {
-	            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(view.to_python());
-	            return ref.bound_view() != nullptr;
-	        }
-	        return true;
-	    };
+            const auto has_delta_payload = [](const View& view) -> bool {
+                if (!view.valid()) {
+                    return false;
+                }
+                if (view.schema() == ts_reference_meta()) {
+                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(view.to_python());
+                    return ref.bound_view() != nullptr;
+                }
+                return true;
+            };
 
-    if (self_meta != nullptr && (self_meta->kind == TSKind::TSS || self_meta->kind == TSKind::TSD)) {
+    {
         ViewData previous_bridge{};
         ViewData current_bridge{};
-        if (resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge)) {
-            const TSMeta* current_bridge_meta = meta_at_path(current_bridge.meta, current_bridge.path.indices);
-            const bool current_is_concrete_container =
-                current_bridge_meta != nullptr && current_bridge_meta->kind == self_meta->kind;
-            if (!current_is_concrete_container) {
-                return bridge_delta_to_python(self_meta->kind, previous_bridge, current_bridge, current_time);
-            }
+        if (resolve_container_rebind_bridge_views(
+                vd, self_meta, current_time, true, previous_bridge, current_bridge)) {
+            return bridge_delta_to_python(self_meta->kind, previous_bridge, current_bridge, current_time);
         }
     }
 
@@ -7100,7 +7127,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         const bool debug_tsd_bridge = std::getenv("HGRAPH_DEBUG_TSD_BRIDGE") != nullptr;
         ViewData previous_bridge{};
         ViewData current_bridge{};
-        if (resolve_rebind_bridge_views(vd, current, current_time, previous_bridge, current_bridge)) {
+        if (resolve_container_rebind_bridge_views(
+                vd, current, current_time, false, previous_bridge, current_bridge)) {
             if (debug_tsd_bridge) {
                 std::fprintf(stderr,
                              "[tsd_bridge_dbg] path=%s kind=%d prev=%s curr=%s now=%lld curr_modified=%d\n",
@@ -8311,9 +8339,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     }
 
     if (current != nullptr && current->kind == TSKind::TSL) {
-        ViewData previous_bridge{};
         ViewData current_bridge{};
-        if (resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge)) {
+        if (resolve_rebind_current_bridge_view(vd, self_meta, current_time, current_bridge)) {
             nb::dict delta_out;
             const size_t n = op_list_size(current_bridge);
             for (size_t i = 0; i < n; ++i) {
@@ -8329,9 +8356,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             }
             return delta_out;
         }
-    }
 
-    if (current != nullptr && current->kind == TSKind::TSL) {
         nb::dict delta_out;
         const engine_time_t wrapper_time = ref_wrapper_last_modified_time_on_read_path(vd);
         const engine_time_t rebind_time = rebind_time_for_view(vd);
@@ -8433,9 +8458,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             return delta_out;
         }
 
-        ViewData previous_bridge{};
         ViewData current_bridge{};
-        if (resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge)) {
+        if (resolve_rebind_current_bridge_view(vd, self_meta, current_time, current_bridge)) {
             const TSMeta* bridge_meta = meta_at_path(current_bridge.meta, current_bridge.path.indices);
             if (bridge_meta != nullptr && bridge_meta->kind == TSKind::TSB && bridge_meta->fields() != nullptr) {
                 for (size_t i = 0; i < bridge_meta->field_count(); ++i) {
