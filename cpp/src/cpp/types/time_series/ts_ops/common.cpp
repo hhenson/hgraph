@@ -4404,6 +4404,34 @@ nb::object bridge_delta_to_python(TSKind container_kind,
     return tsd_bridge_delta_to_python(previous_data, current_data, current_time);
 }
 
+bool try_container_bridge_delta_to_python(const ViewData& vd,
+                                          const TSMeta* container_meta,
+                                          engine_time_t current_time,
+                                          bool require_kind_mismatch,
+                                          bool debug_bridge,
+                                          nb::object& out_delta) {
+    ViewData previous_bridge{};
+    ViewData current_bridge{};
+    if (!resolve_container_rebind_bridge_views(
+            vd, container_meta, current_time, require_kind_mismatch, previous_bridge, current_bridge)) {
+        return false;
+    }
+
+    if (debug_bridge) {
+        std::fprintf(stderr,
+                     "[tsd_bridge_dbg] path=%s kind=%d prev=%s curr=%s now=%lld curr_modified=%d\n",
+                     vd.path.to_string().c_str(),
+                     static_cast<int>(container_meta->kind),
+                     previous_bridge.path.to_string().c_str(),
+                     current_bridge.path.to_string().c_str(),
+                     static_cast<long long>(current_time.time_since_epoch().count()),
+                     op_modified(current_bridge, current_time) ? 1 : 0);
+    }
+
+    out_delta = bridge_delta_to_python(container_meta->kind, previous_bridge, current_bridge, current_time);
+    return true;
+}
+
 bool is_tsd_key_set_projection(const ViewData& vd) {
     return vd.projection == ViewProjection::TSD_KEY_SET;
 }
@@ -6531,6 +6559,36 @@ void op_invalidate(ViewData& vd) {
     }
 }
 
+bool reset_root_value_and_delta_on_none(ViewData& vd,
+                                        const nb::object& src,
+                                        engine_time_t current_time) {
+    if (!vd.path.indices.empty() || !src.is_none()) {
+        return false;
+    }
+
+    if (auto* value_root = static_cast<Value*>(vd.value_data); value_root != nullptr) {
+        value_root->reset();
+    }
+    if (auto* delta_root = static_cast<Value*>(vd.delta_data); delta_root != nullptr) {
+        delta_root->reset();
+    }
+    stamp_time_paths(vd, current_time);
+    notify_link_target_observers(vd, current_time);
+    return true;
+}
+
+void apply_fallback_from_python_write(ViewData& vd,
+                                      const nb::object& src,
+                                      engine_time_t current_time) {
+    auto maybe_dst = resolve_value_slot_mut(vd);
+    if (!maybe_dst.has_value()) {
+        return;
+    }
+    maybe_dst->from_python(src);
+    stamp_time_paths(vd, current_time);
+    notify_link_target_observers(vd, current_time);
+}
+
 nb::object op_to_python(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta != nullptr && self_meta->kind == TSKind::REF) {
@@ -7097,11 +7155,10 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             };
 
     {
-        ViewData previous_bridge{};
-        ViewData current_bridge{};
-        if (resolve_container_rebind_bridge_views(
-                vd, self_meta, current_time, true, previous_bridge, current_bridge)) {
-            return bridge_delta_to_python(self_meta->kind, previous_bridge, current_bridge, current_time);
+        nb::object bridge_delta;
+        if (try_container_bridge_delta_to_python(
+                vd, self_meta, current_time, true, false, bridge_delta)) {
+            return bridge_delta;
         }
     }
 
@@ -7125,23 +7182,12 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     }
     if (current != nullptr && (current->kind == TSKind::TSS || current->kind == TSKind::TSD)) {
         const bool debug_tsd_bridge = std::getenv("HGRAPH_DEBUG_TSD_BRIDGE") != nullptr;
-        ViewData previous_bridge{};
-        ViewData current_bridge{};
-        if (resolve_container_rebind_bridge_views(
-                vd, current, current_time, false, previous_bridge, current_bridge)) {
-            if (debug_tsd_bridge) {
-                std::fprintf(stderr,
-                             "[tsd_bridge_dbg] path=%s kind=%d prev=%s curr=%s now=%lld curr_modified=%d\n",
-                             vd.path.to_string().c_str(),
-                             static_cast<int>(current->kind),
-                             previous_bridge.path.to_string().c_str(),
-                             current_bridge.path.to_string().c_str(),
-                             static_cast<long long>(current_time.time_since_epoch().count()),
-                             op_modified(current_bridge, current_time) ? 1 : 0);
-            }
+        nb::object bridge_delta;
+        if (try_container_bridge_delta_to_python(
+                vd, current, current_time, false, debug_tsd_bridge, bridge_delta)) {
             // Python parity: when bindings change, container REF deltas are computed
             // from full previous/current snapshots (not current native delta only).
-            return bridge_delta_to_python(current->kind, previous_bridge, current_bridge, current_time);
+            return bridge_delta;
         }
     }
 
@@ -9252,15 +9298,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
     }
 
     if (current != nullptr && current->kind == TSKind::TSS) {
-        if (vd.path.indices.empty() && src.is_none()) {
-            if (auto* value_root = static_cast<Value*>(vd.value_data); value_root != nullptr) {
-                value_root->reset();
-            }
-            if (auto* delta_root = static_cast<Value*>(vd.delta_data); delta_root != nullptr) {
-                delta_root->reset();
-            }
-            stamp_time_paths(vd, current_time);
-            notify_link_target_observers(vd, current_time);
+        if (reset_root_value_and_delta_on_none(vd, src, current_time)) {
             return;
         }
 
@@ -9432,15 +9470,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
     }
 
     if (current != nullptr && current->kind == TSKind::TSL) {
-        if (vd.path.indices.empty() && src.is_none()) {
-            if (auto* value_root = static_cast<Value*>(vd.value_data); value_root != nullptr) {
-                value_root->reset();
-            }
-            if (auto* delta_root = static_cast<Value*>(vd.delta_data); delta_root != nullptr) {
-                delta_root->reset();
-            }
-            stamp_time_paths(vd, current_time);
-            notify_link_target_observers(vd, current_time);
+        if (reset_root_value_and_delta_on_none(vd, src, current_time)) {
             return;
         }
 
@@ -9487,13 +9517,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
         }
 
         if (!handled) {
-            auto maybe_dst = resolve_value_slot_mut(vd);
-            if (!maybe_dst.has_value()) {
-                return;
-            }
-            maybe_dst->from_python(src);
-            stamp_time_paths(vd, current_time);
-            notify_link_target_observers(vd, current_time);
+            apply_fallback_from_python_write(vd, src, current_time);
             return;
         }
 
@@ -9506,15 +9530,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
     }
 
     if (current != nullptr && current->kind == TSKind::TSB) {
-        if (vd.path.indices.empty() && src.is_none()) {
-            if (auto* value_root = static_cast<Value*>(vd.value_data); value_root != nullptr) {
-                value_root->reset();
-            }
-            if (auto* delta_root = static_cast<Value*>(vd.delta_data); delta_root != nullptr) {
-                delta_root->reset();
-            }
-            stamp_time_paths(vd, current_time);
-            notify_link_target_observers(vd, current_time);
+        if (reset_root_value_and_delta_on_none(vd, src, current_time)) {
             return;
         }
 
@@ -9578,13 +9594,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
         }
 
         if (!handled) {
-            auto maybe_dst = resolve_value_slot_mut(vd);
-            if (!maybe_dst.has_value()) {
-                return;
-            }
-            maybe_dst->from_python(src);
-            stamp_time_paths(vd, current_time);
-            notify_link_target_observers(vd, current_time);
+            apply_fallback_from_python_write(vd, src, current_time);
             return;
         }
 
@@ -9597,15 +9607,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
     }
 
     if (current != nullptr && current->kind == TSKind::TSD) {
-        if (vd.path.indices.empty() && src.is_none()) {
-            if (auto* value_root = static_cast<Value*>(vd.value_data); value_root != nullptr) {
-                value_root->reset();
-            }
-            if (auto* delta_root = static_cast<Value*>(vd.delta_data); delta_root != nullptr) {
-                delta_root->reset();
-            }
-            stamp_time_paths(vd, current_time);
-            notify_link_target_observers(vd, current_time);
+        if (reset_root_value_and_delta_on_none(vd, src, current_time)) {
             return;
         }
 
