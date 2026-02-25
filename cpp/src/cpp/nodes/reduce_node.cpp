@@ -175,6 +175,72 @@ namespace hgraph {
         return hgraph::node_input_field(*this, "zero");
     }
 
+    TSView ReduceNode::resolve_key_value_with_fallback(const TSInputView& tsd,
+                                                       const value::View& key,
+                                                       const TSInputView& inner_ts,
+                                                       bool* has_tsd_key,
+                                                       bool* tsd_key_valid,
+                                                       bool* used_local_fallback,
+                                                       std::optional<nb::object>* fallback_delta) {
+        if (has_tsd_key != nullptr) {
+            *has_tsd_key = false;
+        }
+        if (tsd_key_valid != nullptr) {
+            *tsd_key_valid = false;
+        }
+        if (used_local_fallback != nullptr) {
+            *used_local_fallback = false;
+        }
+        if (fallback_delta != nullptr) {
+            fallback_delta->reset();
+        }
+
+        if (!tsd || !inner_ts || !key.valid()) {
+            return {};
+        }
+
+        TSView tsd_key_view = hgraph::resolve_tsd_child_view(tsd, key);
+        const bool has_key = static_cast<bool>(tsd_key_view);
+        const bool key_valid = has_key && tsd_key_view.valid();
+        if (has_tsd_key != nullptr) {
+            *has_tsd_key = has_key;
+        }
+        if (tsd_key_valid != nullptr) {
+            *tsd_key_valid = key_valid;
+        }
+        if (key_valid) {
+            return tsd_key_view;
+        }
+
+        const TSMeta* tsd_meta = tsd.ts_meta();
+        const value::TypeMeta* key_type_meta =
+            (tsd_meta != nullptr && tsd_meta->kind == TSKind::TSD) ? tsd_meta->key_type() : nullptr;
+        auto delta_value = hgraph::lookup_keyed_delta_value(tsd, key, key_type_meta);
+
+        const TSMeta* inner_meta = inner_ts.ts_meta();
+        const TSMeta* fallback_meta =
+            (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
+        if (!delta_value.has_value() || fallback_meta == nullptr) {
+            return tsd_key_view;
+        }
+
+        auto it = local_key_values_.find(key);
+        if (it == local_key_values_.end()) {
+            auto [inserted_it, _] = local_key_values_.emplace(key.clone(), std::make_unique<TSValue>(fallback_meta));
+            it = inserted_it;
+        }
+
+        TSView fallback_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
+        fallback_view.from_python(*delta_value);
+        if (used_local_fallback != nullptr) {
+            *used_local_fallback = true;
+        }
+        if (fallback_delta != nullptr) {
+            *fallback_delta = *delta_value;
+        }
+        return fallback_view;
+    }
+
     void ReduceNode::initialise() {
         nested_graph_ = arena_make_shared<Graph>(std::vector<int64_t>{node_ndx()}, std::vector<node_s_ptr>{}, this, "", &graph()->traits());
         nested_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
@@ -294,10 +360,6 @@ namespace hgraph {
         if (tsd) {
             auto tsd_opt = tsd.try_as_dict();
             if (tsd_opt.has_value()) {
-                const TSMeta* tsd_meta = tsd.ts_meta();
-                const value::TypeMeta* key_type_meta =
-                    (tsd_meta != nullptr && tsd_meta->kind == TSKind::TSD) ? tsd_meta->key_type() : nullptr;
-
                 for (const auto& changed_key : changed_keys) {
                     auto bound_it = bound_node_indexes_.find(changed_key.view());
                     if (bound_it == bound_node_indexes_.end()) {
@@ -318,21 +380,24 @@ namespace hgraph {
                         continue;
                     }
 
-                    TSView tsd_key_view = hgraph::resolve_tsd_child_view(tsd, key.view());
-                    const bool has_tsd_key = static_cast<bool>(tsd_key_view);
-                    const bool tsd_key_valid = has_tsd_key && tsd_key_view.valid();
+                    bool has_tsd_key = false;
+                    bool tsd_key_valid = false;
+                    bool used_local_fallback = false;
+                    std::optional<nb::object> fallback_delta;
+                    TSView key_value_view = resolve_key_value_with_fallback(
+                        tsd, key.view(), inner_ts, &has_tsd_key, &tsd_key_valid, &used_local_fallback, &fallback_delta);
                     bool rebound = false;
 
                     if (tsd_key_valid) {
                         bool preserve_existing_ref_binding = false;
-                        if (const TSMeta* key_meta = tsd_key_view.ts_meta();
+                        if (const TSMeta* key_meta = key_value_view.ts_meta();
                             key_meta != nullptr && key_meta->kind == TSKind::REF) {
-                            value::View ref_payload = tsd_key_view.value();
-                            if (!ref_payload.valid() && inner_ts.is_bound() && !tsd_key_view.modified()) {
+                            value::View ref_payload = key_value_view.value();
+                            if (!ref_payload.valid() && inner_ts.is_bound() && !key_value_view.modified()) {
                                 bool compatible_target = false;
                                 ViewData target{};
-                                if (resolve_bound_target_view_data(tsd_key_view.view_data(), target)) {
-                                    TSView target_view(target, tsd_key_view.view_data().engine_time_ptr);
+                                if (resolve_bound_target_view_data(key_value_view.view_data(), target)) {
+                                    TSView target_view(target, key_value_view.view_data().engine_time_ptr);
                                     const TSMeta* target_meta = target_view.ts_meta();
                                     const TSMeta* expected_meta = inner_ts.ts_meta();
                                     if (expected_meta != nullptr && expected_meta->kind == TSKind::REF) {
@@ -352,7 +417,7 @@ namespace hgraph {
                             local_key_values_.erase(local_it);
                         }
                         if (!preserve_existing_ref_binding) {
-                            hgraph::bind_inner_from_outer(tsd_key_view, inner_ts);
+                            hgraph::bind_inner_from_outer(key_value_view, inner_ts);
                             rebound = true;
                         }
 
@@ -367,48 +432,35 @@ namespace hgraph {
                                              key.view().to_string().c_str());
                             }
                         }
-                    } else {
-                        auto delta_value = hgraph::lookup_keyed_delta_value(tsd, key.view(), key_type_meta);
-                        const TSMeta* inner_meta = inner_ts.ts_meta();
-                        const TSMeta* fallback_meta =
-                            (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
-
-                        if (delta_value.has_value() && fallback_meta != nullptr) {
-                            auto it = local_key_values_.find(key.view());
-                            if (it == local_key_values_.end()) {
-                                auto [inserted_it, _] =
-                                    local_key_values_.emplace(key.view().clone(), std::make_unique<TSValue>(fallback_meta));
-                                it = inserted_it;
-                            }
-                            TSView fallback_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
-                            fallback_view.from_python(*delta_value);
-                            hgraph::bind_inner_from_outer(fallback_view, inner_ts);
-                            rebound = true;
-                            if (debug_reduce) {
-                                std::string dv = "<repr-failed>";
+                    } else if (used_local_fallback) {
+                        hgraph::bind_inner_from_outer(key_value_view, inner_ts);
+                        rebound = true;
+                        if (debug_reduce) {
+                            std::string dv = "<repr-failed>";
+                            if (fallback_delta.has_value()) {
                                 try {
-                                    dv = nb::cast<std::string>(nb::repr(*delta_value));
+                                    dv = nb::cast<std::string>(nb::repr(*fallback_delta));
                                 } catch (...) {}
-                                std::fprintf(stderr,
-                                             "[reduce] refresh key=%s at_key=%d valid=%d fallback=1 delta=%s\n",
-                                             key.view().to_string().c_str(),
-                                             has_tsd_key ? 1 : 0,
-                                             tsd_key_valid ? 1 : 0,
-                                             dv.c_str());
                             }
-                        } else if (!has_tsd_key) {
-                            inner_ts.unbind();
-                            rebound = true;
-                            if (debug_reduce) {
-                                std::fprintf(stderr,
-                                             "[reduce] refresh key=%s at_key=0 valid=0 fallback=0 -> unbind\n",
-                                             key.view().to_string().c_str());
-                            }
-                        } else if (debug_reduce) {
                             std::fprintf(stderr,
-                                         "[reduce] refresh key=%s at_key=1 valid=0 fallback=0 -> preserve\n",
+                                         "[reduce] refresh key=%s at_key=%d valid=%d fallback=1 delta=%s\n",
+                                         key.view().to_string().c_str(),
+                                         has_tsd_key ? 1 : 0,
+                                         tsd_key_valid ? 1 : 0,
+                                         dv.c_str());
+                        }
+                    } else if (!has_tsd_key) {
+                        inner_ts.unbind();
+                        rebound = true;
+                        if (debug_reduce) {
+                            std::fprintf(stderr,
+                                         "[reduce] refresh key=%s at_key=0 valid=0 fallback=0 -> unbind\n",
                                          key.view().to_string().c_str());
                         }
+                    } else if (debug_reduce) {
+                        std::fprintf(stderr,
+                                     "[reduce] refresh key=%s at_key=1 valid=0 fallback=0 -> preserve\n",
+                                     key.view().to_string().c_str());
                     }
 
                     if (rebound) {
@@ -802,9 +854,12 @@ namespace hgraph {
             return;
         }
 
-        TSView tsd_key_view = hgraph::resolve_tsd_child_view(tsd, key);
-        const bool has_tsd_key = static_cast<bool>(tsd_key_view);
-        const bool tsd_key_valid = has_tsd_key && tsd_key_view.valid();
+        bool has_tsd_key = false;
+        bool tsd_key_valid = false;
+        bool used_local_fallback = false;
+        std::optional<nb::object> fallback_delta;
+        TSView key_value_view = resolve_key_value_with_fallback(
+            tsd, key, inner_ts, &has_tsd_key, &tsd_key_valid, &used_local_fallback, &fallback_delta);
 
         if (has_tsd_key && tsd_key_valid) {
             if (auto local_it = local_key_values_.find(key); local_it != local_key_values_.end()) {
@@ -817,59 +872,43 @@ namespace hgraph {
                              static_cast<long long>(std::get<0>(ndx)),
                              static_cast<long long>(std::get<1>(ndx)));
             }
-            hgraph::bind_inner_from_outer(tsd_key_view, inner_ts);
-        } else {
-            const TSMeta* tsd_meta = tsd.ts_meta();
-            const value::TypeMeta* key_type_meta =
-                (tsd_meta != nullptr && tsd_meta->kind == TSKind::TSD) ? tsd_meta->key_type() : nullptr;
-            auto delta_value = hgraph::lookup_keyed_delta_value(tsd, key, key_type_meta);
-
-            const TSMeta* inner_meta = inner_ts.ts_meta();
-            const TSMeta* fallback_meta =
-                (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
-
-            if (delta_value.has_value() && fallback_meta != nullptr) {
-                auto it = local_key_values_.find(key);
-                if (it == local_key_values_.end()) {
-                    auto [inserted_it, _] = local_key_values_.emplace(key.clone(), std::make_unique<TSValue>(fallback_meta));
-                    it = inserted_it;
-                }
-                TSView fallback_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
-                fallback_view.from_python(*delta_value);
-                if (debug_reduce) {
-                    std::string dv = "<repr-failed>";
+            hgraph::bind_inner_from_outer(key_value_view, inner_ts);
+        } else if (used_local_fallback) {
+            if (debug_reduce) {
+                std::string dv = "<repr-failed>";
+                if (fallback_delta.has_value()) {
                     try {
-                        dv = nb::cast<std::string>(nb::repr(*delta_value));
+                        dv = nb::cast<std::string>(nb::repr(*fallback_delta));
                     } catch (...) {}
-                    std::fprintf(stderr,
-                                 "[reduce] bind_key key=%s ndx=(%lld,%lld) at_key=%d valid=%d fallback=1 delta=%s\n",
-                                 key.to_string().c_str(),
-                                 static_cast<long long>(std::get<0>(ndx)),
-                                 static_cast<long long>(std::get<1>(ndx)),
-                                 has_tsd_key ? 1 : 0,
-                                 tsd_key_valid ? 1 : 0,
-                                 dv.c_str());
                 }
-                hgraph::bind_inner_from_outer(fallback_view, inner_ts);
-            } else if (has_tsd_key) {
-                if (debug_reduce) {
-                    std::fprintf(stderr,
-                                 "[reduce] bind_key key=%s ndx=(%lld,%lld) at_key=1 valid=0 fallback=0\n",
-                                 key.to_string().c_str(),
-                                 static_cast<long long>(std::get<0>(ndx)),
-                                 static_cast<long long>(std::get<1>(ndx)));
-                }
-                hgraph::bind_inner_from_outer(tsd_key_view, inner_ts);
-            } else {
-                if (debug_reduce) {
-                    std::fprintf(stderr,
-                                 "[reduce] bind_key key=%s ndx=(%lld,%lld) at_key=0 valid=0 fallback=0 -> unbind\n",
-                                 key.to_string().c_str(),
-                                 static_cast<long long>(std::get<0>(ndx)),
-                                 static_cast<long long>(std::get<1>(ndx)));
-                }
-                inner_ts.unbind();
+                std::fprintf(stderr,
+                             "[reduce] bind_key key=%s ndx=(%lld,%lld) at_key=%d valid=%d fallback=1 delta=%s\n",
+                             key.to_string().c_str(),
+                             static_cast<long long>(std::get<0>(ndx)),
+                             static_cast<long long>(std::get<1>(ndx)),
+                             has_tsd_key ? 1 : 0,
+                             tsd_key_valid ? 1 : 0,
+                             dv.c_str());
             }
+            hgraph::bind_inner_from_outer(key_value_view, inner_ts);
+        } else if (has_tsd_key) {
+            if (debug_reduce) {
+                std::fprintf(stderr,
+                             "[reduce] bind_key key=%s ndx=(%lld,%lld) at_key=1 valid=0 fallback=0\n",
+                             key.to_string().c_str(),
+                             static_cast<long long>(std::get<0>(ndx)),
+                             static_cast<long long>(std::get<1>(ndx)));
+            }
+            hgraph::bind_inner_from_outer(key_value_view, inner_ts);
+        } else {
+            if (debug_reduce) {
+                std::fprintf(stderr,
+                             "[reduce] bind_key key=%s ndx=(%lld,%lld) at_key=0 valid=0 fallback=0 -> unbind\n",
+                             key.to_string().c_str(),
+                             static_cast<long long>(std::get<0>(ndx)),
+                             static_cast<long long>(std::get<1>(ndx)));
+            }
+            inner_ts.unbind();
         }
 
         if (!inner_ts.active()) {

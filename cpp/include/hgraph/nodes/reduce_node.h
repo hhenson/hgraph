@@ -7,6 +7,7 @@
 #include <hgraph/types/feature_extension.h>
 #include <hgraph/types/value/value.h>
 #include <memory>
+#include <optional>
 
 namespace hgraph {
     void register_reduce_node_with_nanobind(nb::module_ & m);
@@ -100,6 +101,14 @@ namespace hgraph {
 
     private:
         using key_value_map_type = std::unordered_map<value::Value, std::unique_ptr<TSValue>, ValueHash, ValueEqual>;
+
+        TSView resolve_key_value_with_fallback(const TSInputView& tsd,
+                                               const value::View& key,
+                                               const TSInputView& inner_ts,
+                                               bool* has_tsd_key = nullptr,
+                                               bool* tsd_key_valid = nullptr,
+                                               bool* used_local_fallback = nullptr,
+                                               std::optional<nb::object>* fallback_delta = nullptr);
 
         graph_s_ptr nested_graph_;
         graph_builder_s_ptr nested_graph_builder_;
