@@ -860,6 +860,56 @@ namespace hgraph
         }
     }
 
+    TSView TsdMapNode::resolve_multiplexed_outer_value(const std::string& arg,
+                                                       const value::View& key,
+                                                       const TSInputView& outer_arg,
+                                                       const TSInputView& inner_ts,
+                                                       bool* used_local_fallback,
+                                                       int* stage_id) {
+        if (used_local_fallback != nullptr) {
+            *used_local_fallback = false;
+        }
+        if (stage_id != nullptr) {
+            *stage_id = 1;
+        }
+
+        TSView outer_key_value = resolve_outer_key_view(outer_arg.as_ts_view(), key);
+        if (outer_key_value.valid()) {
+            return outer_key_value;
+        }
+
+        if (stage_id != nullptr) {
+            *stage_id = 2;
+        }
+        auto delta_value = hgraph::lookup_keyed_delta_value(outer_arg, key, key_type_meta_);
+        const TSMeta* inner_meta = inner_ts.ts_meta();
+        const TSMeta* fallback_meta =
+            (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
+        if (!delta_value.has_value() || fallback_meta == nullptr) {
+            return outer_key_value;
+        }
+
+        if (stage_id != nullptr) {
+            *stage_id = 3;
+        }
+        auto& per_arg_values = local_input_values_[arg];
+        auto it = per_arg_values.find(key);
+        if (it == per_arg_values.end()) {
+            auto [inserted_it, _] = per_arg_values.emplace(key.clone(), std::make_unique<TSValue>(fallback_meta));
+            it = inserted_it;
+        }
+
+        if (stage_id != nullptr) {
+            *stage_id = 4;
+        }
+        TSView fallback_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
+        fallback_view.from_python(*delta_value);
+        if (used_local_fallback != nullptr) {
+            *used_local_fallback = true;
+        }
+        return fallback_view;
+    }
+
     void TsdMapNode::wire_graph(const value::View &key, graph_s_ptr &graph) {
         const bool debug_tsd_map = debug_tsd_map_enabled();
         auto outer_root = input();
@@ -906,27 +956,8 @@ namespace hgraph
             }
 
             if (multiplexed_args_.find(arg) != multiplexed_args_.end()) {
-                TSView outer_key_value = resolve_outer_key_view(outer_arg.as_ts_view(), key);
                 bool used_local_fallback = false;
-                if (!outer_key_value.valid()) {
-                    auto delta_value = hgraph::lookup_keyed_delta_value(outer_arg, key, key_type_meta_);
-                    const TSMeta* inner_meta = inner_ts.ts_meta();
-                    const TSMeta* fallback_meta =
-                        (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
-                    if (delta_value.has_value() && fallback_meta != nullptr) {
-                        auto& per_arg_values = local_input_values_[arg];
-                        auto it = per_arg_values.find(key);
-                        if (it == per_arg_values.end()) {
-                            auto [inserted_it, _] =
-                                per_arg_values.emplace(key.clone(), std::make_unique<TSValue>(fallback_meta));
-                            it = inserted_it;
-                        }
-                        TSView fallback_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
-                        fallback_view.from_python(*delta_value);
-                        outer_key_value = fallback_view;
-                        used_local_fallback = true;
-                    }
-                }
+                TSView outer_key_value = resolve_multiplexed_outer_value(arg, key, outer_arg, inner_ts, &used_local_fallback);
                 if (debug_tsd_map) {
                     std::string outer_key_value_py{"<none>"};
                     try {
@@ -998,28 +1029,7 @@ namespace hgraph
 
             int stage_id = 1;
             try {
-                TSView outer_key_value = resolve_outer_key_view(outer_arg.as_ts_view(), key);
-                if (!outer_key_value.valid()) {
-                    stage_id = 2;
-                    auto delta_value = hgraph::lookup_keyed_delta_value(outer_arg, key, key_type_meta_);
-                    const TSMeta* inner_meta = inner_ts.ts_meta();
-                    const TSMeta* fallback_meta =
-                        (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
-                    if (delta_value.has_value() && fallback_meta != nullptr) {
-                        stage_id = 3;
-                        auto& per_arg_values = local_input_values_[arg];
-                        auto it = per_arg_values.find(key);
-                        if (it == per_arg_values.end()) {
-                            auto [inserted_it, _] =
-                                per_arg_values.emplace(key.clone(), std::make_unique<TSValue>(fallback_meta));
-                            it = inserted_it;
-                        }
-                        stage_id = 4;
-                        TSView fallback_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
-                        fallback_view.from_python(*delta_value);
-                        outer_key_value = fallback_view;
-                    }
-                }
+                TSView outer_key_value = resolve_multiplexed_outer_value(arg, key, outer_arg, inner_ts, nullptr, &stage_id);
                 mux_all_valid = mux_all_valid && outer_key_value.valid();
                 hgraph::BindingTargetComparison binding_targets = hgraph::compare_binding_targets(inner_ts, outer_key_value);
                 const bool key_value_modified = outer_key_value.valid() && outer_key_value.modified();

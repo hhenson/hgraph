@@ -118,6 +118,13 @@ namespace hgraph
         const value::TypeMeta* key_type_meta_{nullptr};
 
       private:
+        TSView resolve_multiplexed_outer_value(const std::string& arg,
+                                               const value::View& key,
+                                               const TSInputView& outer_arg,
+                                               const TSInputView& inner_ts,
+                                               bool* used_local_fallback = nullptr,
+                                               int* stage_id = nullptr);
+
         std::unordered_map<std::string, int64_t> input_node_ids_;
         int64_t                                  output_node_id_;
         std::unordered_set<std::string>          multiplexed_args_;
