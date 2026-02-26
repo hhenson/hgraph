@@ -402,6 +402,144 @@ def test_delta_value_includes_removes():
     assert result[1]["a"] is REMOVE
 
 
+def test_delta_value_repeated_reads_same_tick_are_stable():
+    """Test repeated delta_value reads in one tick return identical payloads."""
+    @compute_node
+    def source(trigger: TS[bool]) -> TSD[str, TS[int]]:
+        if trigger.value:
+            return {"a": 1}
+
+    @compute_node
+    def inspect(tsd: TSD[str, TS[int]], trigger: TS[bool]) -> TS[tuple]:
+        if not trigger.modified:
+            return None
+        first = dict(tsd.delta_value) if tsd.modified else {}
+        second = dict(tsd.delta_value) if tsd.modified else {}
+        return tsd.modified, first, second
+
+    @graph
+    def g(trigger: TS[bool]) -> TS[tuple]:
+        return inspect(source(trigger), trigger)
+
+    result = eval_node(g, [True, False])
+    assert result == [
+        (True, {"a": 1}, {"a": 1}),
+        (False, {}, {}),
+    ]
+
+
+def test_delta_value_clears_when_next_tick_has_no_changes():
+    """Test stale TSD deltas do not leak into later ticks without modifications."""
+    @compute_node
+    def source(trigger: TS[int]) -> TSD[str, TS[int]]:
+        if trigger.value == 1:
+            return {"a": 1}
+        if trigger.value == 2:
+            return {"a": 2}
+
+    @compute_node
+    def inspect(tsd: TSD[str, TS[int]], trigger: TS[int]) -> TS[tuple]:
+        if not trigger.modified:
+            return None
+        delta = dict(tsd.delta_value) if tsd.modified else {}
+        return tsd.modified, delta
+
+    @graph
+    def g(trigger: TS[int]) -> TS[tuple]:
+        return inspect(source(trigger), trigger)
+
+    result = eval_node(g, [1, 2, 0, 0])
+    assert result == [
+        (True, {"a": 1}),
+        (True, {"a": 2}),
+        (False, {}),
+        (False, {}),
+    ]
+
+
+def test_output_delta_first_mutation_after_idle_tick_has_no_stale_payload():
+    """Test output-side TSD delta clears stale entries before first mutation in a new tick."""
+    @compute_node
+    def mutate(trigger: TS[int], _output: TSD[str, TS[int]] = None) -> TSD[str, TS[int]]:
+        if trigger.modified and trigger.value == 1:
+            _output.get_or_create("a").value = 1
+        if trigger.modified and trigger.value == 2:
+            _output.get_or_create("b").value = 2
+        return _output.delta_value if _output.modified else None
+
+    result = eval_node(mutate, [1, None, 2])
+    assert result == [
+        {"a": 1},
+        None,
+        {"b": 2},
+    ]
+
+
+def test_output_delta_replay_remove_same_tick_is_idempotent():
+    """Test output-side REMOVE can be replayed in the same tick without throwing."""
+    @compute_node
+    def mutate(trigger: TS[int], _output: TSD[str, TS[int]] = None) -> TSD[str, TS[int]]:
+        if trigger.modified and trigger.value == 1:
+            _output.apply_result({"a": 1})
+        if trigger.modified and trigger.value == -1:
+            _output.apply_result({"a": REMOVE})
+        return _output.delta_value if _output.modified else None
+
+    result = eval_node(mutate, [1, -1])
+    assert result[0] == {"a": 1}
+    assert result[1]["a"] is REMOVE
+
+
+def test_output_delta_remove_idle_add_replay_path_has_no_stale_remove():
+    """Test output-side remove replay path does not leak stale REMOVE into later adds."""
+    @compute_node
+    def mutate(trigger: TS[int], _output: TSD[str, TS[int]] = None) -> TSD[str, TS[int]]:
+        if trigger.modified and trigger.value == 1:
+            _output.apply_result({"a": 1})
+        if trigger.modified and trigger.value == -1:
+            _output.apply_result({"a": REMOVE})
+        if trigger.modified and trigger.value == 2:
+            _output.apply_result({"b": 2})
+        return _output.delta_value if _output.modified else None
+
+    result = eval_node(mutate, [1, -1, None, 2])
+    assert result[0] == {"a": 1}
+    assert result[1]["a"] is REMOVE
+    assert result[2] is None
+    assert result[3] == {"b": 2}
+
+
+def test_read_delta_after_remove_then_idle_then_add_has_no_stale_remove():
+    """Test read-side TSD delta does not leak stale remove markers after an idle tick."""
+    @compute_node
+    def source(trigger: TS[int]) -> TSD[str, TS[int]]:
+        if trigger.value == 1:
+            return {"a": 1}
+        if trigger.value == -1:
+            return {"a": REMOVE}
+        if trigger.value == 2:
+            return {"b": 2}
+
+    @compute_node
+    def inspect(tsd: TSD[str, TS[int]], trigger: TS[int]) -> TS[tuple]:
+        if not trigger.modified:
+            return None
+        delta = dict(tsd.delta_value) if tsd.modified else {}
+        return tsd.modified, delta
+
+    @graph
+    def g(trigger: TS[int]) -> TS[tuple]:
+        return inspect(source(trigger), trigger)
+
+    result = eval_node(g, [1, -1, None, 2])
+    assert result == [
+        (True, {"a": 1}),
+        (True, {"a": REMOVE}),
+        None,
+        (True, {"b": 2}),
+    ]
+
+
 # =============================================================================
 # GET_OR_CREATE TESTS
 # =============================================================================

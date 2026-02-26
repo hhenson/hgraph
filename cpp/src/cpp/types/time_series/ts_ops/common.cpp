@@ -2494,6 +2494,9 @@ void clear_tsd_visible_key_history(const ViewData& parent_view, const value::Vie
                            key_matches_relaxed(record.key.view(), key);
                 }),
             records.end());
+        if (records.empty()) {
+            state->entries.erase(it);
+        }
     }
 }
 
@@ -8877,6 +8880,30 @@ struct RefUnboundItemChangeState {
     std::unordered_map<void*, std::vector<RefUnboundItemChangeRecord>> entries;
 };
 
+void prune_ref_unbound_item_change_state(RefUnboundItemChangeState& state, engine_time_t current_time) {
+    if (current_time == MIN_DT) {
+        return;
+    }
+
+    for (auto it = state.entries.begin(); it != state.entries.end();) {
+        auto& records = it->second;
+        records.erase(
+            std::remove_if(
+                records.begin(),
+                records.end(),
+                [current_time](const RefUnboundItemChangeRecord& record) {
+                    return record.time < current_time;
+                }),
+            records.end());
+
+        if (records.empty()) {
+            it = state.entries.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 std::shared_ptr<RefUnboundItemChangeState> ensure_ref_unbound_item_change_state(TSLinkObserverRegistry* registry) {
     if (registry == nullptr) {
         return {};
@@ -8906,6 +8933,7 @@ void record_unbound_ref_item_changes(const ViewData& source,
     if (!state) {
         return;
     }
+    prune_ref_unbound_item_change_state(*state, current_time);
 
     auto& records = state->entries[source.value_data];
     const auto existing = std::find_if(
@@ -8942,6 +8970,7 @@ bool unbound_ref_item_changed_this_tick(const ViewData& item_view, size_t item_i
     }
 
     auto state = std::static_pointer_cast<RefUnboundItemChangeState>(std::move(existing));
+    prune_ref_unbound_item_change_state(*state, current_time);
     const auto by_value = state->entries.find(item_view.value_data);
     if (by_value == state->entries.end()) {
         return false;
@@ -9705,7 +9734,16 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
                 const auto removed_slot = map_slot_for_key(dst_map, key);
                 const bool existed = removed_slot.has_value();
                 if (!existed) {
+                    const bool already_removed_this_tick =
+                        slots.removed_set.valid() &&
+                        slots.removed_set.is_set() &&
+                        set_contains_key_relaxed(slots.removed_set.as_set(), key);
                     if (is_remove) {
+                        if (already_removed_this_tick) {
+                            // Idempotent same-tick replay: output nodes can re-apply their own
+                            // emitted delta payload in the same evaluation pass.
+                            continue;
+                        }
                         throw nb::key_error("TSD key not found for REMOVE");
                     }
                     continue;
@@ -11065,6 +11103,10 @@ std::optional<TSView> resolve_tsd_removed_child_snapshot(const ViewData& parent_
                     return record.time < current_time;
                 }),
             records.end());
+        if (records.empty()) {
+            state->entries.erase(by_parent);
+            continue;
+        }
 
         for (const auto& record : records) {
             if (record.time != current_time ||
