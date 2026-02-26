@@ -203,6 +203,7 @@ void copy_tss(ViewData dst, const ViewData& src, engine_time_t current_time);
 void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time);
 void copy_view_data_value_impl(ViewData dst, const ViewData& src, engine_time_t current_time);
 const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indices);
+void bind_view_data_ops(ViewData& vd);
 size_t find_bundle_field_index(const TSMeta* bundle_meta, std::string_view field_name);
 std::optional<View> navigate_const(View view, const std::vector<size_t>& indices);
 std::optional<ValueView> navigate_mut(ValueView view, const std::vector<size_t>& indices);

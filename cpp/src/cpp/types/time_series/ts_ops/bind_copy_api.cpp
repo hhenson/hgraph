@@ -6,6 +6,7 @@ TSView op_child_at(const ViewData& vd, size_t index, engine_time_t current_time)
     (void)current_time;
     ViewData child = vd;
     child.path.indices.push_back(index);
+    child.ops = get_ts_ops(meta_at_path(child.meta, child.path.indices));
     child.engine_time_ptr = vd.engine_time_ptr;
     return TSView(child, child.engine_time_ptr);
 }
@@ -558,6 +559,54 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
     }
 }
 
+void op_copy_scalar(ViewData dst, const ViewData& src, engine_time_t current_time) {
+    op_set_value(dst, op_value(src), current_time);
+}
+
+void op_copy_tss(ViewData dst, const ViewData& src, engine_time_t current_time) {
+    copy_tss(dst, src, current_time);
+}
+
+void op_copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
+    copy_tsd(dst, src, current_time);
+}
+
+void op_copy_tsl(ViewData dst, const ViewData& src, engine_time_t current_time) {
+    const size_t n = std::min(op_list_size(dst), op_list_size(src));
+    for (size_t i = 0; i < n; ++i) {
+        TSView src_child = op_child_at(src, i, current_time);
+        TSView dst_child = op_child_at(dst, i, current_time);
+        if (!src_child || !dst_child) {
+            continue;
+        }
+        if (!op_valid(src_child.view_data())) {
+            op_invalidate(dst_child.view_data());
+            continue;
+        }
+        copy_view_data_value_impl(dst_child.view_data(), src_child.view_data(), current_time);
+    }
+}
+
+void op_copy_tsb(ViewData dst, const ViewData& src, engine_time_t current_time) {
+    const TSMeta* dst_meta = meta_at_path(dst.meta, dst.path.indices);
+    if (dst_meta == nullptr) {
+        return;
+    }
+
+    for (size_t i = 0; i < dst_meta->field_count(); ++i) {
+        TSView src_child = op_child_at(src, i, current_time);
+        TSView dst_child = op_child_at(dst, i, current_time);
+        if (!src_child || !dst_child) {
+            continue;
+        }
+        if (!op_valid(src_child.view_data())) {
+            op_invalidate(dst_child.view_data());
+            continue;
+        }
+        copy_view_data_value_impl(dst_child.view_data(), src_child.view_data(), current_time);
+    }
+}
+
 ts_ops make_common_ops(TSKind kind) {
     ts_ops out{
         &op_ts_meta,
@@ -581,6 +630,7 @@ ts_ops make_common_ops(TSKind kind) {
         &op_unbind,
         &op_is_bound,
         &op_set_active,
+        &op_copy_scalar,
         kind,
         {},
     };
@@ -596,24 +646,28 @@ ts_ops make_tsw_ops() {
 
 ts_ops make_tss_ops() {
     ts_ops out = make_common_ops(TSKind::TSS);
+    out.copy_value = &op_copy_tss;
     out.specific.set = k_set_ops;
     return out;
 }
 
 ts_ops make_tsd_ops() {
     ts_ops out = make_common_ops(TSKind::TSD);
+    out.copy_value = &op_copy_tsd;
     out.specific.dict = k_dict_ops;
     return out;
 }
 
 ts_ops make_tsl_ops() {
     ts_ops out = make_common_ops(TSKind::TSL);
+    out.copy_value = &op_copy_tsl;
     out.specific.list = k_list_ops;
     return out;
 }
 
 ts_ops make_tsb_ops() {
     ts_ops out = make_common_ops(TSKind::TSB);
+    out.copy_value = &op_copy_tsb;
     out.specific.bundle = k_bundle_ops;
     return out;
 }
@@ -871,54 +925,14 @@ void copy_view_data_value_impl(ViewData dst, const ViewData& src, engine_time_t 
         throw std::runtime_error("copy_view_data_value: source/destination schema kinds differ");
     }
 
-    switch (dst_meta->kind) {
-        case TSKind::TSValue:
-        case TSKind::REF:
-        case TSKind::SIGNAL:
-        case TSKind::TSW:
-            op_set_value(dst, op_value(src), current_time);
-            return;
-
-        case TSKind::TSS:
-            copy_tss(dst, src, current_time);
-            return;
-
-        case TSKind::TSL: {
-            const size_t n = std::min(op_list_size(dst), op_list_size(src));
-            for (size_t i = 0; i < n; ++i) {
-                TSView src_child = op_child_at(src, i, current_time);
-                TSView dst_child = op_child_at(dst, i, current_time);
-                if (!src_child || !dst_child) {
-                    continue;
-                }
-                if (!op_valid(src_child.view_data())) {
-                    op_invalidate(dst_child.view_data());
-                    continue;
-                }
-                copy_view_data_value_impl(dst_child.view_data(), src_child.view_data(), current_time);
-            }
-            return;
-        }
-
-        case TSKind::TSB:
-            for (size_t i = 0; i < dst_meta->field_count(); ++i) {
-                TSView src_child = op_child_at(src, i, current_time);
-                TSView dst_child = op_child_at(dst, i, current_time);
-                if (!src_child || !dst_child) {
-                    continue;
-                }
-                if (!op_valid(src_child.view_data())) {
-                    op_invalidate(dst_child.view_data());
-                    continue;
-                }
-                copy_view_data_value_impl(dst_child.view_data(), src_child.view_data(), current_time);
-            }
-            return;
-
-        case TSKind::TSD:
-            copy_tsd(dst, src, current_time);
-            return;
+    const ts_ops* dst_ops = dst.ops;
+    if (dst_ops == nullptr || dst_ops->kind != dst_meta->kind) {
+        dst_ops = get_ts_ops(dst_meta);
     }
+    if (dst_ops->copy_value == nullptr) {
+        return;
+    }
+    dst_ops->copy_value(dst, src, current_time);
 }
 
 const ts_ops k_ts_value_ops = make_common_ops(TSKind::TSValue);
@@ -931,25 +945,29 @@ const ts_ops k_signal_ops = make_common_ops(TSKind::SIGNAL);
 const ts_ops k_tsw_tick_ops = make_tsw_ops();
 const ts_ops k_tsw_duration_ops = make_tsw_ops();
 
+namespace {
+
+const ts_ops* const k_ops_by_kind[] = {
+    &k_ts_value_ops,   // TSKind::TSValue
+    &k_tss_ops,        // TSKind::TSS
+    &k_tsd_ops,        // TSKind::TSD
+    &k_tsl_ops,        // TSKind::TSL
+    &k_tsw_tick_ops,   // TSKind::TSW
+    &k_tsb_ops,        // TSKind::TSB
+    &k_ref_ops,        // TSKind::REF
+    &k_signal_ops,     // TSKind::SIGNAL
+};
+
+static_assert(
+    (sizeof(k_ops_by_kind) / sizeof(k_ops_by_kind[0])) == (static_cast<size_t>(TSKind::SIGNAL) + size_t{1}),
+    "k_ops_by_kind must cover all TSKind values");
+
+}  // namespace
 
 const ts_ops* get_ts_ops(TSKind kind) {
-    switch (kind) {
-        case TSKind::TSValue:
-            return &k_ts_value_ops;
-        case TSKind::TSS:
-            return &k_tss_ops;
-        case TSKind::TSD:
-            return &k_tsd_ops;
-        case TSKind::TSL:
-            return &k_tsl_ops;
-        case TSKind::TSB:
-            return &k_tsb_ops;
-        case TSKind::REF:
-            return &k_ref_ops;
-        case TSKind::SIGNAL:
-            return &k_signal_ops;
-        case TSKind::TSW:
-            return &k_tsw_tick_ops;
+    const size_t index = static_cast<size_t>(kind);
+    if (index < (sizeof(k_ops_by_kind) / sizeof(k_ops_by_kind[0]))) {
+        return k_ops_by_kind[index];
     }
     return &k_ts_value_ops;
 }
@@ -965,7 +983,7 @@ const ts_ops* get_ts_ops(const TSMeta* meta) {
 }
 
 const ts_ops* default_ts_ops() {
-    return get_ts_ops(TSKind::TSValue);
+    return &k_ts_value_ops;
 }
 
 void store_to_link_target(LinkTarget& target, const ViewData& source) {
@@ -984,14 +1002,17 @@ void store_to_ref_link(REFLink& target, const ViewData& source) {
 bool resolve_direct_bound_view_data(const ViewData& source, ViewData& out) {
     if (auto rebound = resolve_bound_view_data(source); rebound.has_value()) {
         out = std::move(*rebound);
+        bind_view_data_ops(out);
         return true;
     }
     out = source;
+    bind_view_data_ops(out);
     return false;
 }
 
 bool resolve_bound_target_view_data(const ViewData& source, ViewData& out) {
     out = source;
+    bind_view_data_ops(out);
     bool followed = false;
 
     for (size_t depth = 0; depth < 64; ++depth) {
@@ -1006,6 +1027,7 @@ bool resolve_bound_target_view_data(const ViewData& source, ViewData& out) {
         }
 
         out = next;
+        bind_view_data_ops(out);
         followed = true;
     }
 
@@ -1014,6 +1036,7 @@ bool resolve_bound_target_view_data(const ViewData& source, ViewData& out) {
 
 bool resolve_previous_bound_target_view_data(const ViewData& source, ViewData& out) {
     out = source;
+    bind_view_data_ops(out);
     if (!source.uses_link_target) {
         return false;
     }
@@ -1022,6 +1045,7 @@ bool resolve_previous_bound_target_view_data(const ViewData& source, ViewData& o
         target != nullptr && target->has_previous_target) {
         out = target->previous_view_data(source.sampled);
         out.projection = merge_projection(source.projection, out.projection);
+        bind_view_data_ops(out);
         return true;
     }
 
@@ -1052,6 +1076,7 @@ bool resolve_previous_bound_target_view_data(const ViewData& source, ViewData& o
             }
 
             out = std::move(previous);
+            bind_view_data_ops(out);
             return true;
         }
     }
@@ -1198,4 +1223,3 @@ void reset_ts_link_observers() {
 
 
 }  // namespace hgraph
-

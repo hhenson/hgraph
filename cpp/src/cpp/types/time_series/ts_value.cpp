@@ -22,6 +22,35 @@ value::ValueView to_mut_view_or_empty(value::Value& value) {
     return value.view();
 }
 
+const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indices) {
+    const TSMeta* meta = root;
+    for (size_t index : indices) {
+        while (meta != nullptr && meta->kind == TSKind::REF) {
+            meta = meta->element_ts();
+        }
+
+        if (meta == nullptr) {
+            return nullptr;
+        }
+
+        switch (meta->kind) {
+            case TSKind::TSB:
+                if (meta->fields() == nullptr || index >= meta->field_count()) {
+                    return nullptr;
+                }
+                meta = meta->fields()[index].ts_type;
+                break;
+            case TSKind::TSL:
+            case TSKind::TSD:
+                meta = meta->element_ts();
+                break;
+            default:
+                return nullptr;
+        }
+    }
+    return meta;
+}
+
 }  // namespace
 
 TSValue::TSValue(const TSMeta* meta) {
@@ -170,7 +199,7 @@ ViewData TSValue::make_view_data(ShortPath path, const engine_time_t* engine_tim
     vd.link_observer_registry = link_observer_registry_;
     vd.sampled = false;
     vd.uses_link_target = uses_link_target_;
-    vd.ops = get_ts_ops(meta_);
+    vd.ops = get_ts_ops(meta_at_path(meta_, vd.path.indices));
     vd.meta = meta_;
 
     debug_assert_view_data_consistency(vd);

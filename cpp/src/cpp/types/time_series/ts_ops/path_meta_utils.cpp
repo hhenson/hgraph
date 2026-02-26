@@ -31,6 +31,10 @@ const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indice
     return meta;
 }
 
+void bind_view_data_ops(ViewData& vd) {
+    vd.ops = get_ts_ops(meta_at_path(vd.meta, vd.path.indices));
+}
+
 size_t find_bundle_field_index(const TSMeta* bundle_meta, std::string_view field_name) {
     if (bundle_meta == nullptr || bundle_meta->kind != TSKind::TSB || bundle_meta->fields() == nullptr) {
         return static_cast<size_t>(-1);
@@ -947,4 +951,3 @@ void clear_tsd_visible_key_history(const ViewData& parent_view, const value::Vie
 
 
 }  // namespace hgraph
-

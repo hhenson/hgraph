@@ -12,15 +12,13 @@
 namespace hgraph {
 namespace {
 
+const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indices);
+
 const ts_ops* resolve_kind_ops(const ViewData& view_data) {
-    if (view_data.ops == nullptr || view_data.ops->ts_meta == nullptr) {
-        return nullptr;
+    if (view_data.ops != nullptr) {
+        return view_data.ops;
     }
-    const TSMeta* meta = view_data.ops->ts_meta(view_data);
-    if (meta == nullptr) {
-        return nullptr;
-    }
-    return get_ts_ops(meta);
+    return get_ts_ops(meta_at_path(view_data.meta, view_data.path.indices));
 }
 
 const ts_window_ops* resolve_window_ops(const ViewData& view_data) {
@@ -179,6 +177,7 @@ std::optional<size_t> map_slot_for_key(const value::View& map_view, const value:
 TSView child_at_impl(const ViewData& view_data, size_t index, const engine_time_t* engine_time_ptr) {
     ViewData child = view_data;
     child.path.indices.push_back(index);
+    child.ops = get_ts_ops(meta_at_path(child.meta, child.path.indices));
     return TSView(child, engine_time_ptr);
 }
 

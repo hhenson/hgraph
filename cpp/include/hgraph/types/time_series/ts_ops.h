@@ -103,6 +103,7 @@ struct ts_ops {
     bool (*is_bound)(const ViewData& vd);
 
     void (*set_active)(ViewData& vd, value::ValueView active_view, bool active, TSInput* input);
+    void (*copy_value)(ViewData dst, const ViewData& src, engine_time_t current_time);
 
     TSKind kind;
 

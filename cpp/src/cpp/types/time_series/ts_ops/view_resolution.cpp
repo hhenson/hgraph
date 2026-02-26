@@ -984,6 +984,7 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
                     }
                 }
             }
+            bind_view_data_ops(resolved);
             if (std::getenv("HGRAPH_DEBUG_REF_ANCESTOR") != nullptr) {
                 std::fprintf(stderr,
                              "[resolve_lt] in_path=%s link_target_path=%s residual_len=%zu out_path=%s out_value_data=%p\n",
@@ -1020,6 +1021,7 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
                 } else {
                     resolved.path.indices.insert(resolved.path.indices.end(), residual.begin(), residual.end());
                 }
+                bind_view_data_ops(resolved);
                 log_resolve("lt-ancestor", resolved);
                 return resolved;
             }
@@ -1042,8 +1044,10 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
         // descendants) before consulting REFLink alternative storage.
         if (auto resolved_ref_ancestor = resolve_ref_ancestor_descendant_view_data(vd);
             resolved_ref_ancestor.has_value()) {
-            log_resolve("ref-value-ancestor", *resolved_ref_ancestor);
-            return resolved_ref_ancestor;
+            ViewData resolved = std::move(*resolved_ref_ancestor);
+            bind_view_data_ops(resolved);
+            log_resolve("ref-value-ancestor", resolved);
+            return resolved;
         }
 
         // REFLink dereference is alternative storage for REF paths only.
@@ -1101,6 +1105,7 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
             // nested REF[TSD] reads to scalar children.
             resolved.sampled = resolved.sampled || vd.sampled;
             resolved.projection = merge_projection(vd.projection, resolved.projection);
+            bind_view_data_ops(resolved);
             log_resolve("ref-direct", resolved);
             return resolved;
         }
@@ -1131,6 +1136,7 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
                     vd.path.indices.end());
                 resolved.sampled = resolved.sampled || vd.sampled;
                 resolved.projection = merge_projection(vd.projection, resolved.projection);
+                bind_view_data_ops(resolved);
                 log_resolve("ref-ancestor", resolved);
                 return resolved;
             }
@@ -1603,4 +1609,3 @@ bool resolve_rebind_bridge_views(const ViewData& vd,
 
 
 }  // namespace hgraph
-

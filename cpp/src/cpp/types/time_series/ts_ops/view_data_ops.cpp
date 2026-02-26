@@ -17,6 +17,7 @@ bool is_same_view_data(const ViewData& lhs, const ViewData& rhs) {
 bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewData& out) {
     out = vd;
     out.sampled = out.sampled || vd.sampled;
+    bind_view_data_ops(out);
 
     for (size_t depth = 0; depth < 64; ++depth) {
         if (auto rebound = resolve_bound_view_data(out); rebound.has_value()) {
@@ -26,6 +27,7 @@ bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewDat
             }
             out = next;
             out.sampled = out.sampled || vd.sampled;
+            bind_view_data_ops(out);
 
             // REF views expose the reference object itself. For REF consumers we
             // stop after resolving the direct bind chain.
@@ -49,6 +51,7 @@ bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewDat
                 }
                 out = next;
                 out.sampled = out.sampled || vd.sampled;
+                bind_view_data_ops(out);
                 continue;
             }
             return true;
@@ -78,6 +81,7 @@ bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewDat
                 out = *target;
                 out.sampled = out.sampled || vd.sampled;
                 out.projection = merge_projection(vd.projection, out.projection);
+                bind_view_data_ops(out);
                 continue;
             }
 
@@ -416,4 +420,3 @@ void clear_ref_container_ancestor_cache(ViewData& vd) {
 
 
 }  // namespace hgraph
-
