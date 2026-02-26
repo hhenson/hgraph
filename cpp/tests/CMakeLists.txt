@@ -105,9 +105,11 @@ endif()
 # Create TS schema registry test executable
 add_executable(hgraph_ts_schema_tests
     test_delta_view.cpp
+    test_link_observer_registry.cpp
     test_ts_schema_registry.cpp
     ts_test_stubs.cpp
     ../src/cpp/types/value/type_registry.cpp
+    ../src/cpp/types/time_series/link_observer_registry.cpp
     ../src/cpp/types/time_series/ts_meta_schema_cache.cpp
     ../src/cpp/types/time_series/ts_type_registry.cpp
     ../src/cpp/types/time_series/link_target.cpp

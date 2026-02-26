@@ -2266,8 +2266,10 @@ nb::object python_set_delta(const nb::object& added, const nb::object& removed) 
     return PythonSetDelta(added, removed);
 }
 
-constexpr std::string_view k_tsd_removed_snapshot_state_key{"tsd_removed_child_snapshots"};
-constexpr std::string_view k_tsd_visible_key_history_state_key{"tsd_visible_key_history"};
+constexpr std::string_view k_tsd_removed_snapshot_state_key{
+    TSLinkObserverRegistry::kTsdRemovedChildSnapshotsKey};
+constexpr std::string_view k_tsd_visible_key_history_state_key{
+    TSLinkObserverRegistry::kTsdVisibleKeyHistoryKey};
 
 struct TsdRemovedChildSnapshotRecord {
     std::vector<size_t> parent_path;
@@ -8868,7 +8870,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     return computed_delta_to_python(delta);
 }
 
-constexpr std::string_view k_ref_unbound_item_change_state_key{"ref_unbound_item_changes"};
+constexpr std::string_view k_ref_unbound_item_change_state_key{
+    TSLinkObserverRegistry::kRefUnboundItemChangesKey};
 
 struct RefUnboundItemChangeRecord {
     std::vector<size_t> path;

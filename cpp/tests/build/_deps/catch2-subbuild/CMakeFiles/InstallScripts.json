@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/catch2-subbuild/cmake_install.cmake"
-	],
-	"Parallel" : false
-}

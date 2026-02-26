@@ -20,6 +20,10 @@ struct REFLink;
  * TSOutput instances and accessed through ViewData.
  */
 struct HGRAPH_EXPORT TSLinkObserverRegistry {
+    static constexpr std::string_view kTsdRemovedChildSnapshotsKey{"tsd_removed_child_snapshots"};
+    static constexpr std::string_view kTsdVisibleKeyHistoryKey{"tsd_visible_key_history"};
+    static constexpr std::string_view kRefUnboundItemChangesKey{"ref_unbound_item_changes"};
+
     TSLinkObserverRegistry();
     TSLinkObserverRegistry(const TSLinkObserverRegistry&) = delete;
     TSLinkObserverRegistry& operator=(const TSLinkObserverRegistry&) = delete;
@@ -27,31 +31,19 @@ struct HGRAPH_EXPORT TSLinkObserverRegistry {
     TSLinkObserverRegistry& operator=(TSLinkObserverRegistry&&) = delete;
     ~TSLinkObserverRegistry();
 
-    std::unordered_map<std::string, std::shared_ptr<void>> feature_states;
+    [[nodiscard]] std::shared_ptr<void> feature_state(std::string_view key) const;
+    void set_feature_state(std::string key, std::shared_ptr<void> state);
+    void clear_feature_state(std::string_view key);
+    void clear();
 
-    [[nodiscard]] std::shared_ptr<void> feature_state(std::string_view key) const {
-        const auto it = feature_states.find(std::string{key});
-        if (it == feature_states.end()) {
-            return {};
-        }
-        return it->second;
-    }
+private:
+    [[nodiscard]] std::shared_ptr<void>* known_state_slot(std::string_view key) noexcept;
+    [[nodiscard]] const std::shared_ptr<void>* known_state_slot(std::string_view key) const noexcept;
 
-    void set_feature_state(std::string key, std::shared_ptr<void> state) {
-        if (!state) {
-            feature_states.erase(key);
-            return;
-        }
-        feature_states[std::move(key)] = std::move(state);
-    }
-
-    void clear_feature_state(std::string_view key) {
-        feature_states.erase(std::string{key});
-    }
-
-    void clear() {
-        feature_states.clear();
-    }
+    std::shared_ptr<void> tsd_removed_child_snapshots_state_{};
+    std::shared_ptr<void> tsd_visible_key_history_state_{};
+    std::shared_ptr<void> ref_unbound_item_changes_state_{};
+    std::unique_ptr<std::unordered_map<std::string, std::shared_ptr<void>>> extra_feature_states_{};
 };
 
 HGRAPH_EXPORT bool is_live_link_observer_registry(const TSLinkObserverRegistry* registry) noexcept;

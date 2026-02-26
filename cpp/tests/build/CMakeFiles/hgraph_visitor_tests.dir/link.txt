@@ -1,1 +1,0 @@
-/usr/bin/c++  -arch arm64 -Wl,-search_paths_first -Wl,-headerpad_max_install_names CMakeFiles/hgraph_visitor_tests.dir/test_visitor_standalone.cpp.o -o hgraph_visitor_tests  -Wl,-rpath,/opt/homebrew/lib _deps/catch2-build/src/libCatch2Main.a /opt/homebrew/lib/libfmt.12.1.0.dylib _deps/catch2-build/src/libCatch2.a

@@ -872,6 +872,38 @@ def _scenario_ref_race_tsd_bundle_switch() -> dict[str, Any]:
     )
 
 
+def _scenario_tsd_output_remove_replay() -> dict[str, Any]:
+    @compute_node
+    def mutate(trigger: TS[int], _output: TSD[str, TS[int]] = None) -> TSD[str, TS[int]]:
+        if trigger.modified and trigger.value == 1:
+            _output.apply_result({"a": 1})
+        if trigger.modified and trigger.value == -1:
+            _output.apply_result({"a": REMOVE})
+        if trigger.modified and trigger.value == 2:
+            _output.apply_result({"b": 2})
+        return _output.delta_value if _output.modified else None
+
+    @graph
+    def mutate_valid(trigger: TS[int]) -> TS[bool]:
+        return valid(mutate(trigger))
+
+    @graph
+    def mutate_modified(trigger: TS[int]) -> TS[bool]:
+        return modified(mutate(trigger))
+
+    @graph
+    def mutate_lmt(trigger: TS[int]) -> TS[datetime]:
+        return last_modified_time(mutate(trigger))
+
+    return _collect_ts_trace(
+        mutate,
+        mutate_valid,
+        mutate_modified,
+        mutate_lmt,
+        trigger=[1, -1, None, 2],
+    )
+
+
 SCENARIOS = {
     "map_input_goes_away": _scenario_map_input_goes_away,
     "map_reference_cleanup": _scenario_map_reference_cleanup,
@@ -889,6 +921,7 @@ SCENARIOS = {
     "ref_toggle_to_ts": _scenario_ref_toggle_to_ts,
     "ref_unbind_active_transition": _scenario_ref_unbind_active_transition,
     "tsd_in_bundle_ref": _scenario_tsd_in_bundle_ref,
+    "tsd_output_remove_replay": _scenario_tsd_output_remove_replay,
     "tsd_remove_and_unbind_same_cycle": _scenario_tsd_remove_and_unbind_same_cycle,
     "tsd_rebind_delta_bridge": _scenario_tsd_rebind_delta_bridge,
 }
