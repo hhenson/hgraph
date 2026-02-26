@@ -1,0 +1,137 @@
+#pragma once
+
+#include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/ts_ops.h>
+#include <hgraph/types/time_series/view_data.h>
+#include <hgraph/types/value/value_view.h>
+
+#include <nanobind/nanobind.h>
+
+#include <cstddef>
+#include <cstdint>
+#include <utility>
+
+namespace nb = nanobind;
+
+namespace hgraph {
+
+/**
+ * Type-erased delta wrapper.
+ *
+ * This unifies:
+ * - stored delta payloads (`value::View`)
+ * - computed TS delta payloads (`ViewData + ts_ops`)
+ */
+class HGRAPH_EXPORT DeltaView {
+public:
+    enum class Backing : uint8_t {
+        NONE = 0,
+        STORED = 1,
+        COMPUTED = 2,
+    };
+
+    DeltaView() = default;
+
+    static DeltaView from_stored(value::View delta) noexcept {
+        DeltaView out;
+        out.backing_ = Backing::STORED;
+        out.stored_ = std::move(delta);
+        return out;
+    }
+
+    static DeltaView from_computed(ViewData view_data, engine_time_t current_time) noexcept {
+        DeltaView out;
+        out.backing_ = Backing::COMPUTED;
+        out.computed_ = std::move(view_data);
+        out.current_time_ = current_time;
+        return out;
+    }
+
+    [[nodiscard]] Backing backing() const noexcept {
+        return backing_;
+    }
+
+    [[nodiscard]] explicit operator bool() const noexcept {
+        return valid();
+    }
+
+    [[nodiscard]] value::View value() const {
+        if (backing_ == Backing::STORED) {
+            return stored_;
+        }
+        if (backing_ != Backing::COMPUTED) {
+            return {};
+        }
+        if (computed_.ops == nullptr || computed_.ops->delta_value == nullptr) {
+            return {};
+        }
+        return computed_.ops->delta_value(computed_);
+    }
+
+    [[nodiscard]] bool valid() const {
+        return value().valid();
+    }
+
+    [[nodiscard]] bool empty() const {
+        if (!valid()) {
+            return true;
+        }
+        if (backing_ == Backing::COMPUTED &&
+            computed_.ops != nullptr &&
+            computed_.ops->has_delta != nullptr) {
+            return !computed_.ops->has_delta(computed_);
+        }
+        return change_count() == 0;
+    }
+
+    [[nodiscard]] size_t change_count() const {
+        const value::View delta = value();
+        if (!delta.valid()) {
+            return 0;
+        }
+        if (delta.is_set()) {
+            return delta.as_set().size();
+        }
+        if (delta.is_map()) {
+            return delta.as_map().size();
+        }
+        if (delta.is_list()) {
+            return delta.as_list().size();
+        }
+        if (delta.is_bundle()) {
+            return delta.as_bundle().size();
+        }
+        if (delta.is_tuple()) {
+            size_t out = 0;
+            auto tuple = delta.as_tuple();
+            for (size_t i = 0; i < tuple.size(); ++i) {
+                out += DeltaView::from_stored(tuple.at(i)).change_count();
+            }
+            return out;
+        }
+        return 1;
+    }
+
+    [[nodiscard]] const value::TypeMeta* schema() const {
+        return value().schema();
+    }
+
+    [[nodiscard]] nb::object to_python() const {
+        if (backing_ == Backing::COMPUTED &&
+            computed_.ops != nullptr &&
+            computed_.ops->delta_to_python != nullptr) {
+            return computed_.ops->delta_to_python(computed_, current_time_);
+        }
+
+        const value::View delta = value();
+        return delta.valid() ? delta.to_python() : nb::none();
+    }
+
+private:
+    Backing backing_{Backing::NONE};
+    value::View stored_{};
+    ViewData computed_{};
+    engine_time_t current_time_{MIN_DT};
+};
+
+}  // namespace hgraph

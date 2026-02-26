@@ -332,6 +332,10 @@ value::View TSView::delta_value() const {
     return view_data_.ops->delta_value(view_data_);
 }
 
+DeltaView TSView::delta_view() const {
+    return DeltaView::from_computed(view_data_, current_time());
+}
+
 nb::object TSView::to_python() const {
     if (view_data_.ops == nullptr || view_data_.ops->to_python == nullptr) {
         return nb::none();
@@ -365,6 +369,10 @@ void TSView::apply_delta(const value::View& delta) {
         return;
     }
     view_data_.ops->apply_delta(view_data_, delta, current_time());
+}
+
+void TSView::apply_delta(const DeltaView& delta) {
+    apply_delta(delta.value());
 }
 
 void TSView::invalidate() {

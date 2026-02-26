@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/dynamic_bitset-subbuild/CMakeFiles/dynamic_bitset-populate"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/dynamic_bitset-subbuild/CMakeFiles/dynamic_bitset-populate.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/dynamic_bitset-subbuild/CMakeFiles/dynamic_bitset-populate-complete.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/dynamic_bitset-subbuild/dynamic_bitset-populate-prefix/src/dynamic_bitset-populate-stamp/dynamic_bitset-populate-build.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/dynamic_bitset-subbuild/dynamic_bitset-populate-prefix/src/dynamic_bitset-populate-stamp/dynamic_bitset-populate-configure.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/dynamic_bitset-subbuild/dynamic_bitset-populate-prefix/src/dynamic_bitset-populate-stamp/dynamic_bitset-populate-download.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/dynamic_bitset-subbuild/dynamic_bitset-populate-prefix/src/dynamic_bitset-populate-stamp/dynamic_bitset-populate-install.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/dynamic_bitset-subbuild/dynamic_bitset-populate-prefix/src/dynamic_bitset-populate-stamp/dynamic_bitset-populate-mkdir.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/dynamic_bitset-subbuild/dynamic_bitset-populate-prefix/src/dynamic_bitset-populate-stamp/dynamic_bitset-populate-patch.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/dynamic_bitset-subbuild/dynamic_bitset-populate-prefix/src/dynamic_bitset-populate-stamp/dynamic_bitset-populate-test.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/dynamic_bitset-subbuild/dynamic_bitset-populate-prefix/src/dynamic_bitset-populate-stamp/dynamic_bitset-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"dynamic_bitset-populate"
+		],
+		"name" : "dynamic_bitset-populate"
+	}
+}

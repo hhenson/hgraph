@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/tpack-subbuild/CMakeFiles/tpack-populate"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/tpack-subbuild/CMakeFiles/tpack-populate.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/tpack-subbuild/CMakeFiles/tpack-populate-complete.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/tpack-subbuild/tpack-populate-prefix/src/tpack-populate-stamp/tpack-populate-build.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/tpack-subbuild/tpack-populate-prefix/src/tpack-populate-stamp/tpack-populate-configure.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/tpack-subbuild/tpack-populate-prefix/src/tpack-populate-stamp/tpack-populate-download.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/tpack-subbuild/tpack-populate-prefix/src/tpack-populate-stamp/tpack-populate-install.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/tpack-subbuild/tpack-populate-prefix/src/tpack-populate-stamp/tpack-populate-mkdir.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/tpack-subbuild/tpack-populate-prefix/src/tpack-populate-stamp/tpack-populate-patch.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/tpack-subbuild/tpack-populate-prefix/src/tpack-populate-stamp/tpack-populate-test.rule"
+		},
+		{
+			"file" : "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/tpack-subbuild/tpack-populate-prefix/src/tpack-populate-stamp/tpack-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"tpack-populate"
+		],
+		"name" : "tpack-populate"
+	}
+}

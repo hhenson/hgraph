@@ -1532,6 +1532,21 @@ size_t find_bundle_field_index(const TSMeta* bundle_meta, std::string_view field
     return static_cast<size_t>(-1);
 }
 
+template <typename Fn>
+void for_each_named_bundle_field(const TSMeta* bundle_meta, Fn&& fn) {
+    if (bundle_meta == nullptr || bundle_meta->kind != TSKind::TSB || bundle_meta->fields() == nullptr) {
+        return;
+    }
+
+    for (size_t i = 0; i < bundle_meta->field_count(); ++i) {
+        const char* field_name = bundle_meta->fields()[i].name;
+        if (field_name == nullptr) {
+            continue;
+        }
+        fn(i, field_name);
+    }
+}
+
 std::optional<View> navigate_const(View view, const std::vector<size_t>& indices) {
     View current = view;
     for (size_t index : indices) {
@@ -6589,6 +6604,18 @@ void apply_fallback_from_python_write(ViewData& vd,
     notify_link_target_observers(vd, current_time);
 }
 
+void notify_if_static_container_children_changed(bool changed,
+                                                 const ViewData& vd,
+                                                 engine_time_t current_time) {
+    if (!changed) {
+        return;
+    }
+
+    // Child writes already stamp their own paths (and ancestors). Re-stamping
+    // the static container root would mark untouched siblings modified.
+    notify_link_target_observers(vd, current_time);
+}
+
 nb::object op_to_python(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta != nullptr && self_meta->kind == TSKind::REF) {
@@ -6646,19 +6673,14 @@ nb::object op_to_python(const ViewData& vd) {
         if (current->fields() == nullptr) {
             return out;
         }
-        for (size_t i = 0; i < current->field_count(); ++i) {
+        for_each_named_bundle_field(current, [&](size_t i, const char* field_name) {
             ViewData child = vd;
             child.path.indices.push_back(i);
             if (!op_valid(child)) {
-                continue;
-            }
-
-            const char* field_name = current->fields()[i].name;
-            if (field_name == nullptr) {
-                continue;
+                return;
             }
             out[nb::str(field_name)] = op_to_python(child);
-        }
+        });
 
         // Mirror Python TSB.value semantics: if schema has a scalar_type,
         // materialize that scalar instance from field values.
@@ -6670,20 +6692,14 @@ nb::object op_to_python(const ViewData& vd) {
                     nb::object scalar_type = scalar_type_fn();
                     if (!scalar_type.is_none()) {
                         nb::dict scalar_kwargs;
-                        if (current->fields() != nullptr) {
-                            for (size_t i = 0; i < current->field_count(); ++i) {
-                                const char* field_name = current->fields()[i].name;
-                                if (field_name == nullptr) {
-                                    continue;
-                                }
-                                nb::object key_obj = nb::str(field_name);
-                                if (PyDict_Contains(out.ptr(), key_obj.ptr()) == 1) {
-                                    scalar_kwargs[key_obj] = out[key_obj];
-                                } else {
-                                    scalar_kwargs[key_obj] = nb::none();
-                                }
+                        for_each_named_bundle_field(current, [&](size_t /*i*/, const char* field_name) {
+                            nb::object key_obj = nb::str(field_name);
+                            if (PyDict_Contains(out.ptr(), key_obj.ptr()) == 1) {
+                                scalar_kwargs[key_obj] = out[key_obj];
+                            } else {
+                                scalar_kwargs[key_obj] = nb::none();
                             }
-                        }
+                        });
                         PyObject* empty_args = PyTuple_New(0);
                         PyObject* scalar_obj = PyObject_Call(scalar_type.ptr(), empty_args, scalar_kwargs.ptr());
                         Py_DECREF(empty_args);
@@ -8384,6 +8400,29 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         return get_frozendict()(delta_out);
     }
 
+    const auto sampled_delta_or_value = [&](const ViewData& child) -> nb::object {
+        ViewData sampled_child = child;
+        sampled_child.sampled = true;
+        nb::object child_delta = op_delta_to_python(sampled_child, current_time);
+        if (child_delta.is_none()) {
+            View child_value = op_value(child);
+            if (child_value.valid()) {
+                child_delta = delta_view_to_python(child_value);
+            }
+        }
+        return child_delta;
+    };
+
+    const auto sampled_delta_or_python = [&](const ViewData& child) -> nb::object {
+        ViewData sampled_child = child;
+        sampled_child.sampled = true;
+        nb::object child_delta = op_delta_to_python(sampled_child, current_time);
+        if (child_delta.is_none()) {
+            child_delta = op_to_python(child);
+        }
+        return child_delta;
+    };
+
     if (current != nullptr && current->kind == TSKind::TSL) {
         ViewData current_bridge{};
         if (resolve_rebind_current_bridge_view(vd, self_meta, current_time, current_bridge)) {
@@ -8460,15 +8499,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                     continue;
                 }
 
-                ViewData sampled_child = child;
-                sampled_child.sampled = true;
-                nb::object child_delta = op_delta_to_python(sampled_child, current_time);
-                if (child_delta.is_none()) {
-                    View child_value = op_value(child);
-                    if (child_value.valid()) {
-                        child_delta = delta_view_to_python(child_value);
-                    }
-                }
+                nb::object child_delta = sampled_delta_or_value(child);
                 if (!child_delta.is_none()) {
                     delta_out[nb::int_(i)] = std::move(child_delta);
                 }
@@ -8508,34 +8539,20 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         if (resolve_rebind_current_bridge_view(vd, self_meta, current_time, current_bridge)) {
             const TSMeta* bridge_meta = meta_at_path(current_bridge.meta, current_bridge.path.indices);
             if (bridge_meta != nullptr && bridge_meta->kind == TSKind::TSB && bridge_meta->fields() != nullptr) {
-                for (size_t i = 0; i < bridge_meta->field_count(); ++i) {
+                for_each_named_bundle_field(bridge_meta, [&](size_t i, const char* field_name) {
                     ViewData child = current_bridge;
                     child.path.indices.push_back(i);
                     if (!op_valid(child)) {
-                        continue;
+                        return;
                     }
 
-                    const char* field_name = bridge_meta->fields()[i].name;
-                    if (field_name == nullptr) {
-                        continue;
-                    }
-
-                    ViewData sampled_child = child;
-                    sampled_child.sampled = true;
-                    nb::object child_delta = op_delta_to_python(sampled_child, current_time);
+                    nb::object child_delta = sampled_delta_or_python(child);
                     if (child_delta.is_none()) {
-                        nb::object child_value = op_to_python(child);
-                        if (child_value.is_none()) {
-                            continue;
-                        }
-                        child_delta = std::move(child_value);
+                        return;
                     }
                     delta_out[nb::str(field_name)] = std::move(child_delta);
-                }
-                if (PyDict_Size(delta_out.ptr()) == 0) {
-                    // Non-scalar delta contract: containers return empty payloads, not None.
-                    return delta_out;
-                }
+                });
+                // Non-scalar delta contract: containers return empty payloads, not None.
                 return delta_out;
             }
         }
@@ -8545,6 +8562,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         const bool wrapper_ticked =
             wrapper_time == current_time ||
             rebind_time == current_time;
+        const bool debug_tsb_delta = std::getenv("HGRAPH_DEBUG_TSB_DELTA") != nullptr;
         bool suppress_wrapper_sampling = false;
         if (wrapper_ticked) {
             ViewData bound_target{};
@@ -8553,7 +8571,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                 suppress_wrapper_sampling = bound_meta != nullptr && bound_meta->kind == TSKind::REF;
             }
         }
-        if (std::getenv("HGRAPH_DEBUG_TSB_DELTA") != nullptr) {
+        if (debug_tsb_delta) {
             int has_bound = 0;
             int bound_kind = -1;
             ViewData bound_dbg{};
@@ -8633,7 +8651,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                                 item_rebound = !is_same_view_data(resolved_item, previous_resolved_item);
                             }
                             ref_item_rebound[i] = item_rebound || resolved_item_modified || recorded_item_change;
-                            if (std::getenv("HGRAPH_DEBUG_TSB_DELTA") != nullptr) {
+                            if (debug_tsb_delta) {
                                 std::fprintf(stderr,
                                              "[tsb_delta]  ref_item idx=%zu path=%s direct_lmt=%lld op_lmt=%lld now=%lld mod=%d resolved=%d resolved_path=%s prev=%d prev_path=%s prev_resolved=%d prev_resolved_path=%s resolved_direct_lmt=%lld resolved_mod=%d recorded=%d item_rebound=%d rebound=%d\n",
                                              i,
@@ -8720,7 +8738,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                 const bool child_rebound = child_rebound_this_tick(i, child);
                 const bool child_advanced =
                     op_last_modified_time(child) == current_time || child_rebound;
-                if (std::getenv("HGRAPH_DEBUG_TSB_DELTA") != nullptr) {
+                if (debug_tsb_delta) {
                     const char* field_name = current->fields() != nullptr ? current->fields()[i].name : nullptr;
                     std::fprintf(stderr,
                                  "[tsb_delta]  probe field=%s path=%s scalar=%d rebound=%d advanced=%d valid=%d modified=%d lmt=%lld now=%lld\n",
@@ -8753,59 +8771,37 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         }
 
         if (sample_all) {
-            for (size_t i = 0; i < current->field_count(); ++i) {
+            for_each_named_bundle_field(current, [&](size_t i, const char* field_name) {
                 ViewData child = *data;
                 child.path.indices.push_back(i);
                 if (!op_valid(child)) {
-                    continue;
+                    return;
                 }
 
-                const char* field_name = current->fields()[i].name;
-                if (field_name == nullptr) {
-                    continue;
-                }
-
-                ViewData sampled_child = child;
-                sampled_child.sampled = true;
-                nb::object child_delta = op_delta_to_python(sampled_child, current_time);
-                if (child_delta.is_none()) {
-                    View child_value = op_value(child);
-                    if (child_value.valid()) {
-                        child_delta = delta_view_to_python(child_value);
-                    }
-                }
+                nb::object child_delta = sampled_delta_or_value(child);
                 if (!child_delta.is_none()) {
                     delta_out[nb::str(field_name)] = std::move(child_delta);
                 }
-            }
-            if (PyDict_Size(delta_out.ptr()) == 0) {
-                // Non-scalar delta contract: containers return empty payloads, not None.
-                return delta_out;
-            }
+            });
+            // Non-scalar delta contract: containers return empty payloads, not None.
             return delta_out;
         }
 
-        for (size_t i = 0; i < current->field_count(); ++i) {
+        for_each_named_bundle_field(current, [&](size_t i, const char* field_name) {
             ViewData child = *data;
             child.path.indices.push_back(i);
             const bool child_rebound = child_rebound_this_tick(i, child);
-            if (std::getenv("HGRAPH_DEBUG_TSB_DELTA") != nullptr) {
-                const char* field_name = current->fields() != nullptr ? current->fields()[i].name : nullptr;
+            if (debug_tsb_delta) {
                 std::fprintf(stderr,
                              "[tsb_delta]  emit field=%s path=%s rebound=%d valid=%d modified=%d\n",
-                             field_name != nullptr ? field_name : "<unnamed>",
+                             field_name,
                              child.path.to_string().c_str(),
                              child_rebound ? 1 : 0,
                              op_valid(child) ? 1 : 0,
                              op_modified(child, current_time) ? 1 : 0);
             }
             if ((!op_modified(child, current_time) && !child_rebound) || !op_valid(child)) {
-                continue;
-            }
-
-            const char* field_name = current->fields()[i].name;
-            if (field_name == nullptr) {
-                continue;
+                return;
             }
 
             const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
@@ -8825,26 +8821,18 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                         }
                     }
                 }
-                continue;
+                return;
             }
 
             nb::object child_delta = op_delta_to_python(child, current_time);
             if (child_delta.is_none() && child_rebound) {
-                ViewData sampled_child = child;
-                sampled_child.sampled = true;
-                child_delta = op_delta_to_python(sampled_child, current_time);
-                if (child_delta.is_none()) {
-                    child_delta = op_to_python(child);
-                }
+                child_delta = sampled_delta_or_python(child);
             }
             if (!child_delta.is_none()) {
                 delta_out[nb::str(field_name)] = std::move(child_delta);
             }
-        }
-        if (PyDict_Size(delta_out.ptr()) == 0) {
-            // Non-scalar delta contract: containers return empty payloads, not None.
-            return delta_out;
-        }
+        });
+        // Non-scalar delta contract: containers return empty payloads, not None.
         return delta_out;
     }
 
@@ -9521,11 +9509,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
             return;
         }
 
-        if (changed) {
-            // Child writes already stamp their own paths (and ancestors). Re-stamping
-            // the static container root here would mark untouched siblings modified.
-            notify_link_target_observers(vd, current_time);
-        }
+        notify_if_static_container_children_changed(changed, vd, current_time);
         return;
     }
 
@@ -9579,17 +9563,13 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
                     apply_child(index, nb::cast<nb::object>(kv[1]));
                 }
             } else {
-                for (size_t i = 0; i < current->field_count(); ++i) {
-                    const char* field_name = current->fields()[i].name;
-                    if (field_name == nullptr) {
-                        continue;
-                    }
+                for_each_named_bundle_field(current, [&](size_t i, const char* field_name) {
                     nb::object child_obj = nb::getattr(src, field_name, nb::none());
                     if (!child_obj.is_none()) {
                         handled = true;
                         apply_child(i, child_obj);
                     }
-                }
+                });
             }
         }
 
@@ -9598,11 +9578,7 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
             return;
         }
 
-        if (changed) {
-            // Child writes already stamp their own paths (and ancestors). Re-stamping
-            // the static container root here would mark untouched siblings modified.
-            notify_link_target_observers(vd, current_time);
-        }
+        notify_if_static_container_children_changed(changed, vd, current_time);
         return;
     }
 

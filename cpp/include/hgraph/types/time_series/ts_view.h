@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/delta_view.h>
 #include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/value/value_view.h>
 
@@ -73,12 +74,14 @@ public:
 
     [[nodiscard]] value::View value() const;
     [[nodiscard]] value::View delta_value() const;
+    [[nodiscard]] DeltaView delta_view() const;
     [[nodiscard]] nb::object to_python() const;
     [[nodiscard]] nb::object delta_to_python() const;
 
     void set_value(const value::View& src);
     void from_python(const nb::object& src);
     void apply_delta(const value::View& delta);
+    void apply_delta(const DeltaView& delta);
     void invalidate();
 
     [[nodiscard]] TSView child_at(size_t index) const;
@@ -215,6 +218,7 @@ public:
 
     [[nodiscard]] value::View value() const { return ts_view_.value(); }
     [[nodiscard]] value::View delta_value() const { return ts_view_.delta_value(); }
+    [[nodiscard]] DeltaView delta_view() const { return ts_view_.delta_view(); }
     [[nodiscard]] nb::object to_python() const { return ts_view_.to_python(); }
     [[nodiscard]] nb::object delta_to_python() const { return ts_view_.delta_to_python(); }
 
@@ -223,6 +227,7 @@ public:
     void copy_from_input(const TSInputView& input);
     void copy_from_output(const TSOutputView& output);
     void apply_delta(const value::View& delta) { ts_view_.apply_delta(delta); }
+    void apply_delta(const DeltaView& delta) { ts_view_.apply_delta(delta); }
     void invalidate() { ts_view_.invalidate(); }
 
     [[nodiscard]] TSOutputView field(std::string_view name) const;
@@ -344,6 +349,7 @@ public:
 
     [[nodiscard]] value::View value() const { return ts_view_.value(); }
     [[nodiscard]] value::View delta_value() const { return ts_view_.delta_value(); }
+    [[nodiscard]] DeltaView delta_view() const { return ts_view_.delta_view(); }
     [[nodiscard]] nb::object to_python() const { return ts_view_.to_python(); }
     [[nodiscard]] nb::object delta_to_python() const { return ts_view_.delta_to_python(); }
 

@@ -1,0 +1,2 @@
+/usr/bin/ar qc libnanoarrow_static.a CMakeFiles/nanoarrow_static.dir/src/nanoarrow/common/array.c.o CMakeFiles/nanoarrow_static.dir/src/nanoarrow/common/schema.c.o CMakeFiles/nanoarrow_static.dir/src/nanoarrow/common/array_stream.c.o CMakeFiles/nanoarrow_static.dir/src/nanoarrow/common/utils.c.o
+/usr/bin/ranlib libnanoarrow_static.a

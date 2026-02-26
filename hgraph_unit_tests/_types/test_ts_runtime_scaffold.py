@@ -543,6 +543,37 @@ def test_get_ts_ops_by_kind_compaction_exposes_only_relevant_extensions():
     assert not runtime.ops_has_list_for_kind(_hgraph.TSKind.TSB)
     assert runtime.ops_has_bundle_for_kind(_hgraph.TSKind.TSB)
 
+    assert runtime.ops_kind_for_kind(_hgraph.TSKind.REF) == _hgraph.TSKind.REF
+    assert not runtime.ops_has_window_for_kind(_hgraph.TSKind.REF)
+    assert not runtime.ops_has_set_for_kind(_hgraph.TSKind.REF)
+    assert not runtime.ops_has_dict_for_kind(_hgraph.TSKind.REF)
+    assert not runtime.ops_has_list_for_kind(_hgraph.TSKind.REF)
+    assert not runtime.ops_has_bundle_for_kind(_hgraph.TSKind.REF)
+
+    assert runtime.ops_kind_for_kind(_hgraph.TSKind.SIGNAL) == _hgraph.TSKind.SIGNAL
+    assert not runtime.ops_has_window_for_kind(_hgraph.TSKind.SIGNAL)
+    assert not runtime.ops_has_set_for_kind(_hgraph.TSKind.SIGNAL)
+    assert not runtime.ops_has_dict_for_kind(_hgraph.TSKind.SIGNAL)
+    assert not runtime.ops_has_list_for_kind(_hgraph.TSKind.SIGNAL)
+    assert not runtime.ops_has_bundle_for_kind(_hgraph.TSKind.SIGNAL)
+
+
+def test_get_ts_ops_meta_dispatch_matches_kind_dispatch_for_non_tsw():
+    ts_int = _ts_int_meta()
+
+    cases = [
+        (_hgraph.TSKind.TSValue, ts_int),
+        (_hgraph.TSKind.TSS, _registry().tss(value.scalar_type_meta_int64())),
+        (_hgraph.TSKind.TSD, _tsd_meta(value.scalar_type_meta_string(), ts_int)),
+        (_hgraph.TSKind.TSL, _registry().tsl(ts_int, 4)),
+        (_hgraph.TSKind.TSB, _tsb_meta("OpsDispatchBundle", [("x", ts_int), ("y", ts_int)])),
+        (_hgraph.TSKind.REF, _registry().ref(ts_int)),
+        (_hgraph.TSKind.SIGNAL, _registry().signal()),
+    ]
+
+    for kind, meta in cases:
+        assert runtime.ops_ptr_for_meta(meta) == runtime.ops_ptr_for_kind(kind)
+
 
 def test_schema_cache_scalar_contract_surfaces_all_parallel_schemas():
     ts_meta = _ts_int_meta()
@@ -634,6 +665,94 @@ def test_schema_cache_tsd_link_is_leaf_and_active_is_recursive():
     assert child_collection.kind == value.TypeKind.List
     assert child_collection.fixed_size == 0
     assert child_collection.element_type is value.scalar_type_meta_bool()
+
+
+def test_schema_cache_ref_link_and_active_shapes_include_nested_slot():
+    ts_int = _ts_int_meta()
+    ref_meta = _registry().ref(ts_int)
+
+    output_link = runtime.schema_link_meta(ref_meta)
+    input_link = runtime.schema_input_link_meta(ref_meta)
+    active = runtime.schema_active_meta(ref_meta)
+
+    assert output_link.kind == value.TypeKind.Tuple
+    assert output_link.field_count == 2
+    assert output_link.fields[0].type is value.TypeMeta.get("REFLink")
+    assert output_link.fields[1].type is value.TypeMeta.get("REFLink")
+
+    assert input_link.kind == value.TypeKind.Tuple
+    assert input_link.field_count == 2
+    assert input_link.fields[0].type is value.TypeMeta.get("LinkTarget")
+    assert input_link.fields[1].type is value.TypeMeta.get("LinkTarget")
+
+    assert active is value.scalar_type_meta_bool()
+
+
+def test_schema_cache_tsw_tick_contract_uses_cyclic_buffer_and_leaf_links():
+    tsw_meta = _registry().tsw(value.scalar_type_meta_double(), 6, 2)
+
+    value_meta = runtime.schema_value_meta(tsw_meta)
+    time_meta = runtime.schema_time_meta(tsw_meta)
+    delta_meta = runtime.schema_delta_meta(tsw_meta)
+    output_link = runtime.schema_link_meta(tsw_meta)
+    input_link = runtime.schema_input_link_meta(tsw_meta)
+    active = runtime.schema_active_meta(tsw_meta)
+
+    assert value_meta.kind == value.TypeKind.CyclicBuffer
+    assert value_meta.element_type is value.scalar_type_meta_double()
+    assert value_meta.fixed_size == 6
+
+    assert time_meta.kind == value.TypeKind.Tuple
+    assert time_meta.field_count == 2
+    assert time_meta.fields[0].type is value.scalar_type_meta_datetime()
+    assert time_meta.fields[1].type.kind == value.TypeKind.CyclicBuffer
+    assert time_meta.fields[1].type.element_type is value.scalar_type_meta_datetime()
+    assert time_meta.fields[1].type.fixed_size == 6
+
+    assert delta_meta.kind == value.TypeKind.Tuple
+    assert delta_meta.field_count == 2
+    assert delta_meta.fields[0].type is value.scalar_type_meta_double()
+    assert delta_meta.fields[1].type is value.scalar_type_meta_bool()
+
+    assert output_link is value.TypeMeta.get("REFLink")
+    assert input_link is value.TypeMeta.get("LinkTarget")
+    assert active is value.scalar_type_meta_bool()
+
+
+def test_schema_cache_tsw_duration_contract_uses_queue_and_duration_time_tuple():
+    tsw_meta = _registry().tsw_duration(
+        value.scalar_type_meta_double(),
+        timedelta(minutes=5),
+        timedelta(minutes=1),
+    )
+
+    value_meta = runtime.schema_value_meta(tsw_meta)
+    time_meta = runtime.schema_time_meta(tsw_meta)
+    delta_meta = runtime.schema_delta_meta(tsw_meta)
+    output_link = runtime.schema_link_meta(tsw_meta)
+    input_link = runtime.schema_input_link_meta(tsw_meta)
+    active = runtime.schema_active_meta(tsw_meta)
+
+    assert value_meta.kind == value.TypeKind.Queue
+    assert value_meta.element_type is value.scalar_type_meta_double()
+
+    assert time_meta.kind == value.TypeKind.Tuple
+    assert time_meta.field_count == 4
+    assert time_meta.fields[0].type is value.scalar_type_meta_datetime()
+    assert time_meta.fields[1].type.kind == value.TypeKind.Queue
+    assert time_meta.fields[1].type.element_type is value.scalar_type_meta_datetime()
+    assert time_meta.fields[2].type is value.scalar_type_meta_datetime()
+    assert time_meta.fields[3].type is value.scalar_type_meta_bool()
+
+    assert delta_meta.kind == value.TypeKind.Tuple
+    assert delta_meta.field_count == 2
+    assert delta_meta.fields[0].type is value.scalar_type_meta_bool()
+    assert delta_meta.fields[1].type.kind == value.TypeKind.Queue
+    assert delta_meta.fields[1].type.element_type is value.scalar_type_meta_double()
+
+    assert output_link is value.TypeMeta.get("REFLink")
+    assert input_link is value.TypeMeta.get("LinkTarget")
+    assert active is value.scalar_type_meta_bool()
 
 
 def test_schema_cache_delta_contract_for_tss_tsd_and_tsb_nested_shapes():

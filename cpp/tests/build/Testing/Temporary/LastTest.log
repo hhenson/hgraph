@@ -1,0 +1,623 @@
+Start testing: Feb 26 10:28 +04
+----------------------------------------------------------
+1/31 Testing: CRTP Visitor - Basic TS int
+1/31 Test: CRTP Visitor - Basic TS int
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "CRTP Visitor - Basic TS int"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"CRTP Visitor - Basic TS int" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "CRTP Visitor - Basic TS int"
+Randomness seeded to: 601405050
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"CRTP Visitor - Basic TS int" end time: Feb 26 10:28 +04
+"CRTP Visitor - Basic TS int" time elapsed: 00:00:00
+----------------------------------------------------------
+
+2/31 Testing: CRTP Visitor - Basic TS double
+2/31 Test: CRTP Visitor - Basic TS double
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "CRTP Visitor - Basic TS double"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"CRTP Visitor - Basic TS double" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "CRTP Visitor - Basic TS double"
+Randomness seeded to: 3126663629
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"CRTP Visitor - Basic TS double" end time: Feb 26 10:28 +04
+"CRTP Visitor - Basic TS double" time elapsed: 00:00:00
+----------------------------------------------------------
+
+3/31 Testing: CRTP Visitor - TSB
+3/31 Test: CRTP Visitor - TSB
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "CRTP Visitor - TSB"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"CRTP Visitor - TSB" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "CRTP Visitor - TSB"
+Randomness seeded to: 2218307998
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"CRTP Visitor - TSB" end time: Feb 26 10:28 +04
+"CRTP Visitor - TSB" time elapsed: 00:00:00
+----------------------------------------------------------
+
+4/31 Testing: CRTP Visitor - TSL
+4/31 Test: CRTP Visitor - TSL
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "CRTP Visitor - TSL"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"CRTP Visitor - TSL" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "CRTP Visitor - TSL"
+Randomness seeded to: 2787987177
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"CRTP Visitor - TSL" end time: Feb 26 10:28 +04
+"CRTP Visitor - TSL" time elapsed: 00:00:00
+----------------------------------------------------------
+
+5/31 Testing: CRTP Visitor - TSD template
+5/31 Test: CRTP Visitor - TSD template
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "CRTP Visitor - TSD template"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"CRTP Visitor - TSD template" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "CRTP Visitor - TSD template"
+Randomness seeded to: 427420600
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"CRTP Visitor - TSD template" end time: Feb 26 10:28 +04
+"CRTP Visitor - TSD template" time elapsed: 00:00:00
+----------------------------------------------------------
+
+6/31 Testing: CRTP Visitor - TSS template
+6/31 Test: CRTP Visitor - TSS template
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "CRTP Visitor - TSS template"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"CRTP Visitor - TSS template" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "CRTP Visitor - TSS template"
+Randomness seeded to: 675577489
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"CRTP Visitor - TSS template" end time: Feb 26 10:28 +04
+"CRTP Visitor - TSS template" time elapsed: 00:00:00
+----------------------------------------------------------
+
+7/31 Testing: CRTP Visitor - Counting multiple types
+7/31 Test: CRTP Visitor - Counting multiple types
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "CRTP Visitor - Counting multiple types"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"CRTP Visitor - Counting multiple types" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "CRTP Visitor - Counting multiple types"
+Randomness seeded to: 3043244725
+===============================================================================
+All tests passed (1 assertion in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"CRTP Visitor - Counting multiple types" end time: Feb 26 10:28 +04
+"CRTP Visitor - Counting multiple types" time elapsed: 00:00:00
+----------------------------------------------------------
+
+8/31 Testing: Acyclic Visitor - Specific type int
+8/31 Test: Acyclic Visitor - Specific type int
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Acyclic Visitor - Specific type int"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Acyclic Visitor - Specific type int" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Acyclic Visitor - Specific type int"
+Randomness seeded to: 2778791256
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Acyclic Visitor - Specific type int" end time: Feb 26 10:28 +04
+"Acyclic Visitor - Specific type int" time elapsed: 00:00:00
+----------------------------------------------------------
+
+9/31 Testing: Acyclic Visitor - Specific type long
+9/31 Test: Acyclic Visitor - Specific type long
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Acyclic Visitor - Specific type long"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Acyclic Visitor - Specific type long" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Acyclic Visitor - Specific type long"
+Randomness seeded to: 3220812959
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Acyclic Visitor - Specific type long" end time: Feb 26 10:28 +04
+"Acyclic Visitor - Specific type long" time elapsed: 00:00:00
+----------------------------------------------------------
+
+10/31 Testing: Acyclic Visitor - Unsupported type ignored
+10/31 Test: Acyclic Visitor - Unsupported type ignored
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Acyclic Visitor - Unsupported type ignored"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Acyclic Visitor - Unsupported type ignored" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Acyclic Visitor - Unsupported type ignored"
+Randomness seeded to: 3263125773
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Acyclic Visitor - Unsupported type ignored" end time: Feb 26 10:28 +04
+"Acyclic Visitor - Unsupported type ignored" time elapsed: 00:00:00
+----------------------------------------------------------
+
+11/31 Testing: Acyclic Visitor - Bundle type
+11/31 Test: Acyclic Visitor - Bundle type
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Acyclic Visitor - Bundle type"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Acyclic Visitor - Bundle type" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Acyclic Visitor - Bundle type"
+Randomness seeded to: 3826213863
+===============================================================================
+All tests passed (1 assertion in 1 test case)
+
+<end of output>
+Test time =   0.00 sec
+----------------------------------------------------------
+Test Passed.
+"Acyclic Visitor - Bundle type" end time: Feb 26 10:28 +04
+"Acyclic Visitor - Bundle type" time elapsed: 00:00:00
+----------------------------------------------------------
+
+12/31 Testing: Acyclic Visitor - Collection types
+12/31 Test: Acyclic Visitor - Collection types
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Acyclic Visitor - Collection types"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Acyclic Visitor - Collection types" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Acyclic Visitor - Collection types"
+Randomness seeded to: 2667644872
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Acyclic Visitor - Collection types" end time: Feb 26 10:28 +04
+"Acyclic Visitor - Collection types" time elapsed: 00:00:00
+----------------------------------------------------------
+
+13/31 Testing: Const CRTP Visitor - TS
+13/31 Test: Const CRTP Visitor - TS
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Const CRTP Visitor - TS"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Const CRTP Visitor - TS" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Const CRTP Visitor - TS"
+Randomness seeded to: 952814744
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Const CRTP Visitor - TS" end time: Feb 26 10:28 +04
+"Const CRTP Visitor - TS" time elapsed: 00:00:00
+----------------------------------------------------------
+
+14/31 Testing: Const CRTP Visitor - TSB
+14/31 Test: Const CRTP Visitor - TSB
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Const CRTP Visitor - TSB"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Const CRTP Visitor - TSB" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Const CRTP Visitor - TSB"
+Randomness seeded to: 3961215830
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Const CRTP Visitor - TSB" end time: Feb 26 10:28 +04
+"Const CRTP Visitor - TSB" time elapsed: 00:00:00
+----------------------------------------------------------
+
+15/31 Testing: Const Acyclic Visitor - TS
+15/31 Test: Const Acyclic Visitor - TS
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Const Acyclic Visitor - TS"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Const Acyclic Visitor - TS" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Const Acyclic Visitor - TS"
+Randomness seeded to: 456815329
+===============================================================================
+All tests passed (1 assertion in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Const Acyclic Visitor - TS" end time: Feb 26 10:28 +04
+"Const Acyclic Visitor - TS" time elapsed: 00:00:00
+----------------------------------------------------------
+
+16/31 Testing: Polymorphic CRTP Visitor via concrete types
+16/31 Test: Polymorphic CRTP Visitor via concrete types
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Polymorphic CRTP Visitor via concrete types"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Polymorphic CRTP Visitor via concrete types" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Polymorphic CRTP Visitor via concrete types"
+Randomness seeded to: 3549226966
+===============================================================================
+All tests passed (1 assertion in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Polymorphic CRTP Visitor via concrete types" end time: Feb 26 10:28 +04
+"Polymorphic CRTP Visitor via concrete types" time elapsed: 00:00:00
+----------------------------------------------------------
+
+17/31 Testing: Polymorphic Acyclic Visitor via base pointer
+17/31 Test: Polymorphic Acyclic Visitor via base pointer
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Polymorphic Acyclic Visitor via base pointer"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Polymorphic Acyclic Visitor via base pointer" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Polymorphic Acyclic Visitor via base pointer"
+Randomness seeded to: 3213713598
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Polymorphic Acyclic Visitor via base pointer" end time: Feb 26 10:28 +04
+"Polymorphic Acyclic Visitor via base pointer" time elapsed: 00:00:00
+----------------------------------------------------------
+
+18/31 Testing: Mixed Pattern - CRTP for generic operations
+18/31 Test: Mixed Pattern - CRTP for generic operations
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Mixed Pattern - CRTP for generic operations"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Mixed Pattern - CRTP for generic operations" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Mixed Pattern - CRTP for generic operations"
+Randomness seeded to: 1092856952
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Mixed Pattern - CRTP for generic operations" end time: Feb 26 10:28 +04
+"Mixed Pattern - CRTP for generic operations" time elapsed: 00:00:00
+----------------------------------------------------------
+
+19/31 Testing: Mixed Pattern - Acyclic for specific types
+19/31 Test: Mixed Pattern - Acyclic for specific types
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Mixed Pattern - Acyclic for specific types"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Mixed Pattern - Acyclic for specific types" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Mixed Pattern - Acyclic for specific types"
+Randomness seeded to: 3492170944
+===============================================================================
+All tests passed (1 assertion in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Mixed Pattern - Acyclic for specific types" end time: Feb 26 10:28 +04
+"Mixed Pattern - Acyclic for specific types" time elapsed: 00:00:00
+----------------------------------------------------------
+
+20/31 Testing: Edge Case - Selective visitor ignores unsupported types
+20/31 Test: Edge Case - Selective visitor ignores unsupported types
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Edge Case - Selective visitor ignores unsupported types"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Edge Case - Selective visitor ignores unsupported types" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Edge Case - Selective visitor ignores unsupported types"
+Randomness seeded to: 3480171353
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Edge Case - Selective visitor ignores unsupported types" end time: Feb 26 10:28 +04
+"Edge Case - Selective visitor ignores unsupported types" time elapsed: 00:00:00
+----------------------------------------------------------
+
+21/31 Testing: Template Types - Multiple TSD instantiations
+21/31 Test: Template Types - Multiple TSD instantiations
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Template Types - Multiple TSD instantiations"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Template Types - Multiple TSD instantiations" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Template Types - Multiple TSD instantiations"
+Randomness seeded to: 364179144
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Template Types - Multiple TSD instantiations" end time: Feb 26 10:28 +04
+"Template Types - Multiple TSD instantiations" time elapsed: 00:00:00
+----------------------------------------------------------
+
+22/31 Testing: Template Types - Multiple TSS instantiations
+22/31 Test: Template Types - Multiple TSS instantiations
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Template Types - Multiple TSS instantiations"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Template Types - Multiple TSS instantiations" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Template Types - Multiple TSS instantiations"
+Randomness seeded to: 3531154757
+===============================================================================
+All tests passed (3 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Template Types - Multiple TSS instantiations" end time: Feb 26 10:28 +04
+"Template Types - Multiple TSS instantiations" time elapsed: 00:00:00
+----------------------------------------------------------
+
+23/31 Testing: Dispatch - CRTP selected over Acyclic when no constraint
+23/31 Test: Dispatch - CRTP selected over Acyclic when no constraint
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Dispatch - CRTP selected over Acyclic when no constraint"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Dispatch - CRTP selected over Acyclic when no constraint" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Dispatch - CRTP selected over Acyclic when no constraint"
+Randomness seeded to: 4022882005
+===============================================================================
+All tests passed (1 assertion in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Dispatch - CRTP selected over Acyclic when no constraint" end time: Feb 26 10:28 +04
+"Dispatch - CRTP selected over Acyclic when no constraint" time elapsed: 00:00:00
+----------------------------------------------------------
+
+24/31 Testing: Dispatch - Acyclic selected when visitor derives from TimeSeriesVisitor
+24/31 Test: Dispatch - Acyclic selected when visitor derives from TimeSeriesVisitor
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests" "Dispatch - Acyclic selected when visitor derives from TimeSeriesVisitor"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"Dispatch - Acyclic selected when visitor derives from TimeSeriesVisitor" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "Dispatch - Acyclic selected when visitor derives from TimeSeriesVisitor"
+Randomness seeded to: 2111173091
+===============================================================================
+All tests passed (2 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"Dispatch - Acyclic selected when visitor derives from TimeSeriesVisitor" end time: Feb 26 10:28 +04
+"Dispatch - Acyclic selected when visitor derives from TimeSeriesVisitor" time elapsed: 00:00:00
+----------------------------------------------------------
+
+25/31 Testing: DeltaView default is invalid and empty
+25/31 Test: DeltaView default is invalid and empty
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_ts_schema_tests" "DeltaView default is invalid and empty"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"DeltaView default is invalid and empty" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "DeltaView default is invalid and empty"
+Randomness seeded to: 781322037
+===============================================================================
+All tests passed (4 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"DeltaView default is invalid and empty" end time: Feb 26 10:28 +04
+"DeltaView default is invalid and empty" time elapsed: 00:00:00
+----------------------------------------------------------
+
+26/31 Testing: DeltaView stored backing surfaces scalar payload
+26/31 Test: DeltaView stored backing surfaces scalar payload
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_ts_schema_tests" "DeltaView stored backing surfaces scalar payload"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"DeltaView stored backing surfaces scalar payload" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "DeltaView stored backing surfaces scalar payload"
+Randomness seeded to: 2647166149
+===============================================================================
+All tests passed (6 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"DeltaView stored backing surfaces scalar payload" end time: Feb 26 10:28 +04
+"DeltaView stored backing surfaces scalar payload" time elapsed: 00:00:00
+----------------------------------------------------------
+
+27/31 Testing: DeltaView computed backing respects ts_ops has_delta gate
+27/31 Test: DeltaView computed backing respects ts_ops has_delta gate
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_ts_schema_tests" "DeltaView computed backing respects ts_ops has_delta gate"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"DeltaView computed backing respects ts_ops has_delta gate" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "DeltaView computed backing respects ts_ops has_delta gate"
+Randomness seeded to: 652101558
+===============================================================================
+All tests passed (5 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"DeltaView computed backing respects ts_ops has_delta gate" end time: Feb 26 10:28 +04
+"DeltaView computed backing respects ts_ops has_delta gate" time elapsed: 00:00:00
+----------------------------------------------------------
+
+28/31 Testing: TSTypeRegistry caches scalar TS and parallel schemas
+28/31 Test: TSTypeRegistry caches scalar TS and parallel schemas
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_ts_schema_tests" "TSTypeRegistry caches scalar TS and parallel schemas"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"TSTypeRegistry caches scalar TS and parallel schemas" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "TSTypeRegistry caches scalar TS and parallel schemas"
+Randomness seeded to: 3748358274
+===============================================================================
+All tests passed (14 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"TSTypeRegistry caches scalar TS and parallel schemas" end time: Feb 26 10:28 +04
+"TSTypeRegistry caches scalar TS and parallel schemas" time elapsed: 00:00:00
+----------------------------------------------------------
+
+29/31 Testing: TSB link and active schemas preserve container slot layout
+29/31 Test: TSB link and active schemas preserve container slot layout
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_ts_schema_tests" "TSB link and active schemas preserve container slot layout"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"TSB link and active schemas preserve container slot layout" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "TSB link and active schemas preserve container slot layout"
+Randomness seeded to: 2863351480
+===============================================================================
+All tests passed (20 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"TSB link and active schemas preserve container slot layout" end time: Feb 26 10:28 +04
+"TSB link and active schemas preserve container slot layout" time elapsed: 00:00:00
+----------------------------------------------------------
+
+30/31 Testing: REF schemas produce concrete value_type and dereference removes REF
+30/31 Test: REF schemas produce concrete value_type and dereference removes REF
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_ts_schema_tests" "REF schemas produce concrete value_type and dereference removes REF"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"REF schemas produce concrete value_type and dereference removes REF" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "REF schemas produce concrete value_type and dereference removes REF"
+Randomness seeded to: 2865091251
+===============================================================================
+All tests passed (19 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"REF schemas produce concrete value_type and dereference removes REF" end time: Feb 26 10:28 +04
+"REF schemas produce concrete value_type and dereference removes REF" time elapsed: 00:00:00
+----------------------------------------------------------
+
+31/31 Testing: TSD schemas expose map value schema and nested link/delta structures
+31/31 Test: TSD schemas expose map value schema and nested link/delta structures
+Command: "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_ts_schema_tests" "TSD schemas expose map value schema and nested link/delta structures"
+Directory: /Users/hhenson/CLionProjects/hgraph/cpp/tests/build
+"TSD schemas expose map value schema and nested link/delta structures" start time: Feb 26 10:28 +04
+Output:
+----------------------------------------------------------
+Filters: "TSD schemas expose map value schema and nested link/delta structures"
+Randomness seeded to: 2995825257
+===============================================================================
+All tests passed (22 assertions in 1 test case)
+
+<end of output>
+Test time =   0.01 sec
+----------------------------------------------------------
+Test Passed.
+"TSD schemas expose map value schema and nested link/delta structures" end time: Feb 26 10:28 +04
+"TSD schemas expose map value schema and nested link/delta structures" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Feb 26 10:28 +04
