@@ -62,10 +62,11 @@ public:
         if (backing_ != Backing::COMPUTED) {
             return {};
         }
-        if (computed_.ops == nullptr || computed_.ops->delta_value == nullptr) {
+        const ViewData computed = computed_with_time();
+        if (computed.ops == nullptr || computed.ops->delta_value == nullptr) {
             return {};
         }
-        return computed_.ops->delta_value(computed_);
+        return computed.ops->delta_value(computed);
     }
 
     [[nodiscard]] bool valid() const {
@@ -79,7 +80,8 @@ public:
         if (backing_ == Backing::COMPUTED &&
             computed_.ops != nullptr &&
             computed_.ops->has_delta != nullptr) {
-            return !computed_.ops->has_delta(computed_);
+            const ViewData computed = computed_with_time();
+            return !computed.ops->has_delta(computed);
         }
         return change_count() == 0;
     }
@@ -120,7 +122,8 @@ public:
         if (backing_ == Backing::COMPUTED &&
             computed_.ops != nullptr &&
             computed_.ops->delta_to_python != nullptr) {
-            return computed_.ops->delta_to_python(computed_, current_time_);
+            const ViewData computed = computed_with_time();
+            return computed.ops->delta_to_python(computed, current_time_);
         }
 
         const value::View delta = value();
@@ -128,6 +131,15 @@ public:
     }
 
 private:
+    [[nodiscard]] ViewData computed_with_time() const noexcept {
+        if (backing_ != Backing::COMPUTED || computed_.engine_time_ptr != nullptr || current_time_ == MIN_DT) {
+            return computed_;
+        }
+        ViewData with_time = computed_;
+        with_time.engine_time_ptr = &current_time_;
+        return with_time;
+    }
+
     Backing backing_{Backing::NONE};
     value::View stored_{};
     ViewData computed_{};

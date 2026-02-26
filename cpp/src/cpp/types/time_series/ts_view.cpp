@@ -38,16 +38,6 @@ const ts_dict_ops* resolve_dict_ops(const ViewData& view_data) {
     return ops != nullptr ? ops->dict_ops() : nullptr;
 }
 
-const ts_list_ops* resolve_list_ops(const ViewData& view_data) {
-    const ts_ops* ops = resolve_kind_ops(view_data);
-    return ops != nullptr ? ops->list_ops() : nullptr;
-}
-
-const ts_bundle_ops* resolve_bundle_ops(const ViewData& view_data) {
-    const ts_ops* ops = resolve_kind_ops(view_data);
-    return ops != nullptr ? ops->bundle_ops() : nullptr;
-}
-
 const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indices) {
     const TSMeta* meta = root;
     for (size_t index : indices) {

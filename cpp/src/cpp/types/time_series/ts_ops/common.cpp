@@ -6831,8 +6831,10 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         if (!op_modified(vd, current_time)) {
             return nb::none();
         }
-        View v = op_delta_value(vd);
-        return v.valid() ? v.to_python() : nb::none();
+        DeltaView delta = DeltaView::from_computed(vd, current_time);
+        // Keep REF delta serialization local here: DeltaView::to_python() would
+        // dispatch back to op_delta_to_python() for computed backings.
+        return delta.valid() ? delta.value().to_python() : nb::none();
     }
 
     ViewData key_set_source{};
@@ -6976,56 +6978,15 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         }
     }
 
-	    const auto delta_view_to_python = [current_time](const View& view) -> nb::object {
-		        if (!view.valid()) {
-		            return nb::none();
-		        }
-		        if (view.schema() == ts_reference_meta()) {
-	            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(view.to_python());
-	            if (const ViewData* target = ref.bound_view(); target != nullptr) {
-	                if (target->ops != nullptr) {
-	                    if (target->ops->modified(*target, current_time)) {
-	                        nb::object delta_obj = op_delta_to_python(*target, current_time);
-	                        if (!delta_obj.is_none()) {
-	                            return delta_obj;
-	                        }
-	                    }
-
-	                    ViewData sampled_target = *target;
-	                    sampled_target.sampled = true;
-	                    nb::object sampled_delta = op_delta_to_python(sampled_target, current_time);
-	                    if (!sampled_delta.is_none()) {
-	                        return sampled_delta;
-	                    }
-	                }
-	                return op_to_python(*target);
-	            }
-	            return nb::none();
-		        }
-		        return view.to_python();
-	    };
-        const auto ref_payload_to_python =
-            [current_time](const TimeSeriesReference& ref,
-                           const TSMeta* element_meta,
-                           bool include_unmodified,
-                           const auto& self) -> nb::object {
-                if (ref.is_empty()) {
-                    return nb::none();
-                }
-
-                if (const ViewData* target = ref.bound_view(); target != nullptr) {
-                    if (!include_unmodified) {
-                        if (target->ops == nullptr || !target->ops->modified(*target, current_time)) {
-                            return nb::none();
-                        }
-                        nb::object delta_obj = op_delta_to_python(*target, current_time);
-                        if (!delta_obj.is_none()) {
-                            return delta_obj;
-                        }
-                        return nb::none();
-                    }
-
-                    if (target->ops != nullptr && target->ops->modified(*target, current_time)) {
+    const auto delta_view_to_python = [current_time](const View& view) -> nb::object {
+        if (!view.valid()) {
+            return nb::none();
+        }
+        if (view.schema() == ts_reference_meta()) {
+            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(view.to_python());
+            if (const ViewData* target = ref.bound_view(); target != nullptr) {
+                if (target->ops != nullptr) {
+                    if (target->ops->modified(*target, current_time)) {
                         nb::object delta_obj = op_delta_to_python(*target, current_time);
                         if (!delta_obj.is_none()) {
                             return delta_obj;
@@ -7038,56 +6999,108 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                     if (!sampled_delta.is_none()) {
                         return sampled_delta;
                     }
-                    return op_to_python(*target);
                 }
+                return op_to_python(*target);
+            }
+            return nb::none();
+        }
+        return view.to_python();
+    };
+    const auto computed_delta_to_python = [&delta_view_to_python](const DeltaView& delta) -> nb::object {
+        // Do not call DeltaView::to_python() from inside op_delta_to_python():
+        // computed backings route through ts_ops::delta_to_python (this function).
+        if (!delta.valid()) {
+            return nb::none();
+        }
+        return delta_view_to_python(delta.value());
+    };
+    const auto stored_delta_to_python = [&computed_delta_to_python](const View& view) -> nb::object {
+        return computed_delta_to_python(DeltaView::from_stored(view));
+    };
+    const auto ref_payload_to_python =
+        [current_time](const TimeSeriesReference& ref,
+                       const TSMeta* element_meta,
+                       bool include_unmodified,
+                       const auto& self) -> nb::object {
+            if (ref.is_empty()) {
+                return nb::none();
+            }
 
-                if (!ref.is_unbound()) {
+            if (const ViewData* target = ref.bound_view(); target != nullptr) {
+                if (!include_unmodified) {
+                    if (target->ops == nullptr || !target->ops->modified(*target, current_time)) {
+                        return nb::none();
+                    }
+                    nb::object delta_obj = op_delta_to_python(*target, current_time);
+                    if (!delta_obj.is_none()) {
+                        return delta_obj;
+                    }
                     return nb::none();
                 }
 
-                const auto& items = ref.items();
-                if (element_meta != nullptr && element_meta->kind == TSKind::TSB && element_meta->fields() != nullptr) {
-                    nb::dict out;
-                    const size_t n = std::min(items.size(), element_meta->field_count());
-                    for (size_t i = 0; i < n; ++i) {
-                        const char* field_name = element_meta->fields()[i].name;
-                        if (field_name == nullptr) {
-                            continue;
-                        }
-                        const TSMeta* field_meta = element_meta->fields()[i].ts_type;
-                        nb::object item_py = self(items[i], field_meta, include_unmodified, self);
-                        if (!item_py.is_none()) {
-                            out[nb::str(field_name)] = std::move(item_py);
-                        }
+                if (target->ops != nullptr && target->ops->modified(*target, current_time)) {
+                    nb::object delta_obj = op_delta_to_python(*target, current_time);
+                    if (!delta_obj.is_none()) {
+                        return delta_obj;
                     }
-                    return PyDict_Size(out.ptr()) == 0 ? nb::none() : nb::object(out);
                 }
 
-                if (element_meta != nullptr && element_meta->kind == TSKind::TSL) {
-                    nb::dict out;
-                    const TSMeta* child_meta = element_meta->element_ts();
-                    for (size_t i = 0; i < items.size(); ++i) {
-                        nb::object item_py = self(items[i], child_meta, include_unmodified, self);
-                        if (!item_py.is_none()) {
-                            out[nb::int_(i)] = std::move(item_py);
-                        }
+                ViewData sampled_target = *target;
+                sampled_target.sampled = true;
+                nb::object sampled_delta = op_delta_to_python(sampled_target, current_time);
+                if (!sampled_delta.is_none()) {
+                    return sampled_delta;
+                }
+                return op_to_python(*target);
+            }
+
+            if (!ref.is_unbound()) {
+                return nb::none();
+            }
+
+            const auto& items = ref.items();
+            if (element_meta != nullptr && element_meta->kind == TSKind::TSB && element_meta->fields() != nullptr) {
+                nb::dict out;
+                const size_t n = std::min(items.size(), element_meta->field_count());
+                for (size_t i = 0; i < n; ++i) {
+                    const char* field_name = element_meta->fields()[i].name;
+                    if (field_name == nullptr) {
+                        continue;
                     }
-                    return PyDict_Size(out.ptr()) == 0 ? nb::none() : nb::object(out);
-                }
-
-                if (items.size() == 1) {
-                    return self(items[0], element_meta, include_unmodified, self);
-                }
-
-                nb::list out;
-                for (const auto& item : items) {
-                    nb::object item_py = self(item, element_meta, include_unmodified, self);
+                    const TSMeta* field_meta = element_meta->fields()[i].ts_type;
+                    nb::object item_py = self(items[i], field_meta, include_unmodified, self);
                     if (!item_py.is_none()) {
-                        out.append(std::move(item_py));
+                        out[nb::str(field_name)] = std::move(item_py);
                     }
                 }
-                return out.empty() ? nb::none() : nb::object(out);
-            };
+                return PyDict_Size(out.ptr()) == 0 ? nb::none() : nb::object(out);
+            }
+
+            if (element_meta != nullptr && element_meta->kind == TSKind::TSL) {
+                nb::dict out;
+                const TSMeta* child_meta = element_meta->element_ts();
+                for (size_t i = 0; i < items.size(); ++i) {
+                    nb::object item_py = self(items[i], child_meta, include_unmodified, self);
+                    if (!item_py.is_none()) {
+                        out[nb::int_(i)] = std::move(item_py);
+                    }
+                }
+                return PyDict_Size(out.ptr()) == 0 ? nb::none() : nb::object(out);
+            }
+
+            if (items.size() == 1) {
+                return self(items[0], element_meta, include_unmodified, self);
+            }
+
+            nb::list out;
+            for (const auto& item : items) {
+                nb::object item_py = self(item, element_meta, include_unmodified, self);
+                if (!item_py.is_none()) {
+                    out.append(std::move(item_py));
+                }
+            }
+            return out.empty() ? nb::none() : nb::object(out);
+        };
         const bool debug_ref_payload = std::getenv("HGRAPH_DEBUG_TSD_REF_PAYLOAD") != nullptr;
         const auto ref_view_payload_to_python =
             [&ref_payload_to_python, debug_ref_payload, current_time](const ViewData& ref_child,
@@ -7159,7 +7172,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                 }
                 return payload;
             };
-            const auto has_delta_payload = [](const View& view) -> bool {
+            const auto has_delta_payload_view = [](const View& view) -> bool {
                 if (!view.valid()) {
                     return false;
                 }
@@ -7168,6 +7181,9 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                     return ref.bound_view() != nullptr;
                 }
                 return true;
+            };
+            const auto has_delta_payload = [&has_delta_payload_view](const DeltaView& delta) -> bool {
+                return has_delta_payload_view(delta.value());
             };
 
     {
@@ -7889,7 +7905,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                         return;
                     }
                     View changed_entry = changed_map.at(key);
-                    const bool changed_entry_has_delta = has_delta_payload(changed_entry);
+                    DeltaView changed_entry_delta = DeltaView::from_stored(changed_entry);
+                    const bool changed_entry_has_delta = has_delta_payload(changed_entry_delta);
 
                     ViewData child = *data;
                     child.path.indices.push_back(*slot);
@@ -7996,9 +8013,9 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                         if (!child_valid) {
                             return;
                         }
-                        View child_delta = op_delta_value(child);
+                        DeltaView child_delta = DeltaView::from_computed(child, current_time);
                         if (has_delta_payload(child_delta)) {
-                            nb::object child_delta_py = delta_view_to_python(child_delta);
+                            nb::object child_delta_py = computed_delta_to_python(child_delta);
                             if (!child_delta_py.is_none()) {
                                 delta_out[key.to_python()] = std::move(child_delta_py);
                             }
@@ -8012,7 +8029,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                         if (!child_value.valid()) {
                             return;
                         }
-                        nb::object child_value_py = delta_view_to_python(child_value);
+                        nb::object child_value_py = stored_delta_to_python(child_value);
                         if (!child_value_py.is_none()) {
                             delta_out[key.to_python()] = std::move(child_value_py);
                         }
@@ -8196,7 +8213,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                         return;
                     }
                     if (child_meta != nullptr && is_scalar_like_ts_kind(child_meta->kind)) {
-                        View child_delta = op_delta_value(child);
+                        DeltaView child_delta = DeltaView::from_computed(child, current_time);
                         if (has_delta_payload(child_delta)) {
                             nb::object child_delta_py = nb::none();
                             if (child_delta.valid() && child_delta.schema() == ts_reference_meta()) {
@@ -8205,7 +8222,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                                     nullptr,
                                     forced_from_changed_map || forced_from_structural_add);
                             } else {
-                                child_delta_py = delta_view_to_python(child_delta);
+                                child_delta_py = computed_delta_to_python(child_delta);
                             }
                             if (!child_delta_py.is_none()) {
                                 delta_out[key.to_python()] = std::move(child_delta_py);
@@ -8219,7 +8236,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                                 if (child_value.schema() == ts_reference_meta()) {
                                     child_value_py = ref_view_payload_to_python(child, nullptr, true);
                                 } else {
-                                    child_value_py = delta_view_to_python(child_value);
+                                    child_value_py = stored_delta_to_python(child_value);
                                 }
                                 if (!child_value_py.is_none()) {
                                     delta_out[key.to_python()] = std::move(child_value_py);
@@ -8296,14 +8313,14 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                         if (!child_valid) {
                             continue;
                         }
-                        View child_delta = op_delta_value(child);
+                        DeltaView child_delta = DeltaView::from_computed(child, current_time);
                         if (has_delta_payload(child_delta)) {
-                            entry = delta_view_to_python(child_delta);
+                            entry = computed_delta_to_python(child_delta);
                         }
                         if (entry.is_none()) {
                             View child_value = op_value(child);
                             if (child_value.valid()) {
-                                entry = delta_view_to_python(child_value);
+                                entry = stored_delta_to_python(child_value);
                             }
                         }
                     } else {
@@ -8407,7 +8424,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         if (child_delta.is_none()) {
             View child_value = op_value(child);
             if (child_value.valid()) {
-                child_delta = delta_view_to_python(child_value);
+                child_delta = stored_delta_to_python(child_value);
             }
         }
         return child_delta;
@@ -8436,7 +8453,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                 }
                 View child_value = op_value(child);
                 if (child_value.valid()) {
-                    delta_out[nb::int_(i)] = delta_view_to_python(child_value);
+                    delta_out[nb::int_(i)] = stored_delta_to_python(child_value);
                 }
             }
             return delta_out;
@@ -8521,9 +8538,9 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             if (!op_modified(child, current_time) || !op_valid(child)) {
                 continue;
             }
-            View child_delta = op_delta_value(child);
+            DeltaView child_delta = DeltaView::from_computed(child, current_time);
             if (child_delta.valid()) {
-                delta_out[nb::int_(i)] = delta_view_to_python(child_delta);
+                delta_out[nb::int_(i)] = computed_delta_to_python(child_delta);
             }
         }
         return delta_out;
@@ -8806,16 +8823,16 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
 
             const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
             if (child_meta != nullptr && is_scalar_like_ts_kind(child_meta->kind)) {
-                View child_delta = op_delta_value(child);
+                DeltaView child_delta = DeltaView::from_computed(child, current_time);
                 if (has_delta_payload(child_delta)) {
-                    nb::object child_delta_py = delta_view_to_python(child_delta);
+                    nb::object child_delta_py = computed_delta_to_python(child_delta);
                     if (!child_delta_py.is_none()) {
                         delta_out[nb::str(field_name)] = std::move(child_delta_py);
                     }
                 } else if (child_rebound) {
                     View child_value = op_value(child);
                     if (child_value.valid()) {
-                        nb::object child_value_py = delta_view_to_python(child_value);
+                        nb::object child_value_py = stored_delta_to_python(child_value);
                         if (!child_value_py.is_none()) {
                             delta_out[nb::str(field_name)] = std::move(child_value_py);
                         }
@@ -8840,12 +8857,12 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         if (!op_modified(vd, current_time)) {
             return nb::none();
         }
-        View v = op_delta_value(vd);
-        return v.valid() ? v.to_python() : nb::none();
+        DeltaView delta = DeltaView::from_computed(vd, current_time);
+        return computed_delta_to_python(delta);
     }
 
-    View v = op_delta_value(vd);
-    return v.valid() ? v.to_python() : nb::none();
+    DeltaView delta = DeltaView::from_computed(vd, current_time);
+    return computed_delta_to_python(delta);
 }
 
 constexpr std::string_view k_ref_unbound_item_change_state_key{"ref_unbound_item_changes"};

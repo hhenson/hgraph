@@ -536,6 +536,64 @@ def test_tsd_rebind_reentry_safety_multitick():
     ]
 
 
+def test_tsd_rebind_reentry_safety_toggle_stress():
+    """Test long toggle runs keep bridge cleanup stable without stale carry-over."""
+    @compute_node
+    def get_delta(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return tsd.delta_value if tsd.modified else None
+
+    @graph
+    def g(select_left: TS[bool], left: TSD[str, TS[int]], right: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return get_delta(switch_(select_left, {True: lambda l, r: l, False: lambda l, r: r}, left, right))
+
+    select_left = [True, False, True, False, True, False, True, False, True]
+    left = [{"a": 1}] + [None] * (len(select_left) - 1)
+    right = [{"x": 10}] + [None] * (len(select_left) - 1)
+
+    result = eval_node(g, select_left=select_left, left=left, right=right)
+
+    expected = []
+    use_left = True
+    for _ in range(len(select_left)):
+        if use_left:
+            expected.append({"a": 1} if not expected else {"a": 1, "x": REMOVE})
+        else:
+            expected.append({"x": 10, "a": REMOVE})
+        use_left = not use_left
+
+    assert result == expected
+
+
+def test_tsd_rebind_reentry_safety_toggle_stress_through_map():
+    """Test long toggle runs stay stable when both branches are map-derived TSD outputs."""
+    @compute_node
+    def get_delta(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return tsd.delta_value if tsd.modified else None
+
+    @graph
+    def g(select_left: TS[bool], left: TSD[str, TS[int]], right: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        left_mapped = map_(lambda x: x + 100, left)
+        right_mapped = map_(lambda x: x + 1000, right)
+        return get_delta(switch_(select_left, {True: lambda l, r: l, False: lambda l, r: r}, left_mapped, right_mapped))
+
+    select_left = [True, False, True, False, True, False, True]
+    left = [{"a": 1}] + [None] * (len(select_left) - 1)
+    right = [{"x": 10}] + [None] * (len(select_left) - 1)
+
+    result = eval_node(g, select_left=select_left, left=left, right=right)
+
+    expected = []
+    use_left = True
+    for _ in range(len(select_left)):
+        if use_left:
+            expected.append({"a": 101} if not expected else {"a": 101, "x": REMOVE})
+        else:
+            expected.append({"x": 1010, "a": REMOVE})
+        use_left = not use_left
+
+    assert result == expected
+
+
 # =============================================================================
 # NESTED TSD TESTS
 # =============================================================================
