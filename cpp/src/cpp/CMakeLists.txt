@@ -88,7 +88,14 @@ set(HGRAPH_SOURCES
         types/time_series/ts_input.cpp
         types/time_series/ts_meta_schema_cache.cpp
         types/time_series/ts_ops.cpp
-        types/time_series/ts_ops/common.cpp
+        types/time_series/ts_ops/link_notification.cpp
+        types/time_series/ts_ops/path_meta_utils.cpp
+        types/time_series/ts_ops/view_resolution.cpp
+        types/time_series/ts_ops/bridge_delta_ops.cpp
+        types/time_series/ts_ops/view_data_ops.cpp
+        types/time_series/ts_ops/core_ops.cpp
+        types/time_series/ts_ops/python_ops.cpp
+        types/time_series/ts_ops/bind_copy_api.cpp
         types/time_series/ts_ops/window_ops.cpp
         types/time_series/ts_ops/set_ops.cpp
         types/time_series/ts_ops/dict_ops.cpp

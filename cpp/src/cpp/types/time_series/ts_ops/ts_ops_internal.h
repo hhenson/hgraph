@@ -62,9 +62,36 @@ struct TSWDurationDeltaSlots {
     ValueView removed_values;
 };
 
-struct TsdRemovedChildSnapshotState;
-struct TsdVisibleKeyHistoryState;
-struct RefUnboundItemChangeState;
+struct TsdRemovedChildSnapshotRecord {
+    std::vector<size_t> parent_path;
+    engine_time_t time{MIN_DT};
+    value::Value key;
+    std::shared_ptr<TSValue> snapshot;
+};
+
+struct TsdRemovedChildSnapshotState {
+    std::unordered_map<void*, std::vector<TsdRemovedChildSnapshotRecord>> entries;
+};
+
+struct TsdVisibleKeyHistoryRecord {
+    std::vector<size_t> parent_path;
+    value::Value key;
+    engine_time_t last_seen{MIN_DT};
+};
+
+struct TsdVisibleKeyHistoryState {
+    std::unordered_map<void*, std::vector<TsdVisibleKeyHistoryRecord>> entries;
+};
+
+struct RefUnboundItemChangeRecord {
+    std::vector<size_t> path;
+    engine_time_t time{MIN_DT};
+    std::vector<size_t> changed_indices;
+};
+
+struct RefUnboundItemChangeState {
+    std::unordered_map<void*, std::vector<RefUnboundItemChangeRecord>> entries;
+};
 
 struct TSDKeySetDeltaState {
     bool has_delta_tuple{false};
@@ -72,6 +99,23 @@ struct TSDKeySetDeltaState {
     bool has_added{false};
     bool has_removed{false};
 };
+
+struct TSDKeySetBridgeState {
+    ViewData previous_bridge{};
+    ViewData current_bridge{};
+    ViewData previous_source{};
+    ViewData current_source{};
+    bool has_bridge{false};
+    bool has_previous_source{false};
+    bool has_current_source{false};
+};
+
+constexpr std::string_view k_tsd_removed_snapshot_state_key{
+    TSLinkObserverRegistry::kTsdRemovedChildSnapshotsKey};
+constexpr std::string_view k_tsd_visible_key_history_state_key{
+    TSLinkObserverRegistry::kTsdVisibleKeyHistoryKey};
+constexpr std::string_view k_ref_unbound_item_change_state_key{
+    TSLinkObserverRegistry::kRefUnboundItemChangesKey};
 
 extern const ts_window_ops k_window_ops;
 extern const ts_set_ops k_set_ops;
@@ -146,7 +190,7 @@ void unregister_ref_link_observer(const REFLink& ref_link);
 void register_link_target_observer(const LinkTarget& link_target);
 void refresh_dynamic_ref_binding_for_link_target(LinkTarget* link_target, bool sampled, engine_time_t current_time);
 bool view_path_contains_tsd_ancestor(const ViewData& view);
-void register_ref_link_observer(const REFLink& ref_link, const ViewData* observer_view);
+void register_ref_link_observer(const REFLink& ref_link, const ViewData* observer_view = nullptr);
 bool suppress_static_ref_child_notification(const LinkTarget& observer, engine_time_t current_time);
 void notify_link_target_observers(const ViewData& target_view, engine_time_t current_time);
 ts_ops make_common_ops(TSKind kind);
@@ -283,5 +327,87 @@ size_t op_window_removed_value_count(const ViewData& vd);
 size_t op_window_size(const ViewData& vd);
 size_t op_window_min_size(const ViewData& vd);
 size_t op_window_length(const ViewData& vd);
+
+// --- Declarations added during common.cpp split (cross-file calls) ---
+
+// link_notification.cpp
+void unregister_active_link_target_observer(const LinkTarget& observer);
+void register_active_link_target_observer(const LinkTarget& observer);
+void unregister_active_ref_link_observer(const REFLink& observer);
+void register_active_ref_link_observer(const REFLink& ref_link, const ViewData* observer_view = nullptr);
+
+// path_meta_utils.cpp
+bool view_matches_container_kind(const std::optional<View>& value, TSKind kind);
+bool rebind_bridge_has_container_kind_value(const ViewData& vd,
+                                            const TSMeta* self_meta,
+                                            engine_time_t current_time,
+                                            TSKind kind);
+bool is_first_bind_rebind_tick(const LinkTarget* link_target, engine_time_t current_time);
+bool resolve_container_rebind_bridge_views(const ViewData& vd,
+                                           const TSMeta* container_meta,
+                                           engine_time_t current_time,
+                                           bool require_kind_mismatch,
+                                           ViewData& previous_bridge,
+                                           ViewData& current_bridge);
+bool resolve_rebind_current_bridge_view(const ViewData& vd,
+                                        const TSMeta* self_meta,
+                                        engine_time_t current_time,
+                                        ViewData& current_bridge);
+
+// view_resolution.cpp
+void collect_static_descendant_ts_paths(const TSMeta* node_meta,
+                                        std::vector<size_t>& current_ts_path,
+                                        std::vector<std::vector<size_t>>& out);
+bool resolve_rebind_bridge_views(const ViewData& vd,
+                                 const TSMeta* self_meta,
+                                 engine_time_t current_time,
+                                 ViewData& previous_resolved,
+                                 ViewData& current_resolved);
+std::optional<std::vector<size_t>> remap_residual_indices_for_bound_view(
+    const ViewData& local_view,
+    const ViewData& bound_view,
+    const std::vector<size_t>& residual_indices);
+
+// core_ops.cpp
+bool reset_root_value_and_delta_on_none(ViewData& vd, const nb::object& src, engine_time_t current_time);
+
+// bridge_delta_ops.cpp
+TSDKeySetBridgeState resolve_tsd_key_set_bridge_state(const ViewData& vd,
+                                                      const TSMeta* self_meta,
+                                                      engine_time_t current_time);
+bool try_container_bridge_delta_to_python(const ViewData& vd,
+                                          const TSMeta* container_meta,
+                                          engine_time_t current_time,
+                                          bool require_kind_mismatch,
+                                          bool debug_bridge,
+                                          nb::object& out_delta);
+
+// --- Template functions (must be inline in header) ---
+
+template <typename Fn>
+void for_each_named_bundle_field(const TSMeta* bundle_meta, Fn&& fn) {
+    if (bundle_meta == nullptr || bundle_meta->kind != TSKind::TSB || bundle_meta->fields() == nullptr) {
+        return;
+    }
+    for (size_t i = 0; i < bundle_meta->field_count(); ++i) {
+        const char* field_name = bundle_meta->fields()[i].name;
+        if (field_name == nullptr) {
+            continue;
+        }
+        fn(i, field_name);
+    }
+}
+
+template <typename Fn>
+void for_each_map_key_slot(const value::MapView& map, Fn fn) {
+    const auto* storage = map_storage_for_read(map);
+    if (storage == nullptr) {
+        return;
+    }
+    const value::TypeMeta* key_type = map.key_type();
+    for (size_t slot : storage->key_set()) {
+        fn(View(storage->key_at_slot(slot), key_type), slot);
+    }
+}
 
 }  // namespace hgraph
