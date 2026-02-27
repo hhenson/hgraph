@@ -630,13 +630,13 @@ ts_ops make_base_common_ops(TSKind kind) {
         &op_last_modified_time,
         &op_modified,
         &op_valid,
-        &op_all_valid,
+        &op_valid,
         &op_sampled,
-        &op_value,
-        &op_delta_value,
-        &op_has_delta,
+        &op_value_non_ref,
+        &op_delta_value_container,
+        &op_has_delta_default,
         &op_set_value,
-        &op_apply_delta,
+        &op_apply_delta_container,
         &op_invalidate,
         &op_to_python,
         &op_delta_to_python,
@@ -692,6 +692,8 @@ void configure_tsl_common_ops(ts_ops& out) {
 
 void configure_tsw_common_ops(ts_ops& out) {
     out.last_modified_time = &op_last_modified_tsw;
+    out.valid = &op_valid_tsw;
+    out.modified = &op_modified_tsw;
     out.all_valid = &op_all_valid_tsw;
     out.delta_value = &op_delta_value_tsw;
     out.apply_delta = &op_apply_delta_container;
