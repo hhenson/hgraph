@@ -34,19 +34,13 @@ nb::object op_to_python_ref(const ViewData& vd) {
     return nb::cast(TimeSeriesReference::make());
 }
 
-nb::object op_to_python_tsw(const ViewData& vd) {
+nb::object op_to_python_tsw_tick(const ViewData& vd) {
     ViewData resolved{};
     if (!resolve_read_view_data(vd, resolved)) {
         return nb::none();
     }
     bind_view_data_ops(resolved);
     const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
-    const ts_ops* resolved_ops = resolved.ops != nullptr ? resolved.ops : dispatch_meta_ops(resolved_meta);
-    if (resolved_ops != nullptr &&
-        resolved_ops->to_python != nullptr &&
-        resolved_ops->to_python != &op_to_python_tsw) {
-        return resolved_ops->to_python(resolved);
-    }
     if (resolved_meta == nullptr) {
         return nb::none();
     }
@@ -60,36 +54,6 @@ nb::object op_to_python_tsw(const ViewData& vd) {
         return nb::none();
     }
 
-    if (dispatch_ops_is_tsw_duration(resolved_ops)) {
-        auto* time_root = static_cast<const Value*>(resolved.time_data);
-        if (time_root == nullptr || !time_root->has_value()) {
-            return nb::none();
-        }
-        auto time_path = ts_path_to_time_path(resolved.meta, resolved.path.indices);
-        if (time_path.empty()) {
-            return nb::none();
-        }
-        time_path.pop_back();
-        std::optional<View> maybe_time;
-        if (time_path.empty()) {
-            maybe_time = time_root->view();
-        } else {
-            maybe_time = navigate_const(time_root->view(), time_path);
-        }
-        if (!maybe_time.has_value() || !maybe_time->valid() || !maybe_time->is_tuple()) {
-            return nb::none();
-        }
-        auto tuple = maybe_time->as_tuple();
-        if (tuple.size() < 4) {
-            return nb::none();
-        }
-        View ready = tuple.at(3);
-        if (!ready.valid() || !ready.is_scalar_type<bool>() || !ready.as<bool>()) {
-            return nb::none();
-        }
-        return window_value.to_python();
-    }
-
     if (!window_value.is_cyclic_buffer()) {
         return nb::none();
     }
@@ -97,6 +61,64 @@ nb::object op_to_python_tsw(const ViewData& vd) {
         return nb::none();
     }
     return window_value.to_python();
+}
+
+nb::object op_to_python_tsw_duration(const ViewData& vd) {
+    ViewData resolved{};
+    if (!resolve_read_view_data(vd, resolved)) {
+        return nb::none();
+    }
+    bind_view_data_ops(resolved);
+    const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
+    if (resolved_meta == nullptr) {
+        return nb::none();
+    }
+
+    if (!op_valid(resolved)) {
+        return nb::none();
+    }
+
+    View window_value = op_value(resolved);
+    if (!window_value.valid()) {
+        return nb::none();
+    }
+
+    auto* time_root = static_cast<const Value*>(resolved.time_data);
+    if (time_root == nullptr || !time_root->has_value()) {
+        return nb::none();
+    }
+    auto time_path = ts_path_to_time_path(resolved.meta, resolved.path.indices);
+    if (time_path.empty()) {
+        return nb::none();
+    }
+    time_path.pop_back();
+    std::optional<View> maybe_time;
+    if (time_path.empty()) {
+        maybe_time = time_root->view();
+    } else {
+        maybe_time = navigate_const(time_root->view(), time_path);
+    }
+    if (!maybe_time.has_value() || !maybe_time->valid() || !maybe_time->is_tuple()) {
+        return nb::none();
+    }
+    auto tuple = maybe_time->as_tuple();
+    if (tuple.size() < 4) {
+        return nb::none();
+    }
+    View ready = tuple.at(3);
+    if (!ready.valid() || !ready.is_scalar_type<bool>() || !ready.as<bool>()) {
+        return nb::none();
+    }
+    return window_value.to_python();
+}
+
+nb::object op_to_python_tsw(const ViewData& vd) {
+    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const ts_ops* current_ops = vd.ops != nullptr ? vd.ops : dispatch_meta_ops(current);
+    if (dispatch_ops_is_tsw_duration(current_ops)) {
+        return op_to_python_tsw_duration(vd);
+    }
+    return op_to_python_tsw_tick(vd);
 }
 
 nb::object op_to_python_tsl(const ViewData& vd) {

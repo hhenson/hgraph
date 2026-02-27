@@ -40,12 +40,6 @@ nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time
     const ViewData* data = &resolved;
 
     const TSMeta* current = meta_at_path(data->meta, data->path.indices);
-    const ts_ops* current_ops = data->ops != nullptr ? data->ops : dispatch_meta_ops(current);
-    if (current_ops != nullptr &&
-        current_ops->delta_to_python != nullptr &&
-        current_ops->delta_to_python != &op_delta_to_python_tsl) {
-        return current_ops->delta_to_python(*data, current_time);
-    }
     if (current == nullptr) {
         return nb::none();
     }
@@ -166,12 +160,6 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
     const ViewData* data = &resolved;
 
     const TSMeta* current = meta_at_path(data->meta, data->path.indices);
-    const ts_ops* current_ops = data->ops != nullptr ? data->ops : dispatch_meta_ops(current);
-    if (current_ops != nullptr &&
-        current_ops->delta_to_python != nullptr &&
-        current_ops->delta_to_python != &op_delta_to_python_tsb) {
-        return current_ops->delta_to_python(*data, current_time);
-    }
     if (current == nullptr) {
         return nb::none();
     }
@@ -184,11 +172,9 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
     ViewData current_bridge{};
     if (resolve_rebind_current_bridge_view(vd, self_meta, current_time, current_bridge)) {
         const TSMeta* bridge_meta = meta_at_path(current_bridge.meta, current_bridge.path.indices);
-        const ts_ops* bridge_ops = dispatch_meta_ops(bridge_meta);
         if (bridge_meta != nullptr &&
             bridge_meta->fields() != nullptr &&
-            bridge_ops != nullptr &&
-            bridge_ops->delta_to_python == &op_delta_to_python_tsb) {
+            dispatch_meta_is_tsb(bridge_meta)) {
             for_each_named_bundle_field(bridge_meta, [&](size_t i, const char* field_name) {
                 ViewData child = current_bridge;
                 child.path.indices.push_back(i);

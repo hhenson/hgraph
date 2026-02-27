@@ -157,7 +157,10 @@ ts_ops make_common_ops(TSKind kind) {
 ts_ops make_tsw_tick_ops() {
     ts_ops out = make_common_ops(TSKind::TSW);
     out.all_valid = &op_all_valid_tsw_tick;
+    out.to_python = &op_to_python_tsw_tick;
+    out.delta_to_python = &op_delta_to_python_tsw_tick;
     out.delta_value = &op_delta_value_tsw_tick;
+    out.from_python = &op_from_python_tsw_tick;
     out.window = &k_window_tick_ops;
     return out;
 }
@@ -165,7 +168,10 @@ ts_ops make_tsw_tick_ops() {
 ts_ops make_tsw_duration_ops() {
     ts_ops out = make_common_ops(TSKind::TSW);
     out.all_valid = &op_all_valid_tsw_duration;
+    out.to_python = &op_to_python_tsw_duration;
+    out.delta_to_python = &op_delta_to_python_tsw_duration;
     out.delta_value = &op_delta_value_tsw_duration;
+    out.from_python = &op_from_python_tsw_duration;
     out.window = &k_window_duration_ops;
     return out;
 }

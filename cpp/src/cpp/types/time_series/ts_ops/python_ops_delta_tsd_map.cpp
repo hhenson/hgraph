@@ -2,27 +2,25 @@
 
 namespace hgraph {
 
-void tsd_emit_map_delta(const ViewData& vd,
-                        const ViewData* data,
-                        const TSMeta* self_meta,
-                        const TSMeta* current,
-                        engine_time_t current_time,
-                        bool wrapper_modified,
-                        bool resolved_modified,
-                        bool debug_tsd_delta,
-                        bool debug_ref_payload,
-                        const View& changed_values,
-                        const View& added_keys,
-                        const View& removed_keys,
-                        nb::dict& delta_out) {
+namespace {
+
+template <bool DeclaredRefElement>
+void tsd_emit_map_delta_impl(const ViewData& vd,
+                             const ViewData* data,
+                             const TSMeta* current,
+                             engine_time_t current_time,
+                             bool wrapper_modified,
+                             bool resolved_modified,
+                             bool debug_tsd_delta,
+                             bool debug_ref_payload,
+                             const View& changed_values,
+                             const View& added_keys,
+                             const View& removed_keys,
+                             nb::dict& delta_out) {
         auto current_value = resolve_value_slot_const(*data);
         if (current_value.has_value() && current_value->valid() && current_value->is_map()) {
             const auto value_map = current_value->as_map();
             const TSMeta* element_meta = current->element_ts();
-            const bool declared_ref_element =
-                self_meta != nullptr &&
-                self_meta->element_ts() != nullptr &&
-                dispatch_meta_is_ref(self_meta->element_ts());
             const bool nested_element = element_meta != nullptr && !dispatch_meta_is_scalar_like(element_meta);
 
             const engine_time_t rebind_time = rebind_time_for_view(vd);
@@ -707,7 +705,7 @@ void tsd_emit_map_delta(const ViewData& vd,
                                     debug_ref_payload);
                             }
                             if (entry_py.is_none()) {
-                                if (declared_ref_element) {
+                                if constexpr (DeclaredRefElement) {
                                     View current_entry = value_map.at(key);
                                     if (current_entry.valid() && current_entry.schema() == ts_reference_meta()) {
                                         entry_py = current_entry.to_python();
@@ -952,6 +950,60 @@ void tsd_emit_map_delta(const ViewData& vd,
         }
         tsd_remove_empty_mapping_payloads(delta_out);
         tsd_update_visible_key_history_from_delta(*data, current, delta_out, current_time);
+}
+
+}  // namespace
+
+void tsd_emit_map_delta_plain(const ViewData& vd,
+                              const ViewData* data,
+                              const TSMeta* current,
+                              engine_time_t current_time,
+                              bool wrapper_modified,
+                              bool resolved_modified,
+                              bool debug_tsd_delta,
+                              bool debug_ref_payload,
+                              const View& changed_values,
+                              const View& added_keys,
+                              const View& removed_keys,
+                              nb::dict& delta_out) {
+    tsd_emit_map_delta_impl<false>(vd,
+                                   data,
+                                   current,
+                                   current_time,
+                                   wrapper_modified,
+                                   resolved_modified,
+                                   debug_tsd_delta,
+                                   debug_ref_payload,
+                                   changed_values,
+                                   added_keys,
+                                   removed_keys,
+                                   delta_out);
+}
+
+void tsd_emit_map_delta_ref_elements(const ViewData& vd,
+                                     const ViewData* data,
+                                     const TSMeta* current,
+                                     engine_time_t current_time,
+                                     bool wrapper_modified,
+                                     bool resolved_modified,
+                                     bool debug_tsd_delta,
+                                     bool debug_ref_payload,
+                                     const View& changed_values,
+                                     const View& added_keys,
+                                     const View& removed_keys,
+                                     nb::dict& delta_out) {
+    tsd_emit_map_delta_impl<true>(vd,
+                                  data,
+                                  current,
+                                  current_time,
+                                  wrapper_modified,
+                                  resolved_modified,
+                                  debug_tsd_delta,
+                                  debug_ref_payload,
+                                  changed_values,
+                                  added_keys,
+                                  removed_keys,
+                                  delta_out);
 }
 
 }  // namespace hgraph

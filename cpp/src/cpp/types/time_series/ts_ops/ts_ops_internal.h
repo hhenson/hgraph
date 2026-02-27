@@ -453,6 +453,8 @@ nb::object op_to_python_tss(const ViewData& vd);
 nb::object op_to_python_tsd(const ViewData& vd);
 nb::object op_to_python_tsd_key_set(const ViewData& vd);
 nb::object op_to_python_tsw(const ViewData& vd);
+nb::object op_to_python_tsw_tick(const ViewData& vd);
+nb::object op_to_python_tsw_duration(const ViewData& vd);
 nb::object op_to_python_tsl(const ViewData& vd);
 nb::object op_to_python_tsb(const ViewData& vd);
 nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time);
@@ -463,9 +465,14 @@ nb::object op_delta_to_python_tsd(const ViewData& vd, engine_time_t current_time
 nb::object op_delta_to_python_tsd_key_set(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsd_ref(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsw(const ViewData& vd, engine_time_t current_time);
+nb::object op_delta_to_python_tsw_tick(const ViewData& vd, engine_time_t current_time);
+nb::object op_delta_to_python_tsw_duration(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsd_impl(const ViewData& vd, engine_time_t current_time);
+nb::object op_delta_to_python_tsd_impl_for_scenario(const ViewData& vd,
+                                                    engine_time_t current_time,
+                                                    bool declared_ref_element);
 nb::object computed_delta_to_python_with_refs(const DeltaView& delta, engine_time_t current_time);
 nb::object stored_delta_to_python_with_refs(const View& view, engine_time_t current_time);
 nb::object tsd_ref_payload_to_python(const TimeSeriesReference& ref,
@@ -484,19 +491,30 @@ void tsd_update_visible_key_history_from_delta(const ViewData& data,
                                                const TSMeta* current,
                                                const nb::dict& delta_out,
                                                engine_time_t current_time);
-void tsd_emit_map_delta(const ViewData& vd,
-                        const ViewData* data,
-                        const TSMeta* self_meta,
-                        const TSMeta* current,
-                        engine_time_t current_time,
-                        bool wrapper_modified,
-                        bool resolved_modified,
-                        bool debug_tsd_delta,
-                        bool debug_ref_payload,
-                        const View& changed_values,
-                        const View& added_keys,
-                        const View& removed_keys,
-                        nb::dict& delta_out);
+void tsd_emit_map_delta_plain(const ViewData& vd,
+                              const ViewData* data,
+                              const TSMeta* current,
+                              engine_time_t current_time,
+                              bool wrapper_modified,
+                              bool resolved_modified,
+                              bool debug_tsd_delta,
+                              bool debug_ref_payload,
+                              const View& changed_values,
+                              const View& added_keys,
+                              const View& removed_keys,
+                              nb::dict& delta_out);
+void tsd_emit_map_delta_ref_elements(const ViewData& vd,
+                                     const ViewData* data,
+                                     const TSMeta* current,
+                                     engine_time_t current_time,
+                                     bool wrapper_modified,
+                                     bool resolved_modified,
+                                     bool debug_tsd_delta,
+                                     bool debug_ref_payload,
+                                     const View& changed_values,
+                                     const View& added_keys,
+                                     const View& removed_keys,
+                                     nb::dict& delta_out);
 std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
                                                             engine_time_t current_time,
                                                             bool debug_delta_kind,
@@ -512,6 +530,8 @@ void record_tsd_removed_child_snapshot(const ViewData& parent_view,
 void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_ref(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_tsw(ViewData& vd, const nb::object& src, engine_time_t current_time);
+void op_from_python_tsw_tick(ViewData& vd, const nb::object& src, engine_time_t current_time);
+void op_from_python_tsw_duration(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_tss(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_tsl(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_tsb(ViewData& vd, const nb::object& src, engine_time_t current_time);
