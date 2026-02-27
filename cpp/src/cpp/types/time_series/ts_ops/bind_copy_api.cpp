@@ -694,8 +694,6 @@ void configure_tsw_common_ops(ts_ops& out) {
     out.last_modified_time = &op_last_modified_tsw;
     out.valid = &op_valid_tsw;
     out.modified = &op_modified_tsw;
-    out.all_valid = &op_all_valid_tsw;
-    out.delta_value = &op_delta_value_tsw;
     out.apply_delta = &op_apply_delta_container;
 }
 
@@ -752,9 +750,19 @@ ts_ops make_common_ops(TSKind kind) {
     return out;
 }
 
-ts_ops make_tsw_ops() {
+ts_ops make_tsw_tick_ops() {
     ts_ops out = make_common_ops(TSKind::TSW);
-    out.specific.window = k_window_ops;
+    out.all_valid = &op_all_valid_tsw_tick;
+    out.delta_value = &op_delta_value_tsw_tick;
+    out.specific.window = k_window_tick_ops;
+    return out;
+}
+
+ts_ops make_tsw_duration_ops() {
+    ts_ops out = make_common_ops(TSKind::TSW);
+    out.all_valid = &op_all_valid_tsw_duration;
+    out.delta_value = &op_delta_value_tsw_duration;
+    out.specific.window = k_window_duration_ops;
     return out;
 }
 
@@ -1055,8 +1063,8 @@ const ts_ops k_tsl_ops = make_tsl_ops();
 const ts_ops k_tsb_ops = make_tsb_ops();
 const ts_ops k_ref_ops = make_common_ops(TSKind::REF);
 const ts_ops k_signal_ops = make_common_ops(TSKind::SIGNAL);
-const ts_ops k_tsw_tick_ops = make_tsw_ops();
-const ts_ops k_tsw_duration_ops = make_tsw_ops();
+const ts_ops k_tsw_tick_ops = make_tsw_tick_ops();
+const ts_ops k_tsw_duration_ops = make_tsw_duration_ops();
 
 namespace {
 

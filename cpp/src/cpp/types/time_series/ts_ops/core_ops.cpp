@@ -1518,7 +1518,7 @@ bool op_valid(const ViewData& vd) {
     return valid_fallback_no_dispatch(dispatch_vd, dispatch_meta);
 }
 
-bool op_all_valid_tsw(const ViewData& vd) {
+bool op_all_valid_tsw_tick(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
         return op_all_valid(vd);
@@ -1543,37 +1543,65 @@ bool op_all_valid_tsw(const ViewData& vd) {
         return false;
     }
 
-    if (current->is_duration_based()) {
-        auto* time_root = static_cast<const Value*>(data->time_data);
-        if (time_root == nullptr || !time_root->has_value()) {
-            return false;
-        }
-        auto time_path = ts_path_to_time_path(data->meta, data->path.indices);
-        if (time_path.empty()) {
-            return {};
-        }
-        time_path.pop_back();
-        std::optional<View> maybe_time;
-        if (time_path.empty()) {
-            maybe_time = time_root->view();
-        } else {
-            maybe_time = navigate_const(time_root->view(), time_path);
-        }
-        if (!maybe_time.has_value() || !maybe_time->valid() || !maybe_time->is_tuple()) {
-            return false;
-        }
-        auto tuple = maybe_time->as_tuple();
-        if (tuple.size() < 4) {
-            return false;
-        }
-        View ready = tuple.at(3);
-        return ready.valid() && ready.is_scalar_type<bool>() && ready.as<bool>();
-    }
-
     View window_value = op_value(*data);
     const size_t length =
         window_value.valid() && window_value.is_cyclic_buffer() ? window_value.as_cyclic_buffer().size() : 0;
     return length >= current->min_period();
+}
+
+bool op_all_valid_tsw_duration(const ViewData& vd) {
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    if (self_meta == nullptr) {
+        return op_all_valid(vd);
+    }
+    ViewData resolved{};
+    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+        return false;
+    }
+    const ViewData* data = &resolved;
+    ViewData dispatch_data = dispatch_view_for_path(*data);
+    const ts_ops* self_ops = get_ts_ops(self_meta);
+    if (dispatch_data.ops != nullptr &&
+        dispatch_data.ops != self_ops &&
+        dispatch_data.ops->all_valid != nullptr) {
+        return dispatch_data.ops->all_valid(dispatch_data);
+    }
+    if (!dispatch_valid(*data)) {
+        return false;
+    }
+
+    auto* time_root = static_cast<const Value*>(data->time_data);
+    if (time_root == nullptr || !time_root->has_value()) {
+        return false;
+    }
+    auto time_path = ts_path_to_time_path(data->meta, data->path.indices);
+    if (time_path.empty()) {
+        return false;
+    }
+    time_path.pop_back();
+    std::optional<View> maybe_time;
+    if (time_path.empty()) {
+        maybe_time = time_root->view();
+    } else {
+        maybe_time = navigate_const(time_root->view(), time_path);
+    }
+    if (!maybe_time.has_value() || !maybe_time->valid() || !maybe_time->is_tuple()) {
+        return false;
+    }
+    auto tuple = maybe_time->as_tuple();
+    if (tuple.size() < 4) {
+        return false;
+    }
+    View ready = tuple.at(3);
+    return ready.valid() && ready.is_scalar_type<bool>() && ready.as<bool>();
+}
+
+bool op_all_valid_tsw(const ViewData& vd) {
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    if (self_meta != nullptr && self_meta->is_duration_based()) {
+        return op_all_valid_tsw_duration(vd);
+    }
+    return op_all_valid_tsw_tick(vd);
 }
 
 bool op_all_valid_tsb(const ViewData& vd) {
@@ -1782,7 +1810,7 @@ View op_delta_value_container(const ViewData& vd) {
     return {};
 }
 
-View op_delta_value_tsw(const ViewData& vd) {
+View op_delta_value_tsw_tick(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
         return {};
@@ -1813,41 +1841,6 @@ View op_delta_value_tsw(const ViewData& vd) {
     if (!window_value.valid()) {
         return {};
     }
-    if (current->is_duration_based()) {
-        auto* time_root = static_cast<const Value*>(data->time_data);
-        if (time_root == nullptr || !time_root->has_value()) {
-            return {};
-        }
-        auto time_path = ts_path_to_time_path(data->meta, data->path.indices);
-        if (time_path.empty()) {
-            return {};
-        }
-        time_path.pop_back();
-        std::optional<View> maybe_time;
-        if (time_path.empty()) {
-            maybe_time = time_root->view();
-        } else {
-            maybe_time = navigate_const(time_root->view(), time_path);
-        }
-        if (!maybe_time.has_value() || !maybe_time->valid() || !maybe_time->is_tuple()) {
-            return {};
-        }
-        auto tuple = maybe_time->as_tuple();
-        if (tuple.size() < 4) {
-            return {};
-        }
-        View ready = tuple.at(3);
-        if (!ready.valid() || !ready.is_scalar_type<bool>() || !ready.as<bool>()) {
-            return {};
-        }
-        if (!window_value.is_queue() || window_value.as_queue().size() == 0) {
-            return {};
-        }
-        auto queue = window_value.as_queue();
-        const void* newest = value::QueueOps::get_element_ptr_const(queue.data(), queue.size() - 1, queue.schema());
-        return newest != nullptr ? View(newest, current->value_type) : View{};
-    }
-
     if (!window_value.is_cyclic_buffer() || window_value.as_cyclic_buffer().size() == 0) {
         return {};
     }
@@ -1855,6 +1848,80 @@ View op_delta_value_tsw(const ViewData& vd) {
     const void* newest =
         value::CyclicBufferOps::get_element_ptr_const(buffer.data(), buffer.size() - 1, buffer.schema());
     return newest != nullptr ? View(newest, current->value_type) : View{};
+}
+
+View op_delta_value_tsw_duration(const ViewData& vd) {
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    if (self_meta == nullptr) {
+        return {};
+    }
+    ViewData resolved{};
+    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+        return {};
+    }
+    const ViewData* data = &resolved;
+    ViewData dispatch_data = dispatch_view_for_path(*data);
+    const ts_ops* self_ops = get_ts_ops(self_meta);
+    if (dispatch_data.ops != nullptr &&
+        dispatch_data.ops != self_ops &&
+        dispatch_data.ops->delta_value != nullptr) {
+        return dispatch_data.ops->delta_value(dispatch_data);
+    }
+    const TSMeta* current = meta_at_path(data->meta, data->path.indices);
+    if (current == nullptr) {
+        return {};
+    }
+
+    const engine_time_t current_time = view_evaluation_time(vd);
+    if (current_time != MIN_DT && !dispatch_modified(vd, current_time)) {
+        return {};
+    }
+
+    View window_value = op_value(*data);
+    if (!window_value.valid()) {
+        return {};
+    }
+
+    auto* time_root = static_cast<const Value*>(data->time_data);
+    if (time_root == nullptr || !time_root->has_value()) {
+        return {};
+    }
+    auto time_path = ts_path_to_time_path(data->meta, data->path.indices);
+    if (time_path.empty()) {
+        return {};
+    }
+    time_path.pop_back();
+    std::optional<View> maybe_time;
+    if (time_path.empty()) {
+        maybe_time = time_root->view();
+    } else {
+        maybe_time = navigate_const(time_root->view(), time_path);
+    }
+    if (!maybe_time.has_value() || !maybe_time->valid() || !maybe_time->is_tuple()) {
+        return {};
+    }
+    auto tuple = maybe_time->as_tuple();
+    if (tuple.size() < 4) {
+        return {};
+    }
+    View ready = tuple.at(3);
+    if (!ready.valid() || !ready.is_scalar_type<bool>() || !ready.as<bool>()) {
+        return {};
+    }
+    if (!window_value.is_queue() || window_value.as_queue().size() == 0) {
+        return {};
+    }
+    auto queue = window_value.as_queue();
+    const void* newest = value::QueueOps::get_element_ptr_const(queue.data(), queue.size() - 1, queue.schema());
+    return newest != nullptr ? View(newest, current->value_type) : View{};
+}
+
+View op_delta_value_tsw(const ViewData& vd) {
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    if (self_meta != nullptr && self_meta->is_duration_based()) {
+        return op_delta_value_tsw_duration(vd);
+    }
+    return op_delta_value_tsw_tick(vd);
 }
 
 View op_delta_value(const ViewData& vd) {

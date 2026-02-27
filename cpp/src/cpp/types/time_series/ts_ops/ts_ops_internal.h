@@ -117,7 +117,8 @@ constexpr std::string_view k_tsd_visible_key_history_state_key{
 constexpr std::string_view k_ref_unbound_item_change_state_key{
     TSLinkObserverRegistry::kRefUnboundItemChangesKey};
 
-extern const ts_window_ops k_window_ops;
+extern const ts_window_ops k_window_tick_ops;
+extern const ts_window_ops k_window_duration_ops;
 extern const ts_set_ops k_set_ops;
 extern const ts_dict_ops k_dict_ops;
 extern const ts_list_ops k_list_ops;
@@ -166,6 +167,8 @@ bool op_valid_tsb(const ViewData& vd);
 bool op_valid_tsl(const ViewData& vd);
 bool op_all_valid(const ViewData& vd);
 bool op_all_valid_tsw(const ViewData& vd);
+bool op_all_valid_tsw_tick(const ViewData& vd);
+bool op_all_valid_tsw_duration(const ViewData& vd);
 bool op_all_valid_tsb(const ViewData& vd);
 bool op_all_valid_tsl(const ViewData& vd);
 bool op_sampled(const ViewData& vd);
@@ -176,6 +179,8 @@ View op_delta_value(const ViewData& vd);
 View op_delta_value_scalar(const ViewData& vd);
 View op_delta_value_container(const ViewData& vd);
 View op_delta_value_tsw(const ViewData& vd);
+View op_delta_value_tsw_tick(const ViewData& vd);
+View op_delta_value_tsw_duration(const ViewData& vd);
 bool op_has_delta(const ViewData& vd);
 bool op_has_delta_default(const ViewData& vd);
 bool op_has_delta_scalar(const ViewData& vd);
@@ -233,7 +238,8 @@ void register_ref_link_observer(const REFLink& ref_link, const ViewData* observe
 bool suppress_static_ref_child_notification(const LinkTarget& observer, engine_time_t current_time);
 void notify_link_target_observers(const ViewData& target_view, engine_time_t current_time);
 ts_ops make_common_ops(TSKind kind);
-ts_ops make_tsw_ops();
+ts_ops make_tsw_tick_ops();
+ts_ops make_tsw_duration_ops();
 ts_ops make_tss_ops();
 ts_ops make_tsd_ops();
 ts_ops make_tsl_ops();
@@ -304,7 +310,7 @@ inline bool dispatch_meta_is_ref(const TSMeta* meta) {
 
 inline bool dispatch_meta_is_tsw(const TSMeta* meta) {
     if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->delta_value == &op_delta_value_tsw;
+        return ops->kind == TSKind::TSW;
     }
     return false;
 }
@@ -444,14 +450,22 @@ TSView op_dict_set(ViewData& vd, const View& key, const View& value, engine_time
 bool op_set_add(ViewData& vd, const View& elem, engine_time_t current_time);
 bool op_set_remove(ViewData& vd, const View& elem, engine_time_t current_time);
 void op_set_clear(ViewData& vd, engine_time_t current_time);
-const engine_time_t* op_window_value_times(const ViewData& vd);
-size_t op_window_value_times_count(const ViewData& vd);
-engine_time_t op_window_first_modified_time(const ViewData& vd);
-bool op_window_has_removed_value(const ViewData& vd);
-View op_window_removed_value(const ViewData& vd);
-size_t op_window_removed_value_count(const ViewData& vd);
-size_t op_window_size(const ViewData& vd);
-size_t op_window_min_size(const ViewData& vd);
+const engine_time_t* op_window_value_times_tick(const ViewData& vd);
+const engine_time_t* op_window_value_times_duration(const ViewData& vd);
+size_t op_window_value_times_count_tick(const ViewData& vd);
+size_t op_window_value_times_count_duration(const ViewData& vd);
+engine_time_t op_window_first_modified_time_tick(const ViewData& vd);
+engine_time_t op_window_first_modified_time_duration(const ViewData& vd);
+bool op_window_has_removed_value_tick(const ViewData& vd);
+bool op_window_has_removed_value_duration(const ViewData& vd);
+View op_window_removed_value_tick(const ViewData& vd);
+View op_window_removed_value_duration(const ViewData& vd);
+size_t op_window_removed_value_count_tick(const ViewData& vd);
+size_t op_window_removed_value_count_duration(const ViewData& vd);
+size_t op_window_size_tick(const ViewData& vd);
+size_t op_window_size_duration(const ViewData& vd);
+size_t op_window_min_size_tick(const ViewData& vd);
+size_t op_window_min_size_duration(const ViewData& vd);
 size_t op_window_length(const ViewData& vd);
 
 // --- Declarations added during common.cpp split (cross-file calls) ---
