@@ -634,6 +634,9 @@ ts_ops make_common_ops(TSKind kind) {
         kind,
         {},
     };
+    if (kind == TSKind::TSValue || kind == TSKind::REF || kind == TSKind::SIGNAL) {
+        out.has_delta = &op_has_delta_scalar;
+    }
     out.specific.none = ts_ops::ts_none_ops{0};
     return out;
 }
@@ -647,6 +650,7 @@ ts_ops make_tsw_ops() {
 ts_ops make_tss_ops() {
     ts_ops out = make_common_ops(TSKind::TSS);
     out.copy_value = &op_copy_tss;
+    out.has_delta = &op_has_delta_tss;
     out.specific.set = k_set_ops;
     return out;
 }
@@ -654,6 +658,7 @@ ts_ops make_tss_ops() {
 ts_ops make_tsd_ops() {
     ts_ops out = make_common_ops(TSKind::TSD);
     out.copy_value = &op_copy_tsd;
+    out.has_delta = &op_has_delta_tsd;
     out.specific.dict = k_dict_ops;
     return out;
 }
