@@ -178,6 +178,14 @@ ts_ops make_tsd_ops() {
     out.copy_value = &op_copy_tsd;
     out.has_delta = &op_has_delta_tsd;
     out.dict = &k_dict_ops;
+    out.from_python = &op_from_python_tsd;
+    return out;
+}
+
+ts_ops make_tsd_ref_ops() {
+    ts_ops out = make_tsd_ops();
+    out.delta_to_python = &op_delta_to_python_tsd_ref;
+    out.from_python = &op_from_python_tsd_ref;
     return out;
 }
 
@@ -198,6 +206,7 @@ ts_ops make_tsb_ops() {
 const ts_ops k_ts_value_ops = make_common_ops(TSKind::TSValue);
 const ts_ops k_tss_ops = make_tss_ops();
 const ts_ops k_tsd_ops = make_tsd_ops();
+const ts_ops k_tsd_ref_ops = make_tsd_ref_ops();
 const ts_ops k_tsl_ops = make_tsl_ops();
 const ts_ops k_tsb_ops = make_tsb_ops();
 const ts_ops k_ref_ops = make_common_ops(TSKind::REF);
@@ -236,6 +245,14 @@ const ts_ops* get_ts_ops(const TSMeta* meta) {
     if (meta == nullptr) {
         return &k_ts_value_ops;
     }
+
+    if (meta->kind == TSKind::TSD) {
+        const TSMeta* element_meta = meta->element_ts();
+        if (element_meta != nullptr && element_meta->kind == TSKind::REF) {
+            return &k_tsd_ref_ops;
+        }
+    }
+
     const ts_ops* out = get_ts_ops(meta->kind);
     if (meta->is_duration_based() && out == &k_tsw_tick_ops) {
         return &k_tsw_duration_ops;

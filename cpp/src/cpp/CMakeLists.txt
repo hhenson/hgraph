@@ -107,9 +107,13 @@ set(HGRAPH_SOURCES
         types/time_series/ts_ops/python_ops_delta.cpp
         types/time_series/ts_ops/python_ops_delta_containers.cpp
         types/time_series/ts_ops/python_ops_delta_tsd.cpp
+        types/time_series/ts_ops/python_ops_delta_tsd_map.cpp
+        types/time_series/ts_ops/python_ops_delta_tsd_ref_payload.cpp
+        types/time_series/ts_ops/python_ops_delta_tsd_postprocess.cpp
         types/time_series/ts_ops/python_ops_from_python.cpp
         types/time_series/ts_ops/python_ops_from_python_helpers.cpp
         types/time_series/ts_ops/python_ops_from_python_tsd.cpp
+        types/time_series/ts_ops/python_ops_from_python_tsd_ref.cpp
         types/time_series/ts_ops/bind_copy_api_ts_ops.cpp
         types/time_series/ts_ops/bind_copy_api.cpp
         types/time_series/ts_ops/bind_copy_api_binding.cpp

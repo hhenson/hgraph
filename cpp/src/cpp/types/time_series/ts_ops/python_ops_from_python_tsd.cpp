@@ -2,6 +2,14 @@
 
 namespace hgraph {
 
+void op_from_python_tsd(ViewData& vd, const nb::object& src, engine_time_t current_time) {
+    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    if (current == nullptr) {
+        return;
+    }
+    op_from_python_tsd_impl(vd, src, current_time, current);
+}
+
 void op_from_python_tsd_impl(ViewData& vd,
                              const nb::object& src,
                              engine_time_t current_time,

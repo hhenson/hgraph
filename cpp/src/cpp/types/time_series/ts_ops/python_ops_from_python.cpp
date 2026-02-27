@@ -11,6 +11,14 @@ void record_unbound_ref_item_changes(const ViewData& source,
 void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
     const bool debug_ref_from = std::getenv("HGRAPH_DEBUG_REF_FROM") != nullptr;
+    const ts_ops* current_ops = dispatch_meta_ops(current);
+
+    if (current_ops != nullptr &&
+        current_ops->from_python != nullptr &&
+        current_ops->from_python != &op_from_python) {
+        current_ops->from_python(vd, src, current_time);
+        return;
+    }
 
     if (dispatch_meta_is_ref(current)) {
         // Python TimeSeriesReferenceOutput.apply_result(None) is a no-op.
@@ -642,11 +650,6 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
         }
 
         notify_if_static_container_children_changed(changed, vd, current_time);
-        return;
-    }
-
-    if (dispatch_meta_is_tsd(current)) {
-        op_from_python_tsd_impl(vd, src, current_time, current);
         return;
     }
 

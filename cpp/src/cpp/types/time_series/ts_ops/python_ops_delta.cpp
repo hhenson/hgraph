@@ -474,4 +474,10 @@ nb::object op_delta_to_python_tsd(const ViewData& vd, engine_time_t current_time
     return op_delta_to_python_tsd_impl(dispatch_view, current_time);
 }
 
+nb::object op_delta_to_python_tsd_ref(const ViewData& vd, engine_time_t current_time) {
+    ViewData dispatch_view = vd;
+    bind_view_data_ops(dispatch_view);
+    return op_delta_to_python_tsd_impl(dispatch_view, current_time);
+}
+
 }  // namespace hgraph
