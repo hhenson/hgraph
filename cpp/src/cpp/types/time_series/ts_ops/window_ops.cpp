@@ -11,7 +11,7 @@ const engine_time_t* op_window_value_times(const ViewData& vd) {
         return nullptr;
     }
     const TSMeta* current = meta_at_path(resolved.meta, resolved.path.indices);
-    if (current == nullptr || current->kind != TSKind::TSW) {
+    if (!dispatch_meta_is_tsw(current)) {
         return nullptr;
     }
 
@@ -85,7 +85,7 @@ size_t op_window_value_times_count(const ViewData& vd) {
         return 0;
     }
     const TSMeta* current = meta_at_path(resolved.meta, resolved.path.indices);
-    if (current == nullptr || current->kind != TSKind::TSW) {
+    if (!dispatch_meta_is_tsw(current)) {
         return 0;
     }
 
@@ -135,7 +135,7 @@ engine_time_t op_window_first_modified_time(const ViewData& vd) {
         return MIN_DT;
     }
     const TSMeta* current = meta_at_path(resolved.meta, resolved.path.indices);
-    if (current == nullptr || current->kind != TSKind::TSW) {
+    if (!dispatch_meta_is_tsw(current)) {
         return MIN_DT;
     }
 
@@ -192,7 +192,7 @@ bool op_window_has_removed_value(const ViewData& vd) {
         return false;
     }
     const TSMeta* current = meta_at_path(resolved.meta, resolved.path.indices);
-    if (current == nullptr || current->kind != TSKind::TSW) {
+    if (!dispatch_meta_is_tsw(current)) {
         return false;
     }
 
@@ -216,7 +216,7 @@ View op_window_removed_value(const ViewData& vd) {
         return {};
     }
     const TSMeta* current = meta_at_path(resolved.meta, resolved.path.indices);
-    if (current == nullptr || current->kind != TSKind::TSW) {
+    if (!dispatch_meta_is_tsw(current)) {
         return {};
     }
 
@@ -251,7 +251,7 @@ size_t op_window_removed_value_count(const ViewData& vd) {
         return 0;
     }
     const TSMeta* current = meta_at_path(resolved.meta, resolved.path.indices);
-    if (current == nullptr || current->kind != TSKind::TSW) {
+    if (!dispatch_meta_is_tsw(current)) {
         return 0;
     }
 
@@ -278,7 +278,7 @@ size_t op_window_removed_value_count(const ViewData& vd) {
 
 size_t op_window_size(const ViewData& vd) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-    if (current == nullptr || current->kind != TSKind::TSW) {
+    if (!dispatch_meta_is_tsw(current)) {
         return 0;
     }
     return current->is_duration_based()
@@ -288,7 +288,7 @@ size_t op_window_size(const ViewData& vd) {
 
 size_t op_window_min_size(const ViewData& vd) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-    if (current == nullptr || current->kind != TSKind::TSW) {
+    if (!dispatch_meta_is_tsw(current)) {
         return 0;
     }
     return current->is_duration_based()

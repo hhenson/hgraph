@@ -31,18 +31,18 @@ bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewDat
 
             // REF views expose the reference object itself. For REF consumers we
             // stop after resolving the direct bind chain.
-            if (self_meta != nullptr && self_meta->kind == TSKind::REF) {
+            if (dispatch_meta_is_ref(self_meta)) {
                 return true;
             }
             continue;
         }
 
-        if (self_meta != nullptr && self_meta->kind == TSKind::REF) {
+        if (dispatch_meta_is_ref(self_meta)) {
             return true;
         }
 
         const TSMeta* current = meta_at_path(out.meta, out.path.indices);
-        if (current == nullptr || current->kind != TSKind::REF) {
+        if (!dispatch_meta_is_ref(current)) {
             if (auto through_ref_ancestor = resolve_ref_ancestor_descendant_view_data(out);
                 through_ref_ancestor.has_value()) {
                 const ViewData next = std::move(*through_ref_ancestor);
@@ -88,10 +88,7 @@ bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewDat
             // Empty local REF values are placeholders used by REF->REF bind.
             // Fall through to binding resolution if a link exists.
             if (!ref.is_empty()) {
-                const bool self_static_container =
-                    self_meta != nullptr &&
-                    (self_meta->kind == TSKind::TSB ||
-                     (self_meta->kind == TSKind::TSL && self_meta->fixed_size() > 0));
+                const bool self_static_container = dispatch_meta_is_static_container(self_meta);
                 if (self_static_container) {
                     // Static container consumers can be driven by unbound REF
                     // payloads (for example switch-style REF[TSB] wrappers).
@@ -142,8 +139,7 @@ void stamp_time_paths(ViewData& vd, engine_time_t current_time) {
     // For static containers (TSB, fixed-size TSL), writing a parent value should also
     // advance child timestamps so child.modified mirrors Python semantics.
     const TSMeta* target_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (target_meta != nullptr && (target_meta->kind == TSKind::TSB ||
-                                   (target_meta->kind == TSKind::TSL && target_meta->fixed_size() > 0))) {
+    if (dispatch_meta_is_static_container(target_meta)) {
         // TSD child writes can be partial (for example only one bundle field present in
         // a dict delta). In that case, stamping all descendants would incorrectly mark
         // absent fields as valid/modified.
@@ -151,7 +147,7 @@ void stamp_time_paths(ViewData& vd, engine_time_t current_time) {
         if (!vd.path.indices.empty()) {
             std::vector<size_t> parent_path(vd.path.indices.begin(), vd.path.indices.end() - 1);
             const TSMeta* parent_meta = meta_at_path(vd.meta, parent_path);
-            parent_is_tsd = parent_meta != nullptr && parent_meta->kind == TSKind::TSD;
+            parent_is_tsd = dispatch_meta_is_tsd(parent_meta);
         }
         if (parent_is_tsd) {
             return;
@@ -216,7 +212,7 @@ std::optional<View> resolve_value_slot_const(const ViewData& vd) {
 
 bool has_local_ref_wrapper_value(const ViewData& vd) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-    if (current == nullptr || current->kind != TSKind::REF) {
+    if (!dispatch_meta_is_ref(current)) {
         return false;
     }
 
@@ -231,7 +227,7 @@ bool has_local_ref_wrapper_value(const ViewData& vd) {
 
 bool has_bound_ref_static_children(const ViewData& vd) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-    if (current == nullptr || current->kind != TSKind::REF) {
+    if (!dispatch_meta_is_ref(current)) {
         return false;
     }
 
@@ -240,7 +236,7 @@ bool has_bound_ref_static_children(const ViewData& vd) {
         return false;
     }
 
-    if (element->kind == TSKind::TSB && element->fields() != nullptr) {
+    if (dispatch_meta_is_tsb(element) && element->fields() != nullptr) {
         for (size_t i = 0; i < element->field_count(); ++i) {
             std::vector<size_t> child_path = vd.path.indices;
             child_path.push_back(i);
@@ -248,7 +244,7 @@ bool has_bound_ref_static_children(const ViewData& vd) {
                 return true;
             }
         }
-    } else if (element->kind == TSKind::TSL && element->fixed_size() > 0) {
+    } else if (dispatch_meta_is_fixed_tsl(element)) {
         for (size_t i = 0; i < element->fixed_size(); ++i) {
             std::vector<size_t> child_path = vd.path.indices;
             child_path.push_back(i);
@@ -263,7 +259,7 @@ bool has_bound_ref_static_children(const ViewData& vd) {
 
 bool assign_ref_value_from_bound_static_children(ViewData& vd) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-    if (current == nullptr || current->kind != TSKind::REF) {
+    if (!dispatch_meta_is_ref(current)) {
         return false;
     }
 
@@ -273,9 +269,9 @@ bool assign_ref_value_from_bound_static_children(ViewData& vd) {
     }
 
     size_t child_count = 0;
-    if (element->kind == TSKind::TSB && element->fields() != nullptr) {
+    if (dispatch_meta_is_tsb(element) && element->fields() != nullptr) {
         child_count = element->field_count();
-    } else if (element->kind == TSKind::TSL && element->fixed_size() > 0) {
+    } else if (dispatch_meta_is_fixed_tsl(element)) {
         child_count = element->fixed_size();
     } else {
         return false;
@@ -292,7 +288,7 @@ bool assign_ref_value_from_bound_static_children(ViewData& vd) {
         TimeSeriesReference child_ref = TimeSeriesReference::make();
         if (auto bound = resolve_bound_view_data(child); bound.has_value()) {
             const TSMeta* bound_meta = meta_at_path(bound->meta, bound->path.indices);
-            if (bound_meta != nullptr && bound_meta->kind == TSKind::REF) {
+            if (dispatch_meta_is_ref(bound_meta)) {
                 bool resolved_from_local = false;
                 if (auto local_ref_value = resolve_value_slot_const(*bound);
                     local_ref_value.has_value() &&
@@ -316,7 +312,7 @@ bool assign_ref_value_from_bound_static_children(ViewData& vd) {
         } else {
             const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
             bool resolved_from_local = false;
-            if (child_meta != nullptr && child_meta->kind == TSKind::REF) {
+            if (dispatch_meta_is_ref(child_meta)) {
                 if (auto local_ref_value = resolve_value_slot_const(child);
                     local_ref_value.has_value() &&
                     local_ref_value->valid() &&
@@ -397,15 +393,12 @@ void clear_ref_container_ancestor_cache(ViewData& vd) {
         std::vector<size_t> ancestor_path(vd.path.indices.begin(),
                                           vd.path.indices.begin() + static_cast<std::ptrdiff_t>(depth));
         const TSMeta* ancestor_meta = meta_at_path(vd.meta, ancestor_path);
-        if (ancestor_meta == nullptr || ancestor_meta->kind != TSKind::REF) {
+        if (!dispatch_meta_is_ref(ancestor_meta)) {
             continue;
         }
 
         const TSMeta* element_meta = ancestor_meta->element_ts();
-        const bool static_ref_container =
-            element_meta != nullptr &&
-            (element_meta->kind == TSKind::TSB ||
-             (element_meta->kind == TSKind::TSL && element_meta->fixed_size() > 0));
+        const bool static_ref_container = dispatch_meta_is_static_container(element_meta);
         if (!static_ref_container) {
             break;
         }

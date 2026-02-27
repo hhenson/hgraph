@@ -25,7 +25,7 @@ bool op_set_add(ViewData& vd, const View& elem, engine_time_t current_time) {
         const size_t child_slot = parent.path.indices.back();
         parent.path.indices.pop_back();
         const TSMeta* parent_meta = meta_at_path(parent.meta, parent.path.indices);
-        if (parent_meta != nullptr && parent_meta->kind == TSKind::TSD) {
+        if (dispatch_meta_is_tsd(parent_meta)) {
             ensure_tsd_child_delta_slot(parent, child_slot);
         }
     }
@@ -73,7 +73,7 @@ bool op_set_remove(ViewData& vd, const View& elem, engine_time_t current_time) {
         const size_t child_slot = parent.path.indices.back();
         parent.path.indices.pop_back();
         const TSMeta* parent_meta = meta_at_path(parent.meta, parent.path.indices);
-        if (parent_meta != nullptr && parent_meta->kind == TSKind::TSD) {
+        if (dispatch_meta_is_tsd(parent_meta)) {
             ensure_tsd_child_delta_slot(parent, child_slot);
         }
     }
@@ -122,7 +122,7 @@ void op_set_clear(ViewData& vd, engine_time_t current_time) {
         const size_t child_slot = parent.path.indices.back();
         parent.path.indices.pop_back();
         const TSMeta* parent_meta = meta_at_path(parent.meta, parent.path.indices);
-        if (parent_meta != nullptr && parent_meta->kind == TSKind::TSD) {
+        if (dispatch_meta_is_tsd(parent_meta)) {
             ensure_tsd_child_delta_slot(parent, child_slot);
         }
     }

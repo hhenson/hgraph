@@ -34,7 +34,7 @@ bool paths_related(const std::vector<size_t>& lhs, const std::vector<size_t>& rh
 }
 
 bool is_static_container_meta(const TSMeta* meta) {
-    return meta != nullptr && meta->kind == TSKind::TSB;
+    return dispatch_meta_is_tsb(meta);
 }
 
 bool find_link_target_path(const ViewData& root_view,
@@ -53,43 +53,39 @@ bool find_link_target_path(const ViewData& root_view,
         }
 
         const TSMeta* cursor = meta;
-        while (cursor != nullptr && cursor->kind == TSKind::REF) {
+        while (dispatch_meta_is_ref(cursor)) {
             cursor = cursor->element_ts();
         }
         if (cursor == nullptr) {
             return false;
         }
 
-        switch (cursor->kind) {
-            case TSKind::TSB:
-                if (cursor->fields() == nullptr) {
-                    return false;
-                }
-                for (size_t i = 0; i < cursor->field_count(); ++i) {
-                    path.push_back(i);
-                    if (visit(cursor->fields()[i].ts_type)) {
-                        return true;
-                    }
-                    path.pop_back();
-                }
+        if (dispatch_meta_is_tsb(cursor)) {
+            if (cursor->fields() == nullptr) {
                 return false;
-
-            case TSKind::TSL:
-                if (cursor->fixed_size() == 0) {
-                    return false;
+            }
+            for (size_t i = 0; i < cursor->field_count(); ++i) {
+                path.push_back(i);
+                if (visit(cursor->fields()[i].ts_type)) {
+                    return true;
                 }
-                for (size_t i = 0; i < cursor->fixed_size(); ++i) {
-                    path.push_back(i);
-                    if (visit(cursor->element_ts())) {
-                        return true;
-                    }
-                    path.pop_back();
-                }
-                return false;
-
-            default:
-                return false;
+                path.pop_back();
+            }
+            return false;
         }
+
+        if (dispatch_meta_is_fixed_tsl(cursor)) {
+            for (size_t i = 0; i < cursor->fixed_size(); ++i) {
+                path.push_back(i);
+                if (visit(cursor->element_ts())) {
+                    return true;
+                }
+                path.pop_back();
+            }
+            return false;
+        }
+
+        return false;
     };
 
     return visit(root_meta);
@@ -118,7 +114,7 @@ bool observer_under_static_ref_container(const LinkTarget& observer) {
     std::vector<size_t> parent_path = observer_path;
     parent_path.pop_back();
     const TSMeta* parent_meta = meta_at_path(active_input->meta(), parent_path);
-    if (parent_meta == nullptr || parent_meta->kind != TSKind::REF) {
+    if (!dispatch_meta_is_ref(parent_meta)) {
         return false;
     }
     return is_static_container_meta(parent_meta->element_ts());
@@ -126,7 +122,7 @@ bool observer_under_static_ref_container(const LinkTarget& observer) {
 
 bool signal_input_has_bind_impl(const ViewData& vd, const TSMeta* current_meta, const LinkTarget* signal_link) {
     const bool debug_signal_impl = std::getenv("HGRAPH_DEBUG_SIGNAL_IMPL") != nullptr;
-    if (current_meta == nullptr || current_meta->kind != TSKind::SIGNAL) {
+    if (!dispatch_meta_is_signal(current_meta)) {
         return false;
     }
     if (signal_link == nullptr) {
@@ -317,7 +313,7 @@ bool ensure_observer_path_materialized(ValueView observer_root,
     const TSMeta* meta = root_meta;
 
     for (size_t index : ts_path) {
-        while (meta != nullptr && meta->kind == TSKind::REF) {
+        while (dispatch_meta_is_ref(meta)) {
             meta = meta->element_ts();
         }
         if (meta == nullptr) {
@@ -329,86 +325,84 @@ bool ensure_observer_path_materialized(ValueView observer_root,
         }
         auto tuple = current.as_tuple();
 
-        switch (meta->kind) {
-            case TSKind::TSB: {
-                const size_t child_index = index + 1;
-                if (child_index >= tuple.size()) {
-                    return false;
-                }
-                ValueView child = tuple.at(child_index);
-                if (!child.valid()) {
-                    if (tuple.schema() == nullptr || child_index >= tuple.schema()->field_count) {
-                        return false;
-                    }
-                    const value::TypeMeta* child_type = tuple.schema()->fields[child_index].type;
-                    if (child_type == nullptr) {
-                        return false;
-                    }
-                    Value materialized(child_type);
-                    materialized.emplace();
-                    tuple.set(child_index, materialized.view());
-                    child = tuple.at(child_index);
-                }
-                current = child;
-                if (meta->fields() == nullptr || index >= meta->field_count()) {
-                    return false;
-                }
-                meta = meta->fields()[index].ts_type;
-                break;
-            }
-            case TSKind::TSL:
-            case TSKind::TSD: {
-                if (tuple.size() < 2) {
-                    return false;
-                }
-                ValueView children = tuple.at(1);
-                if (!children.valid()) {
-                    if (tuple.schema() == nullptr || tuple.schema()->field_count < 2) {
-                        return false;
-                    }
-                    const value::TypeMeta* children_type = tuple.schema()->fields[1].type;
-                    if (children_type == nullptr) {
-                        return false;
-                    }
-                    Value materialized(children_type);
-                    materialized.emplace();
-                    tuple.set(1, materialized.view());
-                    children = tuple.at(1);
-                }
-                if (!children.valid() || !children.is_list()) {
-                    return false;
-                }
-                auto list = children.as_list();
-                const size_t old_size = list.size();
-                if (index >= old_size) {
-                    list.resize(index + 1);
-                    const value::TypeMeta* list_type = list.schema();
-                    if (list_type == nullptr) {
-                        return false;
-                    }
-                    for (size_t i = old_size; i < list.size(); ++i) {
-                        list_type->ops().set_at(list.data(), i, nullptr, list_type);
-                    }
-                }
-
-                ValueView child = list.at(index);
-                if (!child.valid()) {
-                    const value::TypeMeta* child_type = list.element_type();
-                    if (child_type == nullptr) {
-                        return false;
-                    }
-                    Value materialized(child_type);
-                    materialized.emplace();
-                    list.set(index, materialized.view());
-                    child = list.at(index);
-                }
-                current = child;
-                meta = meta->element_ts();
-                break;
-            }
-            default:
+        if (dispatch_meta_is_tsb(meta)) {
+            const size_t child_index = index + 1;
+            if (child_index >= tuple.size()) {
                 return false;
+            }
+            ValueView child = tuple.at(child_index);
+            if (!child.valid()) {
+                if (tuple.schema() == nullptr || child_index >= tuple.schema()->field_count) {
+                    return false;
+                }
+                const value::TypeMeta* child_type = tuple.schema()->fields[child_index].type;
+                if (child_type == nullptr) {
+                    return false;
+                }
+                Value materialized(child_type);
+                materialized.emplace();
+                tuple.set(child_index, materialized.view());
+                child = tuple.at(child_index);
+            }
+            current = child;
+            if (meta->fields() == nullptr || index >= meta->field_count()) {
+                return false;
+            }
+            meta = meta->fields()[index].ts_type;
+            continue;
         }
+
+        if (dispatch_meta_is_tsl(meta) || dispatch_meta_is_tsd(meta)) {
+            if (tuple.size() < 2) {
+                return false;
+            }
+            ValueView children = tuple.at(1);
+            if (!children.valid()) {
+                if (tuple.schema() == nullptr || tuple.schema()->field_count < 2) {
+                    return false;
+                }
+                const value::TypeMeta* children_type = tuple.schema()->fields[1].type;
+                if (children_type == nullptr) {
+                    return false;
+                }
+                Value materialized(children_type);
+                materialized.emplace();
+                tuple.set(1, materialized.view());
+                children = tuple.at(1);
+            }
+            if (!children.valid() || !children.is_list()) {
+                return false;
+            }
+            auto list = children.as_list();
+            const size_t old_size = list.size();
+            if (index >= old_size) {
+                list.resize(index + 1);
+                const value::TypeMeta* list_type = list.schema();
+                if (list_type == nullptr) {
+                    return false;
+                }
+                for (size_t i = old_size; i < list.size(); ++i) {
+                    list_type->ops().set_at(list.data(), i, nullptr, list_type);
+                }
+            }
+
+            ValueView child = list.at(index);
+            if (!child.valid()) {
+                const value::TypeMeta* child_type = list.element_type();
+                if (child_type == nullptr) {
+                    return false;
+                }
+                Value materialized(child_type);
+                materialized.emplace();
+                list.set(index, materialized.view());
+                child = list.at(index);
+            }
+            current = child;
+            meta = meta->element_ts();
+            continue;
+        }
+
+        return false;
     }
 
     return true;
@@ -639,38 +633,38 @@ bool view_path_contains_tsd_ancestor(const ViewData& view) {
     if (current == nullptr) {
         return false;
     }
-    if (current->kind == TSKind::TSD) {
+    if (dispatch_meta_is_tsd(current)) {
         return true;
     }
 
     for (size_t index : view.path.indices) {
-        while (current != nullptr && current->kind == TSKind::REF) {
+        while (dispatch_meta_is_ref(current)) {
             current = current->element_ts();
         }
         if (current == nullptr) {
             return false;
         }
-        if (current->kind == TSKind::TSD) {
+        if (dispatch_meta_is_tsd(current)) {
             return true;
         }
 
-        switch (current->kind) {
-            case TSKind::TSB:
-                if (current->fields() == nullptr || index >= current->field_count()) {
-                    return false;
-                }
-                current = current->fields()[index].ts_type;
-                break;
-            case TSKind::TSL:
-            case TSKind::TSD:
-                current = current->element_ts();
-                break;
-            default:
+        if (dispatch_meta_is_tsb(current)) {
+            if (current->fields() == nullptr || index >= current->field_count()) {
                 return false;
+            }
+            current = current->fields()[index].ts_type;
+            continue;
         }
+
+        if (dispatch_meta_is_tsl(current) || dispatch_meta_is_tsd(current)) {
+            current = current->element_ts();
+            continue;
+        }
+
+        return false;
     }
 
-    return current != nullptr && current->kind == TSKind::TSD;
+    return dispatch_meta_is_tsd(current);
 }
 
 void register_ref_link_observer(const REFLink& ref_link, const ViewData* observer_view) {
@@ -755,7 +749,7 @@ void append_observer_node_registrations(
 }
 
 bool advance_observer_subtree_node(const TSMeta*& meta, View& observer_node, size_t child_index) {
-    while (meta != nullptr && meta->kind == TSKind::REF) {
+    while (dispatch_meta_is_ref(meta)) {
         meta = meta->element_ts();
     }
     if (meta == nullptr || !observer_node.valid() || !observer_node.is_tuple()) {
@@ -763,47 +757,45 @@ bool advance_observer_subtree_node(const TSMeta*& meta, View& observer_node, siz
     }
 
     auto tuple = observer_node.as_tuple();
-    switch (meta->kind) {
-        case TSKind::TSB: {
-            if (meta->fields() == nullptr || child_index >= meta->field_count()) {
-                return false;
-            }
-            const size_t observer_child_index = child_index + 1;
-            if (observer_child_index >= tuple.size()) {
-                return false;
-            }
-            View child = tuple.at(observer_child_index);
-            if (!child.valid()) {
-                return false;
-            }
-            observer_node = child;
-            meta = meta->fields()[child_index].ts_type;
-            return true;
-        }
-        case TSKind::TSL:
-        case TSKind::TSD: {
-            if (tuple.size() < 2) {
-                return false;
-            }
-            View children = tuple.at(1);
-            if (!children.valid() || !children.is_list()) {
-                return false;
-            }
-            auto list = children.as_list();
-            if (child_index >= list.size()) {
-                return false;
-            }
-            View child = list.at(child_index);
-            if (!child.valid()) {
-                return false;
-            }
-            observer_node = child;
-            meta = meta->element_ts();
-            return true;
-        }
-        default:
+    if (dispatch_meta_is_tsb(meta)) {
+        if (meta->fields() == nullptr || child_index >= meta->field_count()) {
             return false;
+        }
+        const size_t observer_child_index = child_index + 1;
+        if (observer_child_index >= tuple.size()) {
+            return false;
+        }
+        View child = tuple.at(observer_child_index);
+        if (!child.valid()) {
+            return false;
+        }
+        observer_node = child;
+        meta = meta->fields()[child_index].ts_type;
+        return true;
     }
+
+    if (dispatch_meta_is_tsl(meta) || dispatch_meta_is_tsd(meta)) {
+        if (tuple.size() < 2) {
+            return false;
+        }
+        View children = tuple.at(1);
+        if (!children.valid() || !children.is_list()) {
+            return false;
+        }
+        auto list = children.as_list();
+        if (child_index >= list.size()) {
+            return false;
+        }
+        View child = list.at(child_index);
+        if (!child.valid()) {
+            return false;
+        }
+        observer_node = child;
+        meta = meta->element_ts();
+        return true;
+    }
+
+    return false;
 }
 
 template <typename LinkFn, typename RefFn>
@@ -823,7 +815,7 @@ void collect_observer_subtree_registrations(
     }
 
     const TSMeta* cursor = meta;
-    while (cursor != nullptr && cursor->kind == TSKind::REF) {
+    while (dispatch_meta_is_ref(cursor)) {
         cursor = cursor->element_ts();
     }
     if (cursor == nullptr || !observer_node.valid() || !observer_node.is_tuple()) {
@@ -831,61 +823,56 @@ void collect_observer_subtree_registrations(
     }
 
     auto tuple = observer_node.as_tuple();
-    switch (cursor->kind) {
-        case TSKind::TSB:
-            if (cursor->fields() == nullptr) {
-                return;
-            }
-            for (size_t i = 0; i < cursor->field_count(); ++i) {
-                const size_t child_slot = i + 1;
-                if (child_slot >= tuple.size()) {
-                    return;
-                }
-                View child = tuple.at(child_slot);
-                if (!child.valid()) {
-                    continue;
-                }
-                path.push_back(i);
-                collect_observer_subtree_registrations(
-                    cursor->fields()[i].ts_type,
-                    child,
-                    path,
-                    true,
-                    on_link_observer,
-                    on_ref_observer);
-                path.pop_back();
-            }
-            return;
-
-        case TSKind::TSL:
-        case TSKind::TSD: {
-            if (tuple.size() < 2) {
-                return;
-            }
-            View children = tuple.at(1);
-            if (!children.valid() || !children.is_list()) {
-                return;
-            }
-            auto list = children.as_list();
-            for (size_t i = 0; i < list.size(); ++i) {
-                View child = list.at(i);
-                if (!child.valid()) {
-                    continue;
-                }
-                path.push_back(i);
-                collect_observer_subtree_registrations(
-                    cursor->element_ts(),
-                    child,
-                    path,
-                    true,
-                    on_link_observer,
-                    on_ref_observer);
-                path.pop_back();
-            }
+    if (dispatch_meta_is_tsb(cursor)) {
+        if (cursor->fields() == nullptr) {
             return;
         }
-        default:
+        for (size_t i = 0; i < cursor->field_count(); ++i) {
+            const size_t child_slot = i + 1;
+            if (child_slot >= tuple.size()) {
+                return;
+            }
+            View child = tuple.at(child_slot);
+            if (!child.valid()) {
+                continue;
+            }
+            path.push_back(i);
+            collect_observer_subtree_registrations(
+                cursor->fields()[i].ts_type,
+                child,
+                path,
+                true,
+                on_link_observer,
+                on_ref_observer);
+            path.pop_back();
+        }
+        return;
+    }
+
+    if (dispatch_meta_is_tsl(cursor) || dispatch_meta_is_tsd(cursor)) {
+        if (tuple.size() < 2) {
             return;
+        }
+        View children = tuple.at(1);
+        if (!children.valid() || !children.is_list()) {
+            return;
+        }
+        auto list = children.as_list();
+        for (size_t i = 0; i < list.size(); ++i) {
+            View child = list.at(i);
+            if (!child.valid()) {
+                continue;
+            }
+            path.push_back(i);
+            collect_observer_subtree_registrations(
+                cursor->element_ts(),
+                child,
+                path,
+                true,
+                on_link_observer,
+                on_ref_observer);
+            path.pop_back();
+        }
     }
 }
 
@@ -986,9 +973,9 @@ bool should_skip_ancestor_to_descendant_notification(
     }
 
     const TSMeta* target_meta = meta_at_path(target_view.meta, target_view.path.indices);
-    const bool target_is_ref = target_meta != nullptr && target_meta->kind == TSKind::REF;
+    const bool target_is_ref = dispatch_meta_is_ref(target_meta);
     const TSMeta* observed_meta = meta_at_path(observed.meta, observed.path.indices);
-    const bool observed_is_ref = observed_meta != nullptr && observed_meta->kind == TSKind::REF;
+    const bool observed_is_ref = dispatch_meta_is_ref(observed_meta);
     const bool is_valid = observed.ops->valid(observed);
     const bool is_modified = observed.ops->modified(observed, current_time);
     if (!target_is_ref && is_valid && !is_modified) {
@@ -1115,7 +1102,7 @@ void maybe_enqueue_ref_link_observer(
             return;
         }
         const TSMeta* target_meta = meta_at_path(target_view.meta, target_view.path.indices);
-        const bool target_is_ref = target_meta != nullptr && target_meta->kind == TSKind::REF;
+        const bool target_is_ref = dispatch_meta_is_ref(target_meta);
         const bool is_valid = observed.ops->valid(observed);
         const bool is_modified = observed.ops->modified(observed, current_time);
         if (!target_is_ref && is_valid && !is_modified) {
@@ -1163,8 +1150,7 @@ bool should_skip_ref_to_nonref_dynamic_target_write(
     }
 
     const bool target_is_dynamic_container =
-        target_meta != nullptr &&
-        (target_meta->kind == TSKind::TSS || target_meta->kind == TSKind::TSD);
+        dispatch_meta_is_tss(target_meta) || dispatch_meta_is_tsd(target_meta);
     if (!target_is_dynamic_container) {
         return false;
     }
@@ -1199,7 +1185,7 @@ bool should_skip_signal_ref_to_nonref_target_write(
     bool debug_notify) {
     if (!(observer.observer_is_signal &&
           observer.meta != nullptr &&
-          observer.meta->kind == TSKind::REF &&
+          dispatch_meta_is_ref(observer.meta) &&
           !target_is_ref_wrapper)) {
         return false;
     }
@@ -1261,7 +1247,7 @@ bool should_skip_signal_ref_wrapper_write_for_unmodified_observer(
     if (!(target_is_ref_wrapper &&
           observer.observer_is_signal &&
           observer_meta != nullptr &&
-          observer_meta->kind == TSKind::REF)) {
+          dispatch_meta_is_ref(observer_meta))) {
         return false;
     }
 
@@ -1376,7 +1362,7 @@ void dispatch_link_observers(
     bool debug_notify,
     const std::vector<LinkTarget*>& observers) {
     const TSMeta* target_meta = meta_at_path(target_view.meta, target_view.path.indices);
-    const bool target_is_ref_wrapper = target_meta != nullptr && target_meta->kind == TSKind::REF;
+    const bool target_is_ref_wrapper = dispatch_meta_is_ref(target_meta);
 
     for (LinkTarget* observer : observers) {
         if (observer == nullptr || !is_live_link_target(observer)) {

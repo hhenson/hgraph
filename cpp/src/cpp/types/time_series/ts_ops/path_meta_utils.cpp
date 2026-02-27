@@ -5,7 +5,7 @@ namespace hgraph {
 const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indices) {
     const TSMeta* meta = root;
     for (size_t index : indices) {
-        while (meta != nullptr && meta->kind == TSKind::REF) {
+        while (dispatch_meta_is_ref(meta)) {
             meta = meta->element_ts();
         }
 
@@ -13,20 +13,20 @@ const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indice
             return nullptr;
         }
 
-        switch (meta->kind) {
-            case TSKind::TSB:
-                if (index >= meta->field_count() || meta->fields() == nullptr) {
-                    return nullptr;
-                }
-                meta = meta->fields()[index].ts_type;
-                break;
-            case TSKind::TSL:
-            case TSKind::TSD:
-                meta = meta->element_ts();
-                break;
-            default:
+        if (dispatch_meta_is_tsb(meta)) {
+            if (index >= meta->field_count() || meta->fields() == nullptr) {
                 return nullptr;
+            }
+            meta = meta->fields()[index].ts_type;
+            continue;
         }
+
+        if (dispatch_meta_is_tsl(meta) || dispatch_meta_is_tsd(meta)) {
+            meta = meta->element_ts();
+            continue;
+        }
+
+        return nullptr;
     }
     return meta;
 }
@@ -36,7 +36,7 @@ void bind_view_data_ops(ViewData& vd) {
 }
 
 size_t find_bundle_field_index(const TSMeta* bundle_meta, std::string_view field_name) {
-    if (bundle_meta == nullptr || bundle_meta->kind != TSKind::TSB || bundle_meta->fields() == nullptr) {
+    if (bundle_meta == nullptr || !dispatch_meta_is_tsb(bundle_meta) || bundle_meta->fields() == nullptr) {
         return static_cast<size_t>(-1);
     }
 
@@ -157,35 +157,34 @@ void clear_map_slot(value::ValueView map_view) {
     }
 }
 
-bool view_matches_container_kind(const std::optional<View>& value, TSKind kind) {
+bool view_matches_container_kind(const std::optional<View>& value, const TSMeta* container_meta) {
     if (!value.has_value() || !value->valid()) {
         return false;
     }
-    switch (kind) {
-        case TSKind::TSD:
-            return value->is_map();
-        case TSKind::TSS:
-            return value->is_set();
-        default:
-            return false;
+    if (dispatch_meta_is_tsd(container_meta)) {
+        return value->is_map();
     }
+    if (dispatch_meta_is_tss(container_meta)) {
+        return value->is_set();
+    }
+    return false;
 }
 
 bool bridge_has_container_kind_value(const ViewData& previous_bridge,
                                      const ViewData& current_bridge,
-                                     TSKind kind) {
-    return view_matches_container_kind(resolve_value_slot_const(previous_bridge), kind) ||
-           view_matches_container_kind(resolve_value_slot_const(current_bridge), kind);
+                                     const TSMeta* container_meta) {
+    return view_matches_container_kind(resolve_value_slot_const(previous_bridge), container_meta) ||
+           view_matches_container_kind(resolve_value_slot_const(current_bridge), container_meta);
 }
 
 bool rebind_bridge_has_container_kind_value(const ViewData& vd,
                                             const TSMeta* self_meta,
                                             engine_time_t current_time,
-                                            TSKind kind) {
+                                            const TSMeta* container_meta) {
     ViewData previous_bridge{};
     ViewData current_bridge{};
     return resolve_rebind_bridge_views(vd, self_meta, current_time, previous_bridge, current_bridge) &&
-           bridge_has_container_kind_value(previous_bridge, current_bridge, kind);
+           bridge_has_container_kind_value(previous_bridge, current_bridge, container_meta);
 }
 
 bool is_first_bind_rebind_tick(const LinkTarget* link_target, engine_time_t current_time) {
@@ -202,7 +201,7 @@ bool resolve_container_rebind_bridge_views(const ViewData& vd,
                                            ViewData& previous_bridge,
                                            ViewData& current_bridge) {
     if (container_meta == nullptr ||
-        (container_meta->kind != TSKind::TSS && container_meta->kind != TSKind::TSD)) {
+        (!dispatch_meta_is_tss(container_meta) && !dispatch_meta_is_tsd(container_meta))) {
         return false;
     }
 
@@ -215,7 +214,7 @@ bool resolve_container_rebind_bridge_views(const ViewData& vd,
     }
 
     const TSMeta* current_bridge_meta = meta_at_path(current_bridge.meta, current_bridge.path.indices);
-    return current_bridge_meta == nullptr || current_bridge_meta->kind != container_meta->kind;
+    return current_bridge_meta == nullptr || dispatch_meta_ops(current_bridge_meta) != dispatch_meta_ops(container_meta);
 }
 
 bool resolve_rebind_current_bridge_view(const ViewData& vd,
@@ -234,7 +233,7 @@ bool tsd_child_was_visible_before_removal(const ViewData& child_vd) {
 
     const TSMeta* child_meta = meta_at_path(child_vd.meta, child_vd.path.indices);
     const bool ref_like_child =
-        (child_meta != nullptr && child_meta->kind == TSKind::REF) ||
+        dispatch_meta_is_ref(child_meta) ||
         child_value.schema() == ts_reference_meta();
 
     if (ref_like_child) {
@@ -388,32 +387,29 @@ bool map_view_empty(ValueView v) {
     return !v.valid() || !v.is_map() || v.as_map().size() == 0;
 }
 
-bool is_scalar_like_ts_kind(TSKind kind) {
-    return kind == TSKind::TSValue || kind == TSKind::REF || kind == TSKind::SIGNAL || kind == TSKind::TSW;
-}
-
 bool has_delta_descendants(const TSMeta* meta) {
     if (meta == nullptr) {
         return false;
     }
 
-    switch (meta->kind) {
-        case TSKind::TSS:
-        case TSKind::TSD:
-        case TSKind::TSW:
-            return true;
-        case TSKind::TSB:
-            for (size_t i = 0; i < meta->field_count(); ++i) {
-                if (has_delta_descendants(meta->fields()[i].ts_type)) {
-                    return true;
-                }
-            }
-            return false;
-        case TSKind::TSL:
-            return has_delta_descendants(meta->element_ts());
-        default:
-            return false;
+    if (dispatch_meta_is_tss(meta) || dispatch_meta_is_tsd(meta) || dispatch_meta_is_tsw(meta)) {
+        return true;
     }
+
+    if (dispatch_meta_is_tsb(meta)) {
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            if (has_delta_descendants(meta->fields()[i].ts_type)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    if (dispatch_meta_is_tsl(meta)) {
+        return has_delta_descendants(meta->element_ts());
+    }
+
+    return false;
 }
 
 std::optional<std::vector<size_t>> ts_path_to_delta_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
@@ -425,7 +421,7 @@ std::optional<std::vector<size_t>> ts_path_to_delta_path(const TSMeta* root_meta
     const TSMeta* current = root_meta;
 
     for (size_t index : ts_path) {
-        while (current != nullptr && current->kind == TSKind::REF) {
+        while (dispatch_meta_is_ref(current)) {
             current = current->element_ts();
         }
 
@@ -433,44 +429,41 @@ std::optional<std::vector<size_t>> ts_path_to_delta_path(const TSMeta* root_meta
             return std::nullopt;
         }
 
-        switch (current->kind) {
-            case TSKind::TSB: {
-                if (current->fields() == nullptr || index >= current->field_count()) {
-                    return std::nullopt;
-                }
-                const TSMeta* child = current->fields()[index].ts_type;
-                if (!has_delta_descendants(child)) {
-                    return std::nullopt;
-                }
-                out.push_back(index);
-                current = child;
-                break;
-            }
-
-            case TSKind::TSL: {
-                const TSMeta* child = current->element_ts();
-                if (!has_delta_descendants(child)) {
-                    return std::nullopt;
-                }
-                out.push_back(index);
-                current = child;
-                break;
-            }
-
-            case TSKind::TSD: {
-                const TSMeta* child = current->element_ts();
-                if (!has_delta_descendants(child)) {
-                    return std::nullopt;
-                }
-                out.push_back(3);
-                out.push_back(index);
-                current = child;
-                break;
-            }
-
-            default:
+        if (dispatch_meta_is_tsb(current)) {
+            if (current->fields() == nullptr || index >= current->field_count()) {
                 return std::nullopt;
+            }
+            const TSMeta* child = current->fields()[index].ts_type;
+            if (!has_delta_descendants(child)) {
+                return std::nullopt;
+            }
+            out.push_back(index);
+            current = child;
+            continue;
         }
+
+        if (dispatch_meta_is_tsl(current)) {
+            const TSMeta* child = current->element_ts();
+            if (!has_delta_descendants(child)) {
+                return std::nullopt;
+            }
+            out.push_back(index);
+            current = child;
+            continue;
+        }
+
+        if (dispatch_meta_is_tsd(current)) {
+            const TSMeta* child = current->element_ts();
+            if (!has_delta_descendants(child)) {
+                return std::nullopt;
+            }
+            out.push_back(3);
+            out.push_back(index);
+            current = child;
+            continue;
+        }
+
+        return std::nullopt;
     }
 
     return out;
@@ -584,7 +577,7 @@ void mark_tsd_parent_child_modified(ViewData child_vd, engine_time_t current_tim
     for (size_t depth = 0; depth < full_path.size(); ++depth) {
         std::vector<size_t> tsd_path(full_path.begin(), full_path.begin() + depth);
         const TSMeta* parent_meta = meta_at_path(child_vd.meta, tsd_path);
-        if (parent_meta == nullptr || parent_meta->kind != TSKind::TSD) {
+        if (!dispatch_meta_is_tsd(parent_meta)) {
             continue;
         }
 
@@ -697,7 +690,7 @@ void clear_tsd_delta_if_new_tick(ViewData& vd, engine_time_t current_time, TSDDe
 
 void clear_tsw_delta_if_new_tick(ViewData& vd, engine_time_t current_time) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-    if (current == nullptr || current->kind != TSKind::TSW) {
+    if (!dispatch_meta_is_tsw(current)) {
         return;
     }
     if (direct_last_modified_time(vd) >= current_time) {

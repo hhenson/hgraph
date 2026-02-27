@@ -30,9 +30,9 @@ nb::object tsd_bridge_delta_to_python(const ViewData& previous_data,
     const TSMeta* current_meta = meta_at_path(current_data.meta, current_data.path.indices);
     const auto is_tsd_of_ref = [](const TSMeta* meta) {
         return meta != nullptr &&
-               meta->kind == TSKind::TSD &&
+               dispatch_meta_is_tsd(meta) &&
                meta->element_ts() != nullptr &&
-               meta->element_ts()->kind == TSKind::REF;
+               dispatch_meta_is_ref(meta->element_ts());
     };
     const bool carry_missing_from_previous_ref =
         is_tsd_of_ref(previous_meta) && !is_tsd_of_ref(current_meta);
@@ -309,11 +309,11 @@ nb::object tss_bridge_delta_to_python(const ViewData& previous_data,
     return python_set_delta(nb::frozenset(added_set), nb::frozenset(removed_set));
 }
 
-nb::object bridge_delta_to_python(TSKind container_kind,
+nb::object bridge_delta_to_python(bool container_is_tss,
                                   const ViewData& previous_data,
                                   const ViewData& current_data,
                                   engine_time_t current_time) {
-    if (container_kind == TSKind::TSS) {
+    if (container_is_tss) {
         return tss_bridge_delta_to_python(previous_data, current_data, current_time);
     }
     return tsd_bridge_delta_to_python(previous_data, current_data, current_time);
@@ -343,7 +343,8 @@ bool try_container_bridge_delta_to_python(const ViewData& vd,
                      op_modified(current_bridge, current_time) ? 1 : 0);
     }
 
-    out_delta = bridge_delta_to_python(container_meta->kind, previous_bridge, current_bridge, current_time);
+    out_delta = bridge_delta_to_python(
+        dispatch_meta_is_tss(container_meta), previous_bridge, current_bridge, current_time);
     return true;
 }
 
@@ -364,7 +365,7 @@ bool resolve_tsd_key_set_source(const ViewData& vd, ViewData& out) {
         ViewData source = vd;
         source.projection = ViewProjection::NONE;
         const TSMeta* source_meta = meta_at_path(source.meta, source.path.indices);
-        if (source_meta == nullptr || source_meta->kind != TSKind::TSD) {
+        if (!dispatch_meta_is_tsd(source_meta)) {
             return false;
         }
 
@@ -374,12 +375,12 @@ bool resolve_tsd_key_set_source(const ViewData& vd, ViewData& out) {
 
         out.projection = ViewProjection::NONE;
         const TSMeta* current = meta_at_path(out.meta, out.path.indices);
-        return current != nullptr && current->kind == TSKind::TSD;
+        return dispatch_meta_is_tsd(current);
     }
 
     // Explicit key_set bridge: graph TSS endpoint linked to backing TSD source.
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (self_meta == nullptr || self_meta->kind != TSKind::TSS) {
+    if (!dispatch_meta_is_tss(self_meta)) {
         return false;
     }
 
@@ -389,7 +390,7 @@ bool resolve_tsd_key_set_source(const ViewData& vd, ViewData& out) {
 
     out.projection = ViewProjection::NONE;
     const TSMeta* current = meta_at_path(out.meta, out.path.indices);
-    return current != nullptr && current->kind == TSKind::TSD;
+    return dispatch_meta_is_tsd(current);
 }
 
 // Bridge paths can carry raw TSD views (projection::NONE) when rebinding
@@ -401,7 +402,7 @@ bool resolve_tsd_key_set_bridge_source(const ViewData& vd, ViewData& out) {
     }
 
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (self_meta == nullptr || self_meta->kind != TSKind::TSD) {
+    if (!dispatch_meta_is_tsd(self_meta)) {
         return false;
     }
 
@@ -411,7 +412,7 @@ bool resolve_tsd_key_set_bridge_source(const ViewData& vd, ViewData& out) {
 
     out.projection = ViewProjection::NONE;
     const TSMeta* current = meta_at_path(out.meta, out.path.indices);
-    return current != nullptr && current->kind == TSKind::TSD;
+    return dispatch_meta_is_tsd(current);
 }
 
 TSDKeySetBridgeState resolve_tsd_key_set_bridge_state(const ViewData& vd,
@@ -672,4 +673,3 @@ nb::object tsd_key_set_unbind_delta_to_python(const ViewData& previous_data) {
 
 
 }  // namespace hgraph
-

@@ -12,20 +12,20 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
     }
 
     if (ts_path.empty()) {
-        if (meta->kind == TSKind::REF) {
+        if (dispatch_meta_is_ref(meta)) {
             out.push_back(0);  // REF root link slot.
-        } else if (meta->kind == TSKind::TSB) {
+        } else if (dispatch_meta_is_tsb(meta)) {
             out.push_back(0);  // container link slot.
-        } else if (meta->kind == TSKind::TSL && meta->fixed_size() > 0) {
+        } else if (dispatch_meta_is_fixed_tsl(meta)) {
             out.push_back(0);  // fixed-size TSL container link slot.
-        } else if (meta->kind == TSKind::TSD) {
+        } else if (dispatch_meta_is_tsd(meta)) {
             out.push_back(0);  // dynamic TSD container link slot.
         }
         return out;
     }
 
     for (size_t index : ts_path) {
-        while (meta != nullptr && meta->kind == TSKind::REF) {
+        while (dispatch_meta_is_ref(meta)) {
             out.push_back(1);  // descend into referred link tree.
             meta = meta->element_ts();
         }
@@ -35,60 +35,61 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
         }
 
         if (crossed_dynamic_boundary) {
-            switch (meta->kind) {
-                case TSKind::TSB:
-                    if (meta->fields() == nullptr || index >= meta->field_count()) {
-                        return out;
-                    }
-                    meta = meta->fields()[index].ts_type;
-                    break;
-                case TSKind::TSL:
-                case TSKind::TSD:
-                    meta = meta->element_ts();
-                    break;
-                default:
-                    return out;
-            }
-            continue;
-        }
-
-        switch (meta->kind) {
-            case TSKind::TSB:
-                out.push_back(index + 1);  // slot 0 reserved for container link.
-                if (index >= meta->field_count() || meta->fields() == nullptr) {
+            if (dispatch_meta_is_tsb(meta)) {
+                if (meta->fields() == nullptr || index >= meta->field_count()) {
                     return out;
                 }
                 meta = meta->fields()[index].ts_type;
-                break;
-            case TSKind::TSL:
-                if (meta->fixed_size() > 0) {
-                    out.push_back(1);
-                    out.push_back(index);
-                }
-                if (meta->fixed_size() == 0) {
-                    crossed_dynamic_boundary = true;
-                }
+                continue;
+            }
+
+            if (dispatch_meta_is_tsl(meta) || dispatch_meta_is_tsd(meta)) {
                 meta = meta->element_ts();
-                break;
-            case TSKind::TSD:
+                continue;
+            }
+
+            return out;
+        }
+
+        if (dispatch_meta_is_tsb(meta)) {
+            out.push_back(index + 1);  // slot 0 reserved for container link.
+            if (index >= meta->field_count() || meta->fields() == nullptr) {
+                return out;
+            }
+            meta = meta->fields()[index].ts_type;
+            continue;
+        }
+
+        if (dispatch_meta_is_tsl(meta)) {
+            if (meta->fixed_size() > 0) {
                 out.push_back(1);
                 out.push_back(index);
-                meta = meta->element_ts();
-                break;
-            default:
-                return out;
+            } else {
+                crossed_dynamic_boundary = true;
+            }
+            meta = meta->element_ts();
+            continue;
         }
+
+        if (dispatch_meta_is_tsd(meta)) {
+            out.push_back(1);
+            out.push_back(index);
+            meta = meta->element_ts();
+            continue;
+        }
+
+        return out;
     }
 
     // Container/REF nodes have a root link slot at 0.
     if (!crossed_dynamic_boundary && meta != nullptr) {
-        if (meta->kind == TSKind::REF) {
+        if (dispatch_meta_is_ref(meta)) {
             out.push_back(0);
-        } else if (meta->kind == TSKind::TSB) {
+        } else if (dispatch_meta_is_tsb(meta)) {
             out.push_back(0);
-        } else if (meta->kind == TSKind::TSL && meta->fixed_size() > 0) {
+        } else if (dispatch_meta_is_fixed_tsl(meta)) {
             out.push_back(0);
-        } else if (meta->kind == TSKind::TSD) {
+        } else if (dispatch_meta_is_tsd(meta)) {
             out.push_back(0);
         }
     }
@@ -105,17 +106,17 @@ std::vector<size_t> ts_path_to_time_path(const TSMeta* root_meta, const std::vec
     }
 
     if (ts_path.empty()) {
-        if (meta->kind == TSKind::TSB ||
-            meta->kind == TSKind::TSL ||
-            meta->kind == TSKind::TSD ||
-            meta->kind == TSKind::TSW) {
+        if (dispatch_meta_is_tsb(meta) ||
+            dispatch_meta_is_tsl(meta) ||
+            dispatch_meta_is_tsd(meta) ||
+            dispatch_meta_is_tsw(meta)) {
             out.push_back(0);  // container time slot
         }
         return out;
     }
 
     for (size_t index : ts_path) {
-        while (meta != nullptr && meta->kind == TSKind::REF) {
+        while (dispatch_meta_is_ref(meta)) {
             meta = meta->element_ts();
         }
 
@@ -123,30 +124,30 @@ std::vector<size_t> ts_path_to_time_path(const TSMeta* root_meta, const std::vec
             break;
         }
 
-        switch (meta->kind) {
-            case TSKind::TSB:
-                out.push_back(index + 1);
-                if (index >= meta->field_count() || meta->fields() == nullptr) {
-                    return out;
-                }
-                meta = meta->fields()[index].ts_type;
-                break;
-
-            case TSKind::TSL:
-                out.push_back(1);
-                out.push_back(index);
-                meta = meta->element_ts();
-                break;
-
-            case TSKind::TSD:
-                out.push_back(1);
-                out.push_back(index);
-                meta = meta->element_ts();
-                break;
-
-            default:
+        if (dispatch_meta_is_tsb(meta)) {
+            out.push_back(index + 1);
+            if (index >= meta->field_count() || meta->fields() == nullptr) {
                 return out;
+            }
+            meta = meta->fields()[index].ts_type;
+            continue;
         }
+
+        if (dispatch_meta_is_tsl(meta)) {
+            out.push_back(1);
+            out.push_back(index);
+            meta = meta->element_ts();
+            continue;
+        }
+
+        if (dispatch_meta_is_tsd(meta)) {
+            out.push_back(1);
+            out.push_back(index);
+            meta = meta->element_ts();
+            continue;
+        }
+
+        return out;
     }
 
     return out;
@@ -161,16 +162,16 @@ std::vector<size_t> ts_path_to_observer_path(const TSMeta* root_meta, const std:
     }
 
     if (ts_path.empty()) {
-        if (meta->kind == TSKind::TSB ||
-            meta->kind == TSKind::TSL ||
-            meta->kind == TSKind::TSD) {
+        if (dispatch_meta_is_tsb(meta) ||
+            dispatch_meta_is_tsl(meta) ||
+            dispatch_meta_is_tsd(meta)) {
             out.push_back(0);  // container observer slot
         }
         return out;
     }
 
     for (size_t index : ts_path) {
-        while (meta != nullptr && meta->kind == TSKind::REF) {
+        while (dispatch_meta_is_ref(meta)) {
             meta = meta->element_ts();
         }
 
@@ -178,30 +179,30 @@ std::vector<size_t> ts_path_to_observer_path(const TSMeta* root_meta, const std:
             break;
         }
 
-        switch (meta->kind) {
-            case TSKind::TSB:
-                out.push_back(index + 1);
-                if (index >= meta->field_count() || meta->fields() == nullptr) {
-                    return out;
-                }
-                meta = meta->fields()[index].ts_type;
-                break;
-
-            case TSKind::TSL:
-                out.push_back(1);
-                out.push_back(index);
-                meta = meta->element_ts();
-                break;
-
-            case TSKind::TSD:
-                out.push_back(1);
-                out.push_back(index);
-                meta = meta->element_ts();
-                break;
-
-            default:
+        if (dispatch_meta_is_tsb(meta)) {
+            out.push_back(index + 1);
+            if (index >= meta->field_count() || meta->fields() == nullptr) {
                 return out;
+            }
+            meta = meta->fields()[index].ts_type;
+            continue;
         }
+
+        if (dispatch_meta_is_tsl(meta)) {
+            out.push_back(1);
+            out.push_back(index);
+            meta = meta->element_ts();
+            continue;
+        }
+
+        if (dispatch_meta_is_tsd(meta)) {
+            out.push_back(1);
+            out.push_back(index);
+            meta = meta->element_ts();
+            continue;
+        }
+
+        return out;
     }
 
     return out;
@@ -213,10 +214,10 @@ std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path(const TSMeta* root
         return out;
     }
 
-    if (root_meta->kind == TSKind::TSB ||
-        root_meta->kind == TSKind::TSL ||
-        root_meta->kind == TSKind::TSD ||
-        root_meta->kind == TSKind::TSW) {
+    if (dispatch_meta_is_tsb(root_meta) ||
+        dispatch_meta_is_tsl(root_meta) ||
+        dispatch_meta_is_tsd(root_meta) ||
+        dispatch_meta_is_tsw(root_meta)) {
         out.push_back({0});  // root container timestamp
     } else {
         out.push_back({});
@@ -225,7 +226,7 @@ std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path(const TSMeta* root
     const TSMeta* meta = root_meta;
     std::vector<size_t> current_path;
     for (size_t index : ts_path) {
-        while (meta != nullptr && meta->kind == TSKind::REF) {
+        while (dispatch_meta_is_ref(meta)) {
             meta = meta->element_ts();
         }
 
@@ -233,33 +234,33 @@ std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path(const TSMeta* root
             break;
         }
 
-        switch (meta->kind) {
-            case TSKind::TSB:
-                current_path.push_back(index + 1);
-                out.push_back(current_path);
-                if (index >= meta->field_count() || meta->fields() == nullptr) {
-                    return out;
-                }
-                meta = meta->fields()[index].ts_type;
-                break;
-
-            case TSKind::TSL:
-                current_path.push_back(1);
-                current_path.push_back(index);
-                out.push_back(current_path);
-                meta = meta->element_ts();
-                break;
-
-            case TSKind::TSD:
-                current_path.push_back(1);
-                current_path.push_back(index);
-                out.push_back(current_path);
-                meta = meta->element_ts();
-                break;
-
-            default:
+        if (dispatch_meta_is_tsb(meta)) {
+            current_path.push_back(index + 1);
+            out.push_back(current_path);
+            if (index >= meta->field_count() || meta->fields() == nullptr) {
                 return out;
+            }
+            meta = meta->fields()[index].ts_type;
+            continue;
         }
+
+        if (dispatch_meta_is_tsl(meta)) {
+            current_path.push_back(1);
+            current_path.push_back(index);
+            out.push_back(current_path);
+            meta = meta->element_ts();
+            continue;
+        }
+
+        if (dispatch_meta_is_tsd(meta)) {
+            current_path.push_back(1);
+            current_path.push_back(index);
+            out.push_back(current_path);
+            meta = meta->element_ts();
+            continue;
+        }
+
+        return out;
     }
 
     return out;
@@ -270,14 +271,13 @@ size_t static_container_child_count(const TSMeta* meta) {
         return 0;
     }
 
-    switch (meta->kind) {
-        case TSKind::TSB:
-            return meta->field_count();
-        case TSKind::TSL:
-            return meta->fixed_size();
-        default:
-            return 0;
+    if (dispatch_meta_is_tsb(meta)) {
+        return meta->field_count();
     }
+    if (dispatch_meta_is_tsl(meta)) {
+        return meta->fixed_size();
+    }
+    return 0;
 }
 
 bool link_target_points_to_unbound_ref_composite(const ViewData& vd, const LinkTarget* payload) {
@@ -287,7 +287,7 @@ bool link_target_points_to_unbound_ref_composite(const ViewData& vd, const LinkT
 
     ViewData target = payload->as_view_data(vd.sampled);
     const TSMeta* target_meta = meta_at_path(target.meta, target.path.indices);
-    if (target_meta == nullptr || target_meta->kind != TSKind::REF) {
+    if (!dispatch_meta_is_ref(target_meta)) {
         return false;
     }
 
@@ -305,7 +305,7 @@ bool is_unpeered_static_container_view(const ViewData& vd, const TSMeta* current
         return false;
     }
 
-    if (current->kind != TSKind::TSB && (current->kind != TSKind::TSL || current->fixed_size() == 0)) {
+    if (!dispatch_meta_is_static_container(current)) {
         return false;
     }
 
@@ -322,33 +322,26 @@ void collect_static_descendant_ts_paths(const TSMeta* node_meta,
         return;
     }
 
-    switch (node_meta->kind) {
-        case TSKind::TSB:
-            if (node_meta->fields() == nullptr) {
-                return;
-            }
-            for (size_t i = 0; i < node_meta->field_count(); ++i) {
-                current_ts_path.push_back(i);
-                out.push_back(current_ts_path);
-                collect_static_descendant_ts_paths(node_meta->fields()[i].ts_type, current_ts_path, out);
-                current_ts_path.pop_back();
-            }
+    if (dispatch_meta_is_tsb(node_meta)) {
+        if (node_meta->fields() == nullptr) {
             return;
+        }
+        for (size_t i = 0; i < node_meta->field_count(); ++i) {
+            current_ts_path.push_back(i);
+            out.push_back(current_ts_path);
+            collect_static_descendant_ts_paths(node_meta->fields()[i].ts_type, current_ts_path, out);
+            current_ts_path.pop_back();
+        }
+        return;
+    }
 
-        case TSKind::TSL:
-            if (node_meta->fixed_size() == 0) {
-                return;
-            }
-            for (size_t i = 0; i < node_meta->fixed_size(); ++i) {
-                current_ts_path.push_back(i);
-                out.push_back(current_ts_path);
-                collect_static_descendant_ts_paths(node_meta->element_ts(), current_ts_path, out);
-                current_ts_path.pop_back();
-            }
-            return;
-
-        default:
-            return;
+    if (dispatch_meta_is_fixed_tsl(node_meta)) {
+        for (size_t i = 0; i < node_meta->fixed_size(); ++i) {
+            current_ts_path.push_back(i);
+            out.push_back(current_ts_path);
+            collect_static_descendant_ts_paths(node_meta->element_ts(), current_ts_path, out);
+            current_ts_path.pop_back();
+        }
     }
 }
 
@@ -483,7 +476,7 @@ void ensure_tsd_child_time_slot(ViewData& vd, size_t child_slot) {
 
     auto parent_time_path = ts_path_to_time_path(vd.meta, vd.path.indices);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (self_meta != nullptr && self_meta->kind == TSKind::TSD &&
+    if (dispatch_meta_is_tsd(self_meta) &&
         vd.path.indices.empty() &&
         !parent_time_path.empty() && parent_time_path.back() == 0) {
         // Only root TSD views map directly to the container-time slot (0).
@@ -542,7 +535,7 @@ std::optional<ValueView> resolve_tsd_child_link_list(ViewData& vd) {
     }
 
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (self_meta == nullptr || self_meta->kind != TSKind::TSD) {
+    if (!dispatch_meta_is_tsd(self_meta)) {
         return std::nullopt;
     }
 
@@ -645,7 +638,7 @@ std::optional<ValueView> resolve_tsd_child_time_list(ViewData& vd) {
 
     auto parent_time_path = ts_path_to_time_path(vd.meta, vd.path.indices);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (self_meta != nullptr && self_meta->kind == TSKind::TSD &&
+    if (dispatch_meta_is_tsd(self_meta) &&
         vd.path.indices.empty() &&
         !parent_time_path.empty() && parent_time_path.back() == 0) {
         parent_time_path.pop_back();
@@ -795,7 +788,7 @@ std::vector<size_t> link_residual_ts_path(const TSMeta* root_meta, const std::ve
     bool collecting_residual = false;
 
     for (size_t index : ts_path) {
-        while (!collecting_residual && current != nullptr && current->kind == TSKind::REF) {
+        while (!collecting_residual && dispatch_meta_is_ref(current)) {
             current = current->element_ts();
         }
 
@@ -804,37 +797,35 @@ std::vector<size_t> link_residual_ts_path(const TSMeta* root_meta, const std::ve
             continue;
         }
 
-        switch (current->kind) {
-            case TSKind::TSB:
-                if (current->fields() == nullptr || index >= current->field_count()) {
-                    collecting_residual = true;
-                    residual.push_back(index);
-                    current = nullptr;
-                } else {
-                    current = current->fields()[index].ts_type;
-                }
-                break;
-
-            case TSKind::TSL:
-                if (current->fixed_size() > 0) {
-                    current = current->element_ts();
-                } else {
-                    collecting_residual = true;
-                    residual.push_back(index);
-                    current = current->element_ts();
-                }
-                break;
-
-            case TSKind::TSD:
+        if (dispatch_meta_is_tsb(current)) {
+            if (current->fields() == nullptr || index >= current->field_count()) {
                 collecting_residual = true;
                 residual.push_back(index);
-                current = current->element_ts();
-                break;
-            default:
-                collecting_residual = true;
-                residual.push_back(index);
-                break;
+                current = nullptr;
+            } else {
+                current = current->fields()[index].ts_type;
+            }
+            continue;
         }
+
+        if (dispatch_meta_is_tsl(current)) {
+            if (current->fixed_size() == 0) {
+                collecting_residual = true;
+                residual.push_back(index);
+            }
+            current = current->element_ts();
+            continue;
+        }
+
+        if (dispatch_meta_is_tsd(current)) {
+            collecting_residual = true;
+            residual.push_back(index);
+            current = current->element_ts();
+            continue;
+        }
+
+        collecting_residual = true;
+        residual.push_back(index);
     }
 
     return residual;
@@ -859,79 +850,77 @@ std::optional<std::vector<size_t>> remap_residual_indices_for_bound_view(
     mapped.reserve(residual_indices.size());
 
     for (size_t index : residual_indices) {
-        while (current != nullptr && current->kind == TSKind::REF) {
+        while (dispatch_meta_is_ref(current)) {
             current = current->element_ts();
         }
         if (current == nullptr) {
             return std::nullopt;
         }
 
-        switch (current->kind) {
-            case TSKind::TSB: {
-                if (current->fields() == nullptr || index >= current->field_count()) {
-                    return std::nullopt;
-                }
-                mapped.push_back(index);
-                local_path.push_back(index);
-                bound_path.push_back(index);
-                current = current->fields()[index].ts_type;
-                break;
+        if (dispatch_meta_is_tsb(current)) {
+            if (current->fields() == nullptr || index >= current->field_count()) {
+                return std::nullopt;
             }
-            case TSKind::TSL: {
-                mapped.push_back(index);
-                local_path.push_back(index);
-                bound_path.push_back(index);
-                current = current->element_ts();
-                break;
-            }
-            case TSKind::TSD: {
-                ViewData local_container = local_view;
-                local_container.path.indices = local_path;
-                ViewData bound_container = bound_view;
-                bound_container.path.indices = bound_path;
-
-                auto local_value = resolve_value_slot_const(local_container);
-                auto bound_value = resolve_value_slot_const(bound_container);
-                if (!local_value.has_value() || !bound_value.has_value() ||
-                    !local_value->valid() || !bound_value->valid() ||
-                    !local_value->is_map() || !bound_value->is_map()) {
-                    return std::nullopt;
-                }
-
-                auto local_map = local_value->as_map();
-                auto bound_map = bound_value->as_map();
-
-                std::optional<View> key_for_local_slot;
-                for (View key : local_map.keys()) {
-                    auto slot = map_slot_for_key(local_map, key);
-                    if (slot.has_value() && *slot == index) {
-                        key_for_local_slot = key;
-                        break;
-                    }
-                }
-                if (!key_for_local_slot.has_value()) {
-                    return std::nullopt;
-                }
-
-                auto bound_slot = map_slot_for_key(bound_map, *key_for_local_slot);
-                if (!bound_slot.has_value()) {
-                    return std::nullopt;
-                }
-
-                mapped.push_back(*bound_slot);
-                local_path.push_back(index);
-                bound_path.push_back(*bound_slot);
-                current = current->element_ts();
-                break;
-            }
-            default: {
-                mapped.push_back(index);
-                local_path.push_back(index);
-                bound_path.push_back(index);
-                current = nullptr;
-                break;
-            }
+            mapped.push_back(index);
+            local_path.push_back(index);
+            bound_path.push_back(index);
+            current = current->fields()[index].ts_type;
+            continue;
         }
+
+        if (dispatch_meta_is_tsl(current)) {
+            mapped.push_back(index);
+            local_path.push_back(index);
+            bound_path.push_back(index);
+            current = current->element_ts();
+            continue;
+        }
+
+        if (dispatch_meta_is_tsd(current)) {
+            ViewData local_container = local_view;
+            local_container.path.indices = local_path;
+            ViewData bound_container = bound_view;
+            bound_container.path.indices = bound_path;
+
+            auto local_value = resolve_value_slot_const(local_container);
+            auto bound_value = resolve_value_slot_const(bound_container);
+            if (!local_value.has_value() || !bound_value.has_value() ||
+                !local_value->valid() || !bound_value->valid() ||
+                !local_value->is_map() || !bound_value->is_map()) {
+                return std::nullopt;
+            }
+
+            auto local_map = local_value->as_map();
+            auto bound_map = bound_value->as_map();
+
+            std::optional<View> key_for_local_slot;
+            for (View key : local_map.keys()) {
+                auto slot = map_slot_for_key(local_map, key);
+                if (slot.has_value() && *slot == index) {
+                    key_for_local_slot = key;
+                    break;
+                }
+            }
+            if (!key_for_local_slot.has_value()) {
+                return std::nullopt;
+            }
+
+            auto bound_slot = map_slot_for_key(bound_map, *key_for_local_slot);
+            if (!bound_slot.has_value()) {
+                return std::nullopt;
+            }
+
+            mapped.push_back(*bound_slot);
+            local_path.push_back(index);
+            bound_path.push_back(*bound_slot);
+            current = current->element_ts();
+            continue;
+        }
+
+        mapped.push_back(index);
+        local_path.push_back(index);
+        bound_path.push_back(index);
+        current = nullptr;
     }
 
     return mapped;
@@ -940,13 +929,13 @@ std::optional<std::vector<size_t>> remap_residual_indices_for_bound_view(
 std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
     const bool debug_resolve = std::getenv("HGRAPH_DEBUG_RESOLVE") != nullptr;
     const auto target_can_accept_residual = [](const TSMeta* meta) {
-        while (meta != nullptr && meta->kind == TSKind::REF) {
+        while (dispatch_meta_is_ref(meta)) {
             meta = meta->element_ts();
         }
         if (meta == nullptr) {
             return false;
         }
-        return meta->kind == TSKind::TSB || meta->kind == TSKind::TSL || meta->kind == TSKind::TSD;
+        return dispatch_meta_is_tsb(meta) || dispatch_meta_is_tsl(meta) || dispatch_meta_is_tsd(meta);
     };
     const auto log_resolve = [&](const char* tag, const ViewData& out) {
         if (!debug_resolve) {
@@ -1028,7 +1017,7 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
         }
     } else {
         const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-        if (current != nullptr && current->kind == TSKind::REF) {
+        if (dispatch_meta_is_ref(current)) {
             // For per-slot REF values (notably TSD dynamic children), prefer the
             // local reference payload over shared REFLink indirection.
             if (auto local = resolve_value_slot_const(vd);
@@ -1056,31 +1045,29 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
         const auto path_traverses_ref = [&vd]() -> bool {
             const TSMeta* cursor = vd.meta;
             for (size_t index : vd.path.indices) {
-                if (cursor != nullptr && cursor->kind == TSKind::REF) {
+                if (dispatch_meta_is_ref(cursor)) {
                     return true;
                 }
                 if (cursor == nullptr) {
                     return false;
                 }
 
-                switch (cursor->kind) {
-                    case TSKind::TSB:
-                        if (cursor->fields() == nullptr || index >= cursor->field_count()) {
-                            return false;
-                        }
-                        cursor = cursor->fields()[index].ts_type;
-                        break;
-                    case TSKind::TSL:
-                    case TSKind::TSD:
-                        cursor = cursor->element_ts();
-                        break;
-                    case TSKind::REF:
-                        return true;
-                    default:
+                if (dispatch_meta_is_tsb(cursor)) {
+                    if (cursor->fields() == nullptr || index >= cursor->field_count()) {
                         return false;
+                    }
+                    cursor = cursor->fields()[index].ts_type;
+                    continue;
                 }
+
+                if (dispatch_meta_is_tsl(cursor) || dispatch_meta_is_tsd(cursor)) {
+                    cursor = cursor->element_ts();
+                    continue;
+                }
+
+                return false;
             }
-            return cursor != nullptr && cursor->kind == TSKind::REF;
+            return dispatch_meta_is_ref(cursor);
         };
 
         if (!path_traverses_ref()) {
@@ -1162,17 +1149,15 @@ engine_time_t rebind_time_for_view(const ViewData& vd) {
             if (meta == nullptr) {
                 return false;
             }
-            if (meta->kind == TSKind::TSB) {
+            if (dispatch_meta_is_tsb(meta)) {
                 return true;
             }
-            if (meta->kind == TSKind::TSL && meta->fixed_size() > 0) {
+            if (dispatch_meta_is_fixed_tsl(meta)) {
                 return true;
             }
-            if (meta->kind == TSKind::REF) {
+            if (dispatch_meta_is_ref(meta)) {
                 const TSMeta* element = meta->element_ts();
-                return element != nullptr &&
-                       (element->kind == TSKind::TSB ||
-                        (element->kind == TSKind::TSL && element->fixed_size() > 0));
+                return dispatch_meta_is_static_container(element);
             }
             return false;
         };
@@ -1304,7 +1289,7 @@ engine_time_t ref_wrapper_last_modified_time_on_read_path(const ViewData& vd) {
 
     for (size_t depth = 0; depth < 64; ++depth) {
         const TSMeta* current = meta_at_path(probe.meta, probe.path.indices);
-        const bool current_is_ref = current != nullptr && current->kind == TSKind::REF;
+        const bool current_is_ref = dispatch_meta_is_ref(current);
 
         auto rebound = resolve_bound_view_data(probe);
 
@@ -1312,10 +1297,7 @@ engine_time_t ref_wrapper_last_modified_time_on_read_path(const ViewData& vd) {
             const bool has_rebound_target =
                 rebound.has_value() && !same_view_identity(*rebound, probe);
             const TSMeta* element_meta = current != nullptr ? current->element_ts() : nullptr;
-            const bool static_ref_container =
-                element_meta != nullptr &&
-                (element_meta->kind == TSKind::TSB ||
-                 (element_meta->kind == TSKind::TSL && element_meta->fixed_size() > 0));
+            const bool static_ref_container = dispatch_meta_is_static_container(element_meta);
 
             // Non-REF consumers should observe REF wrapper *rebinds*, but not
             // wrapper-local rewrites that preserve target identity.
@@ -1373,7 +1355,7 @@ engine_time_t ref_wrapper_last_modified_time_on_read_path(const ViewData& vd) {
 bool resolve_ref_bound_target_view_data(const ViewData& ref_view, ViewData& out) {
     const bool debug_ref_ancestor = std::getenv("HGRAPH_DEBUG_REF_ANCESTOR") != nullptr;
     const TSMeta* ref_meta = meta_at_path(ref_view.meta, ref_view.path.indices);
-    if (ref_meta == nullptr || ref_meta->kind != TSKind::REF) {
+    if (!dispatch_meta_is_ref(ref_meta)) {
         return false;
     }
 
@@ -1448,7 +1430,7 @@ bool split_path_at_first_ref_ancestor(const TSMeta* root_meta,
         return false;
     }
     if (ts_path.empty()) {
-        if (root_meta->kind == TSKind::REF) {
+        if (dispatch_meta_is_ref(root_meta)) {
             ref_depth_out = 0;
             return true;
         }
@@ -1457,7 +1439,7 @@ bool split_path_at_first_ref_ancestor(const TSMeta* root_meta,
 
     const TSMeta* current = root_meta;
     for (size_t depth = 0; depth < ts_path.size(); ++depth) {
-        if (current != nullptr && current->kind == TSKind::REF) {
+        if (dispatch_meta_is_ref(current)) {
             ref_depth_out = depth;
             return true;
         }
@@ -1467,25 +1449,25 @@ bool split_path_at_first_ref_ancestor(const TSMeta* root_meta,
         }
 
         const size_t index = ts_path[depth];
-        switch (current->kind) {
-            case TSKind::TSB:
-                if (current->fields() == nullptr || index >= current->field_count()) {
-                    return false;
-                }
-                current = current->fields()[index].ts_type;
-                break;
-            case TSKind::TSL:
-            case TSKind::TSD:
-                current = current->element_ts();
-                break;
-            default:
+        if (dispatch_meta_is_tsb(current)) {
+            if (current->fields() == nullptr || index >= current->field_count()) {
                 return false;
+            }
+            current = current->fields()[index].ts_type;
+            continue;
         }
+
+        if (dispatch_meta_is_tsl(current) || dispatch_meta_is_tsd(current)) {
+            current = current->element_ts();
+            continue;
+        }
+
+        return false;
     }
 
     // If the traversed leaf itself is REF (for example TSD slot values in
     // TSD[K, REF[...]]), treat that leaf depth as the first REF ancestor.
-    if (current != nullptr && current->kind == TSKind::REF) {
+    if (dispatch_meta_is_ref(current)) {
         ref_depth_out = ts_path.size();
         return true;
     }
@@ -1578,7 +1560,7 @@ bool resolve_rebind_bridge_views(const ViewData& vd,
         // Bridge transitions to/from empty REF wrappers should still be surfaced
         // to container adapters so they can emit removal/addition deltas.
         const TSMeta* bridge_meta = meta_at_path(bridge_view.meta, bridge_view.path.indices);
-        if (bridge_meta == nullptr || bridge_meta->kind != TSKind::REF) {
+        if (!dispatch_meta_is_ref(bridge_meta)) {
             return false;
         }
 

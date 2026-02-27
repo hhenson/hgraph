@@ -253,7 +253,6 @@ TSWTickDeltaSlots resolve_tsw_tick_delta_slots(ViewData& vd);
 TSWDurationDeltaSlots resolve_tsw_duration_delta_slots(ViewData& vd);
 bool set_view_empty(ValueView v);
 bool map_view_empty(ValueView v);
-bool is_scalar_like_ts_kind(TSKind kind);
 bool has_delta_descendants(const TSMeta* meta);
 std::optional<std::vector<size_t>> ts_path_to_delta_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path);
 const value::MapStorage* map_storage_for_read(const value::MapView& map);
@@ -288,6 +287,93 @@ std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path(const TSMeta* root
 const ts_ops* get_ts_ops(TSKind kind);
 const ts_ops* get_ts_ops(const TSMeta* meta);
 const ts_ops* default_ts_ops();
+
+inline const ts_ops* dispatch_meta_ops(const TSMeta* meta) {
+    return meta != nullptr ? get_ts_ops(meta) : nullptr;
+}
+
+inline bool dispatch_meta_is_ref(const TSMeta* meta) {
+    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
+        return ops->valid == &op_valid_ref;
+    }
+    return false;
+}
+
+inline bool dispatch_meta_is_tsw(const TSMeta* meta) {
+    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
+        return ops->delta_value == &op_delta_value_tsw;
+    }
+    return false;
+}
+
+inline bool dispatch_meta_is_signal(const TSMeta* meta) {
+    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
+        return ops->modified == &op_modified_signal;
+    }
+    return false;
+}
+
+inline bool dispatch_meta_is_tsvalue(const TSMeta* meta) {
+    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
+        return ops->modified == &op_modified_tsvalue;
+    }
+    return false;
+}
+
+inline bool dispatch_meta_is_tss(const TSMeta* meta) {
+    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
+        return ops->modified == &op_modified_tss;
+    }
+    return false;
+}
+
+inline bool dispatch_meta_is_tsd(const TSMeta* meta) {
+    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
+        return ops->modified == &op_modified_tsd;
+    }
+    return false;
+}
+
+inline bool dispatch_meta_is_tsb(const TSMeta* meta) {
+    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
+        return ops->modified == &op_modified_tsb;
+    }
+    return false;
+}
+
+inline bool dispatch_meta_is_tsl(const TSMeta* meta) {
+    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
+        return ops->modified == &op_modified_tsl;
+    }
+    return false;
+}
+
+inline bool dispatch_meta_is_fixed_tsl(const TSMeta* meta) {
+    return dispatch_meta_is_tsl(meta) && meta != nullptr && meta->fixed_size() > 0;
+}
+
+inline bool dispatch_meta_is_static_container(const TSMeta* meta) {
+    return dispatch_meta_is_tsb(meta) || dispatch_meta_is_fixed_tsl(meta);
+}
+
+inline bool dispatch_meta_is_dynamic_container(const TSMeta* meta) {
+    return dispatch_meta_is_tsd(meta) || dispatch_meta_is_tss(meta);
+}
+
+inline bool dispatch_meta_is_container_like(const TSMeta* meta) {
+    return dispatch_meta_is_tsd(meta) ||
+           dispatch_meta_is_tss(meta) ||
+           dispatch_meta_is_tsb(meta) ||
+           dispatch_meta_is_tsl(meta);
+}
+
+inline bool dispatch_meta_is_scalar_like(const TSMeta* meta) {
+    return dispatch_meta_is_tsvalue(meta) ||
+           dispatch_meta_is_ref(meta) ||
+           dispatch_meta_is_signal(meta) ||
+           dispatch_meta_is_tsw(meta);
+}
+
 void store_to_link_target(LinkTarget& target, const ViewData& source);
 void store_to_ref_link(REFLink& target, const ViewData& source);
 bool resolve_direct_bound_view_data(const ViewData& source, ViewData& out);
@@ -374,11 +460,11 @@ void unregister_active_ref_link_observer(const REFLink& observer);
 void register_active_ref_link_observer(const REFLink& ref_link, const ViewData* observer_view = nullptr);
 
 // path_meta_utils.cpp
-bool view_matches_container_kind(const std::optional<View>& value, TSKind kind);
+bool view_matches_container_kind(const std::optional<View>& value, const TSMeta* container_meta);
 bool rebind_bridge_has_container_kind_value(const ViewData& vd,
                                             const TSMeta* self_meta,
                                             engine_time_t current_time,
-                                            TSKind kind);
+                                            const TSMeta* container_meta);
 bool is_first_bind_rebind_tick(const LinkTarget* link_target, engine_time_t current_time);
 bool resolve_container_rebind_bridge_views(const ViewData& vd,
                                            const TSMeta* container_meta,
@@ -423,7 +509,7 @@ bool try_container_bridge_delta_to_python(const ViewData& vd,
 
 template <typename Fn>
 void for_each_named_bundle_field(const TSMeta* bundle_meta, Fn&& fn) {
-    if (bundle_meta == nullptr || bundle_meta->kind != TSKind::TSB || bundle_meta->fields() == nullptr) {
+    if (bundle_meta == nullptr || !dispatch_meta_is_tsb(bundle_meta) || bundle_meta->fields() == nullptr) {
         return;
     }
     for (size_t i = 0; i < bundle_meta->field_count(); ++i) {

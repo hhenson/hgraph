@@ -87,33 +87,15 @@ inline bool meta_is_scalar_like_or_ref(const TSMeta* meta) {
     return meta_is_ref(meta) || meta_is_scalar_non_ref(meta);
 }
 
-inline std::optional<TSKind> bridge_container_kind_for_meta(const TSMeta* meta) {
-    if (const ts_ops* ops = meta_dispatch_ops(meta); ops != nullptr) {
-        if (ops->modified == &op_modified_tsd) {
-            return TSKind::TSD;
-        }
-        if (ops->modified == &op_modified_tss) {
-            return TSKind::TSS;
-        }
-    }
-    return std::nullopt;
-}
-
 inline bool rebind_bridge_has_container_meta_value(const ViewData& vd,
                                                    const TSMeta* self_meta,
                                                    engine_time_t current_time,
                                                    const TSMeta* container_meta) {
-    if (std::optional<TSKind> kind = bridge_container_kind_for_meta(container_meta); kind.has_value()) {
-        return rebind_bridge_has_container_kind_value(vd, self_meta, current_time, *kind);
-    }
-    return false;
+    return rebind_bridge_has_container_kind_value(vd, self_meta, current_time, container_meta);
 }
 
 inline bool view_matches_container_meta_value(const std::optional<View>& value, const TSMeta* container_meta) {
-    if (std::optional<TSKind> kind = bridge_container_kind_for_meta(container_meta); kind.has_value()) {
-        return view_matches_container_kind(value, *kind);
-    }
-    return false;
+    return view_matches_container_kind(value, container_meta);
 }
 
 inline bool modified_default_tail(const ViewData& vd, engine_time_t current_time) {
