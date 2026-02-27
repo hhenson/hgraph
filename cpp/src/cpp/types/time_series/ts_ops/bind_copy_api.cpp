@@ -270,7 +270,6 @@ std::optional<TSView> resolve_tsd_removed_child_snapshot(const ViewData& parent_
                             }
                         }
                     }
-                    continue;
                 }
             }
 
@@ -278,7 +277,6 @@ std::optional<TSView> resolve_tsd_removed_child_snapshot(const ViewData& parent_
             return view;
         }
     }
-
     return std::nullopt;
 }
 
