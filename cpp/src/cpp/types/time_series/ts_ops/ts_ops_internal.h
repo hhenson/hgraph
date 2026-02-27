@@ -137,7 +137,46 @@ bool op_is_bound(const ViewData& vd);
 void set_active_flag(value::ValueView active_view, bool active);
 bool active_flag_value(value::ValueView active_view);
 void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* input);
+void op_copy_scalar(ViewData dst, const ViewData& src, engine_time_t current_time);
+void op_copy_ref(ViewData dst, const ViewData& src, engine_time_t current_time);
+void op_copy_tss(ViewData dst, const ViewData& src, engine_time_t current_time);
+void op_copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time);
+void op_copy_tsl(ViewData dst, const ViewData& src, engine_time_t current_time);
+void op_copy_tsb(ViewData dst, const ViewData& src, engine_time_t current_time);
 const TSMeta* op_ts_meta(const ViewData& vd);
+ViewData dispatch_view_for_path(const ViewData& view);
+engine_time_t dispatch_last_modified_time(const ViewData& view);
+bool dispatch_modified(const ViewData& view, engine_time_t current_time);
+bool dispatch_valid(const ViewData& view);
+bool meta_is_scalar_non_ref(const TSMeta* meta);
+bool meta_is_scalar_like_or_ref(const TSMeta* meta);
+bool rebind_bridge_has_container_meta_value(const ViewData& vd,
+                                            const TSMeta* self_meta,
+                                            engine_time_t current_time,
+                                            const TSMeta* container_meta);
+bool view_matches_container_meta_value(const std::optional<View>& value, const TSMeta* container_meta);
+bool modified_default_tail(const ViewData& vd, engine_time_t current_time);
+std::optional<bool> modified_from_key_set_source(const ViewData& vd,
+                                                 engine_time_t current_time,
+                                                 bool debug_keyset_bridge,
+                                                 bool enable_bridge_logic);
+std::optional<bool> valid_from_key_set_source(const ViewData& vd, bool debug_keyset_valid);
+bool valid_from_resolved_slot(const ViewData& vd, const TSMeta* self_meta, bool ref_wrapper_mode);
+engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
+                                                 bool allow_ops_dispatch,
+                                                 bool include_wrapper_time,
+                                                 bool include_map_children,
+                                                 bool include_static_children);
+bool modified_fallback_no_dispatch(const ViewData& vd, engine_time_t current_time, bool allow_ops_dispatch);
+bool valid_fallback_no_dispatch(const ViewData& vd, bool allow_ops_dispatch);
+bool resolve_signal_source_view(const ViewData& vd,
+                                const LinkTarget& signal_link,
+                                ViewData& source_view,
+                                bool& source_is_signal);
+engine_time_t signal_last_modified_time(const ViewData& vd,
+                                        const LinkTarget& signal_link,
+                                        engine_time_t base_time);
+std::optional<bool> signal_valid_override(const ViewData& vd, const LinkTarget& signal_link);
 engine_time_t op_last_modified_time(const ViewData& vd);
 engine_time_t op_last_modified_tsvalue(const ViewData& vd);
 engine_time_t op_last_modified_ref(const ViewData& vd);
@@ -418,6 +457,15 @@ nb::object op_delta_to_python_tsd(const ViewData& vd, engine_time_t current_time
 nb::object op_delta_to_python_tsw(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time);
+nb::object op_delta_to_python_tsd_impl(const ViewData& vd, engine_time_t current_time);
+nb::object computed_delta_to_python_with_refs(const DeltaView& delta, engine_time_t current_time);
+nb::object stored_delta_to_python_with_refs(const View& view, engine_time_t current_time);
+std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
+                                                            engine_time_t current_time,
+                                                            bool debug_delta_kind,
+                                                            bool debug_keyset_bridge,
+                                                            bool emit_first_bind_all_added,
+                                                            bool allow_bridge_fallback);
 std::shared_ptr<RefUnboundItemChangeState> ensure_ref_unbound_item_change_state(TSLinkObserverRegistry* registry);
 bool unbound_ref_item_changed_this_tick(const ViewData& item_view, size_t item_index, engine_time_t current_time);
 void record_tsd_removed_child_snapshot(const ViewData& parent_view,
@@ -425,6 +473,10 @@ void record_tsd_removed_child_snapshot(const ViewData& parent_view,
                                        const ViewData& child_view,
                                        engine_time_t current_time);
 void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_time);
+void op_from_python_tsd_impl(ViewData& vd,
+                             const nb::object& src,
+                             engine_time_t current_time,
+                             const TSMeta* current);
 engine_time_t rebind_time_for_view(const ViewData& vd);
 bool same_view_identity(const ViewData& lhs, const ViewData& rhs);
 bool same_or_descendant_view(const ViewData& base, const ViewData& candidate);
