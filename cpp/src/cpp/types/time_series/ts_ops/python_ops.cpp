@@ -113,12 +113,16 @@ nb::object op_to_python_tsw_duration(const ViewData& vd) {
 }
 
 nb::object op_to_python_tsw(const ViewData& vd) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-    const ts_ops* current_ops = vd.ops != nullptr ? vd.ops : dispatch_meta_ops(current);
-    if (dispatch_ops_is_tsw_duration(current_ops)) {
-        return op_to_python_tsw_duration(vd);
+    ViewData dispatch_view = vd;
+    bind_view_data_ops(dispatch_view);
+    const ts_ops* self_ops = dispatch_view.ops;
+    if (self_ops != nullptr &&
+        self_ops->to_python != nullptr &&
+        self_ops->to_python != &op_to_python_tsw &&
+        self_ops->to_python != &op_to_python) {
+        return self_ops->to_python(dispatch_view);
     }
-    return op_to_python_tsw_tick(vd);
+    return op_to_python_tsw_tick(dispatch_view);
 }
 
 nb::object op_to_python_tsl(const ViewData& vd) {
@@ -261,8 +265,7 @@ nb::object op_to_python_tsd(const ViewData& vd) {
 nb::object op_to_python(const ViewData& vd) {
     ViewData dispatch_view = vd;
     bind_view_data_ops(dispatch_view);
-    const TSMeta* self_meta = meta_at_path(dispatch_view.meta, dispatch_view.path.indices);
-    const ts_ops* self_ops = dispatch_view.ops != nullptr ? dispatch_view.ops : dispatch_meta_ops(self_meta);
+    const ts_ops* self_ops = dispatch_view.ops;
     if (self_ops != nullptr &&
         self_ops->to_python != nullptr &&
         self_ops->to_python != &op_to_python) {

@@ -188,13 +188,16 @@ void op_from_python_tsw_duration(ViewData& vd, const nb::object& src, engine_tim
 }
 
 void op_from_python_tsw(ViewData& vd, const nb::object& src, engine_time_t current_time) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-    const ts_ops* current_ops = vd.ops != nullptr ? vd.ops : dispatch_meta_ops(current);
-    if (dispatch_ops_is_tsw_duration(current_ops)) {
-        op_from_python_tsw_duration(vd, src, current_time);
-        return;
+    bind_view_data_ops(vd);
+    const ts_ops* self_ops = vd.ops;
+    if (self_ops != nullptr &&
+        self_ops->from_python != nullptr &&
+        self_ops->from_python != &op_from_python_tsw &&
+        self_ops->from_python != &op_from_python) {
+        self_ops->from_python(vd, src, current_time);
+    } else {
+        op_from_python_tsw_tick(vd, src, current_time);
     }
-    op_from_python_tsw_tick(vd, src, current_time);
 }
 
 }  // namespace hgraph

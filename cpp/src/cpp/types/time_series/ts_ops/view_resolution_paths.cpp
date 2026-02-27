@@ -2,7 +2,23 @@
 
 namespace hgraph {
 
-std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
+namespace {
+
+struct PathVectorCacheEntry {
+    const TSMeta* root_meta{nullptr};
+    std::vector<size_t> ts_path;
+    std::vector<size_t> out_path;
+    bool valid{false};
+};
+
+struct PathVectorListCacheEntry {
+    const TSMeta* root_meta{nullptr};
+    std::vector<size_t> ts_path;
+    std::vector<std::vector<size_t>> out_paths;
+    bool valid{false};
+};
+
+std::vector<size_t> ts_path_to_link_path_uncached(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
     std::vector<size_t> out;
     const TSMeta* meta = root_meta;
     bool crossed_dynamic_boundary = false;
@@ -97,7 +113,7 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
     return out;
 }
 
-std::vector<size_t> ts_path_to_time_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
+std::vector<size_t> ts_path_to_time_path_uncached(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
     std::vector<size_t> out;
     const TSMeta* meta = root_meta;
 
@@ -153,7 +169,7 @@ std::vector<size_t> ts_path_to_time_path(const TSMeta* root_meta, const std::vec
     return out;
 }
 
-std::vector<size_t> ts_path_to_observer_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
+std::vector<size_t> ts_path_to_observer_path_uncached(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
     std::vector<size_t> out;
     const TSMeta* meta = root_meta;
 
@@ -208,7 +224,8 @@ std::vector<size_t> ts_path_to_observer_path(const TSMeta* root_meta, const std:
     return out;
 }
 
-std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
+std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path_uncached(const TSMeta* root_meta,
+                                                                        const std::vector<size_t>& ts_path) {
     std::vector<std::vector<size_t>> out;
     if (root_meta == nullptr) {
         return out;
@@ -263,6 +280,72 @@ std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path(const TSMeta* root
         return out;
     }
 
+    return out;
+}
+
+}  // namespace
+
+std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
+    static thread_local PathVectorCacheEntry cache{};
+    if (cache.valid &&
+        cache.root_meta == root_meta &&
+        cache.ts_path == ts_path) {
+        return cache.out_path;
+    }
+
+    std::vector<size_t> out = ts_path_to_link_path_uncached(root_meta, ts_path);
+    cache.root_meta = root_meta;
+    cache.ts_path = ts_path;
+    cache.out_path = out;
+    cache.valid = true;
+    return out;
+}
+
+std::vector<size_t> ts_path_to_time_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
+    static thread_local PathVectorCacheEntry cache{};
+    if (cache.valid &&
+        cache.root_meta == root_meta &&
+        cache.ts_path == ts_path) {
+        return cache.out_path;
+    }
+
+    std::vector<size_t> out = ts_path_to_time_path_uncached(root_meta, ts_path);
+    cache.root_meta = root_meta;
+    cache.ts_path = ts_path;
+    cache.out_path = out;
+    cache.valid = true;
+    return out;
+}
+
+std::vector<size_t> ts_path_to_observer_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
+    static thread_local PathVectorCacheEntry cache{};
+    if (cache.valid &&
+        cache.root_meta == root_meta &&
+        cache.ts_path == ts_path) {
+        return cache.out_path;
+    }
+
+    std::vector<size_t> out = ts_path_to_observer_path_uncached(root_meta, ts_path);
+    cache.root_meta = root_meta;
+    cache.ts_path = ts_path;
+    cache.out_path = out;
+    cache.valid = true;
+    return out;
+}
+
+std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
+    static thread_local PathVectorListCacheEntry cache{};
+    if (cache.valid &&
+        cache.root_meta == root_meta &&
+        cache.ts_path == ts_path) {
+        return cache.out_paths;
+    }
+
+    std::vector<std::vector<size_t>> out = time_stamp_paths_for_ts_path_uncached(root_meta, ts_path);
+    cache.root_meta = root_meta;
+    cache.ts_path = ts_path;
+    cache.out_paths = out;
+    cache.valid = true;
     return out;
 }
 

@@ -91,8 +91,8 @@ bool advance_observer_subtree_node(const TSMeta*& meta, View& observer_node, siz
     }
 
     auto tuple = observer_node.as_tuple();
-    if (dispatch_meta_is_tsb(meta)) {
-        if (meta->fields() == nullptr || child_index >= meta->field_count()) {
+    const auto advance_tsb = [&](const TSMeta*& cursor_meta) -> bool {
+        if (cursor_meta->fields() == nullptr || child_index >= cursor_meta->field_count()) {
             return false;
         }
         const size_t observer_child_index = child_index + 1;
@@ -104,11 +104,10 @@ bool advance_observer_subtree_node(const TSMeta*& meta, View& observer_node, siz
             return false;
         }
         observer_node = child;
-        meta = meta->fields()[child_index].ts_type;
+        cursor_meta = cursor_meta->fields()[child_index].ts_type;
         return true;
-    }
-
-    if (dispatch_meta_is_tsl(meta) || dispatch_meta_is_tsd(meta)) {
+    };
+    const auto advance_list_or_map = [&](const TSMeta*& cursor_meta) -> bool {
         if (tuple.size() < 2) {
             return false;
         }
@@ -125,8 +124,16 @@ bool advance_observer_subtree_node(const TSMeta*& meta, View& observer_node, siz
             return false;
         }
         observer_node = child;
-        meta = meta->element_ts();
+        cursor_meta = cursor_meta->element_ts();
         return true;
+    };
+
+    if (dispatch_meta_is_tsb(meta)) {
+        return advance_tsb(meta);
+    }
+
+    if (dispatch_meta_is_tsl(meta) || dispatch_meta_is_tsd(meta)) {
+        return advance_list_or_map(meta);
     }
 
     return false;
@@ -157,11 +164,11 @@ void collect_observer_subtree_registrations(
     }
 
     auto tuple = observer_node.as_tuple();
-    if (dispatch_meta_is_tsb(cursor)) {
-        if (cursor->fields() == nullptr) {
+    const auto collect_tsb = [&](const TSMeta* tsb_meta) {
+        if (tsb_meta->fields() == nullptr) {
             return;
         }
-        for (size_t i = 0; i < cursor->field_count(); ++i) {
+        for (size_t i = 0; i < tsb_meta->field_count(); ++i) {
             const size_t child_slot = i + 1;
             if (child_slot >= tuple.size()) {
                 return;
@@ -172,7 +179,7 @@ void collect_observer_subtree_registrations(
             }
             path.push_back(i);
             collect_observer_subtree_registrations(
-                cursor->fields()[i].ts_type,
+                tsb_meta->fields()[i].ts_type,
                 child,
                 path,
                 true,
@@ -180,10 +187,8 @@ void collect_observer_subtree_registrations(
                 on_ref_observer);
             path.pop_back();
         }
-        return;
-    }
-
-    if (dispatch_meta_is_tsl(cursor) || dispatch_meta_is_tsd(cursor)) {
+    };
+    const auto collect_list_or_map = [&](const TSMeta* seq_meta) {
         if (tuple.size() < 2) {
             return;
         }
@@ -199,7 +204,7 @@ void collect_observer_subtree_registrations(
             }
             path.push_back(i);
             collect_observer_subtree_registrations(
-                cursor->element_ts(),
+                seq_meta->element_ts(),
                 child,
                 path,
                 true,
@@ -207,6 +212,15 @@ void collect_observer_subtree_registrations(
                 on_ref_observer);
             path.pop_back();
         }
+    };
+
+    if (dispatch_meta_is_tsb(cursor)) {
+        collect_tsb(cursor);
+        return;
+    }
+
+    if (dispatch_meta_is_tsl(cursor) || dispatch_meta_is_tsd(cursor)) {
+        collect_list_or_map(cursor);
     }
 }
 

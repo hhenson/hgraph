@@ -309,22 +309,30 @@ nb::object tss_bridge_delta_to_python(const ViewData& previous_data,
     return python_set_delta(nb::frozenset(added_set), nb::frozenset(removed_set));
 }
 
-nb::object bridge_delta_to_python(bool container_is_tss,
+namespace {
+
+enum class BridgeDeltaScenario : uint8_t {
+    TSD = 0,
+    TSS = 1,
+};
+
+nb::object bridge_delta_to_python(BridgeDeltaScenario scenario,
                                   const ViewData& previous_data,
                                   const ViewData& current_data,
                                   engine_time_t current_time) {
-    if (container_is_tss) {
+    if (scenario == BridgeDeltaScenario::TSS) {
         return tss_bridge_delta_to_python(previous_data, current_data, current_time);
     }
     return tsd_bridge_delta_to_python(previous_data, current_data, current_time);
 }
 
-bool try_container_bridge_delta_to_python(const ViewData& vd,
-                                          const TSMeta* container_meta,
-                                          engine_time_t current_time,
-                                          bool require_kind_mismatch,
-                                          bool debug_bridge,
-                                          nb::object& out_delta) {
+bool try_container_bridge_delta_to_python_impl(const ViewData& vd,
+                                               const TSMeta* container_meta,
+                                               engine_time_t current_time,
+                                               bool require_kind_mismatch,
+                                               bool debug_bridge,
+                                               BridgeDeltaScenario scenario,
+                                               nb::object& out_delta) {
     ViewData previous_bridge{};
     ViewData current_bridge{};
     if (!resolve_container_rebind_bridge_views(
@@ -344,8 +352,54 @@ bool try_container_bridge_delta_to_python(const ViewData& vd,
     }
 
     out_delta = bridge_delta_to_python(
-        dispatch_meta_is_tss(container_meta), previous_bridge, current_bridge, current_time);
+        scenario, previous_bridge, current_bridge, current_time);
     return true;
+}
+
+}  // namespace
+
+bool try_container_bridge_delta_to_python(const ViewData& vd,
+                                          const TSMeta* container_meta,
+                                          engine_time_t current_time,
+                                          bool require_kind_mismatch,
+                                          bool debug_bridge,
+                                          nb::object& out_delta) {
+    const BridgeDeltaScenario scenario =
+        dispatch_meta_is_tss(container_meta) ? BridgeDeltaScenario::TSS : BridgeDeltaScenario::TSD;
+    return try_container_bridge_delta_to_python_impl(
+        vd, container_meta, current_time, require_kind_mismatch, debug_bridge, scenario, out_delta);
+}
+
+bool try_tsd_bridge_delta_to_python(const ViewData& vd,
+                                    const TSMeta* container_meta,
+                                    engine_time_t current_time,
+                                    bool require_kind_mismatch,
+                                    bool debug_bridge,
+                                    nb::object& out_delta) {
+    return try_container_bridge_delta_to_python_impl(
+        vd,
+        container_meta,
+        current_time,
+        require_kind_mismatch,
+        debug_bridge,
+        BridgeDeltaScenario::TSD,
+        out_delta);
+}
+
+bool try_tss_bridge_delta_to_python(const ViewData& vd,
+                                    const TSMeta* container_meta,
+                                    engine_time_t current_time,
+                                    bool require_kind_mismatch,
+                                    bool debug_bridge,
+                                    nb::object& out_delta) {
+    return try_container_bridge_delta_to_python_impl(
+        vd,
+        container_meta,
+        current_time,
+        require_kind_mismatch,
+        debug_bridge,
+        BridgeDeltaScenario::TSS,
+        out_delta);
 }
 
 bool is_tsd_key_set_projection(const ViewData& vd) {

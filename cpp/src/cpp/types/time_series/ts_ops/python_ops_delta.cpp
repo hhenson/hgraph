@@ -228,7 +228,7 @@ nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time
 
     const bool debug_tsd_bridge = std::getenv("HGRAPH_DEBUG_TSD_BRIDGE") != nullptr;
     nb::object bridge_delta;
-    if (try_container_bridge_delta_to_python(
+    if (try_tss_bridge_delta_to_python(
             vd, current, current_time, false, debug_tsd_bridge, bridge_delta)) {
         // Python parity: when bindings change, container REF deltas are computed
         // from full previous/current snapshots (not current native delta only).
@@ -453,23 +453,22 @@ nb::object op_delta_to_python_tsw_duration(const ViewData& vd, engine_time_t cur
 }
 
 nb::object op_delta_to_python_tsw(const ViewData& vd, engine_time_t current_time) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-    const ts_ops* current_ops = vd.ops != nullptr ? vd.ops : dispatch_meta_ops(current);
-    if (dispatch_ops_is_tsw_duration(current_ops)) {
-        return op_delta_to_python_tsw_duration(vd, current_time);
+    ViewData dispatch_view = vd;
+    bind_view_data_ops(dispatch_view);
+    const ts_ops* self_ops = dispatch_view.ops;
+    if (self_ops != nullptr &&
+        self_ops->delta_to_python != nullptr &&
+        self_ops->delta_to_python != &op_delta_to_python_tsw &&
+        self_ops->delta_to_python != &op_delta_to_python) {
+        return self_ops->delta_to_python(dispatch_view, current_time);
     }
-    return op_delta_to_python_tsw_tick(vd, current_time);
+    return op_delta_to_python_tsw_tick(dispatch_view, current_time);
 }
 
 static nb::object op_delta_to_python_generic_impl(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     const bool debug_delta_kind = std::getenv("HGRAPH_DEBUG_DELTA_KIND") != nullptr;
-    nb::object bridge_delta;
-    if (try_container_bridge_delta_to_python(
-            vd, self_meta, current_time, true, false, bridge_delta)) {
-        return bridge_delta;
-    }
 
     ViewData resolved{};
     if (!resolve_read_view_data(vd, resolved)) {
@@ -495,8 +494,7 @@ static nb::object op_delta_to_python_generic_impl(const ViewData& vd, engine_tim
 nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     ViewData dispatch_view = vd;
     bind_view_data_ops(dispatch_view);
-    const TSMeta* self_meta = meta_at_path(dispatch_view.meta, dispatch_view.path.indices);
-    const ts_ops* self_ops = dispatch_view.ops != nullptr ? dispatch_view.ops : dispatch_meta_ops(self_meta);
+    const ts_ops* self_ops = dispatch_view.ops;
     if (self_ops != nullptr &&
         self_ops->delta_to_python != nullptr &&
         self_ops->delta_to_python != &op_delta_to_python) {

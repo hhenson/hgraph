@@ -689,19 +689,31 @@ void clear_tsd_delta_if_new_tick(ViewData& vd, engine_time_t current_time, TSDDe
 }
 
 void clear_tsw_delta_if_new_tick(ViewData& vd, engine_time_t current_time) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-    if (!dispatch_meta_is_tsw(current)) {
-        return;
-    }
     if (direct_last_modified_time(vd) >= current_time) {
         return;
     }
 
-    const ts_ops* current_ops = vd.ops != nullptr ? vd.ops : dispatch_meta_ops(current);
-    if (dispatch_ops_is_tsw_duration(current_ops)) {
+    bind_view_data_ops(vd);
+    const ts_ops* self_ops = vd.ops;
+    if (self_ops == nullptr || self_ops->delta_value == nullptr) {
+        return;
+    }
+
+    if (self_ops->delta_value == &op_delta_value_tsw_duration) {
         clear_tsw_duration_delta_slots(resolve_tsw_duration_delta_slots(vd));
-    } else {
+        return;
+    }
+
+    if (self_ops->delta_value == &op_delta_value_tsw_tick) {
         clear_tsw_tick_delta_slots(resolve_tsw_tick_delta_slots(vd));
+        return;
+    }
+
+    if (self_ops->delta_value == &op_delta_value_tsw) {
+        // Generic TSW ops path (should not be selected on bound views): clear both
+        // shapes defensively and rely on slot validation.
+        clear_tsw_tick_delta_slots(resolve_tsw_tick_delta_slots(vd));
+        clear_tsw_duration_delta_slots(resolve_tsw_duration_delta_slots(vd));
     }
 }
 

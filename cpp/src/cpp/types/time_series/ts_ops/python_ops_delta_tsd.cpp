@@ -24,7 +24,7 @@ nb::object op_delta_to_python_tsd_impl_for_scenario(const ViewData& vd,
 
     {
         nb::object bridge_delta;
-        if (try_container_bridge_delta_to_python(
+        if (try_tsd_bridge_delta_to_python(
                 vd, self_meta, current_time, true, false, bridge_delta)) {
             return bridge_delta;
         }
@@ -50,7 +50,7 @@ nb::object op_delta_to_python_tsd_impl_for_scenario(const ViewData& vd,
     }
     const bool debug_tsd_bridge = std::getenv("HGRAPH_DEBUG_TSD_BRIDGE") != nullptr;
     nb::object bridge_delta;
-    if (try_container_bridge_delta_to_python(
+    if (try_tsd_bridge_delta_to_python(
             vd, current, current_time, false, debug_tsd_bridge, bridge_delta)) {
         // Python parity: when bindings change, container REF deltas are computed
         // from full previous/current snapshots (not current native delta only).

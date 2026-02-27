@@ -659,6 +659,18 @@ bool try_container_bridge_delta_to_python(const ViewData& vd,
                                           bool require_kind_mismatch,
                                           bool debug_bridge,
                                           nb::object& out_delta);
+bool try_tsd_bridge_delta_to_python(const ViewData& vd,
+                                    const TSMeta* container_meta,
+                                    engine_time_t current_time,
+                                    bool require_kind_mismatch,
+                                    bool debug_bridge,
+                                    nb::object& out_delta);
+bool try_tss_bridge_delta_to_python(const ViewData& vd,
+                                    const TSMeta* container_meta,
+                                    engine_time_t current_time,
+                                    bool require_kind_mismatch,
+                                    bool debug_bridge,
+                                    nb::object& out_delta);
 
 // --- Template functions (must be inline in header) ---
 
