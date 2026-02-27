@@ -44,47 +44,12 @@ inline bool dispatch_valid(const ViewData& view) {
     return op_valid(dispatch_view);
 }
 
-inline const ts_ops* meta_dispatch_ops(const TSMeta* meta) {
-    return meta != nullptr ? get_ts_ops(meta) : nullptr;
-}
-
-inline bool meta_is_ref(const TSMeta* meta) {
-    if (const ts_ops* ops = meta_dispatch_ops(meta); ops != nullptr) {
-        return ops->valid == &op_valid_ref;
-    }
-    return false;
-}
-
-inline bool meta_is_static_container(const TSMeta* meta) {
-    if (const ts_ops* ops = meta_dispatch_ops(meta); ops != nullptr) {
-        return ops->modified == &op_modified_tsb ||
-               (ops->modified == &op_modified_tsl && meta->fixed_size() > 0);
-    }
-    return false;
-}
-
-inline bool meta_is_dynamic_container(const TSMeta* meta) {
-    if (const ts_ops* ops = meta_dispatch_ops(meta); ops != nullptr) {
-        return ops->modified == &op_modified_tsd || ops->modified == &op_modified_tss;
-    }
-    return false;
-}
-
 inline bool meta_is_scalar_non_ref(const TSMeta* meta) {
-    if (const ts_ops* ops = meta_dispatch_ops(meta); ops != nullptr) {
-        return ops->valid != &op_valid_ref &&
-               (ops->modified == &op_modified_tsvalue ||
-                ops->modified == &op_modified_signal ||
-                ops->delta_value == &op_delta_value_tsw);
-    }
-    return false;
+    return dispatch_meta_is_scalar_like(meta) && !dispatch_meta_is_ref(meta);
 }
 
 inline bool meta_is_scalar_like_or_ref(const TSMeta* meta) {
-    if (meta == nullptr) {
-        return true;
-    }
-    return meta_is_ref(meta) || meta_is_scalar_non_ref(meta);
+    return meta == nullptr || dispatch_meta_is_scalar_like(meta);
 }
 
 inline bool rebind_bridge_has_container_meta_value(const ViewData& vd,
@@ -661,8 +626,8 @@ bool op_modified_ref(const ViewData& vd, engine_time_t current_time) {
     }
 
     const TSMeta* element_meta = self_meta->element_ts();
-    const bool static_ref_container = element_meta != nullptr && meta_is_static_container(element_meta);
-    const bool dynamic_ref_container = element_meta != nullptr && meta_is_dynamic_container(element_meta);
+    const bool static_ref_container = element_meta != nullptr && dispatch_meta_is_static_container(element_meta);
+    const bool dynamic_ref_container = element_meta != nullptr && dispatch_meta_is_dynamic_container(element_meta);
     bool suppress_wrapper_local_time = vd.uses_link_target && dynamic_ref_container;
     bool resolved_target_modified = false;
     std::string resolved_target_path{"<none>"};
@@ -764,7 +729,7 @@ bool op_modified_ref(const ViewData& vd, engine_time_t current_time) {
                 parent_path.pop_back();
                 if (const TSMeta* parent_meta = meta_at_path(vd.meta, parent_path);
                     parent_meta != nullptr) {
-                    parent_is_static_container = meta_is_static_container(parent_meta);
+                    parent_is_static_container = dispatch_meta_is_static_container(parent_meta);
                 }
             }
 
@@ -851,7 +816,7 @@ bool op_modified_ref(const ViewData& vd, engine_time_t current_time) {
     // Dynamic REF container rebind/unbind (e.g. REF[TSD]) should surface as
     // modified on the transition tick so container adapters can emit bridge
     // deltas (add/remove snapshots) even when wrapper local time is unchanged.
-    if (vd.uses_link_target && element_meta != nullptr && meta_is_dynamic_container(element_meta)) {
+    if (vd.uses_link_target && element_meta != nullptr && dispatch_meta_is_dynamic_container(element_meta)) {
         if (rebind_bridge_has_container_meta_value(vd, self_meta, current_time, element_meta)) {
             return true;
         }
@@ -1009,13 +974,13 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
     }
 
     const bool declared_ref_valued_tsd =
-        self_meta->element_ts() != nullptr && meta_is_ref(self_meta->element_ts());
+        self_meta->element_ts() != nullptr && dispatch_meta_is_ref(self_meta->element_ts());
     ViewData resolved{};
     if (resolve_read_view_data(vd, self_meta, resolved)) {
         bool any_child_modified = false;
         const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
         const TSMeta* element_meta = resolved_meta != nullptr ? resolved_meta->element_ts() : nullptr;
-        const bool ref_valued_tsd = element_meta != nullptr && meta_is_ref(element_meta);
+        const bool ref_valued_tsd = element_meta != nullptr && dispatch_meta_is_ref(element_meta);
         const bool suppress_ref_target_child_mods =
             ref_valued_tsd && vd.path.port_type == PortType::INPUT;
         const bool include_ref_target_child_mods =
@@ -1044,7 +1009,7 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
                     any_child_modified = dispatch_modified(child, current_time);
                     if (!any_child_modified && include_ref_target_child_mods) {
                         const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
-                        if (child_meta != nullptr && meta_is_ref(child_meta)) {
+                        if (child_meta != nullptr && dispatch_meta_is_ref(child_meta)) {
                             ViewData target{};
                             any_child_modified =
                                 resolve_bound_target_view_data(child, target) &&
@@ -1263,7 +1228,7 @@ bool op_valid_ref(const ViewData& vd) {
         if (ref.is_empty()) {
             const TSMeta* element_meta = self_meta->element_ts();
             const bool static_ref_container =
-                element_meta != nullptr && meta_is_static_container(element_meta);
+                element_meta != nullptr && dispatch_meta_is_static_container(element_meta);
             if (!vd.uses_link_target && !static_ref_container) {
                 if (debug_ref_valid) {
                     std::fprintf(stderr, "[ref_valid]  -> true (direct non-static empty)\n");
@@ -1311,7 +1276,7 @@ bool op_valid_ref(const ViewData& vd) {
     }
 
     const TSMeta* element_meta = self_meta->element_ts();
-    if (element_meta != nullptr && meta_is_static_container(element_meta)) {
+    if (element_meta != nullptr && dispatch_meta_is_static_container(element_meta)) {
         const size_t n = static_container_child_count(element_meta);
         for (size_t i = 0; i < n; ++i) {
             ViewData child = vd;
@@ -1692,7 +1657,7 @@ View op_value_ref(const ViewData& vd) {
     const bool    debug_ref_value = std::getenv("HGRAPH_DEBUG_REF_VALUE_PATH") != nullptr;
     const TSMeta* element_meta = self_meta->element_ts();
     const bool    static_ref_container =
-        element_meta != nullptr && meta_is_static_container(element_meta);
+        element_meta != nullptr && dispatch_meta_is_static_container(element_meta);
 
     // REF[TSD]/REF[TSB]/REF[TSL-fixed] wrappers can be driven by child bindings
     // without a direct parent bind. Materialize the composite REF payload so
