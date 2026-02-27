@@ -683,6 +683,7 @@ void configure_tsd_common_ops(ts_ops& out) {
     out.valid = &op_valid_tsd;
     out.modified = &op_modified_tsd;
     out.to_python = &op_to_python_tsd;
+    out.delta_to_python = &op_delta_to_python_tsd;
     out.delta_value = &op_delta_value_container;
     out.apply_delta = &op_apply_delta_container;
     out.invalidate = &op_invalidate_tsd;

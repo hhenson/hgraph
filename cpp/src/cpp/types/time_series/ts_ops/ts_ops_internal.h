@@ -414,6 +414,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsvalue(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_ref(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time);
+nb::object op_delta_to_python_tsd(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsw(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time);

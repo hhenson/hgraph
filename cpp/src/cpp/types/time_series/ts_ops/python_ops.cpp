@@ -1086,27 +1086,19 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
     return delta_out;
 }
 
-nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
-    ViewData dispatch_view = vd;
-    bind_view_data_ops(dispatch_view);
-    const TSMeta* self_meta = meta_at_path(dispatch_view.meta, dispatch_view.path.indices);
-    const ts_ops* self_ops = dispatch_meta_ops(self_meta);
-    if (self_ops == nullptr) {
-        self_ops = dispatch_view.ops;
-    }
-    if (self_ops != nullptr &&
-        self_ops->delta_to_python != nullptr &&
-        self_ops->delta_to_python != &op_delta_to_python) {
-        return self_ops->delta_to_python(dispatch_view, current_time);
-    }
-
-    refresh_dynamic_ref_binding(dispatch_view, current_time);
+static nb::object op_delta_to_python_impl(const ViewData& vd,
+                                          const TSMeta* self_meta,
+                                          engine_time_t current_time,
+                                          bool tsd_dispatch) {
+    refresh_dynamic_ref_binding(vd, current_time);
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
     const bool debug_delta_kind = std::getenv("HGRAPH_DEBUG_DELTA_KIND") != nullptr;
-    if (auto key_set_delta = maybe_tsd_key_set_delta_to_python(
-            dispatch_view, self_meta, current_time, debug_delta_kind, debug_keyset_bridge);
-        key_set_delta.has_value()) {
-        return std::move(*key_set_delta);
+    if (tsd_dispatch) {
+        if (auto key_set_delta = maybe_tsd_key_set_delta_to_python(
+                vd, self_meta, current_time, debug_delta_kind, debug_keyset_bridge);
+            key_set_delta.has_value()) {
+            return std::move(*key_set_delta);
+        }
     }
 
     const auto ref_payload_to_python =
@@ -1304,7 +1296,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                      vd.uses_link_target ? 1 : 0,
                      static_cast<long long>(current_time.time_since_epoch().count()));
     }
-    if (dispatch_meta_is_tsd(current)) {
+    if (tsd_dispatch) {
         const bool debug_tsd_bridge = std::getenv("HGRAPH_DEBUG_TSD_BRIDGE") != nullptr;
         nb::object bridge_delta;
         if (try_container_bridge_delta_to_python(
@@ -1315,7 +1307,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         }
     }
 
-    if (dispatch_meta_is_tsd(current)) {
+    if (tsd_dispatch) {
         const bool debug_tsd_delta = std::getenv("HGRAPH_DEBUG_TSD_DELTA") != nullptr;
         const bool wrapper_modified = op_modified(vd, current_time);
         const bool resolved_modified = op_modified(*data, current_time);
@@ -2335,7 +2327,28 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     return computed_delta_to_python_with_refs(delta, current_time);
 }
 
+nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
+    ViewData dispatch_view = vd;
+    bind_view_data_ops(dispatch_view);
+    const TSMeta* self_meta = meta_at_path(dispatch_view.meta, dispatch_view.path.indices);
+    const ts_ops* self_ops = dispatch_meta_ops(self_meta);
+    if (self_ops == nullptr) {
+        self_ops = dispatch_view.ops;
+    }
+    if (self_ops != nullptr &&
+        self_ops->delta_to_python != nullptr &&
+        self_ops->delta_to_python != &op_delta_to_python) {
+        return self_ops->delta_to_python(dispatch_view, current_time);
+    }
+    return op_delta_to_python_impl(dispatch_view, self_meta, current_time, false);
+}
 
+nb::object op_delta_to_python_tsd(const ViewData& vd, engine_time_t current_time) {
+    ViewData dispatch_view = vd;
+    bind_view_data_ops(dispatch_view);
+    const TSMeta* self_meta = meta_at_path(dispatch_view.meta, dispatch_view.path.indices);
+    return op_delta_to_python_impl(dispatch_view, self_meta, current_time, true);
+}
 
 void prune_ref_unbound_item_change_state(RefUnboundItemChangeState& state, engine_time_t current_time) {
     if (current_time == MIN_DT) {
