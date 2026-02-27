@@ -456,10 +456,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     ViewData dispatch_view = vd;
     bind_view_data_ops(dispatch_view);
     const TSMeta* self_meta = meta_at_path(dispatch_view.meta, dispatch_view.path.indices);
-    const ts_ops* self_ops = dispatch_meta_ops(self_meta);
-    if (self_ops == nullptr) {
-        self_ops = dispatch_view.ops;
-    }
+    const ts_ops* self_ops = dispatch_view.ops != nullptr ? dispatch_view.ops : dispatch_meta_ops(self_meta);
     if (self_ops != nullptr &&
         self_ops->delta_to_python != nullptr &&
         self_ops->delta_to_python != &op_delta_to_python) {

@@ -144,6 +144,7 @@ void op_copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time);
 void op_copy_tsl(ViewData dst, const ViewData& src, engine_time_t current_time);
 void op_copy_tsb(ViewData dst, const ViewData& src, engine_time_t current_time);
 const TSMeta* op_ts_meta(const ViewData& vd);
+const TSMeta* op_ts_meta_tsd_key_set(const ViewData& vd);
 ViewData dispatch_view_for_path(const ViewData& view);
 engine_time_t dispatch_last_modified_time(const ViewData& view);
 bool dispatch_modified(const ViewData& view, engine_time_t current_time);
@@ -193,6 +194,7 @@ bool op_modified_signal(const ViewData& vd, engine_time_t current_time);
 bool op_modified_tsw(const ViewData& vd, engine_time_t current_time);
 bool op_modified_tss(const ViewData& vd, engine_time_t current_time);
 bool op_modified_tsd(const ViewData& vd, engine_time_t current_time);
+bool op_modified_tsd_key_set(const ViewData& vd, engine_time_t current_time);
 bool op_modified_tsb(const ViewData& vd, engine_time_t current_time);
 bool op_modified_tsl(const ViewData& vd, engine_time_t current_time);
 bool op_valid(const ViewData& vd);
@@ -202,6 +204,7 @@ bool op_valid_signal(const ViewData& vd);
 bool op_valid_tsw(const ViewData& vd);
 bool op_valid_tss(const ViewData& vd);
 bool op_valid_tsd(const ViewData& vd);
+bool op_valid_tsd_key_set(const ViewData& vd);
 bool op_valid_tsb(const ViewData& vd);
 bool op_valid_tsl(const ViewData& vd);
 bool op_all_valid(const ViewData& vd);
@@ -225,6 +228,7 @@ bool op_has_delta_default(const ViewData& vd);
 bool op_has_delta_scalar(const ViewData& vd);
 bool op_has_delta_tss(const ViewData& vd);
 bool op_has_delta_tsd(const ViewData& vd);
+bool op_has_delta_tsd_key_set(const ViewData& vd);
 void op_set_value(ViewData& vd, const View& src, engine_time_t current_time);
 void op_apply_delta(ViewData& vd, const View& delta, engine_time_t current_time);
 void op_apply_delta_scalar(ViewData& vd, const View& delta, engine_time_t current_time);
@@ -334,6 +338,7 @@ std::vector<size_t> ts_path_to_observer_path(const TSMeta* root_meta, const std:
 std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path);
 const ts_ops* get_ts_ops(TSKind kind);
 const ts_ops* get_ts_ops(const TSMeta* meta);
+const ts_ops* get_ts_ops(const ViewData& view);
 const ts_ops* default_ts_ops();
 
 inline const ts_ops* dispatch_meta_ops(const TSMeta* meta) {
@@ -446,6 +451,7 @@ nb::object op_to_python(const ViewData& vd);
 nb::object op_to_python_ref(const ViewData& vd);
 nb::object op_to_python_tss(const ViewData& vd);
 nb::object op_to_python_tsd(const ViewData& vd);
+nb::object op_to_python_tsd_key_set(const ViewData& vd);
 nb::object op_to_python_tsw(const ViewData& vd);
 nb::object op_to_python_tsl(const ViewData& vd);
 nb::object op_to_python_tsb(const ViewData& vd);
@@ -454,6 +460,7 @@ nb::object op_delta_to_python_tsvalue(const ViewData& vd, engine_time_t current_
 nb::object op_delta_to_python_ref(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsd(const ViewData& vd, engine_time_t current_time);
+nb::object op_delta_to_python_tsd_key_set(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsd_ref(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsw(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time);
@@ -503,6 +510,11 @@ void record_tsd_removed_child_snapshot(const ViewData& parent_view,
                                        const ViewData& child_view,
                                        engine_time_t current_time);
 void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_time);
+void op_from_python_ref(ViewData& vd, const nb::object& src, engine_time_t current_time);
+void op_from_python_tsw(ViewData& vd, const nb::object& src, engine_time_t current_time);
+void op_from_python_tss(ViewData& vd, const nb::object& src, engine_time_t current_time);
+void op_from_python_tsl(ViewData& vd, const nb::object& src, engine_time_t current_time);
+void op_from_python_tsb(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_tsd(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_tsd_ref(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_tsd_impl(ViewData& vd,
@@ -546,6 +558,11 @@ bool assign_ref_value_from_bound_static_children(ViewData& vd);
 bool assign_ref_value_from_target(ViewData& vd, const ViewData& target);
 void clear_ref_value(ViewData& vd);
 void clear_ref_container_ancestor_cache(ViewData& vd);
+void apply_fallback_from_python_write(ViewData& vd, const nb::object& src, engine_time_t current_time);
+void notify_if_static_container_children_changed(bool changed, const ViewData& vd, engine_time_t current_time);
+void record_unbound_ref_item_changes(const ViewData& source,
+                                     const std::vector<size_t>& changed_indices,
+                                     engine_time_t current_time);
 bool op_dict_remove(ViewData& vd, const View& key, engine_time_t current_time);
 TSView op_dict_create(ViewData& vd, const View& key, engine_time_t current_time);
 TSView op_dict_set(ViewData& vd, const View& key, const View& value, engine_time_t current_time);

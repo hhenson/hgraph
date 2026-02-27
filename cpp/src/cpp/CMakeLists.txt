@@ -97,6 +97,7 @@ set(HGRAPH_SOURCES
         types/time_series/ts_ops/view_resolution_resolve.cpp
         types/time_series/ts_ops/view_resolution_binding.cpp
         types/time_series/ts_ops/bridge_delta_ops.cpp
+        types/time_series/ts_ops/projection_ops_tsd_key_set.cpp
         types/time_series/ts_ops/view_data_ops.cpp
         types/time_series/ts_ops/core_ops.cpp
         types/time_series/ts_ops/core_ops_modified.cpp
@@ -111,6 +112,10 @@ set(HGRAPH_SOURCES
         types/time_series/ts_ops/python_ops_delta_tsd_ref_payload.cpp
         types/time_series/ts_ops/python_ops_delta_tsd_postprocess.cpp
         types/time_series/ts_ops/python_ops_from_python.cpp
+        types/time_series/ts_ops/python_ops_from_python_ref.cpp
+        types/time_series/ts_ops/python_ops_from_python_tsw.cpp
+        types/time_series/ts_ops/python_ops_from_python_tss.cpp
+        types/time_series/ts_ops/python_ops_from_python_static_containers.cpp
         types/time_series/ts_ops/python_ops_from_python_helpers.cpp
         types/time_series/ts_ops/python_ops_from_python_tsd.cpp
         types/time_series/ts_ops/python_ops_from_python_tsd_ref.cpp

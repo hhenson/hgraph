@@ -6,7 +6,7 @@ TSView op_child_at(const ViewData& vd, size_t index, engine_time_t current_time)
     (void)current_time;
     ViewData child = vd;
     child.path.indices.push_back(index);
-    child.ops = get_ts_ops(meta_at_path(child.meta, child.path.indices));
+    bind_view_data_ops(child);
     child.engine_time_ptr = vd.engine_time_ptr;
     return TSView(child, child.engine_time_ptr);
 }

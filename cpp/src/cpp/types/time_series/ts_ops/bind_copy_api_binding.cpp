@@ -71,6 +71,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
                              bind_target.projection == ViewProjection::TSD_KEY_SET ? 1 : 0);
             }
         }
+        bind_view_data_ops(bind_target);
         // Non-REF scalar consumers bound to REF wrappers are driven by
         // resolved-target writes/rebind ticks. REF consumers must still observe
         // REF wrapper writes so empty->bound transitions propagate (for example

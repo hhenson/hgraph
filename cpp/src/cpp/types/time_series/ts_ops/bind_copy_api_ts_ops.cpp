@@ -59,6 +59,7 @@ void configure_tss_common_ops(ts_ops& out) {
     out.delta_to_python = &op_delta_to_python_tss;
     out.delta_value = &op_delta_value_container;
     out.apply_delta = &op_apply_delta_container;
+    out.from_python = &op_from_python_tss;
 }
 
 void configure_tsd_common_ops(ts_ops& out) {
@@ -81,6 +82,7 @@ void configure_tsl_common_ops(ts_ops& out) {
     out.delta_to_python = &op_delta_to_python_tsl;
     out.delta_value = &op_delta_value_container;
     out.apply_delta = &op_apply_delta_container;
+    out.from_python = &op_from_python_tsl;
 }
 
 void configure_tsw_common_ops(ts_ops& out) {
@@ -90,6 +92,7 @@ void configure_tsw_common_ops(ts_ops& out) {
     out.to_python = &op_to_python_tsw;
     out.delta_to_python = &op_delta_to_python_tsw;
     out.apply_delta = &op_apply_delta_container;
+    out.from_python = &op_from_python_tsw;
 }
 
 void configure_tsb_common_ops(ts_ops& out) {
@@ -101,6 +104,7 @@ void configure_tsb_common_ops(ts_ops& out) {
     out.delta_to_python = &op_delta_to_python_tsb;
     out.delta_value = &op_delta_value_container;
     out.apply_delta = &op_apply_delta_container;
+    out.from_python = &op_from_python_tsb;
 }
 
 void configure_ref_common_ops(ts_ops& out) {
@@ -114,6 +118,7 @@ void configure_ref_common_ops(ts_ops& out) {
     out.has_delta = &op_has_delta_scalar;
     out.delta_value = &op_delta_value_scalar;
     out.apply_delta = &op_apply_delta_scalar;
+    out.from_python = &op_from_python_ref;
 }
 
 void configure_signal_common_ops(ts_ops& out) {
@@ -189,6 +194,17 @@ ts_ops make_tsd_ref_ops() {
     return out;
 }
 
+ts_ops make_tsd_key_set_projection_ops() {
+    ts_ops out = make_tsd_ops();
+    out.ts_meta = &op_ts_meta_tsd_key_set;
+    out.modified = &op_modified_tsd_key_set;
+    out.valid = &op_valid_tsd_key_set;
+    out.has_delta = &op_has_delta_tsd_key_set;
+    out.to_python = &op_to_python_tsd_key_set;
+    out.delta_to_python = &op_delta_to_python_tsd_key_set;
+    return out;
+}
+
 ts_ops make_tsl_ops() {
     ts_ops out = make_common_ops(TSKind::TSL);
     out.copy_value = &op_copy_tsl;
@@ -207,6 +223,7 @@ const ts_ops k_ts_value_ops = make_common_ops(TSKind::TSValue);
 const ts_ops k_tss_ops = make_tss_ops();
 const ts_ops k_tsd_ops = make_tsd_ops();
 const ts_ops k_tsd_ref_ops = make_tsd_ref_ops();
+const ts_ops k_tsd_key_set_projection_ops = make_tsd_key_set_projection_ops();
 const ts_ops k_tsl_ops = make_tsl_ops();
 const ts_ops k_tsb_ops = make_tsb_ops();
 const ts_ops k_ref_ops = make_common_ops(TSKind::REF);
@@ -258,6 +275,16 @@ const ts_ops* get_ts_ops(const TSMeta* meta) {
         return &k_tsw_duration_ops;
     }
     return out;
+}
+
+const ts_ops* get_ts_ops(const ViewData& view) {
+    const TSMeta* meta = meta_at_path(view.meta, view.path.indices);
+    if (view.projection == ViewProjection::TSD_KEY_SET &&
+        meta != nullptr &&
+        dispatch_meta_is_tsd(meta)) {
+        return &k_tsd_key_set_projection_ops;
+    }
+    return get_ts_ops(meta);
 }
 
 const ts_ops* default_ts_ops() {

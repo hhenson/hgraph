@@ -32,7 +32,7 @@ const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indice
 }
 
 void bind_view_data_ops(ViewData& vd) {
-    vd.ops = get_ts_ops(meta_at_path(vd.meta, vd.path.indices));
+    vd.ops = get_ts_ops(vd);
 }
 
 size_t find_bundle_field_index(const TSMeta* bundle_meta, std::string_view field_name) {
