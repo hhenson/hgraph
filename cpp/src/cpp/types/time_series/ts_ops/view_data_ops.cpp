@@ -14,7 +14,13 @@ bool is_same_view_data(const ViewData& lhs, const ViewData& rhs) {
 
 // Resolve the view used for reads. For non-REF consumers, this transparently
 // dereferences REF bindings so TS adapters observe concrete target values.
+bool resolve_read_view_data(const ViewData& vd, ViewData& out) {
+    return resolve_read_view_data(vd, meta_at_path(vd.meta, vd.path.indices), out);
+}
+
 bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewData& out) {
+    const bool self_is_ref = dispatch_meta_is_ref(self_meta);
+    const bool self_static_container = dispatch_meta_is_static_container(self_meta);
     out = vd;
     out.sampled = out.sampled || vd.sampled;
     bind_view_data_ops(out);
@@ -31,13 +37,13 @@ bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewDat
 
             // REF views expose the reference object itself. For REF consumers we
             // stop after resolving the direct bind chain.
-            if (dispatch_meta_is_ref(self_meta)) {
+            if (self_is_ref) {
                 return true;
             }
             continue;
         }
 
-        if (dispatch_meta_is_ref(self_meta)) {
+        if (self_is_ref) {
             return true;
         }
 
@@ -88,7 +94,6 @@ bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewDat
             // Empty local REF values are placeholders used by REF->REF bind.
             // Fall through to binding resolution if a link exists.
             if (!ref.is_empty()) {
-                const bool self_static_container = dispatch_meta_is_static_container(self_meta);
                 if (self_static_container) {
                     // Static container consumers can be driven by unbound REF
                     // payloads (for example switch-style REF[TSB] wrappers).

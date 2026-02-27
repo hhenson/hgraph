@@ -5,8 +5,7 @@ namespace hgraph {
 namespace {
 
 bool resolve_tsw_read(const ViewData& vd, ViewData& resolved, const TSMeta*& current) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return false;
     }
     current = meta_at_path(resolved.meta, resolved.path.indices);

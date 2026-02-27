@@ -450,6 +450,7 @@ nb::object tsd_key_set_all_added_to_python(const ViewData& source);
 nb::object tsd_key_set_bridge_delta_to_python(const ViewData& previous_data, const ViewData& current_data);
 nb::object tsd_key_set_unbind_delta_to_python(const ViewData& previous_data);
 bool is_same_view_data(const ViewData& lhs, const ViewData& rhs);
+bool resolve_read_view_data(const ViewData& vd, ViewData& out);
 bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewData& out);
 void stamp_time_paths(ViewData& vd, engine_time_t current_time);
 void set_leaf_time_path(ViewData& vd, engine_time_t time_value);
@@ -530,7 +531,6 @@ bool reset_root_value_and_delta_on_none(ViewData& vd, const nb::object& src, eng
 
 // bridge_delta_ops.cpp
 TSDKeySetBridgeState resolve_tsd_key_set_bridge_state(const ViewData& vd,
-                                                      const TSMeta* self_meta,
                                                       engine_time_t current_time);
 bool try_container_bridge_delta_to_python(const ViewData& vd,
                                           const TSMeta* container_meta,

@@ -77,10 +77,10 @@ inline bool modified_default_tail(const ViewData& vd, engine_time_t current_time
 }
 
 std::optional<bool> modified_from_key_set_source(const ViewData& vd,
-                                                 const TSMeta*  self_meta,
                                                  engine_time_t  current_time,
                                                  bool           debug_keyset_bridge,
                                                  bool           enable_bridge_logic) {
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     ViewData key_set_source{};
     if (!resolve_tsd_key_set_source(vd, key_set_source)) {
         return std::nullopt;
@@ -100,7 +100,7 @@ std::optional<bool> modified_from_key_set_source(const ViewData& vd,
     }
 
     if (enable_bridge_logic) {
-        const auto bridge_state = resolve_tsd_key_set_bridge_state(vd, self_meta, current_time);
+        const auto bridge_state = resolve_tsd_key_set_bridge_state(vd, current_time);
         if (bridge_state.has_bridge) {
             if (debug_keyset_bridge) {
                 std::fprintf(stderr,
@@ -176,7 +176,7 @@ std::optional<bool> valid_from_key_set_source(const ViewData& vd, bool debug_key
 
 bool valid_from_resolved_slot(const ViewData& vd, const TSMeta* self_meta, bool ref_wrapper_mode) {
     ViewData resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return false;
     }
     if (ref_wrapper_mode && same_view_identity(resolved, vd)) {
@@ -203,7 +203,6 @@ bool valid_from_resolved_slot(const ViewData& vd, const TSMeta* self_meta, bool 
 }
 
 engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
-                                                 const TSMeta* self_meta = nullptr,
                                                  bool allow_ops_dispatch = true,
                                                  bool include_wrapper_time = true,
                                                  bool include_map_children = false,
@@ -227,9 +226,7 @@ engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
     }
     const engine_time_t rebind_time = rebind_time_for_view(vd);
     const engine_time_t ref_wrapper_time = ref_wrapper_last_modified_time_on_read_path(vd);
-    if (self_meta == nullptr) {
-        self_meta = meta_at_path(vd.meta, vd.path.indices);
-    }
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     engine_time_t base_time = include_wrapper_time ? std::max(rebind_time, ref_wrapper_time) : rebind_time;
     if (!include_wrapper_time && vd.uses_link_target) {
         if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices);
@@ -284,7 +281,7 @@ engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
     }
 
     ViewData      resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return base_time;
     }
     const ViewData* data = &resolved;
@@ -329,14 +326,11 @@ engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
 
 bool modified_fallback_no_dispatch(const ViewData& vd,
                                    engine_time_t current_time,
-                                   const TSMeta*  self_meta = nullptr,
                                    bool           allow_ops_dispatch = true) {
     refresh_dynamic_ref_binding(vd, current_time);
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
     const bool debug_op_modified = std::getenv("HGRAPH_DEBUG_OP_MODIFIED") != nullptr;
-    if (self_meta == nullptr) {
-        self_meta = meta_at_path(vd.meta, vd.path.indices);
-    }
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (allow_ops_dispatch && self_meta != nullptr) {
         if (const ts_ops* ops = get_ts_ops(self_meta); ops != nullptr && ops->modified != nullptr) {
             ViewData dispatch_vd = vd;
@@ -355,7 +349,7 @@ bool modified_fallback_no_dispatch(const ViewData& vd,
     }
 
     if (std::optional<bool> key_set_result = modified_from_key_set_source(
-            vd, self_meta, current_time, debug_keyset_bridge, is_tsd_key_set_projection(vd));
+            vd, current_time, debug_keyset_bridge, is_tsd_key_set_projection(vd));
         key_set_result.has_value()) {
         return *key_set_result;
     }
@@ -363,15 +357,13 @@ bool modified_fallback_no_dispatch(const ViewData& vd,
     return modified_default_tail(vd, current_time);
 }
 
-bool valid_fallback_no_dispatch(const ViewData& vd, const TSMeta* self_meta = nullptr, bool allow_ops_dispatch = true) {
+bool valid_fallback_no_dispatch(const ViewData& vd, bool allow_ops_dispatch = true) {
     const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
     const engine_time_t current_time = view_evaluation_time(vd);
     if (current_time != MIN_DT) {
         refresh_dynamic_ref_binding(vd, current_time);
     }
-    if (self_meta == nullptr) {
-        self_meta = meta_at_path(vd.meta, vd.path.indices);
-    }
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (allow_ops_dispatch && self_meta != nullptr) {
         if (const ts_ops* ops = get_ts_ops(self_meta); ops != nullptr && ops->valid != nullptr) {
             ViewData dispatch_vd = vd;
@@ -490,7 +482,7 @@ engine_time_t op_last_modified_ref(const ViewData& vd) {
     refresh_dynamic_ref_binding(vd, MIN_DT);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return last_modified_fallback_no_dispatch(vd, self_meta);
+        return last_modified_fallback_no_dispatch(vd);
     }
 
     const engine_time_t rebind_time = rebind_time_for_view(vd);
@@ -540,20 +532,17 @@ engine_time_t op_last_modified_ref(const ViewData& vd) {
 
 engine_time_t op_last_modified_tsvalue(const ViewData& vd) {
     refresh_dynamic_ref_binding(vd, MIN_DT);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    return last_modified_fallback_no_dispatch(vd, self_meta, false, true, false, false);
+    return last_modified_fallback_no_dispatch(vd, false, true, false, false);
 }
 
 engine_time_t op_last_modified_tsw(const ViewData& vd) {
     refresh_dynamic_ref_binding(vd, MIN_DT);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    return last_modified_fallback_no_dispatch(vd, self_meta, false, false, false, false);
+    return last_modified_fallback_no_dispatch(vd, false, false, false, false);
 }
 
 engine_time_t op_last_modified_tss(const ViewData& vd) {
     refresh_dynamic_ref_binding(vd, MIN_DT);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    return last_modified_fallback_no_dispatch(vd, self_meta, false, false, false, false);
+    return last_modified_fallback_no_dispatch(vd, false, false, false, false);
 }
 
 engine_time_t op_last_modified_signal(const ViewData& vd) {
@@ -580,32 +569,29 @@ engine_time_t op_last_modified_signal(const ViewData& vd) {
         }
     }
 
-    return last_modified_fallback_no_dispatch(vd, self_meta, false, include_wrapper_time, false, false);
+    return last_modified_fallback_no_dispatch(vd, false, include_wrapper_time, false, false);
 }
 
 engine_time_t op_last_modified_tsd(const ViewData& vd) {
     refresh_dynamic_ref_binding(vd, MIN_DT);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    return last_modified_fallback_no_dispatch(vd, self_meta, false, false, true, false);
+    return last_modified_fallback_no_dispatch(vd, false, false, true, false);
 }
 
 engine_time_t op_last_modified_tsb(const ViewData& vd) {
     refresh_dynamic_ref_binding(vd, MIN_DT);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    return last_modified_fallback_no_dispatch(vd, self_meta, false, false, false, true);
+    return last_modified_fallback_no_dispatch(vd, false, false, false, true);
 }
 
 engine_time_t op_last_modified_tsl(const ViewData& vd) {
     refresh_dynamic_ref_binding(vd, MIN_DT);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    return last_modified_fallback_no_dispatch(vd, self_meta, false, false, false, true);
+    return last_modified_fallback_no_dispatch(vd, false, false, false, true);
 }
 
 bool op_modified_ref(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return modified_fallback_no_dispatch(vd, current_time, self_meta, false);
+        return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
     const TSMeta* element_meta = self_meta->element_ts();
@@ -812,7 +798,7 @@ bool op_modified_tsvalue(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return modified_fallback_no_dispatch(vd, current_time, self_meta, false);
+        return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
@@ -848,7 +834,7 @@ bool op_modified_tsvalue(const ViewData& vd, engine_time_t current_time) {
     }
 
     if (std::optional<bool> key_set_result = modified_from_key_set_source(
-            vd, self_meta, current_time, debug_keyset_bridge, is_tsd_key_set_projection(vd));
+            vd, current_time, debug_keyset_bridge, is_tsd_key_set_projection(vd));
         key_set_result.has_value()) {
         return *key_set_result;
     }
@@ -860,7 +846,7 @@ bool op_modified_signal(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return modified_fallback_no_dispatch(vd, current_time, self_meta, false);
+        return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
@@ -876,7 +862,7 @@ bool op_modified_signal(const ViewData& vd, engine_time_t current_time) {
     }
 
     if (std::optional<bool> key_set_result = modified_from_key_set_source(
-            vd, self_meta, current_time, debug_keyset_bridge, is_tsd_key_set_projection(vd));
+            vd, current_time, debug_keyset_bridge, is_tsd_key_set_projection(vd));
         key_set_result.has_value()) {
         return *key_set_result;
     }
@@ -887,14 +873,14 @@ bool op_modified_signal(const ViewData& vd, engine_time_t current_time) {
 bool op_modified_tsw(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    return modified_fallback_no_dispatch(vd, current_time, self_meta, false);
+    return modified_fallback_no_dispatch(vd, current_time, false);
 }
 
 bool op_modified_tss(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return modified_fallback_no_dispatch(vd, current_time, self_meta, false);
+        return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
@@ -910,12 +896,12 @@ bool op_modified_tss(const ViewData& vd, engine_time_t current_time) {
     }
 
     if (std::optional<bool> key_set_result = modified_from_key_set_source(
-            vd, self_meta, current_time, debug_keyset_bridge, true);
+            vd, current_time, debug_keyset_bridge, true);
         key_set_result.has_value()) {
         return *key_set_result;
     }
 
-    const auto bridge_state = resolve_tsd_key_set_bridge_state(vd, self_meta, current_time);
+    const auto bridge_state = resolve_tsd_key_set_bridge_state(vd, current_time);
     if (bridge_state.has_previous_source || bridge_state.has_current_source) {
         return true;
     }
@@ -927,7 +913,7 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return modified_fallback_no_dispatch(vd, current_time, self_meta, false);
+        return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
@@ -943,7 +929,7 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
     }
 
     if (std::optional<bool> key_set_result = modified_from_key_set_source(
-            vd, self_meta, current_time, debug_keyset_bridge, is_tsd_key_set_projection(vd));
+            vd, current_time, debug_keyset_bridge, is_tsd_key_set_projection(vd));
         key_set_result.has_value()) {
         return *key_set_result;
     }
@@ -966,7 +952,7 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
     const bool declared_ref_valued_tsd =
         self_meta->element_ts() != nullptr && dispatch_meta_is_ref(self_meta->element_ts());
     ViewData resolved{};
-    if (resolve_read_view_data(vd, self_meta, resolved)) {
+    if (resolve_read_view_data(vd, resolved)) {
         bool any_child_modified = false;
         const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
         const TSMeta* element_meta = resolved_meta != nullptr ? resolved_meta->element_ts() : nullptr;
@@ -1071,7 +1057,7 @@ bool op_modified_tsb(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return modified_fallback_no_dispatch(vd, current_time, self_meta, false);
+        return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
@@ -1087,7 +1073,7 @@ bool op_modified_tsb(const ViewData& vd, engine_time_t current_time) {
     }
 
     if (std::optional<bool> key_set_result = modified_from_key_set_source(
-            vd, self_meta, current_time, debug_keyset_bridge, is_tsd_key_set_projection(vd));
+            vd, current_time, debug_keyset_bridge, is_tsd_key_set_projection(vd));
         key_set_result.has_value()) {
         return *key_set_result;
     }
@@ -1110,7 +1096,7 @@ bool op_modified_tsl(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return modified_fallback_no_dispatch(vd, current_time, self_meta, false);
+        return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
@@ -1126,7 +1112,7 @@ bool op_modified_tsl(const ViewData& vd, engine_time_t current_time) {
     }
 
     if (std::optional<bool> key_set_result = modified_from_key_set_source(
-            vd, self_meta, current_time, debug_keyset_bridge, is_tsd_key_set_projection(vd));
+            vd, current_time, debug_keyset_bridge, is_tsd_key_set_projection(vd));
         key_set_result.has_value()) {
         return *key_set_result;
     }
@@ -1149,17 +1135,16 @@ bool op_modified_tsl(const ViewData& vd, engine_time_t current_time) {
 
 bool op_modified(const ViewData& vd, engine_time_t current_time) {
     ViewData dispatch_vd = dispatch_view_for_path(vd);
-    const TSMeta* dispatch_meta = meta_at_path(dispatch_vd.meta, dispatch_vd.path.indices);
     if (dispatch_vd.ops != nullptr && dispatch_vd.ops->modified != nullptr) {
         return dispatch_vd.ops->modified(dispatch_vd, current_time);
     }
-    return modified_fallback_no_dispatch(dispatch_vd, current_time, dispatch_meta);
+    return modified_fallback_no_dispatch(dispatch_vd, current_time);
 }
 
 bool op_valid_tsvalue(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return valid_fallback_no_dispatch(vd, self_meta, false);
+        return valid_fallback_no_dispatch(vd, false);
     }
 
     const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
@@ -1189,7 +1174,7 @@ bool op_valid_tsvalue(const ViewData& vd) {
 bool op_valid_ref(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return valid_fallback_no_dispatch(vd, self_meta, false);
+        return valid_fallback_no_dispatch(vd, false);
     }
 
     const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
@@ -1352,7 +1337,7 @@ bool op_valid_ref(const ViewData& vd) {
 bool op_valid_signal(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return valid_fallback_no_dispatch(vd, self_meta, false);
+        return valid_fallback_no_dispatch(vd, false);
     }
 
     const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
@@ -1380,13 +1365,13 @@ bool op_valid_signal(const ViewData& vd) {
 
 bool op_valid_tsw(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    return valid_fallback_no_dispatch(vd, self_meta, false);
+    return valid_fallback_no_dispatch(vd, false);
 }
 
 bool op_valid_tss(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return valid_fallback_no_dispatch(vd, self_meta, false);
+        return valid_fallback_no_dispatch(vd, false);
     }
 
     const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
@@ -1434,7 +1419,7 @@ bool op_valid_tss(const ViewData& vd) {
 bool op_valid_tsd(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return valid_fallback_no_dispatch(vd, self_meta, false);
+        return valid_fallback_no_dispatch(vd, false);
     }
 
     const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
@@ -1459,7 +1444,7 @@ bool op_valid_tsd(const ViewData& vd) {
 bool op_valid_tsb(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return valid_fallback_no_dispatch(vd, self_meta, false);
+        return valid_fallback_no_dispatch(vd, false);
     }
 
     const engine_time_t current_time = view_evaluation_time(vd);
@@ -1481,7 +1466,7 @@ bool op_valid_tsb(const ViewData& vd) {
 bool op_valid_tsl(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
-        return valid_fallback_no_dispatch(vd, self_meta, false);
+        return valid_fallback_no_dispatch(vd, false);
     }
 
     const engine_time_t current_time = view_evaluation_time(vd);
@@ -1511,11 +1496,10 @@ bool op_valid_tsl(const ViewData& vd) {
 
 bool op_valid(const ViewData& vd) {
     ViewData dispatch_vd = dispatch_view_for_path(vd);
-    const TSMeta* dispatch_meta = meta_at_path(dispatch_vd.meta, dispatch_vd.path.indices);
     if (dispatch_vd.ops != nullptr && dispatch_vd.ops->valid != nullptr) {
         return dispatch_vd.ops->valid(dispatch_vd);
     }
-    return valid_fallback_no_dispatch(dispatch_vd, dispatch_meta);
+    return valid_fallback_no_dispatch(dispatch_vd);
 }
 
 bool op_all_valid_tsw_tick(const ViewData& vd) {
@@ -1524,7 +1508,7 @@ bool op_all_valid_tsw_tick(const ViewData& vd) {
         return op_all_valid(vd);
     }
     ViewData      resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return false;
     }
     const ViewData* data = &resolved;
@@ -1555,7 +1539,7 @@ bool op_all_valid_tsw_duration(const ViewData& vd) {
         return op_all_valid(vd);
     }
     ViewData resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return false;
     }
     const ViewData* data = &resolved;
@@ -1653,7 +1637,7 @@ bool op_sampled(const ViewData& vd) {
 View op_value_non_ref(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     ViewData      resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return {};
     }
     const ViewData* data = &resolved;
@@ -1782,7 +1766,7 @@ View op_delta_value_scalar(const ViewData& vd) {
 View op_delta_value_container(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     ViewData      resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return {};
     }
     const ViewData* data = &resolved;
@@ -1816,7 +1800,7 @@ View op_delta_value_tsw_tick(const ViewData& vd) {
         return {};
     }
     ViewData      resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return {};
     }
     const ViewData* data = &resolved;
@@ -1856,7 +1840,7 @@ View op_delta_value_tsw_duration(const ViewData& vd) {
         return {};
     }
     ViewData resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return {};
     }
     const ViewData* data = &resolved;
@@ -1945,7 +1929,7 @@ bool op_has_delta_default(const ViewData& vd) {
 
     ViewData      resolved{};
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return false;
     }
     const ViewData* data = &resolved;
@@ -1978,8 +1962,7 @@ bool op_has_delta_scalar(const ViewData& vd) {
     }
 
     ViewData      resolved{};
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return false;
     }
     const ViewData* data = &resolved;
@@ -2004,8 +1987,7 @@ bool op_has_delta_tss(const ViewData& vd) {
     }
 
     ViewData      resolved{};
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return false;
     }
     const ViewData* data = &resolved;
@@ -2045,8 +2027,7 @@ bool op_has_delta_tsd(const ViewData& vd) {
     }
 
     ViewData      resolved{};
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return false;
     }
     const ViewData* data = &resolved;

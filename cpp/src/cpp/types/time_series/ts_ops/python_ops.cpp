@@ -60,17 +60,21 @@ nb::object op_to_python_ref(const ViewData& vd) {
 }
 
 nb::object op_to_python_tsw(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     ViewData resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return nb::none();
     }
     bind_view_data_ops(resolved);
     const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
-    if (!dispatch_meta_is_tsw(resolved_meta)) {
+    const ts_ops* resolved_ops = resolved.ops != nullptr ? resolved.ops : dispatch_meta_ops(resolved_meta);
+    if (resolved_ops != nullptr &&
+        resolved_ops->to_python != nullptr &&
+        resolved_ops->to_python != &op_to_python_tsw) {
+        return resolved_ops->to_python(resolved);
+    }
+    if (resolved_meta == nullptr) {
         return nb::none();
     }
-    const ts_ops* resolved_ops = resolved.ops != nullptr ? resolved.ops : dispatch_meta_ops(resolved_meta);
 
     if (!op_valid(resolved)) {
         return nb::none();
@@ -325,10 +329,12 @@ nb::object stored_delta_to_python_with_refs(const View& view, engine_time_t curr
 }
 
 std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
-                                                            const TSMeta* self_meta,
                                                             engine_time_t current_time,
                                                             bool debug_delta_kind,
-                                                            bool debug_keyset_bridge) {
+                                                            bool debug_keyset_bridge,
+                                                            bool emit_first_bind_all_added,
+                                                            bool allow_bridge_fallback) {
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     ViewData key_set_source{};
     if (resolve_tsd_key_set_source(vd, key_set_source)) {
         if (debug_delta_kind) {
@@ -348,7 +354,7 @@ std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
                          vd.uses_link_target ? 1 : 0,
                          key_set_source.path.to_string().c_str());
         }
-        const auto bridge_state = resolve_tsd_key_set_bridge_state(vd, self_meta, current_time);
+        const auto bridge_state = resolve_tsd_key_set_bridge_state(vd, current_time);
         if (bridge_state.has_previous_source || bridge_state.has_current_source) {
             if (debug_keyset_bridge) {
                 std::fprintf(stderr,
@@ -371,8 +377,7 @@ std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
 
         // First bind from empty REF -> concrete TSD has no previous bridge yet.
         // Emit full "added" snapshot so key_set consumers observe immediate adds.
-        const bool key_set_projection = is_tsd_key_set_projection(vd);
-        if (dispatch_meta_is_tss(self_meta) || key_set_projection) {
+        if (emit_first_bind_all_added) {
             if (LinkTarget* lt = resolve_link_target(vd, vd.path.indices);
                 is_first_bind_rebind_tick(lt, current_time)) {
                 if (debug_keyset_bridge) {
@@ -394,14 +399,8 @@ std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
         return tsd_key_set_delta_to_python(key_set_source);
     }
 
-    const bool key_set_consumer =
-        self_meta != nullptr &&
-        (dispatch_meta_is_tss(self_meta) ||
-         dispatch_meta_is_signal(self_meta) ||
-         is_tsd_key_set_projection(vd));
-
-    if (key_set_consumer) {
-        const auto bridge_state = resolve_tsd_key_set_bridge_state(vd, self_meta, current_time);
+    if (allow_bridge_fallback) {
+        const auto bridge_state = resolve_tsd_key_set_bridge_state(vd, current_time);
         if (bridge_state.has_bridge) {
             if (debug_keyset_bridge) {
                 std::fprintf(stderr,
@@ -435,25 +434,6 @@ std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
                                  target_meta != nullptr ? static_cast<int>(target_meta->kind) : -1,
                                  static_cast<long long>(lt->last_rebind_time.time_since_epoch().count()),
                                  static_cast<long long>(current_time.time_since_epoch().count()));
-                    if (dispatch_meta_is_ref(self_meta)) {
-                        for (size_t i = 0; i < 3; ++i) {
-                            std::vector<size_t> probe_path = vd.path.indices;
-                            probe_path.push_back(i);
-                            if (LinkTarget* child_lt = resolve_link_target(vd, probe_path); child_lt != nullptr) {
-                                std::fprintf(stderr,
-                                             "[keyset_delta] probe_child path=%s idx=%zu child_linked=%d child_kind=%d\n",
-                                             vd.path.to_string().c_str(),
-                                             i,
-                                             child_lt->is_linked ? 1 : 0,
-                                             child_lt->meta != nullptr ? static_cast<int>(child_lt->meta->kind) : -1);
-                            } else {
-                                std::fprintf(stderr,
-                                             "[keyset_delta] probe_child path=%s idx=%zu child=<none>\n",
-                                             vd.path.to_string().c_str(),
-                                             i);
-                            }
-                        }
-                    }
                 } else {
                     std::fprintf(stderr,
                                  "[keyset_delta] no_bridge path=%s self_kind=%d uses_lt=%d link_target=<none>\n",
@@ -500,13 +480,18 @@ nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time
     const bool debug_delta_kind = std::getenv("HGRAPH_DEBUG_DELTA_KIND") != nullptr;
 
     if (auto key_set_delta = maybe_tsd_key_set_delta_to_python(
-            vd, self_meta, current_time, debug_delta_kind, debug_keyset_bridge);
+            vd,
+            current_time,
+            debug_delta_kind,
+            debug_keyset_bridge,
+            true,
+            true);
         key_set_delta.has_value()) {
         return std::move(*key_set_delta);
     }
 
     ViewData resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return nb::none();
     }
     const ViewData* data = &resolved;
@@ -609,16 +594,21 @@ nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time
 
 nb::object op_delta_to_python_tsw(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     ViewData resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return nb::none();
     }
     bind_view_data_ops(resolved);
 
     const ViewData* data = &resolved;
     const TSMeta* current = meta_at_path(data->meta, data->path.indices);
-    if (!dispatch_meta_is_tsw(current)) {
+    const ts_ops* current_ops = data->ops != nullptr ? data->ops : dispatch_meta_ops(current);
+    if (current_ops != nullptr &&
+        current_ops->delta_to_python != nullptr &&
+        current_ops->delta_to_python != &op_delta_to_python_tsw) {
+        return current_ops->delta_to_python(*data, current_time);
+    }
+    if (current == nullptr) {
         return nb::none();
     }
 
@@ -651,7 +641,6 @@ nb::object op_delta_to_python_tsw(const ViewData& vd, engine_time_t current_time
         return nb::none();
     }
 
-    const ts_ops* current_ops = data->ops != nullptr ? data->ops : dispatch_meta_ops(current);
     if (dispatch_ops_is_tsw_duration(current_ops)) {
         if (tuple.size() < 4) {
             return nb::none();
@@ -749,13 +738,20 @@ nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     ViewData resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return nb::none();
     }
+    bind_view_data_ops(resolved);
     const ViewData* data = &resolved;
 
     const TSMeta* current = meta_at_path(data->meta, data->path.indices);
-    if (!dispatch_meta_is_tsl(current)) {
+    const ts_ops* current_ops = data->ops != nullptr ? data->ops : dispatch_meta_ops(current);
+    if (current_ops != nullptr &&
+        current_ops->delta_to_python != nullptr &&
+        current_ops->delta_to_python != &op_delta_to_python_tsl) {
+        return current_ops->delta_to_python(*data, current_time);
+    }
+    if (current == nullptr) {
         return nb::none();
     }
 
@@ -868,13 +864,20 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     ViewData resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return nb::none();
     }
+    bind_view_data_ops(resolved);
     const ViewData* data = &resolved;
 
     const TSMeta* current = meta_at_path(data->meta, data->path.indices);
-    if (!dispatch_meta_is_tsb(current)) {
+    const ts_ops* current_ops = data->ops != nullptr ? data->ops : dispatch_meta_ops(current);
+    if (current_ops != nullptr &&
+        current_ops->delta_to_python != nullptr &&
+        current_ops->delta_to_python != &op_delta_to_python_tsb) {
+        return current_ops->delta_to_python(*data, current_time);
+    }
+    if (current == nullptr) {
         return nb::none();
     }
 
@@ -886,7 +889,11 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
     ViewData current_bridge{};
     if (resolve_rebind_current_bridge_view(vd, self_meta, current_time, current_bridge)) {
         const TSMeta* bridge_meta = meta_at_path(current_bridge.meta, current_bridge.path.indices);
-        if (dispatch_meta_is_tsb(bridge_meta) && bridge_meta->fields() != nullptr) {
+        const ts_ops* bridge_ops = dispatch_meta_ops(bridge_meta);
+        if (bridge_meta != nullptr &&
+            bridge_meta->fields() != nullptr &&
+            bridge_ops != nullptr &&
+            bridge_ops->delta_to_python == &op_delta_to_python_tsb) {
             for_each_named_bundle_field(bridge_meta, [&](size_t i, const char* field_name) {
                 ViewData child = current_bridge;
                 child.path.indices.push_back(i);
@@ -1086,19 +1093,52 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
     return delta_out;
 }
 
-static nb::object op_delta_to_python_impl(const ViewData& vd,
-                                          const TSMeta* self_meta,
-                                          engine_time_t current_time,
-                                          bool tsd_dispatch) {
+static nb::object op_delta_to_python_generic_impl(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const bool debug_delta_kind = std::getenv("HGRAPH_DEBUG_DELTA_KIND") != nullptr;
+    nb::object bridge_delta;
+    if (try_container_bridge_delta_to_python(
+            vd, self_meta, current_time, true, false, bridge_delta)) {
+        return bridge_delta;
+    }
+
+    ViewData resolved{};
+    if (!resolve_read_view_data(vd, resolved)) {
+        return nb::none();
+    }
+    if (debug_delta_kind) {
+        const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
+        std::fprintf(stderr,
+                     "[delta_kind] path=%s self_kind=%d resolved_kind=%d self_proj=%d resolved_proj=%d uses_lt=%d now=%lld\n",
+                     vd.path.to_string().c_str(),
+                     self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
+                     resolved_meta != nullptr ? static_cast<int>(resolved_meta->kind) : -1,
+                     static_cast<int>(vd.projection),
+                     static_cast<int>(resolved.projection),
+                     vd.uses_link_target ? 1 : 0,
+                     static_cast<long long>(current_time.time_since_epoch().count()));
+    }
+
+    DeltaView delta = DeltaView::from_computed(vd, current_time);
+    return computed_delta_to_python_with_refs(delta, current_time);
+}
+
+static nb::object op_delta_to_python_tsd_impl(const ViewData& vd, engine_time_t current_time) {
+    refresh_dynamic_ref_binding(vd, current_time);
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
     const bool debug_delta_kind = std::getenv("HGRAPH_DEBUG_DELTA_KIND") != nullptr;
-    if (tsd_dispatch) {
-        if (auto key_set_delta = maybe_tsd_key_set_delta_to_python(
-                vd, self_meta, current_time, debug_delta_kind, debug_keyset_bridge);
-            key_set_delta.has_value()) {
-            return std::move(*key_set_delta);
-        }
+    const bool key_set_projection = is_tsd_key_set_projection(vd);
+    if (auto key_set_delta = maybe_tsd_key_set_delta_to_python(
+            vd,
+            current_time,
+            debug_delta_kind,
+            debug_keyset_bridge,
+            key_set_projection,
+            key_set_projection);
+        key_set_delta.has_value()) {
+        return std::move(*key_set_delta);
     }
 
     const auto ref_payload_to_python =
@@ -1279,7 +1319,7 @@ static nb::object op_delta_to_python_impl(const ViewData& vd,
     }
 
     ViewData resolved{};
-    if (!resolve_read_view_data(vd, self_meta, resolved)) {
+    if (!resolve_read_view_data(vd, resolved)) {
         return nb::none();
     }
     const ViewData* data = &resolved;
@@ -1296,68 +1336,65 @@ static nb::object op_delta_to_python_impl(const ViewData& vd,
                      vd.uses_link_target ? 1 : 0,
                      static_cast<long long>(current_time.time_since_epoch().count()));
     }
-    if (tsd_dispatch) {
-        const bool debug_tsd_bridge = std::getenv("HGRAPH_DEBUG_TSD_BRIDGE") != nullptr;
-        nb::object bridge_delta;
-        if (try_container_bridge_delta_to_python(
-                vd, current, current_time, false, debug_tsd_bridge, bridge_delta)) {
-            // Python parity: when bindings change, container REF deltas are computed
-            // from full previous/current snapshots (not current native delta only).
-            return bridge_delta;
+    const bool debug_tsd_bridge = std::getenv("HGRAPH_DEBUG_TSD_BRIDGE") != nullptr;
+    nb::object bridge_delta;
+    if (try_container_bridge_delta_to_python(
+            vd, current, current_time, false, debug_tsd_bridge, bridge_delta)) {
+        // Python parity: when bindings change, container REF deltas are computed
+        // from full previous/current snapshots (not current native delta only).
+        return bridge_delta;
+    }
+
+    const bool debug_tsd_delta = std::getenv("HGRAPH_DEBUG_TSD_DELTA") != nullptr;
+    const bool wrapper_modified = op_modified(vd, current_time);
+    const bool resolved_modified = op_modified(*data, current_time);
+    if (!wrapper_modified && !resolved_modified) {
+        if (debug_tsd_delta) {
+            std::fprintf(stderr,
+                         "[tsd_delta_dbg] path=%s wrapper_modified=0 resolved_modified=0 now=%lld\n",
+                         vd.path.to_string().c_str(),
+                         static_cast<long long>(current_time.time_since_epoch().count()));
+        }
+        // Non-scalar delta contract: containers return empty payloads, not None.
+        return get_frozendict()(nb::dict{});
+    }
+
+    nb::dict delta_out;
+    View changed_values;
+    View added_keys;
+    View removed_keys;
+    auto* delta_root = static_cast<const Value*>(data->delta_data);
+    if (delta_root != nullptr && delta_root->has_value()) {
+        std::optional<View> maybe_delta;
+        if (auto delta_path = ts_path_to_delta_path(data->meta, data->path.indices); delta_path.has_value()) {
+            if (delta_path->empty()) {
+                maybe_delta = delta_root->view();
+            } else {
+                maybe_delta = navigate_const(delta_root->view(), *delta_path);
+            }
+        }
+
+        if (maybe_delta.has_value() && maybe_delta->valid() && maybe_delta->is_tuple()) {
+            auto tuple = maybe_delta->as_tuple();
+            if (tuple.size() > 0) {
+                changed_values = tuple.at(0);
+            }
+            if (tuple.size() > 1) {
+                added_keys = tuple.at(1);
+            }
+            if (tuple.size() > 2) {
+                removed_keys = tuple.at(2);
+            }
         }
     }
 
-    if (tsd_dispatch) {
-        const bool debug_tsd_delta = std::getenv("HGRAPH_DEBUG_TSD_DELTA") != nullptr;
-        const bool wrapper_modified = op_modified(vd, current_time);
-        const bool resolved_modified = op_modified(*data, current_time);
-        if (!wrapper_modified && !resolved_modified) {
-            if (debug_tsd_delta) {
-                std::fprintf(stderr,
-                             "[tsd_delta_dbg] path=%s wrapper_modified=0 resolved_modified=0 now=%lld\n",
-                             vd.path.to_string().c_str(),
-                             static_cast<long long>(current_time.time_since_epoch().count()));
-            }
-            // Non-scalar delta contract: containers return empty payloads, not None.
-            return get_frozendict()(nb::dict{});
-        }
-
-        nb::dict delta_out;
-        View changed_values;
-        View added_keys;
-        View removed_keys;
-        auto* delta_root = static_cast<const Value*>(data->delta_data);
-        if (delta_root != nullptr && delta_root->has_value()) {
-            std::optional<View> maybe_delta;
-            if (auto delta_path = ts_path_to_delta_path(data->meta, data->path.indices); delta_path.has_value()) {
-                if (delta_path->empty()) {
-                    maybe_delta = delta_root->view();
-                } else {
-                    maybe_delta = navigate_const(delta_root->view(), *delta_path);
-                }
-            }
-
-            if (maybe_delta.has_value() && maybe_delta->valid() && maybe_delta->is_tuple()) {
-                auto tuple = maybe_delta->as_tuple();
-                if (tuple.size() > 0) {
-                    changed_values = tuple.at(0);
-                }
-                if (tuple.size() > 1) {
-                    added_keys = tuple.at(1);
-                }
-                if (tuple.size() > 2) {
-                    removed_keys = tuple.at(2);
-                }
-            }
-        }
-
+    {
         auto current_value = resolve_value_slot_const(*data);
         if (current_value.has_value() && current_value->valid() && current_value->is_map()) {
             const auto value_map = current_value->as_map();
             const TSMeta* element_meta = current->element_ts();
             const bool declared_ref_element =
                 self_meta != nullptr &&
-                dispatch_meta_is_tsd(self_meta) &&
                 self_meta->element_ts() != nullptr &&
                 dispatch_meta_is_ref(self_meta->element_ts());
             const bool nested_element = element_meta != nullptr && !dispatch_meta_is_scalar_like(element_meta);
@@ -2309,22 +2346,19 @@ static nb::object op_delta_to_python_impl(const ViewData& vd,
                 }
             }
         }
-
-        if (debug_tsd_delta) {
-            std::string out_repr{"<repr_error>"};
-            try {
-                out_repr = nb::cast<std::string>(nb::repr(delta_out));
-            } catch (...) {}
-            std::fprintf(stderr,
-                         "[tsd_delta_dbg] final_delta path=%s out=%s\n",
-                         vd.path.to_string().c_str(),
-                         out_repr.c_str());
-        }
-        return get_frozendict()(delta_out);
     }
 
-    DeltaView delta = DeltaView::from_computed(vd, current_time);
-    return computed_delta_to_python_with_refs(delta, current_time);
+    if (debug_tsd_delta) {
+        std::string out_repr{"<repr_error>"};
+        try {
+            out_repr = nb::cast<std::string>(nb::repr(delta_out));
+        } catch (...) {}
+        std::fprintf(stderr,
+                     "[tsd_delta_dbg] final_delta path=%s out=%s\n",
+                     vd.path.to_string().c_str(),
+                     out_repr.c_str());
+    }
+    return get_frozendict()(delta_out);
 }
 
 nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
@@ -2340,14 +2374,13 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         self_ops->delta_to_python != &op_delta_to_python) {
         return self_ops->delta_to_python(dispatch_view, current_time);
     }
-    return op_delta_to_python_impl(dispatch_view, self_meta, current_time, false);
+    return op_delta_to_python_generic_impl(dispatch_view, current_time);
 }
 
 nb::object op_delta_to_python_tsd(const ViewData& vd, engine_time_t current_time) {
     ViewData dispatch_view = vd;
     bind_view_data_ops(dispatch_view);
-    const TSMeta* self_meta = meta_at_path(dispatch_view.meta, dispatch_view.path.indices);
-    return op_delta_to_python_impl(dispatch_view, self_meta, current_time, true);
+    return op_delta_to_python_tsd_impl(dispatch_view, current_time);
 }
 
 void prune_ref_unbound_item_change_state(RefUnboundItemChangeState& state, engine_time_t current_time) {

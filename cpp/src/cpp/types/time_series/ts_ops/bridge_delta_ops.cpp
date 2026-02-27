@@ -369,7 +369,7 @@ bool resolve_tsd_key_set_source(const ViewData& vd, ViewData& out) {
             return false;
         }
 
-        if (!resolve_read_view_data(source, source_meta, out)) {
+        if (!resolve_read_view_data(source, out)) {
             return false;
         }
 
@@ -384,7 +384,7 @@ bool resolve_tsd_key_set_source(const ViewData& vd, ViewData& out) {
         return false;
     }
 
-    if (!resolve_read_view_data(vd, self_meta, out)) {
+    if (!resolve_read_view_data(vd, out)) {
         return false;
     }
 
@@ -406,7 +406,7 @@ bool resolve_tsd_key_set_bridge_source(const ViewData& vd, ViewData& out) {
         return false;
     }
 
-    if (!resolve_read_view_data(vd, self_meta, out)) {
+    if (!resolve_read_view_data(vd, out)) {
         return false;
     }
 
@@ -416,9 +416,9 @@ bool resolve_tsd_key_set_bridge_source(const ViewData& vd, ViewData& out) {
 }
 
 TSDKeySetBridgeState resolve_tsd_key_set_bridge_state(const ViewData& vd,
-                                                      const TSMeta* self_meta,
                                                       engine_time_t current_time) {
     TSDKeySetBridgeState state{};
+    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
         return state;
     }
