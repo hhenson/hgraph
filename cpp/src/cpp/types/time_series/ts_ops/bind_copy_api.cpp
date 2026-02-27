@@ -655,6 +655,7 @@ ts_ops make_common_ops(TSKind kind) {
         {},
     };
     if (kind == TSKind::TSValue) {
+        out.last_modified_time = &op_last_modified_tsvalue;
         out.valid = &op_valid_tsvalue;
         out.modified = &op_modified_tsvalue;
         out.has_delta = &op_has_delta_scalar;
@@ -670,32 +671,39 @@ ts_ops make_common_ops(TSKind kind) {
         out.delta_value = &op_delta_value_scalar;
         out.apply_delta = &op_apply_delta_scalar;
     } else if (kind == TSKind::SIGNAL) {
+        out.last_modified_time = &op_last_modified_signal;
         out.valid = &op_valid_signal;
         out.modified = &op_modified_signal;
         out.has_delta = &op_has_delta_scalar;
         out.delta_value = &op_delta_value_scalar;
         out.apply_delta = &op_apply_delta_scalar;
     } else if (kind == TSKind::TSW) {
+        out.last_modified_time = &op_last_modified_tsw;
         out.all_valid = &op_all_valid_tsw;
         out.delta_value = &op_delta_value_tsw;
         out.apply_delta = &op_apply_delta_container;
     } else if (kind == TSKind::TSS) {
+        out.last_modified_time = &op_last_modified_tss;
         out.valid = &op_valid_tss;
         out.modified = &op_modified_tss;
         out.delta_value = &op_delta_value_container;
         out.apply_delta = &op_apply_delta_container;
     } else if (kind == TSKind::TSD) {
+        out.last_modified_time = &op_last_modified_tsd;
         out.valid = &op_valid_tsd;
         out.modified = &op_modified_tsd;
         out.delta_value = &op_delta_value_container;
         out.apply_delta = &op_apply_delta_container;
+        out.invalidate = &op_invalidate_tsd;
     } else if (kind == TSKind::TSB) {
+        out.last_modified_time = &op_last_modified_tsb;
         out.valid = &op_valid_tsb;
         out.modified = &op_modified_tsb;
         out.all_valid = &op_all_valid_tsb;
         out.delta_value = &op_delta_value_container;
         out.apply_delta = &op_apply_delta_container;
     } else if (kind == TSKind::TSL) {
+        out.last_modified_time = &op_last_modified_tsl;
         out.valid = &op_valid_tsl;
         out.modified = &op_modified_tsl;
         out.all_valid = &op_all_valid_tsl;
@@ -998,10 +1006,7 @@ void copy_view_data_value_impl(ViewData dst, const ViewData& src, engine_time_t 
         throw std::runtime_error("copy_view_data_value: source/destination schema kinds differ");
     }
 
-    const ts_ops* dst_ops = dst.ops;
-    if (dst_ops == nullptr || dst_ops->kind != dst_meta->kind) {
-        dst_ops = get_ts_ops(dst_meta);
-    }
+    const ts_ops* dst_ops = get_ts_ops(dst_meta);
     if (dst_ops->copy_value == nullptr) {
         return;
     }

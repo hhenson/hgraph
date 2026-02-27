@@ -1948,9 +1948,9 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             if (!op_modified(child, current_time) || !op_valid(child)) {
                 continue;
             }
-            DeltaView child_delta = DeltaView::from_computed(child, current_time);
-            if (child_delta.valid()) {
-                delta_out[nb::int_(i)] = computed_delta_to_python(child_delta);
+            nb::object child_delta = sampled_delta_or_value(child);
+            if (!child_delta.is_none()) {
+                delta_out[nb::int_(i)] = std::move(child_delta);
             }
         }
         return delta_out;
@@ -1989,7 +1989,6 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
         const bool wrapper_ticked =
             wrapper_time == current_time ||
             rebind_time == current_time;
-        const bool debug_tsb_delta = std::getenv("HGRAPH_DEBUG_TSB_DELTA") != nullptr;
         bool suppress_wrapper_sampling = false;
         if (wrapper_ticked) {
             ViewData bound_target{};
@@ -1997,50 +1996,6 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                 const TSMeta* bound_meta = meta_at_path(bound_target.meta, bound_target.path.indices);
                 suppress_wrapper_sampling = bound_meta != nullptr && bound_meta->kind == TSKind::REF;
             }
-        }
-        if (debug_tsb_delta) {
-            int has_bound = 0;
-            int bound_kind = -1;
-            ViewData bound_dbg{};
-            if (resolve_bound_target_view_data(vd, bound_dbg)) {
-                has_bound = 1;
-                if (const TSMeta* bm = meta_at_path(bound_dbg.meta, bound_dbg.path.indices); bm != nullptr) {
-                    bound_kind = static_cast<int>(bm->kind);
-                }
-            }
-            int has_prev = 0;
-            int prev_kind = -1;
-            int same_prev = -1;
-            ViewData prev_dbg{};
-            if (resolve_previous_bound_target_view_data(vd, prev_dbg)) {
-                has_prev = 1;
-                if (const TSMeta* pm = meta_at_path(prev_dbg.meta, prev_dbg.path.indices); pm != nullptr) {
-                    prev_kind = static_cast<int>(pm->kind);
-                }
-                if (has_bound) {
-                    same_prev =
-                        prev_dbg.value_data == bound_dbg.value_data &&
-                        prev_dbg.time_data == bound_dbg.time_data &&
-                        prev_dbg.observer_data == bound_dbg.observer_data &&
-                        prev_dbg.delta_data == bound_dbg.delta_data &&
-                        prev_dbg.link_data == bound_dbg.link_data &&
-                        prev_dbg.path.indices == bound_dbg.path.indices ? 1 : 0;
-                }
-            }
-            std::fprintf(stderr,
-                         "[tsb_delta] path=%s now=%lld uses_lt=%d wrapper_ticked=%d wrapper_time=%lld rebind=%lld suppress=%d has_bound=%d bound_kind=%d has_prev=%d prev_kind=%d same_prev=%d\n",
-                         vd.path.to_string().c_str(),
-                         static_cast<long long>(current_time.time_since_epoch().count()),
-                         vd.uses_link_target ? 1 : 0,
-                         wrapper_ticked ? 1 : 0,
-                         static_cast<long long>(wrapper_time.time_since_epoch().count()),
-                         static_cast<long long>(rebind_time.time_since_epoch().count()),
-                         suppress_wrapper_sampling ? 1 : 0,
-                         has_bound,
-                         bound_kind,
-                         has_prev,
-                         prev_kind,
-                         same_prev);
         }
         bool sample_all = wrapper_ticked && !suppress_wrapper_sampling;
         std::vector<bool> ref_item_rebound;
@@ -2056,9 +2011,6 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                         for (size_t i = 0; i < n; ++i) {
                             ViewData item = bound_target;
                             item.path.indices.push_back(i);
-                            const engine_time_t item_lmt = direct_last_modified_time(item);
-                            const engine_time_t item_op_lmt = op_last_modified_time(item);
-                            const bool item_modified = op_modified(item, current_time);
                             ViewData resolved_item{};
                             const bool has_resolved_item = resolve_bound_target_view_data(item, resolved_item);
                             ViewData previous_item{};
@@ -2066,8 +2018,6 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                             ViewData previous_resolved_item{};
                             const bool has_previous_resolved_item =
                                 has_resolved_item && resolve_previous_bound_target_view_data(resolved_item, previous_resolved_item);
-                            const engine_time_t resolved_direct_lmt =
-                                has_resolved_item ? direct_last_modified_time(resolved_item) : MIN_DT;
                             const bool resolved_item_modified =
                                 has_resolved_item ? op_modified(resolved_item, current_time) : false;
                             const bool recorded_item_change = unbound_ref_item_changed_this_tick(item, i, current_time);
@@ -2078,27 +2028,6 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                                 item_rebound = !is_same_view_data(resolved_item, previous_resolved_item);
                             }
                             ref_item_rebound[i] = item_rebound || resolved_item_modified || recorded_item_change;
-                            if (debug_tsb_delta) {
-                                std::fprintf(stderr,
-                                             "[tsb_delta]  ref_item idx=%zu path=%s direct_lmt=%lld op_lmt=%lld now=%lld mod=%d resolved=%d resolved_path=%s prev=%d prev_path=%s prev_resolved=%d prev_resolved_path=%s resolved_direct_lmt=%lld resolved_mod=%d recorded=%d item_rebound=%d rebound=%d\n",
-                                             i,
-                                             item.path.to_string().c_str(),
-                                             static_cast<long long>(item_lmt.time_since_epoch().count()),
-                                             static_cast<long long>(item_op_lmt.time_since_epoch().count()),
-                                             static_cast<long long>(current_time.time_since_epoch().count()),
-                                             item_modified ? 1 : 0,
-                                             has_resolved_item ? 1 : 0,
-                                             has_resolved_item ? resolved_item.path.to_string().c_str() : "<none>",
-                                             has_previous_item ? 1 : 0,
-                                             has_previous_item ? previous_item.path.to_string().c_str() : "<none>",
-                                             has_previous_resolved_item ? 1 : 0,
-                                             has_previous_resolved_item ? previous_resolved_item.path.to_string().c_str() : "<none>",
-                                             static_cast<long long>(resolved_direct_lmt.time_since_epoch().count()),
-                                             resolved_item_modified ? 1 : 0,
-                                             recorded_item_change ? 1 : 0,
-                                             item_rebound ? 1 : 0,
-                                             ref_item_rebound[i] ? 1 : 0);
-                            }
                         }
                     }
                 }
@@ -2165,20 +2094,6 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
                 const bool child_rebound = child_rebound_this_tick(i, child);
                 const bool child_advanced =
                     op_last_modified_time(child) == current_time || child_rebound;
-                if (debug_tsb_delta) {
-                    const char* field_name = current->fields() != nullptr ? current->fields()[i].name : nullptr;
-                    std::fprintf(stderr,
-                                 "[tsb_delta]  probe field=%s path=%s scalar=%d rebound=%d advanced=%d valid=%d modified=%d lmt=%lld now=%lld\n",
-                                 field_name != nullptr ? field_name : "<unnamed>",
-                                 child.path.to_string().c_str(),
-                                 scalar_like ? 1 : 0,
-                                 child_rebound ? 1 : 0,
-                                 child_advanced ? 1 : 0,
-                                 op_valid(child) ? 1 : 0,
-                                 op_modified(child, current_time) ? 1 : 0,
-                                 static_cast<long long>(op_last_modified_time(child).time_since_epoch().count()),
-                                 static_cast<long long>(current_time.time_since_epoch().count()));
-                }
                 if (child_advanced) {
                     if (scalar_like) {
                         modified_scalar_like = true;
@@ -2218,27 +2133,15 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             ViewData child = *data;
             child.path.indices.push_back(i);
             const bool child_rebound = child_rebound_this_tick(i, child);
-            if (debug_tsb_delta) {
-                std::fprintf(stderr,
-                             "[tsb_delta]  emit field=%s path=%s rebound=%d valid=%d modified=%d\n",
-                             field_name,
-                             child.path.to_string().c_str(),
-                             child_rebound ? 1 : 0,
-                             op_valid(child) ? 1 : 0,
-                             op_modified(child, current_time) ? 1 : 0);
-            }
             if ((!op_modified(child, current_time) && !child_rebound) || !op_valid(child)) {
                 return;
             }
 
             const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
             if (child_meta != nullptr && is_scalar_like_ts_kind(child_meta->kind)) {
-                DeltaView child_delta = DeltaView::from_computed(child, current_time);
-                if (has_delta_payload(child_delta)) {
-                    nb::object child_delta_py = computed_delta_to_python(child_delta);
-                    if (!child_delta_py.is_none()) {
-                        delta_out[nb::str(field_name)] = std::move(child_delta_py);
-                    }
+                nb::object child_delta_py = sampled_delta_or_value(child);
+                if (!child_delta_py.is_none()) {
+                    delta_out[nb::str(field_name)] = std::move(child_delta_py);
                 } else if (child_rebound) {
                     View child_value = op_value(child);
                     if (child_value.valid()) {
@@ -3394,4 +3297,3 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
 
 
 }  // namespace hgraph
-
