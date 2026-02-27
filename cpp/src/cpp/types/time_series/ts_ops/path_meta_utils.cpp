@@ -697,7 +697,8 @@ void clear_tsw_delta_if_new_tick(ViewData& vd, engine_time_t current_time) {
         return;
     }
 
-    if (current->is_duration_based()) {
+    const ts_ops* current_ops = vd.ops != nullptr ? vd.ops : dispatch_meta_ops(current);
+    if (dispatch_ops_is_tsw_duration(current_ops)) {
         clear_tsw_duration_delta_slots(resolve_tsw_duration_delta_slots(vd));
     } else {
         clear_tsw_tick_delta_slots(resolve_tsw_tick_delta_slots(vd));

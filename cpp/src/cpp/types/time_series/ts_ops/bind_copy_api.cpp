@@ -649,9 +649,12 @@ ts_ops make_base_common_ops(TSKind kind) {
         &op_set_active,
         &op_copy_scalar,
         kind,
-        {},
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr,
     };
-    out.specific.none = ts_ops::ts_none_ops{0};
     return out;
 }
 
@@ -754,7 +757,7 @@ ts_ops make_tsw_tick_ops() {
     ts_ops out = make_common_ops(TSKind::TSW);
     out.all_valid = &op_all_valid_tsw_tick;
     out.delta_value = &op_delta_value_tsw_tick;
-    out.specific.window = k_window_tick_ops;
+    out.window = &k_window_tick_ops;
     return out;
 }
 
@@ -762,7 +765,7 @@ ts_ops make_tsw_duration_ops() {
     ts_ops out = make_common_ops(TSKind::TSW);
     out.all_valid = &op_all_valid_tsw_duration;
     out.delta_value = &op_delta_value_tsw_duration;
-    out.specific.window = k_window_duration_ops;
+    out.window = &k_window_duration_ops;
     return out;
 }
 
@@ -770,7 +773,7 @@ ts_ops make_tss_ops() {
     ts_ops out = make_common_ops(TSKind::TSS);
     out.copy_value = &op_copy_tss;
     out.has_delta = &op_has_delta_tss;
-    out.specific.set = k_set_ops;
+    out.set = &k_set_ops;
     return out;
 }
 
@@ -778,21 +781,21 @@ ts_ops make_tsd_ops() {
     ts_ops out = make_common_ops(TSKind::TSD);
     out.copy_value = &op_copy_tsd;
     out.has_delta = &op_has_delta_tsd;
-    out.specific.dict = k_dict_ops;
+    out.dict = &k_dict_ops;
     return out;
 }
 
 ts_ops make_tsl_ops() {
     ts_ops out = make_common_ops(TSKind::TSL);
     out.copy_value = &op_copy_tsl;
-    out.specific.list = k_list_ops;
+    out.list = &k_list_ops;
     return out;
 }
 
 ts_ops make_tsb_ops() {
     ts_ops out = make_common_ops(TSKind::TSB);
     out.copy_value = &op_copy_tsb;
-    out.specific.bundle = k_bundle_ops;
+    out.bundle = &k_bundle_ops;
     return out;
 }
 

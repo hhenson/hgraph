@@ -71,8 +71,8 @@ struct ts_bundle_ops {
  *
  * Compacted layout:
  * - common operations are always present
- * - kind-specific operation families are stored in a tagged union
- *   selected by `kind`
+ * - kind-specific operation families are bound as direct pointers
+ *   when the table is created
  */
 struct ts_ops {
     const TSMeta* (*ts_meta)(const ViewData& vd);
@@ -106,38 +106,30 @@ struct ts_ops {
     void (*copy_value)(ViewData dst, const ViewData& src, engine_time_t current_time);
 
     TSKind kind;
-
-    struct ts_none_ops {
-        uint8_t reserved;
-    };
-
-    union specific_ops {
-        ts_none_ops none;
-        ts_window_ops window;
-        ts_set_ops set;
-        ts_dict_ops dict;
-        ts_list_ops list;
-        ts_bundle_ops bundle;
-    } specific;
+    const ts_window_ops* window;
+    const ts_set_ops* set;
+    const ts_dict_ops* dict;
+    const ts_list_ops* list;
+    const ts_bundle_ops* bundle;
 
     [[nodiscard]] const ts_window_ops* window_ops() const noexcept {
-        return kind == TSKind::TSW ? &specific.window : nullptr;
+        return window;
     }
 
     [[nodiscard]] const ts_set_ops* set_ops() const noexcept {
-        return kind == TSKind::TSS ? &specific.set : nullptr;
+        return set;
     }
 
     [[nodiscard]] const ts_dict_ops* dict_ops() const noexcept {
-        return kind == TSKind::TSD ? &specific.dict : nullptr;
+        return dict;
     }
 
     [[nodiscard]] const ts_list_ops* list_ops() const noexcept {
-        return kind == TSKind::TSL ? &specific.list : nullptr;
+        return list;
     }
 
     [[nodiscard]] const ts_bundle_ops* bundle_ops() const noexcept {
-        return kind == TSKind::TSB ? &specific.bundle : nullptr;
+        return bundle;
     }
 };
 

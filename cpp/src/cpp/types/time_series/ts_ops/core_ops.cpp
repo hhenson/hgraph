@@ -1597,11 +1597,11 @@ bool op_all_valid_tsw_duration(const ViewData& vd) {
 }
 
 bool op_all_valid_tsw(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (self_meta != nullptr && self_meta->is_duration_based()) {
-        return op_all_valid_tsw_duration(vd);
+    ViewData dispatch_vd = dispatch_view_for_path(vd);
+    if (dispatch_vd.ops != nullptr && dispatch_vd.ops->all_valid != nullptr) {
+        return dispatch_vd.ops->all_valid(dispatch_vd);
     }
-    return op_all_valid_tsw_tick(vd);
+    return op_all_valid_tsw_tick(dispatch_vd);
 }
 
 bool op_all_valid_tsb(const ViewData& vd) {
@@ -1917,11 +1917,11 @@ View op_delta_value_tsw_duration(const ViewData& vd) {
 }
 
 View op_delta_value_tsw(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    if (self_meta != nullptr && self_meta->is_duration_based()) {
-        return op_delta_value_tsw_duration(vd);
+    ViewData dispatch_vd = dispatch_view_for_path(vd);
+    if (dispatch_vd.ops != nullptr && dispatch_vd.ops->delta_value != nullptr) {
+        return dispatch_vd.ops->delta_value(dispatch_vd);
     }
-    return op_delta_value_tsw_tick(vd);
+    return op_delta_value_tsw_tick(dispatch_vd);
 }
 
 View op_delta_value(const ViewData& vd) {

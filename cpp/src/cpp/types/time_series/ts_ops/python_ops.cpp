@@ -135,6 +135,7 @@ nb::object op_to_python(const ViewData& vd) {
         if (!dispatch_meta_is_tsw(resolved_meta)) {
             return nb::none();
         }
+        const ts_ops* resolved_ops = resolved.ops != nullptr ? resolved.ops : dispatch_meta_ops(resolved_meta);
 
         if (!op_valid(resolved)) {
             return nb::none();
@@ -145,7 +146,7 @@ nb::object op_to_python(const ViewData& vd) {
             return nb::none();
         }
 
-        if (resolved_meta->is_duration_based()) {
+        if (dispatch_ops_is_tsw_duration(resolved_ops)) {
             auto* time_root = static_cast<const Value*>(resolved.time_data);
             if (time_root == nullptr || !time_root->has_value()) {
                 return nb::none();
@@ -663,7 +664,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
             return nb::none();
         }
 
-        if (current->is_duration_based()) {
+        const ts_ops* current_ops = data->ops != nullptr ? data->ops : dispatch_meta_ops(current);
+        if (dispatch_ops_is_tsw_duration(current_ops)) {
             if (tuple.size() < 4) {
                 return nb::none();
             }
@@ -2527,7 +2529,8 @@ void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_t
 
         clear_tsw_delta_if_new_tick(vd, current_time);
 
-        if (current->is_duration_based()) {
+        const ts_ops* current_ops = vd.ops != nullptr ? vd.ops : dispatch_meta_ops(current);
+        if (dispatch_ops_is_tsw_duration(current_ops)) {
             if (!maybe_window->valid() || !maybe_window->is_queue()) {
                 return;
             }

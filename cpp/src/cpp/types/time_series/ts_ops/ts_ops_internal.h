@@ -301,6 +301,10 @@ inline const ts_ops* dispatch_meta_ops(const TSMeta* meta) {
     return meta != nullptr ? get_ts_ops(meta) : nullptr;
 }
 
+inline bool dispatch_ops_is_tsw_duration(const ts_ops* ops) {
+    return ops != nullptr && ops->window_ops() == &k_window_duration_ops;
+}
+
 inline bool dispatch_meta_is_ref(const TSMeta* meta) {
     if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
         return ops->valid == &op_valid_ref;
@@ -310,7 +314,7 @@ inline bool dispatch_meta_is_ref(const TSMeta* meta) {
 
 inline bool dispatch_meta_is_tsw(const TSMeta* meta) {
     if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->kind == TSKind::TSW;
+        return ops->modified == &op_modified_tsw;
     }
     return false;
 }
