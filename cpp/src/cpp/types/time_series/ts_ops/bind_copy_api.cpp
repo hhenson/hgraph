@@ -662,6 +662,7 @@ void configure_tsvalue_common_ops(ts_ops& out) {
     out.last_modified_time = &op_last_modified_tsvalue;
     out.valid = &op_valid_tsvalue;
     out.modified = &op_modified_tsvalue;
+    out.delta_to_python = &op_delta_to_python_tsvalue;
     out.has_delta = &op_has_delta_scalar;
     out.delta_value = &op_delta_value_scalar;
     out.apply_delta = &op_apply_delta_scalar;
@@ -671,6 +672,8 @@ void configure_tss_common_ops(ts_ops& out) {
     out.last_modified_time = &op_last_modified_tss;
     out.valid = &op_valid_tss;
     out.modified = &op_modified_tss;
+    out.to_python = &op_to_python_tss;
+    out.delta_to_python = &op_delta_to_python_tss;
     out.delta_value = &op_delta_value_container;
     out.apply_delta = &op_apply_delta_container;
 }
@@ -679,6 +682,7 @@ void configure_tsd_common_ops(ts_ops& out) {
     out.last_modified_time = &op_last_modified_tsd;
     out.valid = &op_valid_tsd;
     out.modified = &op_modified_tsd;
+    out.to_python = &op_to_python_tsd;
     out.delta_value = &op_delta_value_container;
     out.apply_delta = &op_apply_delta_container;
     out.invalidate = &op_invalidate_tsd;
@@ -689,6 +693,8 @@ void configure_tsl_common_ops(ts_ops& out) {
     out.valid = &op_valid_tsl;
     out.modified = &op_modified_tsl;
     out.all_valid = &op_all_valid_tsl;
+    out.to_python = &op_to_python_tsl;
+    out.delta_to_python = &op_delta_to_python_tsl;
     out.delta_value = &op_delta_value_container;
     out.apply_delta = &op_apply_delta_container;
 }
@@ -697,6 +703,8 @@ void configure_tsw_common_ops(ts_ops& out) {
     out.last_modified_time = &op_last_modified_tsw;
     out.valid = &op_valid_tsw;
     out.modified = &op_modified_tsw;
+    out.to_python = &op_to_python_tsw;
+    out.delta_to_python = &op_delta_to_python_tsw;
     out.apply_delta = &op_apply_delta_container;
 }
 
@@ -705,6 +713,8 @@ void configure_tsb_common_ops(ts_ops& out) {
     out.valid = &op_valid_tsb;
     out.modified = &op_modified_tsb;
     out.all_valid = &op_all_valid_tsb;
+    out.to_python = &op_to_python_tsb;
+    out.delta_to_python = &op_delta_to_python_tsb;
     out.delta_value = &op_delta_value_container;
     out.apply_delta = &op_apply_delta_container;
 }
@@ -714,7 +724,9 @@ void configure_ref_common_ops(ts_ops& out) {
     out.value = &op_value_ref;
     out.last_modified_time = &op_last_modified_ref;
     out.modified = &op_modified_ref;
+    out.to_python = &op_to_python_ref;
     out.copy_value = &op_copy_ref;
+    out.delta_to_python = &op_delta_to_python_ref;
     out.has_delta = &op_has_delta_scalar;
     out.delta_value = &op_delta_value_scalar;
     out.apply_delta = &op_apply_delta_scalar;
