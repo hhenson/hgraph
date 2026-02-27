@@ -89,13 +89,31 @@ set(HGRAPH_SOURCES
         types/time_series/ts_meta_schema_cache.cpp
         types/time_series/ts_ops.cpp
         types/time_series/ts_ops/link_notification.cpp
+        types/time_series/ts_ops/link_notification_dispatch.cpp
         types/time_series/ts_ops/path_meta_utils.cpp
+        types/time_series/ts_ops/path_meta_utils_tsd_history.cpp
         types/time_series/ts_ops/view_resolution.cpp
+        types/time_series/ts_ops/view_resolution_paths.cpp
+        types/time_series/ts_ops/view_resolution_resolve.cpp
+        types/time_series/ts_ops/view_resolution_binding.cpp
         types/time_series/ts_ops/bridge_delta_ops.cpp
         types/time_series/ts_ops/view_data_ops.cpp
         types/time_series/ts_ops/core_ops.cpp
+        types/time_series/ts_ops/core_ops_modified.cpp
+        types/time_series/ts_ops/core_ops_valid.cpp
+        types/time_series/ts_ops/core_ops_all_valid.cpp
         types/time_series/ts_ops/python_ops.cpp
+        types/time_series/ts_ops/core_ops_value_delta.cpp
+        types/time_series/ts_ops/python_ops_delta.cpp
+        types/time_series/ts_ops/python_ops_delta_containers.cpp
+        types/time_series/ts_ops/python_ops_delta_tsd.cpp
+        types/time_series/ts_ops/python_ops_from_python.cpp
+        types/time_series/ts_ops/python_ops_from_python_helpers.cpp
+        types/time_series/ts_ops/python_ops_from_python_tsd.cpp
+        types/time_series/ts_ops/bind_copy_api_ts_ops.cpp
         types/time_series/ts_ops/bind_copy_api.cpp
+        types/time_series/ts_ops/bind_copy_api_binding.cpp
+        types/time_series/ts_ops/bind_copy_api_copy.cpp
         types/time_series/ts_ops/window_ops.cpp
         types/time_series/ts_ops/set_ops.cpp
         types/time_series/ts_ops/dict_ops.cpp
