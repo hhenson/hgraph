@@ -135,9 +135,20 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         ViewData bind_target = target;
         if (current != nullptr && current->kind == TSKind::SIGNAL) {
             const bool signal_has_impl = signal_input_has_bind_impl(vd, current, link_target);
-            const bool key_set_capable_target =
-                target_meta != nullptr &&
-                (target_meta->kind == TSKind::TSD || target_meta->kind == TSKind::REF);
+            const bool key_set_capable_target = [&]() {
+                if (target_meta == nullptr) {
+                    return false;
+                }
+                if (target_meta->kind == TSKind::TSD || target_meta->kind == TSKind::TSS) {
+                    return true;
+                }
+                if (target_meta->kind == TSKind::REF) {
+                    const TSMeta* element_meta = target_meta->element_ts();
+                    return element_meta != nullptr &&
+                           (element_meta->kind == TSKind::TSD || element_meta->kind == TSKind::TSS);
+                }
+                return false;
+            }();
             const bool count_signal_binding =
                 vd.path.node != nullptr &&
                 vd.path.node->signature().name == "count_impl";
@@ -563,6 +574,15 @@ void op_copy_scalar(ViewData dst, const ViewData& src, engine_time_t current_tim
     op_set_value(dst, op_value(src), current_time);
 }
 
+void op_copy_ref(ViewData dst, const ViewData& src, engine_time_t current_time) {
+    if (auto local = resolve_value_slot_const(src);
+        local.has_value() && local->valid() && local->schema() == ts_reference_meta()) {
+        op_set_value(dst, *local, current_time);
+        return;
+    }
+    op_set_value(dst, op_value(src), current_time);
+}
+
 void op_copy_tss(ViewData dst, const ViewData& src, engine_time_t current_time) {
     copy_tss(dst, src, current_time);
 }
@@ -634,8 +654,56 @@ ts_ops make_common_ops(TSKind kind) {
         kind,
         {},
     };
-    if (kind == TSKind::TSValue || kind == TSKind::REF || kind == TSKind::SIGNAL) {
+    if (kind == TSKind::TSValue) {
+        out.valid = &op_valid_tsvalue;
+        out.modified = &op_modified_tsvalue;
         out.has_delta = &op_has_delta_scalar;
+        out.delta_value = &op_delta_value_scalar;
+        out.apply_delta = &op_apply_delta_scalar;
+    } else if (kind == TSKind::REF) {
+        out.valid = &op_valid_ref;
+        out.value = &op_value_ref;
+        out.last_modified_time = &op_last_modified_ref;
+        out.modified = &op_modified_ref;
+        out.copy_value = &op_copy_ref;
+        out.has_delta = &op_has_delta_scalar;
+        out.delta_value = &op_delta_value_scalar;
+        out.apply_delta = &op_apply_delta_scalar;
+    } else if (kind == TSKind::SIGNAL) {
+        out.valid = &op_valid_signal;
+        out.modified = &op_modified_signal;
+        out.has_delta = &op_has_delta_scalar;
+        out.delta_value = &op_delta_value_scalar;
+        out.apply_delta = &op_apply_delta_scalar;
+    } else if (kind == TSKind::TSW) {
+        out.all_valid = &op_all_valid_tsw;
+        out.delta_value = &op_delta_value_tsw;
+        out.apply_delta = &op_apply_delta_container;
+    } else if (kind == TSKind::TSS) {
+        out.valid = &op_valid_tss;
+        out.modified = &op_modified_tss;
+        out.delta_value = &op_delta_value_container;
+        out.apply_delta = &op_apply_delta_container;
+    } else if (kind == TSKind::TSD) {
+        out.valid = &op_valid_tsd;
+        out.modified = &op_modified_tsd;
+        out.delta_value = &op_delta_value_container;
+        out.apply_delta = &op_apply_delta_container;
+    } else if (kind == TSKind::TSB) {
+        out.valid = &op_valid_tsb;
+        out.modified = &op_modified_tsb;
+        out.all_valid = &op_all_valid_tsb;
+        out.delta_value = &op_delta_value_container;
+        out.apply_delta = &op_apply_delta_container;
+    } else if (kind == TSKind::TSL) {
+        out.valid = &op_valid_tsl;
+        out.modified = &op_modified_tsl;
+        out.all_valid = &op_all_valid_tsl;
+        out.delta_value = &op_delta_value_container;
+        out.apply_delta = &op_apply_delta_container;
+    } else {
+        out.delta_value = &op_delta_value_container;
+        out.apply_delta = &op_apply_delta_container;
     }
     out.specific.none = ts_ops::ts_none_ops{0};
     return out;

@@ -1204,9 +1204,15 @@ bool should_skip_signal_ref_to_nonref_target_write(
         return false;
     }
 
+    // Until a resolved target is established, signal observers need direct
+    // target writes to bootstrap modified propagation.
+    if (!observer.has_resolved_target) {
+        return false;
+    }
+
     const bool from_resolved_target =
-        observer.has_resolved_target &&
-        same_or_descendant_view(observer.resolved_target, target_view);
+        same_or_descendant_view(observer.resolved_target, target_view) ||
+        same_or_descendant_view(target_view, observer.resolved_target);
     const bool observer_rebind_tick = observer.last_rebind_time == current_time;
     if (from_resolved_target || observer_rebind_tick) {
         return false;
@@ -1247,6 +1253,7 @@ bool should_skip_signal_wrapper_write_for_unmodified_observer(
 
 bool should_skip_signal_ref_wrapper_write_for_unmodified_observer(
     LinkTarget& observer,
+    const ViewData& target_view,
     bool target_is_ref_wrapper,
     const TSMeta* observer_meta,
     engine_time_t current_time,
@@ -1258,13 +1265,26 @@ bool should_skip_signal_ref_wrapper_write_for_unmodified_observer(
         return false;
     }
 
+    if (!observer.has_resolved_target) {
+        return false;
+    }
+
+    const bool notify_from_resolved_target =
+        same_or_descendant_view(observer.resolved_target, target_view) ||
+        same_or_descendant_view(target_view, observer.resolved_target);
+    const bool source_rebind_tick = rebind_time_for_view(target_view) == current_time;
+    const bool observer_rebind_tick = observer.last_rebind_time == current_time;
+    if (notify_from_resolved_target || source_rebind_tick || observer_rebind_tick) {
+        return false;
+    }
+
     if (signal_ref_observer_modified_for_wrapper_write(observer, current_time)) {
         return false;
     }
 
     if (debug_notify) {
         std::fprintf(stderr,
-                     "[notify_obs]  skip ref-wrapper write for signal/ref observer obs=%p (observer unmodified)\n",
+                     "[notify_obs]  skip ref-wrapper write for signal/ref observer obs=%p (off-resolved unmodified)\n",
                      static_cast<void*>(&observer));
     }
     return true;
@@ -1387,7 +1407,7 @@ void dispatch_link_observers(
         observer_view.sampled = false;
         const TSMeta* observer_meta = meta_at_path(observer_view.meta, observer_view.path.indices);
         if (should_skip_signal_ref_wrapper_write_for_unmodified_observer(
-                *observer, target_is_ref_wrapper, observer_meta, current_time, debug_notify)) {
+                *observer, target_view, target_is_ref_wrapper, observer_meta, current_time, debug_notify)) {
             continue;
         }
         if (should_skip_ref_wrapper_write_for_nonref_observer(
@@ -1472,4 +1492,3 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
 
 
 }  // namespace hgraph
-
