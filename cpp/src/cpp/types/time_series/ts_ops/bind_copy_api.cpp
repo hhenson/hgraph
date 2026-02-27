@@ -13,7 +13,7 @@ TSView op_child_at(const ViewData& vd, size_t index, engine_time_t current_time)
 
 TSView op_child_by_name(const ViewData& vd, std::string_view name, engine_time_t current_time) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-    if (current == nullptr || current->kind != TSKind::TSB || current->fields() == nullptr) {
+    if (current == nullptr || !dispatch_meta_is_tsb(current) || current->fields() == nullptr) {
         return {};
     }
 
@@ -42,7 +42,7 @@ TSView op_child_by_key(const ViewData& vd, const View& key, engine_time_t curren
 
 size_t op_list_size(const ViewData& vd) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-    if (current == nullptr || current->kind != TSKind::TSL) {
+    if (current == nullptr || !dispatch_meta_is_tsl(current)) {
         return 0;
     }
 
@@ -56,7 +56,7 @@ size_t op_list_size(const ViewData& vd) {
 
 size_t op_bundle_size(const ViewData& vd) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-    if (current == nullptr || current->kind != TSKind::TSB) {
+    if (current == nullptr || !dispatch_meta_is_tsb(current)) {
         return 0;
     }
     return current->field_count();
@@ -98,10 +98,10 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
     bool used_ancestor_meta = false;
     const TSMeta* current = resolve_meta_or_ancestor(vd, used_ancestor_meta);
     const TSMeta* target_meta = meta_at_path(target.meta, target.path.indices);
-    const bool signal_descendant_bind = used_ancestor_meta && current != nullptr && current->kind == TSKind::SIGNAL;
+    const bool signal_descendant_bind = used_ancestor_meta && dispatch_meta_is_signal(current);
     const bool current_is_ref_value =
         current != nullptr &&
-        current->kind == TSKind::TSValue &&
+        dispatch_meta_is_tsvalue(current) &&
         current->value_type != nullptr &&
         current->value_type == ts_reference_meta();
     if (debug_op_bind) {
@@ -133,19 +133,18 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         link_target->owner_time_ptr = resolve_owner_time_ptr(vd);
         link_target->parent_link = resolve_parent_link_target(vd);
         ViewData bind_target = target;
-        if (current != nullptr && current->kind == TSKind::SIGNAL) {
+        if (dispatch_meta_is_signal(current)) {
             const bool signal_has_impl = signal_input_has_bind_impl(vd, current, link_target);
             const bool key_set_capable_target = [&]() {
                 if (target_meta == nullptr) {
                     return false;
                 }
-                if (target_meta->kind == TSKind::TSD || target_meta->kind == TSKind::TSS) {
+                if (dispatch_meta_is_dynamic_container(target_meta)) {
                     return true;
                 }
-                if (target_meta->kind == TSKind::REF) {
+                if (dispatch_meta_is_ref(target_meta)) {
                     const TSMeta* element_meta = target_meta->element_ts();
-                    return element_meta != nullptr &&
-                           (element_meta->kind == TSKind::TSD || element_meta->kind == TSKind::TSS);
+                    return dispatch_meta_is_dynamic_container(element_meta);
                 }
                 return false;
             }();
@@ -169,14 +168,12 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         // nested tsd_get_items REF->REF chains). Static container consumers
         // (TSB/fixed TSL) also need wrapper writes because unbound REF static
         // payloads are surfaced through wrapper-local state.
-        const bool target_is_ref_wrapper = target_meta != nullptr && target_meta->kind == TSKind::REF;
-        const bool observer_is_ref_wrapper = current != nullptr && current->kind == TSKind::REF;
-        const bool observer_is_signal = current != nullptr && current->kind == TSKind::SIGNAL;
+        const bool target_is_ref_wrapper = dispatch_meta_is_ref(target_meta);
+        const bool observer_is_ref_wrapper = dispatch_meta_is_ref(current);
+        const bool observer_is_signal = dispatch_meta_is_signal(current);
         const bool observer_ref_to_nonref_target = observer_is_ref_wrapper && !target_is_ref_wrapper;
         const bool observer_is_static_container =
-            current != nullptr &&
-            (current->kind == TSKind::TSB ||
-             (current->kind == TSKind::TSL && current->fixed_size() > 0));
+            dispatch_meta_is_static_container(current);
         link_target->notify_on_ref_wrapper_write =
             !target_is_ref_wrapper || observer_is_ref_wrapper || observer_is_static_container || observer_is_signal;
         link_target->observer_is_signal = observer_is_signal;
@@ -234,7 +231,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         register_link_target_observer(*link_target);
 
         // TSB root bind is peered (container slot). Field binds are un-peered.
-        link_target->peered = (current != nullptr && current->kind == TSKind::TSB);
+        link_target->peered = dispatch_meta_is_tsb(current);
 
         if (link_target->peered && current != nullptr && current->fields() != nullptr) {
             for (size_t i = 0; i < current->field_count(); ++i) {
@@ -254,12 +251,10 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
             std::vector<size_t> parent_path = vd.path.indices;
             parent_path.pop_back();
             const TSMeta* parent_meta = meta_at_path(vd.meta, parent_path);
-            const bool non_peer_parent = parent_meta != nullptr &&
-                                         (parent_meta->kind == TSKind::TSB ||
-                                          (parent_meta->kind == TSKind::TSL && parent_meta->fixed_size() > 0));
+            const bool non_peer_parent = dispatch_meta_is_static_container(parent_meta);
             if (non_peer_parent) {
                 if (LinkTarget* parent_link = resolve_link_target(vd, parent_path); parent_link != nullptr) {
-                    if (parent_meta->kind == TSKind::TSB) {
+                    if (dispatch_meta_is_tsb(parent_meta)) {
                         // Any direct child bind transitions TSB from peered to un-peered.
                         unregister_link_target_observer(*parent_link);
                         parent_link->unbind();
@@ -269,8 +264,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
 
                         const bool static_container_parent =
                             parent_link->is_linked &&
-                            parent_meta->kind == TSKind::TSL &&
-                            parent_meta->fixed_size() > 0;
+                            dispatch_meta_is_fixed_tsl(parent_meta);
 
                         if (static_container_parent) {
                             const size_t child_index = vd.path.indices.back();
@@ -288,7 +282,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
                                 parent_link->observer_data == target.observer_data &&
                                 parent_link->delta_data == target.delta_data &&
                                 parent_link->link_data == target.link_data &&
-                                !(parent_target_meta != nullptr && parent_target_meta->kind == TSKind::REF);
+                                !dispatch_meta_is_ref(parent_target_meta);
                         }
 
                         parent_link->peered = keep_parent_bound;
@@ -302,8 +296,8 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
             }
         }
 
-        if (current != nullptr && current->kind == TSKind::REF) {
-            if (target_meta != nullptr && target_meta->kind != TSKind::REF) {
+        if (dispatch_meta_is_ref(current)) {
+            if (!dispatch_meta_is_ref(target_meta)) {
                 assign_ref_value_from_target(vd, target);
             } else {
                 clear_ref_value(vd);
@@ -324,9 +318,9 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         }
         register_ref_link_observer(*ref_link, &vd);
 
-        if (current != nullptr && current->kind == TSKind::REF) {
+        if (dispatch_meta_is_ref(current)) {
             const TSMeta* target_meta = meta_at_path(target.meta, target.path.indices);
-            if (target_meta != nullptr && target_meta->kind != TSKind::REF) {
+            if (!dispatch_meta_is_ref(target_meta)) {
                 assign_ref_value_from_target(vd, target);
             } else {
                 clear_ref_value(vd);
@@ -334,7 +328,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         }
     }
 
-    if (current != nullptr && current->kind != TSKind::REF) {
+    if (!dispatch_meta_is_ref(current)) {
         clear_ref_container_ancestor_cache(vd);
     }
 }
@@ -364,7 +358,7 @@ void op_unbind(ViewData& vd, engine_time_t current_time) {
         }
     }
 
-    if (current != nullptr && current->kind == TSKind::REF) {
+    if (dispatch_meta_is_ref(current)) {
         clear_ref_value(vd);
     } else {
         clear_ref_container_ancestor_cache(vd);
@@ -450,12 +444,10 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
     set_active_flag(active_view, active);
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
     const bool ref_local_wrapper = active &&
-                                   current != nullptr &&
-                                   current->kind == TSKind::REF &&
+                                   dispatch_meta_is_ref(current) &&
                                    has_local_ref_wrapper_value(vd);
     const bool ref_static_children = active &&
-                                     current != nullptr &&
-                                     current->kind == TSKind::REF &&
+                                     dispatch_meta_is_ref(current) &&
                                      has_bound_ref_static_children(vd);
     auto set_link_target_active = [input](LinkTarget* target, bool make_active) {
         if (target == nullptr) {
@@ -493,9 +485,9 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
                 const TSMeta* element_meta = current != nullptr ? current->element_ts() : nullptr;
                 size_t child_count = 0;
                 if (element_meta != nullptr) {
-                    if (element_meta->kind == TSKind::TSB && element_meta->fields() != nullptr) {
+                    if (dispatch_meta_is_tsb(element_meta) && element_meta->fields() != nullptr) {
                         child_count = element_meta->field_count();
-                    } else if (element_meta->kind == TSKind::TSL && element_meta->fixed_size() > 0) {
+                    } else if (dispatch_meta_is_fixed_tsl(element_meta)) {
                         child_count = element_meta->fixed_size();
                     }
                 }
@@ -513,7 +505,7 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
 
                 if (input != nullptr &&
                     input->meta() != nullptr &&
-                    input->meta()->kind == TSKind::REF) {
+                    dispatch_meta_is_ref(input->meta())) {
                     const engine_time_t current_time = resolve_input_current_time(input);
                     if (current_time != MIN_DT) {
                         input->notify(current_time);
@@ -528,7 +520,7 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
                 if (active &&
                     input != nullptr &&
                     input->meta() != nullptr &&
-                    input->meta()->kind == TSKind::REF) {
+                    dispatch_meta_is_ref(input->meta())) {
                     const engine_time_t current_time = resolve_input_current_time(input);
                     if (current_time != MIN_DT) {
                         input->notify(current_time);
@@ -627,7 +619,12 @@ void op_copy_tsb(ViewData dst, const ViewData& src, engine_time_t current_time) 
     }
 }
 
-ts_ops make_common_ops(TSKind kind) {
+namespace {
+
+using common_ops_customizer = void (*)(ts_ops&);
+constexpr size_t k_common_ops_customizer_count = static_cast<size_t>(TSKind::SIGNAL) + size_t{1};
+
+ts_ops make_base_common_ops(TSKind kind) {
     ts_ops out{
         &op_ts_meta,
         &op_last_modified_time,
@@ -654,66 +651,102 @@ ts_ops make_common_ops(TSKind kind) {
         kind,
         {},
     };
-    if (kind == TSKind::TSValue) {
-        out.last_modified_time = &op_last_modified_tsvalue;
-        out.valid = &op_valid_tsvalue;
-        out.modified = &op_modified_tsvalue;
-        out.has_delta = &op_has_delta_scalar;
-        out.delta_value = &op_delta_value_scalar;
-        out.apply_delta = &op_apply_delta_scalar;
-    } else if (kind == TSKind::REF) {
-        out.valid = &op_valid_ref;
-        out.value = &op_value_ref;
-        out.last_modified_time = &op_last_modified_ref;
-        out.modified = &op_modified_ref;
-        out.copy_value = &op_copy_ref;
-        out.has_delta = &op_has_delta_scalar;
-        out.delta_value = &op_delta_value_scalar;
-        out.apply_delta = &op_apply_delta_scalar;
-    } else if (kind == TSKind::SIGNAL) {
-        out.last_modified_time = &op_last_modified_signal;
-        out.valid = &op_valid_signal;
-        out.modified = &op_modified_signal;
-        out.has_delta = &op_has_delta_scalar;
-        out.delta_value = &op_delta_value_scalar;
-        out.apply_delta = &op_apply_delta_scalar;
-    } else if (kind == TSKind::TSW) {
-        out.last_modified_time = &op_last_modified_tsw;
-        out.all_valid = &op_all_valid_tsw;
-        out.delta_value = &op_delta_value_tsw;
-        out.apply_delta = &op_apply_delta_container;
-    } else if (kind == TSKind::TSS) {
-        out.last_modified_time = &op_last_modified_tss;
-        out.valid = &op_valid_tss;
-        out.modified = &op_modified_tss;
-        out.delta_value = &op_delta_value_container;
-        out.apply_delta = &op_apply_delta_container;
-    } else if (kind == TSKind::TSD) {
-        out.last_modified_time = &op_last_modified_tsd;
-        out.valid = &op_valid_tsd;
-        out.modified = &op_modified_tsd;
-        out.delta_value = &op_delta_value_container;
-        out.apply_delta = &op_apply_delta_container;
-        out.invalidate = &op_invalidate_tsd;
-    } else if (kind == TSKind::TSB) {
-        out.last_modified_time = &op_last_modified_tsb;
-        out.valid = &op_valid_tsb;
-        out.modified = &op_modified_tsb;
-        out.all_valid = &op_all_valid_tsb;
-        out.delta_value = &op_delta_value_container;
-        out.apply_delta = &op_apply_delta_container;
-    } else if (kind == TSKind::TSL) {
-        out.last_modified_time = &op_last_modified_tsl;
-        out.valid = &op_valid_tsl;
-        out.modified = &op_modified_tsl;
-        out.all_valid = &op_all_valid_tsl;
-        out.delta_value = &op_delta_value_container;
-        out.apply_delta = &op_apply_delta_container;
-    } else {
-        out.delta_value = &op_delta_value_container;
-        out.apply_delta = &op_apply_delta_container;
-    }
     out.specific.none = ts_ops::ts_none_ops{0};
+    return out;
+}
+
+void configure_tsvalue_common_ops(ts_ops& out) {
+    out.last_modified_time = &op_last_modified_tsvalue;
+    out.valid = &op_valid_tsvalue;
+    out.modified = &op_modified_tsvalue;
+    out.has_delta = &op_has_delta_scalar;
+    out.delta_value = &op_delta_value_scalar;
+    out.apply_delta = &op_apply_delta_scalar;
+}
+
+void configure_tss_common_ops(ts_ops& out) {
+    out.last_modified_time = &op_last_modified_tss;
+    out.valid = &op_valid_tss;
+    out.modified = &op_modified_tss;
+    out.delta_value = &op_delta_value_container;
+    out.apply_delta = &op_apply_delta_container;
+}
+
+void configure_tsd_common_ops(ts_ops& out) {
+    out.last_modified_time = &op_last_modified_tsd;
+    out.valid = &op_valid_tsd;
+    out.modified = &op_modified_tsd;
+    out.delta_value = &op_delta_value_container;
+    out.apply_delta = &op_apply_delta_container;
+    out.invalidate = &op_invalidate_tsd;
+}
+
+void configure_tsl_common_ops(ts_ops& out) {
+    out.last_modified_time = &op_last_modified_tsl;
+    out.valid = &op_valid_tsl;
+    out.modified = &op_modified_tsl;
+    out.all_valid = &op_all_valid_tsl;
+    out.delta_value = &op_delta_value_container;
+    out.apply_delta = &op_apply_delta_container;
+}
+
+void configure_tsw_common_ops(ts_ops& out) {
+    out.last_modified_time = &op_last_modified_tsw;
+    out.all_valid = &op_all_valid_tsw;
+    out.delta_value = &op_delta_value_tsw;
+    out.apply_delta = &op_apply_delta_container;
+}
+
+void configure_tsb_common_ops(ts_ops& out) {
+    out.last_modified_time = &op_last_modified_tsb;
+    out.valid = &op_valid_tsb;
+    out.modified = &op_modified_tsb;
+    out.all_valid = &op_all_valid_tsb;
+    out.delta_value = &op_delta_value_container;
+    out.apply_delta = &op_apply_delta_container;
+}
+
+void configure_ref_common_ops(ts_ops& out) {
+    out.valid = &op_valid_ref;
+    out.value = &op_value_ref;
+    out.last_modified_time = &op_last_modified_ref;
+    out.modified = &op_modified_ref;
+    out.copy_value = &op_copy_ref;
+    out.has_delta = &op_has_delta_scalar;
+    out.delta_value = &op_delta_value_scalar;
+    out.apply_delta = &op_apply_delta_scalar;
+}
+
+void configure_signal_common_ops(ts_ops& out) {
+    out.last_modified_time = &op_last_modified_signal;
+    out.valid = &op_valid_signal;
+    out.modified = &op_modified_signal;
+    out.has_delta = &op_has_delta_scalar;
+    out.delta_value = &op_delta_value_scalar;
+    out.apply_delta = &op_apply_delta_scalar;
+}
+
+constexpr common_ops_customizer k_common_ops_customizers[k_common_ops_customizer_count] = {
+    &configure_tsvalue_common_ops,   // TSKind::TSValue
+    &configure_tss_common_ops,       // TSKind::TSS
+    &configure_tsd_common_ops,       // TSKind::TSD
+    &configure_tsl_common_ops,       // TSKind::TSL
+    &configure_tsw_common_ops,       // TSKind::TSW
+    &configure_tsb_common_ops,       // TSKind::TSB
+    &configure_ref_common_ops,       // TSKind::REF
+    &configure_signal_common_ops,    // TSKind::SIGNAL
+};
+
+}  // namespace
+
+ts_ops make_common_ops(TSKind kind) {
+    ts_ops out = make_base_common_ops(kind);
+    const size_t index = static_cast<size_t>(kind);
+    if (index < k_common_ops_customizer_count) {
+        if (const common_ops_customizer customize = k_common_ops_customizers[index]; customize != nullptr) {
+            customize(out);
+        }
+    }
     return out;
 }
 
@@ -1002,7 +1035,7 @@ void copy_view_data_value_impl(ViewData dst, const ViewData& src, engine_time_t 
         return;
     }
 
-    if (dst_meta->kind != src_meta->kind) {
+    if (dispatch_meta_ops(dst_meta) != dispatch_meta_ops(src_meta)) {
         throw std::runtime_error("copy_view_data_value: source/destination schema kinds differ");
     }
 
@@ -1054,10 +1087,11 @@ const ts_ops* get_ts_ops(const TSMeta* meta) {
     if (meta == nullptr) {
         return &k_ts_value_ops;
     }
-    if (meta->kind == TSKind::TSW) {
-        return meta->is_duration_based() ? &k_tsw_duration_ops : &k_tsw_tick_ops;
+    const ts_ops* out = get_ts_ops(meta->kind);
+    if (meta->is_duration_based() && out == &k_tsw_tick_ops) {
+        return &k_tsw_duration_ops;
     }
-    return get_ts_ops(meta->kind);
+    return out;
 }
 
 const ts_ops* default_ts_ops() {
@@ -1070,7 +1104,7 @@ void store_to_link_target(LinkTarget& target, const ViewData& source) {
 
 void store_to_ref_link(REFLink& target, const ViewData& source) {
     const TSMeta* source_meta = meta_at_path(source.meta, source.path.indices);
-    if (source_meta != nullptr && source_meta->kind == TSKind::REF) {
+    if (dispatch_meta_is_ref(source_meta)) {
         target.bind_to_ref(source);
     } else {
         target.bind(source);
@@ -1176,7 +1210,7 @@ std::optional<TSView> resolve_tsd_removed_child_snapshot(const ViewData& parent_
 
     const TSMeta* expected_parent_meta = meta_at_path(parent_view.meta, parent_view.path.indices);
     const TSMeta* expected_child_meta =
-        expected_parent_meta != nullptr && expected_parent_meta->kind == TSKind::TSD
+        dispatch_meta_is_tsd(expected_parent_meta)
             ? expected_parent_meta->element_ts()
             : nullptr;
 
@@ -1228,13 +1262,13 @@ std::optional<TSView> resolve_tsd_removed_child_snapshot(const ViewData& parent_
             TSView view = record.snapshot->ts_view(parent_view.engine_time_ptr);
             if (expected_child_meta != nullptr) {
                 const TSMeta* snapshot_meta = view.ts_meta();
-                if (snapshot_meta == nullptr || snapshot_meta->kind != expected_child_meta->kind) {
-                    if (snapshot_meta != nullptr && snapshot_meta->kind == TSKind::REF) {
+                if (snapshot_meta == nullptr || dispatch_meta_ops(snapshot_meta) != dispatch_meta_ops(expected_child_meta)) {
+                    if (dispatch_meta_is_ref(snapshot_meta)) {
                         ViewData resolved_snapshot{};
                         if (resolve_bound_target_view_data(view.view_data(), resolved_snapshot)) {
                             const TSMeta* resolved_meta =
                                 meta_at_path(resolved_snapshot.meta, resolved_snapshot.path.indices);
-                            if (resolved_meta != nullptr && resolved_meta->kind == expected_child_meta->kind) {
+                            if (resolved_meta != nullptr && dispatch_meta_ops(resolved_meta) == dispatch_meta_ops(expected_child_meta)) {
                                 TSView resolved_view(resolved_snapshot, parent_view.engine_time_ptr);
                                 resolved_view.view_data().sampled = true;
                                 return resolved_view;

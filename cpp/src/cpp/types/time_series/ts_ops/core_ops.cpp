@@ -16,9 +16,7 @@ inline ViewData dispatch_view_for_path(const ViewData& view) {
 
 inline engine_time_t dispatch_last_modified_time(const ViewData& view) {
     ViewData dispatch_view = dispatch_view_for_path(view);
-    if (dispatch_view.ops != nullptr &&
-        dispatch_view.ops->last_modified_time != nullptr &&
-        dispatch_view.ops->last_modified_time != &op_last_modified_time) {
+    if (dispatch_view.ops != nullptr && dispatch_view.ops->last_modified_time != nullptr) {
         return dispatch_view.ops->last_modified_time(dispatch_view);
     }
     return op_last_modified_time(dispatch_view);
@@ -26,9 +24,7 @@ inline engine_time_t dispatch_last_modified_time(const ViewData& view) {
 
 inline bool dispatch_modified(const ViewData& view, engine_time_t current_time) {
     ViewData dispatch_view = dispatch_view_for_path(view);
-    if (dispatch_view.ops != nullptr &&
-        dispatch_view.ops->modified != nullptr &&
-        dispatch_view.ops->modified != &op_modified) {
+    if (dispatch_view.ops != nullptr && dispatch_view.ops->modified != nullptr) {
         return dispatch_view.ops->modified(dispatch_view, current_time);
     }
     return op_modified(dispatch_view, current_time);
@@ -36,9 +32,7 @@ inline bool dispatch_modified(const ViewData& view, engine_time_t current_time) 
 
 inline bool dispatch_valid(const ViewData& view) {
     ViewData dispatch_view = dispatch_view_for_path(view);
-    if (dispatch_view.ops != nullptr &&
-        dispatch_view.ops->valid != nullptr &&
-        dispatch_view.ops->valid != &op_valid) {
+    if (dispatch_view.ops != nullptr && dispatch_view.ops->valid != nullptr) {
         return dispatch_view.ops->valid(dispatch_view);
     }
     return op_valid(dispatch_view);
