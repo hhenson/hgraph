@@ -164,8 +164,10 @@ namespace hgraph {
         std::chrono::time_point<std::chrono::high_resolution_clock> _progress_last_time;
         bool _compute_sizes;
 
-        std::unordered_set<std::vector<int64_t>, VectorIntHash> _graph_subscriptions;
-        std::unordered_set<std::vector<int64_t>, VectorIntHash> _node_subscriptions;
+        std::unordered_map<std::vector<int64_t>, Graph*, VectorIntHash> _graph_subscriptions;
+        std::unordered_set<Graph*> _subscribed_graphs;
+        std::unordered_map<std::vector<int64_t>, Node*, VectorIntHash> _node_subscriptions;
+        std::unordered_set<Node*> _subscribed_nodes;
 
         // Recent performance tracking
         typedef std::unordered_map<std::vector<int64_t>, PerformanceMetrics, VectorIntHash> perf_map;

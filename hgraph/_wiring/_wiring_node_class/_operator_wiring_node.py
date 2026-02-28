@@ -1,3 +1,4 @@
+from ast import arg
 import functools
 from typing import Mapping, Any, TypeVar, Callable, TYPE_CHECKING, List, Tuple
 
@@ -8,6 +9,7 @@ from hgraph._wiring._wiring_node_class._wiring_node_class import (
     WiringNodeClass,
     HgTypeMetaData,
     WiringNodeSignature,
+    prepare_kwargs,
     validate_and_resolve_signature,
     PreResolvedWiringNodeWrapper,
 )
@@ -115,6 +117,8 @@ class OverloadedWiringNodeHelper:
 
     base: WiringNodeClass
     overloads: List[Tuple[WiringNodeClass, float]]
+    
+    arg_count_cache: dict[object, list]  # no of args/kwarg names to applicable signatures
 
     def __init__(self, base: WiringNodeClass):
         self.base = base
@@ -122,6 +126,8 @@ class OverloadedWiringNodeHelper:
             self.overloads = []
         else:
             self.overloads = [(base, self._calc_rank(base.signature))]
+            
+        self.arg_count_cache = {}
 
     def overload(self, impl: WiringNodeClass):
         self.overloads.append((impl, self._calc_rank(impl.signature)))
@@ -146,9 +152,37 @@ class OverloadedWiringNodeHelper:
         return sum(ranks.values())
 
     def get_best_overload(self, *args, __return_sink_wp__: bool = False, **kwargs):
+        overloads = self.overloads
+        
+        arg_count_key = (len(args), frozenset(kwargs.keys()) - {"__pre_resolved_types__", "__return_sink_wp__", "__enforce_output_type__", "__recordable_id__"})
+        cleaned_kwargs = {k: v for k, v in kwargs.items() if k in arg_count_key[1]}
+        if arg_count_key in self.arg_count_cache:
+            overloads, scalars, type_cache = self.arg_count_cache[arg_count_key]
+        else:
+            matches = []
+            scalars = set()
+            type_cache = {}
+            for c, r in overloads:
+                try:
+                    prepare_kwargs(c.signature, *args, **cleaned_kwargs)
+                    matches.append((c, r))
+                    if c.signature.required_scalars:
+                        scalars.update(c.signature.required_scalars)
+                except SyntaxError as e:
+                    continue 
+            self.arg_count_cache[arg_count_key] = matches, scalars, type_cache
+            overloads = matches
+
+        # arg_type_key = {
+        #     **{i: HgTypeMetaData.parse_value(a) for i, a in enumerate(args)},
+        #     **{k: HgTypeMetaData.parse_value(v) for k, v in cleaned_kwargs.items()}
+        #     }
+        # if cache := type_cache.get(arg_type_key):
+        #     overloads = cache
+        
         candidates = []
         rejected_candidates = []
-        for c, r in self.overloads:
+        for c, r in overloads:
             try:
                 # Attempt to resolve the signature, if this fails then we don't have a candidate
                 if "is_operator" in c.signature.args:

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Set, Tuple
 
 import pytest
@@ -18,10 +19,13 @@ from hgraph import (
     TSL,
     TSS,
     K,
+    CompoundScalar,
     Removed,
     Size,
     TimeSeriesSchema,
+    add_,
     collapse_keys,
+    combine,
     compute_node,
     const,
     default_path,
@@ -50,6 +54,7 @@ from hgraph import (
     uncollapse_keys,
     unpartition,
     values_,
+    if_then_else,
 )
 from hgraph._operators._stream import filter_by
 from hgraph.nodes import extract_tsd, flatten_tsd, keys_where_true, make_tsd, where_true
@@ -126,13 +131,27 @@ def test_tsd_get_items():
 def test_tsd_get_items_refs():
     @graph
     def g(ts: TSD[int, TS[int]], keys: TSS[int]) -> TSD[int, TS[int]]:
-        return getitem_(max_(lambda x: x, ts), keys)
+        return getitem_(map_(lambda x: x, ts), keys)
 
     assert eval_node(
-        getitem_,
+        g,
         [{1: 1, 2: 2}, {1: 3}, {1: 4}, {1: REMOVE, 2: 5}, {3: 6}],
         [None, {1}, {2}, {Removed(2)}, None],
-        resolution_dict={"ts": TSD[int, TS[int]], "key": TSS[int]},
+    ) == [None, {1: 3}, {2: 2, 1: 4}, {2: REMOVE, 1: REMOVE}, None]
+
+
+def test_tsd_get_items_change_tsd():
+    @graph
+    def g(c: TS[bool], ts1: TSD[int, TS[int]], ts2: TSD[int, TS[int]], keys: TSS[int]) -> TSD[int, TS[int]]:
+        ts = if_then_else(c, ts1, ts2)
+        return getitem_(ts, keys)
+
+    assert eval_node(
+        g,
+        [True, None, False, True, None],
+        [{1: 1, 2: 2}, {1: 3}, {1: 4}, {1: REMOVE, 2: 5}, {3: 6}],
+        [{1: 1, 2: 2}, {1: 3}, {1: 4}, {1: REMOVE, 2: 5}, {3: 6}],
+        [None, {1}, {2}, {Removed(2)}, None],
     ) == [None, {1: 3}, {2: 2, 1: 4}, {2: REMOVE, 1: REMOVE}, None]
 
 
@@ -417,6 +436,26 @@ def test_tsd_partition():
         {"even": {2: REMOVE}},
         {"prime": {3: 6}, "odd": {3: REMOVE}},
     ]
+
+
+def test_partition_with_reduce():
+    @dataclass(frozen=True)
+    class MockKey(CompoundScalar):
+        a: str = None
+        b: str = None
+        c: str = None
+
+    @graph
+    def g(tsd: TSD[MockKey, TS[float]]) -> TSD[MockKey, TS[float]]:
+        partitioned = partition(tsd, map_(lambda key: combine[TS[MockKey]](a=key.a, b=key.b), __keys__=tsd.key_set))
+        return map_(lambda x: x.reduce(add_), partitioned)
+
+    key1 = MockKey(a="a", b="b", c="c")
+    key2 = MockKey(a="a", b="b", c="d")
+    results = eval_node(g, [{key1: 20.0, key2: 100.0}, {key2: REMOVE}], __elide__=True)
+    for result in results:
+        for key in result:
+            assert key is not None
 
 
 def test_tsd_unpartition():

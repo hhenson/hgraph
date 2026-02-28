@@ -30,10 +30,12 @@ class PythonGraphExecutor(GraphExecutor):
         graph_builder: "GraphBuilder",
         run_mode: EvaluationMode,
         observers: Iterable[EvaluationLifeCycleObserver] = None,
+        cleanup_on_error: bool = True
     ):
         self._graph_builder = graph_builder
         self._run_mode = run_mode
         self.observers = observers or []
+        self.cleanup_on_error = cleanup_on_error
 
     @property
     def run_mode(self) -> EvaluationMode:
@@ -60,13 +62,18 @@ class PythonGraphExecutor(GraphExecutor):
         for observer in self.observers:
             evaluation_engine.add_life_cycle_observer(observer)
             
+        cleanup = True
         try:
-            with initialise_dispose_context(graph), start_stop_context(graph):
+            with initialise_dispose_context(graph, self.cleanup_on_error), start_stop_context(graph, self.cleanup_on_error):
                 while clock.evaluation_time < end_time:
                     self.evaluate(evaluation_engine, graph)
+        except:
+            cleanup = self.cleanup_on_error
+            raise
         finally:
-            evaluation_engine.notify_after_evaluation()  # stop() creates after evaluation events that need to be processed for the shutdown to be clean
-            self._graph_builder.release_instance(graph)
+            if cleanup:
+                evaluation_engine.notify_after_evaluation()  # stop() creates after evaluation events that need to be processed for the shutdown to be clean
+                self._graph_builder.release_instance(graph)
 
     @staticmethod
     def evaluate(evaluation_engine, graph):

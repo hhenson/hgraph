@@ -120,7 +120,7 @@ class TemplateTypeIncompatibleResolution(ArgumentBindingErrors):
         self._print_error(msg)
 
 
-class MissingInputsError(WiringError):
+class MissingInputsError(SyntaxError):
 
     def __init__(self, kwargs):
         self.kwargs = kwargs

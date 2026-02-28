@@ -90,28 +90,29 @@ def process_node_stats(state, node_id, item_id, load_detailed = False):
 def process_graph_stats(state, graph_id, item_id, load_detailed = False):
     root_graph = state.observer.get_graph_info(())
     gi = state.observer.get_graph_info(graph_id)
-    parent_time = state.observer.get_graph_info(gi.graph.parent_node.graph.graph_id).eval_time
-    str_id = item_id.to_str()
-    state.perf_data.setdefault(str_id, dict(id=str_id)).update(
-            evals=gi.eval_count,
-            time=gi.eval_time / 1_000_000_000,
-            of_graph=gi.eval_time / parent_time if parent_time else None,
-            of_total=gi.eval_time / root_graph.eval_time if root_graph.eval_time else None,
-            size=gi.size,
-            total_size=gi.total_size,
-            value_size=gi.total_value_size,
-            subgraphs=gi.total_subgraph_count,
-            nodes=gi.total_node_count,
-        )
-    
-    if load_detailed:
-        last = state.detailed_perf_data_graph_times.get(graph_id)
-        perf_data = state.observer.get_recent_graph_performance(graph_id, last)
-        if perf_data:
-            state.detailed_perf_data_graph_times[graph_id] = perf_data[0][0]  # these come in reverse order
-            state.detailed_perf_data[str_id].extend(
-                (t, dict(eval_count=m.eval_count, eval_time=m.eval_time)) for t, m in perf_data
+    if gi is not None:
+        parent_time = state.observer.get_graph_info(gi.graph.parent_node.graph.graph_id).eval_time if graph_id != () else None
+        str_id = item_id.to_str()
+        state.perf_data.setdefault(str_id, dict(id=str_id)).update(
+                evals=gi.eval_count,
+                time=gi.eval_time / 1_000_000_000,
+                of_graph=gi.eval_time / parent_time if parent_time else None,
+                of_total=gi.eval_time / root_graph.eval_time if root_graph.eval_time else None,
+                size=gi.size,
+                total_size=gi.total_size,
+                value_size=gi.total_value_size,
+                subgraphs=gi.total_subgraph_count,
+                nodes=gi.total_node_count,
             )
+        
+        if load_detailed:
+            last = state.detailed_perf_data_graph_times.get(graph_id)
+            perf_data = state.observer.get_recent_graph_performance(graph_id, last)
+            if perf_data:
+                state.detailed_perf_data_graph_times[graph_id] = perf_data[0][0]  # these come in reverse order
+                state.detailed_perf_data[str_id].extend(
+                    (t, dict(eval_count=m.eval_count, eval_time=m.eval_time)) for t, m in perf_data
+                )
 
 
 def process_graph(state: InspectorState, graph: Graph, publish_interval: float):

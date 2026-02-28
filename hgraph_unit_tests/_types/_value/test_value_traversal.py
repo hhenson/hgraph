@@ -15,6 +15,10 @@ Reference: ts_design_docs/Value_USER_GUIDE.md Section 9
 
 import pytest
 
+from hgraph._feature_switch import is_feature_enabled
+if not is_feature_enabled("use_cpp"):
+    pytest.skip("Buffer protocol tests require C++ extension", allow_module_level=True)
+
 # Skip all tests if C++ extension is not available
 _hgraph = pytest.importorskip("hgraph._hgraph")
 value = _hgraph.value  # Value types are in the value submodule

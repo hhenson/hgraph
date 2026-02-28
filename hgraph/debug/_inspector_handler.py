@@ -18,6 +18,8 @@ if is_feature_enabled("use_cpp"):
         TimeSeriesReferenceOutput,
         TimeSeriesReferenceInput,
         TimeSeriesReference,
+        TimeSeriesValueInput,
+        TimeSeriesValueOutput,
     )
 else:
     from hgraph import (
@@ -27,6 +29,8 @@ else:
         TimeSeriesOutput,
         PythonTimeSeriesReferenceOutput as TimeSeriesReferenceOutput,
         PythonTimeSeriesReferenceInput as TimeSeriesReferenceInput,
+        PythonTimeSeriesValueInput as TimeSeriesValueInput,
+        PythonTimeSeriesValueOutput as TimeSeriesValueOutput,
         TimeSeriesReference,
     )
 
@@ -412,13 +416,11 @@ def inspector_read_value(state, item_id):
 
     import polars as pl
 
-    from hgraph import PythonTimeSeriesValueInput, PythonTimeSeriesValueOutput
-
     if isinstance(value, Node):
         value = value.output
         item_id = item_id.sub_item("OUTPUT", NodeValueType.Output)
 
-    if isinstance(value, (PythonTimeSeriesValueInput, PythonTimeSeriesValueOutput)):
+    if isinstance(value, (TimeSeriesValueInput, TimeSeriesValueOutput)):
         value = value.value if isinstance(value.value, pl.DataFrame) else value
 
     if not isinstance(value, pl.DataFrame):

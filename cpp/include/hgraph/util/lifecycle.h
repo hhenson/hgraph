@@ -40,11 +40,13 @@ namespace hgraph {
      * The destructor allows exceptions to propagate, matching Python's finally block behavior.
      */
     struct StartStopContext {
-        StartStopContext(ComponentLifeCycle &component);
+        StartStopContext(ComponentLifeCycle *component);
 
         ~StartStopContext() noexcept; // Never throws - call stop() explicitly if you need exception propagation
+
+        void cancel();
     private:
-        ComponentLifeCycle &_component;
+        ComponentLifeCycle *_component;
     };
 
 

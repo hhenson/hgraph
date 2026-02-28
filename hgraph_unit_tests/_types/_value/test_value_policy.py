@@ -7,6 +7,10 @@ semantics. Policy-specific variants are intentionally not exposed.
 
 import pytest
 
+from hgraph._feature_switch import is_feature_enabled
+if not is_feature_enabled("use_cpp"):
+    pytest.skip("Buffer protocol tests require C++ extension", allow_module_level=True)
+
 _hgraph = pytest.importorskip("hgraph._hgraph", reason="C++ extension not available")
 value = _hgraph.value
 

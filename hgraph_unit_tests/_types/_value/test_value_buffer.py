@@ -14,6 +14,10 @@ Key features tested:
 
 import pytest
 
+from hgraph._feature_switch import is_feature_enabled
+if not is_feature_enabled("use_cpp"):
+    pytest.skip("Buffer protocol tests require C++ extension", allow_module_level=True)
+
 # Try to import numpy - if not available, skip all tests
 np = pytest.importorskip("numpy", reason="numpy not available")
 

@@ -80,8 +80,8 @@ namespace hgraph {
         }
     }
 
-    StartStopContext::StartStopContext(ComponentLifeCycle &component) : _component{component} {
-        start_component(_component);
+    StartStopContext::StartStopContext(ComponentLifeCycle *component) : _component{component} {
+        start_component(*_component);
     }
 
     StartStopContext::~StartStopContext() noexcept {
@@ -89,7 +89,9 @@ namespace hgraph {
         // But we can't throw from destructor during unwinding (causes std::terminate)
         // Solution: set Python error state instead of throwing C++ exception
         try {
-            stop_component(_component);
+            if (_component){
+                stop_component(*_component);
+            }
         } catch (nb::python_error &e) {
             // Python exception from stop_fn - nanobind cleared it when throwing, so restore it
             e.restore();
@@ -105,5 +107,9 @@ namespace hgraph {
                 PyErr_SetString(PyExc_RuntimeError, "Unknown exception during stop_component");
             }
         }
+    }
+
+    void StartStopContext::cancel(){
+        _component = nullptr;
     }
 } // namespace hgraph

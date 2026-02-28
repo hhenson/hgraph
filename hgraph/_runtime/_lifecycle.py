@@ -127,24 +127,32 @@ LIFE_CYCLABLE = typing.TypeVar("LIFE_CYCLABLE", bound=ComponentLifeCycle)
 
 
 @contextmanager
-def start_stop_context(component: LIFE_CYCLABLE) -> LIFE_CYCLABLE:
+def start_stop_context(component: LIFE_CYCLABLE, cleanup_on_error: bool = True) -> LIFE_CYCLABLE:
     """
     Use the context manager to ensure that the component is started and stopped correctly.
     """
     try:
         component.start()
         yield component
-    finally:
-        component.stop()
+    except:
+        if cleanup_on_error:
+            component.stop()
+        raise
+        
+    component.stop()
 
 
 @contextmanager
-def initialise_dispose_context(component: LIFE_CYCLABLE) -> LIFE_CYCLABLE:
+def initialise_dispose_context(component: LIFE_CYCLABLE, cleanup_on_error: bool = True) -> LIFE_CYCLABLE:
     """
     Use the context manager to ensure that the component is initialised and disposed correctly.
     """
     try:
         component.initialise()
         yield component
-    finally:
-        component.dispose()
+    except:
+        if cleanup_on_error:
+            component.dispose()
+        raise
+    
+    component.dispose()

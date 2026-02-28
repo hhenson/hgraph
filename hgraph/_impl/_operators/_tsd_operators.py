@@ -60,6 +60,7 @@ class KeyValueRefState:
     reference: object = field(default_factory=object)
     tsd: TSD[SCALAR, TIME_SERIES_TYPE] | None = None
     key: SCALAR | None = None
+    ts_ref: TimeSeriesReference | None = None
 
 
 @compute_node(overloads=getitem_, valid=("key",))
@@ -125,38 +126,48 @@ def tsd_get_items(
     # Use tsd as a reference to avoid the cost of the input wrapper
     # If we got here something was modified so release any previous value and replace
     if ts.modified:
-        if _state.tsd is not None:
-            for k in _state.key:
-                _ref.on_key_removed(k)
-                _ref_ref.on_key_removed(k)
-                _state.tsd.release_ref(k, _state.reference)
+        next_ref = ts.value if ts.valid and not ts.value.is_empty else None
+        next_tsd = next_ref.output if next_ref is not None and next_ref.has_output else None
+        source_changed = (
+            (_state.ts_ref is None) != (next_ref is None)
+            or (next_ref is not None and _state.ts_ref is not None and next_ref != _state.ts_ref)
+        )
+        _state.ts_ref = next_ref
 
-        if ts.valid and not ts.value.is_empty:
-            _state.tsd = ts.value.output
-            _state.key = (key.value - key.added()) if key.valid else set()
-        else:
-            _state.tsd = None
+        if source_changed:
+            if _state.tsd is not None:
+                for k in _state.key:
+                    _ref.on_key_removed(k)
+                    _ref_ref.on_key_removed(k)
+                    _state.tsd.release_ref(k, _state.reference)
+
+            _state.tsd = next_tsd
             _state.key = set()
 
-        if _state.tsd is not None:
-            for k in _state.key:
-                output = _state.tsd.get_ref(k, _state.reference)
-                _ref.create(k)
-                _ref[k].bind_output(output)
-                _ref[k].make_active()
+            if _state.tsd is not None and key.valid:
+                _state.key = set(key.value - key.added())
+                for k in _state.key:
+                    output = _state.tsd.get_ref(k, _state.reference)
+                    _ref.get_or_create(k)
+                    _ref[k].bind_output(output)
+                    _ref[k].make_active()
+        else:
+            _state.tsd = next_tsd
 
     if _state.tsd is None or not key.valid:
         return
 
     for k in key.added():
+        _state.key.add(k)
         output = _state.tsd.get_ref(k, _state.reference)
-        _ref.create(k)
+        _ref.get_or_create(k)
         _ref[k].bind_output(output)
         _ref[k].make_active()
 
     out = {}
 
     for k in key.removed():
+        _state.key.discard(k)
         _state.tsd.release_ref(k, _state.reference)
         _ref.on_key_removed(k)
         _ref_ref.on_key_removed(k)
@@ -765,7 +776,9 @@ def partition_tsd(
 
     # Track changes in partitions
     for k, partition in partitions.removed_items():
-        out[partition.value][k] = REMOVE_IF_EXISTS
+        prev_partition = prev.get(k)
+        if prev_partition is not None:
+            out[prev_partition][k] = REMOVE_IF_EXISTS
 
     for k, partition in partitions.modified_items():
         partition = partition.value

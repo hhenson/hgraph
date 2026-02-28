@@ -816,7 +816,7 @@ namespace hgraph {
 
         int64_t last_node = (node_count() - 1) / 2;
         int64_t start = last_node;
-        nested_graph_->reduce_graph(start * node_size());
+        nested_graph_->reduce_graph(*nested_graph_builder_, start * node_size());
 
         std::sort(free_node_indexes_.begin(), free_node_indexes_.end(),
                   [](const auto &a, const auto &b) { return a < b; });

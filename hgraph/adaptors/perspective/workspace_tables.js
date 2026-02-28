@@ -68,7 +68,9 @@ export async function jsonToArrow(json, table_name) {
     let data = json;
     if (tableFromJSON) {
         const schema = workspace_tables[table_name].arrow_schema;
-        const columns = Object.assign({}, ...Object.keys(json[0]).map(props => ({[props]: json.map(prop => prop[props])})))
+        const keys = new Set();
+        json.forEach(row => Object.keys(row).forEach(k => keys.add(k)));
+        const columns = Object.assign({}, ...[...keys].map(props => ({[props]: json.map(prop => prop[props])})))
         const vectors = Object.fromEntries(Object.entries(columns).filter((x) => x[0] in schema).map(([k, v]) => [
             k, 
             new arrow.Vector([...arrow.builderThroughIterable({type: schema[k], nullValues: [null, undefined]})(v)])

@@ -195,7 +195,7 @@ namespace hgraph {
         if (nested_graph_ == nullptr) {
             return;
         }
-        nested_graph_->reduce_graph(ndx * node_size());
+        nested_graph_->reduce_graph(*nested_graph_builder_, ndx * node_size());
     }
 
     void TsdNonAssociativeReduceNode::bind_output() {
