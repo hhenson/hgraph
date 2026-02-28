@@ -54,6 +54,39 @@ TEST_CASE("TSTypeRegistry caches scalar TS and parallel schemas", "[ts_registry]
     REQUIRE(ts_int_1->active_schema()->kind == TypeKind::Atomic);
 }
 
+TEST_CASE("TypeRegistry interns composite value schemas", "[ts_registry][schema][value_registry]") {
+    using namespace hgraph::value;
+
+    auto& registry = TypeRegistry::instance();
+    const TypeMeta* int_type = scalar_type_meta<int64_t>();
+    const TypeMeta* str_type = scalar_type_meta<std::string>();
+
+    const TypeMeta* list_1 = registry.list(int_type).build();
+    const TypeMeta* list_2 = registry.list(int_type).build();
+    REQUIRE(list_1 == list_2);
+
+    const TypeMeta* fixed_list_1 = registry.fixed_list(int_type, 4).build();
+    const TypeMeta* fixed_list_2 = registry.fixed_list(int_type, 4).build();
+    REQUIRE(fixed_list_1 == fixed_list_2);
+    REQUIRE(fixed_list_1 != list_1);
+
+    const TypeMeta* set_1 = registry.set(int_type).build();
+    const TypeMeta* set_2 = registry.set(int_type).build();
+    REQUIRE(set_1 == set_2);
+
+    const TypeMeta* map_1 = registry.map(str_type, int_type).build();
+    const TypeMeta* map_2 = registry.map(str_type, int_type).build();
+    REQUIRE(map_1 == map_2);
+
+    const TypeMeta* queue_1 = registry.queue(int_type).max_capacity(8).build();
+    const TypeMeta* queue_2 = registry.queue(int_type).max_capacity(8).build();
+    REQUIRE(queue_1 == queue_2);
+
+    const TypeMeta* cyclic_1 = registry.cyclic_buffer(int_type, 16).build();
+    const TypeMeta* cyclic_2 = registry.cyclic_buffer(int_type, 16).build();
+    REQUIRE(cyclic_1 == cyclic_2);
+}
+
 TEST_CASE("TSB link and active schemas preserve container slot layout", "[ts_registry][schema][tsb]") {
     using namespace hgraph;
     using namespace hgraph::value;

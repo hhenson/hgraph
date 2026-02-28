@@ -1555,3 +1555,83 @@ def test_map_large_get_performance(string_double_map_schema):
 
     # Should complete quickly - O(n) total for n lookups
     assert elapsed < 5.0, f"Get took {elapsed:.2f}s for {n} lookups - too slow"
+
+
+def test_set_iteration_scales_linearly(int_set_schema):
+    """Set iteration should scale near-linearly with element count."""
+    import statistics
+    import time
+
+    def build_set_view(n):
+        holder = Value(int_set_schema)
+        holder.emplace()
+        mutable_view = holder.as_set()
+        for i in range(n):
+            mutable_view.add(make_int_value(i).view())
+        return holder.view().as_set()
+
+    def iterate_all(set_view):
+        for _ in set_view:
+            pass
+
+    def median_runtime(fn, repeats=5):
+        samples = []
+        for _ in range(repeats):
+            start = time.perf_counter()
+            fn()
+            samples.append(time.perf_counter() - start)
+        return statistics.median(samples)
+
+    small = build_set_view(2000)
+    large = build_set_view(4000)
+
+    iterate_all(small)
+    iterate_all(large)
+
+    small_t = median_runtime(lambda: iterate_all(small))
+    large_t = median_runtime(lambda: iterate_all(large))
+    ratio = large_t / max(small_t, 1e-9)
+
+    # Doubling input size should be much closer to 2x than 4x.
+    assert ratio < 3.0, f"Set iteration ratio too high for linear scaling: {ratio:.2f}x"
+
+
+def test_map_key_iteration_scales_linearly(string_double_map_schema):
+    """Map key iteration should scale near-linearly with element count."""
+    import statistics
+    import time
+
+    def build_map_view(n):
+        holder = Value(string_double_map_schema)
+        holder.emplace()
+        mutable_view = holder.as_map()
+        for i in range(n):
+            key = make_string_value(f"key_{i}")
+            val = make_double_value(float(i))
+            mutable_view.set(key.view(), val.view())
+        return holder.view().as_map()
+
+    def iterate_keys(map_view):
+        for _ in map_view.keys():
+            pass
+
+    def median_runtime(fn, repeats=5):
+        samples = []
+        for _ in range(repeats):
+            start = time.perf_counter()
+            fn()
+            samples.append(time.perf_counter() - start)
+        return statistics.median(samples)
+
+    small = build_map_view(2000)
+    large = build_map_view(4000)
+
+    iterate_keys(small)
+    iterate_keys(large)
+
+    small_t = median_runtime(lambda: iterate_keys(small))
+    large_t = median_runtime(lambda: iterate_keys(large))
+    ratio = large_t / max(small_t, 1e-9)
+
+    # Doubling input size should be much closer to 2x than 4x.
+    assert ratio < 3.0, f"Map key iteration ratio too high for linear scaling: {ratio:.2f}x"

@@ -797,15 +797,17 @@ static void register_set_views(nb::module_& m) {
             if (index >= self.size()) {
                 throw nb::index_error("set index out of range");
             }
-            const void* elem = self.schema()->ops().at(self.data(), index, self.schema());
-            return View(elem, self.schema()->element_type);
+            auto it = self.begin();
+            for (size_t i = 0; i < index; ++i) {
+                ++it;
+            }
+            return *it;
         }, "index"_a, nb::rv_policy::reference_internal, "Get element at index")
         // Iteration support
         .def("__iter__", [](SetView& self) {
             nb::list result;
-            for (size_t i = 0; i < self.size(); ++i) {
-                const void* elem = self.schema()->ops().at(self.data(), i, self.schema());
-                result.append(nb::cast(View(elem, self.schema()->element_type)));
+            for (View elem : self) {
+                result.append(nb::cast(elem));
             }
             return nb::iter(result);
         }, "Iterate over elements");

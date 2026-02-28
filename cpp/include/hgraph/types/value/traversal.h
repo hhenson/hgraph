@@ -170,15 +170,12 @@ inline void deep_visit_impl(
 
         case TypeKind::Set: {
             auto set = view.as_set();
-            // Use TypeOps get_at for indexed access to set elements
-            const auto* schema = set.schema();
-            for (size_t i = 0; i < set.size(); ++i) {
+            size_t i = 0;
+            for (View elem : set) {
                 path.push_back(i);
-                const void* elem_data = schema->ops().at(set.data(), i, schema);
-                if (elem_data) {
-                    deep_visit_impl(View(elem_data, schema->element_type), path, callback);
-                }
+                deep_visit_impl(elem, path, callback);
                 path.pop_back();
+                ++i;
             }
             break;
         }

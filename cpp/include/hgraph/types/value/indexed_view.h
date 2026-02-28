@@ -902,10 +902,7 @@ public:
     /**
      * @brief Const iterator for set views.
      *
-     * Iterates over set elements in O(n) total time using index-based access.
-     *
-     * IMPORTANT: Stores data pointer and schema directly (NOT a view pointer)
-     * to avoid dangling pointer issues when iterating over temporary views.
+     * Iterates directly over KeySet live slots in O(n) total time.
      */
     class const_iterator {
     public:
@@ -916,24 +913,26 @@ public:
         using reference = View;
 
         const_iterator() = default;
-        const_iterator(const void* data, const TypeMeta* schema, size_t index, size_t /*size*/)
-            : _data(data), _schema(schema), _index(index) {}
+        const_iterator(const SetStorage* storage, KeySet::iterator it, const TypeMeta* element_type)
+            : _storage(storage), _it(it), _element_type(element_type) {}
 
-        reference operator*() const;
+        reference operator*() const {
+            return View(_storage->key_set().key_at_slot(*_it), _element_type);
+        }
 
         const_iterator& operator++() {
-            ++_index;
+            ++_it;
             return *this;
         }
 
         const_iterator operator++(int) {
             const_iterator tmp = *this;
-            ++_index;
+            ++_it;
             return tmp;
         }
 
         bool operator==(const const_iterator& other) const {
-            return _data == other._data && _index == other._index;
+            return _storage == other._storage && _it == other._it;
         }
 
         bool operator!=(const const_iterator& other) const {
@@ -941,20 +940,21 @@ public:
         }
 
     private:
-        const void* _data{nullptr};
-        const TypeMeta* _schema{nullptr};
-        size_t _index{0};
+        const SetStorage* _storage{nullptr};
+        KeySet::iterator _it;
+        const TypeMeta* _element_type{nullptr};
     };
 
     [[nodiscard]] const_iterator begin() const {
-        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0);
-        return const_iterator(_data, _schema, 0, size());
+        if (!valid()) return const_iterator{};
+        const auto* storage = static_cast<const SetStorage*>(_data);
+        return const_iterator(storage, storage->key_set().begin(), _schema->element_type);
     }
 
     [[nodiscard]] const_iterator end() const {
-        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0);
-        size_t sz = size();
-        return const_iterator(_data, _schema, sz, sz);
+        if (!valid()) return const_iterator{};
+        const auto* storage = static_cast<const SetStorage*>(_data);
+        return const_iterator(storage, storage->key_set().end(), _schema->element_type);
     }
 
     // Templated operations - implemented after Value
@@ -1062,24 +1062,26 @@ public:
         using reference = View;
 
         const_iterator() = default;
-        const_iterator(const KeySetView* view, size_t index)
-            : _view(view), _index(index) {}
+        const_iterator(const MapStorage* storage, KeySet::iterator it, const TypeMeta* element_type)
+            : _storage(storage), _it(it), _element_type(element_type) {}
 
-        reference operator*() const;
+        reference operator*() const {
+            return View(_storage->key_at_slot(*_it), _element_type);
+        }
 
         const_iterator& operator++() {
-            ++_index;
+            ++_it;
             return *this;
         }
 
         const_iterator operator++(int) {
             const_iterator tmp = *this;
-            ++_index;
+            ++_it;
             return tmp;
         }
 
         bool operator==(const const_iterator& other) const {
-            return _view == other._view && _index == other._index;
+            return _storage == other._storage && _it == other._it;
         }
 
         bool operator!=(const const_iterator& other) const {
@@ -1087,16 +1089,21 @@ public:
         }
 
     private:
-        const KeySetView* _view{nullptr};
-        size_t _index{0};
+        const MapStorage* _storage{nullptr};
+        KeySet::iterator _it;
+        const TypeMeta* _element_type{nullptr};
     };
 
     [[nodiscard]] const_iterator begin() const {
-        return const_iterator(this, 0);
+        if (!valid()) return const_iterator{};
+        const auto* storage = static_cast<const MapStorage*>(_data);
+        return const_iterator(storage, storage->key_set().begin(), _schema->key_type);
     }
 
     [[nodiscard]] const_iterator end() const {
-        return const_iterator(this, size());
+        if (!valid()) return const_iterator{};
+        const auto* storage = static_cast<const MapStorage*>(_data);
+        return const_iterator(storage, storage->key_set().end(), _schema->key_type);
     }
 };
 
@@ -1565,36 +1572,6 @@ inline void QueueView::push(const View& value) {
 inline void QueueView::pop() {
     require_mutable("pop");
     QueueOps::pop(data(), _schema);
-}
-
-// ============================================================================
-// SetView Iterator Implementation
-// ============================================================================
-
-inline View SetView::const_iterator::operator*() const {
-    // Delegate to the ops layer's at() which iterates KeySet alive slots
-    const void* elem = _schema->ops().at(_data, _index, _schema);
-    return View(elem, _schema->element_type);
-}
-
-// ============================================================================
-// KeySetView Iterator Implementation
-// ============================================================================
-
-inline View KeySetView::const_iterator::operator*() const {
-    // Access the MapStorage to get the key at the current iteration position
-    auto* storage = static_cast<const MapStorage*>(_view->data());
-
-    if (_index >= storage->size()) {
-        throw std::out_of_range("Key set iterator out of range");
-    }
-
-    // Iterate KeySet alive slots to find the n-th key
-    auto it = storage->key_set().begin();
-    std::advance(it, _index);
-    size_t slot = *it;
-
-    return View(storage->key_at_slot(slot), _view->element_type());
 }
 
 } // namespace hgraph::value
