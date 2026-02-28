@@ -253,10 +253,6 @@ void tsd_emit_phase(const ViewData& vd,
                     (void)child_meta;
                     return true;
                 }
-                if constexpr (AssumeNonRefElement) {
-                    (void)child_meta;
-                    return false;
-                }
                 return dispatch_meta_is_ref(child_meta);
             };
             if (!sampled_like && has_changed_map) {
@@ -283,16 +279,16 @@ void tsd_emit_phase(const ViewData& vd,
                     ViewData child = *data;
                     child.path.indices.push_back(*slot);
                     const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
+                    const bool child_ref = child_is_ref(child_meta);
+                    const TSMeta* child_ref_meta = child_is_ref(child_meta) ? child_meta : nullptr;
 
                     if (nested_element) {
                         const bool child_valid = op_valid(child);
                         const bool ref_child_rebound =
-                            child_meta != nullptr &&
-                            child_is_ref(child_meta) &&
+                            child_ref &&
                             ref_child_rebound_for_key(child, key);
                         const bool ref_target_modified_now =
-                            child_meta != nullptr &&
-                            child_is_ref(child_meta) &&
+                            child_ref &&
                             ref_target_modified_this_tick(child);
                         const bool include_unmodified_ref_payload =
                             key_in_added_set(key) ||
@@ -300,11 +296,11 @@ void tsd_emit_phase(const ViewData& vd,
                             ref_child_rebound ||
                             !ref_target_modified_now ||
                             !changed_entry_has_delta;
-                        if (child_is_ref(child_meta)) {
+                        if (child_ref) {
                             nb::object child_delta =
                                 tsd_ref_view_payload_to_python(
                                     child,
-                                    child_meta,
+                                    child_ref_meta,
                                     current_time,
                                     include_unmodified_ref_payload,
                                     debug_ref_payload);
@@ -361,7 +357,7 @@ void tsd_emit_phase(const ViewData& vd,
                         }
                     } else {
                         const bool child_valid = op_valid(child);
-                        if (child_is_ref(child_meta)) {
+                        if (child_ref) {
                             const bool include_unmodified_ref_payload =
                                 key_in_added_set(key) ||
                                 !child_valid ||
@@ -370,11 +366,12 @@ void tsd_emit_phase(const ViewData& vd,
                             nb::object child_delta_py =
                                 tsd_ref_view_payload_to_python(
                                     child,
-                                    child_meta,
+                                    child_ref_meta,
                                     current_time,
                                     include_unmodified_ref_payload,
                                     debug_ref_payload);
-                            const TSMeta* ref_element_meta = child_meta->element_ts();
+                            const TSMeta* ref_element_meta =
+                                child_ref_meta != nullptr ? child_ref_meta->element_ts() : nullptr;
                             const bool scalar_ref_target = dispatch_meta_is_scalar_like(ref_element_meta);
                             if (child_delta_py.is_none() &&
                                 !include_unmodified_ref_payload &&
@@ -386,7 +383,7 @@ void tsd_emit_phase(const ViewData& vd,
                                 single_changed_key) {
                                 child_delta_py = tsd_ref_view_payload_to_python(
                                     child,
-                                    child_meta,
+                                    child_ref_meta,
                                     current_time,
                                     true,
                                     debug_ref_payload);
@@ -401,7 +398,20 @@ void tsd_emit_phase(const ViewData& vd,
                         }
                         DeltaView child_delta = DeltaView::from_computed(child, current_time);
                         if (tsd_has_delta_payload(child_delta)) {
-                            nb::object child_delta_py = computed_delta_to_python_with_refs(child_delta, current_time);
+                            nb::object child_delta_py = nb::none();
+                            if (child_delta.valid() && child_delta.schema() == ts_reference_meta()) {
+                                child_delta_py = tsd_ref_view_payload_to_python(
+                                    child,
+                                    child_ref_meta,
+                                    current_time,
+                                    key_in_added_set(key),
+                                    debug_ref_payload);
+                                if (child_delta_py.is_none()) {
+                                    child_delta_py = op_to_python(child);
+                                }
+                            } else {
+                                child_delta_py = computed_delta_to_python_with_refs(child_delta, current_time);
+                            }
                             if (!child_delta_py.is_none()) {
                                 delta_out[key.to_python()] = std::move(child_delta_py);
                             }
@@ -415,7 +425,20 @@ void tsd_emit_phase(const ViewData& vd,
                         if (!child_value.valid()) {
                             return;
                         }
-                        nb::object child_value_py = stored_delta_to_python_with_refs(child_value, current_time);
+                        nb::object child_value_py = nb::none();
+                        if (child_value.schema() == ts_reference_meta()) {
+                            child_value_py = tsd_ref_view_payload_to_python(
+                                child,
+                                child_ref_meta,
+                                current_time,
+                                key_in_added_set(key),
+                                debug_ref_payload);
+                            if (child_value_py.is_none()) {
+                                child_value_py = op_to_python(child);
+                            }
+                        } else {
+                            child_value_py = stored_delta_to_python_with_refs(child_value, current_time);
+                        }
                         if (!child_value_py.is_none()) {
                             delta_out[key.to_python()] = std::move(child_value_py);
                         }
@@ -484,13 +507,15 @@ void tsd_emit_phase(const ViewData& vd,
                     child.sampled = false;
                     if (include_unmodified) {
                         const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
+                        const bool child_ref = child_is_ref(child_meta);
+                        const TSMeta* child_ref_meta = child_is_ref(child_meta) ? child_meta : nullptr;
                         const bool child_valid = op_valid(child);
-                        if (dispatch_meta_is_ref(child_meta)) {
+                        if (child_ref) {
                             nb::object entry_py = nb::none();
                             if (child_valid) {
                                 entry_py = tsd_ref_view_payload_to_python(
                                     child,
-                                    child_meta,
+                                    child_ref_meta,
                                     current_time,
                                     true,
                                     debug_ref_payload);
@@ -531,9 +556,11 @@ void tsd_emit_phase(const ViewData& vd,
                         return;
                     }
                     const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
+                    const bool child_ref = child_is_ref(child_meta);
+                    const TSMeta* child_ref_meta = child_is_ref(child_meta) ? child_meta : nullptr;
                     const bool child_valid = op_valid(child);
                     if (!child_valid &&
-                        !child_is_ref(child_meta)) {
+                        !child_ref) {
                         return;
                     }
                     if (debug_tsd_delta && !include_unmodified) {
@@ -556,7 +583,7 @@ void tsd_emit_phase(const ViewData& vd,
                         (key_is_structural_add(key) || (key_in_added_set(key) && !key_in_removed_set(key)));
                     const bool ref_child_rebound =
                         !include_unmodified &&
-                        child_is_ref(child_meta) &&
+                        child_ref &&
                         ref_child_rebound_for_key(child, key);
                     bool child_modified =
                         include_unmodified || forced_from_changed_map || forced_from_structural_add || ref_child_rebound ||
@@ -578,17 +605,17 @@ void tsd_emit_phase(const ViewData& vd,
                                      ref_child_rebound ? 1 : 0);
                     }
                     if (!include_unmodified && !child_modified &&
-                        child_is_ref(child_meta)) {
+                        child_ref) {
                         child_modified = ref_target_modified_this_tick(child);
                     }
                     if (!include_unmodified && !child_modified) {
                         return;
                     }
-                    if (child_is_ref(child_meta)) {
+                    if (child_ref) {
                         nb::object child_delta =
                             tsd_ref_view_payload_to_python(
                                 child,
-                                child_meta,
+                                child_ref_meta,
                                 current_time,
                                 include_unmodified || forced_from_changed_map || forced_from_structural_add ||
                                     ref_child_rebound,
@@ -615,6 +642,9 @@ void tsd_emit_phase(const ViewData& vd,
                                     current_time,
                                     forced_from_changed_map || forced_from_structural_add,
                                     debug_ref_payload);
+                                if (child_delta_py.is_none()) {
+                                    child_delta_py = op_to_python(child);
+                                }
                             } else {
                                 child_delta_py = computed_delta_to_python_with_refs(child_delta, current_time);
                             }
@@ -634,6 +664,9 @@ void tsd_emit_phase(const ViewData& vd,
                                         current_time,
                                         true,
                                         debug_ref_payload);
+                                    if (child_value_py.is_none()) {
+                                        child_value_py = op_to_python(child);
+                                    }
                                 } else {
                                     child_value_py = stored_delta_to_python_with_refs(child_value, current_time);
                                 }
@@ -687,10 +720,6 @@ void tsd_emit_backfill_phase(const ViewData& vd,
                     (void)child_meta;
                     return true;
                 }
-                if constexpr (AssumeNonRefElement) {
-                    (void)child_meta;
-                    return false;
-                }
                 return dispatch_meta_is_ref(child_meta);
             };
             if (!sampled_like && changed_values.valid() && changed_values.is_map()) {
@@ -707,13 +736,15 @@ void tsd_emit_backfill_phase(const ViewData& vd,
                     ViewData child = *data;
                     child.path.indices.push_back(*slot);
                     const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
+                    const bool child_ref = child_is_ref(child_meta);
+                    const TSMeta* child_ref_meta = child_is_ref(child_meta) ? child_meta : nullptr;
                     const bool in_added_set = key_in_added_set(key);
                     const bool ref_child_rebound =
-                        child_is_ref(child_meta) &&
+                        child_ref &&
                         ref_child_rebound_for_key(child, key);
                     bool child_modified_now = op_modified(child, current_time);
                     if (!child_modified_now &&
-                        child_is_ref(child_meta)) {
+                        child_ref) {
                         child_modified_now = ref_target_modified_this_tick(child);
                     }
                     const bool child_valid = op_valid(child);
@@ -725,10 +756,10 @@ void tsd_emit_backfill_phase(const ViewData& vd,
                     }
 
                     nb::object entry = nb::none();
-                    if (child_is_ref(child_meta)) {
+                    if (child_ref) {
                         entry = tsd_ref_view_payload_to_python(
                             child,
-                            child_meta,
+                            child_ref_meta,
                             current_time,
                             in_added_set ||
                                 ref_child_rebound ||
@@ -740,12 +771,36 @@ void tsd_emit_backfill_phase(const ViewData& vd,
                         }
                         DeltaView child_delta = DeltaView::from_computed(child, current_time);
                         if (tsd_has_delta_payload(child_delta)) {
-                            entry = computed_delta_to_python_with_refs(child_delta, current_time);
+                            if (child_delta.valid() && child_delta.schema() == ts_reference_meta()) {
+                                entry = tsd_ref_view_payload_to_python(
+                                    child,
+                                    nullptr,
+                                    current_time,
+                                    in_added_set || ref_child_rebound,
+                                    debug_ref_payload);
+                                if (entry.is_none()) {
+                                    entry = op_to_python(child);
+                                }
+                            } else {
+                                entry = computed_delta_to_python_with_refs(child_delta, current_time);
+                            }
                         }
                         if (entry.is_none()) {
                             View child_value = op_value(child);
                             if (child_value.valid()) {
-                                entry = stored_delta_to_python_with_refs(child_value, current_time);
+                                if (child_value.schema() == ts_reference_meta()) {
+                                    entry = tsd_ref_view_payload_to_python(
+                                        child,
+                                        nullptr,
+                                        current_time,
+                                        true,
+                                        debug_ref_payload);
+                                    if (entry.is_none()) {
+                                        entry = op_to_python(child);
+                                    }
+                                } else {
+                                    entry = stored_delta_to_python_with_refs(child_value, current_time);
+                                }
                             }
                         }
                     } else {

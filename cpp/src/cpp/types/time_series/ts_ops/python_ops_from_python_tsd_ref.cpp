@@ -211,20 +211,29 @@ void op_from_python_tsd_ref_impl(ViewData& vd,
     }
 
     bool ref_child_target_modified = false;
-    if (!changed) {
-        auto current_value = resolve_value_slot_const(vd);
-        if (current_value.has_value() && current_value->valid() && current_value->is_map()) {
-            for_each_map_key_slot(current_value->as_map(), [&](View /*key*/, size_t slot) {
-                if (ref_child_target_modified) {
-                    return;
+    auto current_value = resolve_value_slot_const(vd);
+    if (current_value.has_value() && current_value->valid() && current_value->is_map()) {
+        for_each_map_key_slot(current_value->as_map(), [&](View key, size_t slot) {
+            ViewData child_vd = vd;
+            child_vd.path.indices.push_back(slot);
+            ViewData target_vd{};
+            const bool target_modified =
+                resolve_bound_target_view_data(child_vd, target_vd) && op_modified(target_vd, current_time);
+            if (!target_modified) {
+                return;
+            }
+
+            ref_child_target_modified = true;
+            if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
+                auto changed_map = slots.changed_values_map.as_map();
+                if (!map_slot_for_key(changed_map, key).has_value()) {
+                    View child_value = op_value(child_vd);
+                    if (child_value.valid()) {
+                        changed_map.set(key, child_value);
+                    }
                 }
-                ViewData child_vd = vd;
-                child_vd.path.indices.push_back(slot);
-                ViewData target_vd{};
-                ref_child_target_modified =
-                    resolve_bound_target_view_data(child_vd, target_vd) && op_modified(target_vd, current_time);
-            });
-        }
+            }
+        });
     }
 
     if (changed || !was_valid) {
