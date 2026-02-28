@@ -412,6 +412,42 @@ def test_set_iteration(int_set_schema):
     assert sorted(elements) == [10, 20, 30]
 
 
+def test_set_slot_lookup_and_is_live(int_set_schema):
+    """Set slot lookup is direct and liveness can be queried by slot."""
+    v = Value(int_set_schema)
+
+    v.emplace()
+    sv = v.as_set()
+    e1 = make_int_value(10)
+    e2 = make_int_value(20)
+    e3 = make_int_value(30)
+    sv.add(e1.view())  # slot 0
+    sv.add(e2.view())  # slot 1
+    sv.add(e3.view())  # slot 2
+
+    csv = v.view().as_set()
+    assert csv.is_live(0) is True
+    assert csv.is_live(1) is True
+    assert csv.is_live(2) is True
+    assert csv.is_live(99) is False
+    assert csv[0].as_int() == 10
+    assert csv[1].as_int() == 20
+    assert csv[2].as_int() == 30
+
+    sv.remove(e2.view())  # slot 1 now dead
+    csv = v.view().as_set()
+    assert csv.is_live(1) is False
+    assert csv[1].as_int() == 20
+
+    e4 = make_int_value(40)
+    sv.add(e4.view())  # Free-list should reuse slot 1
+    csv = v.view().as_set()
+    assert csv.is_live(1) is True
+    assert csv[1].as_int() == 40
+    with pytest.raises(IndexError):
+        _ = csv[99]
+
+
 # =============================================================================
 # Section 7.2: Maps - Schema Creation
 # =============================================================================
@@ -1412,6 +1448,41 @@ def test_keyset_iteration(string_double_map_schema):
     assert sorted(keys) == ["x", "y", "z"]
 
 
+def test_keyset_slot_lookup_and_is_live(string_double_map_schema):
+    """KeySetView supports slot-based lookup and liveness checks."""
+    v = Value(string_double_map_schema)
+
+    v.emplace()
+    mv = v.as_map()
+    k1 = make_string_value("apple")
+    v1 = make_double_value(1.0)
+    k2 = make_string_value("banana")
+    v2 = make_double_value(2.0)
+    mv.set(k1.view(), v1.view())  # slot 0
+    mv.set(k2.view(), v2.view())  # slot 1
+
+    key_set = v.view().as_map().keys()
+    assert key_set.is_live(0) is True
+    assert key_set.is_live(1) is True
+    assert key_set.is_live(99) is False
+    assert key_set[0].as_string() == "apple"
+    assert key_set[1].as_string() == "banana"
+
+    mv.remove(k2.view())  # slot 1 now dead
+    key_set = v.view().as_map().keys()
+    assert key_set.is_live(1) is False
+    assert key_set[1].as_string() == "banana"
+
+    k3 = make_string_value("cherry")
+    v3 = make_double_value(3.0)
+    mv.set(k3.view(), v3.view())  # slot 1 reused
+    key_set = v.view().as_map().keys()
+    assert key_set.is_live(1) is True
+    assert key_set[1].as_string() == "cherry"
+    with pytest.raises(IndexError):
+        _ = key_set[99]
+
+
 def test_keyset_same_interface_as_constsetview(int_set_schema, string_double_map_schema):
     """KeySetView has the same interface as read-only SetView operations."""
     # Create a set
@@ -1434,7 +1505,8 @@ def test_keyset_same_interface_as_constsetview(int_set_schema, string_double_map
     key_set = map_v.view().as_map().keys()
 
     # Both should have the same methods
-    set_methods = {'size', 'empty', 'contains', 'element_type', '__len__', '__iter__', '__contains__'}
+    set_methods = {'size', 'empty', 'contains', 'element_type', 'is_live', 'at', '__len__', '__iter__', '__contains__',
+                   '__getitem__'}
     for method in set_methods:
         assert hasattr(const_set, method), f"SetView missing {method}"
         assert hasattr(key_set, method), f"KeySetView missing {method}"

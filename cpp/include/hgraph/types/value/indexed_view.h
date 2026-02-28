@@ -897,6 +897,36 @@ public:
         return _schema->element_type;
     }
 
+    /**
+     * @brief Check whether a slot currently holds a live element.
+     */
+    [[nodiscard]] bool is_live(size_t slot) const {
+        assert(valid() && "is_live() on invalid view");
+        const auto* storage = static_cast<const SetStorage*>(_data);
+        return storage->key_set().is_alive(slot);
+    }
+
+    /**
+     * @brief Get element by slot index (O(1)).
+     *
+     * This is a slot lookup, not ordinal "n-th element" access.
+     */
+    [[nodiscard]] View at(size_t slot) const {
+        assert(valid() && "at() on invalid view");
+        const auto* storage = static_cast<const SetStorage*>(_data);
+        if (!storage->key_set().has_slot_value(slot)) {
+            throw std::out_of_range("Set slot has no value");
+        }
+        return View(storage->key_set().key_at_slot(slot), _schema->element_type);
+    }
+
+    /**
+     * @brief Slot index operator (same semantics as at(slot)).
+     */
+    [[nodiscard]] View operator[](size_t slot) const {
+        return at(slot);
+    }
+
     // ========== Iteration ==========
 
     /**
@@ -1044,6 +1074,36 @@ public:
      */
     [[nodiscard]] const TypeMeta* element_type() const {
         return _schema->key_type;
+    }
+
+    /**
+     * @brief Check whether a key slot is currently live.
+     */
+    [[nodiscard]] bool is_live(size_t slot) const {
+        assert(valid() && "is_live() on invalid view");
+        const auto* storage = static_cast<const MapStorage*>(_data);
+        return storage->key_set().is_alive(slot);
+    }
+
+    /**
+     * @brief Get key by slot index (O(1)).
+     *
+     * This is a slot lookup, not ordinal access over the key set.
+     */
+    [[nodiscard]] View at(size_t slot) const {
+        assert(valid() && "at() on invalid view");
+        const auto* storage = static_cast<const MapStorage*>(_data);
+        if (!storage->key_set().has_slot_value(slot)) {
+            throw std::out_of_range("Map key slot has no value");
+        }
+        return View(storage->key_at_slot(slot), _schema->key_type);
+    }
+
+    /**
+     * @brief Slot index operator (same semantics as at(slot)).
+     */
+    [[nodiscard]] View operator[](size_t slot) const {
+        return at(slot);
     }
 
     // ========== Iteration ==========

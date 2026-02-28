@@ -792,17 +792,23 @@ static void register_set_views(nb::module_& m) {
         .def("clear", &SetView::clear, "Clear all elements")
         .def("element_type", &SetView::element_type, nb::rv_policy::reference,
             "Get the element type")
+        .def("is_live", &SetView::is_live, "slot"_a,
+            "Check if a slot currently holds a live element")
+        .def("at", [](const SetView& self, size_t slot) {
+            try {
+                return self.at(slot);
+            } catch (const std::out_of_range&) {
+                throw nb::index_error("set slot has no value");
+            }
+        }, "slot"_a, nb::rv_policy::reference_internal, "Get element at slot index")
         // Index-based element access
         .def("__getitem__", [](SetView& self, size_t index) {
-            if (index >= self.size()) {
-                throw nb::index_error("set index out of range");
+            try {
+                return self.at(index);
+            } catch (const std::out_of_range&) {
+                throw nb::index_error("set slot has no value");
             }
-            auto it = self.begin();
-            for (size_t i = 0; i < index; ++i) {
-                ++it;
-            }
-            return *it;
-        }, "index"_a, nb::rv_policy::reference_internal, "Get element at index")
+        }, "index"_a, nb::rv_policy::reference_internal, "Get element at slot index")
         // Iteration support
         .def("__iter__", [](SetView& self) {
             nb::list result;
@@ -918,6 +924,22 @@ static void register_key_set_view(nb::module_& m) {
             &KeySetView::contains), "key"_a)
         .def("element_type", &KeySetView::element_type, nb::rv_policy::reference,
             "Get the key/element type")
+        .def("is_live", &KeySetView::is_live, "slot"_a,
+            "Check if a key slot is currently live")
+        .def("at", [](const KeySetView& self, size_t slot) {
+            try {
+                return self.at(slot);
+            } catch (const std::out_of_range&) {
+                throw nb::index_error("map key slot has no value");
+            }
+        }, "slot"_a, nb::rv_policy::reference_internal, "Get key at slot index")
+        .def("__getitem__", [](const KeySetView& self, size_t slot) {
+            try {
+                return self.at(slot);
+            } catch (const std::out_of_range&) {
+                throw nb::index_error("map key slot has no value");
+            }
+        }, "slot"_a, nb::rv_policy::reference_internal, "Get key at slot index")
         // Iteration support using KeySetView::const_iterator
         .def("__iter__", [](const KeySetView& self) {
             nb::list result;

@@ -144,6 +144,7 @@ struct list_ops_t {
 /// Operations specific to Set types (unique unordered elements)
 struct set_ops_t {
     size_t (*size)(const void* obj, const TypeMeta* schema);
+    // Slot-based access (stable slot identity), not ordinal n-th element access.
     const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
     bool (*contains)(const void* obj, const void* element, const TypeMeta* schema);
     void (*add)(void* obj, const void* element, const TypeMeta* schema);
