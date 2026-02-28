@@ -218,6 +218,8 @@ void tsd_emit_removed_phase(const ViewData& vd,
 
 template <bool DeclaredRefElement,
           bool AssumeNonRefElement,
+          bool HasDeclaredNestedElement,
+          bool DeclaredNestedElement,
           typename KeyInAddedFn,
           typename KeyInRemovedFn,
           typename KeyInChangedFn,
@@ -248,12 +250,34 @@ void tsd_emit_phase(const ViewData& vd,
                     ResolvePreviousMapViewFn&& resolve_previous_map_view,
                     PreviousMapEntryVisibleFn&& previous_map_entry_visible,
                     nb::dict& delta_out) {
-            const auto child_is_ref = [](const TSMeta* child_meta) {
+            const bool use_nested_element = [&]() {
+                if constexpr (HasDeclaredNestedElement) {
+                    return DeclaredNestedElement;
+                }
+                return nested_element;
+            }();
+            const auto child_is_ref = [](const ViewData& child) {
                 if constexpr (DeclaredRefElement) {
-                    (void)child_meta;
                     return true;
                 }
-                return dispatch_meta_is_ref(child_meta);
+                if constexpr (AssumeNonRefElement) {
+                    // Declared non-ref TSD element paths can still resolve to REF
+                    // children after rebinding through wrapper indirection.
+                    return child.ops != nullptr && child.ops->value == &op_value_ref;
+                }
+                return child.ops != nullptr && child.ops->value == &op_value_ref;
+            };
+            const auto child_is_scalar_like = [](const ViewData& child) {
+                if constexpr (HasDeclaredNestedElement) {
+                    return !DeclaredNestedElement;
+                }
+                if (child.ops == nullptr) {
+                    return true;
+                }
+                return child.ops->dict == nullptr &&
+                       child.ops->set == nullptr &&
+                       child.ops->list == nullptr &&
+                       child.ops->bundle == nullptr;
             };
             if (!sampled_like && has_changed_map) {
                 const auto changed_map = changed_values.as_map();
@@ -278,11 +302,12 @@ void tsd_emit_phase(const ViewData& vd,
 
                     ViewData child = *data;
                     child.path.indices.push_back(*slot);
-                    const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
-                    const bool child_ref = child_is_ref(child_meta);
-                    const TSMeta* child_ref_meta = child_is_ref(child_meta) ? child_meta : nullptr;
+                    bind_view_data_ops(child);
+                    const TSMeta* child_meta = op_ts_meta(child);
+                    const bool child_ref = child_is_ref(child);
+                    const TSMeta* child_ref_meta = child_ref ? child_meta : nullptr;
 
-                    if (nested_element) {
+                    if (use_nested_element) {
                         const bool child_valid = op_valid(child);
                         const bool ref_child_rebound =
                             child_ref &&
@@ -372,7 +397,13 @@ void tsd_emit_phase(const ViewData& vd,
                                     debug_ref_payload);
                             const TSMeta* ref_element_meta =
                                 child_ref_meta != nullptr ? child_ref_meta->element_ts() : nullptr;
-                            const bool scalar_ref_target = dispatch_meta_is_scalar_like(ref_element_meta);
+                            const ts_ops* ref_target_ops = dispatch_meta_ops(ref_element_meta);
+                            const bool scalar_ref_target =
+                                ref_target_ops == nullptr ||
+                                (ref_target_ops->dict == nullptr &&
+                                 ref_target_ops->set == nullptr &&
+                                 ref_target_ops->list == nullptr &&
+                                 ref_target_ops->bundle == nullptr);
                             if (child_delta_py.is_none() &&
                                 !include_unmodified_ref_payload &&
                                 changed_entry_has_delta &&
@@ -506,9 +537,10 @@ void tsd_emit_phase(const ViewData& vd,
                     child.path.indices.push_back(slot);
                     child.sampled = false;
                     if (include_unmodified) {
-                        const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
-                        const bool child_ref = child_is_ref(child_meta);
-                        const TSMeta* child_ref_meta = child_is_ref(child_meta) ? child_meta : nullptr;
+                        bind_view_data_ops(child);
+                        const TSMeta* child_meta = op_ts_meta(child);
+                        const bool child_ref = child_is_ref(child);
+                        const TSMeta* child_ref_meta = child_ref ? child_meta : nullptr;
                         const bool child_valid = op_valid(child);
                         if (child_ref) {
                             nb::object entry_py = nb::none();
@@ -555,9 +587,10 @@ void tsd_emit_phase(const ViewData& vd,
                         delta_out[key.to_python()] = std::move(entry_py);
                         return;
                     }
-                    const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
-                    const bool child_ref = child_is_ref(child_meta);
-                    const TSMeta* child_ref_meta = child_is_ref(child_meta) ? child_meta : nullptr;
+                    bind_view_data_ops(child);
+                    const TSMeta* child_meta = op_ts_meta(child);
+                    const bool child_ref = child_is_ref(child);
+                    const TSMeta* child_ref_meta = child_ref ? child_meta : nullptr;
                     const bool child_valid = op_valid(child);
                     if (!child_valid &&
                         !child_ref) {
@@ -631,7 +664,7 @@ void tsd_emit_phase(const ViewData& vd,
                         }
                         return;
                     }
-                    if (dispatch_meta_is_scalar_like(child_meta)) {
+                    if (child_is_scalar_like(child)) {
                         DeltaView child_delta = DeltaView::from_computed(child, current_time);
                         if (tsd_has_delta_payload(child_delta)) {
                             nb::object child_delta_py = nb::none();
@@ -701,6 +734,8 @@ void tsd_emit_phase(const ViewData& vd,
 
 template <bool DeclaredRefElement,
           bool AssumeNonRefElement,
+          bool HasDeclaredNestedElement,
+          bool DeclaredNestedElement,
           typename KeyInAddedFn,
           typename RefChildReboundForKeyFn,
           typename RefTargetModifiedThisTickFn>
@@ -715,12 +750,26 @@ void tsd_emit_backfill_phase(const ViewData& vd,
                              RefChildReboundForKeyFn&& ref_child_rebound_for_key,
                              RefTargetModifiedThisTickFn&& ref_target_modified_this_tick,
                              nb::dict& delta_out) {
-            const auto child_is_ref = [](const TSMeta* child_meta) {
+            const auto child_is_ref = [](const ViewData& child) {
                 if constexpr (DeclaredRefElement) {
-                    (void)child_meta;
                     return true;
                 }
-                return dispatch_meta_is_ref(child_meta);
+                if constexpr (AssumeNonRefElement) {
+                    return child.ops != nullptr && child.ops->value == &op_value_ref;
+                }
+                return child.ops != nullptr && child.ops->value == &op_value_ref;
+            };
+            const auto child_is_scalar_like = [](const ViewData& child) {
+                if constexpr (HasDeclaredNestedElement) {
+                    return !DeclaredNestedElement;
+                }
+                if (child.ops == nullptr) {
+                    return true;
+                }
+                return child.ops->dict == nullptr &&
+                       child.ops->set == nullptr &&
+                       child.ops->list == nullptr &&
+                       child.ops->bundle == nullptr;
             };
             if (!sampled_like && changed_values.valid() && changed_values.is_map()) {
                 const auto changed_map = changed_values.as_map();
@@ -735,9 +784,10 @@ void tsd_emit_backfill_phase(const ViewData& vd,
                     }
                     ViewData child = *data;
                     child.path.indices.push_back(*slot);
-                    const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
-                    const bool child_ref = child_is_ref(child_meta);
-                    const TSMeta* child_ref_meta = child_is_ref(child_meta) ? child_meta : nullptr;
+                    bind_view_data_ops(child);
+                    const TSMeta* child_meta = op_ts_meta(child);
+                    const bool child_ref = child_is_ref(child);
+                    const TSMeta* child_ref_meta = child_ref ? child_meta : nullptr;
                     const bool in_added_set = key_in_added_set(key);
                     const bool ref_child_rebound =
                         child_ref &&
@@ -765,7 +815,7 @@ void tsd_emit_backfill_phase(const ViewData& vd,
                                 ref_child_rebound ||
                                 !child_valid,
                             debug_ref_payload);
-                    } else if (dispatch_meta_is_scalar_like(child_meta)) {
+                    } else if (child_is_scalar_like(child)) {
                         if (!child_valid) {
                             continue;
                         }

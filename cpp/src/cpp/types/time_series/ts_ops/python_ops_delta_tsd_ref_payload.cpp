@@ -2,6 +2,104 @@
 
 namespace hgraph {
 
+namespace {
+
+enum class RefPayloadShape {
+    Scalar,
+    TSL,
+    TSB,
+};
+
+RefPayloadShape ref_payload_shape_for_meta(const TSMeta* element_meta) {
+    const ts_ops* ops = dispatch_meta_ops(element_meta);
+    if (ops == nullptr) {
+        return RefPayloadShape::Scalar;
+    }
+    if (ops->bundle != nullptr) {
+        return RefPayloadShape::TSB;
+    }
+    if (ops->list != nullptr) {
+        return RefPayloadShape::TSL;
+    }
+    return RefPayloadShape::Scalar;
+}
+
+nb::object tsd_ref_payload_to_python_dispatch(const TimeSeriesReference& ref,
+                                              const TSMeta* element_meta,
+                                              engine_time_t current_time,
+                                              bool include_unmodified);
+
+template <RefPayloadShape Shape>
+nb::object tsd_ref_unbound_payload_to_python(const TimeSeriesReference& ref,
+                                             const TSMeta* element_meta,
+                                             engine_time_t current_time,
+                                             bool include_unmodified) {
+    const auto& items = ref.items();
+
+    if constexpr (Shape == RefPayloadShape::TSB) {
+        if (element_meta == nullptr || element_meta->fields() == nullptr) {
+            return nb::none();
+        }
+        nb::dict out;
+        const size_t n = std::min(items.size(), element_meta->field_count());
+        for (size_t i = 0; i < n; ++i) {
+            const char* field_name = element_meta->fields()[i].name;
+            if (field_name == nullptr) {
+                continue;
+            }
+            const TSMeta* field_meta = element_meta->fields()[i].ts_type;
+            nb::object item_py = tsd_ref_payload_to_python(items[i], field_meta, current_time, include_unmodified);
+            if (!item_py.is_none()) {
+                out[nb::str(field_name)] = std::move(item_py);
+            }
+        }
+        return PyDict_Size(out.ptr()) == 0 ? nb::none() : nb::object(out);
+    } else if constexpr (Shape == RefPayloadShape::TSL) {
+        nb::dict out;
+        const TSMeta* child_meta = element_meta != nullptr ? element_meta->element_ts() : nullptr;
+        for (size_t i = 0; i < items.size(); ++i) {
+            nb::object item_py = tsd_ref_payload_to_python(items[i], child_meta, current_time, include_unmodified);
+            if (!item_py.is_none()) {
+                out[nb::int_(i)] = std::move(item_py);
+            }
+        }
+        return PyDict_Size(out.ptr()) == 0 ? nb::none() : nb::object(out);
+    } else {
+        if (items.size() == 1) {
+            return tsd_ref_payload_to_python(items[0], element_meta, current_time, include_unmodified);
+        }
+
+        nb::list out;
+        for (const auto& item : items) {
+            nb::object item_py = tsd_ref_payload_to_python(item, element_meta, current_time, include_unmodified);
+            if (!item_py.is_none()) {
+                out.append(std::move(item_py));
+            }
+        }
+        return out.empty() ? nb::none() : nb::object(out);
+    }
+}
+
+nb::object tsd_ref_payload_to_python_dispatch(const TimeSeriesReference& ref,
+                                              const TSMeta* element_meta,
+                                              engine_time_t current_time,
+                                              bool include_unmodified) {
+    switch (ref_payload_shape_for_meta(element_meta)) {
+        case RefPayloadShape::TSB:
+            return tsd_ref_unbound_payload_to_python<RefPayloadShape::TSB>(
+                ref, element_meta, current_time, include_unmodified);
+        case RefPayloadShape::TSL:
+            return tsd_ref_unbound_payload_to_python<RefPayloadShape::TSL>(
+                ref, element_meta, current_time, include_unmodified);
+        case RefPayloadShape::Scalar:
+        default:
+            return tsd_ref_unbound_payload_to_python<RefPayloadShape::Scalar>(
+                ref, element_meta, current_time, include_unmodified);
+    }
+}
+
+}  // namespace
+
 nb::object tsd_ref_payload_to_python(const TimeSeriesReference& ref,
                                      const TSMeta* element_meta,
                                      engine_time_t current_time,
@@ -41,49 +139,7 @@ nb::object tsd_ref_payload_to_python(const TimeSeriesReference& ref,
     if (!ref.is_unbound()) {
         return nb::none();
     }
-
-    const auto& items = ref.items();
-    if (dispatch_meta_is_tsb(element_meta) && element_meta->fields() != nullptr) {
-        nb::dict out;
-        const size_t n = std::min(items.size(), element_meta->field_count());
-        for (size_t i = 0; i < n; ++i) {
-            const char* field_name = element_meta->fields()[i].name;
-            if (field_name == nullptr) {
-                continue;
-            }
-            const TSMeta* field_meta = element_meta->fields()[i].ts_type;
-            nb::object item_py = tsd_ref_payload_to_python(items[i], field_meta, current_time, include_unmodified);
-            if (!item_py.is_none()) {
-                out[nb::str(field_name)] = std::move(item_py);
-            }
-        }
-        return PyDict_Size(out.ptr()) == 0 ? nb::none() : nb::object(out);
-    }
-
-    if (dispatch_meta_is_tsl(element_meta)) {
-        nb::dict out;
-        const TSMeta* child_meta = element_meta->element_ts();
-        for (size_t i = 0; i < items.size(); ++i) {
-            nb::object item_py = tsd_ref_payload_to_python(items[i], child_meta, current_time, include_unmodified);
-            if (!item_py.is_none()) {
-                out[nb::int_(i)] = std::move(item_py);
-            }
-        }
-        return PyDict_Size(out.ptr()) == 0 ? nb::none() : nb::object(out);
-    }
-
-    if (items.size() == 1) {
-        return tsd_ref_payload_to_python(items[0], element_meta, current_time, include_unmodified);
-    }
-
-    nb::list out;
-    for (const auto& item : items) {
-        nb::object item_py = tsd_ref_payload_to_python(item, element_meta, current_time, include_unmodified);
-        if (!item_py.is_none()) {
-            out.append(std::move(item_py));
-        }
-    }
-    return out.empty() ? nb::none() : nb::object(out);
+    return tsd_ref_payload_to_python_dispatch(ref, element_meta, current_time, include_unmodified);
 }
 
 nb::object tsd_ref_view_payload_to_python(const ViewData& ref_child,

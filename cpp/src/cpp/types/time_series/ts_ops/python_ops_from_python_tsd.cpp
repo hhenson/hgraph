@@ -9,12 +9,31 @@ bool scenario_is_scalar_like_element(const TSMeta* element_meta) {
     if constexpr (HasDeclaredScalarLikeElement) {
         return DeclaredScalarLikeElement;
     }
-    return element_meta == nullptr || dispatch_meta_is_scalar_like(element_meta);
+    const ts_ops* element_ops = dispatch_meta_ops(element_meta);
+    if (element_ops == nullptr) {
+        return true;
+    }
+    return element_ops->dict == nullptr &&
+           element_ops->set == nullptr &&
+           element_ops->list == nullptr &&
+           element_ops->bundle == nullptr;
+}
+
+template <bool HasDeclaredRefElement, bool DeclaredRefElement>
+bool scenario_is_ref_element(const TSMeta* element_meta) {
+    if constexpr (HasDeclaredRefElement) {
+        return DeclaredRefElement;
+    }
+    const ts_ops* element_ops = dispatch_meta_ops(element_meta);
+    return element_ops != nullptr && element_ops->value == &op_value_ref;
 }
 
 }  // namespace
 
-template <bool HasDeclaredScalarLikeElement, bool DeclaredScalarLikeElement>
+template <bool HasDeclaredScalarLikeElement,
+          bool DeclaredScalarLikeElement,
+          bool HasDeclaredRefElement,
+          bool DeclaredRefElement>
 void op_from_python_tsd_impl_for_scenario(ViewData& vd,
                                           const nb::object& src,
                                           engine_time_t current_time,
@@ -25,7 +44,7 @@ void op_from_python_tsd(ViewData& vd, const nb::object& src, engine_time_t curre
     if (current == nullptr) {
         return;
     }
-    op_from_python_tsd_impl_for_scenario<false, false>(vd, src, current_time, current);
+    op_from_python_tsd_impl_for_scenario<false, false, false, false>(vd, src, current_time, current);
 }
 
 void op_from_python_tsd_scalar(ViewData& vd, const nb::object& src, engine_time_t current_time) {
@@ -33,7 +52,7 @@ void op_from_python_tsd_scalar(ViewData& vd, const nb::object& src, engine_time_
     if (current == nullptr) {
         return;
     }
-    op_from_python_tsd_impl_for_scenario<true, true>(vd, src, current_time, current);
+    op_from_python_tsd_impl_for_scenario<true, true, true, false>(vd, src, current_time, current);
 }
 
 void op_from_python_tsd_nested(ViewData& vd, const nb::object& src, engine_time_t current_time) {
@@ -41,17 +60,20 @@ void op_from_python_tsd_nested(ViewData& vd, const nb::object& src, engine_time_
     if (current == nullptr) {
         return;
     }
-    op_from_python_tsd_impl_for_scenario<true, false>(vd, src, current_time, current);
+    op_from_python_tsd_impl_for_scenario<true, false, true, false>(vd, src, current_time, current);
 }
 
 void op_from_python_tsd_impl(ViewData& vd,
                              const nb::object& src,
                              engine_time_t current_time,
                              const TSMeta* current) {
-        op_from_python_tsd_impl_for_scenario<false, false>(vd, src, current_time, current);
+        op_from_python_tsd_impl_for_scenario<false, false, false, false>(vd, src, current_time, current);
 }
 
-template <bool HasDeclaredScalarLikeElement, bool DeclaredScalarLikeElement>
+template <bool HasDeclaredScalarLikeElement,
+          bool DeclaredScalarLikeElement,
+          bool HasDeclaredRefElement,
+          bool DeclaredRefElement>
 void op_from_python_tsd_impl_for_scenario(ViewData& vd,
                                           const nb::object& src,
                                           engine_time_t current_time,
@@ -77,7 +99,8 @@ void op_from_python_tsd_impl_for_scenario(ViewData& vd,
         const TSMeta* element_meta = current->element_ts();
         const bool scalar_like_element =
             scenario_is_scalar_like_element<HasDeclaredScalarLikeElement, DeclaredScalarLikeElement>(element_meta);
-        const bool declared_ref_element = element_meta != nullptr && dispatch_meta_is_ref(element_meta);
+        const bool declared_ref_element =
+            scenario_is_ref_element<HasDeclaredRefElement, DeclaredRefElement>(element_meta);
         const value::TypeMeta* value_type = element_meta != nullptr ? element_meta->value_type : nullptr;
         nb::object remove = get_remove();
         nb::object remove_if_exists = get_remove_if_exists();

@@ -303,7 +303,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                 }
             }
 
-            tsd_emit_phase<DeclaredRefElement, AssumeNonRefElement>(
+            tsd_emit_phase<DeclaredRefElement, AssumeNonRefElement, HasDeclaredNestedElement, DeclaredNestedElement>(
                 vd,
                 data,
                 current_time,
@@ -330,7 +330,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
 
             // Ensure changed keys materialize visible payloads even when child-native
             // deltas are empty (for example REF rebinding/carry-forward updates).
-            tsd_emit_backfill_phase<DeclaredRefElement, AssumeNonRefElement>(
+            tsd_emit_backfill_phase<DeclaredRefElement, AssumeNonRefElement, HasDeclaredNestedElement, DeclaredNestedElement>(
                 vd,
                 data,
                 current_time,

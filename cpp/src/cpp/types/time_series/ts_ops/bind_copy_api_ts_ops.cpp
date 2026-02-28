@@ -102,7 +102,7 @@ void configure_tsd_common_ops(ts_ops& out) {
     out.valid = &op_valid_tsd;
     out.modified = &op_modified_tsd;
     out.to_python = &op_to_python_tsd;
-    out.delta_to_python = &op_delta_to_python_tsd;
+    out.delta_to_python = &op_delta_to_python_tsd_impl;
     out.delta_value = &op_delta_value_container;
     out.apply_delta = &op_apply_delta_container;
     out.invalidate = &op_invalidate_tsd;
@@ -224,6 +224,7 @@ ts_ops make_tsd_ops() {
     out.copy_value = &op_copy_tsd;
     out.has_delta = &op_has_delta_tsd;
     out.dict = &k_dict_ops;
+    out.delta_to_python = &op_delta_to_python_tsd_impl;
     out.from_python = &op_from_python_tsd;
     return out;
 }
