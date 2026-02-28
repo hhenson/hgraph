@@ -2,9 +2,7 @@
 
 namespace hgraph {
 
-namespace {
-
-void op_from_python_scalar_impl(ViewData& vd, const nb::object& src, engine_time_t current_time) {
+void op_from_python_scalar(ViewData& vd, const nb::object& src, engine_time_t current_time) {
     auto maybe_dst = resolve_value_slot_mut(vd);
     if (!maybe_dst.has_value()) {
         return;
@@ -37,20 +35,14 @@ void op_from_python_scalar_impl(ViewData& vd, const nb::object& src, engine_time
     notify_link_target_observers(vd, current_time);
 }
 
-}  // namespace
-
 void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
     bind_view_data_ops(vd);
-    const ts_ops* current_ops = vd.ops;
-
-    if (current_ops != nullptr &&
-        current_ops->from_python != nullptr &&
-        current_ops->from_python != &op_from_python) {
-        current_ops->from_python(vd, src, current_time);
+    if (vd.ops != nullptr && vd.ops->from_python != nullptr) {
+        vd.ops->from_python(vd, src, current_time);
         return;
     }
 
-    op_from_python_scalar_impl(vd, src, current_time);
+    op_from_python_scalar(vd, src, current_time);
 }
 
 }  // namespace hgraph

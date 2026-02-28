@@ -4,36 +4,28 @@ namespace hgraph {
 
 namespace {
 
-enum class TsdElementDispatchScenario {
-    Generic,
-    ScalarLike,
-    Nested,
-};
-
-bool scenario_is_scalar_like_element(const TSMeta* element_meta, TsdElementDispatchScenario scenario) {
-    if (scenario == TsdElementDispatchScenario::ScalarLike) {
-        return true;
-    }
-    if (scenario == TsdElementDispatchScenario::Nested) {
-        return false;
+template <bool HasDeclaredScalarLikeElement, bool DeclaredScalarLikeElement>
+bool scenario_is_scalar_like_element(const TSMeta* element_meta) {
+    if constexpr (HasDeclaredScalarLikeElement) {
+        return DeclaredScalarLikeElement;
     }
     return element_meta == nullptr || dispatch_meta_is_scalar_like(element_meta);
 }
 
 }  // namespace
 
+template <bool HasDeclaredScalarLikeElement, bool DeclaredScalarLikeElement>
 void op_from_python_tsd_impl_for_scenario(ViewData& vd,
                                           const nb::object& src,
                                           engine_time_t current_time,
-                                          const TSMeta* current,
-                                          TsdElementDispatchScenario scenario);
+                                          const TSMeta* current);
 
 void op_from_python_tsd(ViewData& vd, const nb::object& src, engine_time_t current_time) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
     if (current == nullptr) {
         return;
     }
-    op_from_python_tsd_impl_for_scenario(vd, src, current_time, current, TsdElementDispatchScenario::Generic);
+    op_from_python_tsd_impl_for_scenario<false, false>(vd, src, current_time, current);
 }
 
 void op_from_python_tsd_scalar(ViewData& vd, const nb::object& src, engine_time_t current_time) {
@@ -41,7 +33,7 @@ void op_from_python_tsd_scalar(ViewData& vd, const nb::object& src, engine_time_
     if (current == nullptr) {
         return;
     }
-    op_from_python_tsd_impl_for_scenario(vd, src, current_time, current, TsdElementDispatchScenario::ScalarLike);
+    op_from_python_tsd_impl_for_scenario<true, true>(vd, src, current_time, current);
 }
 
 void op_from_python_tsd_nested(ViewData& vd, const nb::object& src, engine_time_t current_time) {
@@ -49,21 +41,21 @@ void op_from_python_tsd_nested(ViewData& vd, const nb::object& src, engine_time_
     if (current == nullptr) {
         return;
     }
-    op_from_python_tsd_impl_for_scenario(vd, src, current_time, current, TsdElementDispatchScenario::Nested);
+    op_from_python_tsd_impl_for_scenario<true, false>(vd, src, current_time, current);
 }
 
 void op_from_python_tsd_impl(ViewData& vd,
                              const nb::object& src,
                              engine_time_t current_time,
                              const TSMeta* current) {
-        op_from_python_tsd_impl_for_scenario(vd, src, current_time, current, TsdElementDispatchScenario::Generic);
+        op_from_python_tsd_impl_for_scenario<false, false>(vd, src, current_time, current);
 }
 
+template <bool HasDeclaredScalarLikeElement, bool DeclaredScalarLikeElement>
 void op_from_python_tsd_impl_for_scenario(ViewData& vd,
                                           const nb::object& src,
                                           engine_time_t current_time,
-                                          const TSMeta* current,
-                                          TsdElementDispatchScenario scenario) {
+                                          const TSMeta* current) {
         if (reset_root_value_and_delta_on_none(vd, src, current_time)) {
             return;
         }
@@ -83,7 +75,8 @@ void op_from_python_tsd_impl_for_scenario(ViewData& vd,
 
         const value::TypeMeta* key_type = current->key_type();
         const TSMeta* element_meta = current->element_ts();
-        const bool scalar_like_element = scenario_is_scalar_like_element(element_meta, scenario);
+        const bool scalar_like_element =
+            scenario_is_scalar_like_element<HasDeclaredScalarLikeElement, DeclaredScalarLikeElement>(element_meta);
         const bool declared_ref_element = element_meta != nullptr && dispatch_meta_is_ref(element_meta);
         const value::TypeMeta* value_type = element_meta != nullptr ? element_meta->value_type : nullptr;
         nb::object remove = get_remove();

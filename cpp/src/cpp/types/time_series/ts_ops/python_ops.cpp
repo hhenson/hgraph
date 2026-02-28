@@ -113,16 +113,7 @@ nb::object op_to_python_tsw_duration(const ViewData& vd) {
 }
 
 nb::object op_to_python_tsw(const ViewData& vd) {
-    ViewData dispatch_view = vd;
-    bind_view_data_ops(dispatch_view);
-    const ts_ops* self_ops = dispatch_view.ops;
-    if (self_ops != nullptr &&
-        self_ops->to_python != nullptr &&
-        self_ops->to_python != &op_to_python_tsw &&
-        self_ops->to_python != &op_to_python) {
-        return self_ops->to_python(dispatch_view);
-    }
-    return op_to_python_tsw_tick(dispatch_view);
+    return op_to_python_tsw_tick(vd);
 }
 
 nb::object op_to_python_tsl(const ViewData& vd) {
@@ -262,23 +253,23 @@ nb::object op_to_python_tsd(const ViewData& vd) {
     return get_frozendict()(out);
 }
 
-nb::object op_to_python(const ViewData& vd) {
-    ViewData dispatch_view = vd;
-    bind_view_data_ops(dispatch_view);
-    const ts_ops* self_ops = dispatch_view.ops;
-    if (self_ops != nullptr &&
-        self_ops->to_python != nullptr &&
-        self_ops->to_python != &op_to_python) {
-        return self_ops->to_python(dispatch_view);
-    }
-
+nb::object op_to_python_default(const ViewData& vd) {
     ViewData key_set_source{};
-    if (resolve_tsd_key_set_source(dispatch_view, key_set_source)) {
+    if (resolve_tsd_key_set_source(vd, key_set_source)) {
         return tsd_key_set_to_python(key_set_source);
     }
 
-    View v = op_value(dispatch_view);
+    View v = op_value(vd);
     return v.valid() ? v.to_python() : nb::none();
+}
+
+nb::object op_to_python(const ViewData& vd) {
+    ViewData dispatch_view = vd;
+    bind_view_data_ops(dispatch_view);
+    if (dispatch_view.ops != nullptr && dispatch_view.ops->to_python != nullptr) {
+        return dispatch_view.ops->to_python(dispatch_view);
+    }
+    return op_to_python_default(dispatch_view);
 }
 
 }  // namespace hgraph

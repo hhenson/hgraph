@@ -1,10 +1,11 @@
 #include "ts_ops_internal.h"
 
 namespace hgraph {
-nb::object op_delta_to_python_tsd_impl_for_scenario(const ViewData& vd,
-                                                    engine_time_t current_time,
-                                                    bool declared_ref_element,
-                                                    std::optional<bool> declared_nested_element) {
+
+namespace {
+
+template <bool DeclaredRefElement, bool HasDeclaredNestedElement, bool DeclaredNestedElement>
+nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
@@ -101,7 +102,7 @@ nb::object op_delta_to_python_tsd_impl_for_scenario(const ViewData& vd,
         }
     }
 
-    if (declared_ref_element) {
+    if constexpr (DeclaredRefElement) {
         tsd_emit_map_delta_ref_elements(
             vd,
             data,
@@ -115,8 +116,8 @@ nb::object op_delta_to_python_tsd_impl_for_scenario(const ViewData& vd,
             added_keys,
             removed_keys,
             delta_out);
-    } else if (declared_nested_element.has_value()) {
-        if (*declared_nested_element) {
+    } else if constexpr (HasDeclaredNestedElement) {
+        if constexpr (DeclaredNestedElement) {
             tsd_emit_map_delta_plain_nested(
                 vd,
                 data,
@@ -174,8 +175,22 @@ nb::object op_delta_to_python_tsd_impl_for_scenario(const ViewData& vd,
     return get_frozendict()(delta_out);
 }
 
+}  // namespace
+
 nb::object op_delta_to_python_tsd_impl(const ViewData& vd, engine_time_t current_time) {
-    return op_delta_to_python_tsd_impl_for_scenario(vd, current_time, false, std::nullopt);
+    return op_delta_to_python_tsd_impl_for_bound_scenario<false, false, false>(vd, current_time);
+}
+
+nb::object op_delta_to_python_tsd_scalar_impl(const ViewData& vd, engine_time_t current_time) {
+    return op_delta_to_python_tsd_impl_for_bound_scenario<false, true, false>(vd, current_time);
+}
+
+nb::object op_delta_to_python_tsd_nested_impl(const ViewData& vd, engine_time_t current_time) {
+    return op_delta_to_python_tsd_impl_for_bound_scenario<false, true, true>(vd, current_time);
+}
+
+nb::object op_delta_to_python_tsd_ref_impl(const ViewData& vd, engine_time_t current_time) {
+    return op_delta_to_python_tsd_impl_for_bound_scenario<true, false, false>(vd, current_time);
 }
 
 }  // namespace hgraph

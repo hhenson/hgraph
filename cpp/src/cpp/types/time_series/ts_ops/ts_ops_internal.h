@@ -481,6 +481,7 @@ void register_ts_active_ref_link_observer(REFLink& observer);
 void unregister_ts_active_ref_link_observer(REFLink& observer);
 void reset_ts_link_observers();
 nb::object op_to_python(const ViewData& vd);
+nb::object op_to_python_default(const ViewData& vd);
 nb::object op_to_python_ref(const ViewData& vd);
 nb::object op_to_python_tss(const ViewData& vd);
 nb::object op_to_python_tsd(const ViewData& vd);
@@ -491,6 +492,7 @@ nb::object op_to_python_tsw_duration(const ViewData& vd);
 nb::object op_to_python_tsl(const ViewData& vd);
 nb::object op_to_python_tsb(const ViewData& vd);
 nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time);
+nb::object op_delta_to_python_default(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsvalue(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_ref(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time);
@@ -505,10 +507,9 @@ nb::object op_delta_to_python_tsw_duration(const ViewData& vd, engine_time_t cur
 nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsd_impl(const ViewData& vd, engine_time_t current_time);
-nb::object op_delta_to_python_tsd_impl_for_scenario(const ViewData& vd,
-                                                    engine_time_t current_time,
-                                                    bool declared_ref_element,
-                                                    std::optional<bool> declared_nested_element);
+nb::object op_delta_to_python_tsd_scalar_impl(const ViewData& vd, engine_time_t current_time);
+nb::object op_delta_to_python_tsd_nested_impl(const ViewData& vd, engine_time_t current_time);
+nb::object op_delta_to_python_tsd_ref_impl(const ViewData& vd, engine_time_t current_time);
 nb::object computed_delta_to_python_with_refs(const DeltaView& delta, engine_time_t current_time);
 nb::object stored_delta_to_python_with_refs(const View& view, engine_time_t current_time);
 nb::object tsd_ref_payload_to_python(const TimeSeriesReference& ref,
@@ -588,6 +589,7 @@ void record_tsd_removed_child_snapshot(const ViewData& parent_view,
                                        const ViewData& child_view,
                                        engine_time_t current_time);
 void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_time);
+void op_from_python_scalar(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_ref(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_tsw(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_tsw_tick(ViewData& vd, const nb::object& src, engine_time_t current_time);
