@@ -69,8 +69,8 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
             bool direct_target_is_ref = false;
             if (resolve_direct_bound_view_data(vd, direct_target) &&
                 !same_view_identity(direct_target, vd)) {
-                const TSMeta* direct_target_meta = meta_at_path(direct_target.meta, direct_target.path.indices);
-                if (dispatch_meta_is_ref(direct_target_meta)) {
+                bind_view_data_ops(direct_target);
+                if (direct_target.ops != nullptr && direct_target.ops->value == &op_value_ref) {
                     direct_target_is_ref = true;
                     resolved_target_path = direct_target.path.to_string();
                 }
@@ -422,14 +422,18 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
         }
     }
 
+    const auto meta_is_ref_wrapper = [](const TSMeta* meta) -> bool {
+        const ts_ops* ops = dispatch_meta_ops(meta);
+        return ops != nullptr && ops->value == &op_value_ref;
+    };
     const bool declared_ref_valued_tsd =
-        self_meta->element_ts() != nullptr && dispatch_meta_is_ref(self_meta->element_ts());
+        self_meta->element_ts() != nullptr && meta_is_ref_wrapper(self_meta->element_ts());
     ViewData resolved{};
     if (resolve_read_view_data(vd, resolved)) {
         bool any_child_modified = false;
         const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
         const TSMeta* element_meta = resolved_meta != nullptr ? resolved_meta->element_ts() : nullptr;
-        const bool ref_valued_tsd = element_meta != nullptr && dispatch_meta_is_ref(element_meta);
+        const bool ref_valued_tsd = element_meta != nullptr && meta_is_ref_wrapper(element_meta);
         const bool suppress_ref_target_child_mods =
             ref_valued_tsd && vd.path.port_type == PortType::INPUT;
         const bool include_ref_target_child_mods =
@@ -457,8 +461,8 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
                 } else {
                     any_child_modified = dispatch_modified(child, current_time);
                     if (!any_child_modified && include_ref_target_child_mods) {
-                        const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
-                        if (child_meta != nullptr && dispatch_meta_is_ref(child_meta)) {
+                        bind_view_data_ops(child);
+                        if (child.ops != nullptr && child.ops->value == &op_value_ref) {
                             ViewData target{};
                             any_child_modified =
                                 resolve_bound_target_view_data(child, target) &&

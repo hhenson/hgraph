@@ -15,6 +15,7 @@ namespace hgraph {
 
 class TSInput;
 class TSView;
+struct TimeSeriesReference;
 
 /**
  * Kind-specific window extension operations.
@@ -94,6 +95,10 @@ struct ts_ops {
     nb::object (*to_python)(const ViewData& vd);
     nb::object (*delta_to_python)(const ViewData& vd, engine_time_t current_time);
     void (*from_python)(ViewData& vd, const nb::object& src, engine_time_t current_time);
+    nb::object (*ref_payload_to_python)(const TimeSeriesReference& ref,
+                                        const TSMeta* expected_meta,
+                                        engine_time_t current_time,
+                                        bool include_unmodified);
 
     value::View (*observer)(const ViewData& vd);
     void (*notify_observers)(ViewData& vd, engine_time_t current_time);

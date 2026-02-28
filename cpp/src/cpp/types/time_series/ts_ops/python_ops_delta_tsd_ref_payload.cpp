@@ -10,6 +10,12 @@ enum class RefPayloadShape {
     TSB,
 };
 
+const TSMeta* ref_element_meta_for_expected_meta(const TSMeta* expected_meta) {
+    const ts_ops* expected_ops = dispatch_meta_ops(expected_meta);
+    const bool expected_is_ref_wrapper = expected_ops != nullptr && expected_ops->value == &op_value_ref;
+    return expected_is_ref_wrapper && expected_meta != nullptr ? expected_meta->element_ts() : expected_meta;
+}
+
 RefPayloadShape ref_payload_shape_for_element_meta(const TSMeta* element_meta) {
     const ts_ops* ops = dispatch_meta_ops(element_meta);
     if (ops == nullptr) {
@@ -23,27 +29,6 @@ RefPayloadShape ref_payload_shape_for_element_meta(const TSMeta* element_meta) {
     }
     return RefPayloadShape::Scalar;
 }
-
-RefPayloadShape ref_payload_shape_for_expected_meta(const TSMeta* expected_meta) {
-    const ts_ops* expected_ops = dispatch_meta_ops(expected_meta);
-    const bool expected_is_ref_wrapper = expected_ops != nullptr && expected_ops->value == &op_value_ref;
-    if (!expected_is_ref_wrapper) {
-        return ref_payload_shape_for_element_meta(expected_meta);
-    }
-
-    if (expected_ops->delta_to_python == &op_delta_to_python_ref_bundle) {
-        return RefPayloadShape::TSB;
-    }
-    if (expected_ops->delta_to_python == &op_delta_to_python_ref_list) {
-        return RefPayloadShape::TSL;
-    }
-    return RefPayloadShape::Scalar;
-}
-
-nb::object tsd_ref_payload_to_python_dispatch(const TimeSeriesReference& ref,
-                                              const TSMeta* expected_meta,
-                                              engine_time_t current_time,
-                                              bool include_unmodified);
 
 template <RefPayloadShape Shape>
 nb::object tsd_ref_unbound_payload_to_python(const TimeSeriesReference& ref,
@@ -96,34 +81,11 @@ nb::object tsd_ref_unbound_payload_to_python(const TimeSeriesReference& ref,
     }
 }
 
-nb::object tsd_ref_payload_to_python_dispatch(const TimeSeriesReference& ref,
-                                              const TSMeta* expected_meta,
-                                              engine_time_t current_time,
-                                              bool include_unmodified) {
-    const ts_ops* expected_ops = dispatch_meta_ops(expected_meta);
-    const bool expected_is_ref_wrapper = expected_ops != nullptr && expected_ops->value == &op_value_ref;
-    const TSMeta* element_meta =
-        expected_is_ref_wrapper && expected_meta != nullptr ? expected_meta->element_ts() : expected_meta;
-    switch (ref_payload_shape_for_expected_meta(expected_meta)) {
-        case RefPayloadShape::TSB:
-            return tsd_ref_unbound_payload_to_python<RefPayloadShape::TSB>(
-                ref, element_meta, current_time, include_unmodified);
-        case RefPayloadShape::TSL:
-            return tsd_ref_unbound_payload_to_python<RefPayloadShape::TSL>(
-                ref, element_meta, current_time, include_unmodified);
-        case RefPayloadShape::Scalar:
-        default:
-            return tsd_ref_unbound_payload_to_python<RefPayloadShape::Scalar>(
-                ref, element_meta, current_time, include_unmodified);
-    }
-}
-
-}  // namespace
-
-nb::object tsd_ref_payload_to_python(const TimeSeriesReference& ref,
-                                     const TSMeta* expected_meta,
-                                     engine_time_t current_time,
-                                     bool include_unmodified) {
+template <RefPayloadShape Shape>
+nb::object ref_payload_to_python_for_shape(const TimeSeriesReference& ref,
+                                           const TSMeta* expected_meta,
+                                           engine_time_t current_time,
+                                           bool include_unmodified) {
     if (ref.is_empty()) {
         return nb::none();
     }
@@ -159,7 +121,71 @@ nb::object tsd_ref_payload_to_python(const TimeSeriesReference& ref,
     if (!ref.is_unbound()) {
         return nb::none();
     }
-    return tsd_ref_payload_to_python_dispatch(ref, expected_meta, current_time, include_unmodified);
+    return tsd_ref_unbound_payload_to_python<Shape>(
+        ref,
+        ref_element_meta_for_expected_meta(expected_meta),
+        current_time,
+        include_unmodified);
+}
+
+}  // namespace
+
+nb::object op_ref_payload_to_python(const TimeSeriesReference& ref,
+                                    const TSMeta* expected_meta,
+                                    engine_time_t current_time,
+                                    bool include_unmodified) {
+    const TSMeta* element_meta = ref_element_meta_for_expected_meta(expected_meta);
+    switch (ref_payload_shape_for_element_meta(element_meta)) {
+        case RefPayloadShape::TSB:
+            return ref_payload_to_python_for_shape<RefPayloadShape::TSB>(
+                ref, expected_meta, current_time, include_unmodified);
+        case RefPayloadShape::TSL:
+            return ref_payload_to_python_for_shape<RefPayloadShape::TSL>(
+                ref, expected_meta, current_time, include_unmodified);
+        case RefPayloadShape::Scalar:
+        default:
+            return ref_payload_to_python_for_shape<RefPayloadShape::Scalar>(
+                ref, expected_meta, current_time, include_unmodified);
+    }
+}
+
+nb::object op_ref_payload_to_python_scalar(const TimeSeriesReference& ref,
+                                           const TSMeta* expected_meta,
+                                           engine_time_t current_time,
+                                           bool include_unmodified) {
+    return ref_payload_to_python_for_shape<RefPayloadShape::Scalar>(ref, expected_meta, current_time, include_unmodified);
+}
+
+nb::object op_ref_payload_to_python_list(const TimeSeriesReference& ref,
+                                         const TSMeta* expected_meta,
+                                         engine_time_t current_time,
+                                         bool include_unmodified) {
+    return ref_payload_to_python_for_shape<RefPayloadShape::TSL>(ref, expected_meta, current_time, include_unmodified);
+}
+
+nb::object op_ref_payload_to_python_bundle(const TimeSeriesReference& ref,
+                                           const TSMeta* expected_meta,
+                                           engine_time_t current_time,
+                                           bool include_unmodified) {
+    return ref_payload_to_python_for_shape<RefPayloadShape::TSB>(ref, expected_meta, current_time, include_unmodified);
+}
+
+nb::object op_ref_payload_to_python_dynamic(const TimeSeriesReference& ref,
+                                            const TSMeta* expected_meta,
+                                            engine_time_t current_time,
+                                            bool include_unmodified) {
+    return ref_payload_to_python_for_shape<RefPayloadShape::Scalar>(ref, expected_meta, current_time, include_unmodified);
+}
+
+nb::object tsd_ref_payload_to_python(const TimeSeriesReference& ref,
+                                     const TSMeta* expected_meta,
+                                     engine_time_t current_time,
+                                     bool include_unmodified) {
+    if (const ts_ops* expected_ops = dispatch_meta_ops(expected_meta);
+        expected_ops != nullptr && expected_ops->ref_payload_to_python != nullptr) {
+        return expected_ops->ref_payload_to_python(ref, expected_meta, current_time, include_unmodified);
+    }
+    return op_ref_payload_to_python(ref, expected_meta, current_time, include_unmodified);
 }
 
 nb::object tsd_ref_view_payload_to_python(const ViewData& ref_child,

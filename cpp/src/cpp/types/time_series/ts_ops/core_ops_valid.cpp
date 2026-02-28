@@ -192,8 +192,9 @@ bool op_valid_ref_impl(const ViewData& vd) {
 
     ViewData direct_bound{};
     if (resolve_direct_bound_view_data(vd, direct_bound)) {
-        const TSMeta* direct_bound_meta = meta_at_path(direct_bound.meta, direct_bound.path.indices);
-        const bool direct_bound_is_ref_wrapper = dispatch_meta_is_ref(direct_bound_meta);
+        bind_view_data_ops(direct_bound);
+        const bool direct_bound_is_ref_wrapper =
+            direct_bound.ops != nullptr && direct_bound.ops->value == &op_value_ref;
         const bool bound_valid =
             direct_bound_is_ref_wrapper ? ref_wrapper_valid(direct_bound) : dispatch_valid(direct_bound);
         if (bound_valid) {

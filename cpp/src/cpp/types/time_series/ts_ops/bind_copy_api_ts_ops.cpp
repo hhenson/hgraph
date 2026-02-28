@@ -60,6 +60,7 @@ ts_ops make_base_common_ops(TSKind kind) {
         &op_to_python_default,
         &op_delta_to_python_default,
         &op_from_python_scalar,
+        nullptr,
         &op_observer,
         &op_notify_observers,
         &op_bind,
@@ -155,6 +156,7 @@ void configure_ref_common_ops(ts_ops& out) {
     out.delta_value = &op_delta_value_scalar;
     out.apply_delta = &op_apply_delta_scalar;
     out.from_python = &op_from_python_ref;
+    out.ref_payload_to_python = &op_ref_payload_to_python;
 }
 
 void configure_signal_common_ops(ts_ops& out) {
@@ -256,6 +258,7 @@ ts_ops make_ref_scalar_ops() {
     out.valid = &op_valid_ref_scalar;
     out.modified = &op_modified_ref_scalar;
     out.delta_to_python = &op_delta_to_python_ref_scalar;
+    out.ref_payload_to_python = &op_ref_payload_to_python_scalar;
     return out;
 }
 
@@ -264,6 +267,7 @@ ts_ops make_ref_list_ops() {
     out.valid = &op_valid_ref_static_container;
     out.modified = &op_modified_ref_static_container;
     out.delta_to_python = &op_delta_to_python_ref_list;
+    out.ref_payload_to_python = &op_ref_payload_to_python_list;
     return out;
 }
 
@@ -272,6 +276,7 @@ ts_ops make_ref_bundle_ops() {
     out.valid = &op_valid_ref_static_container;
     out.modified = &op_modified_ref_static_container;
     out.delta_to_python = &op_delta_to_python_ref_bundle;
+    out.ref_payload_to_python = &op_ref_payload_to_python_bundle;
     return out;
 }
 
@@ -280,6 +285,7 @@ ts_ops make_ref_dynamic_container_ops() {
     out.valid = &op_valid_ref_dynamic_container;
     out.modified = &op_modified_ref_dynamic_container;
     out.delta_to_python = &op_delta_to_python_ref_dynamic;
+    out.ref_payload_to_python = &op_ref_payload_to_python_dynamic;
     return out;
 }
 

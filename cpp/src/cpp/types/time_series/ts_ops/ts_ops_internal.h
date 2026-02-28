@@ -514,10 +514,30 @@ nb::object op_delta_to_python_tsd_impl(const ViewData& vd, engine_time_t current
 nb::object op_delta_to_python_tsd_scalar_impl(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsd_nested_impl(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsd_ref_impl(const ViewData& vd, engine_time_t current_time);
+nb::object op_ref_payload_to_python(const TimeSeriesReference& ref,
+                                    const TSMeta* expected_meta,
+                                    engine_time_t current_time,
+                                    bool include_unmodified);
+nb::object op_ref_payload_to_python_scalar(const TimeSeriesReference& ref,
+                                           const TSMeta* expected_meta,
+                                           engine_time_t current_time,
+                                           bool include_unmodified);
+nb::object op_ref_payload_to_python_list(const TimeSeriesReference& ref,
+                                         const TSMeta* expected_meta,
+                                         engine_time_t current_time,
+                                         bool include_unmodified);
+nb::object op_ref_payload_to_python_bundle(const TimeSeriesReference& ref,
+                                           const TSMeta* expected_meta,
+                                           engine_time_t current_time,
+                                           bool include_unmodified);
+nb::object op_ref_payload_to_python_dynamic(const TimeSeriesReference& ref,
+                                            const TSMeta* expected_meta,
+                                            engine_time_t current_time,
+                                            bool include_unmodified);
 nb::object computed_delta_to_python_with_refs(const DeltaView& delta, engine_time_t current_time);
 nb::object stored_delta_to_python_with_refs(const View& view, engine_time_t current_time);
 nb::object tsd_ref_payload_to_python(const TimeSeriesReference& ref,
-                                     const TSMeta* element_meta,
+                                     const TSMeta* expected_meta,
                                      engine_time_t current_time,
                                      bool include_unmodified);
 nb::object tsd_ref_view_payload_to_python(const ViewData& ref_child,
