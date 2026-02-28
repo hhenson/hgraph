@@ -395,8 +395,12 @@ inline bool dispatch_ops_is_tsw_duration(const ts_ops* ops) {
     return ops != nullptr && ops->window_ops() == &k_window_duration_ops;
 }
 
+inline bool dispatch_ops_is_ref_wrapper(const ts_ops* ops) {
+    return ops != nullptr && ops->value == &op_value_ref;
+}
+
 inline bool dispatch_meta_is_ref(const TSMeta* meta) {
-    return dispatch_meta_path_kind(meta) == DispatchMetaPathKind::Ref;
+    return dispatch_ops_is_ref_wrapper(dispatch_meta_ops(meta));
 }
 
 inline bool dispatch_meta_is_tsw(const TSMeta* meta) {
@@ -460,8 +464,8 @@ inline bool dispatch_meta_is_container_like(const TSMeta* meta) {
 inline bool dispatch_meta_is_scalar_like(const TSMeta* meta) {
     const DispatchMetaPathKind kind = dispatch_meta_path_kind(meta);
     return kind == DispatchMetaPathKind::ScalarLike ||
-           kind == DispatchMetaPathKind::Ref ||
-           kind == DispatchMetaPathKind::TSW;
+           kind == DispatchMetaPathKind::TSW ||
+           dispatch_meta_is_ref(meta);
 }
 
 void store_to_link_target(LinkTarget& target, const ViewData& source);

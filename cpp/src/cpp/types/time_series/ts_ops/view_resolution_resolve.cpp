@@ -21,7 +21,7 @@ std::optional<std::vector<size_t>> remap_residual_indices_for_bound_view(
     mapped.reserve(residual_indices.size());
 
     for (size_t index : residual_indices) {
-        while (dispatch_meta_path_kind(current) == DispatchMetaPathKind::Ref) {
+        while (dispatch_meta_is_ref(current)) {
             current = current->element_ts();
         }
         if (current == nullptr) {
@@ -101,7 +101,7 @@ std::optional<std::vector<size_t>> remap_residual_indices_for_bound_view(
 std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
     const bool debug_resolve = std::getenv("HGRAPH_DEBUG_RESOLVE") != nullptr;
     const auto target_can_accept_residual = [](const TSMeta* meta) {
-        while (dispatch_meta_path_kind(meta) == DispatchMetaPathKind::Ref) {
+        while (dispatch_meta_is_ref(meta)) {
             meta = meta->element_ts();
         }
         if (meta == nullptr) {
@@ -193,7 +193,7 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
         }
     } else {
         const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-        if (dispatch_meta_path_kind(current) == DispatchMetaPathKind::Ref) {
+        if (dispatch_meta_is_ref(current)) {
             // For per-slot REF values (notably TSD dynamic children), prefer the
             // local reference payload over shared REFLink indirection.
             if (auto local = resolve_value_slot_const(vd);
@@ -221,7 +221,7 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
         const auto path_traverses_ref = [&vd]() -> bool {
             const TSMeta* cursor = vd.meta;
             for (size_t index : vd.path.indices) {
-                if (dispatch_meta_path_kind(cursor) == DispatchMetaPathKind::Ref) {
+                if (dispatch_meta_is_ref(cursor)) {
                     return true;
                 }
                 if (cursor == nullptr) {
@@ -244,7 +244,7 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
                         return false;
                 }
             }
-            return dispatch_meta_path_kind(cursor) == DispatchMetaPathKind::Ref;
+            return dispatch_meta_is_ref(cursor);
         };
 
         if (!path_traverses_ref()) {

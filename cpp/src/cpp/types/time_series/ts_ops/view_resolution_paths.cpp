@@ -28,8 +28,11 @@ std::vector<size_t> ts_path_to_link_path_uncached(const TSMeta* root_meta, const
     }
 
     if (ts_path.empty()) {
+        if (dispatch_meta_is_ref(meta)) {
+            out.push_back(0);  // root/container link slot.
+            return out;
+        }
         switch (dispatch_meta_path_kind(meta)) {
-            case DispatchMetaPathKind::Ref:
             case DispatchMetaPathKind::TSB:
             case DispatchMetaPathKind::TSLFixed:
             case DispatchMetaPathKind::TSD:
@@ -42,7 +45,7 @@ std::vector<size_t> ts_path_to_link_path_uncached(const TSMeta* root_meta, const
     }
 
     for (size_t index : ts_path) {
-        while (dispatch_meta_path_kind(meta) == DispatchMetaPathKind::Ref) {
+        while (dispatch_meta_is_ref(meta)) {
             out.push_back(1);  // descend into referred link tree.
             meta = meta->element_ts();
         }
@@ -98,8 +101,11 @@ std::vector<size_t> ts_path_to_link_path_uncached(const TSMeta* root_meta, const
 
     // Container/REF nodes have a root link slot at 0.
     if (!crossed_dynamic_boundary && meta != nullptr) {
+        if (dispatch_meta_is_ref(meta)) {
+            out.push_back(0);
+            return out;
+        }
         switch (dispatch_meta_path_kind(meta)) {
-            case DispatchMetaPathKind::Ref:
             case DispatchMetaPathKind::TSB:
             case DispatchMetaPathKind::TSLFixed:
             case DispatchMetaPathKind::TSD:
@@ -137,7 +143,7 @@ std::vector<size_t> ts_path_to_time_path_uncached(const TSMeta* root_meta, const
     }
 
     for (size_t index : ts_path) {
-        while (dispatch_meta_path_kind(meta) == DispatchMetaPathKind::Ref) {
+        while (dispatch_meta_is_ref(meta)) {
             meta = meta->element_ts();
         }
 
@@ -195,7 +201,7 @@ std::vector<size_t> ts_path_to_observer_path_uncached(const TSMeta* root_meta, c
     }
 
     for (size_t index : ts_path) {
-        while (dispatch_meta_path_kind(meta) == DispatchMetaPathKind::Ref) {
+        while (dispatch_meta_is_ref(meta)) {
             meta = meta->element_ts();
         }
 
@@ -253,7 +259,7 @@ std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path_uncached(const TSM
     const TSMeta* meta = root_meta;
     std::vector<size_t> current_path;
     for (size_t index : ts_path) {
-        while (dispatch_meta_path_kind(meta) == DispatchMetaPathKind::Ref) {
+        while (dispatch_meta_is_ref(meta)) {
             meta = meta->element_ts();
         }
 
