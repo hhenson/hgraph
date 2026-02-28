@@ -2,18 +2,68 @@
 
 namespace hgraph {
 
+namespace {
+
+enum class TsdElementDispatchScenario {
+    Generic,
+    ScalarLike,
+    Nested,
+};
+
+bool scenario_is_scalar_like_element(const TSMeta* element_meta, TsdElementDispatchScenario scenario) {
+    if (scenario == TsdElementDispatchScenario::ScalarLike) {
+        return true;
+    }
+    if (scenario == TsdElementDispatchScenario::Nested) {
+        return false;
+    }
+    return element_meta == nullptr || dispatch_meta_is_scalar_like(element_meta);
+}
+
+}  // namespace
+
+void op_from_python_tsd_impl_for_scenario(ViewData& vd,
+                                          const nb::object& src,
+                                          engine_time_t current_time,
+                                          const TSMeta* current,
+                                          TsdElementDispatchScenario scenario);
+
 void op_from_python_tsd(ViewData& vd, const nb::object& src, engine_time_t current_time) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
     if (current == nullptr) {
         return;
     }
-    op_from_python_tsd_impl(vd, src, current_time, current);
+    op_from_python_tsd_impl_for_scenario(vd, src, current_time, current, TsdElementDispatchScenario::Generic);
+}
+
+void op_from_python_tsd_scalar(ViewData& vd, const nb::object& src, engine_time_t current_time) {
+    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    if (current == nullptr) {
+        return;
+    }
+    op_from_python_tsd_impl_for_scenario(vd, src, current_time, current, TsdElementDispatchScenario::ScalarLike);
+}
+
+void op_from_python_tsd_nested(ViewData& vd, const nb::object& src, engine_time_t current_time) {
+    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    if (current == nullptr) {
+        return;
+    }
+    op_from_python_tsd_impl_for_scenario(vd, src, current_time, current, TsdElementDispatchScenario::Nested);
 }
 
 void op_from_python_tsd_impl(ViewData& vd,
                              const nb::object& src,
                              engine_time_t current_time,
                              const TSMeta* current) {
+        op_from_python_tsd_impl_for_scenario(vd, src, current_time, current, TsdElementDispatchScenario::Generic);
+}
+
+void op_from_python_tsd_impl_for_scenario(ViewData& vd,
+                                          const nb::object& src,
+                                          engine_time_t current_time,
+                                          const TSMeta* current,
+                                          TsdElementDispatchScenario scenario) {
         if (reset_root_value_and_delta_on_none(vd, src, current_time)) {
             return;
         }
@@ -32,7 +82,10 @@ void op_from_python_tsd_impl(ViewData& vd,
         nb::iterator items = item_attr.is_none() ? nb::iter(src) : nb::iter(item_attr());
 
         const value::TypeMeta* key_type = current->key_type();
-        const value::TypeMeta* value_type = current->element_ts() != nullptr ? current->element_ts()->value_type : nullptr;
+        const TSMeta* element_meta = current->element_ts();
+        const bool scalar_like_element = scenario_is_scalar_like_element(element_meta, scenario);
+        const bool declared_ref_element = element_meta != nullptr && dispatch_meta_is_ref(element_meta);
+        const value::TypeMeta* value_type = element_meta != nullptr ? element_meta->value_type : nullptr;
         nb::object remove = get_remove();
         nb::object remove_if_exists = get_remove_if_exists();
         enum class RemoveMarkerKind {
@@ -177,9 +230,6 @@ void op_from_python_tsd_impl(ViewData& vd,
                 continue;
             }
 
-            const TSMeta* element_meta = current->element_ts();
-            const bool scalar_like_element = element_meta == nullptr || dispatch_meta_is_scalar_like(element_meta);
-
             if (scalar_like_element) {
                 if (nb::isinstance<TimeSeriesReference>(value_obj)) {
                     TimeSeriesReference ref = nb::cast<TimeSeriesReference>(value_obj);
@@ -319,8 +369,7 @@ void op_from_python_tsd_impl(ViewData& vd,
 
         bool ref_child_target_modified = false;
         if (!changed &&
-            current->element_ts() != nullptr &&
-            dispatch_meta_is_ref(current->element_ts())) {
+            declared_ref_element) {
             auto current_value = resolve_value_slot_const(vd);
             if (current_value.has_value() && current_value->valid() && current_value->is_map()) {
                 for_each_map_key_slot(current_value->as_map(), [&](View /*key*/, size_t slot) {

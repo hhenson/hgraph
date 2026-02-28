@@ -3,7 +3,8 @@
 namespace hgraph {
 nb::object op_delta_to_python_tsd_impl_for_scenario(const ViewData& vd,
                                                     engine_time_t current_time,
-                                                    bool declared_ref_element) {
+                                                    bool declared_ref_element,
+                                                    std::optional<bool> declared_nested_element) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
@@ -114,6 +115,36 @@ nb::object op_delta_to_python_tsd_impl_for_scenario(const ViewData& vd,
             added_keys,
             removed_keys,
             delta_out);
+    } else if (declared_nested_element.has_value()) {
+        if (*declared_nested_element) {
+            tsd_emit_map_delta_plain_nested(
+                vd,
+                data,
+                current,
+                current_time,
+                wrapper_modified,
+                resolved_modified,
+                debug_tsd_delta,
+                debug_ref_payload,
+                changed_values,
+                added_keys,
+                removed_keys,
+                delta_out);
+        } else {
+            tsd_emit_map_delta_plain_scalar(
+                vd,
+                data,
+                current,
+                current_time,
+                wrapper_modified,
+                resolved_modified,
+                debug_tsd_delta,
+                debug_ref_payload,
+                changed_values,
+                added_keys,
+                removed_keys,
+                delta_out);
+        }
     } else {
         tsd_emit_map_delta_plain(
             vd,
@@ -144,7 +175,7 @@ nb::object op_delta_to_python_tsd_impl_for_scenario(const ViewData& vd,
 }
 
 nb::object op_delta_to_python_tsd_impl(const ViewData& vd, engine_time_t current_time) {
-    return op_delta_to_python_tsd_impl_for_scenario(vd, current_time, false);
+    return op_delta_to_python_tsd_impl_for_scenario(vd, current_time, false, std::nullopt);
 }
 
 }  // namespace hgraph

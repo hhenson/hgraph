@@ -484,22 +484,19 @@ bool signal_ref_observer_modified_for_wrapper_write(
     return observer_modified;
 }
 
+bool observer_has_notify_policy(const LinkTarget& observer, LinkObserverNotifyPolicy policy) {
+    return (observer.notify_policy & link_observer_notify_policy_bit(policy)) != 0;
+}
+
 bool should_skip_ref_to_nonref_dynamic_target_write(
     const LinkTarget& observer,
     const ViewData& target_view,
-    const TSMeta* target_meta,
     bool target_is_ref_wrapper,
     engine_time_t current_time,
     bool debug_notify) {
-    if (!(observer.observer_ref_to_nonref_target &&
+    if (!(observer_has_notify_policy(observer, LinkObserverNotifyPolicy::RefToNonRefDynamicTarget) &&
           observer.has_resolved_target &&
           !target_is_ref_wrapper)) {
-        return false;
-    }
-
-    const bool target_is_dynamic_container =
-        dispatch_meta_is_tss(target_meta) || dispatch_meta_is_tsd(target_meta);
-    if (!target_is_dynamic_container) {
         return false;
     }
 
@@ -531,9 +528,7 @@ bool should_skip_signal_ref_to_nonref_target_write(
     bool target_is_ref_wrapper,
     engine_time_t current_time,
     bool debug_notify) {
-    if (!(observer.observer_is_signal &&
-          observer.meta != nullptr &&
-          dispatch_meta_is_ref(observer.meta) &&
+    if (!(observer_has_notify_policy(observer, LinkObserverNotifyPolicy::SignalRefToNonRefTarget) &&
           !target_is_ref_wrapper)) {
         return false;
     }
@@ -566,14 +561,19 @@ bool should_skip_signal_wrapper_write_for_unmodified_observer(
     bool target_is_ref_wrapper,
     engine_time_t current_time,
     bool debug_notify) {
-    if (!(target_is_ref_wrapper && observer.observer_is_signal)) {
+    if (!(target_is_ref_wrapper &&
+          observer_has_notify_policy(observer, LinkObserverNotifyPolicy::SignalWrapperWrite))) {
         return false;
     }
 
     const bool source_rebind_tick = rebind_time_for_view(target_view) == current_time;
     const bool observer_rebind_tick = observer.last_rebind_time == current_time;
     const bool wrapper_write_tick = direct_last_modified_time(target_view) == current_time;
-    if (source_rebind_tick || observer_rebind_tick || wrapper_write_tick) {
+    const bool resolved_target_modified =
+        observer.has_resolved_target && dispatch_modified(observer.resolved_target, current_time);
+    const bool meaningful_wrapper_write =
+        wrapper_write_tick && (!observer.has_resolved_target || resolved_target_modified);
+    if (source_rebind_tick || observer_rebind_tick || meaningful_wrapper_write) {
         return false;
     }
 
@@ -585,17 +585,48 @@ bool should_skip_signal_wrapper_write_for_unmodified_observer(
     return true;
 }
 
+bool should_skip_signal_nonref_write_for_unmodified_observer(
+    const LinkTarget& observer,
+    const ViewData& target_view,
+    bool target_is_ref_wrapper,
+    engine_time_t current_time,
+    bool debug_notify) {
+    if (!(observer_has_notify_policy(observer, LinkObserverNotifyPolicy::SignalWrapperWrite) &&
+          !target_is_ref_wrapper &&
+          observer.has_resolved_target)) {
+        return false;
+    }
+
+    const bool notify_from_resolved_target =
+        same_or_descendant_view(observer.resolved_target, target_view) ||
+        same_or_descendant_view(target_view, observer.resolved_target);
+    if (!notify_from_resolved_target) {
+        return false;
+    }
+
+    const bool source_rebind_tick = rebind_time_for_view(target_view) == current_time;
+    const bool observer_rebind_tick = observer.last_rebind_time == current_time;
+    const bool source_modified_tick = dispatch_modified(target_view, current_time);
+    if (source_rebind_tick || observer_rebind_tick || source_modified_tick) {
+        return false;
+    }
+
+    if (debug_notify) {
+        std::fprintf(stderr,
+                     "[notify_obs]  skip signal non-ref write for unmodified observer obs=%p\n",
+                     static_cast<const void*>(&observer));
+    }
+    return true;
+}
+
 bool should_skip_signal_ref_wrapper_write_for_unmodified_observer(
     LinkTarget& observer,
     const ViewData& target_view,
     bool target_is_ref_wrapper,
-    const TSMeta* observer_meta,
     engine_time_t current_time,
     bool debug_notify) {
     if (!(target_is_ref_wrapper &&
-          observer.observer_is_signal &&
-          observer_meta != nullptr &&
-          dispatch_meta_is_ref(observer_meta))) {
+          observer_has_notify_policy(observer, LinkObserverNotifyPolicy::SignalRefWrapperWrite))) {
         return false;
     }
 
@@ -630,7 +661,7 @@ bool should_skip_ref_wrapper_write_for_nonref_observer(
     bool target_is_ref_wrapper,
     engine_time_t current_time,
     bool debug_notify) {
-    if (observer.notify_on_ref_wrapper_write) {
+    if (!observer_has_notify_policy(observer, LinkObserverNotifyPolicy::NonRefObserverWrapperWrite)) {
         return false;
     }
 
@@ -709,8 +740,8 @@ void dispatch_link_observers(
     engine_time_t current_time,
     bool debug_notify,
     const std::vector<LinkTarget*>& observers) {
-    const TSMeta* target_meta = meta_at_path(target_view.meta, target_view.path.indices);
-    const bool target_is_ref_wrapper = dispatch_meta_is_ref(target_meta);
+    const bool target_is_ref_wrapper =
+        dispatch_meta_is_ref(meta_at_path(target_view.meta, target_view.path.indices));
 
     for (LinkTarget* observer : observers) {
         if (observer == nullptr || !is_live_link_target(observer)) {
@@ -725,7 +756,7 @@ void dispatch_link_observers(
         refresh_dynamic_ref_binding_for_link_target(observer, false, current_time);
 
         if (should_skip_ref_to_nonref_dynamic_target_write(
-                *observer, target_view, target_meta, target_is_ref_wrapper, current_time, debug_notify)) {
+                *observer, target_view, target_is_ref_wrapper, current_time, debug_notify)) {
             continue;
         }
         if (should_skip_signal_ref_to_nonref_target_write(
@@ -736,12 +767,15 @@ void dispatch_link_observers(
                 *observer, target_view, target_is_ref_wrapper, current_time, debug_notify)) {
             continue;
         }
+        if (should_skip_signal_nonref_write_for_unmodified_observer(
+                *observer, target_view, target_is_ref_wrapper, current_time, debug_notify)) {
+            continue;
+        }
 
         ViewData observer_view = observer->as_view_data(false);
         observer_view.sampled = false;
-        const TSMeta* observer_meta = meta_at_path(observer_view.meta, observer_view.path.indices);
         if (should_skip_signal_ref_wrapper_write_for_unmodified_observer(
-                *observer, target_view, target_is_ref_wrapper, observer_meta, current_time, debug_notify)) {
+                *observer, target_view, target_is_ref_wrapper, current_time, debug_notify)) {
             continue;
         }
         if (should_skip_ref_wrapper_write_for_nonref_observer(

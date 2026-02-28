@@ -189,6 +189,9 @@ engine_time_t op_last_modified_tsb(const ViewData& vd);
 engine_time_t op_last_modified_tsl(const ViewData& vd);
 bool op_modified(const ViewData& vd, engine_time_t current_time);
 bool op_modified_ref(const ViewData& vd, engine_time_t current_time);
+bool op_modified_ref_scalar(const ViewData& vd, engine_time_t current_time);
+bool op_modified_ref_static_container(const ViewData& vd, engine_time_t current_time);
+bool op_modified_ref_dynamic_container(const ViewData& vd, engine_time_t current_time);
 bool op_modified_tsvalue(const ViewData& vd, engine_time_t current_time);
 bool op_modified_signal(const ViewData& vd, engine_time_t current_time);
 bool op_modified_tsw(const ViewData& vd, engine_time_t current_time);
@@ -200,6 +203,9 @@ bool op_modified_tsl(const ViewData& vd, engine_time_t current_time);
 bool op_valid(const ViewData& vd);
 bool op_valid_tsvalue(const ViewData& vd);
 bool op_valid_ref(const ViewData& vd);
+bool op_valid_ref_scalar(const ViewData& vd);
+bool op_valid_ref_static_container(const ViewData& vd);
+bool op_valid_ref_dynamic_container(const ViewData& vd);
 bool op_valid_signal(const ViewData& vd);
 bool op_valid_tsw(const ViewData& vd);
 bool op_valid_tss(const ViewData& vd);
@@ -351,56 +357,56 @@ inline bool dispatch_ops_is_tsw_duration(const ts_ops* ops) {
 
 inline bool dispatch_meta_is_ref(const TSMeta* meta) {
     if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->valid == &op_valid_ref;
+        return ops->kind == TSKind::REF;
     }
     return false;
 }
 
 inline bool dispatch_meta_is_tsw(const TSMeta* meta) {
     if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->modified == &op_modified_tsw;
+        return ops->kind == TSKind::TSW;
     }
     return false;
 }
 
 inline bool dispatch_meta_is_signal(const TSMeta* meta) {
     if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->modified == &op_modified_signal;
+        return ops->kind == TSKind::SIGNAL;
     }
     return false;
 }
 
 inline bool dispatch_meta_is_tsvalue(const TSMeta* meta) {
     if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->modified == &op_modified_tsvalue;
+        return ops->kind == TSKind::TSValue;
     }
     return false;
 }
 
 inline bool dispatch_meta_is_tss(const TSMeta* meta) {
     if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->modified == &op_modified_tss;
+        return ops->kind == TSKind::TSS;
     }
     return false;
 }
 
 inline bool dispatch_meta_is_tsd(const TSMeta* meta) {
     if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->modified == &op_modified_tsd;
+        return ops->kind == TSKind::TSD;
     }
     return false;
 }
 
 inline bool dispatch_meta_is_tsb(const TSMeta* meta) {
     if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->modified == &op_modified_tsb;
+        return ops->kind == TSKind::TSB;
     }
     return false;
 }
 
 inline bool dispatch_meta_is_tsl(const TSMeta* meta) {
     if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->modified == &op_modified_tsl;
+        return ops->kind == TSKind::TSL;
     }
     return false;
 }
@@ -462,6 +468,8 @@ nb::object op_delta_to_python_tsvalue(const ViewData& vd, engine_time_t current_
 nb::object op_delta_to_python_ref(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsd(const ViewData& vd, engine_time_t current_time);
+nb::object op_delta_to_python_tsd_scalar(const ViewData& vd, engine_time_t current_time);
+nb::object op_delta_to_python_tsd_nested(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsd_key_set(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsd_ref(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsw(const ViewData& vd, engine_time_t current_time);
@@ -472,7 +480,8 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
 nb::object op_delta_to_python_tsd_impl(const ViewData& vd, engine_time_t current_time);
 nb::object op_delta_to_python_tsd_impl_for_scenario(const ViewData& vd,
                                                     engine_time_t current_time,
-                                                    bool declared_ref_element);
+                                                    bool declared_ref_element,
+                                                    std::optional<bool> declared_nested_element);
 nb::object computed_delta_to_python_with_refs(const DeltaView& delta, engine_time_t current_time);
 nb::object stored_delta_to_python_with_refs(const View& view, engine_time_t current_time);
 nb::object tsd_ref_payload_to_python(const TimeSeriesReference& ref,
@@ -503,6 +512,30 @@ void tsd_emit_map_delta_plain(const ViewData& vd,
                               const View& added_keys,
                               const View& removed_keys,
                               nb::dict& delta_out);
+void tsd_emit_map_delta_plain_scalar(const ViewData& vd,
+                                     const ViewData* data,
+                                     const TSMeta* current,
+                                     engine_time_t current_time,
+                                     bool wrapper_modified,
+                                     bool resolved_modified,
+                                     bool debug_tsd_delta,
+                                     bool debug_ref_payload,
+                                     const View& changed_values,
+                                     const View& added_keys,
+                                     const View& removed_keys,
+                                     nb::dict& delta_out);
+void tsd_emit_map_delta_plain_nested(const ViewData& vd,
+                                     const ViewData* data,
+                                     const TSMeta* current,
+                                     engine_time_t current_time,
+                                     bool wrapper_modified,
+                                     bool resolved_modified,
+                                     bool debug_tsd_delta,
+                                     bool debug_ref_payload,
+                                     const View& changed_values,
+                                     const View& added_keys,
+                                     const View& removed_keys,
+                                     nb::dict& delta_out);
 void tsd_emit_map_delta_ref_elements(const ViewData& vd,
                                      const ViewData* data,
                                      const TSMeta* current,
@@ -536,6 +569,8 @@ void op_from_python_tss(ViewData& vd, const nb::object& src, engine_time_t curre
 void op_from_python_tsl(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_tsb(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_tsd(ViewData& vd, const nb::object& src, engine_time_t current_time);
+void op_from_python_tsd_scalar(ViewData& vd, const nb::object& src, engine_time_t current_time);
+void op_from_python_tsd_nested(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_tsd_ref(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void op_from_python_tsd_impl(ViewData& vd,
                              const nb::object& src,

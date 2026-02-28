@@ -8,6 +8,19 @@
 
 namespace hgraph {
 
+enum class LinkObserverNotifyPolicy : uint8_t {
+    None = 0,
+    RefToNonRefDynamicTarget = 1 << 0,
+    SignalRefToNonRefTarget = 1 << 1,
+    SignalWrapperWrite = 1 << 2,
+    SignalRefWrapperWrite = 1 << 3,
+    NonRefObserverWrapperWrite = 1 << 4,
+};
+
+inline constexpr uint8_t link_observer_notify_policy_bit(LinkObserverNotifyPolicy policy) {
+    return static_cast<uint8_t>(policy);
+}
+
 /**
  * LinkTarget is the input-side binding payload.
  *
@@ -42,6 +55,7 @@ struct HGRAPH_EXPORT LinkTarget : Notifiable {
     // REF inputs bound to non-REF targets should not receive downstream target
     // value-write notifications; they only tick on rebind/sample events.
     bool observer_ref_to_nonref_target{false};
+    uint8_t notify_policy{0};
     engine_time_t last_rebind_time{MIN_DT};
     bool has_previous_target{false};
     ViewData previous_target{};

@@ -79,6 +79,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         // (TSB/fixed TSL) also need wrapper writes because unbound REF static
         // payloads are surfaced through wrapper-local state.
         const bool target_is_ref_wrapper = dispatch_meta_is_ref(target_meta);
+        const bool target_is_dynamic_container = dispatch_meta_is_dynamic_container(target_meta);
         const bool observer_is_ref_wrapper = dispatch_meta_is_ref(current);
         const bool observer_is_signal = dispatch_meta_is_signal(current);
         const bool observer_ref_to_nonref_target = observer_is_ref_wrapper && !target_is_ref_wrapper;
@@ -88,12 +89,30 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
             !target_is_ref_wrapper || observer_is_ref_wrapper || observer_is_static_container || observer_is_signal;
         link_target->observer_is_signal = observer_is_signal;
         link_target->observer_ref_to_nonref_target = observer_ref_to_nonref_target;
+        uint8_t notify_policy = 0;
+        if (observer_ref_to_nonref_target && target_is_dynamic_container) {
+            notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::RefToNonRefDynamicTarget);
+        }
+        if (observer_is_signal && observer_is_ref_wrapper && !target_is_ref_wrapper) {
+            notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::SignalRefToNonRefTarget);
+        }
+        if (observer_is_signal) {
+            notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::SignalWrapperWrite);
+        }
+        if (observer_is_signal && observer_is_ref_wrapper) {
+            notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::SignalRefWrapperWrite);
+        }
+        if (!link_target->notify_on_ref_wrapper_write) {
+            notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::NonRefObserverWrapperWrite);
+        }
+        link_target->notify_policy = notify_policy;
         if (debug_op_bind) {
             std::fprintf(stderr,
-                         "[op_bind]  lt=%p notify_on_ref_wrapper_write=%d ref_to_nonref=%d\n",
+                         "[op_bind]  lt=%p notify_on_ref_wrapper_write=%d ref_to_nonref=%d notify_policy=0x%x\n",
                          static_cast<void*>(link_target),
                          link_target->notify_on_ref_wrapper_write ? 1 : 0,
-                         link_target->observer_ref_to_nonref_target ? 1 : 0);
+                         link_target->observer_ref_to_nonref_target ? 1 : 0,
+                         static_cast<unsigned int>(link_target->notify_policy));
         }
 
         if (signal_descendant_bind) {

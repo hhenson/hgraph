@@ -2,7 +2,46 @@
 
 namespace hgraph {
 
-bool op_modified_ref(const ViewData& vd, engine_time_t current_time) {
+namespace {
+
+enum class RefDispatchScenario {
+    Generic,
+    ScalarLike,
+    StaticContainer,
+    DynamicContainer,
+};
+
+bool is_static_ref_container_for_scenario(RefDispatchScenario scenario, const TSMeta* element_meta) {
+    if (scenario == RefDispatchScenario::StaticContainer) {
+        return true;
+    }
+    if (scenario == RefDispatchScenario::DynamicContainer || scenario == RefDispatchScenario::ScalarLike) {
+        return false;
+    }
+    return element_meta != nullptr && dispatch_meta_is_static_container(element_meta);
+}
+
+bool is_dynamic_ref_container_for_scenario(RefDispatchScenario scenario, const TSMeta* element_meta) {
+    if (scenario == RefDispatchScenario::DynamicContainer) {
+        return true;
+    }
+    if (scenario == RefDispatchScenario::StaticContainer || scenario == RefDispatchScenario::ScalarLike) {
+        return false;
+    }
+    return element_meta != nullptr && dispatch_meta_is_dynamic_container(element_meta);
+}
+
+bool use_ref_child_zero_dispatch_for_scenario(RefDispatchScenario scenario, const TSMeta* element_meta) {
+    if (scenario == RefDispatchScenario::ScalarLike) {
+        return true;
+    }
+    if (scenario == RefDispatchScenario::StaticContainer || scenario == RefDispatchScenario::DynamicContainer) {
+        return false;
+    }
+    return meta_is_scalar_like_or_ref(element_meta);
+}
+
+bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time, RefDispatchScenario scenario) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
@@ -10,8 +49,8 @@ bool op_modified_ref(const ViewData& vd, engine_time_t current_time) {
     }
 
     const TSMeta* element_meta = self_meta->element_ts();
-    const bool static_ref_container = element_meta != nullptr && dispatch_meta_is_static_container(element_meta);
-    const bool dynamic_ref_container = element_meta != nullptr && dispatch_meta_is_dynamic_container(element_meta);
+    const bool static_ref_container = is_static_ref_container_for_scenario(scenario, element_meta);
+    const bool dynamic_ref_container = is_dynamic_ref_container_for_scenario(scenario, element_meta);
     bool suppress_wrapper_local_time = vd.uses_link_target && dynamic_ref_container;
     bool resolved_target_modified = false;
     std::string resolved_target_path{"<none>"};
@@ -188,7 +227,7 @@ bool op_modified_ref(const ViewData& vd, engine_time_t current_time) {
     // container wrappers (REF[TSS]/REF[TSD]) are handled via resolved target
     // and bridge logic above.
     const bool type_erased_or_scalar_ref =
-        meta_is_scalar_like_or_ref(element_meta);
+        use_ref_child_zero_dispatch_for_scenario(scenario, element_meta);
     if (vd.uses_link_target && type_erased_or_scalar_ref) {
         ViewData child = vd;
         child.path.indices.push_back(0);
@@ -201,12 +240,30 @@ bool op_modified_ref(const ViewData& vd, engine_time_t current_time) {
     // Dynamic REF container rebind/unbind (e.g. REF[TSD]) should surface as
     // modified on the transition tick so container adapters can emit bridge
     // deltas (add/remove snapshots) even when wrapper local time is unchanged.
-    if (vd.uses_link_target && element_meta != nullptr && dispatch_meta_is_dynamic_container(element_meta)) {
+    if (vd.uses_link_target && dynamic_ref_container && element_meta != nullptr) {
         if (rebind_bridge_has_container_meta_value(vd, self_meta, current_time, element_meta)) {
             return true;
         }
     }
     return false;
+}
+
+}  // namespace
+
+bool op_modified_ref(const ViewData& vd, engine_time_t current_time) {
+    return op_modified_ref_impl(vd, current_time, RefDispatchScenario::Generic);
+}
+
+bool op_modified_ref_scalar(const ViewData& vd, engine_time_t current_time) {
+    return op_modified_ref_impl(vd, current_time, RefDispatchScenario::ScalarLike);
+}
+
+bool op_modified_ref_static_container(const ViewData& vd, engine_time_t current_time) {
+    return op_modified_ref_impl(vd, current_time, RefDispatchScenario::StaticContainer);
+}
+
+bool op_modified_ref_dynamic_container(const ViewData& vd, engine_time_t current_time) {
+    return op_modified_ref_impl(vd, current_time, RefDispatchScenario::DynamicContainer);
 }
 
 bool op_modified_tsvalue(const ViewData& vd, engine_time_t current_time) {

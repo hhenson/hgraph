@@ -1389,6 +1389,10 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         [](const TSMeta* meta) { return reinterpret_cast<uintptr_t>(get_ts_ops(meta)); },
         "meta"_a);
     test_mod.def(
+        "ops_kind_for_meta",
+        [](const TSMeta* meta) { return get_ts_ops(meta)->kind; },
+        "meta"_a);
+    test_mod.def(
         "ops_kind_for_kind",
         [](TSKind kind) { return get_ts_ops(kind)->kind; },
         "kind"_a);

@@ -5,7 +5,7 @@ namespace hgraph {
 
 namespace {
 
-template <bool DeclaredRefElement>
+template <bool DeclaredRefElement, bool HasDeclaredNestedElement, bool DeclaredNestedElement>
 void tsd_emit_map_delta_impl(const ViewData& vd,
                              const ViewData* data,
                              const TSMeta* current,
@@ -22,7 +22,12 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
         if (current_value.has_value() && current_value->valid() && current_value->is_map()) {
             const auto value_map = current_value->as_map();
             const TSMeta* element_meta = current->element_ts();
-            const bool nested_element = element_meta != nullptr && !dispatch_meta_is_scalar_like(element_meta);
+            const bool nested_element = [&]() {
+                if constexpr (HasDeclaredNestedElement) {
+                    return DeclaredNestedElement;
+                }
+                return element_meta != nullptr && !dispatch_meta_is_scalar_like(element_meta);
+            }();
 
             const engine_time_t rebind_time = rebind_time_for_view(vd);
             const engine_time_t wrapper_time = ref_wrapper_last_modified_time_on_read_path(vd);
@@ -356,18 +361,70 @@ void tsd_emit_map_delta_plain(const ViewData& vd,
                               const View& added_keys,
                               const View& removed_keys,
                               nb::dict& delta_out) {
-    tsd_emit_map_delta_impl<false>(vd,
-                                   data,
-                                   current,
-                                   current_time,
-                                   wrapper_modified,
-                                   resolved_modified,
-                                   debug_tsd_delta,
-                                   debug_ref_payload,
-                                   changed_values,
-                                   added_keys,
-                                   removed_keys,
-                                   delta_out);
+    tsd_emit_map_delta_impl<false, false, false>(vd,
+                                                 data,
+                                                 current,
+                                                 current_time,
+                                                 wrapper_modified,
+                                                 resolved_modified,
+                                                 debug_tsd_delta,
+                                                 debug_ref_payload,
+                                                 changed_values,
+                                                 added_keys,
+                                                 removed_keys,
+                                                 delta_out);
+}
+
+void tsd_emit_map_delta_plain_scalar(const ViewData& vd,
+                                     const ViewData* data,
+                                     const TSMeta* current,
+                                     engine_time_t current_time,
+                                     bool wrapper_modified,
+                                     bool resolved_modified,
+                                     bool debug_tsd_delta,
+                                     bool debug_ref_payload,
+                                     const View& changed_values,
+                                     const View& added_keys,
+                                     const View& removed_keys,
+                                     nb::dict& delta_out) {
+    tsd_emit_map_delta_impl<false, true, false>(vd,
+                                                data,
+                                                current,
+                                                current_time,
+                                                wrapper_modified,
+                                                resolved_modified,
+                                                debug_tsd_delta,
+                                                debug_ref_payload,
+                                                changed_values,
+                                                added_keys,
+                                                removed_keys,
+                                                delta_out);
+}
+
+void tsd_emit_map_delta_plain_nested(const ViewData& vd,
+                                     const ViewData* data,
+                                     const TSMeta* current,
+                                     engine_time_t current_time,
+                                     bool wrapper_modified,
+                                     bool resolved_modified,
+                                     bool debug_tsd_delta,
+                                     bool debug_ref_payload,
+                                     const View& changed_values,
+                                     const View& added_keys,
+                                     const View& removed_keys,
+                                     nb::dict& delta_out) {
+    tsd_emit_map_delta_impl<false, true, true>(vd,
+                                               data,
+                                               current,
+                                               current_time,
+                                               wrapper_modified,
+                                               resolved_modified,
+                                               debug_tsd_delta,
+                                               debug_ref_payload,
+                                               changed_values,
+                                               added_keys,
+                                               removed_keys,
+                                               delta_out);
 }
 
 void tsd_emit_map_delta_ref_elements(const ViewData& vd,
@@ -382,18 +439,18 @@ void tsd_emit_map_delta_ref_elements(const ViewData& vd,
                                      const View& added_keys,
                                      const View& removed_keys,
                                      nb::dict& delta_out) {
-    tsd_emit_map_delta_impl<true>(vd,
-                                  data,
-                                  current,
-                                  current_time,
-                                  wrapper_modified,
-                                  resolved_modified,
-                                  debug_tsd_delta,
-                                  debug_ref_payload,
-                                  changed_values,
-                                  added_keys,
-                                  removed_keys,
-                                  delta_out);
+    tsd_emit_map_delta_impl<true, false, false>(vd,
+                                                data,
+                                                current,
+                                                current_time,
+                                                wrapper_modified,
+                                                resolved_modified,
+                                                debug_tsd_delta,
+                                                debug_ref_payload,
+                                                changed_values,
+                                                added_keys,
+                                                removed_keys,
+                                                delta_out);
 }
 
 }  // namespace hgraph

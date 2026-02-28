@@ -412,7 +412,9 @@ engine_time_t signal_last_modified_time(const ViewData& vd,
     engine_time_t source_lmt = MIN_DT;
     const engine_time_t current_eval_time = view_evaluation_time(vd);
     if (resolve_signal_source_view(vd, signal_link, source_view, source_is_signal)) {
-        if (!source_is_signal && is_tsd_key_set_projection(source_view)) {
+        if (!source_is_signal && !dispatch_valid(source_view)) {
+            source_lmt = MIN_DT;
+        } else if (!source_is_signal && is_tsd_key_set_projection(source_view)) {
             ViewData key_set_source{};
             if (resolve_tsd_key_set_source(source_view, key_set_source)) {
                 source_lmt =
@@ -428,7 +430,9 @@ engine_time_t signal_last_modified_time(const ViewData& vd,
     }
 
     const engine_time_t signal_rebind_time =
-        signal_link.has_previous_target ? signal_link.last_rebind_time : MIN_DT;
+        (signal_link.has_resolved_target && signal_link.has_previous_target)
+            ? signal_link.last_rebind_time
+            : MIN_DT;
     if (source_is_signal && signal_link.owner_time_ptr != nullptr) {
         return std::max(signal_rebind_time, *signal_link.owner_time_ptr);
     }

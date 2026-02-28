@@ -32,12 +32,44 @@ bool op_valid_tsvalue(const ViewData& vd) {
     return valid_from_resolved_slot(vd, self_meta, false);
 }
 
-bool op_valid_ref(const ViewData& vd) {
+namespace {
+
+enum class RefDispatchScenario {
+    Generic,
+    ScalarLike,
+    StaticContainer,
+    DynamicContainer,
+};
+
+bool is_static_ref_container_for_scenario(RefDispatchScenario scenario, const TSMeta* element_meta) {
+    if (scenario == RefDispatchScenario::StaticContainer) {
+        return true;
+    }
+    if (scenario == RefDispatchScenario::DynamicContainer || scenario == RefDispatchScenario::ScalarLike) {
+        return false;
+    }
+    return element_meta != nullptr && dispatch_meta_is_static_container(element_meta);
+}
+
+bool use_ref_child_zero_dispatch_for_scenario(RefDispatchScenario scenario, const TSMeta* element_meta) {
+    if (scenario == RefDispatchScenario::ScalarLike) {
+        return true;
+    }
+    if (scenario == RefDispatchScenario::StaticContainer || scenario == RefDispatchScenario::DynamicContainer) {
+        return false;
+    }
+    return meta_is_scalar_like_or_ref(element_meta);
+}
+
+bool op_valid_ref_impl(const ViewData& vd, RefDispatchScenario scenario) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
         return valid_fallback_no_dispatch(vd, false);
     }
 
+    const TSMeta* element_meta = self_meta->element_ts();
+    const bool static_ref_container = is_static_ref_container_for_scenario(scenario, element_meta);
+    const bool use_ref_child_zero_dispatch = use_ref_child_zero_dispatch_for_scenario(scenario, element_meta);
     const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
     const bool debug_ref_valid = std::getenv("HGRAPH_DEBUG_REF_VALID") != nullptr;
     const engine_time_t current_time = view_evaluation_time(vd);
@@ -60,9 +92,6 @@ bool op_valid_ref(const ViewData& vd) {
                          static_cast<long long>(direct_last_modified_time(vd).time_since_epoch().count()));
         }
         if (ref.is_empty()) {
-            const TSMeta* element_meta = self_meta->element_ts();
-            const bool static_ref_container =
-                element_meta != nullptr && dispatch_meta_is_static_container(element_meta);
             if (!vd.uses_link_target && !static_ref_container) {
                 if (debug_ref_valid) {
                     std::fprintf(stderr, "[ref_valid]  -> true (direct non-static empty)\n");
@@ -109,8 +138,7 @@ bool op_valid_ref(const ViewData& vd) {
         }
     }
 
-    const TSMeta* element_meta = self_meta->element_ts();
-    if (element_meta != nullptr && dispatch_meta_is_static_container(element_meta)) {
+    if (static_ref_container && element_meta != nullptr) {
         const size_t n = static_container_child_count(element_meta);
         for (size_t i = 0; i < n; ++i) {
             ViewData child = vd;
@@ -125,7 +153,7 @@ bool op_valid_ref(const ViewData& vd) {
     }
 
     // Type-erased REF wrappers can route concrete bindings through child[0].
-    if (vd.uses_link_target) {
+    if (vd.uses_link_target && use_ref_child_zero_dispatch) {
         ViewData child = vd;
         child.path.indices.push_back(0);
         if (LinkTarget* child_link = resolve_link_target(vd, child.path.indices);
@@ -193,6 +221,24 @@ bool op_valid_ref(const ViewData& vd) {
         std::fprintf(stderr, "[ref_valid] path=%s source=ref_wrapper -> false\n", vd.path.to_string().c_str());
     }
     return valid_from_resolved_slot(vd, self_meta, true);
+}
+
+}  // namespace
+
+bool op_valid_ref(const ViewData& vd) {
+    return op_valid_ref_impl(vd, RefDispatchScenario::Generic);
+}
+
+bool op_valid_ref_scalar(const ViewData& vd) {
+    return op_valid_ref_impl(vd, RefDispatchScenario::ScalarLike);
+}
+
+bool op_valid_ref_static_container(const ViewData& vd) {
+    return op_valid_ref_impl(vd, RefDispatchScenario::StaticContainer);
+}
+
+bool op_valid_ref_dynamic_container(const ViewData& vd) {
+    return op_valid_ref_impl(vd, RefDispatchScenario::DynamicContainer);
 }
 
 bool op_valid_signal(const ViewData& vd) {

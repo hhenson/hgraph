@@ -125,6 +125,7 @@ void LinkTarget::copy_target_data_from(const LinkTarget& other) {
     notify_on_ref_wrapper_write = other.notify_on_ref_wrapper_write;
     observer_is_signal = other.observer_is_signal;
     observer_ref_to_nonref_target = other.observer_ref_to_nonref_target;
+    notify_policy = other.notify_policy;
 }
 
 void LinkTarget::move_target_data_from(LinkTarget&& other) noexcept {
@@ -159,6 +160,7 @@ void LinkTarget::clear_target_data() {
     notify_on_ref_wrapper_write = true;
     observer_is_signal = false;
     observer_ref_to_nonref_target = false;
+    notify_policy = 0;
 }
 
 void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {

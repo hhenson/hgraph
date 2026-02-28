@@ -506,13 +506,25 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
 nb::object op_delta_to_python_tsd(const ViewData& vd, engine_time_t current_time) {
     ViewData dispatch_view = vd;
     bind_view_data_ops(dispatch_view);
-    return op_delta_to_python_tsd_impl_for_scenario(dispatch_view, current_time, false);
+    return op_delta_to_python_tsd_impl_for_scenario(dispatch_view, current_time, false, std::nullopt);
+}
+
+nb::object op_delta_to_python_tsd_scalar(const ViewData& vd, engine_time_t current_time) {
+    ViewData dispatch_view = vd;
+    bind_view_data_ops(dispatch_view);
+    return op_delta_to_python_tsd_impl_for_scenario(dispatch_view, current_time, false, false);
+}
+
+nb::object op_delta_to_python_tsd_nested(const ViewData& vd, engine_time_t current_time) {
+    ViewData dispatch_view = vd;
+    bind_view_data_ops(dispatch_view);
+    return op_delta_to_python_tsd_impl_for_scenario(dispatch_view, current_time, false, true);
 }
 
 nb::object op_delta_to_python_tsd_ref(const ViewData& vd, engine_time_t current_time) {
     ViewData dispatch_view = vd;
     bind_view_data_ops(dispatch_view);
-    return op_delta_to_python_tsd_impl_for_scenario(dispatch_view, current_time, true);
+    return op_delta_to_python_tsd_impl_for_scenario(dispatch_view, current_time, true, std::nullopt);
 }
 
 }  // namespace hgraph

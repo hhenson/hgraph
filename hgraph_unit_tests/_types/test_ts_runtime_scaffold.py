@@ -558,7 +558,7 @@ def test_get_ts_ops_by_kind_compaction_exposes_only_relevant_extensions():
     assert not runtime.ops_has_bundle_for_kind(_hgraph.TSKind.SIGNAL)
 
 
-def test_get_ts_ops_meta_dispatch_matches_kind_dispatch_for_non_tsw():
+def test_get_ts_ops_meta_dispatch_resolves_kind_for_non_tsw():
     ts_int = _ts_int_meta()
 
     cases = [
@@ -572,7 +572,63 @@ def test_get_ts_ops_meta_dispatch_matches_kind_dispatch_for_non_tsw():
     ]
 
     for kind, meta in cases:
+        assert runtime.ops_kind_for_meta(meta) == kind
+
+
+def test_get_ts_ops_meta_dispatch_matches_kind_dispatch_for_non_variant_kinds():
+    ts_int = _ts_int_meta()
+
+    cases = [
+        (_hgraph.TSKind.TSValue, ts_int),
+        (_hgraph.TSKind.TSS, _registry().tss(value.scalar_type_meta_int64())),
+        (_hgraph.TSKind.TSL, _registry().tsl(ts_int, 4)),
+        (_hgraph.TSKind.TSB, _tsb_meta("OpsDispatchBundleStable", [("x", ts_int), ("y", ts_int)])),
+        (_hgraph.TSKind.SIGNAL, _registry().signal()),
+    ]
+
+    for kind, meta in cases:
         assert runtime.ops_ptr_for_meta(meta) == runtime.ops_ptr_for_kind(kind)
+
+
+def test_get_ts_ops_meta_dispatch_selects_tsd_and_ref_scenario_variants():
+    ts_int = _ts_int_meta()
+
+    tsd_scalar = _tsd_meta(value.scalar_type_meta_string(), ts_int)
+    tsd_nested = _tsd_meta(
+        value.scalar_type_meta_string(),
+        _tsb_meta("OpsDispatchNested", [("x", ts_int), ("y", ts_int)]),
+    )
+    tsd_ref = _tsd_meta(value.scalar_type_meta_string(), _registry().ref(ts_int))
+
+    tsd_scalar_ptr = runtime.ops_ptr_for_meta(tsd_scalar)
+    tsd_nested_ptr = runtime.ops_ptr_for_meta(tsd_nested)
+    tsd_ref_ptr = runtime.ops_ptr_for_meta(tsd_ref)
+    assert tsd_scalar_ptr != 0
+    assert tsd_nested_ptr != 0
+    assert tsd_ref_ptr != 0
+    assert tsd_scalar_ptr != tsd_nested_ptr
+    assert tsd_scalar_ptr != tsd_ref_ptr
+    assert tsd_nested_ptr != tsd_ref_ptr
+    assert runtime.ops_kind_for_meta(tsd_scalar) == _hgraph.TSKind.TSD
+    assert runtime.ops_kind_for_meta(tsd_nested) == _hgraph.TSKind.TSD
+    assert runtime.ops_kind_for_meta(tsd_ref) == _hgraph.TSKind.TSD
+
+    ref_scalar = _registry().ref(ts_int)
+    ref_static = _registry().ref(_tsb_meta("OpsDispatchStaticRef", [("x", ts_int), ("y", ts_int)]))
+    ref_dynamic = _registry().ref(_tsd_meta(value.scalar_type_meta_string(), ts_int))
+
+    ref_scalar_ptr = runtime.ops_ptr_for_meta(ref_scalar)
+    ref_static_ptr = runtime.ops_ptr_for_meta(ref_static)
+    ref_dynamic_ptr = runtime.ops_ptr_for_meta(ref_dynamic)
+    assert ref_scalar_ptr != 0
+    assert ref_static_ptr != 0
+    assert ref_dynamic_ptr != 0
+    assert ref_scalar_ptr != ref_static_ptr
+    assert ref_scalar_ptr != ref_dynamic_ptr
+    assert ref_static_ptr != ref_dynamic_ptr
+    assert runtime.ops_kind_for_meta(ref_scalar) == _hgraph.TSKind.REF
+    assert runtime.ops_kind_for_meta(ref_static) == _hgraph.TSKind.REF
+    assert runtime.ops_kind_for_meta(ref_dynamic) == _hgraph.TSKind.REF
 
 
 def test_schema_cache_scalar_contract_surfaces_all_parallel_schemas():
