@@ -519,67 +519,27 @@ std::optional<size_t> map_slot_for_key(const value::MapView& map, const View& ke
         return std::nullopt;
     }
 
-    // Fast path: exact schema match and direct hash lookup.
-    if (key.schema() == map.key_type()) {
-        const size_t slot = storage->key_set().find(key.data());
-        if (slot != static_cast<size_t>(-1)) {
-            return slot;
-        }
+    // Strict schema-typed lookup only: mismatched key schemas are treated as
+    // not found to avoid masking conversion/type bugs.
+    if (key.schema() != map.key_type()) {
+        return std::nullopt;
     }
 
-    // Fallback: structural equivalence for keys sourced from delta payloads
-    // that can use a schema-equivalent key type instance.
-    std::optional<std::string> key_string;
-    for (size_t slot : storage->key_set()) {
-        View candidate(storage->key_at_slot(slot), map.key_type());
-        if (candidate.equals(key)) {
-            return slot;
-        }
-        if (!key_string.has_value()) {
-            try {
-                key_string = key.to_string();
-            } catch (...) {}
-        }
-        if (key_string.has_value()) {
-            try {
-                if (candidate.to_string() == *key_string) {
-                    return slot;
-                }
-            } catch (...) {}
-        }
+    const size_t slot = storage->key_set().find(key.data());
+    if (slot == static_cast<size_t>(-1)) {
+        return std::nullopt;
     }
-
-    return std::nullopt;
+    return slot;
 }
 
 bool set_contains_key_relaxed(const value::SetView& set, const View& key) {
     if (!key.valid()) {
         return false;
     }
-    if (set.contains(key)) {
-        return true;
+    if (key.schema() != set.element_type()) {
+        return false;
     }
-
-    std::optional<std::string> key_string;
-    for (View candidate : set) {
-        if (candidate.equals(key)) {
-            return true;
-        }
-        if (!key_string.has_value()) {
-            try {
-                key_string = key.to_string();
-            } catch (...) {}
-        }
-        if (key_string.has_value()) {
-            try {
-                if (candidate.to_string() == *key_string) {
-                    return true;
-                }
-            } catch (...) {}
-        }
-    }
-
-    return false;
+    return set.contains(key);
 }
 
 bool view_is_set_and_contains_key_relaxed(const View& maybe_set, const View& key) {

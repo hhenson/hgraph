@@ -155,14 +155,10 @@ void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
         if (!a.valid() || !b.valid()) {
             return false;
         }
-        if (a.equals(b)) {
-            return true;
-        }
-        try {
-            return a.to_string() == b.to_string();
-        } catch (...) {
+        if (a.schema() != b.schema()) {
             return false;
         }
+        return a.equals(b);
     };
     for (View key : dst_map.keys()) {
         bool keep = false;

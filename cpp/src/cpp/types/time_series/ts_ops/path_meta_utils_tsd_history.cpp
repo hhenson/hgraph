@@ -36,14 +36,10 @@ bool key_matches_relaxed(const value::View& lhs, const value::View& rhs) {
     if (!lhs.valid() || !rhs.valid()) {
         return false;
     }
-    if (lhs.equals(rhs)) {
-        return true;
-    }
-    try {
-        return lhs.to_string() == rhs.to_string();
-    } catch (...) {
+    if (lhs.schema() != rhs.schema()) {
         return false;
     }
+    return lhs.equals(rhs);
 }
 
 void record_tsd_removed_child_snapshot(const ViewData& parent_view,
