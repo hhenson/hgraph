@@ -22,17 +22,18 @@ bool meta_kind_is_scalar_like(const TSMeta* meta) {
     }
 }
 
-bool meta_kind_is_ref_static_container(const TSMeta* meta) {
+bool meta_kind_is_ref_bundle_static(const TSMeta* meta) {
     if (meta == nullptr) {
         return false;
     }
-    if (meta->kind == TSKind::TSB) {
-        return true;
+    return meta->kind == TSKind::TSB;
+}
+
+bool meta_kind_is_ref_list_static(const TSMeta* meta) {
+    if (meta == nullptr) {
+        return false;
     }
-    if (meta->kind == TSKind::TSL && meta->fixed_size() > 0) {
-        return true;
-    }
-    return false;
+    return meta->kind == TSKind::TSL && meta->fixed_size() > 0;
 }
 
 bool meta_kind_is_ref_dynamic_container(const TSMeta* meta) {
@@ -254,13 +255,23 @@ ts_ops make_ref_scalar_ops() {
     ts_ops out = make_common_ops(TSKind::REF);
     out.valid = &op_valid_ref_scalar;
     out.modified = &op_modified_ref_scalar;
+    out.delta_to_python = &op_delta_to_python_ref_scalar;
     return out;
 }
 
-ts_ops make_ref_static_container_ops() {
+ts_ops make_ref_list_ops() {
     ts_ops out = make_common_ops(TSKind::REF);
     out.valid = &op_valid_ref_static_container;
     out.modified = &op_modified_ref_static_container;
+    out.delta_to_python = &op_delta_to_python_ref_list;
+    return out;
+}
+
+ts_ops make_ref_bundle_ops() {
+    ts_ops out = make_common_ops(TSKind::REF);
+    out.valid = &op_valid_ref_static_container;
+    out.modified = &op_modified_ref_static_container;
+    out.delta_to_python = &op_delta_to_python_ref_bundle;
     return out;
 }
 
@@ -268,6 +279,7 @@ ts_ops make_ref_dynamic_container_ops() {
     ts_ops out = make_common_ops(TSKind::REF);
     out.valid = &op_valid_ref_dynamic_container;
     out.modified = &op_modified_ref_dynamic_container;
+    out.delta_to_python = &op_delta_to_python_ref_dynamic;
     return out;
 }
 
@@ -307,7 +319,8 @@ const ts_ops k_tsl_ops = make_tsl_ops();
 const ts_ops k_tsb_ops = make_tsb_ops();
 const ts_ops k_ref_ops = make_common_ops(TSKind::REF);
 const ts_ops k_ref_scalar_ops = make_ref_scalar_ops();
-const ts_ops k_ref_static_container_ops = make_ref_static_container_ops();
+const ts_ops k_ref_list_ops = make_ref_list_ops();
+const ts_ops k_ref_bundle_ops = make_ref_bundle_ops();
 const ts_ops k_ref_dynamic_container_ops = make_ref_dynamic_container_ops();
 const ts_ops k_signal_ops = make_common_ops(TSKind::SIGNAL);
 const ts_ops k_tsw_tick_ops = make_tsw_tick_ops();
@@ -358,8 +371,11 @@ const ts_ops* get_ts_ops(const TSMeta* meta) {
 
     if (meta->kind == TSKind::REF) {
         const TSMeta* element_meta = meta->element_ts();
-        if (meta_kind_is_ref_static_container(element_meta)) {
-            return &k_ref_static_container_ops;
+        if (meta_kind_is_ref_bundle_static(element_meta)) {
+            return &k_ref_bundle_ops;
+        }
+        if (meta_kind_is_ref_list_static(element_meta)) {
+            return &k_ref_list_ops;
         }
         if (meta_kind_is_ref_dynamic_container(element_meta)) {
             return &k_ref_dynamic_container_ops;

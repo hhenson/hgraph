@@ -4,44 +4,41 @@ namespace hgraph {
 
 namespace {
 
-enum class RefDispatchScenario {
-    Generic,
-    ScalarLike,
-    StaticContainer,
-    DynamicContainer,
-};
-
-bool is_static_ref_container_for_scenario(RefDispatchScenario scenario, const TSMeta* element_meta) {
-    if (scenario == RefDispatchScenario::StaticContainer) {
+template <bool DeclaredScalarLike, bool DeclaredStaticContainer, bool DeclaredDynamicContainer>
+bool is_static_ref_container_for_scenario(const TSMeta* element_meta) {
+    if constexpr (DeclaredStaticContainer) {
         return true;
     }
-    if (scenario == RefDispatchScenario::DynamicContainer || scenario == RefDispatchScenario::ScalarLike) {
+    if constexpr (DeclaredDynamicContainer || DeclaredScalarLike) {
         return false;
     }
     return element_meta != nullptr && dispatch_meta_is_static_container(element_meta);
 }
 
-bool is_dynamic_ref_container_for_scenario(RefDispatchScenario scenario, const TSMeta* element_meta) {
-    if (scenario == RefDispatchScenario::DynamicContainer) {
+template <bool DeclaredScalarLike, bool DeclaredStaticContainer, bool DeclaredDynamicContainer>
+bool is_dynamic_ref_container_for_scenario(const TSMeta* element_meta) {
+    if constexpr (DeclaredDynamicContainer) {
         return true;
     }
-    if (scenario == RefDispatchScenario::StaticContainer || scenario == RefDispatchScenario::ScalarLike) {
+    if constexpr (DeclaredStaticContainer || DeclaredScalarLike) {
         return false;
     }
     return element_meta != nullptr && dispatch_meta_is_dynamic_container(element_meta);
 }
 
-bool use_ref_child_zero_dispatch_for_scenario(RefDispatchScenario scenario, const TSMeta* element_meta) {
-    if (scenario == RefDispatchScenario::ScalarLike) {
+template <bool DeclaredScalarLike, bool DeclaredStaticContainer, bool DeclaredDynamicContainer>
+bool use_ref_child_zero_dispatch_for_scenario(const TSMeta* element_meta) {
+    if constexpr (DeclaredScalarLike) {
         return true;
     }
-    if (scenario == RefDispatchScenario::StaticContainer || scenario == RefDispatchScenario::DynamicContainer) {
+    if constexpr (DeclaredStaticContainer || DeclaredDynamicContainer) {
         return false;
     }
     return meta_is_scalar_like_or_ref(element_meta);
 }
 
-bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time, RefDispatchScenario scenario) {
+template <bool DeclaredScalarLike, bool DeclaredStaticContainer, bool DeclaredDynamicContainer>
+bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
@@ -49,8 +46,12 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time, RefDis
     }
 
     const TSMeta* element_meta = self_meta->element_ts();
-    const bool static_ref_container = is_static_ref_container_for_scenario(scenario, element_meta);
-    const bool dynamic_ref_container = is_dynamic_ref_container_for_scenario(scenario, element_meta);
+    const bool static_ref_container =
+        is_static_ref_container_for_scenario<DeclaredScalarLike, DeclaredStaticContainer, DeclaredDynamicContainer>(
+            element_meta);
+    const bool dynamic_ref_container =
+        is_dynamic_ref_container_for_scenario<DeclaredScalarLike, DeclaredStaticContainer, DeclaredDynamicContainer>(
+            element_meta);
     bool suppress_wrapper_local_time = vd.uses_link_target && dynamic_ref_container;
     bool resolved_target_modified = false;
     std::string resolved_target_path{"<none>"};
@@ -227,7 +228,8 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time, RefDis
     // container wrappers (REF[TSS]/REF[TSD]) are handled via resolved target
     // and bridge logic above.
     const bool type_erased_or_scalar_ref =
-        use_ref_child_zero_dispatch_for_scenario(scenario, element_meta);
+        use_ref_child_zero_dispatch_for_scenario<DeclaredScalarLike, DeclaredStaticContainer, DeclaredDynamicContainer>(
+            element_meta);
     if (vd.uses_link_target && type_erased_or_scalar_ref) {
         ViewData child = vd;
         child.path.indices.push_back(0);
@@ -251,19 +253,19 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time, RefDis
 }  // namespace
 
 bool op_modified_ref(const ViewData& vd, engine_time_t current_time) {
-    return op_modified_ref_impl(vd, current_time, RefDispatchScenario::Generic);
+    return op_modified_ref_impl<false, false, false>(vd, current_time);
 }
 
 bool op_modified_ref_scalar(const ViewData& vd, engine_time_t current_time) {
-    return op_modified_ref_impl(vd, current_time, RefDispatchScenario::ScalarLike);
+    return op_modified_ref_impl<true, false, false>(vd, current_time);
 }
 
 bool op_modified_ref_static_container(const ViewData& vd, engine_time_t current_time) {
-    return op_modified_ref_impl(vd, current_time, RefDispatchScenario::StaticContainer);
+    return op_modified_ref_impl<false, true, false>(vd, current_time);
 }
 
 bool op_modified_ref_dynamic_container(const ViewData& vd, engine_time_t current_time) {
-    return op_modified_ref_impl(vd, current_time, RefDispatchScenario::DynamicContainer);
+    return op_modified_ref_impl<false, false, true>(vd, current_time);
 }
 
 bool op_modified_tsvalue(const ViewData& vd, engine_time_t current_time) {

@@ -34,42 +34,42 @@ bool op_valid_tsvalue(const ViewData& vd) {
 
 namespace {
 
-enum class RefDispatchScenario {
-    Generic,
-    ScalarLike,
-    StaticContainer,
-    DynamicContainer,
-};
-
-bool is_static_ref_container_for_scenario(RefDispatchScenario scenario, const TSMeta* element_meta) {
-    if (scenario == RefDispatchScenario::StaticContainer) {
+template <bool DeclaredScalarLike, bool DeclaredStaticContainer, bool DeclaredDynamicContainer>
+bool is_static_ref_container_for_scenario(const TSMeta* element_meta) {
+    if constexpr (DeclaredStaticContainer) {
         return true;
     }
-    if (scenario == RefDispatchScenario::DynamicContainer || scenario == RefDispatchScenario::ScalarLike) {
+    if constexpr (DeclaredDynamicContainer || DeclaredScalarLike) {
         return false;
     }
     return element_meta != nullptr && dispatch_meta_is_static_container(element_meta);
 }
 
-bool use_ref_child_zero_dispatch_for_scenario(RefDispatchScenario scenario, const TSMeta* element_meta) {
-    if (scenario == RefDispatchScenario::ScalarLike) {
+template <bool DeclaredScalarLike, bool DeclaredStaticContainer, bool DeclaredDynamicContainer>
+bool use_ref_child_zero_dispatch_for_scenario(const TSMeta* element_meta) {
+    if constexpr (DeclaredScalarLike) {
         return true;
     }
-    if (scenario == RefDispatchScenario::StaticContainer || scenario == RefDispatchScenario::DynamicContainer) {
+    if constexpr (DeclaredStaticContainer || DeclaredDynamicContainer) {
         return false;
     }
     return meta_is_scalar_like_or_ref(element_meta);
 }
 
-bool op_valid_ref_impl(const ViewData& vd, RefDispatchScenario scenario) {
+template <bool DeclaredScalarLike, bool DeclaredStaticContainer, bool DeclaredDynamicContainer>
+bool op_valid_ref_impl(const ViewData& vd) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (self_meta == nullptr) {
         return valid_fallback_no_dispatch(vd, false);
     }
 
     const TSMeta* element_meta = self_meta->element_ts();
-    const bool static_ref_container = is_static_ref_container_for_scenario(scenario, element_meta);
-    const bool use_ref_child_zero_dispatch = use_ref_child_zero_dispatch_for_scenario(scenario, element_meta);
+    const bool static_ref_container =
+        is_static_ref_container_for_scenario<DeclaredScalarLike, DeclaredStaticContainer, DeclaredDynamicContainer>(
+            element_meta);
+    const bool use_ref_child_zero_dispatch =
+        use_ref_child_zero_dispatch_for_scenario<DeclaredScalarLike, DeclaredStaticContainer, DeclaredDynamicContainer>(
+            element_meta);
     const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
     const bool debug_ref_valid = std::getenv("HGRAPH_DEBUG_REF_VALID") != nullptr;
     const engine_time_t current_time = view_evaluation_time(vd);
@@ -226,19 +226,19 @@ bool op_valid_ref_impl(const ViewData& vd, RefDispatchScenario scenario) {
 }  // namespace
 
 bool op_valid_ref(const ViewData& vd) {
-    return op_valid_ref_impl(vd, RefDispatchScenario::Generic);
+    return op_valid_ref_impl<false, false, false>(vd);
 }
 
 bool op_valid_ref_scalar(const ViewData& vd) {
-    return op_valid_ref_impl(vd, RefDispatchScenario::ScalarLike);
+    return op_valid_ref_impl<true, false, false>(vd);
 }
 
 bool op_valid_ref_static_container(const ViewData& vd) {
-    return op_valid_ref_impl(vd, RefDispatchScenario::StaticContainer);
+    return op_valid_ref_impl<false, true, false>(vd);
 }
 
 bool op_valid_ref_dynamic_container(const ViewData& vd) {
-    return op_valid_ref_impl(vd, RefDispatchScenario::DynamicContainer);
+    return op_valid_ref_impl<false, false, true>(vd);
 }
 
 bool op_valid_signal(const ViewData& vd) {

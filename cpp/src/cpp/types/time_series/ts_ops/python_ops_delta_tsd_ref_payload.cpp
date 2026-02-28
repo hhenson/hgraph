@@ -10,7 +10,7 @@ enum class RefPayloadShape {
     TSB,
 };
 
-RefPayloadShape ref_payload_shape_for_meta(const TSMeta* element_meta) {
+RefPayloadShape ref_payload_shape_for_element_meta(const TSMeta* element_meta) {
     const ts_ops* ops = dispatch_meta_ops(element_meta);
     if (ops == nullptr) {
         return RefPayloadShape::Scalar;
@@ -24,8 +24,24 @@ RefPayloadShape ref_payload_shape_for_meta(const TSMeta* element_meta) {
     return RefPayloadShape::Scalar;
 }
 
+RefPayloadShape ref_payload_shape_for_expected_meta(const TSMeta* expected_meta) {
+    const ts_ops* expected_ops = dispatch_meta_ops(expected_meta);
+    const bool expected_is_ref_wrapper = expected_ops != nullptr && expected_ops->value == &op_value_ref;
+    if (!expected_is_ref_wrapper) {
+        return ref_payload_shape_for_element_meta(expected_meta);
+    }
+
+    if (expected_ops->delta_to_python == &op_delta_to_python_ref_bundle) {
+        return RefPayloadShape::TSB;
+    }
+    if (expected_ops->delta_to_python == &op_delta_to_python_ref_list) {
+        return RefPayloadShape::TSL;
+    }
+    return RefPayloadShape::Scalar;
+}
+
 nb::object tsd_ref_payload_to_python_dispatch(const TimeSeriesReference& ref,
-                                              const TSMeta* element_meta,
+                                              const TSMeta* expected_meta,
                                               engine_time_t current_time,
                                               bool include_unmodified);
 
@@ -81,10 +97,14 @@ nb::object tsd_ref_unbound_payload_to_python(const TimeSeriesReference& ref,
 }
 
 nb::object tsd_ref_payload_to_python_dispatch(const TimeSeriesReference& ref,
-                                              const TSMeta* element_meta,
+                                              const TSMeta* expected_meta,
                                               engine_time_t current_time,
                                               bool include_unmodified) {
-    switch (ref_payload_shape_for_meta(element_meta)) {
+    const ts_ops* expected_ops = dispatch_meta_ops(expected_meta);
+    const bool expected_is_ref_wrapper = expected_ops != nullptr && expected_ops->value == &op_value_ref;
+    const TSMeta* element_meta =
+        expected_is_ref_wrapper && expected_meta != nullptr ? expected_meta->element_ts() : expected_meta;
+    switch (ref_payload_shape_for_expected_meta(expected_meta)) {
         case RefPayloadShape::TSB:
             return tsd_ref_unbound_payload_to_python<RefPayloadShape::TSB>(
                 ref, element_meta, current_time, include_unmodified);
@@ -101,7 +121,7 @@ nb::object tsd_ref_payload_to_python_dispatch(const TimeSeriesReference& ref,
 }  // namespace
 
 nb::object tsd_ref_payload_to_python(const TimeSeriesReference& ref,
-                                     const TSMeta* element_meta,
+                                     const TSMeta* expected_meta,
                                      engine_time_t current_time,
                                      bool include_unmodified) {
     if (ref.is_empty()) {
@@ -139,7 +159,7 @@ nb::object tsd_ref_payload_to_python(const TimeSeriesReference& ref,
     if (!ref.is_unbound()) {
         return nb::none();
     }
-    return tsd_ref_payload_to_python_dispatch(ref, element_meta, current_time, include_unmodified);
+    return tsd_ref_payload_to_python_dispatch(ref, expected_meta, current_time, include_unmodified);
 }
 
 nb::object tsd_ref_view_payload_to_python(const ViewData& ref_child,
@@ -200,7 +220,7 @@ nb::object tsd_ref_view_payload_to_python(const ViewData& ref_child,
 
     TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value.to_python());
     const TSMeta* element_meta = ref_meta != nullptr ? ref_meta->element_ts() : nullptr;
-    nb::object payload = tsd_ref_payload_to_python(ref, element_meta, current_time, include_unmodified);
+    nb::object payload = tsd_ref_payload_to_python(ref, ref_meta, current_time, include_unmodified);
     if (debug_ref_payload) {
         std::string payload_s{"<none>"};
         try {

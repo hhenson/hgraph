@@ -4,7 +4,11 @@
 
 namespace hgraph {
 
-template <typename KeyInAddedFn,
+template <bool DeclaredRefElement,
+          bool AssumeNonRefElement,
+          bool HasDeclaredNestedElement,
+          bool DeclaredNestedElement,
+          typename KeyInAddedFn,
           typename KeyInRemovedFn,
           typename KeyInChangedFn,
           typename ResolvePreviousMapViewFn,
@@ -25,6 +29,32 @@ void tsd_emit_removed_phase(const ViewData& vd,
                             ResolvePreviousMapViewFn&& resolve_previous_map_view,
                             PreviousMapEntryVisibleFn&& previous_map_entry_visible,
                             nb::dict& delta_out) {
+            (void)HasDeclaredNestedElement;
+            (void)DeclaredNestedElement;
+            const auto meta_is_ref_wrapper = [](const TSMeta* meta) -> bool {
+                const ts_ops* ops = dispatch_meta_ops(meta);
+                return ops != nullptr && ops->value == &op_value_ref;
+            };
+            const bool element_is_ref_wrapper = [&]() -> bool {
+                if constexpr (DeclaredRefElement) {
+                    return true;
+                }
+                if constexpr (AssumeNonRefElement) {
+                    // Declared non-ref scenarios can still resolve through REF wrappers.
+                    return meta_is_ref_wrapper(element_meta);
+                }
+                return meta_is_ref_wrapper(element_meta);
+            }();
+            const bool ref_link_target_input = element_is_ref_wrapper && vd.uses_link_target;
+            const TSMeta* ref_element_meta =
+                element_is_ref_wrapper && element_meta != nullptr ? element_meta->element_ts() : nullptr;
+            const ts_ops* ref_element_ops = dispatch_meta_ops(ref_element_meta);
+            const bool ref_targets_container =
+                ref_element_ops != nullptr &&
+                (ref_element_ops->dict != nullptr ||
+                 ref_element_ops->set != nullptr ||
+                 ref_element_ops->list != nullptr ||
+                 ref_element_ops->bundle != nullptr);
             if (!sampled_like && removed_keys.valid() && removed_keys.is_set()) {
                 auto set = removed_keys.as_set();
                 const bool has_added_set = added_keys.valid() && added_keys.is_set();
@@ -33,8 +63,8 @@ void tsd_emit_removed_phase(const ViewData& vd,
                     ViewData previous{};
                     value::MapView previous_map;
                     if (!resolve_previous_map_view(previous, previous_map)) {
-                        const TSMeta* element_meta = current != nullptr ? current->element_ts() : nullptr;
-                        if (dispatch_meta_is_ref(element_meta) && vd.uses_link_target) {
+                        (void)current;
+                        if (ref_link_target_input) {
                             return false;
                         }
                         return true;
@@ -57,7 +87,7 @@ void tsd_emit_removed_phase(const ViewData& vd,
 
                     ViewData snapshot_view = snapshot->view_data();
                     const TSMeta* snapshot_meta = snapshot->ts_meta();
-                    if (dispatch_meta_is_ref(snapshot_meta)) {
+                    if (meta_is_ref_wrapper(snapshot_meta)) {
                         nb::object payload = tsd_ref_view_payload_to_python(
                             snapshot_view,
                             snapshot_meta,
@@ -102,10 +132,6 @@ void tsd_emit_removed_phase(const ViewData& vd,
                                      seen_visible_before ? 1 : 0);
                     }
                     const bool was_visible = key_visible_in_previous_view(key);
-                    const bool ref_link_target_input =
-                        element_meta != nullptr &&
-                        dispatch_meta_is_ref(element_meta) &&
-                        vd.uses_link_target;
                     if (in_added_set &&
                         in_removed_set &&
                         !in_changed_map &&
@@ -179,14 +205,6 @@ void tsd_emit_removed_phase(const ViewData& vd,
                                              key.to_string().c_str());
                             }
                         }
-                        const TSMeta* element_meta = current != nullptr ? current->element_ts() : nullptr;
-                        const TSMeta* ref_element_meta =
-                            dispatch_meta_is_ref(element_meta)
-                                ? element_meta->element_ts()
-                                : nullptr;
-                        const bool ref_targets_container =
-                            ref_element_meta != nullptr &&
-                            dispatch_meta_is_container_like(ref_element_meta);
                         if (ref_targets_container) {
                             if (debug_tsd_delta) {
                                 std::fprintf(stderr,

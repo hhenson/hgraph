@@ -178,13 +178,37 @@ nb::object op_delta_to_python_tsvalue(const ViewData& vd, engine_time_t current_
     return computed_delta_to_python_with_refs(delta, current_time);
 }
 
-nb::object op_delta_to_python_ref(const ViewData& vd, engine_time_t current_time) {
+namespace {
+
+nb::object op_delta_to_python_ref_common(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     if (!op_modified(vd, current_time)) {
         return nb::none();
     }
     DeltaView delta = DeltaView::from_computed(vd, current_time);
     return computed_delta_to_python_with_refs(delta, current_time);
+}
+
+}  // namespace
+
+nb::object op_delta_to_python_ref(const ViewData& vd, engine_time_t current_time) {
+    return op_delta_to_python_ref_common(vd, current_time);
+}
+
+nb::object op_delta_to_python_ref_scalar(const ViewData& vd, engine_time_t current_time) {
+    return op_delta_to_python_ref_common(vd, current_time);
+}
+
+nb::object op_delta_to_python_ref_list(const ViewData& vd, engine_time_t current_time) {
+    return op_delta_to_python_ref_common(vd, current_time);
+}
+
+nb::object op_delta_to_python_ref_bundle(const ViewData& vd, engine_time_t current_time) {
+    return op_delta_to_python_ref_common(vd, current_time);
+}
+
+nb::object op_delta_to_python_ref_dynamic(const ViewData& vd, engine_time_t current_time) {
+    return op_delta_to_python_ref_common(vd, current_time);
 }
 
 nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time) {

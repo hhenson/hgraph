@@ -56,6 +56,10 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                 return resolve_bound_target_view_data(ref_child, target) &&
                        op_modified(target, current_time);
             };
+            const auto meta_is_ref_wrapper = [](const TSMeta* meta) -> bool {
+                const ts_ops* ops = dispatch_meta_ops(meta);
+                return ops != nullptr && ops->value == &op_value_ref;
+            };
 
             bool sampled_like = data->sampled;
             if (!sampled_like && wrapper_modified && !resolved_modified && !has_changed_map) {
@@ -75,7 +79,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
             }
             if (!sampled_like &&
                 element_meta != nullptr &&
-                dispatch_meta_is_ref(element_meta) &&
+                meta_is_ref_wrapper(element_meta) &&
                 vd.uses_link_target &&
                 vd.path.port_type == PortType::OUTPUT &&
                 resolved_modified &&
@@ -109,7 +113,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                     ViewData previous_child = previous;
                     previous_child.path.indices.push_back(*previous_slot);
                     const TSMeta* previous_child_meta = meta_at_path(previous_child.meta, previous_child.path.indices);
-                    if (dispatch_meta_is_ref(previous_child_meta)) {
+                    if (meta_is_ref_wrapper(previous_child_meta)) {
                         nb::object payload = tsd_ref_view_payload_to_python(
                             previous_child,
                             previous_child_meta,
@@ -122,7 +126,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                                 TimeSeriesReference previous_ref = nb::cast<TimeSeriesReference>(previous_entry.to_python());
                                 payload = tsd_ref_payload_to_python(
                                     previous_ref,
-                                    previous_child_meta->element_ts(),
+                                    previous_child_meta,
                                     current_time,
                                     true);
                             }
@@ -131,9 +135,13 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                             return true;
                         }
                         const TSMeta* ref_element_meta = previous_child_meta->element_ts();
+                        const ts_ops* ref_target_ops = dispatch_meta_ops(ref_element_meta);
                         const bool ref_targets_container =
-                            ref_element_meta != nullptr &&
-                            dispatch_meta_is_container_like(ref_element_meta);
+                            ref_target_ops != nullptr &&
+                            (ref_target_ops->dict != nullptr ||
+                             ref_target_ops->set != nullptr ||
+                             ref_target_ops->list != nullptr ||
+                             ref_target_ops->bundle != nullptr);
                         if (debug_tsd_delta && payload.is_none()) {
                             std::fprintf(stderr,
                                          "[tsd_delta_dbg] ref_prev_visibility path=%s key=%s ref_elem_kind=%d container=%d\n",
@@ -214,7 +222,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                 return ref_child_rebound_this_tick(child) || ref_binding_changed_from_previous(key);
             };
 
-            tsd_emit_removed_phase(
+            tsd_emit_removed_phase<DeclaredRefElement, AssumeNonRefElement, HasDeclaredNestedElement, DeclaredNestedElement>(
                 vd,
                 data,
                 current,
