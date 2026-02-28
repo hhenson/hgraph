@@ -19,6 +19,7 @@ set(HGRAPH_SOURCES
         api/python/py_ts_type_registry.cpp
         api/python/py_ts_runtime_internal.cpp
         api/python/wrapper_factory.cpp
+        api/python/wrapper_factory_ts_views.cpp
         builders/builder.cpp
         builders/graph_builder.cpp
         builders/node_builder.cpp
