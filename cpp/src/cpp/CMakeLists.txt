@@ -93,7 +93,9 @@ set(HGRAPH_SOURCES
         types/time_series/ts_ops/path_meta_utils.cpp
         types/time_series/ts_ops/path_meta_utils_tsd_history.cpp
         types/time_series/ts_ops/view_resolution.cpp
-        types/time_series/ts_ops/view_resolution_paths.cpp
+        types/time_series/ts_ops/view_resolution_paths_mapping.cpp
+        types/time_series/ts_ops/view_resolution_paths_static.cpp
+        types/time_series/ts_ops/view_resolution_paths_time.cpp
         types/time_series/ts_ops/view_resolution_resolve.cpp
         types/time_series/ts_ops/view_resolution_binding.cpp
         types/time_series/ts_ops/bridge_delta_ops.cpp

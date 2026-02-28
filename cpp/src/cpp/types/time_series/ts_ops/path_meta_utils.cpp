@@ -33,6 +33,59 @@ const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indice
 
 void bind_view_data_ops(ViewData& vd) {
     vd.ops = get_ts_ops(vd);
+
+#ifndef NDEBUG
+    if (vd.ops == nullptr) {
+        throw std::runtime_error("bind_view_data_ops: resolved null ops table");
+    }
+
+    const TSMeta* dispatch_meta = meta_at_path(vd.meta, vd.path.indices);
+    if (dispatch_meta == nullptr) {
+        return;
+    }
+
+    const bool meta_is_ref_wrapper = dispatch_meta_is_ref(dispatch_meta);
+    const bool ops_is_ref_wrapper = dispatch_ops_is_ref_wrapper(vd.ops);
+    if (meta_is_ref_wrapper != ops_is_ref_wrapper) {
+        throw std::runtime_error("bind_view_data_ops: REF wrapper meta/ops mismatch");
+    }
+
+    if (dispatch_meta_is_tsd(dispatch_meta) && vd.projection != ViewProjection::TSD_KEY_SET) {
+        const TSMeta* element_meta = dispatch_meta->element_ts();
+        if (dispatch_meta_is_ref(element_meta)) {
+            if (vd.ops->delta_to_python != &op_delta_to_python_tsd_ref ||
+                vd.ops->from_python != &op_from_python_tsd_ref) {
+                throw std::runtime_error("bind_view_data_ops: expected TSD[REF] ops specialisation");
+            }
+        } else if (dispatch_meta_is_scalar_like(element_meta)) {
+            if (vd.ops->delta_to_python != &op_delta_to_python_tsd_scalar ||
+                vd.ops->from_python != &op_from_python_tsd_scalar) {
+                throw std::runtime_error("bind_view_data_ops: expected TSD scalar ops specialisation");
+            }
+        } else {
+            if (vd.ops->delta_to_python != &op_delta_to_python_tsd_nested ||
+                vd.ops->from_python != &op_from_python_tsd_nested) {
+                throw std::runtime_error("bind_view_data_ops: expected TSD nested ops specialisation");
+            }
+        }
+    }
+
+    if (dispatch_meta_is_ref(dispatch_meta)) {
+        const TSMeta* element_meta = dispatch_meta->element_ts();
+        auto expected_ref_payload = &op_ref_payload_to_python_scalar;
+        if (dispatch_meta_is_tsb(element_meta)) {
+            expected_ref_payload = &op_ref_payload_to_python_bundle;
+        } else if (dispatch_meta_is_fixed_tsl(element_meta)) {
+            expected_ref_payload = &op_ref_payload_to_python_list;
+        } else if (dispatch_meta_is_dynamic_container(element_meta)) {
+            expected_ref_payload = &op_ref_payload_to_python_dynamic;
+        }
+
+        if (vd.ops->ref_payload_to_python != expected_ref_payload) {
+            throw std::runtime_error("bind_view_data_ops: expected REF payload ops specialisation");
+        }
+    }
+#endif
 }
 
 size_t find_bundle_field_index(const TSMeta* bundle_meta, std::string_view field_name) {

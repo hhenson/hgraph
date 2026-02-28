@@ -7,40 +7,20 @@ namespace {
 using common_ops_customizer = void (*)(ts_ops&);
 constexpr size_t k_common_ops_customizer_count = static_cast<size_t>(TSKind::SIGNAL) + size_t{1};
 
-bool meta_kind_is_scalar_like(const TSMeta* meta) {
-    if (meta == nullptr) {
-        return true;
-    }
-    switch (meta->kind) {
-        case TSKind::TSValue:
-        case TSKind::REF:
-        case TSKind::SIGNAL:
-        case TSKind::TSW:
-            return true;
-        default:
-            return false;
-    }
+bool meta_is_scalar_like_binding(const TSMeta* meta) {
+    return meta == nullptr || dispatch_meta_is_scalar_like(meta);
 }
 
-bool meta_kind_is_ref_bundle_static(const TSMeta* meta) {
-    if (meta == nullptr) {
-        return false;
-    }
-    return meta->kind == TSKind::TSB;
+bool meta_is_ref_bundle_static_binding(const TSMeta* meta) {
+    return dispatch_meta_is_tsb(meta);
 }
 
-bool meta_kind_is_ref_list_static(const TSMeta* meta) {
-    if (meta == nullptr) {
-        return false;
-    }
-    return meta->kind == TSKind::TSL && meta->fixed_size() > 0;
+bool meta_is_ref_list_static_binding(const TSMeta* meta) {
+    return dispatch_meta_is_fixed_tsl(meta);
 }
 
-bool meta_kind_is_ref_dynamic_container(const TSMeta* meta) {
-    if (meta == nullptr) {
-        return false;
-    }
-    return meta->kind == TSKind::TSS || meta->kind == TSKind::TSD;
+bool meta_is_ref_dynamic_container_binding(const TSMeta* meta) {
+    return dispatch_meta_is_dynamic_container(meta);
 }
 
 ts_ops make_base_common_ops(TSKind kind) {
@@ -364,29 +344,32 @@ const ts_ops* get_ts_ops(const TSMeta* meta) {
         return &k_ts_value_ops;
     }
 
-    if (meta->kind == TSKind::TSD) {
-        const TSMeta* element_meta = meta->element_ts();
-        if (element_meta != nullptr && element_meta->kind == TSKind::REF) {
-            return &k_tsd_ref_ops;
+    switch (meta->kind) {
+        case TSKind::TSD: {
+            const TSMeta* element_meta = meta->element_ts();
+            if (dispatch_meta_is_ref(element_meta)) {
+                return &k_tsd_ref_ops;
+            }
+            if (meta_is_scalar_like_binding(element_meta)) {
+                return &k_tsd_scalar_ops;
+            }
+            return &k_tsd_nested_ops;
         }
-        if (meta_kind_is_scalar_like(element_meta)) {
-            return &k_tsd_scalar_ops;
+        case TSKind::REF: {
+            const TSMeta* element_meta = meta->element_ts();
+            if (meta_is_ref_bundle_static_binding(element_meta)) {
+                return &k_ref_bundle_ops;
+            }
+            if (meta_is_ref_list_static_binding(element_meta)) {
+                return &k_ref_list_ops;
+            }
+            if (meta_is_ref_dynamic_container_binding(element_meta)) {
+                return &k_ref_dynamic_container_ops;
+            }
+            return &k_ref_scalar_ops;
         }
-        return &k_tsd_nested_ops;
-    }
-
-    if (meta->kind == TSKind::REF) {
-        const TSMeta* element_meta = meta->element_ts();
-        if (meta_kind_is_ref_bundle_static(element_meta)) {
-            return &k_ref_bundle_ops;
-        }
-        if (meta_kind_is_ref_list_static(element_meta)) {
-            return &k_ref_list_ops;
-        }
-        if (meta_kind_is_ref_dynamic_container(element_meta)) {
-            return &k_ref_dynamic_container_ops;
-        }
-        return &k_ref_scalar_ops;
+        default:
+            break;
     }
 
     const ts_ops* out = get_ts_ops(meta->kind);
