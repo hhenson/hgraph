@@ -21,71 +21,72 @@ std::optional<std::vector<size_t>> remap_residual_indices_for_bound_view(
     mapped.reserve(residual_indices.size());
 
     for (size_t index : residual_indices) {
-        while (dispatch_meta_is_ref(current)) {
+        while (dispatch_meta_path_kind(current) == DispatchMetaPathKind::Ref) {
             current = current->element_ts();
         }
         if (current == nullptr) {
             return std::nullopt;
         }
 
-        if (dispatch_meta_is_tsb(current)) {
-            if (current->fields() == nullptr || index >= current->field_count()) {
-                return std::nullopt;
-            }
-            mapped.push_back(index);
-            local_path.push_back(index);
-            bound_path.push_back(index);
-            current = current->fields()[index].ts_type;
-            continue;
-        }
-
-        if (dispatch_meta_is_tsl(current)) {
-            mapped.push_back(index);
-            local_path.push_back(index);
-            bound_path.push_back(index);
-            current = current->element_ts();
-            continue;
-        }
-
-        if (dispatch_meta_is_tsd(current)) {
-            ViewData local_container = local_view;
-            local_container.path.indices = local_path;
-            ViewData bound_container = bound_view;
-            bound_container.path.indices = bound_path;
-
-            auto local_value = resolve_value_slot_const(local_container);
-            auto bound_value = resolve_value_slot_const(bound_container);
-            if (!local_value.has_value() || !bound_value.has_value() ||
-                !local_value->valid() || !bound_value->valid() ||
-                !local_value->is_map() || !bound_value->is_map()) {
-                return std::nullopt;
-            }
-
-            auto local_map = local_value->as_map();
-            auto bound_map = bound_value->as_map();
-
-            std::optional<View> key_for_local_slot;
-            for (View key : local_map.keys()) {
-                auto slot = map_slot_for_key(local_map, key);
-                if (slot.has_value() && *slot == index) {
-                    key_for_local_slot = key;
-                    break;
+        switch (dispatch_meta_path_kind(current)) {
+            case DispatchMetaPathKind::TSB:
+                if (current->fields() == nullptr || index >= current->field_count()) {
+                    return std::nullopt;
                 }
-            }
-            if (!key_for_local_slot.has_value()) {
-                return std::nullopt;
-            }
+                mapped.push_back(index);
+                local_path.push_back(index);
+                bound_path.push_back(index);
+                current = current->fields()[index].ts_type;
+                continue;
+            case DispatchMetaPathKind::TSLFixed:
+            case DispatchMetaPathKind::TSLDynamic:
+                mapped.push_back(index);
+                local_path.push_back(index);
+                bound_path.push_back(index);
+                current = current->element_ts();
+                continue;
+            case DispatchMetaPathKind::TSD: {
+                ViewData local_container = local_view;
+                local_container.path.indices = local_path;
+                ViewData bound_container = bound_view;
+                bound_container.path.indices = bound_path;
 
-            auto bound_slot = map_slot_for_key(bound_map, *key_for_local_slot);
-            if (!bound_slot.has_value()) {
-                return std::nullopt;
-            }
+                auto local_value = resolve_value_slot_const(local_container);
+                auto bound_value = resolve_value_slot_const(bound_container);
+                if (!local_value.has_value() || !bound_value.has_value() ||
+                    !local_value->valid() || !bound_value->valid() ||
+                    !local_value->is_map() || !bound_value->is_map()) {
+                    return std::nullopt;
+                }
 
-            mapped.push_back(*bound_slot);
-            local_path.push_back(index);
-            bound_path.push_back(*bound_slot);
-            current = current->element_ts();
-            continue;
+                auto local_map = local_value->as_map();
+                auto bound_map = bound_value->as_map();
+
+                std::optional<View> key_for_local_slot;
+                for (View key : local_map.keys()) {
+                    auto slot = map_slot_for_key(local_map, key);
+                    if (slot.has_value() && *slot == index) {
+                        key_for_local_slot = key;
+                        break;
+                    }
+                }
+                if (!key_for_local_slot.has_value()) {
+                    return std::nullopt;
+                }
+
+                auto bound_slot = map_slot_for_key(bound_map, *key_for_local_slot);
+                if (!bound_slot.has_value()) {
+                    return std::nullopt;
+                }
+
+                mapped.push_back(*bound_slot);
+                local_path.push_back(index);
+                bound_path.push_back(*bound_slot);
+                current = current->element_ts();
+                continue;
+            }
+            default:
+                break;
         }
 
         mapped.push_back(index);
@@ -100,13 +101,17 @@ std::optional<std::vector<size_t>> remap_residual_indices_for_bound_view(
 std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
     const bool debug_resolve = std::getenv("HGRAPH_DEBUG_RESOLVE") != nullptr;
     const auto target_can_accept_residual = [](const TSMeta* meta) {
-        while (dispatch_meta_is_ref(meta)) {
+        while (dispatch_meta_path_kind(meta) == DispatchMetaPathKind::Ref) {
             meta = meta->element_ts();
         }
         if (meta == nullptr) {
             return false;
         }
-        return dispatch_meta_is_tsb(meta) || dispatch_meta_is_tsl(meta) || dispatch_meta_is_tsd(meta);
+        const DispatchMetaPathKind kind = dispatch_meta_path_kind(meta);
+        return kind == DispatchMetaPathKind::TSB ||
+               kind == DispatchMetaPathKind::TSLFixed ||
+               kind == DispatchMetaPathKind::TSLDynamic ||
+               kind == DispatchMetaPathKind::TSD;
     };
     const auto log_resolve = [&](const char* tag, const ViewData& out) {
         if (!debug_resolve) {
@@ -188,7 +193,7 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
         }
     } else {
         const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
-        if (dispatch_meta_is_ref(current)) {
+        if (dispatch_meta_path_kind(current) == DispatchMetaPathKind::Ref) {
             // For per-slot REF values (notably TSD dynamic children), prefer the
             // local reference payload over shared REFLink indirection.
             if (auto local = resolve_value_slot_const(vd);
@@ -216,29 +221,30 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
         const auto path_traverses_ref = [&vd]() -> bool {
             const TSMeta* cursor = vd.meta;
             for (size_t index : vd.path.indices) {
-                if (dispatch_meta_is_ref(cursor)) {
+                if (dispatch_meta_path_kind(cursor) == DispatchMetaPathKind::Ref) {
                     return true;
                 }
                 if (cursor == nullptr) {
                     return false;
                 }
 
-                if (dispatch_meta_is_tsb(cursor)) {
-                    if (cursor->fields() == nullptr || index >= cursor->field_count()) {
+                switch (dispatch_meta_path_kind(cursor)) {
+                    case DispatchMetaPathKind::TSB:
+                        if (cursor->fields() == nullptr || index >= cursor->field_count()) {
+                            return false;
+                        }
+                        cursor = cursor->fields()[index].ts_type;
+                        continue;
+                    case DispatchMetaPathKind::TSLFixed:
+                    case DispatchMetaPathKind::TSLDynamic:
+                    case DispatchMetaPathKind::TSD:
+                        cursor = cursor->element_ts();
+                        continue;
+                    default:
                         return false;
-                    }
-                    cursor = cursor->fields()[index].ts_type;
-                    continue;
                 }
-
-                if (dispatch_meta_is_tsl(cursor) || dispatch_meta_is_tsd(cursor)) {
-                    cursor = cursor->element_ts();
-                    continue;
-                }
-
-                return false;
             }
-            return dispatch_meta_is_ref(cursor);
+            return dispatch_meta_path_kind(cursor) == DispatchMetaPathKind::Ref;
         };
 
         if (!path_traverses_ref()) {

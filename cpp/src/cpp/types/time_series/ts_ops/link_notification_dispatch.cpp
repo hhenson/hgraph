@@ -36,7 +36,7 @@ bool suppress_static_ref_child_notification(const LinkTarget& observer, engine_t
     // Static REF child links that observe resolved targets through non-wrapper
     // write paths (notify_on_ref_wrapper_write==false) must continue
     // propagating child writes after activation.
-    if (observer.has_resolved_target && !observer.notify_on_ref_wrapper_write) {
+    if (observer.has_resolved_target && !link_observer_notifies_on_ref_wrapper_write(observer)) {
         return false;
     }
     return true;
@@ -354,7 +354,7 @@ bool should_skip_descendant_to_ancestor_notification(
         return false;
     }
 
-    if (observer.notify_on_ref_wrapper_write) {
+    if (link_observer_notifies_on_ref_wrapper_write(observer)) {
         ViewData observer_view = observer.as_view_data(false);
         observer_view.sampled = false;
         if (observer_view.ops != nullptr &&
@@ -484,17 +484,13 @@ bool signal_ref_observer_modified_for_wrapper_write(
     return observer_modified;
 }
 
-bool observer_has_notify_policy(const LinkTarget& observer, LinkObserverNotifyPolicy policy) {
-    return (observer.notify_policy & link_observer_notify_policy_bit(policy)) != 0;
-}
-
 bool should_skip_ref_to_nonref_dynamic_target_write(
     const LinkTarget& observer,
     const ViewData& target_view,
     bool target_is_ref_wrapper,
     engine_time_t current_time,
     bool debug_notify) {
-    if (!(observer_has_notify_policy(observer, LinkObserverNotifyPolicy::RefToNonRefDynamicTarget) &&
+    if (!(link_observer_has_notify_policy(observer, LinkObserverNotifyPolicy::RefToNonRefDynamicTarget) &&
           observer.has_resolved_target &&
           !target_is_ref_wrapper)) {
         return false;
@@ -528,7 +524,7 @@ bool should_skip_signal_ref_to_nonref_target_write(
     bool target_is_ref_wrapper,
     engine_time_t current_time,
     bool debug_notify) {
-    if (!(observer_has_notify_policy(observer, LinkObserverNotifyPolicy::SignalRefToNonRefTarget) &&
+    if (!(link_observer_has_notify_policy(observer, LinkObserverNotifyPolicy::SignalRefToNonRefTarget) &&
           !target_is_ref_wrapper)) {
         return false;
     }
@@ -562,7 +558,7 @@ bool should_skip_signal_wrapper_write_for_unmodified_observer(
     engine_time_t current_time,
     bool debug_notify) {
     if (!(target_is_ref_wrapper &&
-          observer_has_notify_policy(observer, LinkObserverNotifyPolicy::SignalWrapperWrite))) {
+          link_observer_has_notify_policy(observer, LinkObserverNotifyPolicy::SignalWrapperWrite))) {
         return false;
     }
 
@@ -591,7 +587,7 @@ bool should_skip_signal_nonref_write_for_unmodified_observer(
     bool target_is_ref_wrapper,
     engine_time_t current_time,
     bool debug_notify) {
-    if (!(observer_has_notify_policy(observer, LinkObserverNotifyPolicy::SignalWrapperWrite) &&
+    if (!(link_observer_has_notify_policy(observer, LinkObserverNotifyPolicy::SignalWrapperWrite) &&
           !target_is_ref_wrapper &&
           observer.has_resolved_target)) {
         return false;
@@ -626,7 +622,7 @@ bool should_skip_signal_ref_wrapper_write_for_unmodified_observer(
     engine_time_t current_time,
     bool debug_notify) {
     if (!(target_is_ref_wrapper &&
-          observer_has_notify_policy(observer, LinkObserverNotifyPolicy::SignalRefWrapperWrite))) {
+          link_observer_has_notify_policy(observer, LinkObserverNotifyPolicy::SignalRefWrapperWrite))) {
         return false;
     }
 
@@ -661,7 +657,7 @@ bool should_skip_ref_wrapper_write_for_nonref_observer(
     bool target_is_ref_wrapper,
     engine_time_t current_time,
     bool debug_notify) {
-    if (!observer_has_notify_policy(observer, LinkObserverNotifyPolicy::NonRefObserverWrapperWrite)) {
+    if (!link_observer_has_notify_policy(observer, LinkObserverNotifyPolicy::NonRefObserverWrapperWrite)) {
         return false;
     }
 
@@ -720,7 +716,7 @@ void debug_log_pre_notify_observer(
                  active_kind,
                  static_cast<void*>(observer.parent_link),
                  static_cast<void*>(observer.owner_time_ptr),
-                 observer.notify_on_ref_wrapper_write ? 1 : 0,
+                 link_observer_notifies_on_ref_wrapper_write(observer) ? 1 : 0,
                  observer.has_resolved_target ? 1 : 0,
                  static_cast<long long>(observer.last_rebind_time.time_since_epoch().count()));
 }

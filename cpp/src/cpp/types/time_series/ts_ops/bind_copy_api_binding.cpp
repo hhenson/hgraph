@@ -2,6 +2,39 @@
 
 namespace hgraph {
 
+namespace {
+
+uint8_t build_link_observer_notify_policy(const TSMeta* observer_meta, const TSMeta* target_meta) {
+    const bool target_is_ref_wrapper = dispatch_meta_is_ref(target_meta);
+    const bool target_is_dynamic_container = dispatch_meta_is_dynamic_container(target_meta);
+    const bool observer_is_ref_wrapper = dispatch_meta_is_ref(observer_meta);
+    const bool observer_is_signal = dispatch_meta_is_signal(observer_meta);
+    const bool observer_ref_to_nonref_target = observer_is_ref_wrapper && !target_is_ref_wrapper;
+    const bool observer_is_static_container = dispatch_meta_is_static_container(observer_meta);
+    const bool notify_on_ref_wrapper_write =
+        !target_is_ref_wrapper || observer_is_ref_wrapper || observer_is_static_container || observer_is_signal;
+
+    uint8_t notify_policy = 0;
+    if (observer_ref_to_nonref_target && target_is_dynamic_container) {
+        notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::RefToNonRefDynamicTarget);
+    }
+    if (observer_is_signal && observer_is_ref_wrapper && !target_is_ref_wrapper) {
+        notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::SignalRefToNonRefTarget);
+    }
+    if (observer_is_signal) {
+        notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::SignalWrapperWrite);
+    }
+    if (observer_is_signal && observer_is_ref_wrapper) {
+        notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::SignalRefWrapperWrite);
+    }
+    if (!notify_on_ref_wrapper_write) {
+        notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::NonRefObserverWrapperWrite);
+    }
+    return notify_policy;
+}
+
+}  // namespace
+
 void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
     const bool debug_op_bind = std::getenv("HGRAPH_DEBUG_OP_BIND") != nullptr;
     bool used_ancestor_meta = false;
@@ -78,34 +111,14 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         // nested tsd_get_items REF->REF chains). Static container consumers
         // (TSB/fixed TSL) also need wrapper writes because unbound REF static
         // payloads are surfaced through wrapper-local state.
-        const bool target_is_ref_wrapper = dispatch_meta_is_ref(target_meta);
-        const bool target_is_dynamic_container = dispatch_meta_is_dynamic_container(target_meta);
-        const bool observer_is_ref_wrapper = dispatch_meta_is_ref(current);
-        const bool observer_is_signal = dispatch_meta_is_signal(current);
-        const bool observer_ref_to_nonref_target = observer_is_ref_wrapper && !target_is_ref_wrapper;
-        const bool observer_is_static_container =
-            dispatch_meta_is_static_container(current);
-        link_target->notify_on_ref_wrapper_write =
-            !target_is_ref_wrapper || observer_is_ref_wrapper || observer_is_static_container || observer_is_signal;
-        link_target->observer_is_signal = observer_is_signal;
-        link_target->observer_ref_to_nonref_target = observer_ref_to_nonref_target;
-        uint8_t notify_policy = 0;
-        if (observer_ref_to_nonref_target && target_is_dynamic_container) {
-            notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::RefToNonRefDynamicTarget);
-        }
-        if (observer_is_signal && observer_is_ref_wrapper && !target_is_ref_wrapper) {
-            notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::SignalRefToNonRefTarget);
-        }
-        if (observer_is_signal) {
-            notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::SignalWrapperWrite);
-        }
-        if (observer_is_signal && observer_is_ref_wrapper) {
-            notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::SignalRefWrapperWrite);
-        }
-        if (!link_target->notify_on_ref_wrapper_write) {
-            notify_policy |= link_observer_notify_policy_bit(LinkObserverNotifyPolicy::NonRefObserverWrapperWrite);
-        }
-        link_target->notify_policy = notify_policy;
+        link_target->notify_policy = build_link_observer_notify_policy(current, target_meta);
+        link_target->notify_on_ref_wrapper_write = link_observer_notifies_on_ref_wrapper_write(*link_target);
+        link_target->observer_is_signal = link_observer_has_notify_policy(
+            *link_target, LinkObserverNotifyPolicy::SignalWrapperWrite);
+        link_target->observer_ref_to_nonref_target = link_observer_has_notify_policy(
+            *link_target, LinkObserverNotifyPolicy::RefToNonRefDynamicTarget) ||
+                                               link_observer_has_notify_policy(
+            *link_target, LinkObserverNotifyPolicy::SignalRefToNonRefTarget);
         if (debug_op_bind) {
             std::fprintf(stderr,
                          "[op_bind]  lt=%p notify_on_ref_wrapper_write=%d ref_to_nonref=%d notify_policy=0x%x\n",

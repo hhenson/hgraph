@@ -351,22 +351,56 @@ inline const ts_ops* dispatch_meta_ops(const TSMeta* meta) {
     return meta != nullptr ? get_ts_ops(meta) : nullptr;
 }
 
+enum class DispatchMetaPathKind : uint8_t {
+    Unknown = 0,
+    ScalarLike,
+    Ref,
+    TSS,
+    TSD,
+    TSB,
+    TSLFixed,
+    TSLDynamic,
+    TSW,
+};
+
+inline DispatchMetaPathKind dispatch_meta_path_kind(const TSMeta* meta) {
+    const ts_ops* ops = dispatch_meta_ops(meta);
+    if (ops == nullptr) {
+        return DispatchMetaPathKind::Unknown;
+    }
+    switch (ops->kind) {
+        case TSKind::REF:
+            return DispatchMetaPathKind::Ref;
+        case TSKind::TSS:
+            return DispatchMetaPathKind::TSS;
+        case TSKind::TSD:
+            return DispatchMetaPathKind::TSD;
+        case TSKind::TSB:
+            return DispatchMetaPathKind::TSB;
+        case TSKind::TSL:
+            return meta != nullptr && meta->fixed_size() > 0
+                       ? DispatchMetaPathKind::TSLFixed
+                       : DispatchMetaPathKind::TSLDynamic;
+        case TSKind::TSW:
+            return DispatchMetaPathKind::TSW;
+        case TSKind::TSValue:
+        case TSKind::SIGNAL:
+            return DispatchMetaPathKind::ScalarLike;
+        default:
+            return DispatchMetaPathKind::Unknown;
+    }
+}
+
 inline bool dispatch_ops_is_tsw_duration(const ts_ops* ops) {
     return ops != nullptr && ops->window_ops() == &k_window_duration_ops;
 }
 
 inline bool dispatch_meta_is_ref(const TSMeta* meta) {
-    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->kind == TSKind::REF;
-    }
-    return false;
+    return dispatch_meta_path_kind(meta) == DispatchMetaPathKind::Ref;
 }
 
 inline bool dispatch_meta_is_tsw(const TSMeta* meta) {
-    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->kind == TSKind::TSW;
-    }
-    return false;
+    return dispatch_meta_path_kind(meta) == DispatchMetaPathKind::TSW;
 }
 
 inline bool dispatch_meta_is_signal(const TSMeta* meta) {
@@ -384,57 +418,50 @@ inline bool dispatch_meta_is_tsvalue(const TSMeta* meta) {
 }
 
 inline bool dispatch_meta_is_tss(const TSMeta* meta) {
-    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->kind == TSKind::TSS;
-    }
-    return false;
+    return dispatch_meta_path_kind(meta) == DispatchMetaPathKind::TSS;
 }
 
 inline bool dispatch_meta_is_tsd(const TSMeta* meta) {
-    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->kind == TSKind::TSD;
-    }
-    return false;
+    return dispatch_meta_path_kind(meta) == DispatchMetaPathKind::TSD;
 }
 
 inline bool dispatch_meta_is_tsb(const TSMeta* meta) {
-    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->kind == TSKind::TSB;
-    }
-    return false;
+    return dispatch_meta_path_kind(meta) == DispatchMetaPathKind::TSB;
 }
 
 inline bool dispatch_meta_is_tsl(const TSMeta* meta) {
-    if (const ts_ops* ops = dispatch_meta_ops(meta); ops != nullptr) {
-        return ops->kind == TSKind::TSL;
-    }
-    return false;
+    const DispatchMetaPathKind kind = dispatch_meta_path_kind(meta);
+    return kind == DispatchMetaPathKind::TSLFixed || kind == DispatchMetaPathKind::TSLDynamic;
 }
 
 inline bool dispatch_meta_is_fixed_tsl(const TSMeta* meta) {
-    return dispatch_meta_is_tsl(meta) && meta != nullptr && meta->fixed_size() > 0;
+    return dispatch_meta_path_kind(meta) == DispatchMetaPathKind::TSLFixed;
 }
 
 inline bool dispatch_meta_is_static_container(const TSMeta* meta) {
-    return dispatch_meta_is_tsb(meta) || dispatch_meta_is_fixed_tsl(meta);
+    const DispatchMetaPathKind kind = dispatch_meta_path_kind(meta);
+    return kind == DispatchMetaPathKind::TSB || kind == DispatchMetaPathKind::TSLFixed;
 }
 
 inline bool dispatch_meta_is_dynamic_container(const TSMeta* meta) {
-    return dispatch_meta_is_tsd(meta) || dispatch_meta_is_tss(meta);
+    const DispatchMetaPathKind kind = dispatch_meta_path_kind(meta);
+    return kind == DispatchMetaPathKind::TSD || kind == DispatchMetaPathKind::TSS;
 }
 
 inline bool dispatch_meta_is_container_like(const TSMeta* meta) {
-    return dispatch_meta_is_tsd(meta) ||
-           dispatch_meta_is_tss(meta) ||
-           dispatch_meta_is_tsb(meta) ||
-           dispatch_meta_is_tsl(meta);
+    const DispatchMetaPathKind kind = dispatch_meta_path_kind(meta);
+    return kind == DispatchMetaPathKind::TSD ||
+           kind == DispatchMetaPathKind::TSS ||
+           kind == DispatchMetaPathKind::TSB ||
+           kind == DispatchMetaPathKind::TSLFixed ||
+           kind == DispatchMetaPathKind::TSLDynamic;
 }
 
 inline bool dispatch_meta_is_scalar_like(const TSMeta* meta) {
-    return dispatch_meta_is_tsvalue(meta) ||
-           dispatch_meta_is_ref(meta) ||
-           dispatch_meta_is_signal(meta) ||
-           dispatch_meta_is_tsw(meta);
+    const DispatchMetaPathKind kind = dispatch_meta_path_kind(meta);
+    return kind == DispatchMetaPathKind::ScalarLike ||
+           kind == DispatchMetaPathKind::Ref ||
+           kind == DispatchMetaPathKind::TSW;
 }
 
 void store_to_link_target(LinkTarget& target, const ViewData& source);

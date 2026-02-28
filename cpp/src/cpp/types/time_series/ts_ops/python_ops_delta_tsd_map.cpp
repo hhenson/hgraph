@@ -18,6 +18,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                              const View& added_keys,
                              const View& removed_keys,
                              nb::dict& delta_out) {
+        constexpr bool AssumeNonRefElement = HasDeclaredNestedElement && !DeclaredRefElement;
         auto current_value = resolve_value_slot_const(*data);
         if (current_value.has_value() && current_value->valid() && current_value->is_map()) {
             const auto value_map = current_value->as_map();
@@ -302,7 +303,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                 }
             }
 
-            tsd_emit_phase<DeclaredRefElement>(
+            tsd_emit_phase<DeclaredRefElement, AssumeNonRefElement>(
                 vd,
                 data,
                 current_time,
@@ -329,7 +330,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
 
             // Ensure changed keys materialize visible payloads even when child-native
             // deltas are empty (for example REF rebinding/carry-forward updates).
-            tsd_emit_backfill_phase(
+            tsd_emit_backfill_phase<DeclaredRefElement, AssumeNonRefElement>(
                 vd,
                 data,
                 current_time,

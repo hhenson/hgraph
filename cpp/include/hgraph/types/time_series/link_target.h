@@ -21,6 +21,14 @@ inline constexpr uint8_t link_observer_notify_policy_bit(LinkObserverNotifyPolic
     return static_cast<uint8_t>(policy);
 }
 
+inline constexpr bool link_observer_notify_policy_has(uint8_t policy_bits, LinkObserverNotifyPolicy policy) {
+    return (policy_bits & link_observer_notify_policy_bit(policy)) != 0;
+}
+
+inline constexpr bool link_observer_notifies_on_ref_wrapper_write(uint8_t policy_bits) {
+    return !link_observer_notify_policy_has(policy_bits, LinkObserverNotifyPolicy::NonRefObserverWrapperWrite);
+}
+
 /**
  * LinkTarget is the input-side binding payload.
  *
@@ -88,6 +96,14 @@ private:
     void move_target_data_from(LinkTarget&& other) noexcept;
     void clear_target_data();
 };
+
+inline constexpr bool link_observer_has_notify_policy(const LinkTarget& observer, LinkObserverNotifyPolicy policy) {
+    return link_observer_notify_policy_has(observer.notify_policy, policy);
+}
+
+inline constexpr bool link_observer_notifies_on_ref_wrapper_write(const LinkTarget& observer) {
+    return link_observer_notifies_on_ref_wrapper_write(observer.notify_policy);
+}
 
 HGRAPH_EXPORT bool is_live_link_target(const LinkTarget* link_target) noexcept;
 

@@ -28,20 +28,21 @@ std::vector<size_t> ts_path_to_link_path_uncached(const TSMeta* root_meta, const
     }
 
     if (ts_path.empty()) {
-        if (dispatch_meta_is_ref(meta)) {
-            out.push_back(0);  // REF root link slot.
-        } else if (dispatch_meta_is_tsb(meta)) {
-            out.push_back(0);  // container link slot.
-        } else if (dispatch_meta_is_fixed_tsl(meta)) {
-            out.push_back(0);  // fixed-size TSL container link slot.
-        } else if (dispatch_meta_is_tsd(meta)) {
-            out.push_back(0);  // dynamic TSD container link slot.
+        switch (dispatch_meta_path_kind(meta)) {
+            case DispatchMetaPathKind::Ref:
+            case DispatchMetaPathKind::TSB:
+            case DispatchMetaPathKind::TSLFixed:
+            case DispatchMetaPathKind::TSD:
+                out.push_back(0);  // root/container link slot.
+                break;
+            default:
+                break;
         }
         return out;
     }
 
     for (size_t index : ts_path) {
-        while (dispatch_meta_is_ref(meta)) {
+        while (dispatch_meta_path_kind(meta) == DispatchMetaPathKind::Ref) {
             out.push_back(1);  // descend into referred link tree.
             meta = meta->element_ts();
         }
@@ -51,62 +52,61 @@ std::vector<size_t> ts_path_to_link_path_uncached(const TSMeta* root_meta, const
         }
 
         if (crossed_dynamic_boundary) {
-            if (dispatch_meta_is_tsb(meta)) {
-                if (meta->fields() == nullptr || index >= meta->field_count()) {
+            switch (dispatch_meta_path_kind(meta)) {
+                case DispatchMetaPathKind::TSB:
+                    if (meta->fields() == nullptr || index >= meta->field_count()) {
+                        return out;
+                    }
+                    meta = meta->fields()[index].ts_type;
+                    continue;
+                case DispatchMetaPathKind::TSLFixed:
+                case DispatchMetaPathKind::TSLDynamic:
+                case DispatchMetaPathKind::TSD:
+                    meta = meta->element_ts();
+                    continue;
+                default:
+                    return out;
+            }
+        }
+
+        switch (dispatch_meta_path_kind(meta)) {
+            case DispatchMetaPathKind::TSB:
+                out.push_back(index + 1);  // slot 0 reserved for container link.
+                if (index >= meta->field_count() || meta->fields() == nullptr) {
                     return out;
                 }
                 meta = meta->fields()[index].ts_type;
                 continue;
-            }
-
-            if (dispatch_meta_is_tsl(meta) || dispatch_meta_is_tsd(meta)) {
-                meta = meta->element_ts();
-                continue;
-            }
-
-            return out;
-        }
-
-        if (dispatch_meta_is_tsb(meta)) {
-            out.push_back(index + 1);  // slot 0 reserved for container link.
-            if (index >= meta->field_count() || meta->fields() == nullptr) {
-                return out;
-            }
-            meta = meta->fields()[index].ts_type;
-            continue;
-        }
-
-        if (dispatch_meta_is_tsl(meta)) {
-            if (meta->fixed_size() > 0) {
+            case DispatchMetaPathKind::TSLFixed:
                 out.push_back(1);
                 out.push_back(index);
-            } else {
+                meta = meta->element_ts();
+                continue;
+            case DispatchMetaPathKind::TSLDynamic:
                 crossed_dynamic_boundary = true;
-            }
-            meta = meta->element_ts();
-            continue;
+                meta = meta->element_ts();
+                continue;
+            case DispatchMetaPathKind::TSD:
+                out.push_back(1);
+                out.push_back(index);
+                meta = meta->element_ts();
+                continue;
+            default:
+                return out;
         }
-
-        if (dispatch_meta_is_tsd(meta)) {
-            out.push_back(1);
-            out.push_back(index);
-            meta = meta->element_ts();
-            continue;
-        }
-
-        return out;
     }
 
     // Container/REF nodes have a root link slot at 0.
     if (!crossed_dynamic_boundary && meta != nullptr) {
-        if (dispatch_meta_is_ref(meta)) {
-            out.push_back(0);
-        } else if (dispatch_meta_is_tsb(meta)) {
-            out.push_back(0);
-        } else if (dispatch_meta_is_fixed_tsl(meta)) {
-            out.push_back(0);
-        } else if (dispatch_meta_is_tsd(meta)) {
-            out.push_back(0);
+        switch (dispatch_meta_path_kind(meta)) {
+            case DispatchMetaPathKind::Ref:
+            case DispatchMetaPathKind::TSB:
+            case DispatchMetaPathKind::TSLFixed:
+            case DispatchMetaPathKind::TSD:
+                out.push_back(0);
+                break;
+            default:
+                break;
         }
     }
 
@@ -122,17 +122,22 @@ std::vector<size_t> ts_path_to_time_path_uncached(const TSMeta* root_meta, const
     }
 
     if (ts_path.empty()) {
-        if (dispatch_meta_is_tsb(meta) ||
-            dispatch_meta_is_tsl(meta) ||
-            dispatch_meta_is_tsd(meta) ||
-            dispatch_meta_is_tsw(meta)) {
-            out.push_back(0);  // container time slot
+        switch (dispatch_meta_path_kind(meta)) {
+            case DispatchMetaPathKind::TSB:
+            case DispatchMetaPathKind::TSLFixed:
+            case DispatchMetaPathKind::TSLDynamic:
+            case DispatchMetaPathKind::TSD:
+            case DispatchMetaPathKind::TSW:
+                out.push_back(0);  // container time slot
+                break;
+            default:
+                break;
         }
         return out;
     }
 
     for (size_t index : ts_path) {
-        while (dispatch_meta_is_ref(meta)) {
+        while (dispatch_meta_path_kind(meta) == DispatchMetaPathKind::Ref) {
             meta = meta->element_ts();
         }
 
@@ -140,30 +145,28 @@ std::vector<size_t> ts_path_to_time_path_uncached(const TSMeta* root_meta, const
             break;
         }
 
-        if (dispatch_meta_is_tsb(meta)) {
-            out.push_back(index + 1);
-            if (index >= meta->field_count() || meta->fields() == nullptr) {
+        switch (dispatch_meta_path_kind(meta)) {
+            case DispatchMetaPathKind::TSB:
+                out.push_back(index + 1);
+                if (index >= meta->field_count() || meta->fields() == nullptr) {
+                    return out;
+                }
+                meta = meta->fields()[index].ts_type;
+                continue;
+            case DispatchMetaPathKind::TSLFixed:
+            case DispatchMetaPathKind::TSLDynamic:
+                out.push_back(1);
+                out.push_back(index);
+                meta = meta->element_ts();
+                continue;
+            case DispatchMetaPathKind::TSD:
+                out.push_back(1);
+                out.push_back(index);
+                meta = meta->element_ts();
+                continue;
+            default:
                 return out;
-            }
-            meta = meta->fields()[index].ts_type;
-            continue;
         }
-
-        if (dispatch_meta_is_tsl(meta)) {
-            out.push_back(1);
-            out.push_back(index);
-            meta = meta->element_ts();
-            continue;
-        }
-
-        if (dispatch_meta_is_tsd(meta)) {
-            out.push_back(1);
-            out.push_back(index);
-            meta = meta->element_ts();
-            continue;
-        }
-
-        return out;
     }
 
     return out;
@@ -178,16 +181,21 @@ std::vector<size_t> ts_path_to_observer_path_uncached(const TSMeta* root_meta, c
     }
 
     if (ts_path.empty()) {
-        if (dispatch_meta_is_tsb(meta) ||
-            dispatch_meta_is_tsl(meta) ||
-            dispatch_meta_is_tsd(meta)) {
-            out.push_back(0);  // container observer slot
+        switch (dispatch_meta_path_kind(meta)) {
+            case DispatchMetaPathKind::TSB:
+            case DispatchMetaPathKind::TSLFixed:
+            case DispatchMetaPathKind::TSLDynamic:
+            case DispatchMetaPathKind::TSD:
+                out.push_back(0);  // container observer slot
+                break;
+            default:
+                break;
         }
         return out;
     }
 
     for (size_t index : ts_path) {
-        while (dispatch_meta_is_ref(meta)) {
+        while (dispatch_meta_path_kind(meta) == DispatchMetaPathKind::Ref) {
             meta = meta->element_ts();
         }
 
@@ -195,30 +203,28 @@ std::vector<size_t> ts_path_to_observer_path_uncached(const TSMeta* root_meta, c
             break;
         }
 
-        if (dispatch_meta_is_tsb(meta)) {
-            out.push_back(index + 1);
-            if (index >= meta->field_count() || meta->fields() == nullptr) {
+        switch (dispatch_meta_path_kind(meta)) {
+            case DispatchMetaPathKind::TSB:
+                out.push_back(index + 1);
+                if (index >= meta->field_count() || meta->fields() == nullptr) {
+                    return out;
+                }
+                meta = meta->fields()[index].ts_type;
+                continue;
+            case DispatchMetaPathKind::TSLFixed:
+            case DispatchMetaPathKind::TSLDynamic:
+                out.push_back(1);
+                out.push_back(index);
+                meta = meta->element_ts();
+                continue;
+            case DispatchMetaPathKind::TSD:
+                out.push_back(1);
+                out.push_back(index);
+                meta = meta->element_ts();
+                continue;
+            default:
                 return out;
-            }
-            meta = meta->fields()[index].ts_type;
-            continue;
         }
-
-        if (dispatch_meta_is_tsl(meta)) {
-            out.push_back(1);
-            out.push_back(index);
-            meta = meta->element_ts();
-            continue;
-        }
-
-        if (dispatch_meta_is_tsd(meta)) {
-            out.push_back(1);
-            out.push_back(index);
-            meta = meta->element_ts();
-            continue;
-        }
-
-        return out;
     }
 
     return out;
@@ -231,19 +237,23 @@ std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path_uncached(const TSM
         return out;
     }
 
-    if (dispatch_meta_is_tsb(root_meta) ||
-        dispatch_meta_is_tsl(root_meta) ||
-        dispatch_meta_is_tsd(root_meta) ||
-        dispatch_meta_is_tsw(root_meta)) {
-        out.push_back({0});  // root container timestamp
-    } else {
-        out.push_back({});
+    switch (dispatch_meta_path_kind(root_meta)) {
+        case DispatchMetaPathKind::TSB:
+        case DispatchMetaPathKind::TSLFixed:
+        case DispatchMetaPathKind::TSLDynamic:
+        case DispatchMetaPathKind::TSD:
+        case DispatchMetaPathKind::TSW:
+            out.push_back({0});  // root container timestamp
+            break;
+        default:
+            out.push_back({});
+            break;
     }
 
     const TSMeta* meta = root_meta;
     std::vector<size_t> current_path;
     for (size_t index : ts_path) {
-        while (dispatch_meta_is_ref(meta)) {
+        while (dispatch_meta_path_kind(meta) == DispatchMetaPathKind::Ref) {
             meta = meta->element_ts();
         }
 
@@ -251,33 +261,31 @@ std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path_uncached(const TSM
             break;
         }
 
-        if (dispatch_meta_is_tsb(meta)) {
-            current_path.push_back(index + 1);
-            out.push_back(current_path);
-            if (index >= meta->field_count() || meta->fields() == nullptr) {
+        switch (dispatch_meta_path_kind(meta)) {
+            case DispatchMetaPathKind::TSB:
+                current_path.push_back(index + 1);
+                out.push_back(current_path);
+                if (index >= meta->field_count() || meta->fields() == nullptr) {
+                    return out;
+                }
+                meta = meta->fields()[index].ts_type;
+                continue;
+            case DispatchMetaPathKind::TSLFixed:
+            case DispatchMetaPathKind::TSLDynamic:
+                current_path.push_back(1);
+                current_path.push_back(index);
+                out.push_back(current_path);
+                meta = meta->element_ts();
+                continue;
+            case DispatchMetaPathKind::TSD:
+                current_path.push_back(1);
+                current_path.push_back(index);
+                out.push_back(current_path);
+                meta = meta->element_ts();
+                continue;
+            default:
                 return out;
-            }
-            meta = meta->fields()[index].ts_type;
-            continue;
         }
-
-        if (dispatch_meta_is_tsl(meta)) {
-            current_path.push_back(1);
-            current_path.push_back(index);
-            out.push_back(current_path);
-            meta = meta->element_ts();
-            continue;
-        }
-
-        if (dispatch_meta_is_tsd(meta)) {
-            current_path.push_back(1);
-            current_path.push_back(index);
-            out.push_back(current_path);
-            meta = meta->element_ts();
-            continue;
-        }
-
-        return out;
     }
 
     return out;

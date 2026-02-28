@@ -57,7 +57,8 @@ std::vector<size_t> link_residual_ts_path(const TSMeta* root_meta, const std::ve
     bool collecting_residual = false;
 
     for (size_t index : ts_path) {
-        while (!collecting_residual && dispatch_meta_is_ref(current)) {
+        while (!collecting_residual &&
+               dispatch_meta_path_kind(current) == DispatchMetaPathKind::Ref) {
             current = current->element_ts();
         }
 
@@ -66,35 +67,30 @@ std::vector<size_t> link_residual_ts_path(const TSMeta* root_meta, const std::ve
             continue;
         }
 
-        if (dispatch_meta_is_tsb(current)) {
-            if (current->fields() == nullptr || index >= current->field_count()) {
+        switch (dispatch_meta_path_kind(current)) {
+            case DispatchMetaPathKind::TSB:
+                if (current->fields() == nullptr || index >= current->field_count()) {
+                    collecting_residual = true;
+                    residual.push_back(index);
+                    current = nullptr;
+                } else {
+                    current = current->fields()[index].ts_type;
+                }
+                continue;
+            case DispatchMetaPathKind::TSLFixed:
+                current = current->element_ts();
+                continue;
+            case DispatchMetaPathKind::TSLDynamic:
+            case DispatchMetaPathKind::TSD:
                 collecting_residual = true;
                 residual.push_back(index);
-                current = nullptr;
-            } else {
-                current = current->fields()[index].ts_type;
-            }
-            continue;
-        }
-
-        if (dispatch_meta_is_tsl(current)) {
-            if (current->fixed_size() == 0) {
+                current = current->element_ts();
+                continue;
+            default:
                 collecting_residual = true;
                 residual.push_back(index);
-            }
-            current = current->element_ts();
-            continue;
+                continue;
         }
-
-        if (dispatch_meta_is_tsd(current)) {
-            collecting_residual = true;
-            residual.push_back(index);
-            current = current->element_ts();
-            continue;
-        }
-
-        collecting_residual = true;
-        residual.push_back(index);
     }
 
     return residual;
@@ -113,20 +109,15 @@ engine_time_t rebind_time_for_view(const ViewData& vd) {
         }
 
         auto is_static_container_parent = [](const TSMeta* meta) {
-            if (meta == nullptr) {
-                return false;
+            switch (dispatch_meta_path_kind(meta)) {
+                case DispatchMetaPathKind::TSB:
+                case DispatchMetaPathKind::TSLFixed:
+                    return true;
+                case DispatchMetaPathKind::Ref:
+                    return dispatch_meta_is_static_container(meta != nullptr ? meta->element_ts() : nullptr);
+                default:
+                    return false;
             }
-            if (dispatch_meta_is_tsb(meta)) {
-                return true;
-            }
-            if (dispatch_meta_is_fixed_tsl(meta)) {
-                return true;
-            }
-            if (dispatch_meta_is_ref(meta)) {
-                const TSMeta* element = meta->element_ts();
-                return dispatch_meta_is_static_container(element);
-            }
-            return false;
         };
 
         // Descendant views only inherit ancestor rebind markers for static
@@ -397,7 +388,7 @@ bool split_path_at_first_ref_ancestor(const TSMeta* root_meta,
         return false;
     }
     if (ts_path.empty()) {
-        if (dispatch_meta_is_ref(root_meta)) {
+        if (dispatch_meta_path_kind(root_meta) == DispatchMetaPathKind::Ref) {
             ref_depth_out = 0;
             return true;
         }
@@ -406,7 +397,7 @@ bool split_path_at_first_ref_ancestor(const TSMeta* root_meta,
 
     const TSMeta* current = root_meta;
     for (size_t depth = 0; depth < ts_path.size(); ++depth) {
-        if (dispatch_meta_is_ref(current)) {
+        if (dispatch_meta_path_kind(current) == DispatchMetaPathKind::Ref) {
             ref_depth_out = depth;
             return true;
         }
@@ -416,25 +407,26 @@ bool split_path_at_first_ref_ancestor(const TSMeta* root_meta,
         }
 
         const size_t index = ts_path[depth];
-        if (dispatch_meta_is_tsb(current)) {
-            if (current->fields() == nullptr || index >= current->field_count()) {
+        switch (dispatch_meta_path_kind(current)) {
+            case DispatchMetaPathKind::TSB:
+                if (current->fields() == nullptr || index >= current->field_count()) {
+                    return false;
+                }
+                current = current->fields()[index].ts_type;
+                continue;
+            case DispatchMetaPathKind::TSLFixed:
+            case DispatchMetaPathKind::TSLDynamic:
+            case DispatchMetaPathKind::TSD:
+                current = current->element_ts();
+                continue;
+            default:
                 return false;
-            }
-            current = current->fields()[index].ts_type;
-            continue;
         }
-
-        if (dispatch_meta_is_tsl(current) || dispatch_meta_is_tsd(current)) {
-            current = current->element_ts();
-            continue;
-        }
-
-        return false;
     }
 
     // If the traversed leaf itself is REF (for example TSD slot values in
     // TSD[K, REF[...]]), treat that leaf depth as the first REF ancestor.
-    if (dispatch_meta_is_ref(current)) {
+    if (dispatch_meta_path_kind(current) == DispatchMetaPathKind::Ref) {
         ref_depth_out = ts_path.size();
         return true;
     }
