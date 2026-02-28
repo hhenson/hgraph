@@ -52,13 +52,6 @@ std::optional<View> map_key_for_index(const View& map_view, size_t index) {
             return View(storage->key_at_slot(index), map.key_type());
         }
     }
-
-    size_t ordinal = 0;
-    for (View key : map.keys()) {
-        if (ordinal++ == index) {
-            return key;
-        }
-    }
     return std::nullopt;
 }
 

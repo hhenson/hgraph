@@ -111,38 +111,49 @@ public:
         return const_cast<void*>(values_.value_or_null_at_slot(slot));
     }
 
-    void set_item(const void* key, const void* value) {
-        size_t slot = set_.key_set().find(key);
-
-        if (slot != static_cast<size_t>(-1)) {
-            // Key exists - update value
-            if (value) {
-                void* val_ptr = const_cast<void*>(values_.value_at_slot(slot));
-                if (value_type_ && value_type_->ops().copy) {
-                    value_type_->ops().copy(val_ptr, value, value_type_);
-                }
-                values_.set_valid_slot(slot, true);
-            } else {
-                values_.set_valid_slot(slot, false);
-            }
-            // Notify observers of value update
-            set_.key_set().observer_dispatcher().notify_update(slot);
-        } else {
-            // Insert new key (observers notified via on_insert)
-            auto [new_slot, inserted] = set_.key_set().insert(key);
-            if (inserted) {
-                if (value) {
-                    // Copy value to the newly constructed slot
-                    void* val_ptr = const_cast<void*>(values_.value_at_slot(new_slot));
-                    if (value_type_ && value_type_->ops().copy) {
-                        value_type_->ops().copy(val_ptr, value, value_type_);
-                    }
-                    values_.set_valid_slot(new_slot, true);
-                } else {
-                    values_.set_valid_slot(new_slot, false);
-                }
-            }
+    [[nodiscard]] bool set_item_and_report_inserted(const void* key, const void* value) {
+        auto [slot, inserted] = set_.key_set().insert(key);
+        if (slot == static_cast<size_t>(-1)) {
+            return false;
         }
+
+        if (value) {
+            void* val_ptr = const_cast<void*>(values_.value_at_slot(slot));
+            if (value_type_ && value_type_->ops().copy) {
+                value_type_->ops().copy(val_ptr, value, value_type_);
+            }
+            values_.set_valid_slot(slot, true);
+        } else {
+            values_.set_valid_slot(slot, false);
+        }
+
+        // Existing-key updates must notify observers; inserts are covered by on_insert.
+        if (!inserted) {
+            set_.key_set().observer_dispatcher().notify_update(slot);
+        }
+        return inserted;
+    }
+
+    [[nodiscard]] bool add_item(const void* key, const void* value) {
+        auto [slot, inserted] = set_.key_set().insert(key);
+        if (!inserted || slot == static_cast<size_t>(-1)) {
+            return false;
+        }
+
+        if (value) {
+            void* val_ptr = const_cast<void*>(values_.value_at_slot(slot));
+            if (value_type_ && value_type_->ops().copy) {
+                value_type_->ops().copy(val_ptr, value, value_type_);
+            }
+            values_.set_valid_slot(slot, true);
+        } else {
+            values_.set_valid_slot(slot, false);
+        }
+        return true;
+    }
+
+    void set_item(const void* key, const void* value) {
+        (void)set_item_and_report_inserted(key, value);
     }
 
     bool remove(const void* key) {

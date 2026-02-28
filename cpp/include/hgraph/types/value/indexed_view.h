@@ -860,9 +860,8 @@ public:
         assert(valid() && "add() on invalid view");
         require_mutable("add");
         require_typed_view(value, element_type(), "Set element");
-        if (contains(value)) return false;
-        _schema->ops().add(data(), value.data(), _schema);
-        return true;
+        auto* storage = static_cast<SetStorage*>(data());
+        return storage->add(value.data());
     }
 
     /**
@@ -874,9 +873,8 @@ public:
         assert(valid() && "remove() on invalid view");
         require_mutable("remove");
         require_typed_view(value, element_type(), "Set element");
-        if (!contains(value)) return false;
-        _schema->ops().remove(data(), value.data(), _schema);
-        return true;
+        auto* storage = static_cast<SetStorage*>(data());
+        return storage->remove(value.data());
     }
 
     /**
@@ -1209,11 +1207,12 @@ public:
     [[nodiscard]] View at(const View& key) const {
         assert(valid() && "at() on invalid view");
         require_typed_view(key, key_type(), "Map key");
-        if (!contains(key)) {
+        try {
+            const void* value_data = _schema->ops().map_at(_data, key.data(), _schema);
+            return View(value_data, _schema->element_type);
+        } catch (const std::out_of_range&) {
             throw std::runtime_error("Key not found");
         }
-        const void* value_data = _schema->ops().map_at(_data, key.data(), _schema);
-        return View(value_data, _schema->element_type);
     }
 
     /**
@@ -1223,11 +1222,12 @@ public:
         assert(valid() && "at() on invalid view");
         require_mutable("at");
         require_typed_view(key, key_type(), "Map key");
-        if (!contains(key)) {
+        try {
+            void* value_data = const_cast<void*>(_schema->ops().map_at(data(), key.data(), _schema));
+            return ValueView(value_data, _schema->element_type);
+        } catch (const std::out_of_range&) {
             throw std::runtime_error("Key not found");
         }
-        void* value_data = const_cast<void*>(_schema->ops().map_at(data(), key.data(), _schema));
-        return ValueView(value_data, _schema->element_type);
     }
 
     /**
@@ -1273,9 +1273,8 @@ public:
         require_mutable("add");
         require_typed_view(key, key_type(), "Map key");
         require_typed_view(value, value_type(), "Map value");
-        if (contains(key)) return false;
-        set(key, value);
-        return true;
+        auto* storage = static_cast<MapStorage*>(data());
+        return storage->add_item(key.data(), value.data());
     }
 
     /**
@@ -1287,9 +1286,8 @@ public:
         assert(valid() && "remove() on invalid view");
         require_mutable("remove");
         require_typed_view(key, key_type(), "Map key");
-        if (!contains(key)) return false;
-        _schema->ops().remove(data(), key.data(), _schema);
-        return true;
+        auto* storage = static_cast<MapStorage*>(data());
+        return storage->remove(key.data());
     }
 
     /**

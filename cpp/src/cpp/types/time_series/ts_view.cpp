@@ -90,13 +90,6 @@ value::View resolve_local_navigation_value(const ViewData& view_data) {
                 return value::View(storage->key_at_slot(index), map.key_type());
             }
         }
-
-        size_t ordinal = 0;
-        for (value::View key : map.keys()) {
-            if (ordinal++ == index) {
-                return key;
-            }
-        }
         return std::nullopt;
     };
 

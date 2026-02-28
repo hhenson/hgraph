@@ -32,12 +32,6 @@ namespace
             }
         }
 
-        size_t ordinal = 0;
-        for (value::View key : map.keys()) {
-            if (ordinal++ == index) {
-                return key;
-            }
-        }
         return std::nullopt;
     }
 
