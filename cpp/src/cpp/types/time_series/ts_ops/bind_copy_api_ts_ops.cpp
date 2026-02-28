@@ -314,6 +314,57 @@ const ts_ops k_tsw_duration_ops = make_tsw_duration_ops();
 
 namespace {
 
+using meta_ops_selector = const ts_ops* (*)(const TSMeta* meta);
+
+const ts_ops* select_tsvalue_meta_ops(const TSMeta*) {
+    return &k_ts_value_ops;
+}
+
+const ts_ops* select_tss_meta_ops(const TSMeta*) {
+    return &k_tss_ops;
+}
+
+const ts_ops* select_tsd_meta_ops(const TSMeta* meta) {
+    const TSMeta* element_meta = meta != nullptr ? meta->element_ts() : nullptr;
+    if (dispatch_meta_is_ref(element_meta)) {
+        return &k_tsd_ref_ops;
+    }
+    if (meta_is_scalar_like_binding(element_meta)) {
+        return &k_tsd_scalar_ops;
+    }
+    return &k_tsd_nested_ops;
+}
+
+const ts_ops* select_tsl_meta_ops(const TSMeta*) {
+    return &k_tsl_ops;
+}
+
+const ts_ops* select_tsw_meta_ops(const TSMeta* meta) {
+    return meta != nullptr && meta->is_duration_based() ? &k_tsw_duration_ops : &k_tsw_tick_ops;
+}
+
+const ts_ops* select_tsb_meta_ops(const TSMeta*) {
+    return &k_tsb_ops;
+}
+
+const ts_ops* select_ref_meta_ops(const TSMeta* meta) {
+    const TSMeta* element_meta = meta != nullptr ? meta->element_ts() : nullptr;
+    if (meta_is_ref_bundle_static_binding(element_meta)) {
+        return &k_ref_bundle_ops;
+    }
+    if (meta_is_ref_list_static_binding(element_meta)) {
+        return &k_ref_list_ops;
+    }
+    if (meta_is_ref_dynamic_container_binding(element_meta)) {
+        return &k_ref_dynamic_container_ops;
+    }
+    return &k_ref_scalar_ops;
+}
+
+const ts_ops* select_signal_meta_ops(const TSMeta*) {
+    return &k_signal_ops;
+}
+
 const ts_ops* const k_ops_by_kind[] = {
     &k_ts_value_ops,   // TSKind::TSValue
     &k_tss_ops,        // TSKind::TSS
@@ -328,6 +379,21 @@ const ts_ops* const k_ops_by_kind[] = {
 static_assert(
     (sizeof(k_ops_by_kind) / sizeof(k_ops_by_kind[0])) == (static_cast<size_t>(TSKind::SIGNAL) + size_t{1}),
     "k_ops_by_kind must cover all TSKind values");
+
+const meta_ops_selector k_meta_ops_by_kind[] = {
+    &select_tsvalue_meta_ops,   // TSKind::TSValue
+    &select_tss_meta_ops,       // TSKind::TSS
+    &select_tsd_meta_ops,       // TSKind::TSD
+    &select_tsl_meta_ops,       // TSKind::TSL
+    &select_tsw_meta_ops,       // TSKind::TSW
+    &select_tsb_meta_ops,       // TSKind::TSB
+    &select_ref_meta_ops,       // TSKind::REF
+    &select_signal_meta_ops,    // TSKind::SIGNAL
+};
+
+static_assert(
+    (sizeof(k_meta_ops_by_kind) / sizeof(k_meta_ops_by_kind[0])) == (static_cast<size_t>(TSKind::SIGNAL) + size_t{1}),
+    "k_meta_ops_by_kind must cover all TSKind values");
 
 }  // namespace
 
@@ -344,39 +410,13 @@ const ts_ops* get_ts_ops(const TSMeta* meta) {
         return &k_ts_value_ops;
     }
 
-    switch (meta->kind) {
-        case TSKind::TSD: {
-            const TSMeta* element_meta = meta->element_ts();
-            if (dispatch_meta_is_ref(element_meta)) {
-                return &k_tsd_ref_ops;
-            }
-            if (meta_is_scalar_like_binding(element_meta)) {
-                return &k_tsd_scalar_ops;
-            }
-            return &k_tsd_nested_ops;
+    const size_t index = static_cast<size_t>(meta->kind);
+    if (index < (sizeof(k_meta_ops_by_kind) / sizeof(k_meta_ops_by_kind[0]))) {
+        if (const meta_ops_selector selector = k_meta_ops_by_kind[index]; selector != nullptr) {
+            return selector(meta);
         }
-        case TSKind::REF: {
-            const TSMeta* element_meta = meta->element_ts();
-            if (meta_is_ref_bundle_static_binding(element_meta)) {
-                return &k_ref_bundle_ops;
-            }
-            if (meta_is_ref_list_static_binding(element_meta)) {
-                return &k_ref_list_ops;
-            }
-            if (meta_is_ref_dynamic_container_binding(element_meta)) {
-                return &k_ref_dynamic_container_ops;
-            }
-            return &k_ref_scalar_ops;
-        }
-        default:
-            break;
     }
-
-    const ts_ops* out = get_ts_ops(meta->kind);
-    if (meta->is_duration_based() && out == &k_tsw_tick_ops) {
-        return &k_tsw_duration_ops;
-    }
-    return out;
+    return &k_ts_value_ops;
 }
 
 const ts_ops* get_ts_ops(const ViewData& view) {

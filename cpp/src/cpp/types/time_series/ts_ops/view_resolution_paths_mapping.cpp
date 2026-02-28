@@ -55,44 +55,38 @@ std::vector<size_t> ts_path_to_link_path_uncached(const TSMeta* root_meta, const
         }
 
         if (crossed_dynamic_boundary) {
-            switch (dispatch_meta_path_kind(meta)) {
-                case DispatchMetaPathKind::TSB:
-                    if (meta->fields() == nullptr || index >= meta->field_count()) {
-                        return out;
-                    }
-                    meta = meta->fields()[index].ts_type;
-                    continue;
-                case DispatchMetaPathKind::TSLFixed:
-                case DispatchMetaPathKind::TSLDynamic:
-                case DispatchMetaPathKind::TSD:
-                    meta = meta->element_ts();
-                    continue;
-                default:
-                    return out;
+            if (!dispatch_meta_step_child_no_ref(meta, index)) {
+                return out;
             }
+            continue;
         }
 
         switch (dispatch_meta_path_kind(meta)) {
             case DispatchMetaPathKind::TSB:
                 out.push_back(index + 1);  // slot 0 reserved for container link.
-                if (index >= meta->field_count() || meta->fields() == nullptr) {
+                if (!dispatch_meta_step_child_no_ref(meta, index)) {
                     return out;
                 }
-                meta = meta->fields()[index].ts_type;
                 continue;
             case DispatchMetaPathKind::TSLFixed:
                 out.push_back(1);
                 out.push_back(index);
-                meta = meta->element_ts();
+                if (!dispatch_meta_step_child_no_ref(meta, index)) {
+                    return out;
+                }
                 continue;
             case DispatchMetaPathKind::TSLDynamic:
                 crossed_dynamic_boundary = true;
-                meta = meta->element_ts();
+                if (!dispatch_meta_step_child_no_ref(meta, index)) {
+                    return out;
+                }
                 continue;
             case DispatchMetaPathKind::TSD:
                 out.push_back(1);
                 out.push_back(index);
-                meta = meta->element_ts();
+                if (!dispatch_meta_step_child_no_ref(meta, index)) {
+                    return out;
+                }
                 continue;
             default:
                 return out;
@@ -154,21 +148,24 @@ std::vector<size_t> ts_path_to_time_path_uncached(const TSMeta* root_meta, const
         switch (dispatch_meta_path_kind(meta)) {
             case DispatchMetaPathKind::TSB:
                 out.push_back(index + 1);
-                if (index >= meta->field_count() || meta->fields() == nullptr) {
+                if (!dispatch_meta_step_child_no_ref(meta, index)) {
                     return out;
                 }
-                meta = meta->fields()[index].ts_type;
                 continue;
             case DispatchMetaPathKind::TSLFixed:
             case DispatchMetaPathKind::TSLDynamic:
                 out.push_back(1);
                 out.push_back(index);
-                meta = meta->element_ts();
+                if (!dispatch_meta_step_child_no_ref(meta, index)) {
+                    return out;
+                }
                 continue;
             case DispatchMetaPathKind::TSD:
                 out.push_back(1);
                 out.push_back(index);
-                meta = meta->element_ts();
+                if (!dispatch_meta_step_child_no_ref(meta, index)) {
+                    return out;
+                }
                 continue;
             default:
                 return out;
@@ -212,21 +209,24 @@ std::vector<size_t> ts_path_to_observer_path_uncached(const TSMeta* root_meta, c
         switch (dispatch_meta_path_kind(meta)) {
             case DispatchMetaPathKind::TSB:
                 out.push_back(index + 1);
-                if (index >= meta->field_count() || meta->fields() == nullptr) {
+                if (!dispatch_meta_step_child_no_ref(meta, index)) {
                     return out;
                 }
-                meta = meta->fields()[index].ts_type;
                 continue;
             case DispatchMetaPathKind::TSLFixed:
             case DispatchMetaPathKind::TSLDynamic:
                 out.push_back(1);
                 out.push_back(index);
-                meta = meta->element_ts();
+                if (!dispatch_meta_step_child_no_ref(meta, index)) {
+                    return out;
+                }
                 continue;
             case DispatchMetaPathKind::TSD:
                 out.push_back(1);
                 out.push_back(index);
-                meta = meta->element_ts();
+                if (!dispatch_meta_step_child_no_ref(meta, index)) {
+                    return out;
+                }
                 continue;
             default:
                 return out;
@@ -271,23 +271,26 @@ std::vector<std::vector<size_t>> time_stamp_paths_for_ts_path_uncached(const TSM
             case DispatchMetaPathKind::TSB:
                 current_path.push_back(index + 1);
                 out.push_back(current_path);
-                if (index >= meta->field_count() || meta->fields() == nullptr) {
+                if (!dispatch_meta_step_child_no_ref(meta, index)) {
                     return out;
                 }
-                meta = meta->fields()[index].ts_type;
                 continue;
             case DispatchMetaPathKind::TSLFixed:
             case DispatchMetaPathKind::TSLDynamic:
                 current_path.push_back(1);
                 current_path.push_back(index);
                 out.push_back(current_path);
-                meta = meta->element_ts();
+                if (!dispatch_meta_step_child_no_ref(meta, index)) {
+                    return out;
+                }
                 continue;
             case DispatchMetaPathKind::TSD:
                 current_path.push_back(1);
                 current_path.push_back(index);
                 out.push_back(current_path);
-                meta = meta->element_ts();
+                if (!dispatch_meta_step_child_no_ref(meta, index)) {
+                    return out;
+                }
                 continue;
             default:
                 return out;

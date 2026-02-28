@@ -19,6 +19,7 @@
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/nodes/mesh_node.h>
 #include <hgraph/nodes/push_queue_node.h>
@@ -61,6 +62,132 @@ namespace
     };
 
     using node_vt = decltype(node_v);
+
+    using output_view_wrapper_fn = nb::object (*)(TSOutputView&& view, const TSMeta* meta);
+    using input_view_wrapper_fn = nb::object (*)(TSInputView&& view);
+
+    constexpr size_t k_ts_kind_count = static_cast<size_t>(TSKind::SIGNAL) + size_t{1};
+
+    TSKind dispatch_kind(const TSMeta* meta) {
+        if (const ts_ops* ops = get_ts_ops(meta); ops != nullptr) {
+            return ops->kind;
+        }
+        return meta != nullptr ? meta->kind : TSKind::TSValue;
+    }
+
+    nb::object wrap_output_tsvalue(TSOutputView&& view, const TSMeta*) {
+        return nb::cast(PyTimeSeriesValueOutput(std::move(view)));
+    }
+
+    nb::object wrap_output_tsb(TSOutputView&& view, const TSMeta*) {
+        return nb::cast(PyTimeSeriesBundleOutput(std::move(view)));
+    }
+
+    nb::object wrap_output_tsl(TSOutputView&& view, const TSMeta*) {
+        return nb::cast(PyTimeSeriesListOutput(std::move(view)));
+    }
+
+    nb::object wrap_output_tsd(TSOutputView&& view, const TSMeta*) {
+        return nb::cast(PyTimeSeriesDictOutput(std::move(view)));
+    }
+
+    nb::object wrap_output_tss(TSOutputView&& view, const TSMeta*) {
+        return nb::cast(PyTimeSeriesSetOutput(std::move(view)));
+    }
+
+    nb::object wrap_output_tsw(TSOutputView&& view, const TSMeta* meta) {
+        if (meta != nullptr && meta->is_duration_based()) {
+            return nb::cast(PyTimeSeriesTimeWindowOutput(std::move(view)));
+        }
+        return nb::cast(PyTimeSeriesFixedWindowOutput(std::move(view)));
+    }
+
+    nb::object wrap_output_ref(TSOutputView&& view, const TSMeta*) {
+        return nb::cast(PyTimeSeriesReferenceOutput(std::move(view)));
+    }
+
+    nb::object wrap_output_signal(TSOutputView&&, const TSMeta*) {
+        throw std::runtime_error("wrap_output_view: SIGNAL is input-only, no output type exists");
+    }
+
+    constexpr output_view_wrapper_fn k_output_view_wrappers[k_ts_kind_count] = {
+        &wrap_output_tsvalue,  // TSKind::TSValue
+        &wrap_output_tss,      // TSKind::TSS
+        &wrap_output_tsd,      // TSKind::TSD
+        &wrap_output_tsl,      // TSKind::TSL
+        &wrap_output_tsw,      // TSKind::TSW
+        &wrap_output_tsb,      // TSKind::TSB
+        &wrap_output_ref,      // TSKind::REF
+        &wrap_output_signal,   // TSKind::SIGNAL
+    };
+
+    static_assert((sizeof(k_output_view_wrappers) / sizeof(k_output_view_wrappers[0])) == k_ts_kind_count,
+                  "k_output_view_wrappers must cover all TSKind values");
+
+    const char* output_wrapper_debug_name(TSKind kind, const TSMeta* meta) {
+        if (kind == TSKind::TSW) {
+            return meta != nullptr && meta->is_duration_based() ? "TimeSeriesTimeWindowOutput" : "TimeSeriesFixedWindowOutput";
+        }
+
+        constexpr const char* k_names[k_ts_kind_count] = {
+            "TimeSeriesValueOutput",      // TSKind::TSValue
+            "TimeSeriesSetOutput",        // TSKind::TSS
+            "TimeSeriesDictOutput",       // TSKind::TSD
+            "TimeSeriesListOutput",       // TSKind::TSL
+            "TimeSeriesFixedWindowOutput",// TSKind::TSW (non-duration fallback)
+            "TimeSeriesBundleOutput",     // TSKind::TSB
+            "TimeSeriesReferenceOutput",  // TSKind::REF
+            "SignalOutputUnsupported",    // TSKind::SIGNAL
+        };
+        const size_t index = static_cast<size_t>(kind);
+        return index < k_ts_kind_count ? k_names[index] : "UnknownOutput";
+    }
+
+    nb::object wrap_input_tsvalue(TSInputView&& view) {
+        return nb::cast(PyTimeSeriesValueInput(std::move(view)));
+    }
+
+    nb::object wrap_input_tss(TSInputView&& view) {
+        return nb::cast(PyTimeSeriesSetInput(std::move(view)));
+    }
+
+    nb::object wrap_input_tsd(TSInputView&& view) {
+        return nb::cast(PyTimeSeriesDictInput(std::move(view)));
+    }
+
+    nb::object wrap_input_tsl(TSInputView&& view) {
+        return nb::cast(PyTimeSeriesListInput(std::move(view)));
+    }
+
+    nb::object wrap_input_tsw(TSInputView&& view) {
+        return nb::cast(PyTimeSeriesWindowInput(std::move(view)));
+    }
+
+    nb::object wrap_input_tsb(TSInputView&& view) {
+        return nb::cast(PyTimeSeriesBundleInput(std::move(view)));
+    }
+
+    nb::object wrap_input_ref(TSInputView&& view) {
+        return nb::cast(PyTimeSeriesReferenceInput(std::move(view)));
+    }
+
+    nb::object wrap_input_signal(TSInputView&& view) {
+        return nb::cast(PyTimeSeriesSignalInput(std::move(view)));
+    }
+
+    constexpr input_view_wrapper_fn k_input_view_wrappers[k_ts_kind_count] = {
+        &wrap_input_tsvalue,  // TSKind::TSValue
+        &wrap_input_tss,      // TSKind::TSS
+        &wrap_input_tsd,      // TSKind::TSD
+        &wrap_input_tsl,      // TSKind::TSL
+        &wrap_input_tsw,      // TSKind::TSW
+        &wrap_input_tsb,      // TSKind::TSB
+        &wrap_input_ref,      // TSKind::REF
+        &wrap_input_signal,   // TSKind::SIGNAL
+    };
+
+    static_assert((sizeof(k_input_view_wrappers) / sizeof(k_input_view_wrappers[0])) == k_ts_kind_count,
+                  "k_input_view_wrappers must cover all TSKind values");
 
 } // hidden namespace
 
@@ -122,6 +249,7 @@ namespace
             throw std::runtime_error("wrap_output_view: TSOutputView has no TSMeta");
         }
 
+        const TSKind kind = dispatch_kind(meta);
         const bool debug_wrap_output = std::getenv("HGRAPH_DEBUG_WRAP_OUTPUT") != nullptr;
         auto debug_emit = [&](const char* wrapped) {
             if (!debug_wrap_output) {
@@ -130,53 +258,19 @@ namespace
             std::fprintf(stderr,
                          "[wrap_output] path=%s kind=%d wrapped=%s\n",
                          view.short_path().to_string().c_str(),
-                         static_cast<int>(meta->kind),
+                         static_cast<int>(kind),
                          wrapped);
         };
 
-        switch (meta->kind) {
-            case TSKind::TSValue:
-                debug_emit("TimeSeriesValueOutput");
-                return nb::cast(PyTimeSeriesValueOutput(std::move(view)));
-
-            case TSKind::TSB:
-                debug_emit("TimeSeriesBundleOutput");
-                return nb::cast(PyTimeSeriesBundleOutput(std::move(view)));
-
-            case TSKind::TSL:
-                debug_emit("TimeSeriesListOutput");
-                return nb::cast(PyTimeSeriesListOutput(std::move(view)));
-
-            case TSKind::TSD:
-                debug_emit("TimeSeriesDictOutput");
-                return nb::cast(PyTimeSeriesDictOutput(std::move(view)));
-
-            case TSKind::TSS:
-                debug_emit("TimeSeriesSetOutput");
-                return nb::cast(PyTimeSeriesSetOutput(std::move(view)));
-
-            case TSKind::TSW:
-                if (meta->is_duration_based()) {
-                    debug_emit("TimeSeriesTimeWindowOutput");
-                    return nb::cast(PyTimeSeriesTimeWindowOutput(std::move(view)));
-                } else {
-                    debug_emit("TimeSeriesFixedWindowOutput");
-                    return nb::cast(PyTimeSeriesFixedWindowOutput(std::move(view)));
-                }
-
-            case TSKind::REF:
-                debug_emit("TimeSeriesReferenceOutput");
-                return nb::cast(PyTimeSeriesReferenceOutput(std::move(view)));
-
-            case TSKind::SIGNAL:
-                // SIGNAL is input-only, there's no output type
-                throw std::runtime_error("wrap_output_view: SIGNAL is input-only, no output type exists");
-
-            default:
-                throw std::runtime_error(
-                    fmt::format("wrap_output_view: Unknown TSKind {}", static_cast<int>(meta->kind))
-                );
+        const size_t index = static_cast<size_t>(kind);
+        if (index >= k_ts_kind_count || k_output_view_wrappers[index] == nullptr) {
+            throw std::runtime_error(
+                fmt::format("wrap_output_view: Unknown TSKind {}", static_cast<int>(kind))
+            );
         }
+
+        debug_emit(output_wrapper_debug_name(kind, meta));
+        return k_output_view_wrappers[index](std::move(view), meta);
     }
 
     nb::object wrap_input_view(TSInputView view) {
@@ -196,36 +290,15 @@ namespace
             return wrap_input_view(std::move(view));
         }
 
-        switch (effective_meta->kind) {
-            case TSKind::TSValue:
-                return nb::cast(PyTimeSeriesValueInput(std::move(view)));
-
-            case TSKind::TSB:
-                return nb::cast(PyTimeSeriesBundleInput(std::move(view)));
-
-            case TSKind::TSL:
-                return nb::cast(PyTimeSeriesListInput(std::move(view)));
-
-            case TSKind::TSD:
-                return nb::cast(PyTimeSeriesDictInput(std::move(view)));
-
-            case TSKind::TSS:
-                return nb::cast(PyTimeSeriesSetInput(std::move(view)));
-
-            case TSKind::TSW:
-                return nb::cast(PyTimeSeriesWindowInput(std::move(view)));
-
-            case TSKind::REF:
-                return nb::cast(PyTimeSeriesReferenceInput(std::move(view)));
-
-            case TSKind::SIGNAL:
-                return nb::cast(PyTimeSeriesSignalInput(std::move(view)));
-
-            default:
-                throw std::runtime_error(
-                    fmt::format("wrap_input_view: Unknown TSKind {}", static_cast<int>(effective_meta->kind))
-                );
+        const TSKind kind = dispatch_kind(effective_meta);
+        const size_t index = static_cast<size_t>(kind);
+        if (index < k_ts_kind_count && k_input_view_wrappers[index] != nullptr) {
+            return k_input_view_wrappers[index](std::move(view));
         }
+
+        throw std::runtime_error(
+            fmt::format("wrap_input_view: Unknown TSKind {}", static_cast<int>(kind))
+        );
     }
 
     TSInputView unwrap_input_view(const nb::handle &obj) {

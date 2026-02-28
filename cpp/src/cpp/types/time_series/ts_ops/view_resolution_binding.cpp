@@ -407,20 +407,8 @@ bool split_path_at_first_ref_ancestor(const TSMeta* root_meta,
         }
 
         const size_t index = ts_path[depth];
-        switch (dispatch_meta_path_kind(current)) {
-            case DispatchMetaPathKind::TSB:
-                if (current->fields() == nullptr || index >= current->field_count()) {
-                    return false;
-                }
-                current = current->fields()[index].ts_type;
-                continue;
-            case DispatchMetaPathKind::TSLFixed:
-            case DispatchMetaPathKind::TSLDynamic:
-            case DispatchMetaPathKind::TSD:
-                current = current->element_ts();
-                continue;
-            default:
-                return false;
+        if (!dispatch_meta_step_child_no_ref(current, index)) {
+            return false;
         }
     }
 

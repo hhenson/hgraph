@@ -13,6 +13,23 @@ namespace hgraph
 {
 namespace
 {
+    const TSMeta* bundle_meta(const TSView& view) {
+        const TSMeta* meta = view.ts_meta();
+        const ts_ops* ops = get_ts_ops(meta);
+        if (meta == nullptr || ops == nullptr || ops->bundle_ops() == nullptr) {
+            return nullptr;
+        }
+        return meta;
+    }
+
+    const TSMeta* bundle_meta_with_fields(const TSView& view) {
+        const TSMeta* meta = bundle_meta(view);
+        if (meta == nullptr || meta->fields() == nullptr) {
+            return nullptr;
+        }
+        return meta;
+    }
+
     template <typename T_TS>
     nb::object wrap_child(typename PyTimeSeriesBundle<T_TS>::view_type child) {
         if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
@@ -43,8 +60,8 @@ namespace
     template <typename T_TS>
     nb::list field_names(const PyTimeSeriesBundle<T_TS> &self) {
         nb::list out;
-        const auto *meta = self.view().ts_meta();
-        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+        const auto *meta = bundle_meta_with_fields(self.view());
+        if (meta == nullptr) {
             return out;
         }
         for (size_t i = 0; i < meta->field_count(); ++i) {
@@ -95,8 +112,8 @@ namespace
             return nb::bool_(false);
         }
 
-        const auto *meta = this->view().ts_meta();
-        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+        const auto *meta = bundle_meta_with_fields(this->view());
+        if (meta == nullptr) {
             return nb::bool_(false);
         }
 
@@ -117,8 +134,8 @@ namespace
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::key_from_value(const nb::handle &value) const {
-        const auto *meta = this->view().ts_meta();
-        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+        const auto *meta = bundle_meta_with_fields(this->view());
+        if (meta == nullptr) {
             return nb::none();
         }
 
@@ -159,8 +176,8 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::values() const {
         nb::list out;
-        const auto *meta = this->view().ts_meta();
-        if (meta == nullptr || meta->kind != TSKind::TSB) {
+        const auto *meta = bundle_meta_with_fields(this->view());
+        if (meta == nullptr) {
             return out;
         }
         for (size_t i = 0; i < meta->field_count(); ++i) {
@@ -176,8 +193,8 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::valid_keys() const {
         nb::list out;
-        const auto *meta = this->view().ts_meta();
-        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+        const auto *meta = bundle_meta_with_fields(this->view());
+        if (meta == nullptr) {
             return out;
         }
         for (size_t i = 0; i < meta->field_count(); ++i) {
@@ -192,8 +209,8 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::valid_values() const {
         nb::list out;
-        const auto *meta = this->view().ts_meta();
-        if (meta == nullptr || meta->kind != TSKind::TSB) {
+        const auto *meta = bundle_meta_with_fields(this->view());
+        if (meta == nullptr) {
             return out;
         }
         for (size_t i = 0; i < meta->field_count(); ++i) {
@@ -208,8 +225,8 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::modified_keys() const {
         nb::list out;
-        const auto *meta = this->view().ts_meta();
-        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+        const auto *meta = bundle_meta_with_fields(this->view());
+        if (meta == nullptr) {
             return out;
         }
         for (size_t i = 0; i < meta->field_count(); ++i) {
@@ -224,8 +241,8 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::modified_values() const {
         nb::list out;
-        const auto *meta = this->view().ts_meta();
-        if (meta == nullptr || meta->kind != TSKind::TSB) {
+        const auto *meta = bundle_meta_with_fields(this->view());
+        if (meta == nullptr) {
             return out;
         }
         for (size_t i = 0; i < meta->field_count(); ++i) {
@@ -252,8 +269,8 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::items() const {
         nb::list out;
-        const auto *meta = this->view().ts_meta();
-        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+        const auto *meta = bundle_meta_with_fields(this->view());
+        if (meta == nullptr) {
             return out;
         }
         for (size_t i = 0; i < meta->field_count(); ++i) {
@@ -269,8 +286,8 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::valid_items() const {
         nb::list out;
-        const auto *meta = this->view().ts_meta();
-        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+        const auto *meta = bundle_meta_with_fields(this->view());
+        if (meta == nullptr) {
             return out;
         }
         for (size_t i = 0; i < meta->field_count(); ++i) {
@@ -285,8 +302,8 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::modified_items() const {
         nb::list out;
-        const auto *meta = this->view().ts_meta();
-        if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+        const auto *meta = bundle_meta_with_fields(this->view());
+        if (meta == nullptr) {
             return out;
         }
         for (size_t i = 0; i < meta->field_count(); ++i) {

@@ -468,6 +468,56 @@ inline bool dispatch_meta_is_scalar_like(const TSMeta* meta) {
            dispatch_meta_is_ref(meta);
 }
 
+inline const TSMeta* dispatch_meta_strip_ref(const TSMeta* meta) {
+    while (dispatch_meta_is_ref(meta)) {
+        meta = meta->element_ts();
+    }
+    return meta;
+}
+
+inline bool dispatch_meta_step_child_no_ref(const TSMeta*& meta, size_t index) {
+    if (meta == nullptr) {
+        return false;
+    }
+
+    switch (dispatch_meta_path_kind(meta)) {
+        case DispatchMetaPathKind::TSB:
+            if (meta->fields() == nullptr || index >= meta->field_count()) {
+                return false;
+            }
+            meta = meta->fields()[index].ts_type;
+            return true;
+        case DispatchMetaPathKind::TSLFixed:
+        case DispatchMetaPathKind::TSLDynamic:
+        case DispatchMetaPathKind::TSD:
+            meta = meta->element_ts();
+            return true;
+        default:
+            return false;
+    }
+}
+
+inline bool dispatch_meta_step_child(const TSMeta*& meta, size_t index) {
+    meta = dispatch_meta_strip_ref(meta);
+    return dispatch_meta_step_child_no_ref(meta, index);
+}
+
+inline const TSMeta* dispatch_meta_child_no_ref(const TSMeta* meta, size_t index) {
+    const TSMeta* out = meta;
+    if (!dispatch_meta_step_child_no_ref(out, index)) {
+        return nullptr;
+    }
+    return out;
+}
+
+inline const TSMeta* dispatch_meta_child(const TSMeta* meta, size_t index) {
+    const TSMeta* out = meta;
+    if (!dispatch_meta_step_child(out, index)) {
+        return nullptr;
+    }
+    return out;
+}
+
 void store_to_link_target(LinkTarget& target, const ViewData& source);
 void store_to_ref_link(REFLink& target, const ViewData& source);
 bool resolve_direct_bound_view_data(const ViewData& source, ViewData& out);

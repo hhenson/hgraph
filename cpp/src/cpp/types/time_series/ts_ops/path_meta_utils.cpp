@@ -5,28 +5,9 @@ namespace hgraph {
 const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indices) {
     const TSMeta* meta = root;
     for (size_t index : indices) {
-        while (dispatch_meta_is_ref(meta)) {
-            meta = meta->element_ts();
-        }
-
-        if (meta == nullptr) {
+        if (!dispatch_meta_step_child(meta, index)) {
             return nullptr;
         }
-
-        if (dispatch_meta_is_tsb(meta)) {
-            if (index >= meta->field_count() || meta->fields() == nullptr) {
-                return nullptr;
-            }
-            meta = meta->fields()[index].ts_type;
-            continue;
-        }
-
-        if (dispatch_meta_is_tsl(meta) || dispatch_meta_is_tsd(meta)) {
-            meta = meta->element_ts();
-            continue;
-        }
-
-        return nullptr;
     }
     return meta;
 }

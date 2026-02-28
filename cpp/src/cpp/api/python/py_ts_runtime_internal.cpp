@@ -55,6 +55,47 @@ const engine_time_t* resolve_engine_time_ptr(const ViewData& vd) {
 }
 
 std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
+    enum class LinkPathMetaRole {
+        Unsupported,
+        StaticBundle,
+        FixedList,
+        DynamicList,
+        DynamicDict,
+        TransparentElement
+    };
+
+    auto classify_meta_role = [](const TSMeta* meta) -> LinkPathMetaRole {
+        if (meta == nullptr) {
+            return LinkPathMetaRole::Unsupported;
+        }
+
+        const ts_ops* ops = get_ts_ops(meta);
+        if (ops == nullptr) {
+            return LinkPathMetaRole::Unsupported;
+        }
+        if (ops->bundle_ops() != nullptr) {
+            return LinkPathMetaRole::StaticBundle;
+        }
+        if (ops->list_ops() != nullptr) {
+            return meta->fixed_size() > 0 ? LinkPathMetaRole::FixedList : LinkPathMetaRole::DynamicList;
+        }
+        if (ops->dict_ops() != nullptr) {
+            return LinkPathMetaRole::DynamicDict;
+        }
+
+        // REF wrappers are transparent for link-path projection.
+        if (meta->element_ts() != nullptr &&
+            ops->window_ops() == nullptr &&
+            ops->set_ops() == nullptr &&
+            ops->dict_ops() == nullptr &&
+            ops->list_ops() == nullptr &&
+            ops->bundle_ops() == nullptr) {
+            return LinkPathMetaRole::TransparentElement;
+        }
+
+        return LinkPathMetaRole::Unsupported;
+    };
+
     std::vector<size_t> out;
     const TSMeta* meta = root_meta;
     bool crossed_dynamic_boundary = false;
@@ -63,18 +104,20 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
         if (meta == nullptr) {
             break;
         }
+        const LinkPathMetaRole role = classify_meta_role(meta);
 
         if (crossed_dynamic_boundary) {
-            switch (meta->kind) {
-                case TSKind::TSB:
+            switch (role) {
+                case LinkPathMetaRole::StaticBundle:
                     if (meta->fields() == nullptr || index >= meta->field_count()) {
                         return out;
                     }
                     meta = meta->fields()[index].ts_type;
                     break;
-                case TSKind::TSL:
-                case TSKind::TSD:
-                case TSKind::REF:
+                case LinkPathMetaRole::FixedList:
+                case LinkPathMetaRole::DynamicList:
+                case LinkPathMetaRole::DynamicDict:
+                case LinkPathMetaRole::TransparentElement:
                     meta = meta->element_ts();
                     break;
                 default:
@@ -83,8 +126,8 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
             continue;
         }
 
-        switch (meta->kind) {
-            case TSKind::TSB:
+        switch (role) {
+            case LinkPathMetaRole::StaticBundle:
                 out.push_back(index + 1);  // slot 0 is container link
                 if (meta->fields() == nullptr || index >= meta->field_count()) {
                     return out;
@@ -92,22 +135,19 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
                 meta = meta->fields()[index].ts_type;
                 break;
 
-            case TSKind::TSL:
-                if (meta->fixed_size() > 0) {
-                    out.push_back(1);
-                    out.push_back(index);
-                }
-                if (meta->fixed_size() == 0) {
-                    crossed_dynamic_boundary = true;
-                }
+            case LinkPathMetaRole::FixedList:
+                out.push_back(1);
+                out.push_back(index);
                 meta = meta->element_ts();
                 break;
 
-            case TSKind::TSD:
+            case LinkPathMetaRole::DynamicList:
+            case LinkPathMetaRole::DynamicDict:
                 crossed_dynamic_boundary = true;
                 meta = meta->element_ts();
                 break;
-            case TSKind::REF:
+
+            case LinkPathMetaRole::TransparentElement:
                 meta = meta->element_ts();
                 break;
 
@@ -116,10 +156,11 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
         }
     }
 
-    if (!crossed_dynamic_boundary && meta != nullptr && meta->kind == TSKind::TSB) {
-        out.push_back(0);
-    } else if (!crossed_dynamic_boundary && meta != nullptr && meta->kind == TSKind::TSL && meta->fixed_size() > 0) {
-        out.push_back(0);
+    if (!crossed_dynamic_boundary) {
+        const LinkPathMetaRole terminal_role = classify_meta_role(meta);
+        if (terminal_role == LinkPathMetaRole::StaticBundle || terminal_role == LinkPathMetaRole::FixedList) {
+            out.push_back(0);
+        }
     }
 
     return out;
@@ -204,7 +245,8 @@ std::vector<size_t> linked_target_indices(const TSView& ts_view) {
 
 std::optional<value::Value> dict_key_value_from_python(const TSView& ts_view, const nb::object& key_obj) {
     const TSMeta* meta = ts_view.ts_meta();
-    if (meta == nullptr || meta->kind != TSKind::TSD || meta->key_type() == nullptr) {
+    const ts_ops* ops = get_ts_ops(meta);
+    if (meta == nullptr || ops == nullptr || ops->dict_ops() == nullptr || meta->key_type() == nullptr) {
         return std::nullopt;
     }
 
@@ -338,7 +380,7 @@ nb::list tsd_removed_keys_python(const TSView& ts_view) {
 }
 
 TSInputView tsd_key_set_input_view(const TSInputView& self) {
-    if (self.as_ts_view().kind() != TSKind::TSD) {
+    if (!self.try_as_dict().has_value()) {
         return {};
     }
     TSInputView out = self;
@@ -347,7 +389,7 @@ TSInputView tsd_key_set_input_view(const TSInputView& self) {
 }
 
 TSOutputView tsd_key_set_output_view(const TSOutputView& self) {
-    if (self.as_ts_view().kind() != TSKind::TSD) {
+    if (!self.try_as_dict().has_value()) {
         return {};
     }
     TSOutputView out = self;
@@ -407,10 +449,11 @@ nb::object tsd_input_delta_to_python(const TSDInputView& self) {
 
 nb::list tsl_keys_python(const TSView& ts_view) {
     nb::list out;
-    if (ts_view.kind() != TSKind::TSL) {
+    auto list = ts_view.try_as_list();
+    if (!list.has_value()) {
         return out;
     }
-    const size_t n = ts_view.child_count();
+    const size_t n = list->count();
     for (size_t i = 0; i < n; ++i) {
         out.append(nb::int_(i));
     }
@@ -420,7 +463,8 @@ nb::list tsl_keys_python(const TSView& ts_view) {
 nb::list tsb_keys_python(const TSView& ts_view) {
     nb::list out;
     const TSMeta* meta = ts_view.ts_meta();
-    if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+    const ts_ops* ops = get_ts_ops(meta);
+    if (meta == nullptr || ops == nullptr || ops->bundle_ops() == nullptr || meta->fields() == nullptr) {
         return out;
     }
 
@@ -540,7 +584,7 @@ nb::list tsb_output_items(const TSOutputView& self, const nb::list& keys) {
 template <typename ViewT, typename ChildByKeyFn, typename IncludeFn>
 nb::list tsd_keys_filtered(const ViewT& self, ChildByKeyFn&& child_by_key, IncludeFn&& include) {
     nb::list out;
-    if (self.as_ts_view().kind() != TSKind::TSD) {
+    if (!self.try_as_dict().has_value()) {
         return out;
     }
 
@@ -558,10 +602,6 @@ nb::list tsd_keys_filtered(const ViewT& self, ChildByKeyFn&& child_by_key, Inclu
 template <typename ViewT, typename IncludeFn>
 nb::list tsl_keys_filtered(const ViewT& self, IncludeFn&& include) {
     nb::list out;
-    if (self.as_ts_view().kind() != TSKind::TSL) {
-        return out;
-    }
-
     auto list = self.try_as_list();
     if (!list.has_value()) {
         return out;
@@ -579,13 +619,14 @@ nb::list tsl_keys_filtered(const ViewT& self, IncludeFn&& include) {
 template <typename ViewT, typename IncludeFn>
 nb::list tsb_keys_filtered(const ViewT& self, IncludeFn&& include) {
     nb::list out;
-    const TSMeta* meta = self.as_ts_view().ts_meta();
-    if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+    auto bundle = self.try_as_bundle();
+    if (!bundle.has_value()) {
         return out;
     }
 
-    auto bundle = self.try_as_bundle();
-    if (!bundle.has_value()) {
+    const TSMeta* meta = self.as_ts_view().ts_meta();
+    const ts_ops* ops = get_ts_ops(meta);
+    if (meta == nullptr || ops == nullptr || ops->bundle_ops() == nullptr || meta->fields() == nullptr) {
         return out;
     }
 
@@ -661,7 +702,7 @@ nb::object set_delta_attr_or_empty(const nb::object& delta, const char* attr_nam
 }
 
 bool set_output_add(TSOutputView& self, const nb::object& elem_obj) {
-    if (self.as_ts_view().kind() != TSKind::TSS) {
+    if (!self.try_as_set().has_value()) {
         return false;
     }
 
@@ -672,7 +713,7 @@ bool set_output_add(TSOutputView& self, const nb::object& elem_obj) {
 }
 
 bool set_output_remove(TSOutputView& self, const nb::object& elem_obj) {
-    if (self.as_ts_view().kind() != TSKind::TSS) {
+    if (!self.try_as_set().has_value()) {
         return false;
     }
 
@@ -732,7 +773,8 @@ public:
         engine_time_ptr_ = resolve_engine_time_ptr(source_);
         TSView source_view(source_, engine_time_ptr_);
         const TSMeta* meta = source_view.ts_meta();
-        if (meta != nullptr && meta->kind == TSKind::TSD) {
+        const ts_ops* ops = get_ts_ops(meta);
+        if (meta != nullptr && ops != nullptr && ops->dict_ops() != nullptr) {
             key_type_ = meta->key_type();
             element_meta_ = meta->element_ts();
             if (element_meta_ != nullptr) {
@@ -819,7 +861,7 @@ private:
 
     [[nodiscard]] std::optional<ViewData> resolve_target_for_key(const value::View& key) const {
         TSView source_view(source_, engine_time_ptr_);
-        if (!source_view || source_view.kind() != TSKind::TSD) {
+        if (!source_view || !source_view.try_as_dict().has_value()) {
             return std::nullopt;
         }
 
@@ -932,7 +974,8 @@ public:
         engine_time_ptr_ = resolve_engine_time_ptr(source_);
         TSView source_view(source_, engine_time_ptr_);
         const TSMeta* meta = source_view.ts_meta();
-        if (meta != nullptr && meta->kind == TSKind::TSS && meta->value_type != nullptr) {
+        const ts_ops* ops = get_ts_ops(meta);
+        if (meta != nullptr && ops != nullptr && ops->set_ops() != nullptr && meta->value_type != nullptr) {
             // TSS element type is carried on the value schema (set[element_type]).
             element_type_ = meta->value_type->element_type;
         }
@@ -1151,7 +1194,7 @@ std::shared_ptr<TSSFeatureObserver> ensure_tss_feature_observer(const TSOutputVi
 }
 
 std::shared_ptr<TSDRefFeatureObserver> ensure_tsd_ref_feature_observer(const TSOutputView& self) {
-    if (self.as_ts_view().kind() != TSKind::TSD) {
+    if (!self.try_as_dict().has_value()) {
         return {};
     }
 
@@ -1211,7 +1254,7 @@ TSOutputView tsd_get_ref_output(TSOutputView& self, const nb::object& key, const
 }
 
 void tsd_release_ref_output(TSOutputView& self, const nb::object& key, const nb::object& requester) {
-    if (self.as_ts_view().kind() != TSKind::TSD) {
+    if (!self.try_as_dict().has_value()) {
         return;
     }
 
@@ -1235,7 +1278,7 @@ void tsd_release_ref_output(TSOutputView& self, const nb::object& key, const nb:
 }
 
 TSOutputView tss_get_contains_output(TSOutputView& self, const nb::object& item, const nb::object& requester) {
-    if (self.as_ts_view().kind() != TSKind::TSS) {
+    if (!self.try_as_set().has_value()) {
         return {};
     }
     auto observer = ensure_tss_feature_observer(self);
@@ -1246,7 +1289,7 @@ TSOutputView tss_get_contains_output(TSOutputView& self, const nb::object& item,
 }
 
 void tss_release_contains_output(TSOutputView& self, const nb::object& item, const nb::object& requester) {
-    if (self.as_ts_view().kind() != TSKind::TSS) {
+    if (!self.try_as_set().has_value()) {
         return;
     }
 
@@ -1270,7 +1313,7 @@ void tss_release_contains_output(TSOutputView& self, const nb::object& item, con
 }
 
 TSOutputView tss_get_is_empty_output(TSOutputView& self) {
-    if (self.as_ts_view().kind() != TSKind::TSS) {
+    if (!self.try_as_set().has_value()) {
         return {};
     }
     auto observer = ensure_tss_feature_observer(self);
@@ -1281,57 +1324,39 @@ TSOutputView tss_get_is_empty_output(TSOutputView& self) {
 }
 
 void clear_output(TSOutputView& self) {
-    switch (self.as_ts_view().kind()) {
-        case TSKind::TSS: {
-            self.from_python(nb::frozenset(nb::set{}));
-            return;
+    if (self.try_as_set().has_value()) {
+        self.from_python(nb::frozenset(nb::set{}));
+        return;
+    }
+
+    if (auto list = self.try_as_list(); list.has_value()) {
+        const size_t n = list->count();
+        for (size_t i = 0; i < n; ++i) {
+            TSOutputView child = list->at(i);
+            clear_output(child);
         }
+        return;
+    }
 
-        case TSKind::TSL: {
-            auto list = self.try_as_list();
-            if (!list.has_value()) {
-                return;
-            }
-            const size_t n = list->count();
-            for (size_t i = 0; i < n; ++i) {
-                TSOutputView child = list->at(i);
-                clear_output(child);
-            }
-            return;
+    if (auto bundle = self.try_as_bundle(); bundle.has_value()) {
+        const size_t n = bundle->count();
+        for (size_t i = 0; i < n; ++i) {
+            TSOutputView child = bundle->at(i);
+            clear_output(child);
         }
+        return;
+    }
 
-        case TSKind::TSB: {
-            auto bundle = self.try_as_bundle();
-            if (!bundle.has_value()) {
-                return;
+    if (auto dict = self.try_as_dict(); dict.has_value()) {
+        nb::list keys = tsd_keys_python(self.as_ts_view());
+        for (const auto& key : keys) {
+            nb::object key_obj = nb::cast<nb::object>(key);
+            auto key_value = dict_key_value_from_python(self.as_ts_view(), key_obj);
+            if (key_value.has_value()) {
+                dict->remove(key_value->view());
             }
-            const size_t n = bundle->count();
-            for (size_t i = 0; i < n; ++i) {
-                TSOutputView child = bundle->at(i);
-                clear_output(child);
-            }
-            return;
         }
-
-        case TSKind::TSD: {
-            auto dict = self.try_as_dict();
-            if (!dict.has_value()) {
-                return;
-            }
-
-            nb::list keys = tsd_keys_python(self.as_ts_view());
-            for (const auto& key : keys) {
-                nb::object key_obj = nb::cast<nb::object>(key);
-                auto key_value = dict_key_value_from_python(self.as_ts_view(), key_obj);
-                if (key_value.has_value()) {
-                    dict->remove(key_value->view());
-                }
-            }
-            return;
-        }
-
-        default:
-            return;
+        return;
     }
 }
 
@@ -1463,7 +1488,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
                 return nullptr;
             }
             // Contract view: TSD link shape is collection-level leaf.
-            if (meta->kind == TSKind::TSD) {
+            if (const ts_ops* ops = get_ts_ops(meta); ops != nullptr && ops->dict_ops() != nullptr) {
                 return value::TypeRegistry::instance().get_by_name("REFLink");
             }
             return TSMetaSchemaCache::instance().get(meta).link_schema;
@@ -1477,7 +1502,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
                 return nullptr;
             }
             // Contract view: TSD input link shape is collection-level leaf.
-            if (meta->kind == TSKind::TSD) {
+            if (const ts_ops* ops = get_ts_ops(meta); ops != nullptr && ops->dict_ops() != nullptr) {
                 return value::TypeRegistry::instance().get_by_name("LinkTarget");
             }
             return TSMetaSchemaCache::instance().get(meta).input_link_schema;
@@ -1649,10 +1674,10 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         }, "index"_a,
              nb::keep_alive<0, 1>())
         .def("__getitem__", [](const TSOutputView& self, std::string_view name) {
-            if (self.as_ts_view().kind() == TSKind::TSB) {
-                return self.as_bundle().field(name);
+            if (auto bundle = self.try_as_bundle(); bundle.has_value()) {
+                return bundle->field(name);
             }
-            if (self.as_ts_view().kind() == TSKind::TSD) {
+            if (self.try_as_dict().has_value()) {
                 return dict_output_at_key_object(self, nb::str(std::string(name).c_str()));
             }
             return TSOutputView{};
@@ -1662,15 +1687,12 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             return dict.has_value() ? dict->at_key(key) : TSOutputView{};
         }, "key"_a, nb::keep_alive<0, 1>())
         .def("__getitem__", [](const TSOutputView& self, const nb::object& key) {
-            if (self.as_ts_view().kind() == TSKind::TSD) {
+            if (self.try_as_dict().has_value()) {
                 return dict_output_at_key_object(self, key);
             }
             return TSOutputView{};
         }, "key"_a, nb::keep_alive<0, 1>())
         .def("__setitem__", [](TSOutputView& self, const nb::object& key, const nb::object& value_obj) {
-            if (self.as_ts_view().kind() != TSKind::TSD) {
-                return;
-            }
             auto key_value = dict_key_value_from_python(self.as_ts_view(), key);
             if (!key_value.has_value()) {
                 return;
@@ -1682,9 +1704,6 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             }
         }, "key"_a, "value"_a)
         .def("__delitem__", [](TSOutputView& self, const nb::object& key) {
-            if (self.as_ts_view().kind() != TSKind::TSD) {
-                return;
-            }
             auto key_value = dict_key_value_from_python(self.as_ts_view(), key);
             if (!key_value.has_value()) {
                 return;
@@ -1695,9 +1714,6 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             }
         }, "key"_a)
         .def("__contains__", [](const TSOutputView& self, const nb::object& key) {
-            if (self.as_ts_view().kind() != TSKind::TSD) {
-                return false;
-            }
             return dict_contains_python_key(self.as_ts_view(), key);
         }, "key"_a)
         .def("fq_path_str", [](const TSOutputView& self) { return self.fq_path().to_string(); })
@@ -1741,7 +1757,16 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("is_dict", [](const TSOutputView& self) { return self.as_ts_view().is_dict(); })
         .def("is_list", [](const TSOutputView& self) { return self.as_ts_view().is_list(); })
         .def("is_bundle", [](const TSOutputView& self) { return self.as_ts_view().is_bundle(); })
-        .def_prop_ro("is_reference", [](const TSOutputView& self) { return self.as_ts_view().kind() == TSKind::REF; })
+        .def_prop_ro("is_reference", [](const TSOutputView& self) {
+            const ts_ops* ops = self.as_ts_view().view_data().ops;
+            return ops != nullptr &&
+                   ops->ref_payload_to_python != nullptr &&
+                   ops->window_ops() == nullptr &&
+                   ops->set_ops() == nullptr &&
+                   ops->dict_ops() == nullptr &&
+                   ops->list_ops() == nullptr &&
+                   ops->bundle_ops() == nullptr;
+        })
         .def("set_sampled", [](TSOutputView& self, bool sampled) {
             self.as_ts_view().view_data().sampled = sampled;
         }, "sampled"_a)
@@ -1811,10 +1836,10 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             return set_output_add(self, elem_obj);
         }, "elem"_a)
         .def("remove", [](TSOutputView& self, const nb::object& elem_obj) {
-            if (self.as_ts_view().kind() == TSKind::TSS) {
+            if (self.try_as_set().has_value()) {
                 return set_output_remove(self, elem_obj);
             }
-            if (self.as_ts_view().kind() == TSKind::TSD) {
+            if (self.try_as_dict().has_value()) {
                 auto key_value = dict_key_value_from_python(self.as_ts_view(), elem_obj);
                 if (!key_value.has_value()) {
                     return false;
@@ -1828,13 +1853,13 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             clear_output(self);
         })
         .def("added", [](const TSOutputView& self) -> nb::object {
-            if (self.as_ts_view().kind() != TSKind::TSS) {
+            if (!self.try_as_set().has_value()) {
                 return nb::set{};
             }
             return set_delta_attr_or_empty(self.delta_to_python(), "added");
         })
         .def("removed", [](const TSOutputView& self) -> nb::object {
-            if (self.as_ts_view().kind() != TSKind::TSS) {
+            if (!self.try_as_set().has_value()) {
                 return nb::set{};
             }
             return set_delta_attr_or_empty(self.delta_to_python(), "removed");
@@ -1859,9 +1884,6 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             tsd_release_ref_output(self, key, requester);
         }, "key"_a, "requester"_a)
         .def("get_or_create", [](TSOutputView& self, const nb::object& key) {
-            if (self.as_ts_view().kind() != TSKind::TSD) {
-                return TSOutputView{};
-            }
             auto key_value = dict_key_value_from_python(self.as_ts_view(), key);
             if (!key_value.has_value()) {
                 return TSOutputView{};
@@ -2073,10 +2095,10 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         }, "index"_a,
              nb::keep_alive<0, 1>())
         .def("__getitem__", [](const TSInputView& self, std::string_view name) {
-            if (self.as_ts_view().kind() == TSKind::TSB) {
-                return self.as_bundle().field(name);
+            if (auto bundle = self.try_as_bundle(); bundle.has_value()) {
+                return bundle->field(name);
             }
-            if (self.as_ts_view().kind() == TSKind::TSD) {
+            if (self.try_as_dict().has_value()) {
                 return dict_input_at_key_object(self, nb::str(std::string(name).c_str()));
             }
             return TSInputView{};
@@ -2086,15 +2108,12 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             return dict.has_value() ? dict->at_key(key) : TSInputView{};
         }, "key"_a, nb::keep_alive<0, 1>())
         .def("__getitem__", [](const TSInputView& self, const nb::object& key) {
-            if (self.as_ts_view().kind() == TSKind::TSD) {
+            if (self.try_as_dict().has_value()) {
                 return dict_input_at_key_object(self, key);
             }
             return TSInputView{};
         }, "key"_a, nb::keep_alive<0, 1>())
         .def("__contains__", [](const TSInputView& self, const nb::object& key) {
-            if (self.as_ts_view().kind() != TSKind::TSD) {
-                return false;
-            }
             return dict_contains_python_key(self.as_ts_view(), key);
         }, "key"_a)
         .def("fq_path_str", [](const TSInputView& self) { return self.fq_path().to_string(); })
@@ -2158,13 +2177,13 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         })
         .def("has_set_ops", [](const TSInputView& self) { return self.try_as_set().has_value(); })
         .def("added", [](const TSInputView& self) -> nb::object {
-            if (self.as_ts_view().kind() != TSKind::TSS) {
+            if (!self.try_as_set().has_value()) {
                 return nb::set{};
             }
             return set_delta_attr_or_empty(self.delta_to_python(), "added");
         })
         .def("removed", [](const TSInputView& self) -> nb::object {
-            if (self.as_ts_view().kind() != TSKind::TSS) {
+            if (!self.try_as_set().has_value()) {
                 return nb::set{};
             }
             return set_delta_attr_or_empty(self.delta_to_python(), "removed");

@@ -228,20 +228,8 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
                     return false;
                 }
 
-                switch (dispatch_meta_path_kind(cursor)) {
-                    case DispatchMetaPathKind::TSB:
-                        if (cursor->fields() == nullptr || index >= cursor->field_count()) {
-                            return false;
-                        }
-                        cursor = cursor->fields()[index].ts_type;
-                        continue;
-                    case DispatchMetaPathKind::TSLFixed:
-                    case DispatchMetaPathKind::TSLDynamic:
-                    case DispatchMetaPathKind::TSD:
-                        cursor = cursor->element_ts();
-                        continue;
-                    default:
-                        return false;
+                if (!dispatch_meta_step_child_no_ref(cursor, index)) {
+                    return false;
                 }
             }
             return dispatch_meta_is_ref(cursor);

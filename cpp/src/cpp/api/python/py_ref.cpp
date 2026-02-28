@@ -13,6 +13,28 @@ namespace hgraph
 {
 namespace
 {
+    bool meta_is_ref(const TSMeta* meta) {
+        const ts_ops* ops = get_ts_ops(meta);
+        return meta != nullptr && ops != nullptr && ops->kind == TSKind::REF;
+    }
+
+    bool meta_is_bundle(const TSMeta* meta) {
+        const ts_ops* ops = get_ts_ops(meta);
+        return meta != nullptr && ops != nullptr && ops->bundle_ops() != nullptr;
+    }
+
+    bool meta_is_dict(const TSMeta* meta) {
+        const ts_ops* ops = get_ts_ops(meta);
+        return meta != nullptr && ops != nullptr && ops->dict_ops() != nullptr;
+    }
+
+    const TSMeta* strip_ref_meta(const TSMeta* meta) {
+        while (meta_is_ref(meta)) {
+            meta = meta->element_ts();
+        }
+        return meta;
+    }
+
     const engine_time_t* resolve_bound_view_current_time_ptr(const ViewData& vd) {
         if (vd.engine_time_ptr != nullptr) {
             return vd.engine_time_ptr;
@@ -57,7 +79,7 @@ namespace
         const ViewData &source = input_view.as_ts_view().view_data();
         const TSMeta* meta = input_view.ts_meta();
         ViewData target{};
-        if (meta != nullptr && meta->kind == TSKind::REF) {
+        if (meta_is_ref(meta)) {
             if (!resolve_direct_bound_view_data(source, target)) {
                 return std::nullopt;
             }
@@ -72,7 +94,7 @@ namespace
 
     TimeSeriesReference make_reference_from_input_view(const TSInputView& input_view) {
         const TSMeta* meta = input_view.ts_meta();
-        if (meta != nullptr && meta->kind == TSKind::REF) {
+        if (meta_is_ref(meta)) {
             nb::object ref_obj = input_view.to_python();
             if (ref_obj.is_none()) {
                 return TimeSeriesReference::make();
@@ -142,7 +164,7 @@ namespace
                     if (std::getenv("HGRAPH_DEBUG_REF_OUTPUT") != nullptr) {
                         const TSMeta* root_meta = bound->meta;
                         const TSMeta* cur_meta = bound_view.ts_meta();
-                        const TSMeta* root_elem = (root_meta != nullptr && root_meta->kind == TSKind::TSD) ? root_meta->element_ts() : nullptr;
+                        const TSMeta* root_elem = meta_is_dict(root_meta) ? root_meta->element_ts() : nullptr;
                         std::fprintf(stderr,
                                      "[ref_output] path=%s idx_count=%zu root_kind=%d root_elem_kind=%d cur_kind=%d current=%lld\n",
                                      bound->path.to_string().c_str(),
@@ -227,11 +249,8 @@ namespace
             .def("items", [](const PyTimeSeriesReferenceOutput& self) -> nb::object {
                 nb::list out;
                 const TSView& base_view = self.output_view().as_ts_view();
-                const TSMeta* meta = base_view.ts_meta();
-                while (meta != nullptr && meta->kind == TSKind::REF) {
-                    meta = meta->element_ts();
-                }
-                if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+                const TSMeta* meta = strip_ref_meta(base_view.ts_meta());
+                if (!meta_is_bundle(meta) || meta->fields() == nullptr) {
                     return out;
                 }
 
@@ -252,17 +271,14 @@ namespace
             })
             .def("__getitem__", [](const PyTimeSeriesReferenceOutput& self, const nb::object& key) -> nb::object {
                 const TSView& base_view = self.output_view().as_ts_view();
-                const TSMeta* meta = base_view.ts_meta();
-                while (meta != nullptr && meta->kind == TSKind::REF) {
-                    meta = meta->element_ts();
-                }
+                const TSMeta* meta = strip_ref_meta(base_view.ts_meta());
 
                 TSView child{};
 
                 if (nb::isinstance<nb::int_>(key)) {
                     child = base_view.child_at(nb::cast<size_t>(key));
                 } else if (nb::isinstance<nb::str>(key)) {
-                    if (meta == nullptr || meta->kind != TSKind::TSB || meta->fields() == nullptr) {
+                    if (!meta_is_bundle(meta) || meta->fields() == nullptr) {
                         throw nb::key_error();
                     }
                     const std::string field_name = nb::cast<std::string>(key);
@@ -280,7 +296,7 @@ namespace
                         throw nb::key_error();
                     }
                     child = base_view.child_at(field_index);
-                } else if (meta != nullptr && meta->kind == TSKind::TSD && meta->key_type() != nullptr) {
+                } else if (meta_is_dict(meta) && meta->key_type() != nullptr) {
                     value::Value key_value(meta->key_type());
                     key_value.emplace();
                     meta->key_type()->ops().from_python(key_value.data(), key, meta->key_type());
@@ -306,11 +322,11 @@ namespace
         if (auto target = resolve_bound_target_view(input_view()); target.has_value()) {
             TSView target_view(*target, input_view().as_ts_view().view_data().engine_time_ptr);
             const TSMeta* target_meta = target_view.ts_meta();
-            if (target_meta != nullptr && target_meta->kind != TSKind::REF) {
+            if (!meta_is_ref(target_meta)) {
                 return nb::cast(TimeSeriesReference::make(*target));
             }
 
-            if (target_meta != nullptr && target_meta->kind == TSKind::REF && target->ops != nullptr) {
+            if (meta_is_ref(target_meta) && target->ops != nullptr) {
                 nb::object target_value = target->ops->to_python(*target);
                 if (target_value.is_none()) {
                     return nb::cast(TimeSeriesReference::make());
