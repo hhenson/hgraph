@@ -15,7 +15,6 @@
 #include <cstdlib>
 #include <optional>
 #include <stdexcept>
-#include <typeinfo>
 #include <utility>
 
 namespace hgraph
@@ -61,55 +60,19 @@ namespace
             }
             return ts_view.to_python();
         };
-        const auto value_from_output_view = [&](const TSOutputView& output_view) -> nb::object {
-            const TSView& ts_view = output_view.as_ts_view();
-            const TSMeta* meta = ts_view.ts_meta();
-            if (meta != nullptr && meta->kind == TSKind::TSValue && !ts_view.valid()) {
-                return nb::none();
-            }
-            return output_view.to_python();
-        };
 
         if (auto* ref_input = dynamic_cast<const PyTimeSeriesReferenceInput*>(this)) {
             return ref_input->ref_value();
-        }
-        if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
-            return value_from_view(input->input_view().as_ts_view());
-        }
-        if (auto* output = dynamic_cast<const PyTimeSeriesOutput*>(this)) {
-            return value_from_output_view(output->output_view());
         }
         return value_from_view(view());
     }
 
     nb::object PyTimeSeriesType::delta_value() const {
         const bool debug_delta_dispatch = std::getenv("HGRAPH_DEBUG_TS_DELTA_DISPATCH") != nullptr;
-        if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
-            nb::object out = input->input_view().as_ts_view().delta_to_python();
-            if (debug_delta_dispatch) {
-                std::fprintf(stderr,
-                             "[ts_delta_dispatch] kind=input type=%s path=%s out=%s\n",
-                             typeid(*input).name(),
-                             input->input_view().short_path().to_string().c_str(),
-                             nb::cast<std::string>(nb::repr(out)).c_str());
-            }
-            return out;
-        }
-        if (auto* output = dynamic_cast<const PyTimeSeriesOutput*>(this)) {
-            nb::object out = output->output_view().delta_to_python();
-            if (debug_delta_dispatch) {
-                std::fprintf(stderr,
-                             "[ts_delta_dispatch] kind=output type=%s path=%s out=%s\n",
-                             typeid(*output).name(),
-                             output->output_view().short_path().to_string().c_str(),
-                             nb::cast<std::string>(nb::repr(out)).c_str());
-            }
-            return out;
-        }
         nb::object out = view().delta_to_python();
         if (debug_delta_dispatch) {
             std::fprintf(stderr,
-                         "[ts_delta_dispatch] kind=base path=%s out=%s\n",
+                         "[ts_delta_dispatch] kind=view path=%s out=%s\n",
                          view().short_path().to_string().c_str(),
                          nb::cast<std::string>(nb::repr(out)).c_str());
         }
@@ -117,44 +80,14 @@ namespace
     }
 
     engine_time_t PyTimeSeriesType::last_modified_time() const {
-        if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
-            if (input_kind_requires_bound_validity(input->input_view()) &&
-                !input_has_effective_bound_target(input->input_view())) {
-                return MIN_DT;
-            }
-            return input->input_view().as_ts_view().last_modified_time();
-        }
-        if (auto* output = dynamic_cast<const PyTimeSeriesOutput*>(this)) {
-            return output->output_view().as_ts_view().last_modified_time();
-        }
         return view().last_modified_time();
     }
 
     nb::bool_ PyTimeSeriesType::valid() const {
-        if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
-            if (input_kind_requires_bound_validity(input->input_view()) &&
-                !input_has_effective_bound_target(input->input_view())) {
-                return nb::bool_(false);
-            }
-            return nb::bool_(input->input_view().as_ts_view().valid());
-        }
-        if (auto* output = dynamic_cast<const PyTimeSeriesOutput*>(this)) {
-            return nb::bool_(output->output_view().as_ts_view().valid());
-        }
         return nb::bool_(view().valid());
     }
 
     nb::bool_ PyTimeSeriesType::all_valid() const {
-        if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
-            if (input_kind_requires_bound_validity(input->input_view()) &&
-                !input_has_effective_bound_target(input->input_view())) {
-                return nb::bool_(false);
-            }
-            return nb::bool_(input->input_view().as_ts_view().all_valid());
-        }
-        if (auto* output = dynamic_cast<const PyTimeSeriesOutput*>(this)) {
-            return nb::bool_(output->output_view().as_ts_view().all_valid());
-        }
         return nb::bool_(view().all_valid());
     }
 
@@ -164,16 +97,6 @@ namespace
     }
 
     nb::bool_ PyTimeSeriesType::modified() const {
-        if (auto* input = dynamic_cast<const PyTimeSeriesInput*>(this)) {
-            if (input_kind_requires_bound_validity(input->input_view()) &&
-                !input_has_effective_bound_target(input->input_view())) {
-                return nb::bool_(false);
-            }
-            return nb::bool_(input->input_view().as_ts_view().modified());
-        }
-        if (auto* output = dynamic_cast<const PyTimeSeriesOutput*>(this)) {
-            return nb::bool_(output->output_view().as_ts_view().modified());
-        }
         return nb::bool_(view().modified());
     }
 
