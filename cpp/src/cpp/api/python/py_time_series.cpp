@@ -105,6 +105,14 @@ namespace
             }
             return ts_view.to_python();
         };
+        const auto value_from_output_view = [&](const TSOutputView& output_view) -> nb::object {
+            const TSView& ts_view = output_view.as_ts_view();
+            const TSMeta* meta = ts_view.ts_meta();
+            if (meta != nullptr && meta->kind == TSKind::TSValue && !ts_view.valid()) {
+                return nb::none();
+            }
+            return output_view.to_python();
+        };
 
         if (auto* ref_input = dynamic_cast<const PyTimeSeriesReferenceInput*>(this)) {
             return ref_input->ref_value();
@@ -113,7 +121,7 @@ namespace
             return value_from_view(input->input_view().as_ts_view());
         }
         if (auto* output = dynamic_cast<const PyTimeSeriesOutput*>(this)) {
-            return value_from_view(output->output_view().as_ts_view());
+            return value_from_output_view(output->output_view());
         }
         return value_from_view(view());
     }
@@ -132,7 +140,7 @@ namespace
             return out;
         }
         if (auto* output = dynamic_cast<const PyTimeSeriesOutput*>(this)) {
-            nb::object out = output->output_view().as_ts_view().delta_to_python();
+            nb::object out = output->output_view().delta_to_python();
             if (debug_delta_dispatch) {
                 std::fprintf(stderr,
                              "[ts_delta_dispatch] kind=output type=%s path=%s out=%s\n",

@@ -319,17 +319,17 @@ DeltaView TSView::delta_view() const {
 }
 
 nb::object TSView::to_python() const {
-    if (view_data_.ops == nullptr || view_data_.ops->to_python == nullptr) {
+    if (view_data_.ops == nullptr) {
         return nb::none();
     }
-    return view_data_.ops->to_python(view_data_);
+    return op_to_python(view_data_);
 }
 
 nb::object TSView::delta_to_python() const {
-    if (view_data_.ops == nullptr || view_data_.ops->delta_to_python == nullptr) {
+    if (view_data_.ops == nullptr) {
         return nb::none();
     }
-    return view_data_.ops->delta_to_python(view_data_, current_time());
+    return op_delta_to_python(view_data_, current_time());
 }
 
 void TSView::set_value(const value::View& src) {
@@ -340,10 +340,10 @@ void TSView::set_value(const value::View& src) {
 }
 
 void TSView::from_python(const nb::object& src) {
-    if (view_data_.ops == nullptr || view_data_.ops->from_python == nullptr) {
+    if (view_data_.ops == nullptr) {
         return;
     }
-    view_data_.ops->from_python(view_data_, src, current_time());
+    op_from_python(view_data_, src, current_time());
 }
 
 void TSView::apply_delta(const value::View& delta) {
@@ -643,6 +643,22 @@ ShortPath TSOutputView::short_path() const {
     return owner_->to_short_path(ts_view_);
 }
 
+nb::object TSOutputView::to_python() const {
+    return ts_view_.to_python();
+}
+
+nb::object TSOutputView::delta_to_python() const {
+    return ts_view_.delta_to_python();
+}
+
+void TSOutputView::set_value(const value::View& src) {
+    ts_view_.set_value(src);
+}
+
+void TSOutputView::from_python(const nb::object& src) {
+    ts_view_.from_python(src);
+}
+
 void TSOutputView::copy_from_input(const TSInputView& input) {
     ViewData dst = ts_view_.view_data();
     const ViewData& src = input.as_ts_view().view_data();
@@ -653,6 +669,18 @@ void TSOutputView::copy_from_output(const TSOutputView& output) {
     ViewData dst = ts_view_.view_data();
     const ViewData& src = output.as_ts_view().view_data();
     copy_view_data_value(dst, src, current_time());
+}
+
+void TSOutputView::apply_delta(const value::View& delta) {
+    ts_view_.apply_delta(delta);
+}
+
+void TSOutputView::apply_delta(const DeltaView& delta) {
+    ts_view_.apply_delta(delta);
+}
+
+void TSOutputView::invalidate() {
+    ts_view_.invalidate();
 }
 
 TSOutputView TSOutputView::field(std::string_view name) const {

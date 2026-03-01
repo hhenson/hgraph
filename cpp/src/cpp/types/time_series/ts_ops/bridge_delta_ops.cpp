@@ -18,8 +18,8 @@ nb::object tsd_bridge_delta_to_python(const ViewData& previous_data,
 
         TimeSeriesReference ref = nb::cast<TimeSeriesReference>(entry.to_python());
         if (const ViewData* target = ref.bound_view(); target != nullptr &&
-            target->ops != nullptr && target->ops->to_python != nullptr) {
-            return target->ops->to_python(*target);
+            target->ops != nullptr) {
+            return op_to_python(*target);
         }
         return nb::none();
     };

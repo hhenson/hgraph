@@ -7,6 +7,7 @@ option(HGRAPH_WITH_BACKWARD "Enable backward-cpp stack traces" ON)
 option(HGRAPH_ENABLE_ASAN "Enable AddressSanitizer (address + leaks)" OFF)
 option(HGRAPH_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(HGRAPH_ENABLE_TSAN "Enable ThreadSanitizer (mutually exclusive with ASAN/UBSAN)" OFF)
+option(HGRAPH_ENABLE_PY_CACHE_STATS "Enable Python value-cache performance counters" OFF)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -310,6 +311,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/schema_type.h
         include/hgraph/types/traits.h
         include/hgraph/types/time_series/observer_list.h
+        include/hgraph/types/time_series/python_value_cache_stats.h
         include/hgraph/types/time_series/link_target.h
         include/hgraph/types/time_series/ref_link.h
         include/hgraph/types/time_series/ts_input.h

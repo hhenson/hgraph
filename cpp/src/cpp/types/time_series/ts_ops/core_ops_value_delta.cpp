@@ -59,6 +59,7 @@ View op_value_ref(const ViewData& vd) {
                                lhs.observer_data == rhs.observer_data &&
                                lhs.delta_data == rhs.delta_data &&
                                lhs.link_data == rhs.link_data &&
+                               lhs.python_value_cache_data == rhs.python_value_cache_data &&
                                lhs.path.indices == rhs.path.indices;
                     };
                     if (const ViewData* local_target = ref.bound_view(); local_target != nullptr) {
@@ -102,6 +103,7 @@ View op_value_ref(const ViewData& vd) {
         const bool same_view = resolved.value_data == vd.value_data &&
                                resolved.time_data == vd.time_data &&
                                resolved.link_data == vd.link_data &&
+                               resolved.python_value_cache_data == vd.python_value_cache_data &&
                                resolved.path.indices == vd.path.indices;
         if (!same_view) {
             const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
@@ -431,6 +433,7 @@ void op_set_value(ViewData& vd, const View& src, engine_time_t current_time) {
     if (value_root == nullptr || value_root->schema() == nullptr) {
         return;
     }
+    invalidate_python_value_cache(vd);
 
     if (!value_root->has_value()) {
         value_root->emplace();
@@ -466,6 +469,7 @@ void op_apply_delta_container(ViewData& vd, const View& delta, engine_time_t cur
     if (delta_root == nullptr || delta_root->schema() == nullptr) {
         return;
     }
+    invalidate_python_value_cache(vd);
 
     if (!delta_root->has_value()) {
         delta_root->emplace();
@@ -502,6 +506,7 @@ void op_invalidate(ViewData& vd) {
     if (value_root == nullptr) {
         return;
     }
+    invalidate_python_value_cache(vd);
 
     const engine_time_t current_time = view_evaluation_time(vd);
 
@@ -519,6 +524,7 @@ void op_invalidate_tsd(ViewData& vd) {
     if (value_root == nullptr) {
         return;
     }
+    invalidate_python_value_cache(vd);
 
     const engine_time_t current_time = view_evaluation_time(vd);
     if (current_time != MIN_DT) {
@@ -562,6 +568,7 @@ bool reset_root_value_and_delta_on_none(ViewData& vd,
     if (!vd.path.indices.empty() || !src.is_none()) {
         return false;
     }
+    invalidate_python_value_cache(vd);
 
     if (auto* value_root = static_cast<Value*>(vd.value_data); value_root != nullptr) {
         value_root->reset();

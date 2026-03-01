@@ -36,6 +36,7 @@ uint8_t build_link_observer_notify_policy(const TSMeta* observer_meta, const TSM
 }  // namespace
 
 void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
+    invalidate_python_value_cache(vd);
     const bool debug_op_bind = std::getenv("HGRAPH_DEBUG_OP_BIND") != nullptr;
     bool used_ancestor_meta = false;
     const TSMeta* current = resolve_meta_or_ancestor(vd, used_ancestor_meta);
@@ -224,6 +225,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
                                 parent_link->observer_data == target.observer_data &&
                                 parent_link->delta_data == target.delta_data &&
                                 parent_link->link_data == target.link_data &&
+                                parent_link->python_value_cache_data == target.python_value_cache_data &&
                                 !dispatch_meta_is_ref(parent_target_meta);
                         }
 
@@ -276,6 +278,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
 }
 
 void op_unbind(ViewData& vd, engine_time_t current_time) {
+    invalidate_python_value_cache(vd);
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
 
     if (vd.uses_link_target) {

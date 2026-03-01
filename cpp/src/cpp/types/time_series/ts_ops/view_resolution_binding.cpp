@@ -165,6 +165,7 @@ bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
            lhs.observer_data == rhs.observer_data &&
            lhs.delta_data == rhs.delta_data &&
            lhs.link_data == rhs.link_data &&
+           lhs.python_value_cache_data == rhs.python_value_cache_data &&
            lhs.link_observer_registry == rhs.link_observer_registry &&
            lhs.projection == rhs.projection &&
            lhs.path.indices == rhs.path.indices;
@@ -176,6 +177,7 @@ bool same_or_descendant_view(const ViewData& base, const ViewData& candidate) {
            base.observer_data == candidate.observer_data &&
            base.delta_data == candidate.delta_data &&
            base.link_data == candidate.link_data &&
+           base.python_value_cache_data == candidate.python_value_cache_data &&
            base.link_observer_registry == candidate.link_observer_registry &&
            base.projection == candidate.projection &&
            is_prefix_path(base.path.indices, candidate.path.indices);
@@ -335,7 +337,7 @@ bool resolve_ref_bound_target_view_data(const ViewData& ref_view, ViewData& out)
         std::string bound_repr{"<none>"};
         if (bound->ops != nullptr && bound->ops->to_python != nullptr) {
             try {
-                bound_repr = nb::cast<std::string>(nb::repr(bound->ops->to_python(*bound)));
+                bound_repr = nb::cast<std::string>(nb::repr(op_to_python(*bound)));
             } catch (...) {
                 bound_repr = "<repr_error>";
             }

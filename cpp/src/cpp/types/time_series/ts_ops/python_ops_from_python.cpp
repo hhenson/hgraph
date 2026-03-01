@@ -12,6 +12,7 @@ void op_from_python_scalar(ViewData& vd, const nb::object& src, engine_time_t cu
         auto* value_root = static_cast<Value*>(vd.value_data);
         if (value_root != nullptr) {
             value_root->reset();
+            seed_python_value_cache_slot(vd, nb::none());
             stamp_time_paths(vd, current_time);
             notify_link_target_observers(vd, current_time);
         }
@@ -22,6 +23,7 @@ void op_from_python_scalar(ViewData& vd, const nb::object& src, engine_time_t cu
         // Non-root TS assignments of None invalidate the leaf while still
         // ticking parent containers in this cycle.
         maybe_dst->from_python(src);
+        seed_python_value_cache_slot(vd, nb::none());
         stamp_time_paths(vd, current_time);
         set_leaf_time_path(vd, MIN_DT);
         mark_tsd_parent_child_modified(vd, current_time);
@@ -30,6 +32,7 @@ void op_from_python_scalar(ViewData& vd, const nb::object& src, engine_time_t cu
     }
 
     maybe_dst->from_python(src);
+    seed_python_value_cache_slot(vd, maybe_dst->valid() ? maybe_dst->to_python() : nb::none());
     stamp_time_paths(vd, current_time);
     mark_tsd_parent_child_modified(vd, current_time);
     notify_link_target_observers(vd, current_time);
@@ -37,12 +40,13 @@ void op_from_python_scalar(ViewData& vd, const nb::object& src, engine_time_t cu
 
 void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
     bind_view_data_ops(vd);
+    invalidate_python_value_cache(vd);
+    vd.python_value_cache_slot = resolve_python_value_cache_slot(vd, true);
     if (vd.ops != nullptr && vd.ops->from_python != nullptr) {
         vd.ops->from_python(vd, src, current_time);
-        return;
+    } else {
+        op_from_python_scalar(vd, src, current_time);
     }
-
-    op_from_python_scalar(vd, src, current_time);
 }
 
 }  // namespace hgraph

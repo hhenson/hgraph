@@ -16,6 +16,7 @@ bool op_set_add(ViewData& vd, const View& elem, engine_time_t current_time) {
     if (!added) {
         return false;
     }
+    invalidate_python_value_cache(vd);
 
     mark_tsd_parent_child_modified(vd, current_time);
 
@@ -64,6 +65,7 @@ bool op_set_remove(ViewData& vd, const View& elem, engine_time_t current_time) {
     if (!removed) {
         return false;
     }
+    invalidate_python_value_cache(vd);
 
     mark_tsd_parent_child_modified(vd, current_time);
 
@@ -108,6 +110,7 @@ void op_set_clear(ViewData& vd, engine_time_t current_time) {
     if (set.size() == 0) {
         return;
     }
+    invalidate_python_value_cache(vd);
 
     std::vector<Value> existing_values;
     existing_values.reserve(set.size());

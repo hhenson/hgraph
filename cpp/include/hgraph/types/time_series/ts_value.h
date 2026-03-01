@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/python_value_cache.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/value/value.h>
@@ -27,7 +28,7 @@ public:
     TSValue& operator=(const TSValue&) = delete;
     TSValue(TSValue&&) noexcept = default;
     TSValue& operator=(TSValue&&) noexcept = default;
-    ~TSValue() = default;
+    ~TSValue();
 
     [[nodiscard]] const TSMeta* meta() const noexcept { return meta_; }
     [[nodiscard]] bool uses_link_target() const noexcept { return uses_link_target_; }
@@ -68,6 +69,7 @@ private:
     value::Value observer_;
     value::Value delta_value_;
     value::Value link_;
+    mutable PythonValueCacheNode python_value_cache_{};
 
     const TSMeta* meta_{nullptr};
     bool uses_link_target_{false};

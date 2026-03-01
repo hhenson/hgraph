@@ -85,6 +85,7 @@ set(HGRAPH_SOURCES
         types/value/view_range.cpp
         types/time_series/link_observer_registry.cpp
         types/time_series/link_target.cpp
+        types/time_series/python_value_cache_stats.cpp
         types/time_series/ref_link.cpp
         types/time_series/ts_input.cpp
         types/time_series/ts_meta_schema_cache.cpp
@@ -153,6 +154,10 @@ if (HGRAPH_WITH_BACKWARD)
     target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_BACKWARD=1)
 else ()
     target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_BACKWARD=0)
+endif ()
+
+if (HGRAPH_ENABLE_PY_CACHE_STATS)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_ENABLE_PY_CACHE_STATS=1)
 endif ()
 
 # Suppress benign fmt warning on GCC/Clang for this target only (avoid touching ALIAS/IMPORTED fmt targets)

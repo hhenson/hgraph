@@ -116,6 +116,7 @@ void LinkTarget::copy_target_data_from(const LinkTarget& other) {
     observer_data = other.observer_data;
     delta_data = other.delta_data;
     link_data = other.link_data;
+    python_value_cache_data = other.python_value_cache_data;
     engine_time_ptr = other.engine_time_ptr;
     link_observer_registry = other.link_observer_registry;
     projection = other.projection;
@@ -151,6 +152,7 @@ void LinkTarget::clear_target_data() {
     observer_data = nullptr;
     delta_data = nullptr;
     link_data = nullptr;
+    python_value_cache_data = nullptr;
     engine_time_ptr = nullptr;
     link_observer_registry = nullptr;
     projection = ViewProjection::NONE;
@@ -175,6 +177,7 @@ void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
         observer_data == target.observer_data &&
         delta_data == target.delta_data &&
         link_data == target.link_data &&
+        python_value_cache_data == target.python_value_cache_data &&
         engine_time_ptr == bind_engine_time_ptr &&
         link_observer_registry == target.link_observer_registry &&
         projection == target.projection &&
@@ -202,6 +205,7 @@ void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
     observer_data = target.observer_data;
     delta_data = target.delta_data;
     link_data = target.link_data;
+    python_value_cache_data = target.python_value_cache_data;
     engine_time_ptr = bind_engine_time_ptr;
     link_observer_registry = target.link_observer_registry;
     projection = target.projection;
@@ -263,6 +267,8 @@ ViewData LinkTarget::as_view_data(bool sampled) const {
     vd.observer_data = observer_data;
     vd.delta_data = delta_data;
     vd.link_data = link_data;
+    vd.python_value_cache_data = python_value_cache_data;
+    vd.python_value_cache_slot = nullptr;
     vd.link_observer_registry = link_observer_registry;
     vd.sampled = sampled;
     vd.uses_link_target = false;

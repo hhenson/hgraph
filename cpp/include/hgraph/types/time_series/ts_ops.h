@@ -168,6 +168,9 @@ HGRAPH_EXPORT std::optional<TSView> resolve_tsd_removed_child_snapshot(
     engine_time_t current_time);
 HGRAPH_EXPORT void copy_view_data_value(ViewData& dst, const ViewData& src, engine_time_t current_time);
 HGRAPH_EXPORT void notify_ts_link_observers(const ViewData& target_view, engine_time_t current_time);
+HGRAPH_EXPORT nb::object op_to_python(const ViewData& vd);
+HGRAPH_EXPORT nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time);
+HGRAPH_EXPORT void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_time);
 
 /**
  * Register/unregister a link observer against endpoint-owned TS observer registries.

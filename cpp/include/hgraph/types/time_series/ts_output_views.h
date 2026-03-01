@@ -62,16 +62,16 @@ public:
     [[nodiscard]] value::View value() const { return ts_view_.value(); }
     [[nodiscard]] value::View delta_value() const { return ts_view_.delta_value(); }
     [[nodiscard]] DeltaView delta_view() const { return ts_view_.delta_view(); }
-    [[nodiscard]] nb::object to_python() const { return ts_view_.to_python(); }
-    [[nodiscard]] nb::object delta_to_python() const { return ts_view_.delta_to_python(); }
+    [[nodiscard]] nb::object to_python() const;
+    [[nodiscard]] nb::object delta_to_python() const;
 
-    void set_value(const value::View& src) { ts_view_.set_value(src); }
-    void from_python(const nb::object& src) { ts_view_.from_python(src); }
+    void set_value(const value::View& src);
+    void from_python(const nb::object& src);
     void copy_from_input(const TSInputView& input);
     void copy_from_output(const TSOutputView& output);
-    void apply_delta(const value::View& delta) { ts_view_.apply_delta(delta); }
-    void apply_delta(const DeltaView& delta) { ts_view_.apply_delta(delta); }
-    void invalidate() { ts_view_.invalidate(); }
+    void apply_delta(const value::View& delta);
+    void apply_delta(const DeltaView& delta);
+    void invalidate();
 
     [[nodiscard]] TSOutputView field(std::string_view name) const;
     [[nodiscard]] TSOutputView at(size_t index) const;

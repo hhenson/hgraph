@@ -1,6 +1,28 @@
 #include "ts_ops_internal.h"
 
 namespace hgraph {
+
+namespace {
+
+bool allow_link_target_cache_for_meta(const TSMeta* meta) {
+    if (meta == nullptr || dispatch_meta_is_ref(meta)) {
+        return false;
+    }
+    if (!dispatch_meta_is_scalar_like(meta)) {
+        return false;
+    }
+    // Dynamic container wrappers have input-side semantics that can differ from
+    // bound source payloads (for example set/dict delta accumulation).
+    if (dispatch_meta_is_dynamic_container(meta)) {
+        return false;
+    }
+    return true;
+}
+
+nb::object op_to_python_uncached_impl(const ViewData& vd);
+
+}  // namespace
+
 nb::object op_to_python_ref(const ViewData& vd) {
     if (auto local = resolve_value_slot_const(vd);
         local.has_value() &&
@@ -122,12 +144,12 @@ nb::object op_to_python_tsl(const ViewData& vd) {
     for (size_t i = 0; i < n; ++i) {
         ViewData child = vd;
         child.path.indices.push_back(i);
-        nb::object child_py = op_valid(child) ? op_to_python(child) : nb::none();
+        nb::object child_py = op_valid(child) ? op_to_python_uncached_impl(child) : nb::none();
         if (!child_py.is_none()) {
             try {
                 TimeSeriesReference ref = nb::cast<TimeSeriesReference>(child_py);
                 if (const ViewData* target = ref.bound_view(); target != nullptr) {
-                    child_py = op_to_python(*target);
+                    child_py = op_to_python_uncached_impl(*target);
                 } else {
                     child_py = nb::none();
                 }
@@ -153,12 +175,12 @@ nb::object op_to_python_tsb(const ViewData& vd) {
         if (!op_valid(child)) {
             return;
         }
-        nb::object child_py = op_to_python(child);
+        nb::object child_py = op_to_python_uncached_impl(child);
         if (!child_py.is_none()) {
             try {
                 TimeSeriesReference ref = nb::cast<TimeSeriesReference>(child_py);
                 if (const ViewData* target = ref.bound_view(); target != nullptr) {
-                    child_py = op_to_python(*target);
+                    child_py = op_to_python_uncached_impl(*target);
                 } else {
                     child_py = nb::none();
                 }
@@ -235,7 +257,7 @@ nb::object op_to_python_tsd(const ViewData& vd) {
                 if (!op_valid(child)) {
                     return;
                 }
-                nb::object child_py = op_to_python(child);
+                nb::object child_py = op_to_python_uncached_impl(child);
                 if (child_py.is_none()) {
                     return;
                 }
@@ -243,7 +265,7 @@ nb::object op_to_python_tsd(const ViewData& vd) {
                 return;
             }
 
-            nb::object child_py = op_to_python(child);
+            nb::object child_py = op_to_python_uncached_impl(child);
             if (child_py.is_none()) {
                 return;
             }
@@ -263,13 +285,78 @@ nb::object op_to_python_default(const ViewData& vd) {
     return v.valid() ? v.to_python() : nb::none();
 }
 
-nb::object op_to_python(const ViewData& vd) {
+namespace {
+
+nb::object op_to_python_uncached_impl(const ViewData& vd) {
     ViewData dispatch_view = vd;
     bind_view_data_ops(dispatch_view);
     if (dispatch_view.ops != nullptr && dispatch_view.ops->to_python != nullptr) {
+        dispatch_view.python_value_cache_slot = nullptr;
         return dispatch_view.ops->to_python(dispatch_view);
     }
     return op_to_python_default(dispatch_view);
+}
+
+}  // namespace
+
+nb::object op_to_python(const ViewData& vd) {
+    ViewData dispatch_view = vd;
+    bind_view_data_ops(dispatch_view);
+    HGRAPH_PY_CACHE_STATS_INC_TO_PYTHON_CALLS();
+
+    // Cache is always safe for direct/local views.
+    //
+    // For link-target-backed views, only cache scalar-like non-REF reads and
+    // key them to the resolved source view. Dynamic container wrappers are
+    // intentionally uncached because wrapper semantics can differ from source.
+    nb::object* cache_slot = nullptr;
+    if (dispatch_view.uses_link_target) {
+        const TSMeta* self_meta = meta_at_path(dispatch_view.meta, dispatch_view.path.indices);
+        if (allow_link_target_cache_for_meta(self_meta)) {
+            ViewData cache_view{};
+            if (resolve_read_view_data(dispatch_view, self_meta, cache_view)) {
+                bind_view_data_ops(cache_view);
+                HGRAPH_PY_CACHE_STATS_INC_ELIGIBLE_READS();
+                HGRAPH_PY_CACHE_STATS_INC_SLOT_LOOKUPS();
+                cache_slot = resolve_python_value_cache_slot(cache_view, true);
+                if (cache_slot == nullptr) {
+                    HGRAPH_PY_CACHE_STATS_INC_SLOT_LOOKUP_FAILURES();
+                }
+            } else {
+                HGRAPH_PY_CACHE_STATS_INC_LINK_TARGET_BYPASS_READS();
+            }
+        } else {
+            HGRAPH_PY_CACHE_STATS_INC_LINK_TARGET_BYPASS_READS();
+        }
+    } else {
+        HGRAPH_PY_CACHE_STATS_INC_ELIGIBLE_READS();
+        HGRAPH_PY_CACHE_STATS_INC_SLOT_LOOKUPS();
+        cache_slot = resolve_python_value_cache_slot(dispatch_view, true);
+        if (cache_slot == nullptr) {
+            HGRAPH_PY_CACHE_STATS_INC_SLOT_LOOKUP_FAILURES();
+        }
+    }
+    if (cache_slot != nullptr && cache_slot->is_valid()) {
+        HGRAPH_PY_CACHE_STATS_INC_CACHE_HITS();
+        return *cache_slot;
+    }
+    if (cache_slot != nullptr) {
+        HGRAPH_PY_CACHE_STATS_INC_CACHE_MISSES();
+    }
+
+    nb::object out = nb::none();
+    if (dispatch_view.ops != nullptr && dispatch_view.ops->to_python != nullptr) {
+        dispatch_view.python_value_cache_slot = cache_slot;
+        out = dispatch_view.ops->to_python(dispatch_view);
+    } else {
+        out = op_to_python_default(dispatch_view);
+    }
+
+    if (cache_slot != nullptr) {
+        *cache_slot = out;
+        HGRAPH_PY_CACHE_STATS_INC_CACHE_WRITES();
+    }
+    return out;
 }
 
 }  // namespace hgraph

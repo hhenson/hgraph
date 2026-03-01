@@ -520,7 +520,15 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::keys() const {
-        return tsd_keys_python(output_view().as_ts_view());
+        nb::object py_value = output_view().to_python();
+        if (py_value.is_none()) {
+            return nb::list{};
+        }
+        nb::object keys_method = nb::getattr(py_value, "keys", nb::none());
+        if (keys_method.is_none() || PyCallable_Check(keys_method.ptr()) == 0) {
+            return nb::list{};
+        }
+        return nb::list(keys_method());
     }
 
     nb::object PyTimeSeriesDictOutput::values() const {
@@ -532,7 +540,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::delta_value() const {
-        return output_view().as_ts_view().delta_to_python();
+        return output_view().delta_to_python();
     }
 
     nb::object PyTimeSeriesDictOutput::modified_keys() const {

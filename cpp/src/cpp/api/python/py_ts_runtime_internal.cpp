@@ -10,6 +10,7 @@
 #include <hgraph/types/time_series/ts_meta_schema_cache.h>
 #include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/python_value_cache_stats.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/ref.h>
@@ -880,15 +881,15 @@ private:
         }
         TSView out = output_value->ts_view(engine_time_ptr_);
         ViewData out_vd = out.view_data();
-        if (out_vd.ops == nullptr || out_vd.ops->from_python == nullptr) {
+        if (out_vd.ops == nullptr) {
             return;
         }
         const engine_time_t effective_time = stamp_time != MIN_DT ? stamp_time : out.current_time();
         if (target.has_value()) {
-            out_vd.ops->from_python(out_vd, nb::cast(TimeSeriesReference::make(*target)), effective_time);
+            op_from_python(out_vd, nb::cast(TimeSeriesReference::make(*target)), effective_time);
             return;
         }
-        out_vd.ops->from_python(out_vd, nb::cast(TimeSeriesReference::make()), effective_time);
+        op_from_python(out_vd, nb::cast(TimeSeriesReference::make()), effective_time);
     }
 
     void update_ref_output(const value::View& key, TSDRefOutputState& state, engine_time_t request_time) {
@@ -1399,6 +1400,33 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
     using namespace nanobind::literals;
 
     auto test_mod = m.def_submodule("_ts_runtime", "Private TS runtime scaffolding bindings for tests");
+    test_mod.def("python_value_cache_stats_enabled", []() { return python_value_cache_stats_enabled(); });
+    test_mod.def("reset_python_value_cache_stats", []() { reset_python_value_cache_stats(); });
+    test_mod.def("python_value_cache_stats", []() {
+        const PythonValueCacheStats stats = python_value_cache_stats_snapshot();
+        const double hit_rate = stats.eligible_reads > 0
+                                    ? static_cast<double>(stats.cache_hits) / static_cast<double>(stats.eligible_reads)
+                                    : 0.0;
+        const double coverage = stats.to_python_calls > 0
+                                    ? static_cast<double>(stats.eligible_reads) / static_cast<double>(stats.to_python_calls)
+                                    : 0.0;
+
+        nb::dict out;
+        out[nb::str("enabled")] = python_value_cache_stats_enabled();
+        out[nb::str("to_python_calls")] = stats.to_python_calls;
+        out[nb::str("eligible_reads")] = stats.eligible_reads;
+        out[nb::str("link_target_bypass_reads")] = stats.link_target_bypass_reads;
+        out[nb::str("slot_lookups")] = stats.slot_lookups;
+        out[nb::str("slot_lookup_failures")] = stats.slot_lookup_failures;
+        out[nb::str("cache_hits")] = stats.cache_hits;
+        out[nb::str("cache_misses")] = stats.cache_misses;
+        out[nb::str("cache_writes")] = stats.cache_writes;
+        out[nb::str("invalidation_calls")] = stats.invalidation_calls;
+        out[nb::str("invalidation_effective")] = stats.invalidation_effective;
+        out[nb::str("hit_rate")] = hit_rate;
+        out[nb::str("coverage")] = coverage;
+        return out;
+    });
     test_mod.def(
         "set_test_current_time",
         [](engine_time_t current_time) { runtime_test_time_slot() = current_time; },

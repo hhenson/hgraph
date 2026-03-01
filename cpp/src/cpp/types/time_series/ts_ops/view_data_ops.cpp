@@ -8,6 +8,7 @@ bool is_same_view_data(const ViewData& lhs, const ViewData& rhs) {
            lhs.observer_data == rhs.observer_data &&
            lhs.delta_data == rhs.delta_data &&
            lhs.link_data == rhs.link_data &&
+           lhs.python_value_cache_data == rhs.python_value_cache_data &&
            lhs.projection == rhs.projection &&
            lhs.path.indices == rhs.path.indices;
 }
@@ -71,7 +72,7 @@ bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewDat
                     std::string target_repr{"<none>"};
                     if (target->ops != nullptr && target->ops->to_python != nullptr) {
                         try {
-                            target_repr = nb::cast<std::string>(nb::repr(target->ops->to_python(*target)));
+                            target_repr = nb::cast<std::string>(nb::repr(op_to_python(*target)));
                         } catch (...) {
                             target_repr = "<repr_error>";
                         }
@@ -213,6 +214,229 @@ std::optional<View> resolve_value_slot_const(const ViewData& vd) {
         return value_root->view();
     }
     return navigate_const(value_root->view(), vd.path.indices);
+}
+
+namespace {
+
+nb::object* resolve_python_value_cache_slot_impl(PythonValueCacheNode* root,
+                                                 const std::vector<size_t>& path,
+                                                 bool create) {
+    if (root == nullptr) {
+        return nullptr;
+    }
+
+    if (path.empty()) {
+        return root->scalar_value();
+    }
+
+    PythonValueCacheNode* node = root;
+    for (size_t depth = 0; depth < path.size(); ++depth) {
+        const size_t index = path[depth];
+        nb::object* slot = node->slot_value(index, create);
+        if (slot == nullptr) {
+            return nullptr;
+        }
+        if (depth + 1 == path.size()) {
+            return slot;
+        }
+
+        node = node->child_node(index, create);
+        if (node == nullptr) {
+            return nullptr;
+        }
+    }
+
+    return nullptr;
+}
+
+const nb::object* resolve_python_value_cache_slot_impl(const PythonValueCacheNode* root,
+                                                       const std::vector<size_t>& path) {
+    if (root == nullptr) {
+        return nullptr;
+    }
+
+    if (path.empty()) {
+        return root->scalar_value();
+    }
+
+    const PythonValueCacheNode* node = root;
+    for (size_t depth = 0; depth < path.size(); ++depth) {
+        const size_t index = path[depth];
+        const nb::object* slot = node->slot_value(index);
+        if (slot == nullptr) {
+            return nullptr;
+        }
+        if (depth + 1 == path.size()) {
+            return slot;
+        }
+
+        node = node->child_node(index);
+        if (node == nullptr) {
+            return nullptr;
+        }
+    }
+
+    return nullptr;
+}
+
+PythonDeltaCacheEntry* resolve_python_delta_cache_slot_impl(PythonValueCacheNode* root,
+                                                            const std::vector<size_t>& path,
+                                                            bool create) {
+    if (root == nullptr) {
+        return nullptr;
+    }
+
+    if (path.empty()) {
+        return root->delta_root_value();
+    }
+
+    PythonValueCacheNode* node = root;
+    for (size_t depth = 0; depth < path.size(); ++depth) {
+        const size_t index = path[depth];
+        PythonDeltaCacheEntry* slot = node->delta_slot_value(index, create);
+        if (slot == nullptr) {
+            return nullptr;
+        }
+        if (depth + 1 == path.size()) {
+            return slot;
+        }
+
+        node = node->child_node(index, create);
+        if (node == nullptr) {
+            return nullptr;
+        }
+    }
+
+    return nullptr;
+}
+
+const PythonDeltaCacheEntry* resolve_python_delta_cache_slot_impl(const PythonValueCacheNode* root,
+                                                                  const std::vector<size_t>& path) {
+    if (root == nullptr) {
+        return nullptr;
+    }
+
+    if (path.empty()) {
+        return root->delta_root_value();
+    }
+
+    const PythonValueCacheNode* node = root;
+    for (size_t depth = 0; depth < path.size(); ++depth) {
+        const size_t index = path[depth];
+        const PythonDeltaCacheEntry* slot = node->delta_slot_value(index);
+        if (slot == nullptr) {
+            return nullptr;
+        }
+        if (depth + 1 == path.size()) {
+            return slot;
+        }
+
+        node = node->child_node(index);
+        if (node == nullptr) {
+            return nullptr;
+        }
+    }
+
+    return nullptr;
+}
+
+}  // namespace
+
+nb::object* resolve_python_value_cache_slot(ViewData& vd, bool create) {
+    auto* root = static_cast<PythonValueCacheNode*>(vd.python_value_cache_data);
+    auto* slot = resolve_python_value_cache_slot_impl(root, vd.path.indices, create);
+    vd.python_value_cache_slot = slot;
+    return slot;
+}
+
+const nb::object* resolve_python_value_cache_slot(const ViewData& vd) {
+    auto* root = static_cast<PythonValueCacheNode*>(vd.python_value_cache_data);
+    return resolve_python_value_cache_slot_impl(root, vd.path.indices);
+}
+
+PythonDeltaCacheEntry* resolve_python_delta_cache_slot(ViewData& vd, bool create) {
+    auto* root = static_cast<PythonValueCacheNode*>(vd.python_value_cache_data);
+    return resolve_python_delta_cache_slot_impl(root, vd.path.indices, create);
+}
+
+const PythonDeltaCacheEntry* resolve_python_delta_cache_slot(const ViewData& vd) {
+    auto* root = static_cast<PythonValueCacheNode*>(vd.python_value_cache_data);
+    return resolve_python_delta_cache_slot_impl(root, vd.path.indices);
+}
+
+void seed_python_value_cache_slot(ViewData& vd, const nb::object& value) {
+    nb::object* slot = vd.python_value_cache_slot != nullptr
+                           ? static_cast<nb::object*>(vd.python_value_cache_slot)
+                           : resolve_python_value_cache_slot(vd, true);
+    if (slot == nullptr) {
+        return;
+    }
+    *slot = value;
+    vd.python_value_cache_slot = slot;
+}
+
+void seed_python_value_cache_slot_from_view(ViewData& vd, const View& value) {
+    if (!value.valid()) {
+        seed_python_value_cache_slot(vd, nb::none());
+        return;
+    }
+    seed_python_value_cache_slot(vd, value.to_python());
+}
+
+void invalidate_python_value_cache(ViewData& vd) {
+    HGRAPH_PY_CACHE_STATS_INC_INVALIDATION_CALLS();
+    auto* root = static_cast<PythonValueCacheNode*>(vd.python_value_cache_data);
+    if (root == nullptr || root->empty()) {
+        return;
+    }
+    HGRAPH_PY_CACHE_STATS_INC_INVALIDATION_EFFECTIVE();
+
+    if (Py_IsInitialized() == 0) {
+        root->abandon_subtree();
+        vd.python_value_cache_slot = nullptr;
+        return;
+    }
+
+    nb::gil_scoped_acquire gil;
+    if (vd.path.indices.empty()) {
+        root->clear_subtree();
+        vd.python_value_cache_slot = root->scalar_value();
+        return;
+    }
+
+    // Invalidate root delta cache for non-root writes to keep container-level
+    // delta reads coherent without per-parent cache traversal.
+    root->delta_root_value()->clear();
+
+    PythonValueCacheNode* node = root;
+    for (size_t depth = 0; depth < vd.path.indices.size(); ++depth) {
+        const size_t index = vd.path.indices[depth];
+        nb::object* slot = node->slot_value(index, false);
+        if (slot == nullptr) {
+            vd.python_value_cache_slot = nullptr;
+            return;
+        }
+        *slot = nb::object();
+        if (PythonDeltaCacheEntry* delta_slot = node->delta_slot_value(index, false); delta_slot != nullptr) {
+            delta_slot->clear();
+        }
+
+        if (depth + 1 == vd.path.indices.size()) {
+            if (PythonValueCacheNode* child = node->child_node(index, false); child != nullptr) {
+                child->clear_subtree();
+            }
+            vd.python_value_cache_slot = slot;
+            return;
+        }
+
+        node = node->child_node(index, false);
+        if (node == nullptr) {
+            vd.python_value_cache_slot = nullptr;
+            return;
+        }
+    }
+
+    vd.python_value_cache_slot = nullptr;
 }
 
 bool has_local_ref_wrapper_value(const ViewData& vd) {

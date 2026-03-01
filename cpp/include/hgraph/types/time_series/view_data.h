@@ -16,6 +16,7 @@ struct ts_ops;
 struct LinkTarget;
 struct REFLink;
 struct TSLinkObserverRegistry;
+class PythonValueCacheNode;
 struct ViewData;
 
 /**
@@ -92,6 +93,8 @@ struct ViewData {
     void* observer_data{nullptr};
     void* delta_data{nullptr};
     void* link_data{nullptr};
+    void* python_value_cache_data{nullptr};
+    void* python_value_cache_slot{nullptr};
     TSLinkObserverRegistry* link_observer_registry{nullptr};
 
     bool sampled{false};
@@ -103,7 +106,7 @@ struct ViewData {
 
     [[nodiscard]] bool is_null() const {
         return value_data == nullptr && time_data == nullptr && observer_data == nullptr &&
-               delta_data == nullptr && link_data == nullptr;
+               delta_data == nullptr && link_data == nullptr && python_value_cache_data == nullptr;
     }
 
     [[nodiscard]] LinkTarget* as_link_target() const;

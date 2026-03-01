@@ -327,7 +327,7 @@ namespace
             }
 
             if (meta_is_ref(target_meta) && target->ops != nullptr) {
-                nb::object target_value = target->ops->to_python(*target);
+                nb::object target_value = op_to_python(*target);
                 if (target_value.is_none()) {
                     return nb::cast(TimeSeriesReference::make());
                 }

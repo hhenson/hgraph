@@ -304,6 +304,8 @@ void copy_view_data_value_impl(ViewData dst, const ViewData& src, engine_time_t 
         return;
     }
 
+    invalidate_python_value_cache(dst);
+
     if (dispatch_meta_ops(dst_meta) != dispatch_meta_ops(src_meta)) {
         throw std::runtime_error("copy_view_data_value: source/destination schema kinds differ");
     }

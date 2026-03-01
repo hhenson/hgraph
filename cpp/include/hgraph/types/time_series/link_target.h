@@ -44,6 +44,7 @@ struct HGRAPH_EXPORT LinkTarget : Notifiable {
     void* observer_data{nullptr};
     void* delta_data{nullptr};
     void* link_data{nullptr};
+    void* python_value_cache_data{nullptr};
     const engine_time_t* engine_time_ptr{nullptr};
     TSLinkObserverRegistry* link_observer_registry{nullptr};
     ViewProjection projection{ViewProjection::NONE};

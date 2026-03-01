@@ -303,6 +303,7 @@ void op_from_python_tsd_impl_for_scenario(ViewData& vd,
                     ViewData child_vd = vd;
                     child_vd.path.indices.push_back(*slot);
                     stamp_time_paths(child_vd, current_time);
+                    seed_python_value_cache_slot(child_vd, value_value.view().to_python());
                     if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
                         slots.changed_values_map.as_map().set(canonical_key, value_value.view());
                     }

@@ -38,6 +38,7 @@ bool op_dict_remove(ViewData& vd, const View& key, engine_time_t current_time) {
     if (!map.remove(canonical_key)) {
         return false;
     }
+    invalidate_python_value_cache(vd);
 
     compact_tsd_child_time_slot(vd, *removed_slot);
     compact_tsd_child_delta_slot(vd, *removed_slot);
@@ -139,6 +140,7 @@ TSView op_dict_create(ViewData& vd, const View& key, engine_time_t current_time)
             slots.changed_values_map.as_map().remove(canonical_key);
         }
 
+        invalidate_python_value_cache(vd);
         stamp_time_paths(vd, current_time);
         notify_link_target_observers(vd, current_time);
     }

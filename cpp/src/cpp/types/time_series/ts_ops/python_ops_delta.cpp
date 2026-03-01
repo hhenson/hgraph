@@ -2,6 +2,16 @@
 
 namespace hgraph {
 
+namespace {
+
+bool can_cache_delta_to_python(const ViewData& vd) {
+    // Keep delta cache conservative: sampled/projection/link-target reads can
+    // diverge from direct local-path delta semantics.
+    return !vd.sampled && !vd.uses_link_target && vd.projection == ViewProjection::NONE;
+}
+
+}  // namespace
+
 nb::object delta_view_to_python_with_refs(const View& view, engine_time_t current_time) {
     if (!view.valid()) {
         return nb::none();
@@ -509,11 +519,28 @@ nb::object op_delta_to_python_default(const ViewData& vd, engine_time_t current_
 nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     ViewData dispatch_view = vd;
     bind_view_data_ops(dispatch_view);
+
+    PythonDeltaCacheEntry* delta_cache_slot = nullptr;
+    if (can_cache_delta_to_python(dispatch_view)) {
+        delta_cache_slot = resolve_python_delta_cache_slot(dispatch_view, true);
+        if (delta_cache_slot != nullptr && delta_cache_slot->is_valid_for(current_time)) {
+            return delta_cache_slot->value;
+        }
+    }
+
+    nb::object out = nb::none();
     if (dispatch_view.ops != nullptr &&
         dispatch_view.ops->delta_to_python != nullptr) {
-        return dispatch_view.ops->delta_to_python(dispatch_view, current_time);
+        out = dispatch_view.ops->delta_to_python(dispatch_view, current_time);
+    } else {
+        out = op_delta_to_python_default(dispatch_view, current_time);
     }
-    return op_delta_to_python_default(dispatch_view, current_time);
+
+    if (delta_cache_slot != nullptr) {
+        delta_cache_slot->time = current_time;
+        delta_cache_slot->value = out;
+    }
+    return out;
 }
 
 nb::object op_delta_to_python_tsd(const ViewData& vd, engine_time_t current_time) {

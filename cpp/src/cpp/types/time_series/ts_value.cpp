@@ -65,9 +65,23 @@ TSValue::TSValue(const TSMeta* meta, const value::TypeMeta* input_link_schema) {
     initialize(meta, input_link_schema, true);
 }
 
+TSValue::~TSValue() {
+    if (python_value_cache_.empty()) {
+        return;
+    }
+
+    if (Py_IsInitialized() != 0) {
+        nb::gil_scoped_acquire gil;
+        python_value_cache_.clear_subtree();
+    } else {
+        python_value_cache_.abandon_subtree();
+    }
+}
+
 void TSValue::initialize(const TSMeta* meta, const value::TypeMeta* link_schema, bool uses_link_target) {
     meta_ = meta;
     uses_link_target_ = uses_link_target;
+    python_value_cache_ = PythonValueCacheNode(meta_);
 
     if (meta_ == nullptr) {
         return;
@@ -196,6 +210,8 @@ ViewData TSValue::make_view_data(ShortPath path, const engine_time_t* engine_tim
     vd.observer_data = observer_.schema() != nullptr ? const_cast<value::Value*>(&observer_) : nullptr;
     vd.delta_data = delta_value_.schema() != nullptr ? const_cast<value::Value*>(&delta_value_) : nullptr;
     vd.link_data = link_.schema() != nullptr ? const_cast<value::Value*>(&link_) : nullptr;
+    vd.python_value_cache_data = const_cast<PythonValueCacheNode*>(&python_value_cache_);
+    vd.python_value_cache_slot = nullptr;
     vd.link_observer_registry = link_observer_registry_;
     vd.sampled = false;
     vd.uses_link_target = uses_link_target_;
