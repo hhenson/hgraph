@@ -174,6 +174,8 @@ public:
 
 class HGRAPH_EXPORT TSBInputView : public TSIndexedInputView {
 public:
+    using item_type = std::pair<std::string_view, TSInputView>;
+
     TSBInputView() = default;
     explicit TSBInputView(TSInputView base) noexcept : TSIndexedInputView(std::move(base)) {}
 
@@ -185,6 +187,14 @@ public:
     [[nodiscard]] std::optional<std::string_view> name_for_child(const TSInputView& child) const;
     [[nodiscard]] bool contains(std::string_view name) const;
     [[nodiscard]] nb::list keys() const;
+    [[nodiscard]] nb::list valid_keys() const;
+    [[nodiscard]] nb::list modified_keys() const;
+    [[nodiscard]] std::vector<TSInputView> values() const;
+    [[nodiscard]] std::vector<TSInputView> valid_values() const;
+    [[nodiscard]] std::vector<TSInputView> modified_values() const;
+    [[nodiscard]] std::vector<item_type> items() const;
+    [[nodiscard]] std::vector<item_type> valid_items() const;
+    [[nodiscard]] std::vector<item_type> modified_items() const;
     [[nodiscard]] std::vector<size_t> indices() const;
     [[nodiscard]] std::vector<size_t> valid_indices() const;
     [[nodiscard]] std::vector<size_t> modified_indices() const;

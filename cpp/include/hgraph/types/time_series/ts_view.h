@@ -187,6 +187,8 @@ public:
 
 class HGRAPH_EXPORT TSBView : public TSIndexedView {
 public:
+    using item_type = std::pair<std::string_view, TSView>;
+
     TSBView() = default;
     explicit TSBView(TSView ts_view) noexcept : TSIndexedView(std::move(ts_view)) {}
 
@@ -198,6 +200,14 @@ public:
     [[nodiscard]] std::optional<std::string_view> name_for_child(const TSView& child) const;
     [[nodiscard]] bool contains(std::string_view name) const;
     [[nodiscard]] nb::list keys() const;
+    [[nodiscard]] nb::list valid_keys() const;
+    [[nodiscard]] nb::list modified_keys() const;
+    [[nodiscard]] std::vector<TSView> values() const;
+    [[nodiscard]] std::vector<TSView> valid_values() const;
+    [[nodiscard]] std::vector<TSView> modified_values() const;
+    [[nodiscard]] std::vector<item_type> items() const;
+    [[nodiscard]] std::vector<item_type> valid_items() const;
+    [[nodiscard]] std::vector<item_type> modified_items() const;
     [[nodiscard]] std::vector<size_t> indices() const;
     [[nodiscard]] std::vector<size_t> valid_indices() const;
     [[nodiscard]] std::vector<size_t> modified_indices() const;

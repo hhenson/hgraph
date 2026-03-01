@@ -5,11 +5,24 @@
 #include <stdexcept>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 namespace hgraph
 {
 namespace
 {
+    template <typename T_TS>
+    using bundle_view_type = std::conditional_t<std::is_same_v<T_TS, PyTimeSeriesOutput>, TSBOutputView, TSBInputView>;
+
+    template <typename T_TS>
+    bundle_view_type<T_TS> bundle_view(const PyTimeSeriesBundle<T_TS> &self) {
+        if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
+            return self.output_view().as_bundle();
+        } else {
+            return self.input_view().as_bundle();
+        }
+    }
+
     template <typename T_TS>
     nb::object wrap_child(typename PyTimeSeriesBundle<T_TS>::view_type child) {
         if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
@@ -20,21 +33,31 @@ namespace
     }
 
     template <typename T_TS>
-    typename PyTimeSeriesBundle<T_TS>::view_type child_at(const PyTimeSeriesBundle<T_TS> &self, size_t index) {
-        if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
-            return self.output_view().as_bundle().at(index);
-        } else {
-            return self.input_view().as_bundle().at(index);
+    nb::list wrap_children(std::vector<typename PyTimeSeriesBundle<T_TS>::view_type> children) {
+        nb::list out;
+        for (auto &child : children) {
+            out.append(wrap_child<T_TS>(std::move(child)));
         }
+        return out;
+    }
+
+    template <typename T_TS, typename Item>
+    nb::list wrap_items(std::vector<Item> items) {
+        nb::list out;
+        for (auto &entry : items) {
+            out.append(nb::make_tuple(nb::str(entry.first.data(), entry.first.size()), wrap_child<T_TS>(std::move(entry.second))));
+        }
+        return out;
+    }
+
+    template <typename T_TS>
+    typename PyTimeSeriesBundle<T_TS>::view_type child_at(const PyTimeSeriesBundle<T_TS> &self, size_t index) {
+        return bundle_view(self).at(index);
     }
 
     template <typename T_TS>
     typename PyTimeSeriesBundle<T_TS>::view_type child_by_name(const PyTimeSeriesBundle<T_TS> &self, std::string_view name) {
-        if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
-            return self.output_view().as_bundle().field(name);
-        } else {
-            return self.input_view().as_bundle().field(name);
-        }
+        return bundle_view(self).field(name);
     }
 }  // namespace
 
@@ -81,7 +104,7 @@ namespace
         }
 
         const std::string_view name = nb::cast<std::string_view>(key);
-        return nb::bool_(this->view().as_bundle().contains(name));
+        return nb::bool_(bundle_view(*this).contains(name));
     }
 
     template <typename T_TS>
@@ -114,139 +137,57 @@ namespace
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::keys() const {
-        return this->view().as_bundle().keys();
+        return bundle_view(*this).keys();
     }
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::values() const {
-        nb::list out;
-        auto bundle = this->view().as_bundle();
-        for (size_t i : bundle.indices()) {
-            auto child = child_at(*this, i);
-            if (!child) {
-                continue;
-            }
-            out.append(wrap_child<T_TS>(std::move(child)));
-        }
-        return out;
+        return wrap_children<T_TS>(bundle_view(*this).values());
     }
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::valid_keys() const {
-        nb::list out;
-        auto bundle = this->view().as_bundle();
-        for (size_t i : bundle.valid_indices()) {
-            const std::string_view name = bundle.name_at(i);
-            if (name.empty()) {
-                continue;
-            }
-            out.append(nb::str(name.data(), name.size()));
-        }
-        return out;
+        return bundle_view(*this).valid_keys();
     }
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::valid_values() const {
-        nb::list out;
-        auto bundle = this->view().as_bundle();
-        for (size_t i : bundle.valid_indices()) {
-            auto child = child_at(*this, i);
-            if (child) {
-                out.append(wrap_child<T_TS>(std::move(child)));
-            }
-        }
-        return out;
+        return wrap_children<T_TS>(bundle_view(*this).valid_values());
     }
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::modified_keys() const {
-        nb::list out;
-        auto bundle = this->view().as_bundle();
-        for (size_t i : bundle.modified_indices()) {
-            const std::string_view name = bundle.name_at(i);
-            if (name.empty()) {
-                continue;
-            }
-            out.append(nb::str(name.data(), name.size()));
-        }
-        return out;
+        return bundle_view(*this).modified_keys();
     }
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::modified_values() const {
-        nb::list out;
-        auto bundle = this->view().as_bundle();
-        for (size_t i : bundle.modified_indices()) {
-            auto child = child_at(*this, i);
-            if (child) {
-                out.append(wrap_child<T_TS>(std::move(child)));
-            }
-        }
-        return out;
+        return wrap_children<T_TS>(bundle_view(*this).modified_values());
     }
 
     template <typename T_TS>
     nb::int_ PyTimeSeriesBundle<T_TS>::len() const {
-        auto bundle = this->view().as_bundle();
-        return nb::int_(bundle.count());
+        return nb::int_(bundle_view(*this).count());
     }
 
     template <typename T_TS>
     nb::bool_ PyTimeSeriesBundle<T_TS>::empty() const {
-        auto bundle = this->view().as_bundle();
-        return nb::bool_(bundle.count() == 0);
+        return nb::bool_(bundle_view(*this).count() == 0);
     }
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::items() const {
-        nb::list out;
-        auto bundle = this->view().as_bundle();
-        for (size_t i : bundle.indices()) {
-            auto child = child_at(*this, i);
-            if (!child) {
-                continue;
-            }
-            const std::string_view name = bundle.name_at(i);
-            if (name.empty()) {
-                continue;
-            }
-            out.append(nb::make_tuple(nb::str(name.data(), name.size()), wrap_child<T_TS>(std::move(child))));
-        }
-        return out;
+        return wrap_items<T_TS>(bundle_view(*this).items());
     }
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::valid_items() const {
-        nb::list out;
-        auto bundle = this->view().as_bundle();
-        for (size_t i : bundle.valid_indices()) {
-            auto child = child_at(*this, i);
-            if (child) {
-                const std::string_view name = bundle.name_at(i);
-                if (name.empty()) {
-                    continue;
-                }
-                out.append(nb::make_tuple(nb::str(name.data(), name.size()), wrap_child<T_TS>(std::move(child))));
-            }
-        }
-        return out;
+        return wrap_items<T_TS>(bundle_view(*this).valid_items());
     }
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::modified_items() const {
-        nb::list out;
-        auto bundle = this->view().as_bundle();
-        for (size_t i : bundle.modified_indices()) {
-            auto child = child_at(*this, i);
-            if (child) {
-                const std::string_view name = bundle.name_at(i);
-                if (name.empty()) {
-                    continue;
-                }
-                out.append(nb::make_tuple(nb::str(name.data(), name.size()), wrap_child<T_TS>(std::move(child))));
-            }
-        }
-        return out;
+        return wrap_items<T_TS>(bundle_view(*this).modified_items());
     }
 
     template <typename T_TS> constexpr const char *get_bundle_type_name() {

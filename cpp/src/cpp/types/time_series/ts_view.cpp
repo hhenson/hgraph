@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <string>
 #include <stdexcept>
+#include <type_traits>
 
 namespace hgraph {
 namespace {
@@ -238,6 +239,92 @@ std::vector<size_t> dense_indices(size_t count) {
     out.reserve(count);
     for (size_t i = 0; i < count; ++i) {
         out.push_back(i);
+    }
+    return out;
+}
+
+template <typename BundleView>
+using bundle_child_t = std::decay_t<decltype(std::declval<const BundleView&>().at(size_t{}))>;
+
+template <typename BundleView>
+using bundle_item_t = std::pair<std::string_view, bundle_child_t<BundleView>>;
+
+template <typename BundleView>
+nb::list ts_bundle_keys(const BundleView& bundle, TSCollectionFilter filter) {
+    nb::list out;
+    const size_t count = bundle.count();
+    for (size_t i = 0; i < count; ++i) {
+        const std::string_view name = bundle.name_at(i);
+        if (name.empty()) {
+            continue;
+        }
+
+        if (filter != TSCollectionFilter::All) {
+            auto child = bundle.at(i);
+            if (!child) {
+                continue;
+            }
+
+            const bool include = filter == TSCollectionFilter::Valid ? child.valid() : child.modified();
+            if (!include) {
+                continue;
+            }
+        }
+
+        out.append(nb::str(name.data(), name.size()));
+    }
+    return out;
+}
+
+template <typename BundleView>
+std::vector<bundle_child_t<BundleView>> ts_bundle_values(const BundleView& bundle, TSCollectionFilter filter) {
+    std::vector<bundle_child_t<BundleView>> out;
+    const size_t count = bundle.count();
+    out.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        auto child = bundle.at(i);
+        if (!child) {
+            continue;
+        }
+
+        const bool include =
+            filter == TSCollectionFilter::All ||
+            (filter == TSCollectionFilter::Valid && child.valid()) ||
+            (filter == TSCollectionFilter::Modified && child.modified());
+        if (!include) {
+            continue;
+        }
+
+        out.push_back(std::move(child));
+    }
+    return out;
+}
+
+template <typename BundleView>
+std::vector<bundle_item_t<BundleView>> ts_bundle_items(const BundleView& bundle, TSCollectionFilter filter) {
+    std::vector<bundle_item_t<BundleView>> out;
+    const size_t count = bundle.count();
+    out.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        const std::string_view name = bundle.name_at(i);
+        if (name.empty()) {
+            continue;
+        }
+
+        auto child = bundle.at(i);
+        if (!child) {
+            continue;
+        }
+
+        const bool include =
+            filter == TSCollectionFilter::All ||
+            (filter == TSCollectionFilter::Valid && child.valid()) ||
+            (filter == TSCollectionFilter::Modified && child.modified());
+        if (!include) {
+            continue;
+        }
+
+        out.emplace_back(name, std::move(child));
     }
     return out;
 }
@@ -1084,6 +1171,38 @@ nb::list TSBView::keys() const {
     return ts_bundle_field_names(*this);
 }
 
+nb::list TSBView::valid_keys() const {
+    return ts_bundle_keys(*this, TSCollectionFilter::Valid);
+}
+
+nb::list TSBView::modified_keys() const {
+    return ts_bundle_keys(*this, TSCollectionFilter::Modified);
+}
+
+std::vector<TSView> TSBView::values() const {
+    return ts_bundle_values(*this, TSCollectionFilter::All);
+}
+
+std::vector<TSView> TSBView::valid_values() const {
+    return ts_bundle_values(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<TSView> TSBView::modified_values() const {
+    return ts_bundle_values(*this, TSCollectionFilter::Modified);
+}
+
+std::vector<TSBView::item_type> TSBView::items() const {
+    return ts_bundle_items(*this, TSCollectionFilter::All);
+}
+
+std::vector<TSBView::item_type> TSBView::valid_items() const {
+    return ts_bundle_items(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<TSBView::item_type> TSBView::modified_items() const {
+    return ts_bundle_items(*this, TSCollectionFilter::Modified);
+}
+
 std::vector<size_t> TSBView::indices() const {
     return dense_indices(count());
 }
@@ -1774,6 +1893,38 @@ nb::list TSBOutputView::keys() const {
     return as_ts_view().as_bundle().keys();
 }
 
+nb::list TSBOutputView::valid_keys() const {
+    return ts_bundle_keys(*this, TSCollectionFilter::Valid);
+}
+
+nb::list TSBOutputView::modified_keys() const {
+    return ts_bundle_keys(*this, TSCollectionFilter::Modified);
+}
+
+std::vector<TSOutputView> TSBOutputView::values() const {
+    return ts_bundle_values(*this, TSCollectionFilter::All);
+}
+
+std::vector<TSOutputView> TSBOutputView::valid_values() const {
+    return ts_bundle_values(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<TSOutputView> TSBOutputView::modified_values() const {
+    return ts_bundle_values(*this, TSCollectionFilter::Modified);
+}
+
+std::vector<TSBOutputView::item_type> TSBOutputView::items() const {
+    return ts_bundle_items(*this, TSCollectionFilter::All);
+}
+
+std::vector<TSBOutputView::item_type> TSBOutputView::valid_items() const {
+    return ts_bundle_items(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<TSBOutputView::item_type> TSBOutputView::modified_items() const {
+    return ts_bundle_items(*this, TSCollectionFilter::Modified);
+}
+
 std::vector<size_t> TSBOutputView::indices() const {
     return as_ts_view().as_bundle().indices();
 }
@@ -2173,6 +2324,38 @@ bool TSBInputView::contains(std::string_view name) const {
 
 nb::list TSBInputView::keys() const {
     return as_ts_view().as_bundle().keys();
+}
+
+nb::list TSBInputView::valid_keys() const {
+    return ts_bundle_keys(*this, TSCollectionFilter::Valid);
+}
+
+nb::list TSBInputView::modified_keys() const {
+    return ts_bundle_keys(*this, TSCollectionFilter::Modified);
+}
+
+std::vector<TSInputView> TSBInputView::values() const {
+    return ts_bundle_values(*this, TSCollectionFilter::All);
+}
+
+std::vector<TSInputView> TSBInputView::valid_values() const {
+    return ts_bundle_values(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<TSInputView> TSBInputView::modified_values() const {
+    return ts_bundle_values(*this, TSCollectionFilter::Modified);
+}
+
+std::vector<TSBInputView::item_type> TSBInputView::items() const {
+    return ts_bundle_items(*this, TSCollectionFilter::All);
+}
+
+std::vector<TSBInputView::item_type> TSBInputView::valid_items() const {
+    return ts_bundle_items(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<TSBInputView::item_type> TSBInputView::modified_items() const {
+    return ts_bundle_items(*this, TSCollectionFilter::Modified);
 }
 
 std::vector<size_t> TSBInputView::indices() const {
