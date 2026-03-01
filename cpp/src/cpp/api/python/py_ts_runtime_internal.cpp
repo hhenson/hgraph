@@ -36,6 +36,47 @@ namespace {
 
 using value::View;
 
+enum class LinkPathMetaRole {
+    Unsupported,
+    StaticBundle,
+    FixedList,
+    DynamicList,
+    DynamicDict,
+    TransparentElement
+};
+
+LinkPathMetaRole classify_link_path_meta_role(const TSMeta* meta) {
+    if (meta == nullptr) {
+        return LinkPathMetaRole::Unsupported;
+    }
+
+    const ts_ops* ops = get_ts_ops(meta);
+    if (ops == nullptr) {
+        return LinkPathMetaRole::Unsupported;
+    }
+    if (ops->bundle_ops() != nullptr) {
+        return LinkPathMetaRole::StaticBundle;
+    }
+    if (ops->list_ops() != nullptr) {
+        return meta->fixed_size() > 0 ? LinkPathMetaRole::FixedList : LinkPathMetaRole::DynamicList;
+    }
+    if (ops->dict_ops() != nullptr) {
+        return LinkPathMetaRole::DynamicDict;
+    }
+
+    // REF wrappers are transparent for link-path projection.
+    if (meta->element_ts() != nullptr &&
+        ops->window_ops() == nullptr &&
+        ops->set_ops() == nullptr &&
+        ops->dict_ops() == nullptr &&
+        ops->list_ops() == nullptr &&
+        ops->bundle_ops() == nullptr) {
+        return LinkPathMetaRole::TransparentElement;
+    }
+
+    return LinkPathMetaRole::Unsupported;
+}
+
 const engine_time_t* resolve_engine_time_ptr(const ViewData& vd) {
     if (node_ptr owner = vd.path.node; owner != nullptr) {
         if (graph_ptr g = owner->graph(); g != nullptr) {
@@ -56,47 +97,6 @@ const engine_time_t* resolve_engine_time_ptr(const ViewData& vd) {
 }
 
 std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path) {
-    enum class LinkPathMetaRole {
-        Unsupported,
-        StaticBundle,
-        FixedList,
-        DynamicList,
-        DynamicDict,
-        TransparentElement
-    };
-
-    auto classify_meta_role = [](const TSMeta* meta) -> LinkPathMetaRole {
-        if (meta == nullptr) {
-            return LinkPathMetaRole::Unsupported;
-        }
-
-        const ts_ops* ops = get_ts_ops(meta);
-        if (ops == nullptr) {
-            return LinkPathMetaRole::Unsupported;
-        }
-        if (ops->bundle_ops() != nullptr) {
-            return LinkPathMetaRole::StaticBundle;
-        }
-        if (ops->list_ops() != nullptr) {
-            return meta->fixed_size() > 0 ? LinkPathMetaRole::FixedList : LinkPathMetaRole::DynamicList;
-        }
-        if (ops->dict_ops() != nullptr) {
-            return LinkPathMetaRole::DynamicDict;
-        }
-
-        // REF wrappers are transparent for link-path projection.
-        if (meta->element_ts() != nullptr &&
-            ops->window_ops() == nullptr &&
-            ops->set_ops() == nullptr &&
-            ops->dict_ops() == nullptr &&
-            ops->list_ops() == nullptr &&
-            ops->bundle_ops() == nullptr) {
-            return LinkPathMetaRole::TransparentElement;
-        }
-
-        return LinkPathMetaRole::Unsupported;
-    };
-
     std::vector<size_t> out;
     const TSMeta* meta = root_meta;
     bool crossed_dynamic_boundary = false;
@@ -105,7 +105,7 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
         if (meta == nullptr) {
             break;
         }
-        const LinkPathMetaRole role = classify_meta_role(meta);
+        const LinkPathMetaRole role = classify_link_path_meta_role(meta);
 
         if (crossed_dynamic_boundary) {
             switch (role) {
@@ -158,7 +158,7 @@ std::vector<size_t> ts_path_to_link_path(const TSMeta* root_meta, const std::vec
     }
 
     if (!crossed_dynamic_boundary) {
-        const LinkPathMetaRole terminal_role = classify_meta_role(meta);
+        const LinkPathMetaRole terminal_role = classify_link_path_meta_role(meta);
         if (terminal_role == LinkPathMetaRole::StaticBundle || terminal_role == LinkPathMetaRole::FixedList) {
             out.push_back(0);
         }

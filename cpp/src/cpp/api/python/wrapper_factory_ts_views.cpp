@@ -165,16 +165,6 @@ nb::object wrap_output_view(TSOutputView view) {
 
     const TSKind kind = dispatch_kind(meta);
     const bool debug_wrap_output = std::getenv("HGRAPH_DEBUG_WRAP_OUTPUT") != nullptr;
-    auto debug_emit = [&](const char* wrapped) {
-        if (!debug_wrap_output) {
-            return;
-        }
-        std::fprintf(stderr,
-                     "[wrap_output] path=%s kind=%d wrapped=%s\n",
-                     view.short_path().to_string().c_str(),
-                     static_cast<int>(kind),
-                     wrapped);
-    };
 
     const size_t index = static_cast<size_t>(kind);
     if (index >= k_ts_kind_count || k_output_view_wrappers[index] == nullptr) {
@@ -183,7 +173,13 @@ nb::object wrap_output_view(TSOutputView view) {
         );
     }
 
-    debug_emit(output_wrapper_debug_name(kind, meta));
+    if (debug_wrap_output) {
+        std::fprintf(stderr,
+                     "[wrap_output] path=%s kind=%d wrapped=%s\n",
+                     view.short_path().to_string().c_str(),
+                     static_cast<int>(kind),
+                     output_wrapper_debug_name(kind, meta));
+    }
     return k_output_view_wrappers[index](std::move(view), meta);
 }
 

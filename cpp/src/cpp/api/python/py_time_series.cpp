@@ -52,19 +52,17 @@ namespace
     }
 
     nb::object PyTimeSeriesType::value() const {
-        const auto value_from_view = [](const TSView& ts_view) -> nb::object {
-            const TSMeta* meta = ts_view.ts_meta();
-            // Python scalar TS outputs expose `None` until first valid write.
-            if (meta != nullptr && meta->kind == TSKind::TSValue && !ts_view.valid()) {
-                return nb::none();
-            }
-            return ts_view.to_python();
-        };
-
         if (auto* ref_input = dynamic_cast<const PyTimeSeriesReferenceInput*>(this)) {
             return ref_input->ref_value();
         }
-        return value_from_view(view());
+
+        const TSView& ts_view = view();
+        const TSMeta* meta = ts_view.ts_meta();
+        // Python scalar TS outputs expose `None` until first valid write.
+        if (meta != nullptr && meta->kind == TSKind::TSValue && !ts_view.valid()) {
+            return nb::none();
+        }
+        return ts_view.to_python();
     }
 
     nb::object PyTimeSeriesType::delta_value() const {
