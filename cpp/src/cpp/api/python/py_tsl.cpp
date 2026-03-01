@@ -27,41 +27,6 @@ namespace
         }
     }
 
-    template <typename ChildViewT>
-    bool list_child_effectively_modified(const ChildViewT& child) {
-        if (!child) {
-            return false;
-        }
-
-        const auto* meta = child.ts_meta();
-        const bool ref_valued_tsd =
-            meta != nullptr &&
-            meta->kind == TSKind::TSD &&
-            meta->element_ts() != nullptr &&
-            meta->element_ts()->kind == TSKind::REF;
-        if (!ref_valued_tsd) {
-            return child.modified();
-        }
-
-        value::View delta = child.as_ts_view().delta_value();
-        if (delta.valid() && delta.is_tuple()) {
-            auto tuple = delta.as_tuple();
-            if (tuple.size() > 1) {
-                value::View added = tuple.at(1);
-                if (added.valid() && added.is_set() && added.as_set().size() > 0) {
-                    return true;
-                }
-            }
-            if (tuple.size() > 2) {
-                value::View removed = tuple.at(2);
-                if (removed.valid() && removed.is_set() && removed.as_set().size() > 0) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
 }  // namespace
 
     template <typename T_TS>
@@ -89,8 +54,8 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesList<T_TS>::keys() const {
         nb::list out;
-        const auto count = this->view().as_list().count();
-        for (size_t i = 0; i < count; ++i) {
+        auto list_view = this->view().as_list();
+        for (size_t i : list_view.indices()) {
             out.append(nb::int_(i));
         }
         return out;
@@ -99,8 +64,8 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesList<T_TS>::values() const {
         nb::list out;
-        const auto count = this->view().as_list().count();
-        for (size_t i = 0; i < count; ++i) {
+        auto list_view = this->view().as_list();
+        for (size_t i : list_view.indices()) {
             auto child = child_at(*this, i);
             if (!child) {
                 continue;
@@ -113,12 +78,9 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesList<T_TS>::valid_keys() const {
         nb::list out;
-        const auto count = this->view().as_list().count();
-        for (size_t i = 0; i < count; ++i) {
-            auto child = child_at(*this, i);
-            if (child && child.valid()) {
-                out.append(nb::int_(i));
-            }
+        auto list_view = this->view().as_list();
+        for (size_t i : list_view.valid_indices()) {
+            out.append(nb::int_(i));
         }
         return out;
     }
@@ -126,12 +88,9 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesList<T_TS>::modified_keys() const {
         nb::list out;
-        const auto count = this->view().as_list().count();
-        for (size_t i = 0; i < count; ++i) {
-            auto child = child_at(*this, i);
-            if (list_child_effectively_modified(child)) {
-                out.append(nb::int_(i));
-            }
+        auto list_view = this->view().as_list();
+        for (size_t i : list_view.modified_indices()) {
+            out.append(nb::int_(i));
         }
         return out;
     }
@@ -144,8 +103,8 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesList<T_TS>::items() const {
         nb::list out;
-        const auto count = this->view().as_list().count();
-        for (size_t i = 0; i < count; ++i) {
+        auto list_view = this->view().as_list();
+        for (size_t i : list_view.indices()) {
             auto child = child_at(*this, i);
             if (!child) {
                 continue;
@@ -158,10 +117,10 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesList<T_TS>::valid_values() const {
         nb::list out;
-        const auto count = this->view().as_list().count();
-        for (size_t i = 0; i < count; ++i) {
+        auto list_view = this->view().as_list();
+        for (size_t i : list_view.valid_indices()) {
             auto child = child_at(*this, i);
-            if (child && child.valid()) {
+            if (child) {
                 out.append(wrap_child<T_TS>(std::move(child)));
             }
         }
@@ -171,10 +130,10 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesList<T_TS>::valid_items() const {
         nb::list out;
-        const auto count = this->view().as_list().count();
-        for (size_t i = 0; i < count; ++i) {
+        auto list_view = this->view().as_list();
+        for (size_t i : list_view.valid_indices()) {
             auto child = child_at(*this, i);
-            if (child && child.valid()) {
+            if (child) {
                 out.append(nb::make_tuple(nb::int_(i), wrap_child<T_TS>(std::move(child))));
             }
         }
@@ -184,10 +143,10 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesList<T_TS>::modified_values() const {
         nb::list out;
-        const auto count = this->view().as_list().count();
-        for (size_t i = 0; i < count; ++i) {
+        auto list_view = this->view().as_list();
+        for (size_t i : list_view.modified_indices()) {
             auto child = child_at(*this, i);
-            if (list_child_effectively_modified(child)) {
+            if (child) {
                 out.append(wrap_child<T_TS>(std::move(child)));
             }
         }
@@ -197,10 +156,10 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesList<T_TS>::modified_items() const {
         nb::list out;
-        const auto count = this->view().as_list().count();
-        for (size_t i = 0; i < count; ++i) {
+        auto list_view = this->view().as_list();
+        for (size_t i : list_view.modified_indices()) {
             auto child = child_at(*this, i);
-            if (list_child_effectively_modified(child)) {
+            if (child) {
                 out.append(nb::make_tuple(nb::int_(i), wrap_child<T_TS>(std::move(child))));
             }
         }

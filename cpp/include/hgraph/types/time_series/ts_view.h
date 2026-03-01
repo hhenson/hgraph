@@ -23,6 +23,7 @@
 #include <optional>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace nb = nanobind;
 
@@ -175,6 +176,10 @@ class HGRAPH_EXPORT TSLView : public TSIndexedView {
 public:
     TSLView() = default;
     explicit TSLView(TSView ts_view) noexcept : TSIndexedView(std::move(ts_view)) {}
+
+    [[nodiscard]] std::vector<size_t> indices() const;
+    [[nodiscard]] std::vector<size_t> valid_indices() const;
+    [[nodiscard]] std::vector<size_t> modified_indices() const;
 };
 
 class HGRAPH_EXPORT TSBView : public TSIndexedView {
@@ -185,6 +190,13 @@ public:
     using TSIndexedView::at;
     [[nodiscard]] TSView field(std::string_view name) const { return child_by_name(name); }
     [[nodiscard]] TSView at(std::string_view name) const { return field(name); }
+    [[nodiscard]] std::optional<size_t> index_of(std::string_view name) const;
+    [[nodiscard]] std::string_view name_at(size_t index) const;
+    [[nodiscard]] bool contains(std::string_view name) const;
+    [[nodiscard]] nb::list keys() const;
+    [[nodiscard]] std::vector<size_t> indices() const;
+    [[nodiscard]] std::vector<size_t> valid_indices() const;
+    [[nodiscard]] std::vector<size_t> modified_indices() const;
 };
 
 }  // namespace hgraph

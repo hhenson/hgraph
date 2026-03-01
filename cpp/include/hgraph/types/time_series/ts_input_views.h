@@ -16,6 +16,7 @@
 #include <optional>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace nb = nanobind;
 
@@ -121,6 +122,12 @@ public:
     TSDInputView() = default;
     explicit TSDInputView(TSInputView base) noexcept : TSInputView(std::move(base)) {}
 
+    [[nodiscard]] bool contains(const value::View& key) const;
+    [[nodiscard]] nb::list keys() const;
+    [[nodiscard]] nb::list modified_keys() const;
+    [[nodiscard]] nb::list valid_keys() const;
+    [[nodiscard]] nb::list added_keys() const;
+    [[nodiscard]] nb::list removed_keys() const;
     [[nodiscard]] TSInputView at_key(const value::View& key) const;
     [[nodiscard]] TSInputView by_key(const value::View& key) const { return at_key(key); }
     [[nodiscard]] size_t count() const;
@@ -141,6 +148,9 @@ public:
     TSLInputView() = default;
     explicit TSLInputView(TSInputView base) noexcept : TSIndexedInputView(std::move(base)) {}
     [[nodiscard]] TSInputView operator[](size_t index) const { return at(index); }
+    [[nodiscard]] std::vector<size_t> indices() const;
+    [[nodiscard]] std::vector<size_t> valid_indices() const;
+    [[nodiscard]] std::vector<size_t> modified_indices() const;
 };
 
 class HGRAPH_EXPORT TSBInputView : public TSIndexedInputView {
@@ -151,6 +161,13 @@ public:
     using TSIndexedInputView::at;
     [[nodiscard]] TSInputView field(std::string_view name) const;
     [[nodiscard]] TSInputView at(std::string_view name) const { return field(name); }
+    [[nodiscard]] std::optional<size_t> index_of(std::string_view name) const;
+    [[nodiscard]] std::string_view name_at(size_t index) const;
+    [[nodiscard]] bool contains(std::string_view name) const;
+    [[nodiscard]] nb::list keys() const;
+    [[nodiscard]] std::vector<size_t> indices() const;
+    [[nodiscard]] std::vector<size_t> valid_indices() const;
+    [[nodiscard]] std::vector<size_t> modified_indices() const;
 };
 
 }  // namespace hgraph

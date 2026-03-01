@@ -1,9 +1,6 @@
 #include <hgraph/api/python/py_tsb.h>
 #include <hgraph/api/python/wrapper_factory.h>
-#include <hgraph/types/time_series/ts_ops.h>
 
-#include <cstdio>
-#include <cstdlib>
 #include <fmt/format.h>
 #include <optional>
 #include <stdexcept>
@@ -13,23 +10,6 @@ namespace hgraph
 {
 namespace
 {
-    const TSMeta* bundle_meta(const TSView& view) {
-        const TSMeta* meta = view.ts_meta();
-        const ts_ops* ops = get_ts_ops(meta);
-        if (meta == nullptr || ops == nullptr || ops->bundle_ops() == nullptr) {
-            return nullptr;
-        }
-        return meta;
-    }
-
-    const TSMeta* bundle_meta_with_fields(const TSView& view) {
-        const TSMeta* meta = bundle_meta(view);
-        if (meta == nullptr || meta->fields() == nullptr) {
-            return nullptr;
-        }
-        return meta;
-    }
-
     template <typename T_TS>
     nb::object wrap_child(typename PyTimeSeriesBundle<T_TS>::view_type child) {
         if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
@@ -55,19 +35,6 @@ namespace
         } else {
             return self.input_view().as_bundle().field(name);
         }
-    }
-
-    template <typename T_TS>
-    nb::list field_names(const PyTimeSeriesBundle<T_TS> &self) {
-        nb::list out;
-        const auto *meta = bundle_meta_with_fields(self.view());
-        if (meta == nullptr) {
-            return out;
-        }
-        for (size_t i = 0; i < meta->field_count(); ++i) {
-            out.append(nb::str(meta->fields()[i].name));
-        }
-        return out;
     }
 }  // namespace
 
@@ -112,18 +79,8 @@ namespace
             return nb::bool_(false);
         }
 
-        const auto *meta = bundle_meta_with_fields(this->view());
-        if (meta == nullptr) {
-            return nb::bool_(false);
-        }
-
         const std::string name = nb::cast<std::string>(key);
-        for (size_t i = 0; i < meta->field_count(); ++i) {
-            if (name == meta->fields()[i].name) {
-                return nb::bool_(true);
-            }
-        }
-        return nb::bool_(false);
+        return nb::bool_(this->view().as_bundle().contains(name));
     }
 
     template <typename T_TS>
@@ -134,11 +91,6 @@ namespace
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::key_from_value(const nb::handle &value) const {
-        const auto *meta = bundle_meta_with_fields(this->view());
-        if (meta == nullptr) {
-            return nb::none();
-        }
-
         std::optional<ShortPath> target_path;
         if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
             if (auto *wrapped = nb::inst_ptr<PyTimeSeriesOutput>(value)) {
@@ -154,7 +106,8 @@ namespace
             return nb::none();
         }
 
-        for (size_t i = 0; i < meta->field_count(); ++i) {
+        auto bundle = this->view().as_bundle();
+        for (size_t i : bundle.indices()) {
             auto child = child_at(*this, i);
             if (!child) {
                 continue;
@@ -162,7 +115,11 @@ namespace
             const auto &child_path = child.short_path();
             if (child_path.node == target_path->node && child_path.port_type == target_path->port_type &&
                 child_path.indices == target_path->indices) {
-                return nb::str(meta->fields()[i].name);
+                const std::string_view name = bundle.name_at(i);
+                if (name.empty()) {
+                    continue;
+                }
+                return nb::str(name.data(), name.size());
             }
         }
         return nb::none();
@@ -170,17 +127,14 @@ namespace
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::keys() const {
-        return field_names(*this);
+        return this->view().as_bundle().keys();
     }
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::values() const {
         nb::list out;
-        const auto *meta = bundle_meta_with_fields(this->view());
-        if (meta == nullptr) {
-            return out;
-        }
-        for (size_t i = 0; i < meta->field_count(); ++i) {
+        auto bundle = this->view().as_bundle();
+        for (size_t i : bundle.indices()) {
             auto child = child_at(*this, i);
             if (!child) {
                 continue;
@@ -193,15 +147,13 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::valid_keys() const {
         nb::list out;
-        const auto *meta = bundle_meta_with_fields(this->view());
-        if (meta == nullptr) {
-            return out;
-        }
-        for (size_t i = 0; i < meta->field_count(); ++i) {
-            auto child = child_at(*this, i);
-            if (child && child.valid()) {
-                out.append(nb::str(meta->fields()[i].name));
+        auto bundle = this->view().as_bundle();
+        for (size_t i : bundle.valid_indices()) {
+            const std::string_view name = bundle.name_at(i);
+            if (name.empty()) {
+                continue;
             }
+            out.append(nb::str(name.data(), name.size()));
         }
         return out;
     }
@@ -209,13 +161,10 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::valid_values() const {
         nb::list out;
-        const auto *meta = bundle_meta_with_fields(this->view());
-        if (meta == nullptr) {
-            return out;
-        }
-        for (size_t i = 0; i < meta->field_count(); ++i) {
+        auto bundle = this->view().as_bundle();
+        for (size_t i : bundle.valid_indices()) {
             auto child = child_at(*this, i);
-            if (child && child.valid()) {
+            if (child) {
                 out.append(wrap_child<T_TS>(std::move(child)));
             }
         }
@@ -225,15 +174,13 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::modified_keys() const {
         nb::list out;
-        const auto *meta = bundle_meta_with_fields(this->view());
-        if (meta == nullptr) {
-            return out;
-        }
-        for (size_t i = 0; i < meta->field_count(); ++i) {
-            auto child = child_at(*this, i);
-            if (child && child.modified()) {
-                out.append(nb::str(meta->fields()[i].name));
+        auto bundle = this->view().as_bundle();
+        for (size_t i : bundle.modified_indices()) {
+            const std::string_view name = bundle.name_at(i);
+            if (name.empty()) {
+                continue;
             }
+            out.append(nb::str(name.data(), name.size()));
         }
         return out;
     }
@@ -241,13 +188,10 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::modified_values() const {
         nb::list out;
-        const auto *meta = bundle_meta_with_fields(this->view());
-        if (meta == nullptr) {
-            return out;
-        }
-        for (size_t i = 0; i < meta->field_count(); ++i) {
+        auto bundle = this->view().as_bundle();
+        for (size_t i : bundle.modified_indices()) {
             auto child = child_at(*this, i);
-            if (child && child.modified()) {
+            if (child) {
                 out.append(wrap_child<T_TS>(std::move(child)));
             }
         }
@@ -269,16 +213,17 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::items() const {
         nb::list out;
-        const auto *meta = bundle_meta_with_fields(this->view());
-        if (meta == nullptr) {
-            return out;
-        }
-        for (size_t i = 0; i < meta->field_count(); ++i) {
+        auto bundle = this->view().as_bundle();
+        for (size_t i : bundle.indices()) {
             auto child = child_at(*this, i);
             if (!child) {
                 continue;
             }
-            out.append(nb::make_tuple(nb::str(meta->fields()[i].name), wrap_child<T_TS>(std::move(child))));
+            const std::string_view name = bundle.name_at(i);
+            if (name.empty()) {
+                continue;
+            }
+            out.append(nb::make_tuple(nb::str(name.data(), name.size()), wrap_child<T_TS>(std::move(child))));
         }
         return out;
     }
@@ -286,14 +231,15 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::valid_items() const {
         nb::list out;
-        const auto *meta = bundle_meta_with_fields(this->view());
-        if (meta == nullptr) {
-            return out;
-        }
-        for (size_t i = 0; i < meta->field_count(); ++i) {
+        auto bundle = this->view().as_bundle();
+        for (size_t i : bundle.valid_indices()) {
             auto child = child_at(*this, i);
-            if (child && child.valid()) {
-                out.append(nb::make_tuple(nb::str(meta->fields()[i].name), wrap_child<T_TS>(std::move(child))));
+            if (child) {
+                const std::string_view name = bundle.name_at(i);
+                if (name.empty()) {
+                    continue;
+                }
+                out.append(nb::make_tuple(nb::str(name.data(), name.size()), wrap_child<T_TS>(std::move(child))));
             }
         }
         return out;
@@ -302,14 +248,15 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::modified_items() const {
         nb::list out;
-        const auto *meta = bundle_meta_with_fields(this->view());
-        if (meta == nullptr) {
-            return out;
-        }
-        for (size_t i = 0; i < meta->field_count(); ++i) {
+        auto bundle = this->view().as_bundle();
+        for (size_t i : bundle.modified_indices()) {
             auto child = child_at(*this, i);
-            if (child && child.modified()) {
-                out.append(nb::make_tuple(nb::str(meta->fields()[i].name), wrap_child<T_TS>(std::move(child))));
+            if (child) {
+                const std::string_view name = bundle.name_at(i);
+                if (name.empty()) {
+                    continue;
+                }
+                out.append(nb::make_tuple(nb::str(name.data(), name.size()), wrap_child<T_TS>(std::move(child))));
             }
         }
         return out;

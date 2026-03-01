@@ -7,6 +7,9 @@
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/value/map_storage.h>
 
+#include <cstdio>
+#include <cstdlib>
+#include <string>
 #include <stdexcept>
 
 namespace hgraph {
@@ -186,6 +189,177 @@ TSView child_by_name_impl(const ViewData& view_data, std::string_view name, cons
         }
     }
     return {};
+}
+
+std::optional<size_t> bundle_index_of_impl(const ViewData& view_data, std::string_view name) {
+    const TSMeta* current = meta_at_path(view_data.meta, view_data.path.indices);
+    if (current == nullptr || current->kind != TSKind::TSB || current->fields() == nullptr) {
+        return std::nullopt;
+    }
+
+    for (size_t i = 0; i < current->field_count(); ++i) {
+        const char* field_name = current->fields()[i].name;
+        if (field_name != nullptr && name == field_name) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
+
+std::string_view bundle_name_at_impl(const ViewData& view_data, size_t index) {
+    const TSMeta* current = meta_at_path(view_data.meta, view_data.path.indices);
+    if (current == nullptr || current->kind != TSKind::TSB || current->fields() == nullptr || index >= current->field_count()) {
+        return {};
+    }
+    const char* field_name = current->fields()[index].name;
+    return field_name != nullptr ? std::string_view(field_name) : std::string_view{};
+}
+
+bool bundle_contains_impl(const ViewData& view_data, std::string_view name) {
+    return bundle_index_of_impl(view_data, name).has_value();
+}
+
+std::vector<size_t> dense_indices(size_t count) {
+    std::vector<size_t> out;
+    out.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        out.push_back(i);
+    }
+    return out;
+}
+
+nb::list tsd_valid_keys_for_view(const TSView& view, bool include_local_fallback) {
+    nb::list out;
+    const auto* meta = view.ts_meta();
+    if (meta == nullptr) {
+        return out;
+    }
+
+    auto dict = view.as_dict();
+    for (const auto& key_item : tsd_keys_python(view, include_local_fallback)) {
+        nb::object key = nb::cast<nb::object>(key_item);
+        auto key_val = tsd_key_from_python(key, meta);
+        if (key_val.schema() == nullptr) {
+            continue;
+        }
+
+        auto child = dict.at_key(key_val.view());
+        if (child && child.valid()) {
+            out.append(key);
+        }
+    }
+    return out;
+}
+
+nb::list tsd_modified_keys_for_output_view(const TSView& view) {
+    const auto* meta = view.ts_meta();
+    const bool ref_valued =
+        meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
+    if (ref_valued && !view.modified()) {
+        return nb::list{};
+    }
+
+    nb::list out = tsd_delta_keys_slot(view, 0, true);
+    if (std::getenv("HGRAPH_DEBUG_TSD_MOD_KEYS") != nullptr) {
+        const std::string keys_repr = nb::cast<std::string>(nb::repr(out));
+        std::fprintf(stderr,
+                     "[py_tsd_mod_keys_out] path=%s now=%lld keys=%s\n",
+                     view.short_path().to_string().c_str(),
+                     static_cast<long long>(view.current_time().time_since_epoch().count()),
+                     keys_repr.c_str());
+    }
+
+    if (ref_valued && nb::len(out) == 0 && view.modified()) {
+        nb::list fallback;
+        auto dict = view.as_dict();
+        for (const auto& key_item : tsd_keys_python(view, false)) {
+            nb::object key = nb::cast<nb::object>(key_item);
+            auto key_val = tsd_key_from_python(key, meta);
+            if (key_val.schema() == nullptr) {
+                continue;
+            }
+
+            auto child = dict.at_key(key_val.view());
+            if (child && child.modified()) {
+                fallback.append(key);
+            }
+        }
+        return fallback;
+    }
+    return out;
+}
+
+nb::list tsd_modified_keys_for_input_view(const TSView& view) {
+    const auto* meta = view.ts_meta();
+    const bool ref_valued =
+        meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
+
+    nb::list out = tsd_delta_keys_slot(view, 0, true);
+    if (std::getenv("HGRAPH_DEBUG_TSD_MOD_KEYS") != nullptr) {
+        const std::string keys_repr = nb::cast<std::string>(nb::repr(out));
+        std::fprintf(stderr,
+                     "[py_tsd_mod_keys_in] path=%s now=%lld keys=%s\n",
+                     view.short_path().to_string().c_str(),
+                     static_cast<long long>(view.current_time().time_since_epoch().count()),
+                     keys_repr.c_str());
+    }
+
+    if (ref_valued && nb::len(out) == 0) {
+        nb::list fallback;
+        auto dict = view.as_dict();
+        const engine_time_t current_time = view.current_time();
+        for (const auto& key_item : tsd_keys_python(view, true)) {
+            nb::object key = nb::cast<nb::object>(key_item);
+            auto key_val = tsd_key_from_python(key, meta);
+            if (key_val.schema() == nullptr) {
+                continue;
+            }
+
+            auto child = dict.at_key(key_val.view());
+            if (!child || !child.modified()) {
+                continue;
+            }
+
+            bool include = child.last_modified_time() == current_time;
+            if (!include && child.valid()) {
+                value::View child_value = child.value();
+                if (!child_value.valid()) {
+                    // Empty/unbound REF wrappers can tick modified without
+                    // advancing child LMT; preserve Python parity.
+                    include = true;
+                } else {
+                    nb::object ref_obj = child_value.to_python();
+                    if (ref_obj.is_none()) {
+                        include = true;
+                    } else {
+                        nb::object is_valid_attr = nb::getattr(ref_obj, "is_valid", nb::none());
+                        if (!is_valid_attr.is_none()) {
+                            if (PyCallable_Check(is_valid_attr.ptr()) != 0) {
+                                is_valid_attr = is_valid_attr();
+                            }
+                            include = !nb::cast<bool>(is_valid_attr);
+                        }
+                    }
+                }
+            }
+
+            if (include) {
+                fallback.append(key);
+            }
+        }
+        return fallback;
+    }
+    return out;
+}
+
+nb::list tsd_removed_keys_for_view(const TSView& view) {
+    nb::list out = tsd_delta_keys_slot(view, 2, false);
+    if (view.view_data().sampled && nb::len(out) == 0) {
+        // Removed-item wrappers can use sampled snapshots of previous children;
+        // expose previous keys as removed for parity.
+        return tsd_keys_python(view, false);
+    }
+    return out;
 }
 
 TSView child_by_key_impl(const ViewData& view_data, const value::View& key, const engine_time_t* engine_time_ptr) {
@@ -423,6 +597,46 @@ std::optional<TSBView> TSView::try_as_bundle() const {
         return std::nullopt;
     }
     return TSBView(*this);
+}
+
+std::vector<size_t> TSLView::indices() const {
+    return dense_indices(count());
+}
+
+std::vector<size_t> TSLView::valid_indices() const {
+    return ts_list_filtered_indices(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<size_t> TSLView::modified_indices() const {
+    return ts_list_filtered_indices(*this, TSCollectionFilter::Modified);
+}
+
+std::optional<size_t> TSBView::index_of(std::string_view name) const {
+    return bundle_index_of_impl(view_data(), name);
+}
+
+std::string_view TSBView::name_at(size_t index) const {
+    return bundle_name_at_impl(view_data(), index);
+}
+
+bool TSBView::contains(std::string_view name) const {
+    return bundle_contains_impl(view_data(), name);
+}
+
+nb::list TSBView::keys() const {
+    return ts_bundle_field_names(*this);
+}
+
+std::vector<size_t> TSBView::indices() const {
+    return dense_indices(count());
+}
+
+std::vector<size_t> TSBView::valid_indices() const {
+    return ts_bundle_filtered_indices(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<size_t> TSBView::modified_indices() const {
+    return ts_bundle_filtered_indices(*this, TSCollectionFilter::Modified);
 }
 
 TSIndexedView TSView::as_indexed() const {
@@ -814,6 +1028,30 @@ void TSSOutputView::clear() {
     as_ts_view().as_set().clear();
 }
 
+bool TSDOutputView::contains(const value::View& key) const {
+    return static_cast<bool>(as_ts_view().as_dict().at_key(key));
+}
+
+nb::list TSDOutputView::keys() const {
+    return tsd_keys_python(as_ts_view(), false);
+}
+
+nb::list TSDOutputView::modified_keys() const {
+    return tsd_modified_keys_for_output_view(as_ts_view());
+}
+
+nb::list TSDOutputView::valid_keys() const {
+    return tsd_valid_keys_for_view(as_ts_view(), false);
+}
+
+nb::list TSDOutputView::added_keys() const {
+    return tsd_delta_keys_slot(as_ts_view(), 1, false);
+}
+
+nb::list TSDOutputView::removed_keys() const {
+    return tsd_removed_keys_for_view(as_ts_view());
+}
+
 TSOutputView TSDOutputView::at_key(const value::View& key) const {
     return TSOutputView(owner_, as_ts_view().as_dict().at_key(key));
 }
@@ -842,8 +1080,48 @@ size_t TSIndexedOutputView::count() const {
     return as_ts_view().as_indexed_unchecked().count();
 }
 
+std::vector<size_t> TSLOutputView::indices() const {
+    return as_ts_view().as_list().indices();
+}
+
+std::vector<size_t> TSLOutputView::valid_indices() const {
+    return as_ts_view().as_list().valid_indices();
+}
+
+std::vector<size_t> TSLOutputView::modified_indices() const {
+    return as_ts_view().as_list().modified_indices();
+}
+
 TSOutputView TSBOutputView::field(std::string_view name) const {
     return TSOutputView(owner_, as_ts_view().as_bundle().field(name));
+}
+
+std::optional<size_t> TSBOutputView::index_of(std::string_view name) const {
+    return as_ts_view().as_bundle().index_of(name);
+}
+
+std::string_view TSBOutputView::name_at(size_t index) const {
+    return as_ts_view().as_bundle().name_at(index);
+}
+
+bool TSBOutputView::contains(std::string_view name) const {
+    return as_ts_view().as_bundle().contains(name);
+}
+
+nb::list TSBOutputView::keys() const {
+    return as_ts_view().as_bundle().keys();
+}
+
+std::vector<size_t> TSBOutputView::indices() const {
+    return as_ts_view().as_bundle().indices();
+}
+
+std::vector<size_t> TSBOutputView::valid_indices() const {
+    return as_ts_view().as_bundle().valid_indices();
+}
+
+std::vector<size_t> TSBOutputView::modified_indices() const {
+    return as_ts_view().as_bundle().modified_indices();
 }
 
 FQPath TSInputView::fq_path() const {
@@ -979,6 +1257,30 @@ size_t TSWInputView::length() const {
     return as_ts_view().as_window().length();
 }
 
+bool TSDInputView::contains(const value::View& key) const {
+    return static_cast<bool>(as_ts_view().as_dict().at_key(key));
+}
+
+nb::list TSDInputView::keys() const {
+    return tsd_keys_python(as_ts_view(), true);
+}
+
+nb::list TSDInputView::modified_keys() const {
+    return tsd_modified_keys_for_input_view(as_ts_view());
+}
+
+nb::list TSDInputView::valid_keys() const {
+    return tsd_valid_keys_for_view(as_ts_view(), true);
+}
+
+nb::list TSDInputView::added_keys() const {
+    return tsd_delta_keys_slot(as_ts_view(), 1, false);
+}
+
+nb::list TSDInputView::removed_keys() const {
+    return tsd_removed_keys_for_view(as_ts_view());
+}
+
 TSInputView TSDInputView::at_key(const value::View& key) const {
     return TSInputView(owner_, as_ts_view().as_dict().at_key(key));
 }
@@ -995,8 +1297,48 @@ size_t TSIndexedInputView::count() const {
     return as_ts_view().as_indexed_unchecked().count();
 }
 
+std::vector<size_t> TSLInputView::indices() const {
+    return as_ts_view().as_list().indices();
+}
+
+std::vector<size_t> TSLInputView::valid_indices() const {
+    return as_ts_view().as_list().valid_indices();
+}
+
+std::vector<size_t> TSLInputView::modified_indices() const {
+    return as_ts_view().as_list().modified_indices();
+}
+
 TSInputView TSBInputView::field(std::string_view name) const {
     return TSInputView(owner_, as_ts_view().as_bundle().field(name));
+}
+
+std::optional<size_t> TSBInputView::index_of(std::string_view name) const {
+    return as_ts_view().as_bundle().index_of(name);
+}
+
+std::string_view TSBInputView::name_at(size_t index) const {
+    return as_ts_view().as_bundle().name_at(index);
+}
+
+bool TSBInputView::contains(std::string_view name) const {
+    return as_ts_view().as_bundle().contains(name);
+}
+
+nb::list TSBInputView::keys() const {
+    return as_ts_view().as_bundle().keys();
+}
+
+std::vector<size_t> TSBInputView::indices() const {
+    return as_ts_view().as_bundle().indices();
+}
+
+std::vector<size_t> TSBInputView::valid_indices() const {
+    return as_ts_view().as_bundle().valid_indices();
+}
+
+std::vector<size_t> TSBInputView::modified_indices() const {
+    return as_ts_view().as_bundle().modified_indices();
 }
 
 void TSInputView::make_active() {

@@ -6,7 +6,6 @@
 #include <hgraph/types/ref.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/time_series/ts_ops.h>
-#include <hgraph/types/value/map_storage.h>
 
 #include <fmt/format.h>
 #include <cstdio>
@@ -19,305 +18,6 @@ namespace hgraph
 {
 namespace
 {
-    std::optional<value::View> map_key_for_index(const value::View& map_view, size_t index) {
-        if (!map_view.valid() || !map_view.is_map()) {
-            return std::nullopt;
-        }
-
-        auto map = map_view.as_map();
-        if (const auto* storage = static_cast<const value::MapStorage*>(map.data()); storage != nullptr) {
-            const auto& key_set = storage->key_set();
-            if (key_set.is_alive(index)) {
-                return value::View(storage->key_at_slot(index), map.key_type());
-            }
-        }
-
-        return std::nullopt;
-    }
-
-    std::optional<value::View> child_value_by_index(const value::View& current, size_t index) {
-        if (!current.valid()) {
-            return std::nullopt;
-        }
-
-        if (current.is_bundle()) {
-            auto bundle = current.as_bundle();
-            if (index < bundle.size()) {
-                return bundle.at(index);
-            }
-            return std::nullopt;
-        }
-
-        if (current.is_tuple()) {
-            auto tuple = current.as_tuple();
-            if (index < tuple.size()) {
-                return tuple.at(index);
-            }
-            return std::nullopt;
-        }
-
-        if (current.is_list()) {
-            auto list = current.as_list();
-            if (index < list.size()) {
-                return list.at(index);
-            }
-            return std::nullopt;
-        }
-
-        if (current.is_map()) {
-            auto maybe_key = map_key_for_index(current, index);
-            if (!maybe_key.has_value()) {
-                return std::nullopt;
-            }
-            return current.as_map().at(*maybe_key);
-        }
-
-        return std::nullopt;
-    }
-
-    value::View resolve_local_navigation_value(const TSView& view) {
-        const ViewData& view_data = view.view_data();
-        auto* value_root = static_cast<const value::Value*>(view_data.value_data);
-        if (value_root == nullptr || !value_root->has_value()) {
-            return {};
-        }
-
-        value::View current = value_root->view();
-        for (size_t index : view_data.path.indices) {
-            auto next = child_value_by_index(current, index);
-            if (!next.has_value()) {
-                return {};
-            }
-            current = *next;
-        }
-        return current;
-    }
-
-    void append_tsd_keys_python(const value::View& value, nb::list& out, nb::set& seen) {
-        if (!value.valid() || !value.is_map()) {
-            return;
-        }
-
-        for (value::View key : value.as_map().keys()) {
-            nb::object key_obj = key.to_python();
-            if (PySet_Contains(seen.ptr(), key_obj.ptr()) == 1) {
-                continue;
-            }
-            seen.add(key_obj);
-            out.append(key_obj);
-        }
-    }
-
-    bool is_remove_marker(const nb::object &obj);
-
-    value::Value key_from_python_with_meta(const nb::object &key, const TSMeta *meta) {
-        const auto *key_schema = meta != nullptr ? meta->key_type() : nullptr;
-        if (key_schema == nullptr) {
-            return {};
-        }
-
-        value::Value key_val(key_schema);
-        key_val.emplace();
-        key_schema->ops().from_python(key_val.data(), key, key_schema);
-        return key_val;
-    }
-
-    nb::list tsd_keys_python(const TSView &view, bool include_local_fallback = false) {
-        nb::list out;
-        nb::set seen;
-        append_tsd_keys_python(view.value(), out, seen);
-        if (include_local_fallback) {
-            append_tsd_keys_python(resolve_local_navigation_value(view), out, seen);
-        }
-        return out;
-    }
-
-    nb::list tsd_delta_keys_slot(const TSView &view, size_t tuple_index, bool expect_map) {
-        nb::list out;
-        nb::set seen;
-        const auto *meta = view.ts_meta();
-        const bool ref_valued =
-            meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
-        auto append_unique = [&](const nb::object& key_obj) {
-            if (PySet_Contains(seen.ptr(), key_obj.ptr()) == 1) {
-                return;
-            }
-            seen.add(key_obj);
-            out.append(key_obj);
-        };
-
-        auto key_set_delta_keys = [&](bool added) {
-            nb::list keys;
-            TSView key_set_view = view;
-            key_set_view.view_data().projection = ViewProjection::TSD_KEY_SET;
-            nb::object key_set_delta = key_set_view.delta_to_python();
-            if (key_set_delta.is_none()) {
-                return keys;
-            }
-
-            const char* member_name = added ? "added" : "removed";
-            nb::object member = nb::getattr(key_set_delta, member_name, nb::none());
-            if (member.is_none()) {
-                return keys;
-            }
-            if (PyCallable_Check(member.ptr()) != 0) {
-                member = member();
-            }
-            if (member.is_none()) {
-                return keys;
-            }
-
-            for (auto item_h : nb::cast<nb::iterable>(member)) {
-                keys.append(nb::cast<nb::object>(item_h));
-            }
-            return keys;
-        };
-
-        bool tuple_slot_compatible = false;
-
-        value::View delta = view.delta_value();
-        if (delta.valid() && delta.is_tuple()) {
-            auto tuple = delta.as_tuple();
-            if (tuple_index < tuple.size()) {
-                value::View slot = tuple.at(tuple_index);
-                if (slot.valid()) {
-                    if (expect_map && slot.is_map()) {
-                        tuple_slot_compatible = true;
-                        for (value::View key : slot.as_map().keys()) {
-                            append_unique(key.to_python());
-                        }
-                    }
-                    if (!expect_map && slot.is_set()) {
-                        tuple_slot_compatible = true;
-                        for (value::View key : slot.as_set()) {
-                            append_unique(key.to_python());
-                        }
-                    }
-                }
-            }
-        }
-
-        const nb::list key_set_added = key_set_delta_keys(true);
-        const nb::list key_set_removed = key_set_delta_keys(false);
-        if (std::getenv("HGRAPH_DEBUG_TSD_MOD_KEYS_DETAIL") != nullptr) {
-            const std::string tuple_repr = nb::cast<std::string>(nb::repr(out));
-            const std::string added_repr = nb::cast<std::string>(nb::repr(key_set_added));
-            const std::string removed_repr = nb::cast<std::string>(nb::repr(key_set_removed));
-            const std::string delta_repr = nb::cast<std::string>(nb::repr(view.delta_to_python()));
-            std::fprintf(stderr,
-                         "[tsd_delta_keys_slot] path=%s idx=%zu expect_map=%d ref_valued=%d tuple_ok=%d tuple=%s keyset_added=%s keyset_removed=%s delta=%s\n",
-                         view.short_path().to_string().c_str(),
-                         tuple_index,
-                         expect_map ? 1 : 0,
-                         ref_valued ? 1 : 0,
-                         tuple_slot_compatible ? 1 : 0,
-                         tuple_repr.c_str(),
-                         added_repr.c_str(),
-                         removed_repr.c_str(),
-                         delta_repr.c_str());
-        }
-
-        // Key-set bridge deltas can expose rebind additions/removals that are not
-        // present in the raw tuple slots.
-        if (tuple_index == 1) {
-            if (ref_valued) {
-                out = nb::list{};
-                seen = nb::set{};
-                for (const auto &k : key_set_added) {
-                    append_unique(nb::cast<nb::object>(k));
-                }
-                return out;
-            }
-            for (const auto &k : key_set_added) {
-                append_unique(nb::cast<nb::object>(k));
-            }
-            return out;
-        }
-
-        if (tuple_index == 2) {
-            if (nb::len(key_set_removed) > 0) {
-                out = nb::list{};
-                seen = nb::set{};
-                for (const auto &k : key_set_removed) {
-                    append_unique(nb::cast<nb::object>(k));
-                }
-                return out;
-            }
-            if (tuple_slot_compatible) {
-                return out;
-            }
-        }
-
-        if (tuple_index != 0 && tuple_slot_compatible) {
-            return out;
-        }
-
-        // Bridge-derived deltas can be materialized only in delta_to_python()
-        // and not in the raw tuple.
-        if (tuple_index != 0 && tuple_index != 2) {
-            return out;
-        }
-
-        // For slot 0, derive modified keys from delta_to_python() so carry-forward
-        // bridge entries (for example rebind snapshots) are preserved.
-        const bool prefer_python_delta_for_slot0 = tuple_index == 0;
-        const auto append_ref_added_keys_if_empty = [&]() {
-            if (!prefer_python_delta_for_slot0 || !ref_valued || nb::len(out) != 0) {
-                return;
-            }
-            for (const auto& k : key_set_added) {
-                append_unique(nb::cast<nb::object>(k));
-            }
-        };
-
-        // If we successfully parsed a non-slot-0 tuple and it just had no entries,
-        // preserve that. Only fall through when tuple data was unavailable/incompatible.
-        if (!prefer_python_delta_for_slot0 && tuple_slot_compatible) {
-            return out;
-        }
-
-        nb::object delta_obj = view.delta_to_python();
-        if (delta_obj.is_none()) {
-            append_ref_added_keys_if_empty();
-            return out;
-        }
-
-        if (prefer_python_delta_for_slot0) {
-            out = nb::list{};
-            seen = nb::set{};
-        }
-
-        auto emit_from_pair = [tuple_index, &append_unique](const nb::object &key_obj, const nb::object &value_obj) {
-            const bool is_remove = is_remove_marker(value_obj);
-            if (tuple_index == 2 && is_remove) {
-                append_unique(key_obj);
-            }
-            if (tuple_index == 0 && !is_remove) {
-                append_unique(key_obj);
-            }
-        };
-
-        if (nb::isinstance<nb::dict>(delta_obj)) {
-            nb::dict delta_dict = nb::cast<nb::dict>(delta_obj);
-            for (const auto &kv : delta_dict) {
-                emit_from_pair(nb::cast<nb::object>(kv.first), nb::cast<nb::object>(kv.second));
-            }
-            append_ref_added_keys_if_empty();
-            return out;
-        }
-
-        auto items_attr = nb::getattr(delta_obj, "items", nb::none());
-        if (items_attr.is_none()) {
-            append_ref_added_keys_if_empty();
-            return out;
-        }
-        for (const auto &kv : nb::iter(items_attr())) {
-            emit_from_pair(nb::cast<nb::object>(kv[0]), nb::cast<nb::object>(kv[1]));
-        }
-        append_ref_added_keys_if_empty();
-        return out;
-    }
-
     bool list_contains_py_object(const nb::list &list_obj, const nb::object &value) {
         return PySequence_Contains(list_obj.ptr(), value.ptr()) == 1;
     }
@@ -328,7 +28,7 @@ namespace
         const auto *meta = dict_view.ts_meta();
         for (const auto &key_item : keys) {
             nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = key_from_python_with_meta(key, meta);
+            auto key_val = tsd_key_from_python(key, meta);
             if (key_val.schema() == nullptr) {
                 continue;
             }
@@ -350,7 +50,7 @@ namespace
         const auto *meta = dict_view.ts_meta();
         for (const auto &key_item : keys) {
             nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = key_from_python_with_meta(key, meta);
+            auto key_val = tsd_key_from_python(key, meta);
             if (key_val.schema() == nullptr) {
                 continue;
             }
@@ -366,75 +66,12 @@ namespace
         return out;
     }
 
-    std::optional<TSView> previous_dict_child_for_key(const TSView& parent_view, const value::Value& key_val) {
-        if (key_val.schema() == nullptr) {
-            return std::nullopt;
-        }
-
-        if (auto removed_snapshot =
-                resolve_tsd_removed_child_snapshot(parent_view.view_data(), key_val.view(), parent_view.current_time());
-            removed_snapshot.has_value()) {
-            return removed_snapshot;
-        }
-
-        ViewData previous{};
-        if (!resolve_previous_bound_target_view_data(parent_view.view_data(), previous)) {
-            return std::nullopt;
-        }
-
-        TSView previous_root(previous, parent_view.view_data().engine_time_ptr);
-        TSView previous_child = previous_root.as_dict().at_key(key_val.view());
-        if (!previous_child) {
-            return std::nullopt;
-        }
-        return previous_child;
-    }
-
-    bool is_remove_marker(const nb::object &obj) {
-        auto remove = get_remove();
-        auto remove_if_exists = get_remove_if_exists();
-        if (obj.is(remove) || obj.is(remove_if_exists)) {
-            return true;
-        }
-
-        nb::object current = nb::getattr(obj, "name", nb::none());
-        for (size_t depth = 0; depth < 4 && !current.is_none(); ++depth) {
-            if (current.is(remove) || current.is(remove_if_exists)) {
-                return true;
-            }
-            if (nb::isinstance<nb::str>(current)) {
-                std::string name = nb::cast<std::string>(current);
-                return name == "REMOVE" || name == "REMOVE_IF_EXISTS";
-            }
-            current = nb::getattr(current, "name", nb::none());
-        }
-        return false;
-    }
-
-    bool is_remove_if_exists_marker(const nb::object &obj) {
-        auto remove_if_exists = get_remove_if_exists();
-        if (obj.is(remove_if_exists)) {
-            return true;
-        }
-        nb::object current = nb::getattr(obj, "name", nb::none());
-        for (size_t depth = 0; depth < 4 && !current.is_none(); ++depth) {
-            if (current.is(remove_if_exists)) {
-                return true;
-            }
-            if (nb::isinstance<nb::str>(current)) {
-                return nb::cast<std::string>(current) == "REMOVE_IF_EXISTS";
-            }
-            current = nb::getattr(current, "name", nb::none());
-        }
-        return false;
-    }
-
 }  // namespace
 
     // ===== PyTimeSeriesDictOutput Implementation =====
 
     value::Value PyTimeSeriesDictOutput::key_from_python(const nb::object &key) const {
-        return key_from_python_with_meta(key, output_view().ts_meta());
+        return tsd_key_from_python(key, output_view().ts_meta());
     }
 
     size_t PyTimeSeriesDictOutput::size() const {
@@ -509,8 +146,7 @@ namespace
         if (key_val.schema() == nullptr) {
             return false;
         }
-        value::View value = view().value();
-        return value.valid() && value.is_map() && value.as_map().contains(key_val.view());
+        return output_view().as_dict().contains(key_val.view());
     }
 
     nb::object PyTimeSeriesDictOutput::key_set() const {
@@ -520,15 +156,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::keys() const {
-        nb::object py_value = output_view().to_python();
-        if (py_value.is_none()) {
-            return nb::list{};
-        }
-        nb::object keys_method = nb::getattr(py_value, "keys", nb::none());
-        if (keys_method.is_none() || PyCallable_Check(keys_method.ptr()) == 0) {
-            return nb::list{};
-        }
-        return nb::list(keys_method());
+        return output_view().as_dict().keys();
     }
 
     nb::object PyTimeSeriesDictOutput::values() const {
@@ -544,39 +172,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::modified_keys() const {
-        TSOutputView view = output_view();
-        const auto* meta = view.as_dict().ts_meta();
-        const bool ref_valued =
-            meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
-        if (ref_valued && !view.as_ts_view().modified()) {
-            return nb::list{};
-        }
-        nb::list out = tsd_delta_keys_slot(view.as_ts_view(), 0, true);
-        if (std::getenv("HGRAPH_DEBUG_TSD_MOD_KEYS") != nullptr) {
-            const std::string keys_repr = nb::cast<std::string>(nb::repr(out));
-            std::fprintf(stderr,
-                         "[py_tsd_mod_keys_out] path=%s now=%lld keys=%s\n",
-                         view.as_ts_view().short_path().to_string().c_str(),
-                         static_cast<long long>(view.current_time().time_since_epoch().count()),
-                         keys_repr.c_str());
-        }
-        if (ref_valued && nb::len(out) == 0 && view.as_ts_view().modified()) {
-            nb::list fallback;
-            auto dict = view.as_dict();
-            for (const auto &key_item : nb::cast<nb::list>(keys())) {
-                nb::object key = nb::cast<nb::object>(key_item);
-                auto key_val = key_from_python_with_meta(key, meta);
-                if (key_val.schema() == nullptr) {
-                    continue;
-                }
-                auto child = dict.at_key(key_val.view());
-                if (child && child.modified()) {
-                    fallback.append(key);
-                }
-            }
-            return fallback;
-        }
-        return out;
+        return output_view().as_dict().modified_keys();
     }
 
     nb::object PyTimeSeriesDictOutput::modified_values() const {
@@ -592,20 +188,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::valid_keys() const {
-        nb::list out;
-        auto dict = output_view().as_dict();
-        for (const auto &key_item : nb::cast<nb::list>(keys())) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = key_from_python(key);
-            if (key_val.schema() == nullptr) {
-                continue;
-            }
-            auto child = dict.at_key(key_val.view());
-            if (child && child.valid()) {
-                out.append(key);
-            }
-        }
-        return out;
+        return output_view().as_dict().valid_keys();
     }
 
     nb::object PyTimeSeriesDictOutput::valid_values() const {
@@ -617,8 +200,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::added_keys() const {
-        TSOutputView view = output_view();
-        return tsd_delta_keys_slot(view.as_ts_view(), 1, false);
+        return output_view().as_dict().added_keys();
     }
 
     nb::object PyTimeSeriesDictOutput::added_values() const {
@@ -638,14 +220,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::removed_keys() const {
-        TSOutputView view = output_view();
-        nb::list out = tsd_delta_keys_slot(view.as_ts_view(), 2, false);
-        if (view.as_ts_view().view_data().sampled && nb::len(out) == 0) {
-            // Removed-item fallback wrappers use sampled snapshots of the previous
-            // child view; expose all prior keys as removed for Python parity.
-            return tsd_keys_python(view.as_ts_view());
-        }
-        return out;
+        return output_view().as_dict().removed_keys();
     }
 
     nb::object PyTimeSeriesDictOutput::removed_values() const {
@@ -655,7 +230,7 @@ namespace
         const auto *meta = dict.ts_meta();
         for (const auto &key_item : nb::cast<nb::list>(removed_keys())) {
             nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = key_from_python_with_meta(key, meta);
+            auto key_val = tsd_key_from_python(key, meta);
             if (key_val.schema() == nullptr) {
                 continue;
             }
@@ -664,7 +239,7 @@ namespace
                 out.append(wrap_output_view(std::move(child)));
                 continue;
             }
-            if (auto previous_child = previous_dict_child_for_key(parent.as_ts_view(), key_val); previous_child.has_value()) {
+            if (auto previous_child = tsd_previous_child_for_key(parent.as_ts_view(), key_val); previous_child.has_value()) {
                 TSOutputView previous_view = parent;
                 previous_view.as_ts_view().view_data() = previous_child->view_data();
                 previous_view.as_ts_view().view_data().sampled = true;
@@ -681,7 +256,7 @@ namespace
         const auto *meta = dict.ts_meta();
         for (const auto &key_item : nb::cast<nb::list>(removed_keys())) {
             nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = key_from_python_with_meta(key, meta);
+            auto key_val = tsd_key_from_python(key, meta);
             if (key_val.schema() == nullptr) {
                 continue;
             }
@@ -690,7 +265,7 @@ namespace
                 out.append(nb::make_tuple(key, wrap_output_view(std::move(child))));
                 continue;
             }
-            if (auto previous_child = previous_dict_child_for_key(parent.as_ts_view(), key_val); previous_child.has_value()) {
+            if (auto previous_child = tsd_previous_child_for_key(parent.as_ts_view(), key_val); previous_child.has_value()) {
                 TSOutputView previous_view = parent;
                 previous_view.as_ts_view().view_data() = previous_child->view_data();
                 previous_view.as_ts_view().view_data().sampled = true;
@@ -745,14 +320,14 @@ namespace
     }
 
     void PyTimeSeriesDictOutput::set_item(const nb::object &key, const nb::object &value) {
-        if (is_remove_marker(value)) {
+        if (ts_python_is_remove_marker(value)) {
             auto key_val = key_from_python(key);
             if (key_val.schema() == nullptr) {
                 return;
             }
 
             auto dict = output_view().as_dict();
-            if (is_remove_if_exists_marker(value)) {
+            if (ts_python_is_remove_if_exists_marker(value)) {
                 dict.remove(key_val.view());
                 return;
             }
@@ -807,7 +382,7 @@ namespace
     // ===== PyTimeSeriesDictInput Implementation =====
 
     value::Value PyTimeSeriesDictInput::key_from_python(const nb::object &key) const {
-        return key_from_python_with_meta(key, input_view().ts_meta());
+        return tsd_key_from_python(key, input_view().ts_meta());
     }
 
     size_t PyTimeSeriesDictInput::size() const {
@@ -925,12 +500,7 @@ namespace
         if (key_val.schema() == nullptr) {
             return false;
         }
-        value::View value = view().value();
-        if (value.valid() && value.is_map() && value.as_map().contains(key_val.view())) {
-            return true;
-        }
-        value::View local = resolve_local_navigation_value(input_view().as_ts_view());
-        return local.valid() && local.is_map() && local.as_map().contains(key_val.view());
+        return input_view().as_dict().contains(key_val.view());
     }
 
     nb::object PyTimeSeriesDictInput::key_set() const {
@@ -940,7 +510,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictInput::keys() const {
-        return tsd_keys_python(input_view().as_ts_view(), true);
+        return input_view().as_dict().keys();
     }
 
     nb::object PyTimeSeriesDictInput::values() const {
@@ -956,64 +526,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictInput::modified_keys() const {
-        TSInputView view = input_view();
-        const auto* meta = view.as_dict().ts_meta();
-        const bool ref_valued =
-            meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
-        nb::list out = tsd_delta_keys_slot(view.as_ts_view(), 0, true);
-        if (std::getenv("HGRAPH_DEBUG_TSD_MOD_KEYS") != nullptr) {
-            const std::string keys_repr = nb::cast<std::string>(nb::repr(out));
-            std::fprintf(stderr,
-                         "[py_tsd_mod_keys_in] path=%s now=%lld keys=%s\n",
-                         view.as_ts_view().short_path().to_string().c_str(),
-                         static_cast<long long>(view.current_time().time_since_epoch().count()),
-                         keys_repr.c_str());
-        }
-        if (ref_valued && nb::len(out) == 0) {
-            nb::list fallback;
-            auto dict = view.as_dict();
-            const engine_time_t current_time = view.current_time();
-            for (const auto &key_item : nb::cast<nb::list>(keys())) {
-                nb::object key = nb::cast<nb::object>(key_item);
-                auto key_val = key_from_python_with_meta(key, meta);
-                if (key_val.schema() == nullptr) {
-                    continue;
-                }
-                auto child = dict.at_key(key_val.view());
-                if (!child || !child.modified()) {
-                    continue;
-                }
-
-                bool include = child.last_modified_time() == current_time;
-                if (!include && child.valid()) {
-                    value::View child_value = child.value();
-                    if (!child_value.valid()) {
-                        // Empty/unbound REF wrappers can tick modified without
-                        // advancing child LMT; preserve Python parity.
-                        include = true;
-                    } else {
-                        nb::object ref_obj = child_value.to_python();
-                        if (ref_obj.is_none()) {
-                            include = true;
-                        } else {
-                            nb::object is_valid_attr = nb::getattr(ref_obj, "is_valid", nb::none());
-                            if (!is_valid_attr.is_none()) {
-                                if (PyCallable_Check(is_valid_attr.ptr()) != 0) {
-                                    is_valid_attr = is_valid_attr();
-                                }
-                                include = !nb::cast<bool>(is_valid_attr);
-                            }
-                        }
-                    }
-                }
-
-                if (include) {
-                    fallback.append(key);
-                }
-            }
-            return fallback;
-        }
-        return out;
+        return input_view().as_dict().modified_keys();
     }
 
     nb::object PyTimeSeriesDictInput::modified_values() const {
@@ -1029,20 +542,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictInput::valid_keys() const {
-        nb::list out;
-        auto dict = input_view().as_dict();
-        for (const auto &key_item : nb::cast<nb::list>(keys())) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = key_from_python(key);
-            if (key_val.schema() == nullptr) {
-                continue;
-            }
-            auto child = dict.at_key(key_val.view());
-            if (child && child.valid()) {
-                out.append(key);
-            }
-        }
-        return out;
+        return input_view().as_dict().valid_keys();
     }
 
     nb::object PyTimeSeriesDictInput::valid_values() const {
@@ -1054,8 +554,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictInput::added_keys() const {
-        TSInputView view = input_view();
-        return tsd_delta_keys_slot(view.as_ts_view(), 1, false);
+        return input_view().as_dict().added_keys();
     }
 
     nb::object PyTimeSeriesDictInput::added_values() const {
@@ -1075,14 +574,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictInput::removed_keys() const {
-        TSInputView view = input_view();
-        nb::list out = tsd_delta_keys_slot(view.as_ts_view(), 2, false);
-        if (view.as_ts_view().view_data().sampled && nb::len(out) == 0) {
-            // Removed-item fallback wrappers use sampled snapshots of the previous
-            // child view; expose all prior keys as removed for Python parity.
-            return tsd_keys_python(view.as_ts_view());
-        }
-        return out;
+        return input_view().as_dict().removed_keys();
     }
 
     nb::object PyTimeSeriesDictInput::removed_values() const {
@@ -1092,7 +584,7 @@ namespace
         const auto *meta = dict.ts_meta();
         for (const auto &key_item : nb::cast<nb::list>(removed_keys())) {
             nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = key_from_python_with_meta(key, meta);
+            auto key_val = tsd_key_from_python(key, meta);
             if (key_val.schema() == nullptr) {
                 continue;
             }
@@ -1101,7 +593,7 @@ namespace
                 out.append(wrap_input_view(std::move(child)));
                 continue;
             }
-            if (auto previous_child = previous_dict_child_for_key(parent.as_ts_view(), key_val); previous_child.has_value()) {
+            if (auto previous_child = tsd_previous_child_for_key(parent.as_ts_view(), key_val); previous_child.has_value()) {
                 TSInputView previous_view = parent;
                 previous_view.as_ts_view().view_data() = previous_child->view_data();
                 previous_view.as_ts_view().view_data().sampled = true;
@@ -1118,7 +610,7 @@ namespace
         const auto *meta = dict.ts_meta();
         for (const auto &key_item : nb::cast<nb::list>(removed_keys())) {
             nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = key_from_python_with_meta(key, meta);
+            auto key_val = tsd_key_from_python(key, meta);
             if (key_val.schema() == nullptr) {
                 continue;
             }
@@ -1127,7 +619,7 @@ namespace
                 out.append(nb::make_tuple(key, wrap_input_view(std::move(child))));
                 continue;
             }
-            if (auto previous_child = previous_dict_child_for_key(parent.as_ts_view(), key_val); previous_child.has_value()) {
+            if (auto previous_child = tsd_previous_child_for_key(parent.as_ts_view(), key_val); previous_child.has_value()) {
                 TSInputView previous_view = parent;
                 previous_view.as_ts_view().view_data() = previous_child->view_data();
                 previous_view.as_ts_view().view_data().sampled = true;

@@ -6,14 +6,17 @@
 
 #include <nanobind/nanobind.h>
 
+#include <cstdint>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 namespace nb = nanobind;
 
 namespace hgraph {
 
 class TSInput;
+class TSInputView;
 class TSView;
 struct TimeSeriesReference;
 
@@ -138,6 +141,12 @@ struct ts_ops {
     }
 };
 
+enum class TSCollectionFilter : uint8_t {
+    All = 0,
+    Valid = 1,
+    Modified = 2,
+};
+
 /**
  * Retrieve ts_ops by static kind discriminator.
  */
@@ -162,6 +171,30 @@ HGRAPH_EXPORT void store_to_ref_link(REFLink& target, const ViewData& source);
 HGRAPH_EXPORT bool resolve_direct_bound_view_data(const ViewData& source, ViewData& out);
 HGRAPH_EXPORT bool resolve_bound_target_view_data(const ViewData& source, ViewData& out);
 HGRAPH_EXPORT bool resolve_previous_bound_target_view_data(const ViewData& source, ViewData& out);
+HGRAPH_EXPORT engine_time_t resolve_notify_time(node_ptr owner, engine_time_t fallback);
+HGRAPH_EXPORT bool input_kind_requires_bound_validity(const TSInputView& input_view);
+HGRAPH_EXPORT std::optional<ViewData> resolve_input_bound_target_view_data(const TSInputView& input_view);
+HGRAPH_EXPORT bool input_has_effective_bound_target(const TSInputView& input_view);
+HGRAPH_EXPORT const engine_time_t* resolve_bound_view_current_time_ptr(const ViewData& vd);
+HGRAPH_EXPORT engine_time_t resolve_bound_view_current_time(const ViewData& vd);
+HGRAPH_EXPORT bool ts_meta_is_ref(const TSMeta* meta);
+HGRAPH_EXPORT bool ts_meta_is_bundle(const TSMeta* meta);
+HGRAPH_EXPORT bool ts_meta_is_dict(const TSMeta* meta);
+HGRAPH_EXPORT const TSMeta* ts_strip_ref_meta(const TSMeta* meta);
+HGRAPH_EXPORT const TSMeta* ts_bundle_meta_with_fields(const TSView& view);
+HGRAPH_EXPORT std::optional<size_t> ts_bundle_field_index(const TSView& view, std::string_view name);
+HGRAPH_EXPORT nb::list ts_bundle_field_names(const TSView& view);
+HGRAPH_EXPORT bool ts_list_child_effectively_modified(const TSView& child);
+HGRAPH_EXPORT std::vector<size_t> ts_list_filtered_indices(const TSView& view, TSCollectionFilter filter);
+HGRAPH_EXPORT std::vector<size_t> ts_bundle_filtered_indices(const TSView& view, TSCollectionFilter filter);
+HGRAPH_EXPORT value::Value tsd_key_from_python(const nb::object& key, const TSMeta* meta);
+HGRAPH_EXPORT value::View ts_local_navigation_value(const TSView& view);
+HGRAPH_EXPORT nb::list tsd_keys_python(const TSView& view, bool include_local_fallback);
+HGRAPH_EXPORT nb::list tsd_delta_keys_slot(const TSView& view, size_t tuple_index, bool expect_map);
+HGRAPH_EXPORT bool ts_python_is_remove_marker(const nb::object& obj);
+HGRAPH_EXPORT bool ts_python_is_remove_if_exists_marker(const nb::object& obj);
+HGRAPH_EXPORT std::optional<TSView> tsd_previous_child_for_key(const TSView& parent_view,
+                                                                const value::Value& key_val);
 HGRAPH_EXPORT std::optional<TSView> resolve_tsd_removed_child_snapshot(
     const ViewData& parent_view,
     const value::View& key,

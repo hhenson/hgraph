@@ -23,50 +23,6 @@ namespace hgraph
 namespace
 {
     bool has_parent(const ShortPath &path) { return !path.indices.empty(); }
-
-    engine_time_t resolve_notify_time(node_ptr owner, engine_time_t fallback) {
-        if (owner != nullptr) {
-            if (const engine_time_t* et = owner->cached_evaluation_time_ptr(); et != nullptr && *et != MIN_DT) {
-                return *et;
-            }
-            if (auto g = owner->graph(); g != nullptr) {
-                const engine_time_t graph_time = g->evaluation_time();
-                if (graph_time != MIN_DT) {
-                    return graph_time;
-                }
-            }
-        }
-        return fallback;
-    }
-
-    bool input_kind_requires_bound_validity(const TSInputView& input_view) {
-        const TSMeta* meta = input_view.ts_meta();
-        const TSKind kind = meta != nullptr ? meta->kind : input_view.as_ts_view().kind();
-        return kind == TSKind::TSValue || kind == TSKind::SIGNAL;
-    }
-
-    std::optional<ViewData> resolve_bound_target_view_data(const TSInputView &input_view) {
-        const ViewData &vd = input_view.as_ts_view().view_data();
-        const TSMeta* meta = input_view.ts_meta();
-        ViewData target{};
-        if (meta != nullptr && meta->kind == TSKind::REF) {
-            if (!hgraph::resolve_direct_bound_view_data(vd, target)) {
-                return std::nullopt;
-            }
-            return target;
-        }
-        if (!hgraph::resolve_bound_target_view_data(vd, target)) {
-            return std::nullopt;
-        }
-        return target;
-    }
-
-    bool input_has_effective_bound_target(const TSInputView &input_view) {
-        if (input_view.is_bound()) {
-            return true;
-        }
-        return resolve_bound_target_view_data(input_view).has_value();
-    }
 }  // namespace
 
     // ========== PyTimeSeriesType Implementation ==========
@@ -350,7 +306,7 @@ namespace
     }
 
     nb::object PyTimeSeriesInput::output() const {
-        auto target = resolve_bound_target_view_data(input_view());
+        auto target = resolve_input_bound_target_view_data(input_view());
         if (!target.has_value()) {
             return nb::none();
         }
