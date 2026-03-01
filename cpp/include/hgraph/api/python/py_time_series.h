@@ -1,7 +1,5 @@
 #pragma once
 
-#include "api_ptr.h"
-
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/ts_view.h>
 
