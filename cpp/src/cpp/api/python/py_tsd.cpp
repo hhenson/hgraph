@@ -18,46 +18,42 @@ namespace hgraph
 {
 namespace
 {
-    template <typename DictViewT>
-    nb::list dict_values_for_keys(DictViewT dict_view, const nb::list &keys) {
+    nb::list wrap_keys(std::vector<value::Value> keys) {
         nb::list out;
-        const auto *meta = dict_view.ts_meta();
-        for (const auto &key_item : keys) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = tsd_key_from_python(key, meta);
-            if (key_val.schema() == nullptr) {
-                continue;
-            }
-            auto child = dict_view.at_key(key_val.view());
-            if (child) {
-                if constexpr (std::is_same_v<DictViewT, TSDOutputView>) {
-                    out.append(wrap_output_view(std::move(child)));
-                } else {
-                    out.append(wrap_input_view(std::move(child)));
-                }
-            }
+        for (auto& key : keys) {
+            out.append(key.to_python());
         }
         return out;
     }
 
-    template <typename DictViewT>
-    nb::list dict_items_for_keys(DictViewT dict_view, const nb::list &keys) {
+    nb::list wrap_output_values(std::vector<TSOutputView> values) {
         nb::list out;
-        const auto *meta = dict_view.ts_meta();
-        for (const auto &key_item : keys) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = tsd_key_from_python(key, meta);
-            if (key_val.schema() == nullptr) {
-                continue;
-            }
-            auto child = dict_view.at_key(key_val.view());
-            if (child) {
-                if constexpr (std::is_same_v<DictViewT, TSDOutputView>) {
-                    out.append(nb::make_tuple(key, wrap_output_view(std::move(child))));
-                } else {
-                    out.append(nb::make_tuple(key, wrap_input_view(std::move(child))));
-                }
-            }
+        for (auto &child : values) {
+            out.append(wrap_output_view(std::move(child)));
+        }
+        return out;
+    }
+
+    nb::list wrap_input_values(std::vector<TSInputView> values) {
+        nb::list out;
+        for (auto &child : values) {
+            out.append(wrap_input_view(std::move(child)));
+        }
+        return out;
+    }
+
+    nb::list wrap_output_items(std::vector<TSDOutputView::item_type> items) {
+        nb::list out;
+        for (auto &entry : items) {
+            out.append(nb::make_tuple(entry.first.to_python(), wrap_output_view(std::move(entry.second))));
+        }
+        return out;
+    }
+
+    nb::list wrap_input_items(std::vector<TSDInputView::item_type> items) {
+        nb::list out;
+        for (auto &entry : items) {
+            out.append(nb::make_tuple(entry.first.to_python(), wrap_input_view(std::move(entry.second))));
         }
         return out;
     }
@@ -152,15 +148,15 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::keys() const {
-        return output_view().as_dict().keys();
+        return wrap_keys(output_view().as_dict().keys());
     }
 
     nb::object PyTimeSeriesDictOutput::values() const {
-        return dict_values_for_keys(output_view().as_dict(), nb::cast<nb::list>(keys()));
+        return wrap_output_values(output_view().as_dict().values());
     }
 
     nb::object PyTimeSeriesDictOutput::items() const {
-        return dict_items_for_keys(output_view().as_dict(), nb::cast<nb::list>(keys()));
+        return wrap_output_items(output_view().as_dict().items());
     }
 
     nb::object PyTimeSeriesDictOutput::delta_value() const {
@@ -168,15 +164,15 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::modified_keys() const {
-        return output_view().as_dict().modified_keys();
+        return wrap_keys(output_view().as_dict().modified_keys());
     }
 
     nb::object PyTimeSeriesDictOutput::modified_values() const {
-        return dict_values_for_keys(output_view().as_dict(), nb::cast<nb::list>(modified_keys()));
+        return wrap_output_values(output_view().as_dict().modified_values());
     }
 
     nb::object PyTimeSeriesDictOutput::modified_items() const {
-        return dict_items_for_keys(output_view().as_dict(), nb::cast<nb::list>(modified_keys()));
+        return wrap_output_items(output_view().as_dict().modified_items());
     }
 
     bool PyTimeSeriesDictOutput::was_modified(const nb::object &key) const {
@@ -188,27 +184,27 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::valid_keys() const {
-        return output_view().as_dict().valid_keys();
+        return wrap_keys(output_view().as_dict().valid_keys());
     }
 
     nb::object PyTimeSeriesDictOutput::valid_values() const {
-        return dict_values_for_keys(output_view().as_dict(), nb::cast<nb::list>(valid_keys()));
+        return wrap_output_values(output_view().as_dict().valid_values());
     }
 
     nb::object PyTimeSeriesDictOutput::valid_items() const {
-        return dict_items_for_keys(output_view().as_dict(), nb::cast<nb::list>(valid_keys()));
+        return wrap_output_items(output_view().as_dict().valid_items());
     }
 
     nb::object PyTimeSeriesDictOutput::added_keys() const {
-        return output_view().as_dict().added_keys();
+        return wrap_keys(output_view().as_dict().added_keys());
     }
 
     nb::object PyTimeSeriesDictOutput::added_values() const {
-        return dict_values_for_keys(output_view().as_dict(), nb::cast<nb::list>(added_keys()));
+        return wrap_output_values(output_view().as_dict().added_values());
     }
 
     nb::object PyTimeSeriesDictOutput::added_items() const {
-        return dict_items_for_keys(output_view().as_dict(), nb::cast<nb::list>(added_keys()));
+        return wrap_output_items(output_view().as_dict().added_items());
     }
 
     bool PyTimeSeriesDictOutput::has_added() const {
@@ -224,59 +220,15 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::removed_keys() const {
-        return output_view().as_dict().removed_keys();
+        return wrap_keys(output_view().as_dict().removed_keys());
     }
 
     nb::object PyTimeSeriesDictOutput::removed_values() const {
-        nb::list out;
-        TSOutputView parent = output_view();
-        auto dict = parent.as_dict();
-        const auto *meta = dict.ts_meta();
-        for (const auto &key_item : nb::cast<nb::list>(removed_keys())) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = tsd_key_from_python(key, meta);
-            if (key_val.schema() == nullptr) {
-                continue;
-            }
-            auto child = dict.at_key(key_val.view());
-            if (child && child.valid()) {
-                out.append(wrap_output_view(std::move(child)));
-                continue;
-            }
-            if (auto previous_child = tsd_previous_child_for_key(parent.as_ts_view(), key_val); previous_child.has_value()) {
-                TSOutputView previous_view = parent;
-                previous_view.as_ts_view().view_data() = previous_child->view_data();
-                previous_view.as_ts_view().view_data().sampled = true;
-                out.append(wrap_output_view(std::move(previous_view)));
-            }
-        }
-        return out;
+        return wrap_output_values(output_view().as_dict().removed_values());
     }
 
     nb::object PyTimeSeriesDictOutput::removed_items() const {
-        nb::list out;
-        TSOutputView parent = output_view();
-        auto dict = parent.as_dict();
-        const auto *meta = dict.ts_meta();
-        for (const auto &key_item : nb::cast<nb::list>(removed_keys())) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = tsd_key_from_python(key, meta);
-            if (key_val.schema() == nullptr) {
-                continue;
-            }
-            auto child = dict.at_key(key_val.view());
-            if (child && child.valid()) {
-                out.append(nb::make_tuple(key, wrap_output_view(std::move(child))));
-                continue;
-            }
-            if (auto previous_child = tsd_previous_child_for_key(parent.as_ts_view(), key_val); previous_child.has_value()) {
-                TSOutputView previous_view = parent;
-                previous_view.as_ts_view().view_data() = previous_child->view_data();
-                previous_view.as_ts_view().view_data().sampled = true;
-                out.append(nb::make_tuple(key, wrap_output_view(std::move(previous_view))));
-            }
-        }
-        return out;
+        return wrap_output_items(output_view().as_dict().removed_items());
     }
 
     bool PyTimeSeriesDictOutput::has_removed() const {
@@ -518,15 +470,15 @@ namespace
     }
 
     nb::object PyTimeSeriesDictInput::keys() const {
-        return input_view().as_dict().keys();
+        return wrap_keys(input_view().as_dict().keys());
     }
 
     nb::object PyTimeSeriesDictInput::values() const {
-        return dict_values_for_keys(input_view().as_dict(), nb::cast<nb::list>(keys()));
+        return wrap_input_values(input_view().as_dict().values());
     }
 
     nb::object PyTimeSeriesDictInput::items() const {
-        return dict_items_for_keys(input_view().as_dict(), nb::cast<nb::list>(keys()));
+        return wrap_input_items(input_view().as_dict().items());
     }
 
     nb::object PyTimeSeriesDictInput::delta_value() const {
@@ -534,15 +486,15 @@ namespace
     }
 
     nb::object PyTimeSeriesDictInput::modified_keys() const {
-        return input_view().as_dict().modified_keys();
+        return wrap_keys(input_view().as_dict().modified_keys());
     }
 
     nb::object PyTimeSeriesDictInput::modified_values() const {
-        return dict_values_for_keys(input_view().as_dict(), nb::cast<nb::list>(modified_keys()));
+        return wrap_input_values(input_view().as_dict().modified_values());
     }
 
     nb::object PyTimeSeriesDictInput::modified_items() const {
-        return dict_items_for_keys(input_view().as_dict(), nb::cast<nb::list>(modified_keys()));
+        return wrap_input_items(input_view().as_dict().modified_items());
     }
 
     bool PyTimeSeriesDictInput::was_modified(const nb::object &key) const {
@@ -554,27 +506,27 @@ namespace
     }
 
     nb::object PyTimeSeriesDictInput::valid_keys() const {
-        return input_view().as_dict().valid_keys();
+        return wrap_keys(input_view().as_dict().valid_keys());
     }
 
     nb::object PyTimeSeriesDictInput::valid_values() const {
-        return dict_values_for_keys(input_view().as_dict(), nb::cast<nb::list>(valid_keys()));
+        return wrap_input_values(input_view().as_dict().valid_values());
     }
 
     nb::object PyTimeSeriesDictInput::valid_items() const {
-        return dict_items_for_keys(input_view().as_dict(), nb::cast<nb::list>(valid_keys()));
+        return wrap_input_items(input_view().as_dict().valid_items());
     }
 
     nb::object PyTimeSeriesDictInput::added_keys() const {
-        return input_view().as_dict().added_keys();
+        return wrap_keys(input_view().as_dict().added_keys());
     }
 
     nb::object PyTimeSeriesDictInput::added_values() const {
-        return dict_values_for_keys(input_view().as_dict(), nb::cast<nb::list>(added_keys()));
+        return wrap_input_values(input_view().as_dict().added_values());
     }
 
     nb::object PyTimeSeriesDictInput::added_items() const {
-        return dict_items_for_keys(input_view().as_dict(), nb::cast<nb::list>(added_keys()));
+        return wrap_input_items(input_view().as_dict().added_items());
     }
 
     bool PyTimeSeriesDictInput::has_added() const {
@@ -590,59 +542,15 @@ namespace
     }
 
     nb::object PyTimeSeriesDictInput::removed_keys() const {
-        return input_view().as_dict().removed_keys();
+        return wrap_keys(input_view().as_dict().removed_keys());
     }
 
     nb::object PyTimeSeriesDictInput::removed_values() const {
-        nb::list out;
-        TSInputView parent = input_view();
-        auto dict = parent.as_dict();
-        const auto *meta = dict.ts_meta();
-        for (const auto &key_item : nb::cast<nb::list>(removed_keys())) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = tsd_key_from_python(key, meta);
-            if (key_val.schema() == nullptr) {
-                continue;
-            }
-            auto child = dict.at_key(key_val.view());
-            if (child && child.valid()) {
-                out.append(wrap_input_view(std::move(child)));
-                continue;
-            }
-            if (auto previous_child = tsd_previous_child_for_key(parent.as_ts_view(), key_val); previous_child.has_value()) {
-                TSInputView previous_view = parent;
-                previous_view.as_ts_view().view_data() = previous_child->view_data();
-                previous_view.as_ts_view().view_data().sampled = true;
-                out.append(wrap_input_view(std::move(previous_view)));
-            }
-        }
-        return out;
+        return wrap_input_values(input_view().as_dict().removed_values());
     }
 
     nb::object PyTimeSeriesDictInput::removed_items() const {
-        nb::list out;
-        TSInputView parent = input_view();
-        auto dict = parent.as_dict();
-        const auto *meta = dict.ts_meta();
-        for (const auto &key_item : nb::cast<nb::list>(removed_keys())) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = tsd_key_from_python(key, meta);
-            if (key_val.schema() == nullptr) {
-                continue;
-            }
-            auto child = dict.at_key(key_val.view());
-            if (child && child.valid()) {
-                out.append(nb::make_tuple(key, wrap_input_view(std::move(child))));
-                continue;
-            }
-            if (auto previous_child = tsd_previous_child_for_key(parent.as_ts_view(), key_val); previous_child.has_value()) {
-                TSInputView previous_view = parent;
-                previous_view.as_ts_view().view_data() = previous_child->view_data();
-                previous_view.as_ts_view().view_data().sampled = true;
-                out.append(nb::make_tuple(key, wrap_input_view(std::move(previous_view))));
-            }
-        }
-        return out;
+        return wrap_input_items(input_view().as_dict().removed_items());
     }
 
     bool PyTimeSeriesDictInput::has_removed() const {

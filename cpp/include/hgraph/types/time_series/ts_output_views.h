@@ -124,20 +124,32 @@ public:
 
 class HGRAPH_EXPORT TSDOutputView : public TSOutputView {
 public:
+    using item_type = std::pair<value::Value, TSOutputView>;
+
     TSDOutputView() = default;
     explicit TSDOutputView(TSOutputView base) noexcept : TSOutputView(std::move(base)) {}
 
     [[nodiscard]] bool contains(const value::View& key) const;
-    [[nodiscard]] nb::list keys() const;
-    [[nodiscard]] nb::list modified_keys() const;
-    [[nodiscard]] nb::list valid_keys() const;
-    [[nodiscard]] nb::list added_keys() const;
-    [[nodiscard]] nb::list removed_keys() const;
+    [[nodiscard]] std::vector<value::Value> keys() const;
+    [[nodiscard]] std::vector<value::Value> valid_keys() const;
+    [[nodiscard]] std::vector<value::Value> modified_keys() const;
+    [[nodiscard]] std::vector<value::Value> added_keys() const;
+    [[nodiscard]] std::vector<value::Value> removed_keys() const;
     [[nodiscard]] bool has_added() const;
     [[nodiscard]] bool has_removed() const;
     [[nodiscard]] bool was_added(const value::View& key) const;
     [[nodiscard]] bool was_removed(const value::View& key) const;
     [[nodiscard]] bool was_modified(const value::View& key) const;
+    [[nodiscard]] std::vector<TSOutputView> values() const;
+    [[nodiscard]] std::vector<TSOutputView> valid_values() const;
+    [[nodiscard]] std::vector<TSOutputView> modified_values() const;
+    [[nodiscard]] std::vector<TSOutputView> added_values() const;
+    [[nodiscard]] std::vector<TSOutputView> removed_values() const;
+    [[nodiscard]] std::vector<item_type> items() const;
+    [[nodiscard]] std::vector<item_type> valid_items() const;
+    [[nodiscard]] std::vector<item_type> modified_items() const;
+    [[nodiscard]] std::vector<item_type> added_items() const;
+    [[nodiscard]] std::vector<item_type> removed_items() const;
     [[nodiscard]] TSOutputView at_key(const value::View& key) const;
     [[nodiscard]] TSOutputView by_key(const value::View& key) const { return at_key(key); }
     [[nodiscard]] size_t count() const;
