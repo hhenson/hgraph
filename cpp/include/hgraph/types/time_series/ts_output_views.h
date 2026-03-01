@@ -133,6 +133,11 @@ public:
     [[nodiscard]] nb::list valid_keys() const;
     [[nodiscard]] nb::list added_keys() const;
     [[nodiscard]] nb::list removed_keys() const;
+    [[nodiscard]] bool has_added() const;
+    [[nodiscard]] bool has_removed() const;
+    [[nodiscard]] bool was_added(const value::View& key) const;
+    [[nodiscard]] bool was_removed(const value::View& key) const;
+    [[nodiscard]] bool was_modified(const value::View& key) const;
     [[nodiscard]] TSOutputView at_key(const value::View& key) const;
     [[nodiscard]] TSOutputView by_key(const value::View& key) const { return at_key(key); }
     [[nodiscard]] size_t count() const;

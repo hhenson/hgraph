@@ -362,6 +362,371 @@ nb::list tsd_removed_keys_for_view(const TSView& view) {
     return out;
 }
 
+bool tsd_is_ref_valued(const TSView& view) {
+    const auto* meta = view.ts_meta();
+    return meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
+}
+
+bool tsd_delta_tuple_slot_set(const TSView& view, size_t tuple_index, value::SetView& out) {
+    value::View delta = view.delta_value();
+    if (!delta.valid() || !delta.is_tuple()) {
+        return false;
+    }
+
+    auto tuple = delta.as_tuple();
+    if (tuple_index >= tuple.size()) {
+        return false;
+    }
+
+    value::View slot = tuple.at(tuple_index);
+    if (!slot.valid() || !slot.is_set()) {
+        return false;
+    }
+
+    out = slot.as_set();
+    return true;
+}
+
+bool tsd_delta_tuple_slot_map(const TSView& view, size_t tuple_index, value::MapView& out) {
+    value::View delta = view.delta_value();
+    if (!delta.valid() || !delta.is_tuple()) {
+        return false;
+    }
+
+    auto tuple = delta.as_tuple();
+    if (tuple_index >= tuple.size()) {
+        return false;
+    }
+
+    value::View slot = tuple.at(tuple_index);
+    if (!slot.valid() || !slot.is_map()) {
+        return false;
+    }
+
+    out = slot.as_map();
+    return true;
+}
+
+nb::object tsd_key_set_delta_member(const TSView& view, const char* member_name) {
+    TSView key_set_view = view;
+    key_set_view.view_data().projection = ViewProjection::TSD_KEY_SET;
+
+    nb::object key_set_delta = key_set_view.delta_to_python();
+    if (key_set_delta.is_none()) {
+        return nb::none();
+    }
+
+    nb::object member = nb::getattr(key_set_delta, member_name, nb::none());
+    if (member.is_none()) {
+        return nb::none();
+    }
+    if (PyCallable_Check(member.ptr()) != 0) {
+        member = member();
+    }
+    return member;
+}
+
+bool py_collection_has_any(const nb::object& collection) {
+    if (collection.is_none()) {
+        return false;
+    }
+
+    const Py_ssize_t size = PyObject_Size(collection.ptr());
+    if (size >= 0) {
+        return size > 0;
+    }
+    PyErr_Clear();
+
+    for (const auto& ignored : nb::iter(collection)) {
+        static_cast<void>(ignored);
+        return true;
+    }
+    return false;
+}
+
+bool py_collection_contains_key(const nb::object& collection, const value::View& key) {
+    if (collection.is_none() || !key.valid()) {
+        return false;
+    }
+
+    nb::object key_obj = key.to_python();
+    const int contains = PySequence_Contains(collection.ptr(), key_obj.ptr());
+    if (contains >= 0) {
+        return contains == 1;
+    }
+    PyErr_Clear();
+    return false;
+}
+
+bool tsd_python_delta_has_removed(const TSView& view) {
+    nb::object delta_obj = view.delta_to_python();
+    if (delta_obj.is_none()) {
+        return false;
+    }
+
+    if (nb::isinstance<nb::dict>(delta_obj)) {
+        nb::dict delta_dict = nb::cast<nb::dict>(delta_obj);
+        for (const auto& kv : delta_dict) {
+            if (ts_python_is_remove_marker(nb::cast<nb::object>(kv.second))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    nb::object items_attr = nb::getattr(delta_obj, "items", nb::none());
+    if (items_attr.is_none()) {
+        return false;
+    }
+    for (const auto& kv : nb::iter(items_attr())) {
+        if (ts_python_is_remove_marker(nb::cast<nb::object>(kv[1]))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool tsd_python_delta_was_removed(const TSView& view, const value::View& key) {
+    if (!key.valid()) {
+        return false;
+    }
+
+    nb::object delta_obj = view.delta_to_python();
+    if (delta_obj.is_none()) {
+        return false;
+    }
+    nb::object key_obj = key.to_python();
+
+    if (nb::isinstance<nb::dict>(delta_obj)) {
+        nb::dict delta_dict = nb::cast<nb::dict>(delta_obj);
+        if (!delta_dict.contains(key_obj)) {
+            return false;
+        }
+        return ts_python_is_remove_marker(nb::cast<nb::object>(delta_dict[key_obj]));
+    }
+
+    nb::object items_attr = nb::getattr(delta_obj, "items", nb::none());
+    if (items_attr.is_none()) {
+        return false;
+    }
+    for (const auto& kv : nb::iter(items_attr())) {
+        nb::object candidate_key = nb::cast<nb::object>(kv[0]);
+        const int eq = PyObject_RichCompareBool(candidate_key.ptr(), key_obj.ptr(), Py_EQ);
+        if (eq < 0) {
+            PyErr_Clear();
+            continue;
+        }
+        if (eq == 1) {
+            return ts_python_is_remove_marker(nb::cast<nb::object>(kv[1]));
+        }
+    }
+    return false;
+}
+
+bool tsd_python_delta_was_modified_non_remove(const TSView& view, const value::View& key) {
+    if (!key.valid()) {
+        return false;
+    }
+
+    nb::object delta_obj = view.delta_to_python();
+    if (delta_obj.is_none()) {
+        return false;
+    }
+    nb::object key_obj = key.to_python();
+
+    if (nb::isinstance<nb::dict>(delta_obj)) {
+        nb::dict delta_dict = nb::cast<nb::dict>(delta_obj);
+        if (!delta_dict.contains(key_obj)) {
+            return false;
+        }
+        return !ts_python_is_remove_marker(nb::cast<nb::object>(delta_dict[key_obj]));
+    }
+
+    nb::object items_attr = nb::getattr(delta_obj, "items", nb::none());
+    if (items_attr.is_none()) {
+        return false;
+    }
+    for (const auto& kv : nb::iter(items_attr())) {
+        nb::object candidate_key = nb::cast<nb::object>(kv[0]);
+        const int eq = PyObject_RichCompareBool(candidate_key.ptr(), key_obj.ptr(), Py_EQ);
+        if (eq < 0) {
+            PyErr_Clear();
+            continue;
+        }
+        if (eq == 1) {
+            return !ts_python_is_remove_marker(nb::cast<nb::object>(kv[1]));
+        }
+    }
+    return false;
+}
+
+bool tsd_sampled_has_removed_any(const TSView& view) {
+    if (!view.view_data().sampled) {
+        return false;
+    }
+    value::View current = view.value();
+    return current.valid() && current.is_map() && current.as_map().size() > 0;
+}
+
+bool tsd_sampled_was_removed(const TSView& view, const value::View& key) {
+    if (!view.view_data().sampled || !key.valid()) {
+        return false;
+    }
+    value::View current = view.value();
+    return current.valid() && current.is_map() && current.as_map().contains(key);
+}
+
+bool tsd_ref_input_fallback_was_modified(const TSView& view, const value::View& key) {
+    auto child = view.as_dict().at_key(key);
+    if (!child || !child.modified()) {
+        return false;
+    }
+
+    bool include = child.last_modified_time() == view.current_time();
+    if (!include && child.valid()) {
+        value::View child_value = child.value();
+        if (!child_value.valid()) {
+            return true;
+        }
+
+        nb::object ref_obj = child_value.to_python();
+        if (ref_obj.is_none()) {
+            return true;
+        }
+
+        nb::object is_valid_attr = nb::getattr(ref_obj, "is_valid", nb::none());
+        if (is_valid_attr.is_none()) {
+            return false;
+        }
+        if (PyCallable_Check(is_valid_attr.ptr()) != 0) {
+            is_valid_attr = is_valid_attr();
+        }
+        include = !nb::cast<bool>(is_valid_attr);
+    }
+
+    return include;
+}
+
+bool tsd_has_added_for_view(const TSView& view) {
+    value::SetView tuple_added{};
+    const bool tuple_has_added = tsd_delta_tuple_slot_set(view, 1, tuple_added) && tuple_added.size() > 0;
+    const nb::object key_set_added = tsd_key_set_delta_member(view, "added");
+
+    if (tsd_is_ref_valued(view)) {
+        return py_collection_has_any(key_set_added);
+    }
+    return tuple_has_added || py_collection_has_any(key_set_added);
+}
+
+bool tsd_was_added_for_view(const TSView& view, const value::View& key) {
+    if (!key.valid()) {
+        return false;
+    }
+
+    value::SetView tuple_added{};
+    const bool in_tuple_added = tsd_delta_tuple_slot_set(view, 1, tuple_added) && tuple_added.contains(key);
+    const nb::object key_set_added = tsd_key_set_delta_member(view, "added");
+
+    if (tsd_is_ref_valued(view)) {
+        return py_collection_contains_key(key_set_added, key);
+    }
+    return in_tuple_added || py_collection_contains_key(key_set_added, key);
+}
+
+bool tsd_has_removed_for_view(const TSView& view) {
+    const nb::object key_set_removed = tsd_key_set_delta_member(view, "removed");
+    if (py_collection_has_any(key_set_removed)) {
+        return true;
+    }
+
+    value::SetView tuple_removed{};
+    if (tsd_delta_tuple_slot_set(view, 2, tuple_removed)) {
+        return tuple_removed.size() > 0;
+    }
+
+    if (tsd_python_delta_has_removed(view)) {
+        return true;
+    }
+    return tsd_sampled_has_removed_any(view);
+}
+
+bool tsd_was_removed_for_view(const TSView& view, const value::View& key) {
+    if (!key.valid()) {
+        return false;
+    }
+
+    const nb::object key_set_removed = tsd_key_set_delta_member(view, "removed");
+    if (py_collection_has_any(key_set_removed)) {
+        return py_collection_contains_key(key_set_removed, key);
+    }
+
+    value::SetView tuple_removed{};
+    if (tsd_delta_tuple_slot_set(view, 2, tuple_removed)) {
+        return tuple_removed.contains(key);
+    }
+
+    if (tsd_python_delta_was_removed(view, key)) {
+        return true;
+    }
+    return tsd_sampled_was_removed(view, key);
+}
+
+bool tsd_was_modified_for_output_view(const TSView& view, const value::View& key) {
+    if (!key.valid()) {
+        return false;
+    }
+
+    const bool ref_valued = tsd_is_ref_valued(view);
+    if (ref_valued && !view.modified()) {
+        return false;
+    }
+
+    value::MapView tuple_modified{};
+    if (tsd_delta_tuple_slot_map(view, 0, tuple_modified) && tuple_modified.contains(key)) {
+        return true;
+    }
+
+    if (tsd_python_delta_was_modified_non_remove(view, key)) {
+        return true;
+    }
+
+    if (!ref_valued) {
+        return false;
+    }
+
+    if (py_collection_contains_key(tsd_key_set_delta_member(view, "added"), key)) {
+        return true;
+    }
+
+    auto child = view.as_dict().at_key(key);
+    return child && child.modified();
+}
+
+bool tsd_was_modified_for_input_view(const TSView& view, const value::View& key) {
+    if (!key.valid()) {
+        return false;
+    }
+
+    value::MapView tuple_modified{};
+    if (tsd_delta_tuple_slot_map(view, 0, tuple_modified) && tuple_modified.contains(key)) {
+        return true;
+    }
+
+    if (tsd_python_delta_was_modified_non_remove(view, key)) {
+        return true;
+    }
+
+    if (!tsd_is_ref_valued(view)) {
+        return false;
+    }
+
+    if (py_collection_contains_key(tsd_key_set_delta_member(view, "added"), key)) {
+        return true;
+    }
+
+    return tsd_ref_input_fallback_was_modified(view, key);
+}
+
 TSView child_by_key_impl(const ViewData& view_data, const value::View& key, const engine_time_t* engine_time_ptr) {
     if (view_data.uses_link_target) {
         if (auto local_slot = map_slot_for_key(resolve_local_navigation_value(view_data), key); local_slot.has_value()) {
@@ -1052,6 +1417,26 @@ nb::list TSDOutputView::removed_keys() const {
     return tsd_removed_keys_for_view(as_ts_view());
 }
 
+bool TSDOutputView::has_added() const {
+    return tsd_has_added_for_view(as_ts_view());
+}
+
+bool TSDOutputView::has_removed() const {
+    return tsd_has_removed_for_view(as_ts_view());
+}
+
+bool TSDOutputView::was_added(const value::View& key) const {
+    return tsd_was_added_for_view(as_ts_view(), key);
+}
+
+bool TSDOutputView::was_removed(const value::View& key) const {
+    return tsd_was_removed_for_view(as_ts_view(), key);
+}
+
+bool TSDOutputView::was_modified(const value::View& key) const {
+    return tsd_was_modified_for_output_view(as_ts_view(), key);
+}
+
 TSOutputView TSDOutputView::at_key(const value::View& key) const {
     return TSOutputView(owner_, as_ts_view().as_dict().at_key(key));
 }
@@ -1279,6 +1664,26 @@ nb::list TSDInputView::added_keys() const {
 
 nb::list TSDInputView::removed_keys() const {
     return tsd_removed_keys_for_view(as_ts_view());
+}
+
+bool TSDInputView::has_added() const {
+    return tsd_has_added_for_view(as_ts_view());
+}
+
+bool TSDInputView::has_removed() const {
+    return tsd_has_removed_for_view(as_ts_view());
+}
+
+bool TSDInputView::was_added(const value::View& key) const {
+    return tsd_was_added_for_view(as_ts_view(), key);
+}
+
+bool TSDInputView::was_removed(const value::View& key) const {
+    return tsd_was_removed_for_view(as_ts_view(), key);
+}
+
+bool TSDInputView::was_modified(const value::View& key) const {
+    return tsd_was_modified_for_input_view(as_ts_view(), key);
 }
 
 TSInputView TSDInputView::at_key(const value::View& key) const {

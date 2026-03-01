@@ -18,10 +18,6 @@ namespace hgraph
 {
 namespace
 {
-    bool list_contains_py_object(const nb::list &list_obj, const nb::object &value) {
-        return PySequence_Contains(list_obj.ptr(), value.ptr()) == 1;
-    }
-
     template <typename DictViewT>
     nb::list dict_values_for_keys(DictViewT dict_view, const nb::list &keys) {
         nb::list out;
@@ -184,7 +180,11 @@ namespace
     }
 
     bool PyTimeSeriesDictOutput::was_modified(const nb::object &key) const {
-        return list_contains_py_object(nb::cast<nb::list>(modified_keys()), key);
+        auto key_val = key_from_python(key);
+        if (key_val.schema() == nullptr) {
+            return false;
+        }
+        return output_view().as_dict().was_modified(key_val.view());
     }
 
     nb::object PyTimeSeriesDictOutput::valid_keys() const {
@@ -212,11 +212,15 @@ namespace
     }
 
     bool PyTimeSeriesDictOutput::has_added() const {
-        return nb::len(nb::cast<nb::list>(added_keys())) > 0;
+        return output_view().as_dict().has_added();
     }
 
     bool PyTimeSeriesDictOutput::was_added(const nb::object &key) const {
-        return list_contains_py_object(nb::cast<nb::list>(added_keys()), key);
+        auto key_val = key_from_python(key);
+        if (key_val.schema() == nullptr) {
+            return false;
+        }
+        return output_view().as_dict().was_added(key_val.view());
     }
 
     nb::object PyTimeSeriesDictOutput::removed_keys() const {
@@ -276,11 +280,15 @@ namespace
     }
 
     bool PyTimeSeriesDictOutput::has_removed() const {
-        return nb::len(nb::cast<nb::list>(removed_keys())) > 0;
+        return output_view().as_dict().has_removed();
     }
 
     bool PyTimeSeriesDictOutput::was_removed(const nb::object &key) const {
-        return list_contains_py_object(nb::cast<nb::list>(removed_keys()), key);
+        auto key_val = key_from_python(key);
+        if (key_val.schema() == nullptr) {
+            return false;
+        }
+        return output_view().as_dict().was_removed(key_val.view());
     }
 
     nb::object PyTimeSeriesDictOutput::key_from_value(const nb::object &value) const {
@@ -538,7 +546,11 @@ namespace
     }
 
     bool PyTimeSeriesDictInput::was_modified(const nb::object &key) const {
-        return list_contains_py_object(nb::cast<nb::list>(modified_keys()), key);
+        auto key_val = key_from_python(key);
+        if (key_val.schema() == nullptr) {
+            return false;
+        }
+        return input_view().as_dict().was_modified(key_val.view());
     }
 
     nb::object PyTimeSeriesDictInput::valid_keys() const {
@@ -566,11 +578,15 @@ namespace
     }
 
     bool PyTimeSeriesDictInput::has_added() const {
-        return nb::len(nb::cast<nb::list>(added_keys())) > 0;
+        return input_view().as_dict().has_added();
     }
 
     bool PyTimeSeriesDictInput::was_added(const nb::object &key) const {
-        return list_contains_py_object(nb::cast<nb::list>(added_keys()), key);
+        auto key_val = key_from_python(key);
+        if (key_val.schema() == nullptr) {
+            return false;
+        }
+        return input_view().as_dict().was_added(key_val.view());
     }
 
     nb::object PyTimeSeriesDictInput::removed_keys() const {
@@ -630,11 +646,15 @@ namespace
     }
 
     bool PyTimeSeriesDictInput::has_removed() const {
-        return nb::len(nb::cast<nb::list>(removed_keys())) > 0;
+        return input_view().as_dict().has_removed();
     }
 
     bool PyTimeSeriesDictInput::was_removed(const nb::object &key) const {
-        return list_contains_py_object(nb::cast<nb::list>(removed_keys()), key);
+        auto key_val = key_from_python(key);
+        if (key_val.schema() == nullptr) {
+            return false;
+        }
+        return input_view().as_dict().was_removed(key_val.view());
     }
 
     nb::object PyTimeSeriesDictInput::key_from_value(const nb::object &value) const {
