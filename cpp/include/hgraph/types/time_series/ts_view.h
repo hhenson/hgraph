@@ -87,6 +87,7 @@ public:
     [[nodiscard]] TSView child_at(size_t index) const;
     [[nodiscard]] TSView child_by_name(std::string_view name) const;
     [[nodiscard]] TSView child_by_key(const value::View& key) const;
+    [[nodiscard]] std::optional<size_t> child_slot_for(const TSView& child) const;
     [[nodiscard]] size_t child_count() const;
     [[nodiscard]] size_t size() const { return child_count(); }
 
@@ -154,6 +155,8 @@ public:
 
     [[nodiscard]] TSView at_key(const value::View& key) const { return child_by_key(key); }
     [[nodiscard]] TSView by_key(const value::View& key) const { return at_key(key); }
+    [[nodiscard]] std::optional<value::Value> key_at_slot(size_t slot) const;
+    [[nodiscard]] std::optional<value::Value> key_for_child(const TSView& child) const;
     [[nodiscard]] size_t count() const { return child_count(); }
     [[nodiscard]] size_t size() const { return count(); }
 
@@ -192,6 +195,7 @@ public:
     [[nodiscard]] TSView at(std::string_view name) const { return field(name); }
     [[nodiscard]] std::optional<size_t> index_of(std::string_view name) const;
     [[nodiscard]] std::string_view name_at(size_t index) const;
+    [[nodiscard]] std::optional<std::string_view> name_for_child(const TSView& child) const;
     [[nodiscard]] bool contains(std::string_view name) const;
     [[nodiscard]] nb::list keys() const;
     [[nodiscard]] std::vector<size_t> indices() const;

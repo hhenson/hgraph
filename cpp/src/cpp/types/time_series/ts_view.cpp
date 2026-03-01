@@ -7,6 +7,7 @@
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/value/map_storage.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -217,6 +218,19 @@ std::string_view bundle_name_at_impl(const ViewData& view_data, size_t index) {
 
 bool bundle_contains_impl(const ViewData& view_data, std::string_view name) {
     return bundle_index_of_impl(view_data, name).has_value();
+}
+
+std::optional<size_t> child_slot_from_short_path(const ShortPath& parent, const ShortPath& child) {
+    if (parent.node != child.node || parent.port_type != child.port_type) {
+        return std::nullopt;
+    }
+    if (child.indices.size() != parent.indices.size() + 1) {
+        return std::nullopt;
+    }
+    if (!std::equal(parent.indices.begin(), parent.indices.end(), child.indices.begin())) {
+        return std::nullopt;
+    }
+    return child.indices.back();
 }
 
 std::vector<size_t> dense_indices(size_t count) {
@@ -980,6 +994,10 @@ TSView TSView::child_by_key(const value::View& key) const {
     return child_by_key_impl(view_data_, key, view_data_.engine_time_ptr);
 }
 
+std::optional<size_t> TSView::child_slot_for(const TSView& child) const {
+    return child_slot_from_short_path(short_path(), child.short_path());
+}
+
 size_t TSView::child_count() const {
     return child_count_impl(view_data_);
 }
@@ -1044,6 +1062,18 @@ std::optional<size_t> TSBView::index_of(std::string_view name) const {
 
 std::string_view TSBView::name_at(size_t index) const {
     return bundle_name_at_impl(view_data(), index);
+}
+
+std::optional<std::string_view> TSBView::name_for_child(const TSView& child) const {
+    const auto slot = child_slot_for(child);
+    if (!slot.has_value()) {
+        return std::nullopt;
+    }
+    const std::string_view name = name_at(*slot);
+    if (name.empty()) {
+        return std::nullopt;
+    }
+    return name;
 }
 
 bool TSBView::contains(std::string_view name) const {
@@ -1211,6 +1241,27 @@ void TSSView::clear() {
         return;
     }
     ops->clear(view_data(), current_time());
+}
+
+std::optional<value::Value> TSDView::key_at_slot(size_t slot) const {
+    const value::View current = value();
+    if (!current.valid() || !current.is_map()) {
+        return std::nullopt;
+    }
+
+    const value::KeySetView key_set = current.as_map().keys();
+    if (!key_set.is_live(slot)) {
+        return std::nullopt;
+    }
+    return value::Value(key_set.at(slot));
+}
+
+std::optional<value::Value> TSDView::key_for_child(const TSView& child) const {
+    const auto slot = child_slot_for(child);
+    if (!slot.has_value()) {
+        return std::nullopt;
+    }
+    return key_at_slot(*slot);
 }
 
 bool TSDView::remove(const value::View& key) {
@@ -1655,6 +1706,14 @@ TSOutputView TSDOutputView::at_key(const value::View& key) const {
     return TSOutputView(owner_, as_ts_view().as_dict().at_key(key));
 }
 
+std::optional<value::Value> TSDOutputView::key_at_slot(size_t slot) const {
+    return as_ts_view().as_dict().key_at_slot(slot);
+}
+
+std::optional<value::Value> TSDOutputView::key_for_child(const TSOutputView& child) const {
+    return as_ts_view().as_dict().key_for_child(child.as_ts_view());
+}
+
 size_t TSDOutputView::count() const {
     return as_ts_view().as_dict().count();
 }
@@ -1701,6 +1760,10 @@ std::optional<size_t> TSBOutputView::index_of(std::string_view name) const {
 
 std::string_view TSBOutputView::name_at(size_t index) const {
     return as_ts_view().as_bundle().name_at(index);
+}
+
+std::optional<std::string_view> TSBOutputView::name_for_child(const TSOutputView& child) const {
+    return as_ts_view().as_bundle().name_for_child(child.as_ts_view());
 }
 
 bool TSBOutputView::contains(std::string_view name) const {
@@ -2056,6 +2119,14 @@ TSInputView TSDInputView::at_key(const value::View& key) const {
     return TSInputView(owner_, as_ts_view().as_dict().at_key(key));
 }
 
+std::optional<value::Value> TSDInputView::key_at_slot(size_t slot) const {
+    return as_ts_view().as_dict().key_at_slot(slot);
+}
+
+std::optional<value::Value> TSDInputView::key_for_child(const TSInputView& child) const {
+    return as_ts_view().as_dict().key_for_child(child.as_ts_view());
+}
+
 size_t TSDInputView::count() const {
     return as_ts_view().as_dict().count();
 }
@@ -2090,6 +2161,10 @@ std::optional<size_t> TSBInputView::index_of(std::string_view name) const {
 
 std::string_view TSBInputView::name_at(size_t index) const {
     return as_ts_view().as_bundle().name_at(index);
+}
+
+std::optional<std::string_view> TSBInputView::name_for_child(const TSInputView& child) const {
+    return as_ts_view().as_bundle().name_for_child(child.as_ts_view());
 }
 
 bool TSBInputView::contains(std::string_view name) const {

@@ -57,7 +57,6 @@ namespace
         }
         return out;
     }
-
 }  // namespace
 
     // ===== PyTimeSeriesDictOutput Implementation =====
@@ -248,25 +247,12 @@ namespace
         if (wrapped == nullptr) {
             return nb::none();
         }
-        const auto &target = wrapped->output_view().short_path();
 
-        auto dict = output_view().as_dict();
-        for (const auto &key_item : nb::cast<nb::list>(keys())) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = key_from_python(key);
-            if (key_val.schema() == nullptr) {
-                continue;
-            }
-            auto child = dict.at_key(key_val.view());
-            if (!child) {
-                continue;
-            }
-            const auto &path = child.short_path();
-            if (path.node == target.node && path.port_type == target.port_type && path.indices == target.indices) {
-                return key;
-            }
+        const auto key = output_view().as_dict().key_for_child(wrapped->output_view());
+        if (!key.has_value()) {
+            return nb::none();
         }
-        return nb::none();
+        return key->to_python();
     }
 
     nb::str PyTimeSeriesDictOutput::py_str() const {
@@ -570,25 +556,12 @@ namespace
         if (wrapped == nullptr) {
             return nb::none();
         }
-        const auto &target = wrapped->input_view().short_path();
 
-        auto dict = input_view().as_dict();
-        for (const auto &key_item : nb::cast<nb::list>(keys())) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = key_from_python(key);
-            if (key_val.schema() == nullptr) {
-                continue;
-            }
-            auto child = dict.at_key(key_val.view());
-            if (!child) {
-                continue;
-            }
-            const auto &path = child.short_path();
-            if (path.node == target.node && path.port_type == target.port_type && path.indices == target.indices) {
-                return key;
-            }
+        const auto key = input_view().as_dict().key_for_child(wrapped->input_view());
+        if (!key.has_value()) {
+            return nb::none();
         }
-        return nb::none();
+        return key->to_python();
     }
 
     nb::str PyTimeSeriesDictInput::py_str() const {

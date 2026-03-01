@@ -147,6 +147,8 @@ public:
     [[nodiscard]] std::vector<item_type> removed_items() const;
     [[nodiscard]] TSInputView at_key(const value::View& key) const;
     [[nodiscard]] TSInputView by_key(const value::View& key) const { return at_key(key); }
+    [[nodiscard]] std::optional<value::Value> key_at_slot(size_t slot) const;
+    [[nodiscard]] std::optional<value::Value> key_for_child(const TSInputView& child) const;
     [[nodiscard]] size_t count() const;
     [[nodiscard]] size_t size() const { return count(); }
 };
@@ -180,6 +182,7 @@ public:
     [[nodiscard]] TSInputView at(std::string_view name) const { return field(name); }
     [[nodiscard]] std::optional<size_t> index_of(std::string_view name) const;
     [[nodiscard]] std::string_view name_at(size_t index) const;
+    [[nodiscard]] std::optional<std::string_view> name_for_child(const TSInputView& child) const;
     [[nodiscard]] bool contains(std::string_view name) const;
     [[nodiscard]] nb::list keys() const;
     [[nodiscard]] std::vector<size_t> indices() const;

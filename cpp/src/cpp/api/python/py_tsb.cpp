@@ -2,8 +2,8 @@
 #include <hgraph/api/python/wrapper_factory.h>
 
 #include <fmt/format.h>
-#include <optional>
 #include <stdexcept>
+#include <string_view>
 #include <type_traits>
 
 namespace hgraph
@@ -49,7 +49,8 @@ namespace
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::get_item(const nb::handle &key) const {
         if (nb::isinstance<nb::str>(key)) {
-            auto child = child_by_name(*this, nb::cast<std::string>(key));
+            const std::string_view name = nb::cast<std::string_view>(key);
+            auto child = child_by_name(*this, name);
             if (!child) {
                 throw nb::key_error();
             }
@@ -79,7 +80,7 @@ namespace
             return nb::bool_(false);
         }
 
-        const std::string name = nb::cast<std::string>(key);
+        const std::string_view name = nb::cast<std::string_view>(key);
         return nb::bool_(this->view().as_bundle().contains(name));
     }
 
@@ -91,35 +92,21 @@ namespace
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::key_from_value(const nb::handle &value) const {
-        std::optional<ShortPath> target_path;
         if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
             if (auto *wrapped = nb::inst_ptr<PyTimeSeriesOutput>(value)) {
-                target_path = wrapped->output_view().short_path();
+                const auto name = this->output_view().as_bundle().name_for_child(wrapped->output_view());
+                if (!name.has_value()) {
+                    return nb::none();
+                }
+                return nb::str(name->data(), name->size());
             }
         } else {
             if (auto *wrapped = nb::inst_ptr<PyTimeSeriesInput>(value)) {
-                target_path = wrapped->input_view().short_path();
-            }
-        }
-
-        if (!target_path.has_value()) {
-            return nb::none();
-        }
-
-        auto bundle = this->view().as_bundle();
-        for (size_t i : bundle.indices()) {
-            auto child = child_at(*this, i);
-            if (!child) {
-                continue;
-            }
-            const auto &child_path = child.short_path();
-            if (child_path.node == target_path->node && child_path.port_type == target_path->port_type &&
-                child_path.indices == target_path->indices) {
-                const std::string_view name = bundle.name_at(i);
-                if (name.empty()) {
-                    continue;
+                const auto name = this->input_view().as_bundle().name_for_child(wrapped->input_view());
+                if (!name.has_value()) {
+                    return nb::none();
                 }
-                return nb::str(name.data(), name.size());
+                return nb::str(name->data(), name->size());
             }
         }
         return nb::none();
