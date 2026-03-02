@@ -42,7 +42,7 @@ namespace hgraph
         if (!wv.has_removed_value()) {
             return nb::none();
         }
-        value::View rv = wv.as_ts_view().as_window().removed_value();
+        value::View rv = wv.removed_value();
         return rv.valid() ? rv.to_python() : nb::none();
     }
 
@@ -88,7 +88,7 @@ namespace hgraph
             return nb::none();
         }
 
-        value::View rv = wv.as_ts_view().as_window().removed_value();
+        value::View rv = wv.removed_value();
         if (!rv.valid()) {
             return nb::none();
         }
@@ -148,7 +148,7 @@ namespace hgraph
             return nb::none();
         }
 
-        value::View rv = wv.as_ts_view().as_window().removed_value();
+        value::View rv = wv.removed_value();
         return rv.valid() ? rv.to_python() : nb::none();
     }
 

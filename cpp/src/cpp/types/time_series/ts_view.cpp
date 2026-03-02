@@ -243,6 +243,184 @@ std::vector<size_t> dense_indices(size_t count) {
     return out;
 }
 
+bool tss_contains_for_view(const TSView& view, const value::View& elem) {
+    if (!elem.valid()) {
+        return false;
+    }
+
+    const value::View current = view.value();
+    if (!current.valid()) {
+        return false;
+    }
+
+    if (current.is_set()) {
+        auto set = current.as_set();
+        return elem.schema() == set.element_type() && set.contains(elem);
+    }
+
+    if (current.is_map()) {
+        auto map = current.as_map();
+        return elem.schema() == map.key_type() && map.contains(elem);
+    }
+
+    return false;
+}
+
+size_t tss_size_for_view(const TSView& view) {
+    const value::View current = view.value();
+    if (!current.valid()) {
+        return 0;
+    }
+    if (current.is_set()) {
+        return current.as_set().size();
+    }
+    if (current.is_map()) {
+        return current.as_map().size();
+    }
+    return 0;
+}
+
+std::vector<value::View> tss_values_for_view(const TSView& view) {
+    std::vector<value::View> out;
+    const value::View current = view.value();
+    if (!current.valid()) {
+        return out;
+    }
+
+    if (current.is_set()) {
+        auto set = current.as_set();
+        out.reserve(set.size());
+        for (const value::View elem : set) {
+            out.push_back(elem);
+        }
+        return out;
+    }
+
+    if (current.is_map()) {
+        auto keys = current.as_map().keys();
+        out.reserve(keys.size());
+        for (const value::View key : keys) {
+            out.push_back(key);
+        }
+    }
+    return out;
+}
+
+std::vector<value::View> tss_delta_values_for_view(const TSView& view, size_t tuple_slot) {
+    std::vector<value::View> out;
+    const value::View delta = view.delta_value();
+    if (!delta.valid() || !delta.is_tuple()) {
+        if (tuple_slot == 0 && view.sampled()) {
+            return tss_values_for_view(view);
+        }
+        return out;
+    }
+
+    auto tuple = delta.as_tuple();
+    if (tuple_slot >= tuple.size()) {
+        if (tuple_slot == 0 && view.sampled()) {
+            return tss_values_for_view(view);
+        }
+        return out;
+    }
+
+    const value::View slot = tuple.at(tuple_slot);
+    if (!slot.valid()) {
+        return out;
+    }
+
+    if (slot.is_set()) {
+        auto set = slot.as_set();
+        out.reserve(set.size());
+        for (const value::View elem : set) {
+            out.push_back(elem);
+        }
+        return out;
+    }
+
+    if (slot.is_map()) {
+        auto keys = slot.as_map().keys();
+        out.reserve(keys.size());
+        for (const value::View key : keys) {
+            out.push_back(key);
+        }
+    }
+    return out;
+}
+
+template <typename ListView>
+using list_child_t = std::decay_t<decltype(std::declval<const ListView&>().at(size_t{}))>;
+
+template <typename ListView>
+using list_item_t = std::pair<size_t, list_child_t<ListView>>;
+
+template <typename ListView>
+std::vector<size_t> ts_list_keys(const ListView& list, TSCollectionFilter filter) {
+    std::vector<size_t> out;
+    const size_t count = list.count();
+    out.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        if (filter == TSCollectionFilter::All) {
+            out.push_back(i);
+            continue;
+        }
+
+        auto child = list.at(i);
+        if (!child) {
+            continue;
+        }
+        const bool include = filter == TSCollectionFilter::Valid ? child.valid() : child.modified();
+        if (include) {
+            out.push_back(i);
+        }
+    }
+    return out;
+}
+
+template <typename ListView>
+std::vector<list_child_t<ListView>> ts_list_values(const ListView& list, TSCollectionFilter filter) {
+    std::vector<list_child_t<ListView>> out;
+    const size_t count = list.count();
+    out.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        auto child = list.at(i);
+        if (filter == TSCollectionFilter::All) {
+            out.push_back(std::move(child));
+            continue;
+        }
+        if (!child) {
+            continue;
+        }
+        const bool include = filter == TSCollectionFilter::Valid ? child.valid() : child.modified();
+        if (include) {
+            out.push_back(std::move(child));
+        }
+    }
+    return out;
+}
+
+template <typename ListView>
+std::vector<list_item_t<ListView>> ts_list_items(const ListView& list, TSCollectionFilter filter) {
+    std::vector<list_item_t<ListView>> out;
+    const size_t count = list.count();
+    out.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        auto child = list.at(i);
+        if (filter == TSCollectionFilter::All) {
+            out.emplace_back(i, std::move(child));
+            continue;
+        }
+        if (!child) {
+            continue;
+        }
+        const bool include = filter == TSCollectionFilter::Valid ? child.valid() : child.modified();
+        if (include) {
+            out.emplace_back(i, std::move(child));
+        }
+    }
+    return out;
+}
+
 template <typename BundleView>
 using bundle_child_t = std::decay_t<decltype(std::declval<const BundleView&>().at(size_t{}))>;
 
@@ -1131,16 +1309,52 @@ std::optional<TSBView> TSView::try_as_bundle() const {
     return TSBView(*this);
 }
 
+std::vector<size_t> TSLView::keys() const {
+    return ts_list_keys(*this, TSCollectionFilter::All);
+}
+
+std::vector<size_t> TSLView::valid_keys() const {
+    return ts_list_keys(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<size_t> TSLView::modified_keys() const {
+    return ts_list_keys(*this, TSCollectionFilter::Modified);
+}
+
+std::vector<TSView> TSLView::values() const {
+    return ts_list_values(*this, TSCollectionFilter::All);
+}
+
+std::vector<TSView> TSLView::valid_values() const {
+    return ts_list_values(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<TSView> TSLView::modified_values() const {
+    return ts_list_values(*this, TSCollectionFilter::Modified);
+}
+
+std::vector<TSLView::item_type> TSLView::items() const {
+    return ts_list_items(*this, TSCollectionFilter::All);
+}
+
+std::vector<TSLView::item_type> TSLView::valid_items() const {
+    return ts_list_items(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<TSLView::item_type> TSLView::modified_items() const {
+    return ts_list_items(*this, TSCollectionFilter::Modified);
+}
+
 std::vector<size_t> TSLView::indices() const {
-    return dense_indices(count());
+    return keys();
 }
 
 std::vector<size_t> TSLView::valid_indices() const {
-    return ts_list_filtered_indices(*this, TSCollectionFilter::Valid);
+    return valid_keys();
 }
 
 std::vector<size_t> TSLView::modified_indices() const {
-    return ts_list_filtered_indices(*this, TSCollectionFilter::Modified);
+    return modified_keys();
 }
 
 std::optional<size_t> TSBView::index_of(std::string_view name) const {
@@ -1336,6 +1550,26 @@ size_t TSWView::length() const {
         return 0;
     }
     return ops->length(view_data());
+}
+
+bool TSSView::contains(const value::View& elem) const {
+    return tss_contains_for_view(*this, elem);
+}
+
+size_t TSSView::size() const {
+    return tss_size_for_view(*this);
+}
+
+std::vector<value::View> TSSView::values() const {
+    return tss_values_for_view(*this);
+}
+
+std::vector<value::View> TSSView::added() const {
+    return tss_delta_values_for_view(*this, 0);
+}
+
+std::vector<value::View> TSSView::removed() const {
+    return tss_delta_values_for_view(*this, 1);
 }
 
 bool TSSView::add(const value::View& elem) {
@@ -1597,6 +1831,10 @@ bool TSWOutputView::has_removed_value() const {
     return as_ts_view().as_window().has_removed_value();
 }
 
+value::View TSWOutputView::removed_value() const {
+    return as_ts_view().as_window().removed_value();
+}
+
 size_t TSWOutputView::removed_value_count() const {
     return as_ts_view().as_window().removed_value_count();
 }
@@ -1611,6 +1849,26 @@ size_t TSWOutputView::min_size() const {
 
 size_t TSWOutputView::length() const {
     return as_ts_view().as_window().length();
+}
+
+bool TSSOutputView::contains(const value::View& elem) const {
+    return as_ts_view().as_set().contains(elem);
+}
+
+size_t TSSOutputView::size() const {
+    return as_ts_view().as_set().size();
+}
+
+std::vector<value::View> TSSOutputView::values() const {
+    return as_ts_view().as_set().values();
+}
+
+std::vector<value::View> TSSOutputView::added() const {
+    return as_ts_view().as_set().added();
+}
+
+std::vector<value::View> TSSOutputView::removed() const {
+    return as_ts_view().as_set().removed();
 }
 
 bool TSSOutputView::add(const value::View& elem) {
@@ -1858,15 +2116,51 @@ size_t TSIndexedOutputView::count() const {
 }
 
 std::vector<size_t> TSLOutputView::indices() const {
-    return as_ts_view().as_list().indices();
+    return keys();
+}
+
+std::vector<size_t> TSLOutputView::keys() const {
+    return ts_list_keys(*this, TSCollectionFilter::All);
+}
+
+std::vector<size_t> TSLOutputView::valid_keys() const {
+    return ts_list_keys(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<size_t> TSLOutputView::modified_keys() const {
+    return ts_list_keys(*this, TSCollectionFilter::Modified);
+}
+
+std::vector<TSOutputView> TSLOutputView::values() const {
+    return ts_list_values(*this, TSCollectionFilter::All);
+}
+
+std::vector<TSOutputView> TSLOutputView::valid_values() const {
+    return ts_list_values(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<TSOutputView> TSLOutputView::modified_values() const {
+    return ts_list_values(*this, TSCollectionFilter::Modified);
+}
+
+std::vector<TSLOutputView::item_type> TSLOutputView::items() const {
+    return ts_list_items(*this, TSCollectionFilter::All);
+}
+
+std::vector<TSLOutputView::item_type> TSLOutputView::valid_items() const {
+    return ts_list_items(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<TSLOutputView::item_type> TSLOutputView::modified_items() const {
+    return ts_list_items(*this, TSCollectionFilter::Modified);
 }
 
 std::vector<size_t> TSLOutputView::valid_indices() const {
-    return as_ts_view().as_list().valid_indices();
+    return valid_keys();
 }
 
 std::vector<size_t> TSLOutputView::modified_indices() const {
-    return as_ts_view().as_list().modified_indices();
+    return modified_keys();
 }
 
 TSOutputView TSBOutputView::field(std::string_view name) const {
@@ -2054,6 +2348,10 @@ bool TSWInputView::has_removed_value() const {
     return as_ts_view().as_window().has_removed_value();
 }
 
+value::View TSWInputView::removed_value() const {
+    return as_ts_view().as_window().removed_value();
+}
+
 size_t TSWInputView::removed_value_count() const {
     return as_ts_view().as_window().removed_value_count();
 }
@@ -2068,6 +2366,26 @@ size_t TSWInputView::min_size() const {
 
 size_t TSWInputView::length() const {
     return as_ts_view().as_window().length();
+}
+
+bool TSSInputView::contains(const value::View& elem) const {
+    return as_ts_view().as_set().contains(elem);
+}
+
+size_t TSSInputView::size() const {
+    return as_ts_view().as_set().size();
+}
+
+std::vector<value::View> TSSInputView::values() const {
+    return as_ts_view().as_set().values();
+}
+
+std::vector<value::View> TSSInputView::added() const {
+    return as_ts_view().as_set().added();
+}
+
+std::vector<value::View> TSSInputView::removed() const {
+    return as_ts_view().as_set().removed();
 }
 
 bool TSDInputView::contains(const value::View& key) const {
@@ -2291,15 +2609,51 @@ size_t TSIndexedInputView::count() const {
 }
 
 std::vector<size_t> TSLInputView::indices() const {
-    return as_ts_view().as_list().indices();
+    return keys();
+}
+
+std::vector<size_t> TSLInputView::keys() const {
+    return ts_list_keys(*this, TSCollectionFilter::All);
+}
+
+std::vector<size_t> TSLInputView::valid_keys() const {
+    return ts_list_keys(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<size_t> TSLInputView::modified_keys() const {
+    return ts_list_keys(*this, TSCollectionFilter::Modified);
+}
+
+std::vector<TSInputView> TSLInputView::values() const {
+    return ts_list_values(*this, TSCollectionFilter::All);
+}
+
+std::vector<TSInputView> TSLInputView::valid_values() const {
+    return ts_list_values(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<TSInputView> TSLInputView::modified_values() const {
+    return ts_list_values(*this, TSCollectionFilter::Modified);
+}
+
+std::vector<TSLInputView::item_type> TSLInputView::items() const {
+    return ts_list_items(*this, TSCollectionFilter::All);
+}
+
+std::vector<TSLInputView::item_type> TSLInputView::valid_items() const {
+    return ts_list_items(*this, TSCollectionFilter::Valid);
+}
+
+std::vector<TSLInputView::item_type> TSLInputView::modified_items() const {
+    return ts_list_items(*this, TSCollectionFilter::Modified);
 }
 
 std::vector<size_t> TSLInputView::valid_indices() const {
-    return as_ts_view().as_list().valid_indices();
+    return valid_keys();
 }
 
 std::vector<size_t> TSLInputView::modified_indices() const {
-    return as_ts_view().as_list().modified_indices();
+    return modified_keys();
 }
 
 TSInputView TSBInputView::field(std::string_view name) const {

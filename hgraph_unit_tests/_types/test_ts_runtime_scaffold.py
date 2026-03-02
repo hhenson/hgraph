@@ -1159,19 +1159,37 @@ def test_typed_window_view_surface():
     assert window_view.min_size() == 2
     assert window_view.length() == 0
     assert not window_view.has_removed_value()
+    assert not window_view.removed_value().valid()
 
 
 def test_typed_set_view_surface():
     root = runtime.TSOutput(_registry().tss(value.scalar_type_meta_int64()), 0).output_view()
     set_view = root.as_set()
 
+    assert set_view.size() == 0
+    assert not set_view.contains(_int_value(1).view())
+    assert set_view.values() == set()
+    assert set_view.added() == set()
+    assert set_view.removed() == set()
+
     assert set_view.add(_int_value(1).view())
     assert set_view.add(_int_value(2).view())
     assert not set_view.add(_int_value(2).view())
+    assert set_view.contains(_int_value(1).view())
+    assert set_view.contains(_int_value(2).view())
+    assert set_view.size() == 2
+    assert set_view.values() == {1, 2}
+    assert set_view.added() == {1, 2}
+    assert set_view.removed() == set()
     assert set_view.to_python() == {1, 2}
 
     assert set_view.remove(_int_value(1).view())
     assert not set_view.remove(_int_value(1).view())
+    assert not set_view.contains(_int_value(1).view())
+    assert set_view.size() == 1
+    assert set_view.values() == {2}
+    assert set_view.added() == {2}
+    assert set_view.removed() == set()
     assert set_view.to_python() == {2}
 
     set_view.clear()
@@ -1218,6 +1236,11 @@ def test_typed_list_view_surface():
     second = list_view.at(1)
     assert isinstance(second, runtime.TSOutputView)
     assert second.to_python() == 20
+    assert list_view.keys() == [0, 1]
+    assert [v.to_python() for v in list_view.values()] == [10, 20]
+    assert [(k, v.to_python()) for k, v in list_view.items()] == [(0, 10), (1, 20)]
+    assert isinstance(list_view.valid_keys(), list)
+    assert isinstance(list_view.modified_keys(), list)
 
 
 def test_typed_bundle_view_surface():
@@ -1277,6 +1300,7 @@ def test_typed_input_window_view_surface():
     assert window_view.min_size() == 2
     assert window_view.length() == 0
     assert not window_view.has_removed_value()
+    assert not window_view.removed_value().valid()
 
 
 def test_typed_input_set_view_surface():
@@ -1284,6 +1308,11 @@ def test_typed_input_set_view_surface():
     set_view = runtime.TSInput(tss_meta).input_view().as_set()
     assert isinstance(set_view, runtime.TSSInputView)
     assert isinstance(set_view, runtime.TSInputView)
+    assert set_view.size() == 0
+    assert not set_view.contains(_int_value(1).view())
+    assert set_view.values() == set()
+    assert set_view.added() == set()
+    assert set_view.removed() == set()
 
 
 def test_typed_input_dict_view_surface():
@@ -1304,6 +1333,11 @@ def test_typed_input_list_view_surface():
 
     second = list_view.at(1)
     assert isinstance(second, runtime.TSInputView)
+    assert list_view.keys() == [0, 1]
+    assert len(list_view.values()) == 2
+    assert [k for k, _ in list_view.items()] == [0, 1]
+    assert list_view.valid_keys() == []
+    assert list_view.modified_keys() == []
 
 
 def test_typed_input_bundle_view_surface():

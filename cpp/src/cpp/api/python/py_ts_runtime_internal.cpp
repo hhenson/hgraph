@@ -1952,6 +1952,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         })
         .def("first_modified_time", &TSWOutputView::first_modified_time)
         .def("has_removed_value", &TSWOutputView::has_removed_value)
+        .def("removed_value", &TSWOutputView::removed_value)
         .def("removed_value_count", &TSWOutputView::removed_value_count)
         .def("size", &TSWOutputView::size)
         .def("min_size", &TSWOutputView::min_size)
@@ -1959,6 +1960,29 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
 
     nb::class_<TSSOutputView, TSOutputView>(test_mod, "TSSOutputView")
         .def("__bool__", [](const TSSOutputView& self) { return static_cast<bool>(self); })
+        .def("contains", &TSSOutputView::contains, "elem"_a)
+        .def("size", &TSSOutputView::size)
+        .def("values", [](const TSSOutputView& self) {
+            nb::set out;
+            for (const value::View elem : self.values()) {
+                out.add(elem.to_python());
+            }
+            return out;
+        })
+        .def("added", [](const TSSOutputView& self) {
+            nb::set out;
+            for (const value::View elem : self.added()) {
+                out.add(elem.to_python());
+            }
+            return out;
+        })
+        .def("removed", [](const TSSOutputView& self) {
+            nb::set out;
+            for (const value::View elem : self.removed()) {
+                out.add(elem.to_python());
+            }
+            return out;
+        })
         .def("add", &TSSOutputView::add, "elem"_a)
         .def("remove", &TSSOutputView::remove, "elem"_a)
         .def("clear", &TSSOutputView::clear);
@@ -2044,29 +2068,15 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
 
     nb::class_<TSLOutputView, TSIndexedOutputView>(test_mod, "TSLOutputView")
         .def("__bool__", [](const TSLOutputView& self) { return static_cast<bool>(self); })
-        .def("keys", [](const TSLOutputView& self) { return tsl_keys_python(self.as_ts_view()); })
-        .def("values", [](const TSLOutputView& self) {
-            nb::list keys = tsl_keys_python(self.as_ts_view());
-            return tsl_output_values(self, keys);
-        })
-        .def("items", [](const TSLOutputView& self) {
-            nb::list keys = tsl_keys_python(self.as_ts_view());
-            return tsl_output_items(self, keys);
-        })
-        .def("valid_keys", [](const TSLOutputView& self) { return tsl_valid_keys_output(self); })
-        .def("valid_values", [](const TSLOutputView& self) {
-            return tsl_output_values(self, tsl_valid_keys_output(self));
-        })
-        .def("valid_items", [](const TSLOutputView& self) {
-            return tsl_output_items(self, tsl_valid_keys_output(self));
-        })
-        .def("modified_keys", [](const TSLOutputView& self) { return tsl_modified_keys_output(self); })
-        .def("modified_values", [](const TSLOutputView& self) {
-            return tsl_output_values(self, tsl_modified_keys_output(self));
-        })
-        .def("modified_items", [](const TSLOutputView& self) {
-            return tsl_output_items(self, tsl_modified_keys_output(self));
-        });
+        .def("keys", &TSLOutputView::keys)
+        .def("values", &TSLOutputView::values)
+        .def("items", &TSLOutputView::items)
+        .def("valid_keys", &TSLOutputView::valid_keys)
+        .def("valid_values", &TSLOutputView::valid_values)
+        .def("valid_items", &TSLOutputView::valid_items)
+        .def("modified_keys", &TSLOutputView::modified_keys)
+        .def("modified_values", &TSLOutputView::modified_values)
+        .def("modified_items", &TSLOutputView::modified_items);
 
     nb::class_<TSBOutputView, TSIndexedOutputView>(test_mod, "TSBOutputView")
         .def("__bool__", [](const TSBOutputView& self) { return static_cast<bool>(self); })
@@ -2231,13 +2241,37 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("value_times_count", &TSWInputView::value_times_count)
         .def("first_modified_time", &TSWInputView::first_modified_time)
         .def("has_removed_value", &TSWInputView::has_removed_value)
+        .def("removed_value", &TSWInputView::removed_value)
         .def("removed_value_count", &TSWInputView::removed_value_count)
         .def("size", &TSWInputView::size)
         .def("min_size", &TSWInputView::min_size)
         .def("length", &TSWInputView::length);
 
     nb::class_<TSSInputView, TSInputView>(test_mod, "TSSInputView")
-        .def("__bool__", [](const TSSInputView& self) { return static_cast<bool>(self); });
+        .def("__bool__", [](const TSSInputView& self) { return static_cast<bool>(self); })
+        .def("contains", &TSSInputView::contains, "elem"_a)
+        .def("size", &TSSInputView::size)
+        .def("values", [](const TSSInputView& self) {
+            nb::set out;
+            for (const value::View elem : self.values()) {
+                out.add(elem.to_python());
+            }
+            return out;
+        })
+        .def("added", [](const TSSInputView& self) {
+            nb::set out;
+            for (const value::View elem : self.added()) {
+                out.add(elem.to_python());
+            }
+            return out;
+        })
+        .def("removed", [](const TSSInputView& self) {
+            nb::set out;
+            for (const value::View elem : self.removed()) {
+                out.add(elem.to_python());
+            }
+            return out;
+        });
 
     nb::class_<TSDInputView, TSInputView>(test_mod, "TSDInputView")
         .def("__bool__", [](const TSDInputView& self) { return static_cast<bool>(self); })
@@ -2296,29 +2330,15 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
 
     nb::class_<TSLInputView, TSIndexedInputView>(test_mod, "TSLInputView")
         .def("__bool__", [](const TSLInputView& self) { return static_cast<bool>(self); })
-        .def("keys", [](const TSLInputView& self) { return tsl_keys_python(self.as_ts_view()); })
-        .def("values", [](const TSLInputView& self) {
-            nb::list keys = tsl_keys_python(self.as_ts_view());
-            return tsl_input_values(self, keys);
-        })
-        .def("items", [](const TSLInputView& self) {
-            nb::list keys = tsl_keys_python(self.as_ts_view());
-            return tsl_input_items(self, keys);
-        })
-        .def("valid_keys", [](const TSLInputView& self) { return tsl_valid_keys_input(self); })
-        .def("valid_values", [](const TSLInputView& self) {
-            return tsl_input_values(self, tsl_valid_keys_input(self));
-        })
-        .def("valid_items", [](const TSLInputView& self) {
-            return tsl_input_items(self, tsl_valid_keys_input(self));
-        })
-        .def("modified_keys", [](const TSLInputView& self) { return tsl_modified_keys_input(self); })
-        .def("modified_values", [](const TSLInputView& self) {
-            return tsl_input_values(self, tsl_modified_keys_input(self));
-        })
-        .def("modified_items", [](const TSLInputView& self) {
-            return tsl_input_items(self, tsl_modified_keys_input(self));
-        });
+        .def("keys", &TSLInputView::keys)
+        .def("values", &TSLInputView::values)
+        .def("items", &TSLInputView::items)
+        .def("valid_keys", &TSLInputView::valid_keys)
+        .def("valid_values", &TSLInputView::valid_values)
+        .def("valid_items", &TSLInputView::valid_items)
+        .def("modified_keys", &TSLInputView::modified_keys)
+        .def("modified_values", &TSLInputView::modified_values)
+        .def("modified_items", &TSLInputView::modified_items);
 
     nb::class_<TSBInputView, TSIndexedInputView>(test_mod, "TSBInputView")
         .def("__bool__", [](const TSBInputView& self) { return static_cast<bool>(self); })

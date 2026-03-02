@@ -105,6 +105,7 @@ public:
     [[nodiscard]] size_t value_times_count() const;
     [[nodiscard]] engine_time_t first_modified_time() const;
     [[nodiscard]] bool has_removed_value() const;
+    [[nodiscard]] value::View removed_value() const;
     [[nodiscard]] size_t removed_value_count() const;
     [[nodiscard]] size_t size() const;
     [[nodiscard]] size_t min_size() const;
@@ -115,6 +116,12 @@ class HGRAPH_EXPORT TSSInputView : public TSInputView {
 public:
     TSSInputView() = default;
     explicit TSSInputView(TSInputView base) noexcept : TSInputView(std::move(base)) {}
+
+    [[nodiscard]] bool contains(const value::View& elem) const;
+    [[nodiscard]] size_t size() const;
+    [[nodiscard]] std::vector<value::View> values() const;
+    [[nodiscard]] std::vector<value::View> added() const;
+    [[nodiscard]] std::vector<value::View> removed() const;
 };
 
 class HGRAPH_EXPORT TSDInputView : public TSInputView {
@@ -164,9 +171,20 @@ public:
 
 class HGRAPH_EXPORT TSLInputView : public TSIndexedInputView {
 public:
+    using item_type = std::pair<size_t, TSInputView>;
+
     TSLInputView() = default;
     explicit TSLInputView(TSInputView base) noexcept : TSIndexedInputView(std::move(base)) {}
     [[nodiscard]] TSInputView operator[](size_t index) const { return at(index); }
+    [[nodiscard]] std::vector<size_t> keys() const;
+    [[nodiscard]] std::vector<size_t> valid_keys() const;
+    [[nodiscard]] std::vector<size_t> modified_keys() const;
+    [[nodiscard]] std::vector<TSInputView> values() const;
+    [[nodiscard]] std::vector<TSInputView> valid_values() const;
+    [[nodiscard]] std::vector<TSInputView> modified_values() const;
+    [[nodiscard]] std::vector<item_type> items() const;
+    [[nodiscard]] std::vector<item_type> valid_items() const;
+    [[nodiscard]] std::vector<item_type> modified_items() const;
     [[nodiscard]] std::vector<size_t> indices() const;
     [[nodiscard]] std::vector<size_t> valid_indices() const;
     [[nodiscard]] std::vector<size_t> modified_indices() const;

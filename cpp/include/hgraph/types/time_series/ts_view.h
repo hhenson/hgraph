@@ -143,6 +143,11 @@ class HGRAPH_EXPORT TSSView : public TSView {
 public:
     TSSView() = default;
     explicit TSSView(TSView ts_view) noexcept : TSView(std::move(ts_view)) {}
+    [[nodiscard]] bool contains(const value::View& elem) const;
+    [[nodiscard]] size_t size() const;
+    [[nodiscard]] std::vector<value::View> values() const;
+    [[nodiscard]] std::vector<value::View> added() const;
+    [[nodiscard]] std::vector<value::View> removed() const;
     bool add(const value::View& elem);
     bool remove(const value::View& elem);
     void clear();
@@ -177,9 +182,20 @@ public:
 
 class HGRAPH_EXPORT TSLView : public TSIndexedView {
 public:
+    using item_type = std::pair<size_t, TSView>;
+
     TSLView() = default;
     explicit TSLView(TSView ts_view) noexcept : TSIndexedView(std::move(ts_view)) {}
 
+    [[nodiscard]] std::vector<size_t> keys() const;
+    [[nodiscard]] std::vector<size_t> valid_keys() const;
+    [[nodiscard]] std::vector<size_t> modified_keys() const;
+    [[nodiscard]] std::vector<TSView> values() const;
+    [[nodiscard]] std::vector<TSView> valid_values() const;
+    [[nodiscard]] std::vector<TSView> modified_values() const;
+    [[nodiscard]] std::vector<item_type> items() const;
+    [[nodiscard]] std::vector<item_type> valid_items() const;
+    [[nodiscard]] std::vector<item_type> modified_items() const;
     [[nodiscard]] std::vector<size_t> indices() const;
     [[nodiscard]] std::vector<size_t> valid_indices() const;
     [[nodiscard]] std::vector<size_t> modified_indices() const;
