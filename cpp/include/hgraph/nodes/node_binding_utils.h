@@ -4,9 +4,11 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series/ts_ops.h>
+#include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_view.h>
 
 #include <exception>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -417,6 +419,86 @@ inline TSView resolve_tsd_child_view(const TSInputView& tsd_input, const value::
     }
 
     return direct_child;
+}
+
+template <typename ResolveDirectViewFn, typename LocalValuesAccessorFn>
+inline TSView resolve_keyed_view_with_delta_fallback(const value::View& key,
+                                                     const TSInputView& outer_input,
+                                                     const TSInputView& inner_ts,
+                                                     const value::TypeMeta* key_type_meta,
+                                                     ResolveDirectViewFn&& resolve_direct_view,
+                                                     LocalValuesAccessorFn&& local_values_accessor,
+                                                     bool* has_outer_key = nullptr,
+                                                     bool* outer_key_valid = nullptr,
+                                                     bool* used_local_fallback = nullptr,
+                                                     std::optional<nb::object>* fallback_delta = nullptr,
+                                                     int* stage_id = nullptr) {
+    if (has_outer_key != nullptr) {
+        *has_outer_key = false;
+    }
+    if (outer_key_valid != nullptr) {
+        *outer_key_valid = false;
+    }
+    if (used_local_fallback != nullptr) {
+        *used_local_fallback = false;
+    }
+    if (fallback_delta != nullptr) {
+        fallback_delta->reset();
+    }
+    if (stage_id != nullptr) {
+        *stage_id = 1;
+    }
+
+    if (!outer_input || !inner_ts || !key.valid()) {
+        return {};
+    }
+
+    TSView outer_key_view = resolve_direct_view(outer_input, key);
+    const bool has_key = static_cast<bool>(outer_key_view);
+    const bool key_valid = has_key && outer_key_view.valid();
+    if (has_outer_key != nullptr) {
+        *has_outer_key = has_key;
+    }
+    if (outer_key_valid != nullptr) {
+        *outer_key_valid = key_valid;
+    }
+    if (key_valid) {
+        return outer_key_view;
+    }
+
+    if (stage_id != nullptr) {
+        *stage_id = 2;
+    }
+    auto delta_value = hgraph::lookup_keyed_delta_value(outer_input, key, key_type_meta);
+    const TSMeta* inner_meta = inner_ts.ts_meta();
+    const TSMeta* fallback_meta =
+        (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
+    if (!delta_value.has_value() || fallback_meta == nullptr) {
+        return outer_key_view;
+    }
+
+    if (stage_id != nullptr) {
+        *stage_id = 3;
+    }
+    auto& local_values = local_values_accessor();
+    auto it = local_values.find(key);
+    if (it == local_values.end()) {
+        auto [inserted_it, _] = local_values.emplace(key.clone(), std::make_unique<TSValue>(fallback_meta));
+        it = inserted_it;
+    }
+
+    if (stage_id != nullptr) {
+        *stage_id = 4;
+    }
+    TSView staged_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
+    staged_view.from_python(*delta_value);
+    if (used_local_fallback != nullptr) {
+        *used_local_fallback = true;
+    }
+    if (fallback_delta != nullptr) {
+        *fallback_delta = *delta_value;
+    }
+    return staged_view;
 }
 
 inline void bind_inner_from_outer(const TSView& outer_any,

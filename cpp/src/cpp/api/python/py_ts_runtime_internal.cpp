@@ -729,7 +729,6 @@ struct ContainsOutputState {
     std::shared_ptr<TSValue> output_value;
     bool has_cached_value{false};
     bool cached_value{false};
-    std::unordered_set<const void*> requesters{};
 };
 
 std::optional<value::Value> value_from_python(const value::TypeMeta* schema, const nb::object& obj) {
@@ -761,7 +760,6 @@ bool view_data_identity_equals(const ViewData& lhs, const ViewData& rhs) {
 
 struct TSDRefOutputState {
     std::shared_ptr<TSValue> output_value;
-    std::unordered_set<const void*> requesters{};
     bool has_cached_target{false};
     bool cached_has_target{false};
     ViewData cached_target{};
@@ -819,7 +817,6 @@ public:
             it = inserted_it;
         }
 
-        it->second.requesters.insert(requester.ptr());
         update_ref_output(it->first.view(), it->second, requester_time);
         return TSOutputView(nullptr, it->second.output_value->ts_view(engine_time_ptr_));
     }
@@ -837,7 +834,7 @@ public:
         if (it == ref_outputs_.end()) {
             return;
         }
-        it->second.requesters.erase(requester.ptr());
+        (void)requester;
     }
 
     [[nodiscard]] bool has_consumers() const {
@@ -1005,7 +1002,6 @@ public:
         }
 
         const value::View key_view = maybe_key->view();
-        const void* requester_key = requester.ptr();
         auto it = contains_outputs_.find(key_view);
         if (it == contains_outputs_.end()) {
             ContainsOutputState state{};
@@ -1015,7 +1011,6 @@ public:
             it = inserted_it;
         }
 
-        it->second.requesters.insert(requester_key);
         update_contains_output(it->first.view(), it->second);
         return TSOutputView(nullptr, it->second.output_value->ts_view(engine_time_ptr_));
     }
@@ -1031,7 +1026,7 @@ public:
             return;
         }
 
-        it->second.requesters.erase(requester.ptr());
+        (void)requester;
     }
 
     TSOutputView get_is_empty_output() {

@@ -866,48 +866,20 @@ namespace hgraph
                                                        const TSInputView& inner_ts,
                                                        bool* used_local_fallback,
                                                        int* stage_id) {
-        if (used_local_fallback != nullptr) {
-            *used_local_fallback = false;
-        }
-        if (stage_id != nullptr) {
-            *stage_id = 1;
-        }
-
-        TSView outer_key_value = resolve_outer_key_view(outer_arg.as_ts_view(), key);
-        if (outer_key_value.valid()) {
-            return outer_key_value;
-        }
-
-        if (stage_id != nullptr) {
-            *stage_id = 2;
-        }
-        auto delta_value = hgraph::lookup_keyed_delta_value(outer_arg, key, key_type_meta_);
-        const TSMeta* inner_meta = inner_ts.ts_meta();
-        const TSMeta* fallback_meta =
-            (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
-        if (!delta_value.has_value() || fallback_meta == nullptr) {
-            return outer_key_value;
-        }
-
-        if (stage_id != nullptr) {
-            *stage_id = 3;
-        }
-        auto& per_arg_values = local_input_values_[arg];
-        auto it = per_arg_values.find(key);
-        if (it == per_arg_values.end()) {
-            auto [inserted_it, _] = per_arg_values.emplace(key.clone(), std::make_unique<TSValue>(fallback_meta));
-            it = inserted_it;
-        }
-
-        if (stage_id != nullptr) {
-            *stage_id = 4;
-        }
-        TSView fallback_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
-        fallback_view.from_python(*delta_value);
-        if (used_local_fallback != nullptr) {
-            *used_local_fallback = true;
-        }
-        return fallback_view;
+        return hgraph::resolve_keyed_view_with_delta_fallback(
+            key,
+            outer_arg,
+            inner_ts,
+            key_type_meta_,
+            [](const TSInputView& outer_input, const value::View& outer_key) {
+                return resolve_outer_key_view(outer_input.as_ts_view(), outer_key);
+            },
+            [&]() -> key_value_map_type& { return local_input_values_[arg]; },
+            nullptr,
+            nullptr,
+            used_local_fallback,
+            nullptr,
+            stage_id);
     }
 
     void TsdMapNode::wire_graph(const value::View &key, graph_s_ptr &graph) {

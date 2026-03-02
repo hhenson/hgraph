@@ -182,63 +182,22 @@ namespace hgraph {
                                                        bool* tsd_key_valid,
                                                        bool* used_local_fallback,
                                                        std::optional<nb::object>* fallback_delta) {
-        if (has_tsd_key != nullptr) {
-            *has_tsd_key = false;
-        }
-        if (tsd_key_valid != nullptr) {
-            *tsd_key_valid = false;
-        }
-        if (used_local_fallback != nullptr) {
-            *used_local_fallback = false;
-        }
-        if (fallback_delta != nullptr) {
-            fallback_delta->reset();
-        }
-
-        if (!tsd || !inner_ts || !key.valid()) {
-            return {};
-        }
-
-        TSView tsd_key_view = hgraph::resolve_tsd_child_view(tsd, key);
-        const bool has_key = static_cast<bool>(tsd_key_view);
-        const bool key_valid = has_key && tsd_key_view.valid();
-        if (has_tsd_key != nullptr) {
-            *has_tsd_key = has_key;
-        }
-        if (tsd_key_valid != nullptr) {
-            *tsd_key_valid = key_valid;
-        }
-        if (key_valid) {
-            return tsd_key_view;
-        }
-
         const TSMeta* tsd_meta = tsd.ts_meta();
         const value::TypeMeta* key_type_meta =
             (tsd_meta != nullptr && tsd_meta->kind == TSKind::TSD) ? tsd_meta->key_type() : nullptr;
-        auto delta_value = hgraph::lookup_keyed_delta_value(tsd, key, key_type_meta);
-
-        const TSMeta* inner_meta = inner_ts.ts_meta();
-        const TSMeta* fallback_meta =
-            (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
-        if (!delta_value.has_value() || fallback_meta == nullptr) {
-            return tsd_key_view;
-        }
-
-        auto it = local_key_values_.find(key);
-        if (it == local_key_values_.end()) {
-            auto [inserted_it, _] = local_key_values_.emplace(key.clone(), std::make_unique<TSValue>(fallback_meta));
-            it = inserted_it;
-        }
-
-        TSView fallback_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
-        fallback_view.from_python(*delta_value);
-        if (used_local_fallback != nullptr) {
-            *used_local_fallback = true;
-        }
-        if (fallback_delta != nullptr) {
-            *fallback_delta = *delta_value;
-        }
-        return fallback_view;
+        return hgraph::resolve_keyed_view_with_delta_fallback(
+            key,
+            tsd,
+            inner_ts,
+            key_type_meta,
+            [](const TSInputView& outer_input, const value::View& outer_key) {
+                return hgraph::resolve_tsd_child_view(outer_input, outer_key);
+            },
+            [&]() -> key_value_map_type& { return local_key_values_; },
+            has_tsd_key,
+            tsd_key_valid,
+            used_local_fallback,
+            fallback_delta);
     }
 
     void ReduceNode::initialise() {
