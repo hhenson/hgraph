@@ -19,7 +19,7 @@ bool op_modified_tsd_key_set(const ViewData& vd, engine_time_t current_time) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
-    const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
+    const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
     if (std::optional<bool> key_set_result = modified_from_key_set_source(
             vd, current_time, debug_keyset_bridge, true);
         key_set_result.has_value()) {
@@ -39,7 +39,7 @@ bool op_valid_tsd_key_set(const ViewData& vd) {
         return valid_fallback_no_dispatch(vd, false);
     }
 
-    const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
+    const bool debug_keyset_valid = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_VALID");
     const engine_time_t current_time = view_evaluation_time(vd);
     if (current_time != MIN_DT) {
         refresh_dynamic_ref_binding(vd, current_time);
@@ -82,8 +82,8 @@ nb::object op_to_python_tsd_key_set(const ViewData& vd) {
 nb::object op_delta_to_python_tsd_key_set(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
 
-    const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
-    const bool debug_delta_kind = std::getenv("HGRAPH_DEBUG_DELTA_KIND") != nullptr;
+    const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
+    const bool debug_delta_kind = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_KIND");
 
     if (auto key_set_delta = maybe_tsd_key_set_delta_to_python(
             vd,

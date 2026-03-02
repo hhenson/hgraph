@@ -99,7 +99,7 @@ std::optional<std::vector<size_t>> remap_residual_indices_for_bound_view(
 }
 
 std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
-    const bool debug_resolve = std::getenv("HGRAPH_DEBUG_RESOLVE") != nullptr;
+    const bool debug_resolve = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_RESOLVE");
     const auto target_can_accept_residual = [](const TSMeta* meta) {
         while (dispatch_meta_is_ref(meta)) {
             meta = meta->element_ts();
@@ -150,7 +150,7 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
                 }
             }
             bind_view_data_ops(resolved);
-            if (std::getenv("HGRAPH_DEBUG_REF_ANCESTOR") != nullptr) {
+            if (HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_ANCESTOR")) {
                 std::fprintf(stderr,
                              "[resolve_lt] in_path=%s link_target_path=%s residual_len=%zu out_path=%s out_value_data=%p\n",
                              vd.path.to_string().c_str(),

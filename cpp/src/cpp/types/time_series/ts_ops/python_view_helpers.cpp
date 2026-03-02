@@ -380,7 +380,7 @@ nb::list tsd_delta_keys_slot(const TSView& view, size_t tuple_index, bool expect
 
     const nb::list key_set_added = tsd_key_set_delta_keys(view, true);
     const nb::list key_set_removed = tsd_key_set_delta_keys(view, false);
-    if (std::getenv("HGRAPH_DEBUG_TSD_MOD_KEYS_DETAIL") != nullptr) {
+    if (HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSD_MOD_KEYS_DETAIL")) {
         const std::string tuple_repr = nb::cast<std::string>(nb::repr(out));
         const std::string added_repr = nb::cast<std::string>(nb::repr(key_set_added));
         const std::string removed_repr = nb::cast<std::string>(nb::repr(key_set_removed));

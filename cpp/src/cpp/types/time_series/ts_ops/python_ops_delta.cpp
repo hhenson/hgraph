@@ -224,8 +224,8 @@ nb::object op_delta_to_python_ref_dynamic(const ViewData& vd, engine_time_t curr
 nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time) {
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     refresh_dynamic_ref_binding(vd, current_time);
-    const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
-    const bool debug_delta_kind = std::getenv("HGRAPH_DEBUG_DELTA_KIND") != nullptr;
+    const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
+    const bool debug_delta_kind = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_KIND");
 
     if (auto key_set_delta = maybe_tsd_key_set_delta_to_python(
             vd,
@@ -260,7 +260,7 @@ nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time
                      static_cast<long long>(current_time.time_since_epoch().count()));
     }
 
-    const bool debug_tsd_bridge = std::getenv("HGRAPH_DEBUG_TSD_BRIDGE") != nullptr;
+    const bool debug_tsd_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSD_BRIDGE");
     nb::object bridge_delta;
     if (try_tss_bridge_delta_to_python(
             vd, current, current_time, false, debug_tsd_bridge, bridge_delta)) {
@@ -493,7 +493,7 @@ nb::object op_delta_to_python_tsw(const ViewData& vd, engine_time_t current_time
 nb::object op_delta_to_python_default(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    const bool debug_delta_kind = std::getenv("HGRAPH_DEBUG_DELTA_KIND") != nullptr;
+    const bool debug_delta_kind = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_KIND");
 
     ViewData resolved{};
     if (!resolve_read_view_data(vd, resolved)) {

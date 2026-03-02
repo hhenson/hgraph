@@ -206,7 +206,7 @@ engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
                                                  bool include_map_children,
                                                  bool include_static_children) {
     refresh_dynamic_ref_binding(vd, MIN_DT);
-    const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
+    const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
     if (debug_keyset_bridge && is_tsd_key_set_projection(vd) && vd.uses_link_target) {
         if (LinkTarget* lt = resolve_link_target(vd, vd.path.indices); lt != nullptr) {
             std::fprintf(stderr,
@@ -326,8 +326,8 @@ bool modified_fallback_no_dispatch(const ViewData& vd,
                                    engine_time_t current_time,
                                    bool           allow_ops_dispatch) {
     refresh_dynamic_ref_binding(vd, current_time);
-    const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
-    const bool debug_op_modified = std::getenv("HGRAPH_DEBUG_OP_MODIFIED") != nullptr;
+    const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
+    const bool debug_op_modified = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_OP_MODIFIED");
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     if (allow_ops_dispatch && self_meta != nullptr) {
         if (const ts_ops* ops = get_ts_ops(self_meta); ops != nullptr && ops->modified != nullptr) {
@@ -356,7 +356,7 @@ bool modified_fallback_no_dispatch(const ViewData& vd,
 }
 
 bool valid_fallback_no_dispatch(const ViewData& vd, bool allow_ops_dispatch) {
-    const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
+    const bool debug_keyset_valid = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_VALID");
     const engine_time_t current_time = view_evaluation_time(vd);
     if (current_time != MIN_DT) {
         refresh_dynamic_ref_binding(vd, current_time);

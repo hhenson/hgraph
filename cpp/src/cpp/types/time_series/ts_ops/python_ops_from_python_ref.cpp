@@ -8,7 +8,7 @@ void op_from_python_ref(ViewData& vd, const nb::object& src, engine_time_t curre
         return;
     }
 
-    const bool debug_ref_from = std::getenv("HGRAPH_DEBUG_REF_FROM") != nullptr;
+    const bool debug_ref_from = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_FROM");
 
     // Python TimeSeriesReferenceOutput.apply_result(None) is a no-op.
     if (src.is_none()) {

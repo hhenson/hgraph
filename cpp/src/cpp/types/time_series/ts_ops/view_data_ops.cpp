@@ -68,7 +68,7 @@ bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewDat
             ref_value.has_value() && ref_value->valid() && ref_value->schema() == ts_reference_meta()) {
             TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value->to_python());
             if (const ViewData* target = ref.bound_view(); target != nullptr) {
-                if (std::getenv("HGRAPH_DEBUG_REF_ANCESTOR") != nullptr) {
+                if (HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_ANCESTOR")) {
                     std::string target_repr{"<none>"};
                     if (target->ops != nullptr && target->ops->to_python != nullptr) {
                         try {
@@ -590,7 +590,7 @@ bool assign_ref_value_from_target(ViewData& vd, const ViewData& target) {
 }
 
 void clear_ref_value(ViewData& vd) {
-    if (std::getenv("HGRAPH_DEBUG_REF_BIND_PATH") != nullptr) {
+    if (HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_BIND_PATH")) {
         std::fprintf(stderr,
                      "[clear_ref_value] path=%s root_reset=%d\n",
                      vd.path.to_string().c_str(),

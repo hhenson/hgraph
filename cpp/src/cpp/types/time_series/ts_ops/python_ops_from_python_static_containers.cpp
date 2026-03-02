@@ -68,7 +68,7 @@ void op_from_python_tsb(ViewData& vd, const nb::object& src, engine_time_t curre
         return;
     }
 
-    const bool debug_ref_from = std::getenv("HGRAPH_DEBUG_REF_FROM") != nullptr;
+    const bool debug_ref_from = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_FROM");
 
     if (reset_root_value_and_delta_on_none(vd, src, current_time)) {
         return;

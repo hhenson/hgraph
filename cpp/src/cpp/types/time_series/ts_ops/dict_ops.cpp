@@ -65,7 +65,7 @@ bool op_dict_remove(ViewData& vd, const View& key, engine_time_t current_time) {
 }
 
 TSView op_dict_create(ViewData& vd, const View& key, engine_time_t current_time) {
-    const bool debug_create = std::getenv("HGRAPH_DEBUG_TSD_CREATE_CORE") != nullptr;
+    const bool debug_create = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSD_CREATE_CORE");
     if (!key.valid()) {
         if (debug_create) {
             std::fprintf(stderr, "[op_dict_create] invalid key\n");

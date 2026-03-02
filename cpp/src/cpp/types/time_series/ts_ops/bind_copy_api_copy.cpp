@@ -177,7 +177,7 @@ void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
     auto slots = resolve_tsd_delta_slots(dst);
     clear_tsd_delta_if_new_tick(dst, current_time, slots);
     bool changed = false;
-    const bool debug_copy_keys = std::getenv("HGRAPH_DEBUG_COPY_TSD_KEYS") != nullptr;
+    const bool debug_copy_keys = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_COPY_TSD_KEYS");
 
     for (const auto& key : to_remove) {
         const auto removed_slot = map_slot_for_key(dst_map, key.view());

@@ -99,7 +99,7 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
             suppress_wrapper_local_time = true;
         }
     }
-    const bool debug_ref_modified = std::getenv("HGRAPH_DEBUG_REF_MODIFIED") != nullptr;
+    const bool debug_ref_modified = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_MODIFIED");
 
     const engine_time_t rebind_time = rebind_time_for_view(vd);
     if (debug_ref_modified) {
@@ -275,8 +275,8 @@ bool op_modified_tsvalue(const ViewData& vd, engine_time_t current_time) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
-    const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
-    const bool debug_op_modified = std::getenv("HGRAPH_DEBUG_OP_MODIFIED") != nullptr;
+    const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
+    const bool debug_op_modified = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_OP_MODIFIED");
     if (debug_op_modified) {
         std::fprintf(stderr,
                      "[op_mod] path=%s kind=%d uses_lt=%d sampled=%d now=%lld\n",
@@ -323,8 +323,8 @@ bool op_modified_signal(const ViewData& vd, engine_time_t current_time) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
-    const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
-    const bool debug_op_modified = std::getenv("HGRAPH_DEBUG_OP_MODIFIED") != nullptr;
+    const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
+    const bool debug_op_modified = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_OP_MODIFIED");
     if (debug_op_modified) {
         std::fprintf(stderr,
                      "[op_mod] path=%s kind=%d uses_lt=%d sampled=%d now=%lld\n",
@@ -356,8 +356,8 @@ bool op_modified_tss(const ViewData& vd, engine_time_t current_time) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
-    const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
-    const bool debug_op_modified = std::getenv("HGRAPH_DEBUG_OP_MODIFIED") != nullptr;
+    const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
+    const bool debug_op_modified = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_OP_MODIFIED");
     if (debug_op_modified) {
         std::fprintf(stderr,
                      "[op_mod] path=%s kind=%d uses_lt=%d sampled=%d now=%lld\n",
@@ -389,8 +389,8 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
-    const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
-    const bool debug_op_modified = std::getenv("HGRAPH_DEBUG_OP_MODIFIED") != nullptr;
+    const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
+    const bool debug_op_modified = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_OP_MODIFIED");
     if (debug_op_modified) {
         std::fprintf(stderr,
                      "[op_mod] path=%s kind=%d uses_lt=%d sampled=%d now=%lld\n",
@@ -537,8 +537,8 @@ bool op_modified_tsb(const ViewData& vd, engine_time_t current_time) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
-    const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
-    const bool debug_op_modified = std::getenv("HGRAPH_DEBUG_OP_MODIFIED") != nullptr;
+    const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
+    const bool debug_op_modified = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_OP_MODIFIED");
     if (debug_op_modified) {
         std::fprintf(stderr,
                      "[op_mod] path=%s kind=%d uses_lt=%d sampled=%d now=%lld\n",
@@ -576,8 +576,8 @@ bool op_modified_tsl(const ViewData& vd, engine_time_t current_time) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
 
-    const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
-    const bool debug_op_modified = std::getenv("HGRAPH_DEBUG_OP_MODIFIED") != nullptr;
+    const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
+    const bool debug_op_modified = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_OP_MODIFIED");
     if (debug_op_modified) {
         std::fprintf(stderr,
                      "[op_mod] path=%s kind=%d uses_lt=%d sampled=%d now=%lld\n",

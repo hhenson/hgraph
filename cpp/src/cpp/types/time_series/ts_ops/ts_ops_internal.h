@@ -32,6 +32,14 @@
 #include <unordered_set>
 #include <vector>
 
+#ifndef HGRAPH_DEBUG_ENV_ENABLED
+#define HGRAPH_DEBUG_ENV_ENABLED(NAME_LITERAL)                                                \
+    ([]() -> bool {                                                                           \
+        static const bool enabled = std::getenv(NAME_LITERAL) != nullptr;                    \
+        return enabled;                                                                       \
+    }())
+#endif
+
 namespace hgraph {
 
 using value::View;

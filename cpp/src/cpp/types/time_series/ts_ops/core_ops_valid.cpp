@@ -8,7 +8,7 @@ bool op_valid_tsvalue(const ViewData& vd) {
         return valid_fallback_no_dispatch(vd, false);
     }
 
-    const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
+    const bool debug_keyset_valid = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_VALID");
     const engine_time_t current_time = view_evaluation_time(vd);
     if (current_time != MIN_DT) {
         refresh_dynamic_ref_binding(vd, current_time);
@@ -70,8 +70,8 @@ bool op_valid_ref_impl(const ViewData& vd) {
     const bool use_ref_child_zero_dispatch =
         use_ref_child_zero_dispatch_for_scenario<DeclaredScalarLike, DeclaredStaticContainer, DeclaredDynamicContainer>(
             element_meta);
-    const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
-    const bool debug_ref_valid = std::getenv("HGRAPH_DEBUG_REF_VALID") != nullptr;
+    const bool debug_keyset_valid = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_VALID");
+    const bool debug_ref_valid = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_VALID");
     const engine_time_t current_time = view_evaluation_time(vd);
     if (current_time != MIN_DT) {
         refresh_dynamic_ref_binding(vd, current_time);
@@ -248,7 +248,7 @@ bool op_valid_signal(const ViewData& vd) {
         return valid_fallback_no_dispatch(vd, false);
     }
 
-    const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
+    const bool debug_keyset_valid = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_VALID");
     const engine_time_t current_time = view_evaluation_time(vd);
     if (current_time != MIN_DT) {
         refresh_dynamic_ref_binding(vd, current_time);
@@ -281,7 +281,7 @@ bool op_valid_tss(const ViewData& vd) {
         return valid_fallback_no_dispatch(vd, false);
     }
 
-    const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
+    const bool debug_keyset_valid = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_VALID");
     const engine_time_t current_time = view_evaluation_time(vd);
     if (current_time != MIN_DT) {
         refresh_dynamic_ref_binding(vd, current_time);
@@ -329,7 +329,7 @@ bool op_valid_tsd(const ViewData& vd) {
         return valid_fallback_no_dispatch(vd, false);
     }
 
-    const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
+    const bool debug_keyset_valid = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_VALID");
     const engine_time_t current_time = view_evaluation_time(vd);
     if (current_time != MIN_DT) {
         refresh_dynamic_ref_binding(vd, current_time);
@@ -393,7 +393,7 @@ bool op_valid_tsl(const ViewData& vd) {
         return false;
     }
 
-    const bool debug_keyset_valid = std::getenv("HGRAPH_DEBUG_KEYSET_VALID") != nullptr;
+    const bool debug_keyset_valid = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_VALID");
     if (std::optional<bool> key_set_result = valid_from_key_set_source(vd, debug_keyset_valid);
         key_set_result.has_value()) {
         return *key_set_result;

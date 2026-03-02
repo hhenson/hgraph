@@ -152,7 +152,7 @@ void op_from_python_tsd_impl_for_scenario(ViewData& vd,
             if (value_obj.is_none()) {
                 continue;
             }
-            if (std::getenv("HGRAPH_DEBUG_TSD_FROM") != nullptr) {
+            if (HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSD_FROM")) {
                 std::string key_s = nb::cast<std::string>(nb::repr(kv[0]));
                 std::string val_s = nb::cast<std::string>(nb::repr(value_obj));
                 const char* node_name = "<none>";
@@ -171,7 +171,7 @@ void op_from_python_tsd_impl_for_scenario(ViewData& vd,
             const RemoveMarkerKind marker = classify_remove_marker(value_obj);
             const bool is_remove = marker == RemoveMarkerKind::Remove;
             const bool is_remove_if_exists = marker == RemoveMarkerKind::RemoveIfExists;
-            if (std::getenv("HGRAPH_DEBUG_TSD_FROM") != nullptr && (is_remove || is_remove_if_exists)) {
+            if (HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSD_FROM") && (is_remove || is_remove_if_exists)) {
                 const char* node_name = "<none>";
                 if (vd.path.node != nullptr) {
                     node_name = vd.path.node->signature().name.c_str();

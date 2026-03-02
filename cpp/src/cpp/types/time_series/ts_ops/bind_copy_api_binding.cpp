@@ -37,7 +37,7 @@ uint8_t build_link_observer_notify_policy(const TSMeta* observer_meta, const TSM
 
 void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
     invalidate_python_value_cache(vd);
-    const bool debug_op_bind = std::getenv("HGRAPH_DEBUG_OP_BIND") != nullptr;
+    const bool debug_op_bind = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_OP_BIND");
     bool used_ancestor_meta = false;
     const TSMeta* current = resolve_meta_or_ancestor(vd, used_ancestor_meta);
     const TSMeta* target_meta = meta_at_path(target.meta, target.path.indices);

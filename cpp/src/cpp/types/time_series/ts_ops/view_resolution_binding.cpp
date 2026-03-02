@@ -313,7 +313,7 @@ engine_time_t ref_wrapper_last_modified_time_on_read_path(const ViewData& vd) {
 }
 
 bool resolve_ref_bound_target_view_data(const ViewData& ref_view, ViewData& out) {
-    const bool debug_ref_ancestor = std::getenv("HGRAPH_DEBUG_REF_ANCESTOR") != nullptr;
+    const bool debug_ref_ancestor = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_ANCESTOR");
     const TSMeta* ref_meta = meta_at_path(ref_view.meta, ref_view.path.indices);
     if (!dispatch_meta_is_ref(ref_meta)) {
         return false;
@@ -425,7 +425,7 @@ bool split_path_at_first_ref_ancestor(const TSMeta* root_meta,
 }
 
 std::optional<ViewData> resolve_ref_ancestor_descendant_view_data(const ViewData& vd) {
-    const bool debug_ref_ancestor = std::getenv("HGRAPH_DEBUG_REF_ANCESTOR") != nullptr;
+    const bool debug_ref_ancestor = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_ANCESTOR");
     size_t ref_depth = 0;
     if (!split_path_at_first_ref_ancestor(vd.meta, vd.path.indices, ref_depth)) {
         return std::nullopt;

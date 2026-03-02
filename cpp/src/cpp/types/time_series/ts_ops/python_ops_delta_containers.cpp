@@ -68,7 +68,7 @@ nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time
     const bool wrapper_ticked =
         wrapper_time == current_time ||
         rebind_time == current_time;
-    const bool debug_tsl_delta = std::getenv("HGRAPH_DEBUG_TSL_DELTA") != nullptr;
+    const bool debug_tsl_delta = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSL_DELTA");
     if (debug_tsl_delta) {
         int has_bound = 0;
         int bound_kind = -1;

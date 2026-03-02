@@ -27,7 +27,7 @@ View op_value_ref(const ViewData& vd) {
         return op_value_non_ref(vd);
     }
 
-    const bool    debug_ref_value = std::getenv("HGRAPH_DEBUG_REF_VALUE_PATH") != nullptr;
+    const bool    debug_ref_value = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_VALUE_PATH");
     const TSMeta* element_meta = self_meta->element_ts();
     const bool    static_ref_container =
         element_meta != nullptr && dispatch_meta_is_static_container(element_meta);

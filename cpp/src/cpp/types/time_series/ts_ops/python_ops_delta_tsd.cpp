@@ -8,8 +8,8 @@ template <bool DeclaredRefElement, bool HasDeclaredNestedElement, bool DeclaredN
 nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
-    const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
-    const bool debug_delta_kind = std::getenv("HGRAPH_DEBUG_DELTA_KIND") != nullptr;
+    const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
+    const bool debug_delta_kind = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_KIND");
     const bool key_set_projection = is_tsd_key_set_projection(vd);
     if (auto key_set_delta = maybe_tsd_key_set_delta_to_python(
             vd,
@@ -22,7 +22,7 @@ nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, en
         return std::move(*key_set_delta);
     }
 
-    const bool debug_ref_payload = std::getenv("HGRAPH_DEBUG_TSD_REF_PAYLOAD") != nullptr;
+    const bool debug_ref_payload = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSD_REF_PAYLOAD");
 
     {
         nb::object bridge_delta;
@@ -50,7 +50,7 @@ nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, en
                      vd.uses_link_target ? 1 : 0,
                      static_cast<long long>(current_time.time_since_epoch().count()));
     }
-    const bool debug_tsd_bridge = std::getenv("HGRAPH_DEBUG_TSD_BRIDGE") != nullptr;
+    const bool debug_tsd_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSD_BRIDGE");
     nb::object bridge_delta;
     if (try_tsd_bridge_delta_to_python(
             vd, current, current_time, false, debug_tsd_bridge, bridge_delta)) {
@@ -59,7 +59,7 @@ nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, en
         return bridge_delta;
     }
 
-    const bool debug_tsd_delta = std::getenv("HGRAPH_DEBUG_TSD_DELTA") != nullptr;
+    const bool debug_tsd_delta = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSD_DELTA");
     const bool wrapper_modified = op_modified(vd, current_time);
     const bool resolved_modified = op_modified(*data, current_time);
     if (!wrapper_modified && !resolved_modified) {

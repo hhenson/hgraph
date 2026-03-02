@@ -813,7 +813,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
     if (target_view.meta == nullptr || target_view.observer_data == nullptr) {
         return;
     }
-    const bool debug_notify = std::getenv("HGRAPH_DEBUG_NOTIFY_OBS") != nullptr;
+    const bool debug_notify = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_NOTIFY_OBS");
     if (debug_notify) {
         std::fprintf(stderr,
                      "[notify_obs] target=%s value_data=%p now=%lld\n",

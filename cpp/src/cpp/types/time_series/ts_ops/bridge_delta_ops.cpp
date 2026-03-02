@@ -5,7 +5,7 @@ namespace hgraph {
 nb::object tsd_bridge_delta_to_python(const ViewData& previous_data,
                                       const ViewData& current_data,
                                       engine_time_t current_time) {
-    const bool debug_bridge_delta = std::getenv("HGRAPH_DEBUG_TSD_BRIDGE_DELTA") != nullptr;
+    const bool debug_bridge_delta = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSD_BRIDGE_DELTA");
     nb::dict delta_out;
 
     const auto bridge_entry_to_python = [](const View& entry) -> nb::object {

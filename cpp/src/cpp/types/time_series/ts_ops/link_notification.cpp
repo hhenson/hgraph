@@ -121,7 +121,7 @@ bool observer_under_static_ref_container(const LinkTarget& observer) {
 }
 
 bool signal_input_has_bind_impl(const ViewData& vd, const TSMeta* current_meta, const LinkTarget* signal_link) {
-    const bool debug_signal_impl = std::getenv("HGRAPH_DEBUG_SIGNAL_IMPL") != nullptr;
+    const bool debug_signal_impl = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_SIGNAL_IMPL");
     if (!dispatch_meta_is_signal(current_meta)) {
         return false;
     }
@@ -181,7 +181,7 @@ void notify_activation_if_modified(LinkTarget* payload, TSInput* input) {
         return;
     }
 
-    const bool debug_activate = std::getenv("HGRAPH_DEBUG_ACTIVATE") != nullptr;
+    const bool debug_activate = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_ACTIVATE");
     const engine_time_t current_time = resolve_input_current_time(input);
     if (current_time == MIN_DT) {
         if (debug_activate) {
@@ -514,7 +514,7 @@ void refresh_dynamic_ref_binding_for_link_target(LinkTarget* link_target, bool s
     if (link_target == nullptr || !link_target->is_linked) {
         return;
     }
-    const bool debug_keyset_bridge = std::getenv("HGRAPH_DEBUG_KEYSET_BRIDGE") != nullptr;
+    const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
 
     ViewData source_view = link_target->as_view_data(sampled);
     const auto resolve_rebind_stamp = [&](const ViewData& source) {

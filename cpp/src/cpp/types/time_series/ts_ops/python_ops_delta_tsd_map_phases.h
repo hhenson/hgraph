@@ -299,7 +299,7 @@ void tsd_emit_phase(const ViewData& vd,
             };
             if (!sampled_like && has_changed_map) {
                 const auto changed_map = changed_values.as_map();
-                const bool debug_changed_map = std::getenv("HGRAPH_DEBUG_TSD_CHANGED_MAP") != nullptr;
+                const bool debug_changed_map = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSD_CHANGED_MAP");
                 for_each_map_key_slot(value_map, [&](View key, size_t /*slot_index*/) {
                     if (!map_slot_for_key(changed_map, key).has_value()) {
                         return;
