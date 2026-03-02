@@ -41,6 +41,33 @@ const ts_dict_ops* resolve_dict_ops(const ViewData& view_data) {
     return ops != nullptr ? ops->dict_ops() : nullptr;
 }
 
+TSView tsd_key_set_projection_view(const TSView& view) {
+    if (!view || !view.is_dict()) {
+        return {};
+    }
+    TSView out = view;
+    out.view_data().projection = ViewProjection::TSD_KEY_SET;
+    return out;
+}
+
+TSOutputView tsd_key_set_projection_view(const TSOutputView& view) {
+    if (!view || !view.as_ts_view().is_dict()) {
+        return {};
+    }
+    TSOutputView out = view;
+    out.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
+    return out;
+}
+
+TSInputView tsd_key_set_projection_view(const TSInputView& view) {
+    if (!view || !view.as_ts_view().is_dict()) {
+        return {};
+    }
+    TSInputView out = view;
+    out.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
+    return out;
+}
+
 const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indices) {
     const TSMeta* meta = root;
     for (size_t index : indices) {
@@ -1596,6 +1623,10 @@ void TSSView::clear() {
     ops->clear(view_data(), current_time());
 }
 
+TSSView TSDView::key_set() const {
+    return TSSView(tsd_key_set_projection_view(*this));
+}
+
 std::optional<value::Value> TSDView::key_at_slot(size_t slot) const {
     const value::View current = value();
     if (!current.valid() || !current.is_map()) {
@@ -1881,6 +1912,10 @@ bool TSSOutputView::remove(const value::View& elem) {
 
 void TSSOutputView::clear() {
     as_ts_view().as_set().clear();
+}
+
+TSSOutputView TSDOutputView::key_set() const {
+    return TSSOutputView(tsd_key_set_projection_view(*this));
 }
 
 bool TSDOutputView::contains(const value::View& key) const {
@@ -2386,6 +2421,10 @@ std::vector<value::View> TSSInputView::added() const {
 
 std::vector<value::View> TSSInputView::removed() const {
     return as_ts_view().as_set().removed();
+}
+
+TSSInputView TSDInputView::key_set() const {
+    return TSSInputView(tsd_key_set_projection_view(*this));
 }
 
 bool TSDInputView::contains(const value::View& key) const {

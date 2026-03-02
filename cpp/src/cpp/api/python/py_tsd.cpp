@@ -141,9 +141,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::key_set() const {
-        TSOutputView key_set = output_view();
-        key_set.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
-        return nb::cast(PyTimeSeriesSetOutput(std::move(key_set)));
+        return nb::cast(PyTimeSeriesSetOutput(output_view().as_dict().key_set()));
     }
 
     nb::object PyTimeSeriesDictOutput::keys() const {
@@ -450,9 +448,7 @@ namespace
     }
 
     nb::object PyTimeSeriesDictInput::key_set() const {
-        TSInputView key_set = input_view();
-        key_set.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
-        return nb::cast(PyTimeSeriesSetInput(std::move(key_set)));
+        return nb::cast(PyTimeSeriesSetInput(input_view().as_dict().key_set()));
     }
 
     nb::object PyTimeSeriesDictInput::keys() const {

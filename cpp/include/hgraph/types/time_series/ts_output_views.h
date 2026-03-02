@@ -135,6 +135,7 @@ public:
     TSDOutputView() = default;
     explicit TSDOutputView(TSOutputView base) noexcept : TSOutputView(std::move(base)) {}
 
+    [[nodiscard]] TSSOutputView key_set() const;
     [[nodiscard]] bool contains(const value::View& key) const;
     [[nodiscard]] std::vector<value::Value> keys() const;
     [[nodiscard]] std::vector<value::Value> valid_keys() const;

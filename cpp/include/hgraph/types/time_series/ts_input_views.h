@@ -131,6 +131,7 @@ public:
     TSDInputView() = default;
     explicit TSDInputView(TSInputView base) noexcept : TSInputView(std::move(base)) {}
 
+    [[nodiscard]] TSSInputView key_set() const;
     [[nodiscard]] bool contains(const value::View& key) const;
     [[nodiscard]] std::vector<value::Value> keys() const;
     [[nodiscard]] std::vector<value::Value> valid_keys() const;

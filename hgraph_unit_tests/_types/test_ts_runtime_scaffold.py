@@ -1222,6 +1222,10 @@ def test_typed_dict_view_surface():
     assert not dict_view.remove(alpha.view())
     assert dict_view.to_python() == {"beta": 3}
 
+    key_set_view = dict_view.key_set
+    assert isinstance(key_set_view, runtime.TSSOutputView)
+    assert key_set_view.values() == {"beta"}
+
 
 def test_typed_list_view_surface():
     list_meta = _registry().tsl(_ts_int_meta(), 2)
@@ -1323,6 +1327,10 @@ def test_typed_input_dict_view_surface():
 
     beta_child = dict_view.at_key(_str_value("beta").view())
     assert isinstance(beta_child, runtime.TSInputView)
+
+    key_set_view = dict_view.key_set
+    assert isinstance(key_set_view, runtime.TSSInputView)
+    assert key_set_view.values() == set()
 
 
 def test_typed_input_list_view_surface():

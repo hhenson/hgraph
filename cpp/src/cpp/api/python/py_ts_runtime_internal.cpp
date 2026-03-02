@@ -380,24 +380,6 @@ nb::list tsd_removed_keys_python(const TSView& ts_view) {
     return out;
 }
 
-TSInputView tsd_key_set_input_view(const TSInputView& self) {
-    if (!self.try_as_dict().has_value()) {
-        return {};
-    }
-    TSInputView out = self;
-    out.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
-    return out;
-}
-
-TSOutputView tsd_key_set_output_view(const TSOutputView& self) {
-    if (!self.try_as_dict().has_value()) {
-        return {};
-    }
-    TSOutputView out = self;
-    out.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
-    return out;
-}
-
 nb::list tsd_input_values(const TSInputView& self, const nb::list& keys) {
     nb::list out;
     for (const auto& key : keys) {
@@ -1649,6 +1631,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
     nb::class_<TSDView, TSView>(test_mod, "TSDView")
         .def("__bool__", [](const TSDView& self) { return static_cast<bool>(self); })
         .def("to_python", [](const TSDView& self) { return self.to_python(); })
+        .def_prop_ro("key_set", &TSDView::key_set, nb::keep_alive<0, 1>())
         .def("at_key", &TSDView::by_key, "key"_a, nb::keep_alive<0, 1>())
         .def("count", &TSDView::count)
         .def("size", &TSDView::size)
@@ -2029,9 +2012,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("removed_items", [](const TSDOutputView& self) {
             return tsd_output_items(self, tsd_removed_keys_python(self.as_ts_view()));
         })
-        .def_prop_ro("key_set", [](const TSDOutputView& self) {
-            return tsd_key_set_output_view(self);
-        }, nb::keep_alive<0, 1>())
+        .def_prop_ro("key_set", &TSDOutputView::key_set, nb::keep_alive<0, 1>())
         .def("remove", &TSDOutputView::remove, "key"_a)
         .def("create", &TSDOutputView::create, "key"_a, nb::keep_alive<0, 1>())
         .def("set", &TSDOutputView::set, "key"_a, "value"_a, nb::keep_alive<0, 1>())
@@ -2318,9 +2299,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("removed_items", [](const TSDInputView& self) {
             return tsd_input_items(self, tsd_removed_keys_python(self.as_ts_view()));
         })
-        .def_prop_ro("key_set", [](const TSDInputView& self) {
-            return tsd_key_set_input_view(self);
-        }, nb::keep_alive<0, 1>());
+        .def_prop_ro("key_set", &TSDInputView::key_set, nb::keep_alive<0, 1>());
 
     nb::class_<TSIndexedInputView, TSInputView>(test_mod, "TSIndexedInputView")
         .def("__bool__", [](const TSIndexedInputView& self) { return static_cast<bool>(self); })
