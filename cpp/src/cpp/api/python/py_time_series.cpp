@@ -66,7 +66,7 @@ namespace
     }
 
     nb::object PyTimeSeriesType::delta_value() const {
-        const bool debug_delta_dispatch = std::getenv("HGRAPH_DEBUG_TS_DELTA_DISPATCH") != nullptr;
+        static const bool debug_delta_dispatch = std::getenv("HGRAPH_DEBUG_TS_DELTA_DISPATCH") != nullptr;
         nb::object out = view().delta_to_python();
         if (debug_delta_dispatch) {
             std::fprintf(stderr,

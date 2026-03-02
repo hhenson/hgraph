@@ -391,6 +391,7 @@ void invalidate_python_value_cache(ViewData& vd) {
     }
     HGRAPH_PY_CACHE_STATS_INC_INVALIDATION_EFFECTIVE();
     root->keyed_delta_lookup_cache()->clear();
+    root->tsd_key_set_delta_cache()->clear();
 
     if (Py_IsInitialized() == 0) {
         root->abandon_subtree();

@@ -863,18 +863,6 @@ void stable_sort_atomic_keys(std::vector<value::Value>& keys) {
         });
 }
 
-struct TsdKeySetDeltaCacheEntry {
-    const void* value_data{nullptr};
-    const void* delta_data{nullptr};
-    const void* observer_data{nullptr};
-    const void* link_data{nullptr};
-    std::vector<size_t> path{};
-    const value::TypeMeta* key_type_meta{nullptr};
-    engine_time_t evaluation_time{MIN_DT};
-    std::vector<value::Value> added{};
-    std::vector<value::Value> removed{};
-};
-
 bool tsd_key_set_delta_cache_matches(const TsdKeySetDeltaCacheEntry& cache,
                                      const ViewData& view_data,
                                      const value::TypeMeta* key_type_meta,
@@ -948,14 +936,28 @@ void populate_tsd_key_set_delta_cache(TsdKeySetDeltaCacheEntry& cache, const TSV
     parse_member("removed", cache.removed);
 }
 
+TsdKeySetDeltaCacheEntry* tsd_key_set_delta_cache_entry_for_view(const TSView& view) {
+    auto* root = static_cast<PythonValueCacheNode*>(view.view_data().python_value_cache_data);
+    if (root != nullptr) {
+        return root->tsd_key_set_delta_cache();
+    }
+
+    static TsdKeySetDeltaCacheEntry fallback_cache;
+    return &fallback_cache;
+}
+
 const std::vector<value::Value>& tsd_key_set_delta_keys_cached(const TSView& view, bool added) {
-    static thread_local TsdKeySetDeltaCacheEntry cache;
+    TsdKeySetDeltaCacheEntry* cache = tsd_key_set_delta_cache_entry_for_view(view);
+    if (cache == nullptr) {
+        static const std::vector<value::Value> empty{};
+        return empty;
+    }
     const TSMeta* meta = view.ts_meta();
     const value::TypeMeta* key_type_meta = (meta != nullptr && meta->kind == TSKind::TSD) ? meta->key_type() : nullptr;
-    if (!tsd_key_set_delta_cache_matches(cache, view.view_data(), key_type_meta, view.current_time())) {
-        populate_tsd_key_set_delta_cache(cache, view);
+    if (!tsd_key_set_delta_cache_matches(*cache, view.view_data(), key_type_meta, view.current_time())) {
+        populate_tsd_key_set_delta_cache(*cache, view);
     }
-    return added ? cache.added : cache.removed;
+    return added ? cache->added : cache->removed;
 }
 
 std::vector<value::Value> tsd_key_set_delta_keys_for_view(const TSView& view, bool added) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/python_value_cache.h>
 #include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/value/value_view.h>
@@ -136,7 +137,20 @@ public:
             computed_.ops != nullptr &&
             computed_.ops->delta_to_python != nullptr) {
             const ViewData computed = computed_with_time();
+            PythonDeltaCacheEntry* delta_cache_slot = nullptr;
+            if (can_cache_computed_python_delta(computed)) {
+                delta_cache_slot = resolve_python_delta_cache_slot_local(computed, true);
+                if (delta_cache_slot != nullptr && delta_cache_slot->is_valid_for(current_time_)) {
+                    materialized_python_ = delta_cache_slot->value;
+                    return materialized_python_;
+                }
+            }
+
             materialized_python_ = computed.ops->delta_to_python(computed, current_time_);
+            if (delta_cache_slot != nullptr) {
+                delta_cache_slot->time = current_time_;
+                delta_cache_slot->value = materialized_python_;
+            }
             return materialized_python_;
         }
 
@@ -146,6 +160,41 @@ public:
     }
 
 private:
+    static bool can_cache_computed_python_delta(const ViewData& vd) noexcept {
+        // Keep delta cache conservative: sampled/projection/link-target reads can
+        // diverge from direct local-path delta semantics.
+        return !vd.sampled && !vd.uses_link_target && vd.projection == ViewProjection::NONE;
+    }
+
+    static PythonDeltaCacheEntry* resolve_python_delta_cache_slot_local(const ViewData& vd, bool create) noexcept {
+        auto* root = static_cast<PythonValueCacheNode*>(vd.python_value_cache_data);
+        if (root == nullptr) {
+            return nullptr;
+        }
+
+        if (vd.path.indices.empty()) {
+            return root->delta_root_value();
+        }
+
+        PythonValueCacheNode* node = root;
+        for (size_t depth = 0; depth < vd.path.indices.size(); ++depth) {
+            const size_t index = vd.path.indices[depth];
+            PythonDeltaCacheEntry* slot = node->delta_slot_value(index, create);
+            if (slot == nullptr) {
+                return nullptr;
+            }
+            if (depth + 1 == vd.path.indices.size()) {
+                return slot;
+            }
+
+            node = node->child_node(index, create);
+            if (node == nullptr) {
+                return nullptr;
+            }
+        }
+        return nullptr;
+    }
+
     [[nodiscard]] ViewData computed_with_time() const noexcept {
         if (backing_ != Backing::COMPUTED || computed_.engine_time_ptr != nullptr || current_time_ == MIN_DT) {
             return computed_;

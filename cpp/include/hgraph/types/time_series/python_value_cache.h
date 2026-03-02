@@ -67,6 +67,34 @@ struct HGRAPH_EXPORT KeyedDeltaLookupCacheEntry {
     }
 };
 
+struct HGRAPH_EXPORT TsdKeySetDeltaCacheEntry {
+    const void* value_data{nullptr};
+    const void* delta_data{nullptr};
+    const void* observer_data{nullptr};
+    const void* link_data{nullptr};
+    std::vector<size_t> path{};
+    const value::TypeMeta* key_type_meta{nullptr};
+    engine_time_t evaluation_time{MIN_DT};
+    std::vector<value::Value> added{};
+    std::vector<value::Value> removed{};
+
+    void clear() {
+        value_data = nullptr;
+        delta_data = nullptr;
+        observer_data = nullptr;
+        link_data = nullptr;
+        path.clear();
+        key_type_meta = nullptr;
+        evaluation_time = MIN_DT;
+        added.clear();
+        removed.clear();
+    }
+
+    void abandon() {
+        clear();
+    }
+};
+
 /**
  * Schema-shaped cache for Python conversions.
  *
@@ -119,6 +147,14 @@ public:
 
     [[nodiscard]] const KeyedDeltaLookupCacheEntry* keyed_delta_lookup_cache() const noexcept {
         return &keyed_delta_lookup_cache_;
+    }
+
+    [[nodiscard]] TsdKeySetDeltaCacheEntry* tsd_key_set_delta_cache() noexcept {
+        return &tsd_key_set_delta_cache_;
+    }
+
+    [[nodiscard]] const TsdKeySetDeltaCacheEntry* tsd_key_set_delta_cache() const noexcept {
+        return &tsd_key_set_delta_cache_;
     }
 
     [[nodiscard]] nb::object* slot_value(size_t slot, bool create) noexcept {
@@ -221,7 +257,11 @@ public:
             }
         }
 
-        return value_empty && delta_empty && keyed_delta_lookup_cache_.values.empty();
+        return value_empty &&
+               delta_empty &&
+               keyed_delta_lookup_cache_.values.empty() &&
+               tsd_key_set_delta_cache_.added.empty() &&
+               tsd_key_set_delta_cache_.removed.empty();
     }
 
     void clear_subtree() {
@@ -247,6 +287,7 @@ public:
             }
         }
         keyed_delta_lookup_cache_.clear();
+        tsd_key_set_delta_cache_.clear();
     }
 
     // Detach Python refs without decref; used only when interpreter is unavailable.
@@ -277,6 +318,7 @@ public:
             }
         }
         keyed_delta_lookup_cache_.abandon();
+        tsd_key_set_delta_cache_.abandon();
     }
 
 private:
@@ -386,6 +428,7 @@ private:
     PythonDeltaCacheEntry delta_root_value_{};
     std::variant<DeltaSlotStorage> delta_storage_{DeltaSlotStorage{}};
     KeyedDeltaLookupCacheEntry keyed_delta_lookup_cache_{};
+    TsdKeySetDeltaCacheEntry tsd_key_set_delta_cache_{};
 };
 
 }  // namespace hgraph

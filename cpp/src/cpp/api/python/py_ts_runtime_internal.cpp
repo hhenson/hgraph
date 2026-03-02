@@ -306,80 +306,6 @@ nb::list tsd_keys_python(const TSView& ts_view) {
     return out;
 }
 
-nb::list tsd_modified_keys_python(const TSView& ts_view) {
-    nb::list out;
-    View delta = ts_view.delta_payload();
-    if (!delta.valid() || !delta.is_tuple()) {
-        return out;
-    }
-
-    auto tuple = delta.as_tuple();
-    if (tuple.size() == 0 || !tuple.at(0).valid() || !tuple.at(0).is_map()) {
-        return out;
-    }
-
-    for (View key : tuple.at(0).as_map().keys()) {
-        out.append(key.to_python());
-    }
-    return out;
-}
-
-struct TSDDeltaSets {
-    View added_keys{};
-    View removed_keys{};
-};
-
-TSDDeltaSets tsd_delta_sets(const TSView& ts_view) {
-    TSDDeltaSets sets{};
-    View delta = ts_view.delta_payload();
-    if (!delta.valid() || !delta.is_tuple()) {
-        return sets;
-    }
-
-    auto tuple = delta.as_tuple();
-    if (tuple.size() > 1 && tuple.at(1).valid() && tuple.at(1).is_set()) {
-        sets.added_keys = tuple.at(1);
-    }
-    if (tuple.size() > 2 && tuple.at(2).valid() && tuple.at(2).is_set()) {
-        sets.removed_keys = tuple.at(2);
-    }
-    return sets;
-}
-
-nb::list tsd_added_keys_python(const TSView& ts_view) {
-    nb::list out;
-    const auto sets = tsd_delta_sets(ts_view);
-    if (!sets.added_keys.valid()) {
-        return out;
-    }
-
-    const bool has_removed = sets.removed_keys.valid() && sets.removed_keys.is_set();
-    for (View key : sets.added_keys.as_set()) {
-        if (has_removed && sets.removed_keys.as_set().contains(key)) {
-            continue;
-        }
-        out.append(key.to_python());
-    }
-    return out;
-}
-
-nb::list tsd_removed_keys_python(const TSView& ts_view) {
-    nb::list out;
-    const auto sets = tsd_delta_sets(ts_view);
-    if (!sets.removed_keys.valid()) {
-        return out;
-    }
-
-    const bool has_added = sets.added_keys.valid() && sets.added_keys.is_set();
-    for (View key : sets.removed_keys.as_set()) {
-        if (has_added && sets.added_keys.as_set().contains(key)) {
-            continue;
-        }
-        out.append(key.to_python());
-    }
-    return out;
-}
-
 nb::list tsd_input_values(const TSInputView& self, const nb::list& keys) {
     nb::list out;
     for (const auto& key : keys) {
@@ -2005,27 +1931,15 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("valid_items", [](const TSDOutputView& self) {
             return tsd_output_items(self, tsd_valid_keys_output(self));
         })
-        .def("modified_keys", [](const TSDOutputView& self) { return tsd_modified_keys_python(self.as_ts_view()); })
-        .def("modified_values", [](const TSDOutputView& self) {
-            return tsd_output_values(self, tsd_modified_keys_python(self.as_ts_view()));
-        })
-        .def("modified_items", [](const TSDOutputView& self) {
-            return tsd_output_items(self, tsd_modified_keys_python(self.as_ts_view()));
-        })
-        .def("added_keys", [](const TSDOutputView& self) { return tsd_added_keys_python(self.as_ts_view()); })
-        .def("added_values", [](const TSDOutputView& self) {
-            return tsd_output_values(self, tsd_added_keys_python(self.as_ts_view()));
-        })
-        .def("added_items", [](const TSDOutputView& self) {
-            return tsd_output_items(self, tsd_added_keys_python(self.as_ts_view()));
-        })
-        .def("removed_keys", [](const TSDOutputView& self) { return tsd_removed_keys_python(self.as_ts_view()); })
-        .def("removed_values", [](const TSDOutputView& self) {
-            return tsd_output_values(self, tsd_removed_keys_python(self.as_ts_view()));
-        })
-        .def("removed_items", [](const TSDOutputView& self) {
-            return tsd_output_items(self, tsd_removed_keys_python(self.as_ts_view()));
-        })
+        .def("modified_keys", &TSDOutputView::modified_keys)
+        .def("modified_values", &TSDOutputView::modified_values)
+        .def("modified_items", &TSDOutputView::modified_items)
+        .def("added_keys", &TSDOutputView::added_keys)
+        .def("added_values", &TSDOutputView::added_values)
+        .def("added_items", &TSDOutputView::added_items)
+        .def("removed_keys", &TSDOutputView::removed_keys)
+        .def("removed_values", &TSDOutputView::removed_values)
+        .def("removed_items", &TSDOutputView::removed_items)
         .def_prop_ro("key_set", &TSDOutputView::key_set, nb::keep_alive<0, 1>())
         .def("remove", &TSDOutputView::remove, "key"_a)
         .def("create", &TSDOutputView::create, "key"_a, nb::keep_alive<0, 1>())
@@ -2292,27 +2206,15 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("valid_items", [](const TSDInputView& self) {
             return tsd_input_items(self, tsd_valid_keys_input(self));
         })
-        .def("modified_keys", [](const TSDInputView& self) { return tsd_modified_keys_python(self.as_ts_view()); })
-        .def("modified_values", [](const TSDInputView& self) {
-            return tsd_input_values(self, tsd_modified_keys_python(self.as_ts_view()));
-        })
-        .def("modified_items", [](const TSDInputView& self) {
-            return tsd_input_items(self, tsd_modified_keys_python(self.as_ts_view()));
-        })
-        .def("added_keys", [](const TSDInputView& self) { return tsd_added_keys_python(self.as_ts_view()); })
-        .def("added_values", [](const TSDInputView& self) {
-            return tsd_input_values(self, tsd_added_keys_python(self.as_ts_view()));
-        })
-        .def("added_items", [](const TSDInputView& self) {
-            return tsd_input_items(self, tsd_added_keys_python(self.as_ts_view()));
-        })
-        .def("removed_keys", [](const TSDInputView& self) { return tsd_removed_keys_python(self.as_ts_view()); })
-        .def("removed_values", [](const TSDInputView& self) {
-            return tsd_input_values(self, tsd_removed_keys_python(self.as_ts_view()));
-        })
-        .def("removed_items", [](const TSDInputView& self) {
-            return tsd_input_items(self, tsd_removed_keys_python(self.as_ts_view()));
-        })
+        .def("modified_keys", &TSDInputView::modified_keys)
+        .def("modified_values", &TSDInputView::modified_values)
+        .def("modified_items", &TSDInputView::modified_items)
+        .def("added_keys", &TSDInputView::added_keys)
+        .def("added_values", &TSDInputView::added_values)
+        .def("added_items", &TSDInputView::added_items)
+        .def("removed_keys", &TSDInputView::removed_keys)
+        .def("removed_values", &TSDInputView::removed_values)
+        .def("removed_items", &TSDInputView::removed_items)
         .def_prop_ro("key_set", &TSDInputView::key_set, nb::keep_alive<0, 1>());
 
     nb::class_<TSIndexedInputView, TSInputView>(test_mod, "TSIndexedInputView")
