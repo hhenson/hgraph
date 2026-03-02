@@ -349,11 +349,7 @@ nb::list tsd_output_items(const TSOutputView& self, const nb::list& keys) {
 }
 
 nb::object tsd_input_delta_to_python(const TSDInputView& self) {
-    nb::object delta = self.as_ts_view().delta_to_python();
-    if (delta.is_none()) {
-        return get_empty_frozendict();
-    }
-    return delta;
+    return self.as_ts_view().delta_to_python();
 }
 
 nb::list tsl_keys_python(const TSView& ts_view) {

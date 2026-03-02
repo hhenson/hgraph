@@ -147,6 +147,12 @@ enum class TSCollectionFilter : uint8_t {
     Modified = 2,
 };
 
+[[nodiscard]] inline bool is_delta_to_python_cacheable(const ViewData& vd) noexcept {
+    // Keep delta cache conservative: sampled/projection/link-target reads can
+    // diverge from direct local-path delta semantics.
+    return !vd.sampled && !vd.uses_link_target && vd.projection == ViewProjection::NONE;
+}
+
 /**
  * Retrieve ts_ops by static kind discriminator.
  */

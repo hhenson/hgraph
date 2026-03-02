@@ -2,16 +2,6 @@
 
 namespace hgraph {
 
-namespace {
-
-bool can_cache_delta_to_python(const ViewData& vd) {
-    // Keep delta cache conservative: sampled/projection/link-target reads can
-    // diverge from direct local-path delta semantics.
-    return !vd.sampled && !vd.uses_link_target && vd.projection == ViewProjection::NONE;
-}
-
-}  // namespace
-
 nb::object delta_view_to_python_with_refs(const View& view, engine_time_t current_time) {
     if (!view.valid()) {
         return nb::none();
@@ -181,7 +171,7 @@ std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
 
 nb::object op_delta_to_python_tsvalue(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    if (!op_modified(vd, current_time)) {
+    if (current_time != MIN_DT && !op_modified(vd, current_time)) {
         return nb::none();
     }
     DeltaView delta = DeltaView::from_computed(vd, current_time);
@@ -192,7 +182,7 @@ namespace {
 
 nb::object op_delta_to_python_ref_common(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    if (!op_modified(vd, current_time)) {
+    if (current_time != MIN_DT && !op_modified(vd, current_time)) {
         return nb::none();
     }
     DeltaView delta = DeltaView::from_computed(vd, current_time);
@@ -384,7 +374,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     bind_view_data_ops(dispatch_view);
 
     PythonDeltaCacheEntry* delta_cache_slot = nullptr;
-    if (can_cache_delta_to_python(dispatch_view)) {
+    if (is_delta_to_python_cacheable(dispatch_view)) {
         delta_cache_slot = resolve_python_delta_cache_slot(dispatch_view, true);
         if (delta_cache_slot != nullptr && delta_cache_slot->is_valid_for(current_time)) {
             return delta_cache_slot->value;

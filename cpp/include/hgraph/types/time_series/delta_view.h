@@ -46,6 +46,9 @@ public:
         out.backing_ = Backing::COMPUTED;
         out.computed_ = std::move(view_data);
         out.current_time_ = current_time;
+        if (out.current_time_ == MIN_DT && out.computed_.engine_time_ptr != nullptr) {
+            out.current_time_ = *out.computed_.engine_time_ptr;
+        }
         return out;
     }
 
@@ -80,15 +83,26 @@ public:
     }
 
     [[nodiscard]] bool valid() const {
+        if (backing_ == Backing::STORED) {
+            return stored_.valid();
+        }
+        if (backing_ != Backing::COMPUTED) {
+            return false;
+        }
+        if (materialized_ != nullptr && materialized_->has_value()) {
+            return materialized_->view().valid();
+        }
+        bool has_delta = false;
+        if (try_computed_has_delta(has_delta)) {
+            return has_delta;
+        }
         return value().valid();
     }
 
     [[nodiscard]] bool empty() const {
-        if (backing_ == Backing::COMPUTED &&
-            computed_.ops != nullptr &&
-            computed_.ops->has_delta != nullptr) {
-            const ViewData computed = computed_with_time();
-            return !computed.ops->has_delta(computed);
+        bool has_delta = false;
+        if (try_computed_has_delta(has_delta)) {
+            return !has_delta;
         }
         if (!valid()) {
             return true;
@@ -97,6 +111,11 @@ public:
     }
 
     [[nodiscard]] size_t change_count() const {
+        bool has_delta = false;
+        if (try_computed_has_delta(has_delta) && !has_delta) {
+            return 0;
+        }
+
         const value::View delta = value();
         if (!delta.valid()) {
             return 0;
@@ -125,6 +144,18 @@ public:
     }
 
     [[nodiscard]] const value::TypeMeta* schema() const {
+        if (backing_ == Backing::STORED) {
+            return stored_.schema();
+        }
+        if (backing_ == Backing::COMPUTED) {
+            if (materialized_ != nullptr && materialized_->has_value()) {
+                return materialized_->view().schema();
+            }
+            bool has_delta = false;
+            if (try_computed_has_delta(has_delta) && !has_delta) {
+                return nullptr;
+            }
+        }
         return value().schema();
     }
 
@@ -138,7 +169,7 @@ public:
             computed_.ops->delta_to_python != nullptr) {
             const ViewData computed = computed_with_time();
             PythonDeltaCacheEntry* delta_cache_slot = nullptr;
-            if (can_cache_computed_python_delta(computed)) {
+            if (is_delta_to_python_cacheable(computed)) {
                 delta_cache_slot = resolve_python_delta_cache_slot_local(computed, true);
                 if (delta_cache_slot != nullptr && delta_cache_slot->is_valid_for(current_time_)) {
                     materialized_python_ = delta_cache_slot->value;
@@ -160,10 +191,20 @@ public:
     }
 
 private:
-    static bool can_cache_computed_python_delta(const ViewData& vd) noexcept {
-        // Keep delta cache conservative: sampled/projection/link-target reads can
-        // diverge from direct local-path delta semantics.
-        return !vd.sampled && !vd.uses_link_target && vd.projection == ViewProjection::NONE;
+    [[nodiscard]] bool try_computed_has_delta(bool& out) const {
+        if (backing_ != Backing::COMPUTED ||
+            computed_.ops == nullptr ||
+            computed_.ops->has_delta == nullptr) {
+            return false;
+        }
+        // In MIN_DT contexts, has_delta() can report false while delta_value()
+        // still materializes payload (Python parity for scaffold/runtime helpers).
+        if (current_time_ == MIN_DT) {
+            return false;
+        }
+        const ViewData computed = computed_with_time();
+        out = computed.ops->has_delta(computed);
+        return true;
     }
 
     static PythonDeltaCacheEntry* resolve_python_delta_cache_slot_local(const ViewData& vd, bool create) noexcept {
@@ -196,7 +237,7 @@ private:
     }
 
     [[nodiscard]] ViewData computed_with_time() const noexcept {
-        if (backing_ != Backing::COMPUTED || computed_.engine_time_ptr != nullptr || current_time_ == MIN_DT) {
+        if (backing_ != Backing::COMPUTED || current_time_ == MIN_DT) {
             return computed_;
         }
         ViewData with_time = computed_;

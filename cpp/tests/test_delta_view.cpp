@@ -108,7 +108,8 @@ TEST_CASE("DeltaView computed backing respects ts_ops has_delta gate", "[delta_v
     vd.delta_data = &state;
     vd.ops = &k_fake_delta_ops;
 
-    hgraph::DeltaView delta = hgraph::DeltaView::from_computed(vd, hgraph::MIN_DT);
+    const hgraph::engine_time_t current_time{std::chrono::microseconds{10}};
+    hgraph::DeltaView delta = hgraph::DeltaView::from_computed(vd, current_time);
     REQUIRE(delta.backing() == hgraph::DeltaView::Backing::COMPUTED);
     REQUIRE(delta.valid());
     REQUIRE_FALSE(delta.empty());
@@ -137,6 +138,32 @@ TEST_CASE("DeltaView computed backing uses explicit current_time when engine_tim
     REQUIRE_FALSE(delta.empty());
     REQUIRE(delta.change_count() == 1);
     REQUIRE(delta.value().as<int64_t>() == 99);
+}
+
+TEST_CASE("DeltaView computed backing freezes current_time snapshot from engine_time_ptr", "[delta_view]") {
+    using namespace hgraph::value;
+
+    const TypeMeta* int_meta = scalar_type_meta<int64_t>();
+    const hgraph::engine_time_t expected_time{std::chrono::microseconds{88}};
+    FakeComputedDeltaState state{Value(int_meta), true, expected_time, true};
+    state.delta.emplace();
+    state.delta.as<int64_t>() = 123;
+
+    hgraph::engine_time_t mutable_time = expected_time;
+    hgraph::ViewData vd{};
+    vd.delta_data = &state;
+    vd.ops = &k_fake_delta_ops;
+    vd.engine_time_ptr = &mutable_time;
+
+    // Deliberately omit explicit current_time so DeltaView must snapshot
+    // the source pointer value at construction time.
+    hgraph::DeltaView delta = hgraph::DeltaView::from_computed(vd, hgraph::MIN_DT);
+    mutable_time = hgraph::engine_time_t{std::chrono::microseconds{99}};
+
+    REQUIRE(delta.valid());
+    REQUIRE_FALSE(delta.empty());
+    REQUIRE(delta.change_count() == 1);
+    REQUIRE(delta.value().as<int64_t>() == 123);
 }
 
 TEST_CASE("DeltaView computed backing materializes payload on first value() call", "[delta_view]") {
