@@ -130,7 +130,7 @@ View op_value(const ViewData& vd) {
 
 View op_delta_value_scalar(const ViewData& vd) {
     const engine_time_t current_time = view_evaluation_time(vd);
-    if (current_time != MIN_DT && !dispatch_modified(vd, current_time)) {
+    if (!allow_pretick_delta(vd, current_time) && !dispatch_modified(vd, current_time)) {
         return {};
     }
     return op_value(vd);
@@ -144,7 +144,7 @@ View op_delta_value_container(const ViewData& vd) {
     const ViewData* data = &resolved;
 
     const engine_time_t current_time = view_evaluation_time(vd);
-    if (current_time != MIN_DT && !dispatch_modified(vd, current_time)) {
+    if (!allow_pretick_delta(vd, current_time) && !dispatch_modified(vd, current_time)) {
         return {};
     }
 
@@ -189,7 +189,7 @@ View op_delta_value_tsw_tick(const ViewData& vd) {
     }
 
     const engine_time_t current_time = view_evaluation_time(vd);
-    if (current_time != MIN_DT && !dispatch_modified(vd, current_time)) {
+    if (!allow_pretick_delta(vd, current_time) && !dispatch_modified(vd, current_time)) {
         return {};
     }
 
@@ -229,7 +229,7 @@ View op_delta_value_tsw_duration(const ViewData& vd) {
     }
 
     const engine_time_t current_time = view_evaluation_time(vd);
-    if (current_time != MIN_DT && !dispatch_modified(vd, current_time)) {
+    if (!allow_pretick_delta(vd, current_time) && !dispatch_modified(vd, current_time)) {
         return {};
     }
 
@@ -290,7 +290,7 @@ View op_delta_value(const ViewData& vd) {
 
 bool op_has_delta_default(const ViewData& vd) {
     const engine_time_t current_time = view_evaluation_time(vd);
-    if (current_time != MIN_DT && !dispatch_modified(vd, current_time)) {
+    if (!allow_pretick_delta(vd, current_time) && !dispatch_modified(vd, current_time)) {
         return false;
     }
 
@@ -323,7 +323,7 @@ bool op_has_delta(const ViewData& vd) {
 
 bool op_has_delta_scalar(const ViewData& vd) {
     const engine_time_t current_time = view_evaluation_time(vd);
-    if (current_time != MIN_DT && !dispatch_modified(vd, current_time)) {
+    if (!allow_pretick_delta(vd, current_time) && !dispatch_modified(vd, current_time)) {
         return false;
     }
 
@@ -348,7 +348,7 @@ bool op_has_delta_scalar(const ViewData& vd) {
 
 bool op_has_delta_tss(const ViewData& vd) {
     const engine_time_t current_time = view_evaluation_time(vd);
-    if (current_time != MIN_DT && !dispatch_modified(vd, current_time)) {
+    if (!allow_pretick_delta(vd, current_time) && !dispatch_modified(vd, current_time)) {
         return false;
     }
 
@@ -390,7 +390,7 @@ bool op_has_delta_tss(const ViewData& vd) {
 
 bool op_has_delta_tsd(const ViewData& vd) {
     const engine_time_t current_time = view_evaluation_time(vd);
-    if (current_time != MIN_DT && !dispatch_modified(vd, current_time)) {
+    if (!allow_pretick_delta(vd, current_time) && !dispatch_modified(vd, current_time)) {
         return false;
     }
 

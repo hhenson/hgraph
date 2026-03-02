@@ -36,6 +36,14 @@ enum class ViewProjection : uint8_t {
 };
 
 /**
+ * Delta evaluation policy for pre-tick contexts (MIN_DT).
+ */
+enum class DeltaSemantics : uint8_t {
+    Strict = 0,
+    AllowPreTickDelta = 1,
+};
+
+/**
  * Fully-qualified path element.
  */
 struct FQPathElement {
@@ -100,6 +108,7 @@ struct ViewData {
     bool sampled{false};
     bool uses_link_target{false};
     ViewProjection projection{ViewProjection::NONE};
+    DeltaSemantics delta_semantics{DeltaSemantics::Strict};
 
     const ts_ops* ops{nullptr};
     const TSMeta* meta{nullptr};

@@ -172,7 +172,7 @@ std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
 
 nb::object op_delta_to_python_tsvalue(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    if (current_time != MIN_DT && !op_modified(vd, current_time)) {
+    if (!allow_pretick_delta(vd, current_time) && !op_modified(vd, current_time)) {
         return nb::none();
     }
     DeltaView delta = DeltaView::from_computed(vd, current_time);
@@ -183,7 +183,7 @@ namespace {
 
 nb::object op_delta_to_python_ref_common(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    if (current_time != MIN_DT && !op_modified(vd, current_time)) {
+    if (!allow_pretick_delta(vd, current_time) && !op_modified(vd, current_time)) {
         return nb::none();
     }
     DeltaView delta = DeltaView::from_computed(vd, current_time);
@@ -376,7 +376,8 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
     PythonDeltaCacheEntry* delta_cache_slot = nullptr;
     if (is_delta_to_python_cacheable(dispatch_view)) {
         delta_cache_slot = resolve_python_delta_cache_slot(dispatch_view, true);
-        if (delta_cache_slot != nullptr && delta_cache_slot->is_valid_for(current_time)) {
+        if (delta_cache_slot != nullptr &&
+            delta_cache_slot->is_valid_for(current_time, dispatch_view.delta_semantics)) {
             return delta_cache_slot->value;
         }
     }
@@ -391,6 +392,7 @@ nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time) {
 
     if (delta_cache_slot != nullptr) {
         delta_cache_slot->time = current_time;
+        delta_cache_slot->semantics = dispatch_view.delta_semantics;
         delta_cache_slot->value = out;
     }
     return out;

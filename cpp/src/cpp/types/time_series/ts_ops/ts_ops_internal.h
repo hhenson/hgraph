@@ -46,6 +46,11 @@ using value::View;
 using value::Value;
 using value::ValueView;
 
+[[nodiscard]] inline bool allow_pretick_delta(const ViewData& vd, engine_time_t current_time) noexcept {
+    return current_time == MIN_DT &&
+           (vd.delta_semantics == DeltaSemantics::AllowPreTickDelta || vd.engine_time_ptr == nullptr);
+}
+
 struct TSSDeltaSlots {
     ValueView slot;
     ValueView added_set;

@@ -171,7 +171,8 @@ public:
             PythonDeltaCacheEntry* delta_cache_slot = nullptr;
             if (is_delta_to_python_cacheable(computed)) {
                 delta_cache_slot = resolve_python_delta_cache_slot_local(computed, true);
-                if (delta_cache_slot != nullptr && delta_cache_slot->is_valid_for(current_time_)) {
+                if (delta_cache_slot != nullptr &&
+                    delta_cache_slot->is_valid_for(current_time_, computed.delta_semantics)) {
                     materialized_python_ = delta_cache_slot->value;
                     return materialized_python_;
                 }
@@ -180,6 +181,7 @@ public:
             materialized_python_ = computed.ops->delta_to_python(computed, current_time_);
             if (delta_cache_slot != nullptr) {
                 delta_cache_slot->time = current_time_;
+                delta_cache_slot->semantics = computed.delta_semantics;
                 delta_cache_slot->value = materialized_python_;
             }
             return materialized_python_;
@@ -197,9 +199,9 @@ private:
             computed_.ops->has_delta == nullptr) {
             return false;
         }
-        // In MIN_DT contexts, has_delta() can report false while delta_value()
-        // still materializes payload (Python parity for scaffold/runtime helpers).
-        if (current_time_ == MIN_DT) {
+        // Allow pre-tick materialization only for explicit policy modes.
+        if (current_time_ == MIN_DT &&
+            computed_.delta_semantics == DeltaSemantics::AllowPreTickDelta) {
             return false;
         }
         const ViewData computed = computed_with_time();

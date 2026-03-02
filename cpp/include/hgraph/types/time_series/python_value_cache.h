@@ -2,7 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/feature_extension.h>
-#include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/view_data.h>
 
 #include <memory>
 #include <unordered_map>
@@ -13,19 +13,21 @@ namespace hgraph {
 
 struct HGRAPH_EXPORT PythonDeltaCacheEntry {
     engine_time_t time{MIN_DT};
+    DeltaSemantics semantics{DeltaSemantics::Strict};
     nb::object value{};
 
     [[nodiscard]] bool is_valid() const noexcept {
         return value.is_valid();
     }
 
-    [[nodiscard]] bool is_valid_for(engine_time_t current_time) const noexcept {
-        return value.is_valid() && time == current_time;
+    [[nodiscard]] bool is_valid_for(engine_time_t current_time, DeltaSemantics current_semantics) const noexcept {
+        return value.is_valid() && time == current_time && semantics == current_semantics;
     }
 
     void clear() {
         value = nb::object();
         time = MIN_DT;
+        semantics = DeltaSemantics::Strict;
     }
 
     void abandon() {
@@ -33,6 +35,7 @@ struct HGRAPH_EXPORT PythonDeltaCacheEntry {
             (void)value.release();
         }
         time = MIN_DT;
+        semantics = DeltaSemantics::Strict;
     }
 };
 

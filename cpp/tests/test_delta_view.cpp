@@ -189,6 +189,47 @@ TEST_CASE("DeltaView computed backing freezes MIN_DT snapshot from engine_time_p
     REQUIRE(delta.value().as<int64_t>() == 456);
 }
 
+TEST_CASE("DeltaView strict semantics honor has_delta at MIN_DT", "[delta_view]") {
+    using namespace hgraph::value;
+
+    const TypeMeta* int_meta = scalar_type_meta<int64_t>();
+    FakeComputedDeltaState state{Value(int_meta), false, hgraph::MIN_DT, true};
+    state.delta.emplace();
+    state.delta.as<int64_t>() = 17;
+
+    hgraph::engine_time_t now = hgraph::MIN_DT;
+    hgraph::ViewData vd{};
+    vd.delta_data = &state;
+    vd.ops = &k_fake_delta_ops;
+    vd.engine_time_ptr = &now;
+    vd.delta_semantics = hgraph::DeltaSemantics::Strict;
+
+    hgraph::DeltaView delta = hgraph::DeltaView::from_computed(vd, hgraph::MIN_DT);
+    REQUIRE_FALSE(delta.valid());
+    REQUIRE(state.delta_value_calls == 0);
+}
+
+TEST_CASE("DeltaView allow-pre-tick semantics bypass has_delta at MIN_DT", "[delta_view]") {
+    using namespace hgraph::value;
+
+    const TypeMeta* int_meta = scalar_type_meta<int64_t>();
+    FakeComputedDeltaState state{Value(int_meta), false, hgraph::MIN_DT, true};
+    state.delta.emplace();
+    state.delta.as<int64_t>() = 19;
+
+    hgraph::engine_time_t now = hgraph::MIN_DT;
+    hgraph::ViewData vd{};
+    vd.delta_data = &state;
+    vd.ops = &k_fake_delta_ops;
+    vd.engine_time_ptr = &now;
+    vd.delta_semantics = hgraph::DeltaSemantics::AllowPreTickDelta;
+
+    hgraph::DeltaView delta = hgraph::DeltaView::from_computed(vd, hgraph::MIN_DT);
+    REQUIRE(delta.valid());
+    REQUIRE(delta.value().as<int64_t>() == 19);
+    REQUIRE(state.delta_value_calls == 1);
+}
+
 TEST_CASE("DeltaView computed backing materializes payload on first value() call", "[delta_view]") {
     using namespace hgraph::value;
 

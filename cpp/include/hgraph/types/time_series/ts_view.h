@@ -61,6 +61,8 @@ public:
     void set_current_time_ptr(const engine_time_t* engine_time_ptr) noexcept {
         view_data_.engine_time_ptr = engine_time_ptr;
     }
+    [[nodiscard]] DeltaSemantics delta_semantics() const noexcept { return view_data_.delta_semantics; }
+    void set_delta_semantics(DeltaSemantics semantics) noexcept { view_data_.delta_semantics = semantics; }
 
     [[nodiscard]] const ShortPath& short_path() const noexcept { return view_data_.path; }
     [[nodiscard]] FQPath fq_path() const { return view_data_.path.to_fq(); }

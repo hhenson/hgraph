@@ -60,7 +60,7 @@ bool op_valid_tsd_key_set(const ViewData& vd) {
 
 bool op_has_delta_tsd_key_set(const ViewData& vd) {
     const engine_time_t current_time = view_evaluation_time(vd);
-    if (current_time != MIN_DT && !dispatch_modified(vd, current_time)) {
+    if (!allow_pretick_delta(vd, current_time) && !dispatch_modified(vd, current_time)) {
         return false;
     }
 

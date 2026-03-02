@@ -733,7 +733,9 @@ public:
         }
 
         update_ref_output(it->first.view(), it->second, requester_time);
-        return TSOutputView(nullptr, it->second.output_value->ts_view(engine_time_ptr_));
+        TSOutputView out(nullptr, it->second.output_value->ts_view(engine_time_ptr_));
+        out.set_delta_semantics(source_.delta_semantics);
+        return out;
     }
 
     void release_ref_output(const nb::object& key_obj, const nb::object& requester) {
@@ -927,7 +929,9 @@ public:
         }
 
         update_contains_output(it->first.view(), it->second);
-        return TSOutputView(nullptr, it->second.output_value->ts_view(engine_time_ptr_));
+        TSOutputView out(nullptr, it->second.output_value->ts_view(engine_time_ptr_));
+        out.set_delta_semantics(source_.delta_semantics);
+        return out;
     }
 
     void release_contains_output(const nb::object& item, const nb::object& requester) {
@@ -950,7 +954,9 @@ public:
             is_empty_output_ = make_bool_output();
         }
         update_is_empty_output();
-        return TSOutputView(nullptr, is_empty_output_->ts_view(engine_time_ptr_));
+        TSOutputView out(nullptr, is_empty_output_->ts_view(engine_time_ptr_));
+        out.set_delta_semantics(source_.delta_semantics);
+        return out;
     }
 
     bool has_consumers() const {
@@ -1465,6 +1471,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("output_view",
              [](TSOutput& self) {
                  auto out = self.output_view();
+                 out.set_delta_semantics(DeltaSemantics::AllowPreTickDelta);
                  if (self.owning_node() == nullptr) {
                      out.set_current_time_ptr(runtime_test_time_ptr());
                  }
@@ -1474,6 +1481,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("output_view_for_input",
              [](TSOutput& self, const TSInput& input) {
                  auto out = self.output_view_for_input(input);
+                 out.set_delta_semantics(DeltaSemantics::AllowPreTickDelta);
                  if (self.owning_node() == nullptr) {
                      out.set_current_time_ptr(runtime_test_time_ptr());
                  }
@@ -1488,6 +1496,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("input_view",
              [](TSInput& self) {
                  auto out = self.input_view();
+                 out.set_delta_semantics(DeltaSemantics::AllowPreTickDelta);
                  if (self.owning_node() == nullptr) {
                      out.set_current_time_ptr(runtime_test_time_ptr());
                  }

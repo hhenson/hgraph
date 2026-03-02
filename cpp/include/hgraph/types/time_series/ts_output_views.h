@@ -50,6 +50,7 @@ public:
     [[nodiscard]] const TSMeta* ts_meta() const noexcept { return ts_view_.ts_meta(); }
     [[nodiscard]] engine_time_t current_time() const noexcept { return ts_view_.current_time(); }
     void set_current_time_ptr(const engine_time_t* engine_time_ptr) noexcept { ts_view_.set_current_time_ptr(engine_time_ptr); }
+    void set_delta_semantics(DeltaSemantics semantics) noexcept { ts_view_.set_delta_semantics(semantics); }
 
     [[nodiscard]] FQPath fq_path() const;
 
