@@ -33,7 +33,7 @@ All time-series types share these properties:
 | Property | Type | Description |
 |----------|------|-------------|
 | `value` | `T` | Current value (read) |
-| `delta_value` | varies | Change since last tick |
+| `delta_value` | varies | Change since last tick (`None` when no valid delta at Python API) |
 | `modified` | `bool` | True if changed this tick |
 | `valid` | `bool` | True if has a value |
 | `all_valid` | `bool` | True if all nested values valid |
@@ -935,7 +935,7 @@ Each type computes delta values differently:
 ```python
 @property
 def delta_value(self):
-    return self._value  # Delta IS the value
+    return self._value  # Delta IS the value; returns None when invalid
 ```
 
 **TSB (Bundle):**
@@ -1452,4 +1452,3 @@ to_set(tss)                  # TSS -> TS[frozenset]
 Continue to:
 - [06_NODE_TYPES.md](06_NODE_TYPES.md) - Node specifications
 - [07_OPERATORS.md](07_OPERATORS.md) - Built-in operators
-
