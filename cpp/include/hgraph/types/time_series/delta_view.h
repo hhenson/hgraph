@@ -83,14 +83,14 @@ public:
     }
 
     [[nodiscard]] bool empty() const {
-        if (!valid()) {
-            return true;
-        }
         if (backing_ == Backing::COMPUTED &&
             computed_.ops != nullptr &&
             computed_.ops->has_delta != nullptr) {
             const ViewData computed = computed_with_time();
             return !computed.ops->has_delta(computed);
+        }
+        if (!valid()) {
+            return true;
         }
         return change_count() == 0;
     }

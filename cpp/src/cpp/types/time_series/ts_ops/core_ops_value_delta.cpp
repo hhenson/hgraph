@@ -369,10 +369,12 @@ bool op_has_delta_tss(const ViewData& vd) {
     }
 
     std::optional<View> maybe_delta;
-    if (data->path.indices.empty()) {
-        maybe_delta = delta_root->view();
-    } else {
-        maybe_delta = navigate_const(delta_root->view(), data->path.indices);
+    if (auto delta_path = ts_path_to_delta_path(data->meta, data->path.indices); delta_path.has_value()) {
+        if (delta_path->empty()) {
+            maybe_delta = delta_root->view();
+        } else {
+            maybe_delta = navigate_const(delta_root->view(), *delta_path);
+        }
     }
     if (!maybe_delta.has_value() || !maybe_delta->valid() || !maybe_delta->is_tuple()) {
         return false;
@@ -409,10 +411,12 @@ bool op_has_delta_tsd(const ViewData& vd) {
     }
 
     std::optional<View> maybe_delta;
-    if (data->path.indices.empty()) {
-        maybe_delta = delta_root->view();
-    } else {
-        maybe_delta = navigate_const(delta_root->view(), data->path.indices);
+    if (auto delta_path = ts_path_to_delta_path(data->meta, data->path.indices); delta_path.has_value()) {
+        if (delta_path->empty()) {
+            maybe_delta = delta_root->view();
+        } else {
+            maybe_delta = navigate_const(delta_root->view(), *delta_path);
+        }
     }
     if (!maybe_delta.has_value() || !maybe_delta->valid() || !maybe_delta->is_tuple()) {
         return false;

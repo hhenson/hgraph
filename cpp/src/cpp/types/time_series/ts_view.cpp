@@ -535,140 +535,6 @@ std::vector<bundle_item_t<BundleView>> ts_bundle_items(const BundleView& bundle,
     return out;
 }
 
-nb::list tsd_valid_keys_for_view(const TSView& view, bool include_local_fallback) {
-    nb::list out;
-    const auto* meta = view.ts_meta();
-    if (meta == nullptr) {
-        return out;
-    }
-
-    auto dict = view.as_dict();
-    for (const auto& key_item : tsd_keys_python(view, include_local_fallback)) {
-        nb::object key = nb::cast<nb::object>(key_item);
-        auto key_val = tsd_key_from_python(key, meta);
-        if (key_val.schema() == nullptr) {
-            continue;
-        }
-
-        auto child = dict.at_key(key_val.view());
-        if (child && child.valid()) {
-            out.append(key);
-        }
-    }
-    return out;
-}
-
-nb::list tsd_modified_keys_for_output_view(const TSView& view) {
-    const auto* meta = view.ts_meta();
-    const bool ref_valued =
-        meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
-    if (ref_valued && !view.modified()) {
-        return nb::list{};
-    }
-
-    nb::list out = tsd_delta_keys_slot(view, 0, true);
-    if (std::getenv("HGRAPH_DEBUG_TSD_MOD_KEYS") != nullptr) {
-        const std::string keys_repr = nb::cast<std::string>(nb::repr(out));
-        std::fprintf(stderr,
-                     "[py_tsd_mod_keys_out] path=%s now=%lld keys=%s\n",
-                     view.short_path().to_string().c_str(),
-                     static_cast<long long>(view.current_time().time_since_epoch().count()),
-                     keys_repr.c_str());
-    }
-
-    if (ref_valued && nb::len(out) == 0 && view.modified()) {
-        nb::list fallback;
-        auto dict = view.as_dict();
-        for (const auto& key_item : tsd_keys_python(view, false)) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = tsd_key_from_python(key, meta);
-            if (key_val.schema() == nullptr) {
-                continue;
-            }
-
-            auto child = dict.at_key(key_val.view());
-            if (child && child.modified()) {
-                fallback.append(key);
-            }
-        }
-        return fallback;
-    }
-    return out;
-}
-
-nb::list tsd_modified_keys_for_input_view(const TSView& view) {
-    const auto* meta = view.ts_meta();
-    const bool ref_valued =
-        meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
-
-    nb::list out = tsd_delta_keys_slot(view, 0, true);
-    if (std::getenv("HGRAPH_DEBUG_TSD_MOD_KEYS") != nullptr) {
-        const std::string keys_repr = nb::cast<std::string>(nb::repr(out));
-        std::fprintf(stderr,
-                     "[py_tsd_mod_keys_in] path=%s now=%lld keys=%s\n",
-                     view.short_path().to_string().c_str(),
-                     static_cast<long long>(view.current_time().time_since_epoch().count()),
-                     keys_repr.c_str());
-    }
-
-    if (ref_valued && nb::len(out) == 0) {
-        nb::list fallback;
-        auto dict = view.as_dict();
-        const engine_time_t current_time = view.current_time();
-        for (const auto& key_item : tsd_keys_python(view, true)) {
-            nb::object key = nb::cast<nb::object>(key_item);
-            auto key_val = tsd_key_from_python(key, meta);
-            if (key_val.schema() == nullptr) {
-                continue;
-            }
-
-            auto child = dict.at_key(key_val.view());
-            if (!child || !child.modified()) {
-                continue;
-            }
-
-            bool include = child.last_modified_time() == current_time;
-            if (!include && child.valid()) {
-                value::View child_value = child.value();
-                if (!child_value.valid()) {
-                    // Empty/unbound REF wrappers can tick modified without
-                    // advancing child LMT; preserve Python parity.
-                    include = true;
-                } else {
-                    nb::object ref_obj = child_value.to_python();
-                    if (ref_obj.is_none()) {
-                        include = true;
-                    } else {
-                        nb::object is_valid_attr = nb::getattr(ref_obj, "is_valid", nb::none());
-                        if (!is_valid_attr.is_none()) {
-                            if (PyCallable_Check(is_valid_attr.ptr()) != 0) {
-                                is_valid_attr = is_valid_attr();
-                            }
-                            include = !nb::cast<bool>(is_valid_attr);
-                        }
-                    }
-                }
-            }
-
-            if (include) {
-                fallback.append(key);
-            }
-        }
-        return fallback;
-    }
-    return out;
-}
-
-nb::list tsd_removed_keys_for_view(const TSView& view) {
-    nb::list out = tsd_delta_keys_slot(view, 2, false);
-    if (view.view_data().sampled && nb::len(out) == 0) {
-        // Removed-item wrappers can use sampled snapshots of previous children;
-        // expose previous keys as removed for parity.
-        return tsd_keys_python(view, false);
-    }
-    return out;
-}
-
 bool tsd_is_ref_valued(const TSView& view) {
     const auto* meta = view.ts_meta();
     return meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
@@ -714,57 +580,6 @@ bool tsd_delta_tuple_slot_map(const TSView& view, size_t tuple_index, value::Map
     return true;
 }
 
-nb::object tsd_key_set_delta_member(const TSView& view, const char* member_name) {
-    TSView key_set_view = view;
-    key_set_view.view_data().projection = ViewProjection::TSD_KEY_SET;
-
-    nb::object key_set_delta = key_set_view.delta_to_python();
-    if (key_set_delta.is_none()) {
-        return nb::none();
-    }
-
-    nb::object member = nb::getattr(key_set_delta, member_name, nb::none());
-    if (member.is_none()) {
-        return nb::none();
-    }
-    if (PyCallable_Check(member.ptr()) != 0) {
-        member = member();
-    }
-    return member;
-}
-
-bool py_collection_has_any(const nb::object& collection) {
-    if (collection.is_none()) {
-        return false;
-    }
-
-    const Py_ssize_t size = PyObject_Size(collection.ptr());
-    if (size >= 0) {
-        return size > 0;
-    }
-    PyErr_Clear();
-
-    for (const auto& ignored : nb::iter(collection)) {
-        static_cast<void>(ignored);
-        return true;
-    }
-    return false;
-}
-
-bool py_collection_contains_key(const nb::object& collection, const value::View& key) {
-    if (collection.is_none() || !key.valid()) {
-        return false;
-    }
-
-    nb::object key_obj = key.to_python();
-    const int contains = PySequence_Contains(collection.ptr(), key_obj.ptr());
-    if (contains >= 0) {
-        return contains == 1;
-    }
-    PyErr_Clear();
-    return false;
-}
-
 bool tsd_sampled_has_removed_any(const TSView& view) {
     if (!view.view_data().sampled) {
         return false;
@@ -781,28 +596,18 @@ bool tsd_sampled_was_removed(const TSView& view, const value::View& key) {
     return current.valid() && current.is_map() && current.as_map().contains(key);
 }
 
-bool map_contains_key_relaxed(const value::MapView& map, const value::View& key) {
-    if (map.contains(key)) {
-        return true;
+bool map_contains_key_strict(const value::MapView& map, const value::View& key) {
+    if (!key.valid() || key.schema() != map.key_type()) {
+        return false;
     }
-    for (value::View candidate : map.keys()) {
-        if (candidate.equals(key)) {
-            return true;
-        }
-    }
-    return false;
+    return map.contains(key);
 }
 
-std::optional<value::View> map_value_for_key_relaxed(const value::MapView& map, const value::View& key) {
-    if (map.contains(key)) {
-        return map.at(key);
+std::optional<value::View> map_value_for_key_strict(const value::MapView& map, const value::View& key) {
+    if (!map_contains_key_strict(map, key)) {
+        return std::nullopt;
     }
-    for (value::View candidate : map.keys()) {
-        if (candidate.equals(key)) {
-            return map.at(candidate);
-        }
-    }
-    return std::nullopt;
+    return map.at(key);
 }
 
 std::optional<value::MapView> map_view_from_view_data(const ViewData& vd) {
@@ -833,31 +638,79 @@ const ViewData* bridge_current_data_for_tsd_view(const TSDKeySetBridgeState& sta
     return nullptr;
 }
 
-bool tsd_bridge_has_removed_for_view(const TSView& view) {
+struct TSDResolvedBridgeMaps {
+    bool has_bridge{false};
+    std::optional<value::MapView> previous;
+    std::optional<value::MapView> current;
+};
+
+TSDResolvedBridgeMaps resolve_tsd_bridge_maps_for_view(const TSView& view) {
+    TSDResolvedBridgeMaps out{};
     const auto state = resolve_tsd_key_set_bridge_state(view.view_data(), view.current_time());
-    if (!state.has_bridge) {
+    out.has_bridge = state.has_bridge;
+    if (!out.has_bridge) {
+        return out;
+    }
+
+    if (const ViewData* previous_data = bridge_previous_data_for_tsd_view(state); previous_data != nullptr) {
+        out.previous = map_view_from_view_data(*previous_data);
+    }
+    if (const ViewData* current_data = bridge_current_data_for_tsd_view(state); current_data != nullptr) {
+        out.current = map_view_from_view_data(*current_data);
+    }
+    return out;
+}
+
+bool tsd_bridge_has_added_for_view(const TSView& view) {
+    const auto bridge_maps = resolve_tsd_bridge_maps_for_view(view);
+    if (!bridge_maps.has_bridge || !bridge_maps.current.has_value()) {
+        return false;
+    }
+    if (!bridge_maps.previous.has_value()) {
+        return bridge_maps.current->size() > 0;
+    }
+    for (value::View key : bridge_maps.current->keys()) {
+        if (!map_contains_key_strict(*bridge_maps.previous, key)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool tsd_bridge_was_added_for_view(const TSView& view, const value::View& key) {
+    if (!key.valid()) {
+        return false;
+    }
+    const auto bridge_maps = resolve_tsd_bridge_maps_for_view(view);
+    if (!bridge_maps.has_bridge || !bridge_maps.current.has_value()) {
+        return false;
+    }
+    if (!map_contains_key_strict(*bridge_maps.current, key)) {
+        return false;
+    }
+    if (!bridge_maps.previous.has_value()) {
+        return true;
+    }
+    return !map_contains_key_strict(*bridge_maps.previous, key);
+}
+
+bool tsd_bridge_has_removed_for_view(const TSView& view) {
+    const auto bridge_maps = resolve_tsd_bridge_maps_for_view(view);
+    if (!bridge_maps.has_bridge) {
         return false;
     }
 
-    const ViewData* previous_data = bridge_previous_data_for_tsd_view(state);
-    if (previous_data == nullptr) {
-        return false;
-    }
-    const auto previous_map = map_view_from_view_data(*previous_data);
-    if (!previous_map.has_value()) {
+    if (!bridge_maps.previous.has_value()) {
         return false;
     }
 
-    const ViewData* current_data = bridge_current_data_for_tsd_view(state);
-    const auto current_map =
-        current_data != nullptr ? map_view_from_view_data(*current_data) : std::optional<value::MapView>{};
-    if (!current_map.has_value()) {
-        return previous_map->size() > 0;
+    if (!bridge_maps.current.has_value()) {
+        return bridge_maps.previous->size() > 0;
     }
 
     const auto dict = view.as_dict();
-    for (value::View key : previous_map->keys()) {
-        if (!map_contains_key_relaxed(*current_map, key)) {
+    for (value::View key : bridge_maps.previous->keys()) {
+        if (!map_contains_key_strict(*bridge_maps.current, key)) {
             return true;
         }
         auto child = dict.at_key(key);
@@ -873,24 +726,19 @@ bool tsd_bridge_was_removed_for_view(const TSView& view, const value::View& key)
         return false;
     }
 
-    const auto state = resolve_tsd_key_set_bridge_state(view.view_data(), view.current_time());
-    if (!state.has_bridge) {
+    const auto bridge_maps = resolve_tsd_bridge_maps_for_view(view);
+    if (!bridge_maps.has_bridge) {
         return false;
     }
 
-    const ViewData* previous_data = bridge_previous_data_for_tsd_view(state);
-    if (previous_data == nullptr) {
+    if (!bridge_maps.previous.has_value()) {
         return false;
     }
-    const auto previous_map = map_view_from_view_data(*previous_data);
-    if (!previous_map.has_value() || !map_contains_key_relaxed(*previous_map, key)) {
+    if (!map_contains_key_strict(*bridge_maps.previous, key)) {
         return false;
     }
 
-    const ViewData* current_data = bridge_current_data_for_tsd_view(state);
-    const auto current_map =
-        current_data != nullptr ? map_view_from_view_data(*current_data) : std::optional<value::MapView>{};
-    if (!current_map.has_value() || !map_contains_key_relaxed(*current_map, key)) {
+    if (!bridge_maps.current.has_value() || !map_contains_key_strict(*bridge_maps.current, key)) {
         return true;
     }
 
@@ -903,35 +751,24 @@ bool tsd_bridge_was_modified_non_remove_for_view(const TSView& view, const value
         return false;
     }
 
-    const auto state = resolve_tsd_key_set_bridge_state(view.view_data(), view.current_time());
-    if (!state.has_bridge) {
+    const auto bridge_maps = resolve_tsd_bridge_maps_for_view(view);
+    if (!bridge_maps.has_bridge || !bridge_maps.current.has_value()) {
         return false;
     }
 
-    const ViewData* current_data = bridge_current_data_for_tsd_view(state);
-    if (current_data == nullptr) {
+    if (!map_contains_key_strict(*bridge_maps.current, key)) {
         return false;
     }
-    const auto current_map = map_view_from_view_data(*current_data);
-    if (!current_map.has_value() || !map_contains_key_relaxed(*current_map, key)) {
-        return false;
-    }
-
-    auto current_value = map_value_for_key_relaxed(*current_map, key);
+    auto current_value = map_value_for_key_strict(*bridge_maps.current, key);
     if (!current_value.has_value() || !current_value->valid()) {
         return false;
     }
 
-    const ViewData* previous_data = bridge_previous_data_for_tsd_view(state);
-    if (previous_data == nullptr) {
-        return true;
-    }
-    const auto previous_map = map_view_from_view_data(*previous_data);
-    if (!previous_map.has_value() || !map_contains_key_relaxed(*previous_map, key)) {
+    if (!bridge_maps.previous.has_value() || !map_contains_key_strict(*bridge_maps.previous, key)) {
         return true;
     }
 
-    auto previous_value = map_value_for_key_relaxed(*previous_map, key);
+    auto previous_value = map_value_for_key_strict(*bridge_maps.previous, key);
     if (!previous_value.has_value()) {
         return true;
     }
@@ -939,36 +776,54 @@ bool tsd_bridge_was_modified_non_remove_for_view(const TSView& view, const value
     return previous_value->schema() != current_value->schema() || !previous_value->equals(*current_value);
 }
 
-void append_unique_key(std::vector<value::Value>& out, nb::set& seen, const value::View& key) {
+void append_unique_key(std::vector<value::Value>& out,
+                       std::unordered_set<value::View>& seen,
+                       const value::View& key) {
     if (!key.valid()) {
         return;
     }
-    nb::object key_obj = key.to_python();
-    if (PySet_Contains(seen.ptr(), key_obj.ptr()) == 1) {
+    if (!seen.insert(key).second) {
         return;
     }
-    seen.add(key_obj);
     out.emplace_back(key.clone());
 }
 
-void append_unique_key_from_python(std::vector<value::Value>& out,
-                                   nb::set& seen,
-                                   const nb::object& key_obj,
-                                   const TSMeta* meta) {
-    if (PySet_Contains(seen.ptr(), key_obj.ptr()) == 1) {
-        return;
+bool is_effectively_added_key(const value::SetView& added,
+                              const value::SetView* removed,
+                              const value::View& key) {
+    if (!added.valid() || !key.valid() || key.schema() != added.element_type() || !added.contains(key)) {
+        return false;
     }
-    auto key_val = tsd_key_from_python(key_obj, meta);
-    if (key_val.schema() == nullptr) {
-        return;
+    if (removed == nullptr || !removed->valid()) {
+        return true;
     }
-    seen.add(key_obj);
-    out.emplace_back(std::move(key_val));
+    if (key.schema() != removed->element_type()) {
+        return true;
+    }
+    return !removed->contains(key);
+}
+
+bool has_effective_added_keys(const value::SetView& added, const value::SetView* removed) {
+    if (!added.valid()) {
+        return false;
+    }
+    if (removed == nullptr || !removed->valid()) {
+        return added.size() > 0;
+    }
+    for (value::View key : added) {
+        if (key.valid() &&
+            key.schema() == added.element_type() &&
+            key.schema() == removed->element_type() &&
+            !removed->contains(key)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::vector<value::Value> tsd_keys_for_view(const TSView& view, bool include_local_fallback) {
     std::vector<value::Value> out;
-    nb::set seen;
+    std::unordered_set<value::View> seen;
 
     const auto append_from_map = [&](const value::View& map_view) {
         if (!map_view.valid() || !map_view.is_map()) {
@@ -986,20 +841,188 @@ std::vector<value::Value> tsd_keys_for_view(const TSView& view, bool include_loc
     return out;
 }
 
-std::vector<value::Value> tsd_keys_from_python_keys(const TSView& view, const nb::list& keys) {
+void stable_sort_atomic_keys(std::vector<value::Value>& keys) {
+    if (keys.size() < 2) {
+        return;
+    }
+    const value::TypeMeta* schema = keys.front().schema();
+    if (schema == nullptr ||
+        schema->kind != value::TypeKind::Atomic) {
+        return;
+    }
+    for (const auto& key : keys) {
+        if (key.schema() != schema) {
+            return;
+        }
+    }
+    std::stable_sort(
+        keys.begin(),
+        keys.end(),
+        [schema](const value::Value& lhs, const value::Value& rhs) {
+            return schema->ops().less_than(lhs.data(), rhs.data(), schema);
+        });
+}
+
+std::vector<value::Value> tsd_key_set_delta_keys_for_view(const TSView& view, bool added) {
     std::vector<value::Value> out;
-    out.reserve(static_cast<size_t>(nb::len(keys)));
-    const auto* meta = view.ts_meta();
-    if (meta == nullptr) {
+    const TSMeta* meta = view.ts_meta();
+    if (meta == nullptr || meta->kind != TSKind::TSD || meta->key_type() == nullptr) {
         return out;
     }
 
-    nb::set seen;
-    for (const auto& key_item : keys) {
-        append_unique_key_from_python(out, seen, nb::cast<nb::object>(key_item), meta);
+    TSView key_set_view = tsd_key_set_projection_view(view);
+    if (!key_set_view) {
+        return out;
+    }
+
+    nb::object key_set_delta = key_set_view.delta_to_python();
+    if (key_set_delta.is_none()) {
+        return out;
+    }
+
+    const char* member_name = added ? "added" : "removed";
+    nb::object member = nb::getattr(key_set_delta, member_name, nb::none());
+    if (member.is_none()) {
+        return out;
+    }
+    if (PyCallable_Check(member.ptr()) != 0) {
+        member = member();
+    }
+    if (member.is_none()) {
+        return out;
+    }
+
+    for (auto item_h : nb::cast<nb::iterable>(member)) {
+        auto key_val = tsd_key_from_python(nb::cast<nb::object>(item_h), meta);
+        if (key_val.schema() == nullptr) {
+            continue;
+        }
+        out.emplace_back(std::move(key_val));
+    }
+    stable_sort_atomic_keys(out);
+    return out;
+}
+
+bool contains_key_value(const std::vector<value::Value>& keys, const value::View& key) {
+    if (!key.valid()) {
+        return false;
+    }
+    for (const auto& candidate : keys) {
+        const value::View candidate_view = candidate.view();
+        if (candidate_view.valid() &&
+            candidate_view.schema() == key.schema() &&
+            candidate_view.equals(key)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void append_bridge_added_keys_for_view(const TSView& view,
+                                       std::vector<value::Value>& out,
+                                       std::unordered_set<value::View>& seen) {
+    const auto bridge_maps = resolve_tsd_bridge_maps_for_view(view);
+    if (!bridge_maps.has_bridge || !bridge_maps.current.has_value()) {
+        return;
+    }
+    if (!bridge_maps.previous.has_value()) {
+        for (value::View key : bridge_maps.current->keys()) {
+            append_unique_key(out, seen, key);
+        }
+        return;
+    }
+    for (value::View key : bridge_maps.current->keys()) {
+        if (!map_contains_key_strict(*bridge_maps.previous, key)) {
+            append_unique_key(out, seen, key);
+        }
+    }
+}
+
+void append_bridge_removed_keys_for_view(const TSView& view,
+                                         std::vector<value::Value>& out,
+                                         std::unordered_set<value::View>& seen) {
+    const auto bridge_maps = resolve_tsd_bridge_maps_for_view(view);
+    if (!bridge_maps.has_bridge || !bridge_maps.previous.has_value()) {
+        return;
+    }
+    if (!bridge_maps.current.has_value()) {
+        for (value::View key : bridge_maps.previous->keys()) {
+            append_unique_key(out, seen, key);
+        }
+        return;
+    }
+    for (value::View key : bridge_maps.previous->keys()) {
+        if (!map_contains_key_strict(*bridge_maps.current, key)) {
+            append_unique_key(out, seen, key);
+        }
+    }
+}
+
+std::vector<value::Value> tsd_added_keys_for_view_native(const TSView& view) {
+    if (tsd_is_ref_valued(view)) {
+        return tsd_key_set_delta_keys_for_view(view, true);
+    }
+
+    std::vector<value::Value> out;
+    std::unordered_set<value::View> seen;
+
+    value::SetView tuple_added{};
+    value::SetView tuple_removed{};
+    const bool has_tuple_added = tsd_delta_tuple_slot_set(view, 1, tuple_added);
+    const bool has_tuple_removed = tsd_delta_tuple_slot_set(view, 2, tuple_removed);
+    const value::SetView* removed_ptr = has_tuple_removed ? &tuple_removed : nullptr;
+    if (has_tuple_added && tuple_added.valid()) {
+        for (value::View key : tuple_added) {
+            if (is_effectively_added_key(tuple_added, removed_ptr, key)) {
+                append_unique_key(out, seen, key);
+            }
+        }
+    }
+    append_bridge_added_keys_for_view(view, out, seen);
+    return out;
+}
+
+std::vector<value::Value> tsd_removed_keys_for_view_native(const TSView& view) {
+    if (tsd_is_ref_valued(view)) {
+        auto out = tsd_key_set_delta_keys_for_view(view, false);
+        if (out.empty() && view.view_data().sampled) {
+            std::unordered_set<value::View> seen;
+            for (const auto& key : out) {
+                seen.insert(key.view());
+            }
+            value::View current = view.value();
+            if (current.valid() && current.is_map()) {
+                for (value::View key : current.as_map().keys()) {
+                    append_unique_key(out, seen, key);
+                }
+            }
+        }
+        return out;
+    }
+
+    std::vector<value::Value> out;
+    std::unordered_set<value::View> seen;
+
+    value::SetView tuple_removed{};
+    if (tsd_delta_tuple_slot_set(view, 2, tuple_removed) && tuple_removed.valid()) {
+        for (value::View key : tuple_removed) {
+            append_unique_key(out, seen, key);
+        }
+    }
+    append_bridge_removed_keys_for_view(view, out, seen);
+    if (out.empty() && view.view_data().sampled) {
+        value::View current = view.value();
+        if (current.valid() && current.is_map()) {
+            for (value::View key : current.as_map().keys()) {
+                append_unique_key(out, seen, key);
+            }
+        }
     }
     return out;
 }
+
+bool tsd_was_modified_for_output_view(const TSView& view, const value::View& key);
+bool tsd_was_modified_for_input_view(const TSView& view, const value::View& key);
 
 bool tsd_ref_input_fallback_was_modified(const TSView& view, const value::View& key) {
     auto child = view.as_dict().at_key(key);
@@ -1032,15 +1055,68 @@ bool tsd_ref_input_fallback_was_modified(const TSView& view, const value::View& 
     return include;
 }
 
-bool tsd_has_added_for_view(const TSView& view) {
-    value::SetView tuple_added{};
-    const bool tuple_has_added = tsd_delta_tuple_slot_set(view, 1, tuple_added) && tuple_added.size() > 0;
-    const nb::object key_set_added = tsd_key_set_delta_member(view, "added");
-
-    if (tsd_is_ref_valued(view)) {
-        return py_collection_has_any(key_set_added);
+std::vector<value::Value> tsd_modified_keys_for_output_view_native(const TSView& view) {
+    std::vector<value::Value> out;
+    auto keys = tsd_keys_for_view(view, false);
+    out.reserve(keys.size());
+    for (auto& key : keys) {
+        if (tsd_was_modified_for_output_view(view, key.view())) {
+            out.emplace_back(std::move(key));
+        }
     }
-    return tuple_has_added || py_collection_has_any(key_set_added);
+    if (tsd_is_ref_valued(view)) {
+        std::unordered_set<value::View> seen;
+        seen.reserve(out.size());
+        for (const auto& key : out) {
+            seen.insert(key.view());
+        }
+        auto added_keys = tsd_key_set_delta_keys_for_view(view, true);
+        for (auto& key : added_keys) {
+            append_unique_key(out, seen, key.view());
+        }
+        stable_sort_atomic_keys(out);
+    }
+    return out;
+}
+
+std::vector<value::Value> tsd_modified_keys_for_input_view_native(const TSView& view) {
+    std::vector<value::Value> out;
+    auto keys = tsd_keys_for_view(view, true);
+    out.reserve(keys.size());
+    for (auto& key : keys) {
+        if (tsd_was_modified_for_input_view(view, key.view())) {
+            out.emplace_back(std::move(key));
+        }
+    }
+    if (tsd_is_ref_valued(view)) {
+        std::unordered_set<value::View> seen;
+        seen.reserve(out.size());
+        for (const auto& key : out) {
+            seen.insert(key.view());
+        }
+        auto added_keys = tsd_key_set_delta_keys_for_view(view, true);
+        for (auto& key : added_keys) {
+            append_unique_key(out, seen, key.view());
+        }
+        stable_sort_atomic_keys(out);
+    }
+    return out;
+}
+
+bool tsd_has_added_for_view(const TSView& view) {
+    if (tsd_is_ref_valued(view)) {
+        return !tsd_key_set_delta_keys_for_view(view, true).empty();
+    }
+
+    value::SetView tuple_added{};
+    value::SetView tuple_removed{};
+    const bool has_tuple_added = tsd_delta_tuple_slot_set(view, 1, tuple_added);
+    const bool has_tuple_removed = tsd_delta_tuple_slot_set(view, 2, tuple_removed);
+    const value::SetView* removed_ptr = has_tuple_removed ? &tuple_removed : nullptr;
+    if (has_tuple_added && has_effective_added_keys(tuple_added, removed_ptr)) {
+        return true;
+    }
+    return tsd_bridge_has_added_for_view(view);
 }
 
 bool tsd_was_added_for_view(const TSView& view, const value::View& key) {
@@ -1048,17 +1124,29 @@ bool tsd_was_added_for_view(const TSView& view, const value::View& key) {
         return false;
     }
 
-    value::SetView tuple_added{};
-    const bool in_tuple_added = tsd_delta_tuple_slot_set(view, 1, tuple_added) && tuple_added.contains(key);
-    const nb::object key_set_added = tsd_key_set_delta_member(view, "added");
-
     if (tsd_is_ref_valued(view)) {
-        return py_collection_contains_key(key_set_added, key);
+        return contains_key_value(tsd_key_set_delta_keys_for_view(view, true), key);
     }
-    return in_tuple_added || py_collection_contains_key(key_set_added, key);
+
+    value::SetView tuple_added{};
+    value::SetView tuple_removed{};
+    const bool has_tuple_added = tsd_delta_tuple_slot_set(view, 1, tuple_added);
+    const bool has_tuple_removed = tsd_delta_tuple_slot_set(view, 2, tuple_removed);
+    const value::SetView* removed_ptr = has_tuple_removed ? &tuple_removed : nullptr;
+    if (has_tuple_added && is_effectively_added_key(tuple_added, removed_ptr, key)) {
+        return true;
+    }
+    return tsd_bridge_was_added_for_view(view, key);
 }
 
 bool tsd_has_removed_for_view(const TSView& view) {
+    if (tsd_is_ref_valued(view)) {
+        if (!tsd_key_set_delta_keys_for_view(view, false).empty()) {
+            return true;
+        }
+        return tsd_sampled_has_removed_any(view);
+    }
+
     value::SetView tuple_removed{};
     if (tsd_delta_tuple_slot_set(view, 2, tuple_removed)) {
         return tuple_removed.size() > 0;
@@ -1073,6 +1161,13 @@ bool tsd_has_removed_for_view(const TSView& view) {
 bool tsd_was_removed_for_view(const TSView& view, const value::View& key) {
     if (!key.valid()) {
         return false;
+    }
+
+    if (tsd_is_ref_valued(view)) {
+        if (contains_key_value(tsd_key_set_delta_keys_for_view(view, false), key)) {
+            return true;
+        }
+        return tsd_sampled_was_removed(view, key);
     }
 
     value::SetView tuple_removed{};
@@ -1282,7 +1377,10 @@ nb::object TSView::to_python() const {
 }
 
 nb::object TSView::delta_to_python() const {
-    return delta_value().to_python();
+    if (view_data_.ops == nullptr) {
+        return nb::none();
+    }
+    return op_delta_to_python(view_data_, current_time());
 }
 
 void TSView::set_value(const value::View& src) {
@@ -2014,15 +2112,15 @@ std::vector<value::Value> TSDOutputView::valid_keys() const {
 }
 
 std::vector<value::Value> TSDOutputView::modified_keys() const {
-    return tsd_keys_from_python_keys(as_ts_view(), tsd_modified_keys_for_output_view(as_ts_view()));
+    return tsd_modified_keys_for_output_view_native(as_ts_view());
 }
 
 std::vector<value::Value> TSDOutputView::added_keys() const {
-    return tsd_keys_from_python_keys(as_ts_view(), tsd_delta_keys_slot(as_ts_view(), 1, false));
+    return tsd_added_keys_for_view_native(as_ts_view());
 }
 
 std::vector<value::Value> TSDOutputView::removed_keys() const {
-    return tsd_keys_from_python_keys(as_ts_view(), tsd_removed_keys_for_view(as_ts_view()));
+    return tsd_removed_keys_for_view_native(as_ts_view());
 }
 
 bool TSDOutputView::has_added() const {
@@ -2537,15 +2635,15 @@ std::vector<value::Value> TSDInputView::valid_keys() const {
 }
 
 std::vector<value::Value> TSDInputView::modified_keys() const {
-    return tsd_keys_from_python_keys(as_ts_view(), tsd_modified_keys_for_input_view(as_ts_view()));
+    return tsd_modified_keys_for_input_view_native(as_ts_view());
 }
 
 std::vector<value::Value> TSDInputView::added_keys() const {
-    return tsd_keys_from_python_keys(as_ts_view(), tsd_delta_keys_slot(as_ts_view(), 1, false));
+    return tsd_added_keys_for_view_native(as_ts_view());
 }
 
 std::vector<value::Value> TSDInputView::removed_keys() const {
-    return tsd_keys_from_python_keys(as_ts_view(), tsd_removed_keys_for_view(as_ts_view()));
+    return tsd_removed_keys_for_view_native(as_ts_view());
 }
 
 bool TSDInputView::has_added() const {
