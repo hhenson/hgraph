@@ -331,148 +331,22 @@ nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time
 
 nb::object op_delta_to_python_tsw_tick(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    ViewData resolved{};
-    if (!resolve_read_view_data(vd, resolved)) {
-        return nb::none();
+    ViewData with_time = vd;
+    if (with_time.engine_time_ptr == nullptr && current_time != MIN_DT) {
+        with_time.engine_time_ptr = &current_time;
     }
-    bind_view_data_ops(resolved);
-    const ViewData* data = &resolved;
-    const TSMeta* current = meta_at_path(data->meta, data->path.indices);
-    if (current == nullptr) {
-        return nb::none();
-    }
-
-    if (!op_modified(vd, current_time)) {
-        return nb::none();
-    }
-
-    View value_view = op_value(*data);
-    auto* time_root = static_cast<const Value*>(data->time_data);
-    if (!value_view.valid() || time_root == nullptr || !time_root->has_value()) {
-        return nb::none();
-    }
-
-    auto time_path = ts_path_to_time_path(data->meta, data->path.indices);
-    if (time_path.empty()) {
-        return nb::none();
-    }
-    time_path.pop_back();
-    std::optional<View> maybe_time;
-    if (time_path.empty()) {
-        maybe_time = time_root->view();
-    } else {
-        maybe_time = navigate_const(time_root->view(), time_path);
-    }
-    if (!maybe_time.has_value() || !maybe_time->valid() || !maybe_time->is_tuple()) {
-        return nb::none();
-    }
-    auto tuple = maybe_time->as_tuple();
-    if (tuple.size() < 2) {
-        return nb::none();
-    }
-
-    if (!value_view.is_cyclic_buffer()) {
-        return nb::none();
-    }
-    View time_values = tuple.at(1);
-    if (!time_values.valid() || !time_values.is_cyclic_buffer()) {
-        return nb::none();
-    }
-
-    auto value_buffer = value_view.as_cyclic_buffer();
-    auto time_buffer = time_values.as_cyclic_buffer();
-    if (value_buffer.size() == 0 || time_buffer.size() == 0) {
-        return nb::none();
-    }
-
-    const auto* newest_time = static_cast<const engine_time_t*>(
-        value::CyclicBufferOps::get_element_ptr_const(time_buffer.data(), time_buffer.size() - 1, time_buffer.schema()));
-    if (newest_time == nullptr || *newest_time != current_time) {
-        return nb::none();
-    }
-
-    const auto* newest_value = value::CyclicBufferOps::get_element_ptr_const(
-        value_buffer.data(), value_buffer.size() - 1, value_buffer.schema());
-    const value::TypeMeta* element_type = current->value_type;
-    if (newest_value == nullptr || element_type == nullptr) {
-        return nb::none();
-    }
-    return element_type->ops().to_python(newest_value, element_type);
+    View delta = op_delta_value_tsw_tick(with_time);
+    return delta_view_to_python_with_refs(delta, current_time);
 }
 
 nb::object op_delta_to_python_tsw_duration(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    ViewData resolved{};
-    if (!resolve_read_view_data(vd, resolved)) {
-        return nb::none();
+    ViewData with_time = vd;
+    if (with_time.engine_time_ptr == nullptr && current_time != MIN_DT) {
+        with_time.engine_time_ptr = &current_time;
     }
-    bind_view_data_ops(resolved);
-    const ViewData* data = &resolved;
-    const TSMeta* current = meta_at_path(data->meta, data->path.indices);
-    if (current == nullptr) {
-        return nb::none();
-    }
-
-    if (!op_modified(vd, current_time)) {
-        return nb::none();
-    }
-
-    View value_view = op_value(*data);
-    auto* time_root = static_cast<const Value*>(data->time_data);
-    if (!value_view.valid() || time_root == nullptr || !time_root->has_value()) {
-        return nb::none();
-    }
-
-    auto time_path = ts_path_to_time_path(data->meta, data->path.indices);
-    if (time_path.empty()) {
-        return nb::none();
-    }
-    time_path.pop_back();
-    std::optional<View> maybe_time;
-    if (time_path.empty()) {
-        maybe_time = time_root->view();
-    } else {
-        maybe_time = navigate_const(time_root->view(), time_path);
-    }
-    if (!maybe_time.has_value() || !maybe_time->valid() || !maybe_time->is_tuple()) {
-        return nb::none();
-    }
-    auto tuple = maybe_time->as_tuple();
-    if (tuple.size() < 4) {
-        return nb::none();
-    }
-
-    View ready = tuple.at(3);
-    if (!ready.valid() || !ready.is_scalar_type<bool>() || !ready.as<bool>()) {
-        return nb::none();
-    }
-    if (!value_view.is_queue()) {
-        return nb::none();
-    }
-    View time_values = tuple.at(1);
-    if (!time_values.valid() || !time_values.is_queue()) {
-        return nb::none();
-    }
-
-    auto value_queue = value_view.as_queue();
-    auto time_queue = time_values.as_queue();
-    if (value_queue.size() == 0 || time_queue.size() == 0) {
-        return nb::none();
-    }
-
-    const auto* newest_time = static_cast<const engine_time_t*>(
-        value::QueueOps::get_element_ptr_const(time_queue.data(), time_queue.size() - 1, time_queue.schema()));
-    if (newest_time == nullptr || *newest_time != current_time) {
-        return nb::none();
-    }
-
-    const auto* newest_value = value::QueueOps::get_element_ptr_const(
-        value_queue.data(), value_queue.size() - 1, value_queue.schema());
-    const value::TypeMeta* element_type = current->value_type;
-    if (newest_value == nullptr || element_type == nullptr) {
-        return nb::none();
-    }
-    return element_type->ops().to_python(newest_value, element_type);
+    View delta = op_delta_value_tsw_duration(with_time);
+    return delta_view_to_python_with_refs(delta, current_time);
 }
 
 nb::object op_delta_to_python_tsw(const ViewData& vd, engine_time_t current_time) {
