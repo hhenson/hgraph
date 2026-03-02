@@ -70,3 +70,12 @@ def test_set_delta_addition():
     d = set_delta(added={1, 2, 3}, removed=set(), tp=int)
     d1 = d + set_delta(added={4, 5}, removed={3}, tp=int)
     assert d1 == set_delta(added={1, 2, 4, 5}, removed=set(), tp=int)
+
+
+@pytest.mark.parametrize("n", [10, 100, 1000, 10000])
+def test_large_tss(n):
+    @compute_node
+    def copy_tss(ts: TSS[int]) -> TSS[int]:
+        return ts.delta_value
+
+    assert eval_node(copy_tss, [set(range(n))]) == [set_delta(added=set(range(n)), removed=set(), tp=int)]

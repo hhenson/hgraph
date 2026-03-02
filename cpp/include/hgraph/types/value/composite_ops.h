@@ -1336,14 +1336,19 @@ struct SetOps {
     // ========== Indexable Operations (for iteration) ==========
 
     static const void* at(const void* obj, size_t index, const TypeMeta* /*schema*/) {
-        auto* storage = static_cast<const SetStorage*>(obj);
-        if (index >= storage->size()) {
-            throw std::out_of_range("Set index out of range");
+        return static_cast<const SetStorage*>(obj)->key_set().key_at_slot(index);
+    }
+
+    static size_t next(const void* obj, size_t index, const TypeMeta* /*schema*/) {
+        const auto& ks = static_cast<const SetStorage*>(obj)->key_set();
+        if (index == std::numeric_limits<size_t>::max()) {
+            KeySet::iterator it { &ks, 0 };
+            return it == ks.end() ? std::numeric_limits<size_t>::max() : *it;
+        } else {
+            KeySet::iterator it { &ks, index };
+            ++it;
+            return it == ks.end() ? std::numeric_limits<size_t>::max() : *it;
         }
-        // Iterate KeySet alive slots to find n-th element
-        auto it = storage->begin();
-        std::advance(it, index);
-        return *it;
     }
 
     // ========== Set-specific Operations ==========
@@ -1378,7 +1383,7 @@ struct SetOps {
         ops.to_python = &to_python;
         ops.from_python = &from_python;
         ops.kind = TypeKind::Set;
-        ops.specific.set = {&size, &at, &contains, &add, &remove, &clear};
+        ops.specific.set = {&size, &at, &next, &contains, &add, &remove, &clear};
         return ops;
     }
 };
