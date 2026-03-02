@@ -1,9 +1,11 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/feature_extension.h>
 #include <hgraph/types/time_series/ts_meta.h>
 
 #include <memory>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -31,6 +33,37 @@ struct HGRAPH_EXPORT PythonDeltaCacheEntry {
             (void)value.release();
         }
         time = MIN_DT;
+    }
+};
+
+struct HGRAPH_EXPORT KeyedDeltaLookupCacheEntry {
+    const void* value_data{nullptr};
+    const void* delta_data{nullptr};
+    const void* observer_data{nullptr};
+    const void* link_data{nullptr};
+    std::vector<size_t> path{};
+    const value::TypeMeta* key_type_meta{nullptr};
+    engine_time_t evaluation_time{MIN_DT};
+    std::unordered_map<value::Value, nb::object, ValueHash, ValueEqual> values{};
+
+    void clear() {
+        value_data = nullptr;
+        delta_data = nullptr;
+        observer_data = nullptr;
+        link_data = nullptr;
+        path.clear();
+        key_type_meta = nullptr;
+        evaluation_time = MIN_DT;
+        values.clear();
+    }
+
+    void abandon() {
+        for (auto& [_, value] : values) {
+            if (value.is_valid()) {
+                (void)value.release();
+            }
+        }
+        clear();
     }
 };
 
@@ -78,6 +111,14 @@ public:
 
     [[nodiscard]] const PythonDeltaCacheEntry* delta_root_value() const noexcept {
         return &delta_root_value_;
+    }
+
+    [[nodiscard]] KeyedDeltaLookupCacheEntry* keyed_delta_lookup_cache() noexcept {
+        return &keyed_delta_lookup_cache_;
+    }
+
+    [[nodiscard]] const KeyedDeltaLookupCacheEntry* keyed_delta_lookup_cache() const noexcept {
+        return &keyed_delta_lookup_cache_;
     }
 
     [[nodiscard]] nb::object* slot_value(size_t slot, bool create) noexcept {
@@ -180,7 +221,7 @@ public:
             }
         }
 
-        return value_empty && delta_empty;
+        return value_empty && delta_empty && keyed_delta_lookup_cache_.values.empty();
     }
 
     void clear_subtree() {
@@ -205,6 +246,7 @@ public:
                 value.clear();
             }
         }
+        keyed_delta_lookup_cache_.clear();
     }
 
     // Detach Python refs without decref; used only when interpreter is unavailable.
@@ -234,6 +276,7 @@ public:
                 value.abandon();
             }
         }
+        keyed_delta_lookup_cache_.abandon();
     }
 
 private:
@@ -342,6 +385,7 @@ private:
     std::variant<nb::object, SlotStorage> storage_{nb::object{}};
     PythonDeltaCacheEntry delta_root_value_{};
     std::variant<DeltaSlotStorage> delta_storage_{DeltaSlotStorage{}};
+    KeyedDeltaLookupCacheEntry keyed_delta_lookup_cache_{};
 };
 
 }  // namespace hgraph
