@@ -70,7 +70,7 @@ nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, en
                          static_cast<long long>(current_time.time_since_epoch().count()));
         }
         // Non-scalar delta contract: containers return empty payloads, not None.
-        return get_frozendict()(nb::dict{});
+        return get_empty_frozendict();
     }
 
     nb::dict delta_out;

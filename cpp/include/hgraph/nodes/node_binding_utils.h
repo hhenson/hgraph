@@ -3,6 +3,7 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/types/feature_extension.h>
 #include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_view.h>
@@ -11,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace hgraph {
@@ -345,16 +347,56 @@ inline bool is_remove_marker(const nb::object& obj) {
     return false;
 }
 
-inline std::optional<nb::object> lookup_keyed_delta_value(const TSInputView& input_view,
-                                                           const value::View& key,
-                                                           const value::TypeMeta* key_type_meta) {
-    if (!input_view || !key.valid() || key_type_meta == nullptr) {
-        return std::nullopt;
+struct KeyedDeltaLookupCache {
+    const void* value_data{nullptr};
+    const void* delta_data{nullptr};
+    const void* observer_data{nullptr};
+    const void* link_data{nullptr};
+    std::vector<size_t> path{};
+    const value::TypeMeta* key_type_meta{nullptr};
+    engine_time_t evaluation_time{MIN_DT};
+    std::unordered_map<value::Value, nb::object, ValueHash, ValueEqual> values{};
+};
+
+inline bool keyed_delta_lookup_cache_matches(const KeyedDeltaLookupCache& cache,
+                                             const ViewData& view_data,
+                                             const value::TypeMeta* key_type_meta,
+                                             engine_time_t evaluation_time) {
+    return cache.value_data == view_data.value_data &&
+           cache.delta_data == view_data.delta_data &&
+           cache.observer_data == view_data.observer_data &&
+           cache.link_data == view_data.link_data &&
+           cache.path == view_data.path.indices &&
+           cache.key_type_meta == key_type_meta &&
+           cache.evaluation_time == evaluation_time;
+}
+
+inline void populate_keyed_delta_lookup_cache(KeyedDeltaLookupCache& cache,
+                                              const TSInputView& input_view,
+                                              const value::TypeMeta* key_type_meta) {
+    cache.values.clear();
+    cache.value_data = nullptr;
+    cache.delta_data = nullptr;
+    cache.observer_data = nullptr;
+    cache.link_data = nullptr;
+    cache.path.clear();
+    cache.key_type_meta = key_type_meta;
+    cache.evaluation_time = input_view.current_time();
+
+    if (!input_view || key_type_meta == nullptr) {
+        return;
     }
+
+    const ViewData& view_data = input_view.as_ts_view().view_data();
+    cache.value_data = view_data.value_data;
+    cache.delta_data = view_data.delta_data;
+    cache.observer_data = view_data.observer_data;
+    cache.link_data = view_data.link_data;
+    cache.path = view_data.path.indices;
 
     nb::object delta_obj = input_view.delta_to_python();
     if (!nb::isinstance<nb::dict>(delta_obj)) {
-        return std::nullopt;
+        return;
     }
 
     nb::dict delta_dict = nb::cast<nb::dict>(delta_obj);
@@ -363,18 +405,35 @@ inline std::optional<nb::object> lookup_keyed_delta_value(const TSInputView& inp
         if (!key_value.has_value()) {
             continue;
         }
-        if (!key_type_meta->ops().equals(key.data(), key_value->data(), key_type_meta)) {
-            continue;
-        }
 
         nb::object value_obj = nb::cast<nb::object>(kv.second);
         if (value_obj.is_none() || is_remove_marker(value_obj)) {
-            return std::nullopt;
+            continue;
         }
-        return value_obj;
+        cache.values.insert_or_assign(std::move(*key_value), value_obj);
+    }
+}
+
+inline std::optional<nb::object> lookup_keyed_delta_value(const TSInputView& input_view,
+                                                           const value::View& key,
+                                                           const value::TypeMeta* key_type_meta) {
+    if (!input_view || !key.valid() || key_type_meta == nullptr) {
+        return std::nullopt;
     }
 
-    return std::nullopt;
+    static thread_local KeyedDeltaLookupCache cache;
+    const ViewData& view_data = input_view.as_ts_view().view_data();
+    const engine_time_t evaluation_time = input_view.current_time();
+    if (!keyed_delta_lookup_cache_matches(cache, view_data, key_type_meta, evaluation_time)) {
+        populate_keyed_delta_lookup_cache(cache, input_view, key_type_meta);
+    }
+
+    value::Value key_copy = key.clone();
+    auto it = cache.values.find(key_copy);
+    if (it == cache.values.end()) {
+        return std::nullopt;
+    }
+    return it->second;
 }
 
 inline TSView resolve_tsd_child_view(const TSInputView& tsd_input, const value::View& key) {

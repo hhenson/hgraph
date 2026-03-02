@@ -128,15 +128,21 @@ public:
     }
 
     [[nodiscard]] nb::object to_python() const {
+        if (materialized_python_.is_valid()) {
+            return materialized_python_;
+        }
+
         if (backing_ == Backing::COMPUTED &&
             computed_.ops != nullptr &&
             computed_.ops->delta_to_python != nullptr) {
             const ViewData computed = computed_with_time();
-            return computed.ops->delta_to_python(computed, current_time_);
+            materialized_python_ = computed.ops->delta_to_python(computed, current_time_);
+            return materialized_python_;
         }
 
         const value::View delta = value();
-        return delta.valid() ? delta.to_python() : nb::none();
+        materialized_python_ = delta.valid() ? delta.to_python() : nb::none();
+        return materialized_python_;
     }
 
 private:
@@ -154,6 +160,7 @@ private:
     ViewData computed_{};
     engine_time_t current_time_{MIN_DT};
     mutable std::shared_ptr<value::Value> materialized_{};
+    mutable nb::object materialized_python_{};
 };
 
 }  // namespace hgraph

@@ -33,7 +33,7 @@ All time-series types share these properties:
 | Property | Type | Description |
 |----------|------|-------------|
 | `value` | `T` | Current value (read) |
-| `delta_value` | varies | Change since last tick (`None` when no valid delta at Python API) |
+| `delta_value` | varies | Change since last tick (type-specific; scalar-like invalid deltas are `None`, container deltas are empty containers when unchanged) |
 | `modified` | `bool` | True if changed this tick |
 | `valid` | `bool` | True if has a value |
 | `all_valid` | `bool` | True if all nested values valid |

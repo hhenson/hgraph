@@ -863,43 +863,108 @@ void stable_sort_atomic_keys(std::vector<value::Value>& keys) {
         });
 }
 
-std::vector<value::Value> tsd_key_set_delta_keys_for_view(const TSView& view, bool added) {
-    std::vector<value::Value> out;
+struct TsdKeySetDeltaCacheEntry {
+    const void* value_data{nullptr};
+    const void* delta_data{nullptr};
+    const void* observer_data{nullptr};
+    const void* link_data{nullptr};
+    std::vector<size_t> path{};
+    const value::TypeMeta* key_type_meta{nullptr};
+    engine_time_t evaluation_time{MIN_DT};
+    std::vector<value::Value> added{};
+    std::vector<value::Value> removed{};
+};
+
+bool tsd_key_set_delta_cache_matches(const TsdKeySetDeltaCacheEntry& cache,
+                                     const ViewData& view_data,
+                                     const value::TypeMeta* key_type_meta,
+                                     engine_time_t evaluation_time) {
+    return cache.value_data == view_data.value_data &&
+           cache.delta_data == view_data.delta_data &&
+           cache.observer_data == view_data.observer_data &&
+           cache.link_data == view_data.link_data &&
+           cache.path == view_data.path.indices &&
+           cache.key_type_meta == key_type_meta &&
+           cache.evaluation_time == evaluation_time;
+}
+
+void populate_tsd_key_set_delta_cache(TsdKeySetDeltaCacheEntry& cache, const TSView& view) {
+    cache.added.clear();
+    cache.removed.clear();
+    cache.value_data = nullptr;
+    cache.delta_data = nullptr;
+    cache.observer_data = nullptr;
+    cache.link_data = nullptr;
+    cache.path.clear();
+    cache.key_type_meta = nullptr;
+    cache.evaluation_time = view.current_time();
+
     const TSMeta* meta = view.ts_meta();
     if (meta == nullptr || meta->kind != TSKind::TSD || meta->key_type() == nullptr) {
-        return out;
+        return;
     }
+
+    const ViewData& view_data = view.view_data();
+    cache.value_data = view_data.value_data;
+    cache.delta_data = view_data.delta_data;
+    cache.observer_data = view_data.observer_data;
+    cache.link_data = view_data.link_data;
+    cache.path = view_data.path.indices;
+    cache.key_type_meta = meta->key_type();
 
     TSView key_set_view = tsd_key_set_projection_view(view);
     if (!key_set_view) {
-        return out;
+        return;
     }
 
     nb::object key_set_delta = key_set_view.delta_to_python();
     if (key_set_delta.is_none()) {
-        return out;
+        return;
     }
 
-    const char* member_name = added ? "added" : "removed";
-    nb::object member = nb::getattr(key_set_delta, member_name, nb::none());
-    if (member.is_none()) {
-        return out;
-    }
-    if (PyCallable_Check(member.ptr()) != 0) {
-        member = member();
-    }
-    if (member.is_none()) {
-        return out;
-    }
-
-    for (auto item_h : nb::cast<nb::iterable>(member)) {
-        auto key_val = tsd_key_from_python(nb::cast<nb::object>(item_h), meta);
-        if (key_val.schema() == nullptr) {
-            continue;
+    const auto parse_member = [&](const char* member_name, std::vector<value::Value>& out) {
+        nb::object member = nb::getattr(key_set_delta, member_name, nb::none());
+        if (member.is_none()) {
+            return;
         }
-        out.emplace_back(std::move(key_val));
+        if (PyCallable_Check(member.ptr()) != 0) {
+            member = member();
+        }
+        if (member.is_none()) {
+            return;
+        }
+
+        for (auto item_h : nb::cast<nb::iterable>(member)) {
+            auto key_val = tsd_key_from_python(nb::cast<nb::object>(item_h), meta);
+            if (key_val.schema() == nullptr) {
+                continue;
+            }
+            out.emplace_back(std::move(key_val));
+        }
+        stable_sort_atomic_keys(out);
+    };
+
+    parse_member("added", cache.added);
+    parse_member("removed", cache.removed);
+}
+
+const std::vector<value::Value>& tsd_key_set_delta_keys_cached(const TSView& view, bool added) {
+    static thread_local TsdKeySetDeltaCacheEntry cache;
+    const TSMeta* meta = view.ts_meta();
+    const value::TypeMeta* key_type_meta = (meta != nullptr && meta->kind == TSKind::TSD) ? meta->key_type() : nullptr;
+    if (!tsd_key_set_delta_cache_matches(cache, view.view_data(), key_type_meta, view.current_time())) {
+        populate_tsd_key_set_delta_cache(cache, view);
     }
-    stable_sort_atomic_keys(out);
+    return added ? cache.added : cache.removed;
+}
+
+std::vector<value::Value> tsd_key_set_delta_keys_for_view(const TSView& view, bool added) {
+    std::vector<value::Value> out;
+    const auto& cached = tsd_key_set_delta_keys_cached(view, added);
+    out.reserve(cached.size());
+    for (const auto& key : cached) {
+        out.emplace_back(key.view().clone());
+    }
     return out;
 }
 
@@ -1070,8 +1135,8 @@ std::vector<value::Value> tsd_modified_keys_for_output_view_native(const TSView&
         for (const auto& key : out) {
             seen.insert(key.view());
         }
-        auto added_keys = tsd_key_set_delta_keys_for_view(view, true);
-        for (auto& key : added_keys) {
+        const auto& added_keys = tsd_key_set_delta_keys_cached(view, true);
+        for (const auto& key : added_keys) {
             append_unique_key(out, seen, key.view());
         }
         stable_sort_atomic_keys(out);
@@ -1094,8 +1159,8 @@ std::vector<value::Value> tsd_modified_keys_for_input_view_native(const TSView& 
         for (const auto& key : out) {
             seen.insert(key.view());
         }
-        auto added_keys = tsd_key_set_delta_keys_for_view(view, true);
-        for (auto& key : added_keys) {
+        const auto& added_keys = tsd_key_set_delta_keys_cached(view, true);
+        for (const auto& key : added_keys) {
             append_unique_key(out, seen, key.view());
         }
         stable_sort_atomic_keys(out);
@@ -1105,7 +1170,7 @@ std::vector<value::Value> tsd_modified_keys_for_input_view_native(const TSView& 
 
 bool tsd_has_added_for_view(const TSView& view) {
     if (tsd_is_ref_valued(view)) {
-        return !tsd_key_set_delta_keys_for_view(view, true).empty();
+        return !tsd_key_set_delta_keys_cached(view, true).empty();
     }
 
     value::SetView tuple_added{};
@@ -1125,7 +1190,7 @@ bool tsd_was_added_for_view(const TSView& view, const value::View& key) {
     }
 
     if (tsd_is_ref_valued(view)) {
-        return contains_key_value(tsd_key_set_delta_keys_for_view(view, true), key);
+        return contains_key_value(tsd_key_set_delta_keys_cached(view, true), key);
     }
 
     value::SetView tuple_added{};
@@ -1141,7 +1206,7 @@ bool tsd_was_added_for_view(const TSView& view, const value::View& key) {
 
 bool tsd_has_removed_for_view(const TSView& view) {
     if (tsd_is_ref_valued(view)) {
-        if (!tsd_key_set_delta_keys_for_view(view, false).empty()) {
+        if (!tsd_key_set_delta_keys_cached(view, false).empty()) {
             return true;
         }
         return tsd_sampled_has_removed_any(view);
@@ -1164,7 +1229,7 @@ bool tsd_was_removed_for_view(const TSView& view, const value::View& key) {
     }
 
     if (tsd_is_ref_valued(view)) {
-        if (contains_key_value(tsd_key_set_delta_keys_for_view(view, false), key)) {
+        if (contains_key_value(tsd_key_set_delta_keys_cached(view, false), key)) {
             return true;
         }
         return tsd_sampled_was_removed(view, key);

@@ -235,7 +235,7 @@ is_atomic = False
 | Property | Description |
 |----------|-------------|
 | `value` | Current value at this tick |
-| `delta_value` | Change since last tick (`None` when no valid delta at Python API) |
+| `delta_value` | Change since last tick (type-specific; scalar-like invalid deltas are `None`, container deltas are empty containers when unchanged) |
 | `modified` | True if value changed this tick |
 | `valid` | True if value exists |
 | `all_valid` | True if all children valid (collections) |
