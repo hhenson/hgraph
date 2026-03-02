@@ -713,14 +713,21 @@ bool set_output_add(TSOutputView& self, const nb::object& elem_obj) {
     return true;
 }
 
+const nb::object& removed_class() {
+    static nb::object cls = nb::none();
+    if (!cls.is_valid()) {
+        cls = nb::module_::import_("hgraph").attr("Removed");
+    }
+    return cls;
+}
+
 bool set_output_remove(TSOutputView& self, const nb::object& elem_obj) {
     if (!self.try_as_set().has_value()) {
         return false;
     }
 
-    nb::object removed_cls = nb::module_::import_("hgraph").attr("Removed");
     nb::set values;
-    values.add(removed_cls(elem_obj));
+    values.add(removed_class()(elem_obj));
     self.from_python(values);
     return true;
 }
