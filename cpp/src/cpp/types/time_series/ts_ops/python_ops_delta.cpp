@@ -34,10 +34,11 @@ nb::object delta_view_to_python_with_refs(const View& view, engine_time_t curren
 nb::object computed_delta_to_python_with_refs(const DeltaView& delta, engine_time_t current_time) {
     // Do not call DeltaView::to_python() from inside op_delta_to_python():
     // computed backings route through ts_ops::delta_to_python.
-    if (!delta.valid()) {
+    const View payload = delta.value();
+    if (!payload.valid()) {
         return nb::none();
     }
-    return delta_view_to_python_with_refs(delta.value(), current_time);
+    return delta_view_to_python_with_refs(payload, current_time);
 }
 
 nb::object stored_delta_to_python_with_refs(const View& view, engine_time_t current_time) {

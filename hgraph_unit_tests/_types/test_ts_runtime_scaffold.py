@@ -1048,6 +1048,43 @@ def test_output_view_python_conversion_roundtrip_for_scalar_ts():
     assert next_tick_view.delta_to_python() is None
 
 
+def test_direct_ts_view_delta_paths_refresh_on_dynamic_ref_rebind_tick():
+    ts_int = _ts_int_meta()
+    ref_meta = _registry().ref(ts_int)
+
+    source_left = runtime.TSOutput(ts_int, 1)
+    source_right = runtime.TSOutput(ts_int, 2)
+    left_view = source_left.output_view()
+    right_view = source_right.output_view()
+
+    ref_output = runtime.TSOutput(ref_meta, 0).output_view()
+    consumer = runtime.TSInput(ts_int)
+    consumer_view = consumer.input_view()
+    consumer_view.bind(ref_output)
+
+    def make_ref(target_output):
+        ref_input = runtime.TSInput(ref_meta)
+        ref_input.bind(target_output)
+        return ref_input.input_view().to_python()
+
+    left_view.from_python(10)
+    ref_output.from_python(make_ref(source_left))
+
+    assert consumer_view.to_python() == 10
+    assert consumer_view.delta_to_python() == 10
+    assert consumer_view.delta_value_direct_to_python() == 10
+    assert consumer_view.delta_payload_to_python() == 10
+
+    runtime.set_test_current_time(MIN_DT + MIN_TD)
+    right_view.from_python(20)
+    ref_output.from_python(make_ref(source_right))
+
+    assert consumer_view.to_python() == 20
+    assert consumer_view.delta_to_python() == 20
+    assert consumer_view.delta_value_direct_to_python() == 20
+    assert consumer_view.delta_payload_to_python() == 20
+
+
 @pytest.mark.parametrize(
     "meta_factory, mutate",
     [

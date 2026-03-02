@@ -161,6 +161,9 @@ nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, en
                      vd.path.to_string().c_str(),
                      out_repr.c_str());
     }
+    if (delta_out.empty()) {
+        return get_empty_frozendict();
+    }
     return get_frozendict()(delta_out);
 }
 

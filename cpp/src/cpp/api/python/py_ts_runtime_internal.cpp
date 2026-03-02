@@ -36,6 +36,10 @@ namespace {
 
 using value::View;
 
+nb::object view_to_python_or_none(const value::View& view) {
+    return view.valid() ? view.to_python() : nb::none();
+}
+
 enum class LinkPathMetaRole {
     Unsupported,
     StaticBundle,
@@ -1663,6 +1667,12 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("set_value", &TSOutputView::set_value, "value"_a)
         .def("to_python", [](const TSOutputView& self) { return self.to_python(); })
         .def("delta_to_python", [](const TSOutputView& self) { return self.delta_to_python(); })
+        .def("delta_value_direct_to_python", [](const TSOutputView& self) {
+            return self.as_ts_view().delta_value().to_python();
+        })
+        .def("delta_payload_to_python", [](const TSOutputView& self) {
+            return view_to_python_or_none(self.as_ts_view().delta_payload());
+        })
         .def("py_value", [](const TSOutputView& self) { return self.to_python(); })
         .def("py_delta_value", [](const TSOutputView& self) { return self.delta_to_python(); })
         .def_prop_rw("value",
@@ -2063,6 +2073,12 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("start", []() {})
         .def("to_python", [](const TSInputView& self) { return self.to_python(); })
         .def("delta_to_python", [](const TSInputView& self) { return self.delta_to_python(); })
+        .def("delta_value_direct_to_python", [](const TSInputView& self) {
+            return self.as_ts_view().delta_value().to_python();
+        })
+        .def("delta_payload_to_python", [](const TSInputView& self) {
+            return view_to_python_or_none(self.as_ts_view().delta_payload());
+        })
         .def("py_value", [](const TSInputView& self) { return self.to_python(); })
         .def("py_delta_value", [](const TSInputView& self) { return self.delta_to_python(); })
         .def_prop_ro("value", [](const TSInputView& self) { return self.to_python(); })
