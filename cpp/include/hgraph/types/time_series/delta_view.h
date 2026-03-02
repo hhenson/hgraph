@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <utility>
 
 namespace nb = nanobind;
@@ -62,11 +63,19 @@ public:
         if (backing_ != Backing::COMPUTED) {
             return {};
         }
+        if (materialized_ != nullptr && materialized_->has_value()) {
+            return materialized_->view();
+        }
         const ViewData computed = computed_with_time();
         if (computed.ops == nullptr || computed.ops->delta_value == nullptr) {
             return {};
         }
-        return computed.ops->delta_value(computed);
+        const value::View delta = computed.ops->delta_value(computed);
+        if (!delta.valid()) {
+            return {};
+        }
+        materialized_ = std::make_shared<value::Value>(delta);
+        return materialized_->view();
     }
 
     [[nodiscard]] bool valid() const {
@@ -144,6 +153,7 @@ private:
     value::View stored_{};
     ViewData computed_{};
     engine_time_t current_time_{MIN_DT};
+    mutable std::shared_ptr<value::Value> materialized_{};
 };
 
 }  // namespace hgraph

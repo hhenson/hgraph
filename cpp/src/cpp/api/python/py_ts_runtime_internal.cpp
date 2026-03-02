@@ -308,7 +308,7 @@ nb::list tsd_keys_python(const TSView& ts_view) {
 
 nb::list tsd_modified_keys_python(const TSView& ts_view) {
     nb::list out;
-    View delta = ts_view.delta_value();
+    View delta = ts_view.delta_payload();
     if (!delta.valid() || !delta.is_tuple()) {
         return out;
     }
@@ -331,7 +331,7 @@ struct TSDDeltaSets {
 
 TSDDeltaSets tsd_delta_sets(const TSView& ts_view) {
     TSDDeltaSets sets{};
-    View delta = ts_view.delta_value();
+    View delta = ts_view.delta_payload();
     if (!delta.valid() || !delta.is_tuple()) {
         return sets;
     }

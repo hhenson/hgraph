@@ -335,7 +335,7 @@ std::vector<value::View> tss_values_for_view(const TSView& view) {
 
 std::vector<value::View> tss_delta_values_for_view(const TSView& view, size_t tuple_slot) {
     std::vector<value::View> out;
-    const value::View delta = view.delta_value();
+    const value::View delta = view.delta_payload();
     if (!delta.valid() || !delta.is_tuple()) {
         if (tuple_slot == 0 && view.sampled()) {
             return tss_values_for_view(view);
@@ -674,7 +674,7 @@ bool tsd_is_ref_valued(const TSView& view) {
 }
 
 bool tsd_delta_tuple_slot_set(const TSView& view, size_t tuple_index, value::SetView& out) {
-    value::View delta = view.delta_value();
+    value::View delta = view.delta_payload();
     if (!delta.valid() || !delta.is_tuple()) {
         return false;
     }
@@ -694,7 +694,7 @@ bool tsd_delta_tuple_slot_set(const TSView& view, size_t tuple_index, value::Set
 }
 
 bool tsd_delta_tuple_slot_map(const TSView& view, size_t tuple_index, value::MapView& out) {
-    value::View delta = view.delta_value();
+    value::View delta = view.delta_payload();
     if (!delta.valid() || !delta.is_tuple()) {
         return false;
     }
@@ -1214,15 +1214,15 @@ value::View TSView::value() const {
     return view_data_.ops->value(view_data_);
 }
 
-value::View TSView::delta_value() const {
+DeltaView TSView::delta_value() const {
+    return DeltaView::from_computed(view_data_, current_time());
+}
+
+value::View TSView::delta_payload() const {
     if (view_data_.ops == nullptr) {
         return {};
     }
     return view_data_.ops->delta_value(view_data_);
-}
-
-DeltaView TSView::delta_view() const {
-    return DeltaView::from_computed(view_data_, current_time());
 }
 
 nb::object TSView::to_python() const {

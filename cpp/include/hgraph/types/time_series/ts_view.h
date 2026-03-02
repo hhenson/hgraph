@@ -73,8 +73,10 @@ public:
     [[nodiscard]] bool sampled() const;
 
     [[nodiscard]] value::View value() const;
-    [[nodiscard]] value::View delta_value() const;
-    [[nodiscard]] DeltaView delta_view() const;
+    // Unified delta accessor for authoring APIs.
+    [[nodiscard]] DeltaView delta_value() const;
+    // Raw underlying delta payload.
+    [[nodiscard]] value::View delta_payload() const;
     [[nodiscard]] nb::object to_python() const;
     [[nodiscard]] nb::object delta_to_python() const;
 

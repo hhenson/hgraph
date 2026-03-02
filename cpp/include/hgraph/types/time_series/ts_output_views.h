@@ -61,8 +61,8 @@ public:
     [[nodiscard]] bool sampled() const { return ts_view_.sampled(); }
 
     [[nodiscard]] value::View value() const { return ts_view_.value(); }
-    [[nodiscard]] value::View delta_value() const { return ts_view_.delta_value(); }
-    [[nodiscard]] DeltaView delta_view() const { return ts_view_.delta_view(); }
+    [[nodiscard]] DeltaView delta_value() const { return ts_view_.delta_value(); }
+    [[nodiscard]] value::View delta_payload() const { return ts_view_.delta_payload(); }
     [[nodiscard]] nb::object to_python() const;
     [[nodiscard]] nb::object delta_to_python() const;
 

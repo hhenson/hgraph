@@ -232,7 +232,7 @@ bool ts_list_child_effectively_modified(const TSView& child) {
         return child.modified();
     }
 
-    value::View delta = child.delta_value();
+    value::View delta = child.delta_payload();
     if (delta.valid() && delta.is_tuple()) {
         auto tuple = delta.as_tuple();
         if (tuple.size() > 1) {
@@ -356,7 +356,7 @@ nb::list tsd_delta_keys_slot(const TSView& view, size_t tuple_index, bool expect
 
     bool tuple_slot_compatible = false;
 
-    value::View delta = view.delta_value();
+    value::View delta = view.delta_payload();
     if (delta.valid() && delta.is_tuple()) {
         auto tuple = delta.as_tuple();
         if (tuple_index < tuple.size()) {

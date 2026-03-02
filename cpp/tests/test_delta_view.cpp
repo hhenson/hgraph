@@ -4,6 +4,7 @@
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/types/value/value.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <chrono>
 
@@ -16,6 +17,7 @@ struct FakeComputedDeltaState {
     bool has_delta{false};
     hgraph::engine_time_t expected_time{hgraph::MIN_DT};
     bool require_engine_time{false};
+    mutable size_t delta_value_calls{0};
 };
 
 hgraph::value::View fake_delta_value(const ViewData& vd) {
@@ -23,6 +25,7 @@ hgraph::value::View fake_delta_value(const ViewData& vd) {
     if (state == nullptr || !state->delta.has_value()) {
         return {};
     }
+    state->delta_value_calls += 1;
     if (state->require_engine_time) {
         if (vd.engine_time_ptr == nullptr || *vd.engine_time_ptr != state->expected_time) {
             return {};
@@ -134,6 +137,29 @@ TEST_CASE("DeltaView computed backing uses explicit current_time when engine_tim
     REQUIRE_FALSE(delta.empty());
     REQUIRE(delta.change_count() == 1);
     REQUIRE(delta.value().as<int64_t>() == 99);
+}
+
+TEST_CASE("DeltaView computed backing materializes payload on first value() call", "[delta_view]") {
+    using namespace hgraph::value;
+
+    const TypeMeta* int_meta = scalar_type_meta<int64_t>();
+    FakeComputedDeltaState state{Value(int_meta), true};
+    state.delta.emplace();
+    state.delta.as<int64_t>() = 7;
+
+    hgraph::ViewData vd{};
+    vd.delta_data = &state;
+    vd.ops = &k_fake_delta_ops;
+
+    hgraph::DeltaView delta = hgraph::DeltaView::from_computed(vd, hgraph::MIN_DT);
+    REQUIRE(delta.value().as<int64_t>() == 7);
+    REQUIRE(state.delta_value_calls == 1);
+
+    // Mutate backing storage after first read: DeltaView should keep the
+    // materialized snapshot for subsequent value() calls.
+    state.delta.as<int64_t>() = 11;
+    REQUIRE(delta.value().as<int64_t>() == 7);
+    REQUIRE(state.delta_value_calls == 1);
 }
 
 TEST_CASE("DeltaView computed to_python uses explicit current_time when engine_time_ptr is absent", "[delta_view]") {
