@@ -348,21 +348,20 @@ nb::object op_delta_to_python_default(const ViewData& vd, engine_time_t current_
     const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
     const bool debug_delta_kind = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_KIND");
 
-    ViewData resolved{};
-    if (!resolve_read_view_data(vd, resolved)) {
-        return nb::none();
-    }
     if (debug_delta_kind) {
-        const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
+        ViewData resolved{};
+        const bool resolved_ok = resolve_read_view_data(vd, resolved);
+        const TSMeta* resolved_meta = resolved_ok ? meta_at_path(resolved.meta, resolved.path.indices) : nullptr;
         std::fprintf(stderr,
-                     "[delta_kind] path=%s self_kind=%d resolved_kind=%d self_proj=%d resolved_proj=%d uses_lt=%d now=%lld\n",
+                     "[delta_kind] path=%s self_kind=%d resolved_kind=%d self_proj=%d resolved_proj=%d uses_lt=%d now=%lld resolved_ok=%d\n",
                      vd.path.to_string().c_str(),
                      self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
                      resolved_meta != nullptr ? static_cast<int>(resolved_meta->kind) : -1,
                      static_cast<int>(vd.projection),
-                     static_cast<int>(resolved.projection),
+                     resolved_ok ? static_cast<int>(resolved.projection) : -1,
                      vd.uses_link_target ? 1 : 0,
-                     static_cast<long long>(current_time.time_since_epoch().count()));
+                     static_cast<long long>(current_time.time_since_epoch().count()),
+                     resolved_ok ? 1 : 0);
     }
 
     DeltaView delta = DeltaView::from_computed(vd, current_time);

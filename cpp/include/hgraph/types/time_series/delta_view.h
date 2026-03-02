@@ -237,10 +237,12 @@ private:
     }
 
     [[nodiscard]] ViewData computed_with_time() const noexcept {
-        if (backing_ != Backing::COMPUTED || current_time_ == MIN_DT) {
+        if (backing_ != Backing::COMPUTED) {
             return computed_;
         }
         ViewData with_time = computed_;
+        // Always route computed access through the captured snapshot time so the
+        // view remains stable even if the original engine_time_ptr later mutates.
         with_time.engine_time_ptr = &current_time_;
         return with_time;
     }

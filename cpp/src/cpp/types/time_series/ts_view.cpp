@@ -1467,13 +1467,17 @@ value::View TSView::value() const {
 }
 
 DeltaView TSView::delta_value() const {
-    return DeltaView::from_computed(view_data_, current_time());
+    const engine_time_t eval_time = current_time();
+    refresh_dynamic_ref_binding(view_data_, eval_time);
+    return DeltaView::from_computed(view_data_, eval_time);
 }
 
 value::View TSView::delta_payload() const {
     if (view_data_.ops == nullptr) {
         return {};
     }
+    const engine_time_t eval_time = current_time();
+    refresh_dynamic_ref_binding(view_data_, eval_time);
     return view_data_.ops->delta_value(view_data_);
 }
 

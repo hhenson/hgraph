@@ -166,6 +166,29 @@ TEST_CASE("DeltaView computed backing freezes current_time snapshot from engine_
     REQUIRE(delta.value().as<int64_t>() == 123);
 }
 
+TEST_CASE("DeltaView computed backing freezes MIN_DT snapshot from engine_time_ptr", "[delta_view]") {
+    using namespace hgraph::value;
+
+    const TypeMeta* int_meta = scalar_type_meta<int64_t>();
+    FakeComputedDeltaState state{Value(int_meta), true, hgraph::MIN_DT, true};
+    state.delta.emplace();
+    state.delta.as<int64_t>() = 456;
+
+    hgraph::engine_time_t mutable_time = hgraph::MIN_DT;
+    hgraph::ViewData vd{};
+    vd.delta_data = &state;
+    vd.ops = &k_fake_delta_ops;
+    vd.engine_time_ptr = &mutable_time;
+
+    hgraph::DeltaView delta = hgraph::DeltaView::from_computed(vd, hgraph::MIN_DT);
+    mutable_time = hgraph::engine_time_t{std::chrono::microseconds{1}};
+
+    REQUIRE(delta.valid());
+    REQUIRE_FALSE(delta.empty());
+    REQUIRE(delta.change_count() == 1);
+    REQUIRE(delta.value().as<int64_t>() == 456);
+}
+
 TEST_CASE("DeltaView computed backing materializes payload on first value() call", "[delta_view]") {
     using namespace hgraph::value;
 
