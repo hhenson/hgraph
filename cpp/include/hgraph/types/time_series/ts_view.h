@@ -159,6 +159,9 @@ public:
     explicit TSDView(TSView ts_view) noexcept : TSView(std::move(ts_view)) {}
 
     [[nodiscard]] TSSView key_set() const;
+    [[nodiscard]] TSView get(const value::View& key) const;
+    [[nodiscard]] TSView get(const value::View& key, TSView default_value) const;
+    [[nodiscard]] TSView get_or_create(const value::View& key);
     [[nodiscard]] TSView at_key(const value::View& key) const { return child_by_key(key); }
     [[nodiscard]] TSView by_key(const value::View& key) const { return at_key(key); }
     [[nodiscard]] std::optional<value::Value> key_at_slot(size_t slot) const;

@@ -1226,6 +1226,19 @@ def test_typed_dict_view_surface():
     assert isinstance(key_set_view, runtime.TSSOutputView)
     assert key_set_view.values() == {"beta"}
 
+    assert dict_view.get(beta.view()).to_python() == 3
+    assert not dict_view.get(_str_value("missing").view())
+
+    fallback_output = runtime.TSOutput(_ts_int_meta(), 0).output_view()
+    fallback_output.from_python(99)
+    assert dict_view.get(_str_value("missing").view(), fallback_output).to_python() == 99
+
+    gamma = _str_value("gamma")
+    gamma_child = dict_view.get_or_create(gamma.view())
+    assert isinstance(gamma_child, runtime.TSOutputView)
+    gamma_child.from_python(5)
+    assert dict_view.to_python() == {"beta": 3, "gamma": 5}
+
 
 def test_typed_list_view_surface():
     list_meta = _registry().tsl(_ts_int_meta(), 2)
@@ -1331,6 +1344,11 @@ def test_typed_input_dict_view_surface():
     key_set_view = dict_view.key_set
     assert isinstance(key_set_view, runtime.TSSInputView)
     assert key_set_view.values() == set()
+
+    assert not dict_view.get(_str_value("missing").view())
+    fallback_input = runtime.TSInput(_ts_int_meta()).input_view()
+    assert isinstance(dict_view.get(_str_value("missing").view(), fallback_input), runtime.TSInputView)
+    assert isinstance(dict_view.get_or_create(_str_value("beta").view()), runtime.TSInputView)
 
 
 def test_typed_input_list_view_surface():

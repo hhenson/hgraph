@@ -1632,6 +1632,13 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("__bool__", [](const TSDView& self) { return static_cast<bool>(self); })
         .def("to_python", [](const TSDView& self) { return self.to_python(); })
         .def_prop_ro("key_set", &TSDView::key_set, nb::keep_alive<0, 1>())
+        .def("get", nb::overload_cast<const value::View&>(&TSDView::get, nb::const_), "key"_a, nb::keep_alive<0, 1>())
+        .def("get",
+             nb::overload_cast<const value::View&, TSView>(&TSDView::get, nb::const_),
+             "key"_a,
+             "default_value"_a,
+             nb::keep_alive<0, 1>())
+        .def("get_or_create", &TSDView::get_or_create, "key"_a, nb::keep_alive<0, 1>())
         .def("at_key", &TSDView::by_key, "key"_a, nb::keep_alive<0, 1>())
         .def("count", &TSDView::count)
         .def("size", &TSDView::size)
@@ -1973,6 +1980,13 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
     nb::class_<TSDOutputView, TSOutputView>(test_mod, "TSDOutputView")
         .def("__bool__", [](const TSDOutputView& self) { return static_cast<bool>(self); })
         .def("at_key", &TSDOutputView::at_key, "key"_a, nb::keep_alive<0, 1>())
+        .def("get", nb::overload_cast<const value::View&>(&TSDOutputView::get, nb::const_), "key"_a, nb::keep_alive<0, 1>())
+        .def("get",
+             nb::overload_cast<const value::View&, TSOutputView>(&TSDOutputView::get, nb::const_),
+             "key"_a,
+             "default_value"_a,
+             nb::keep_alive<0, 1>())
+        .def("get_or_create", &TSDOutputView::get_or_create, "key"_a, nb::keep_alive<0, 1>())
         .def("count", &TSDOutputView::count)
         .def("size", &TSDOutputView::size)
         .def("keys", [](const TSDOutputView& self) { return tsd_keys_python(self.as_ts_view()); })
@@ -2032,14 +2046,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("release_ref", [](TSDOutputView& self, const nb::object& key, const nb::object& requester) {
             TSOutputView base = self;
             tsd_release_ref_output(base, key, requester);
-        }, "key"_a, "requester"_a)
-        .def("get_or_create", [](TSDOutputView& self, const nb::object& key) {
-            auto key_value = dict_key_value_from_python(self.as_ts_view(), key);
-            if (!key_value.has_value()) {
-                return TSOutputView{};
-            }
-            return self.create(key_value->view());
-        }, "key"_a, nb::keep_alive<0, 1>());
+        }, "key"_a, "requester"_a);
 
     nb::class_<TSIndexedOutputView, TSOutputView>(test_mod, "TSIndexedOutputView")
         .def("__bool__", [](const TSIndexedOutputView& self) { return static_cast<bool>(self); })
@@ -2257,6 +2264,13 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
     nb::class_<TSDInputView, TSInputView>(test_mod, "TSDInputView")
         .def("__bool__", [](const TSDInputView& self) { return static_cast<bool>(self); })
         .def("at_key", &TSDInputView::at_key, "key"_a, nb::keep_alive<0, 1>())
+        .def("get", nb::overload_cast<const value::View&>(&TSDInputView::get, nb::const_), "key"_a, nb::keep_alive<0, 1>())
+        .def("get",
+             nb::overload_cast<const value::View&, TSInputView>(&TSDInputView::get, nb::const_),
+             "key"_a,
+             "default_value"_a,
+             nb::keep_alive<0, 1>())
+        .def("get_or_create", &TSDInputView::get_or_create, "key"_a, nb::keep_alive<0, 1>())
         .def("count", &TSDInputView::count)
         .def("size", &TSDInputView::size)
         .def("delta_to_python", [](const TSDInputView& self) { return tsd_input_delta_to_python(self); })

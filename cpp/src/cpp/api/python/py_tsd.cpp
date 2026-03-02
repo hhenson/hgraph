@@ -90,7 +90,7 @@ namespace
         if (key_val.schema() == nullptr) {
             return default_value;
         }
-        auto child = output_view().as_dict().at_key(key_val.view());
+        auto child = output_view().as_dict().get(key_val.view());
         return child ? wrap_output_view(std::move(child)) : default_value;
     }
 
@@ -99,7 +99,7 @@ namespace
         if (key_val.schema() == nullptr) {
             return nb::none();
         }
-        auto child = output_view().as_dict().create(key_val.view());
+        auto child = output_view().as_dict().get_or_create(key_val.view());
         return child ? wrap_output_view(std::move(child)) : nb::none();
     }
 
@@ -392,17 +392,17 @@ namespace
         if (key_val.schema() == nullptr) {
             return default_value;
         }
-        auto child = input_view().as_dict().at_key(key_val.view());
+        auto child = input_view().as_dict().get(key_val.view());
         return child ? wrap_input_view(std::move(child)) : default_value;
     }
 
     nb::object PyTimeSeriesDictInput::get_or_create(const nb::object &key) {
-        auto value = get(key, nb::none());
-        if (!value.is_none()) {
-            return value;
+        auto key_val = key_from_python(key);
+        if (key_val.schema() == nullptr) {
+            return nb::none();
         }
-        create(key);
-        return get(key, nb::none());
+        auto child = input_view().as_dict().get_or_create(key_val.view());
+        return child ? wrap_input_view(std::move(child)) : nb::none();
     }
 
     void PyTimeSeriesDictInput::create(const nb::object &item) {

@@ -1627,6 +1627,20 @@ TSSView TSDView::key_set() const {
     return TSSView(tsd_key_set_projection_view(*this));
 }
 
+TSView TSDView::get(const value::View& key) const {
+    return at_key(key);
+}
+
+TSView TSDView::get(const value::View& key, TSView default_value) const {
+    TSView child = at_key(key);
+    return child ? child : std::move(default_value);
+}
+
+TSView TSDView::get_or_create(const value::View& key) {
+    TSView child = at_key(key);
+    return child ? child : create(key);
+}
+
 std::optional<value::Value> TSDView::key_at_slot(size_t slot) const {
     const value::View current = value();
     if (!current.valid() || !current.is_map()) {
@@ -1916,6 +1930,20 @@ void TSSOutputView::clear() {
 
 TSSOutputView TSDOutputView::key_set() const {
     return TSSOutputView(tsd_key_set_projection_view(*this));
+}
+
+TSOutputView TSDOutputView::get(const value::View& key) const {
+    return at_key(key);
+}
+
+TSOutputView TSDOutputView::get(const value::View& key, TSOutputView default_value) const {
+    TSOutputView child = at_key(key);
+    return child ? child : std::move(default_value);
+}
+
+TSOutputView TSDOutputView::get_or_create(const value::View& key) {
+    TSOutputView child = at_key(key);
+    return child ? child : create(key);
 }
 
 bool TSDOutputView::contains(const value::View& key) const {
@@ -2425,6 +2453,20 @@ std::vector<value::View> TSSInputView::removed() const {
 
 TSSInputView TSDInputView::key_set() const {
     return TSSInputView(tsd_key_set_projection_view(*this));
+}
+
+TSInputView TSDInputView::get(const value::View& key) const {
+    return at_key(key);
+}
+
+TSInputView TSDInputView::get(const value::View& key, TSInputView default_value) const {
+    TSInputView child = at_key(key);
+    return child ? child : std::move(default_value);
+}
+
+TSInputView TSDInputView::get_or_create(const value::View& key) {
+    TSInputView child = at_key(key);
+    return child ? child : TSInputView(owner_, as_ts_view().as_dict().create(key));
 }
 
 bool TSDInputView::contains(const value::View& key) const {
