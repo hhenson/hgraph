@@ -279,36 +279,25 @@ nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time
     nb::set removed_set;
     bool has_native_delta = false;
 
-    auto* delta_root = static_cast<const Value*>(data->delta_data);
-    if (delta_root != nullptr && delta_root->has_value()) {
-        std::optional<View> maybe_delta;
-        if (auto delta_path = ts_path_to_delta_path(data->meta, data->path.indices); delta_path.has_value()) {
-            if (delta_path->empty()) {
-                maybe_delta = delta_root->view();
-            } else {
-                maybe_delta = navigate_const(delta_root->view(), *delta_path);
+    View native_delta = op_delta_value(*data);
+    if (native_delta.valid() && native_delta.is_tuple()) {
+        auto tuple = native_delta.as_tuple();
+        if (tuple.size() > 0) {
+            View added = tuple.at(0);
+            if (added.valid() && added.is_set()) {
+                for (View elem : added.as_set()) {
+                    added_set.add(elem.to_python());
+                }
+                has_native_delta = has_native_delta || added.as_set().size() > 0;
             }
         }
-
-        if (maybe_delta.has_value() && maybe_delta->valid() && maybe_delta->is_tuple()) {
-            auto tuple = maybe_delta->as_tuple();
-            if (tuple.size() > 0) {
-                View added = tuple.at(0);
-                if (added.valid() && added.is_set()) {
-                    for (View elem : added.as_set()) {
-                        added_set.add(elem.to_python());
-                    }
-                    has_native_delta = has_native_delta || added.as_set().size() > 0;
+        if (tuple.size() > 1) {
+            View removed = tuple.at(1);
+            if (removed.valid() && removed.is_set()) {
+                for (View elem : removed.as_set()) {
+                    removed_set.add(elem.to_python());
                 }
-            }
-            if (tuple.size() > 1) {
-                View removed = tuple.at(1);
-                if (removed.valid() && removed.is_set()) {
-                    for (View elem : removed.as_set()) {
-                        removed_set.add(elem.to_python());
-                    }
-                    has_native_delta = has_native_delta || removed.as_set().size() > 0;
-                }
+                has_native_delta = has_native_delta || removed.as_set().size() > 0;
             }
         }
     }

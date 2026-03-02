@@ -1215,7 +1215,10 @@ value::View TSView::value() const {
 }
 
 DeltaView TSView::delta_value() const {
-    return DeltaView::from_computed(view_data_, current_time());
+    DeltaView out = DeltaView::from_computed(view_data_, current_time());
+    // Materialize once at call-site so downstream conversion paths share one payload read.
+    (void)out.value();
+    return out;
 }
 
 value::View TSView::delta_payload() const {
@@ -1233,10 +1236,7 @@ nb::object TSView::to_python() const {
 }
 
 nb::object TSView::delta_to_python() const {
-    if (view_data_.ops == nullptr) {
-        return nb::none();
-    }
-    return op_delta_to_python(view_data_, current_time());
+    return delta_value().to_python();
 }
 
 void TSView::set_value(const value::View& src) {

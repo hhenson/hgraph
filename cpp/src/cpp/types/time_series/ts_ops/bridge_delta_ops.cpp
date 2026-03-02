@@ -41,26 +41,14 @@ nb::object tsd_bridge_delta_to_python(const ViewData& previous_data,
         if (!op_modified(data, current_time)) {
             return;
         }
-        if (auto* delta_root = static_cast<const Value*>(data.delta_data);
-            delta_root != nullptr && delta_root->has_value()) {
-            if (auto delta_path = ts_path_to_delta_path(data.meta, data.path.indices);
-                delta_path.has_value()) {
-                std::optional<View> maybe_delta;
-                if (delta_path->empty()) {
-                    maybe_delta = delta_root->view();
-                } else {
-                    maybe_delta = navigate_const(delta_root->view(), *delta_path);
-                }
-
-                if (maybe_delta.has_value() && maybe_delta->valid() && maybe_delta->is_tuple()) {
-                    auto tuple = maybe_delta->as_tuple();
-                    if (tuple.size() > 1) {
-                        added_keys = tuple.at(1);
-                    }
-                    if (tuple.size() > 2) {
-                        removed_keys = tuple.at(2);
-                    }
-                }
+        View native_delta = op_delta_value(data);
+        if (native_delta.valid() && native_delta.is_tuple()) {
+            auto tuple = native_delta.as_tuple();
+            if (tuple.size() > 1) {
+                added_keys = tuple.at(1);
+            }
+            if (tuple.size() > 2) {
+                removed_keys = tuple.at(2);
             }
         }
     };
@@ -242,22 +230,14 @@ nb::object tss_bridge_delta_to_python(const ViewData& previous_data,
     value::SetView previous_added_on_tick{};
     value::SetView previous_removed_on_tick{};
     if (has_previous && op_last_modified_time(previous_data) == current_time) {
-        auto* delta_root = static_cast<const Value*>(previous_data.delta_data);
-        if (delta_root != nullptr && delta_root->has_value()) {
-            std::optional<View> maybe_delta;
-            if (previous_data.path.indices.empty()) {
-                maybe_delta = delta_root->view();
-            } else {
-                maybe_delta = navigate_const(delta_root->view(), previous_data.path.indices);
+        View native_delta = op_delta_value(previous_data);
+        if (native_delta.valid() && native_delta.is_tuple()) {
+            auto tuple = native_delta.as_tuple();
+            if (tuple.size() > 0 && tuple.at(0).valid() && tuple.at(0).is_set()) {
+                previous_added_on_tick = tuple.at(0).as_set();
             }
-            if (maybe_delta.has_value() && maybe_delta->valid() && maybe_delta->is_tuple()) {
-                auto tuple = maybe_delta->as_tuple();
-                if (tuple.size() > 0 && tuple.at(0).valid() && tuple.at(0).is_set()) {
-                    previous_added_on_tick = tuple.at(0).as_set();
-                }
-                if (tuple.size() > 1 && tuple.at(1).valid() && tuple.at(1).is_set()) {
-                    previous_removed_on_tick = tuple.at(1).as_set();
-                }
+            if (tuple.size() > 1 && tuple.at(1).valid() && tuple.at(1).is_set()) {
+                previous_removed_on_tick = tuple.at(1).as_set();
             }
         }
     }
@@ -581,37 +561,26 @@ nb::object tsd_key_set_delta_to_python(const ViewData& source) {
     nb::set added_out;
     nb::set removed_out;
 
-    auto* delta_root = static_cast<const Value*>(source.delta_data);
-    if (delta_root != nullptr && delta_root->has_value()) {
-        std::optional<View> maybe_delta;
-        if (auto delta_path = ts_path_to_delta_path(source.meta, source.path.indices); delta_path.has_value()) {
-            if (delta_path->empty()) {
-                maybe_delta = delta_root->view();
-            } else {
-                maybe_delta = navigate_const(delta_root->view(), *delta_path);
+    View native_delta = op_delta_value(source);
+    if (native_delta.valid() && native_delta.is_tuple()) {
+        auto tuple = native_delta.as_tuple();
+        View removed_keys_view;
+        if (tuple.size() > 2 && tuple.at(2).valid() && tuple.at(2).is_set()) {
+            removed_keys_view = tuple.at(2);
+            for (View elem : tuple.at(2).as_set()) {
+                removed_out.add(elem.to_python());
             }
         }
+        const bool has_removed_keys = removed_keys_view.valid() && removed_keys_view.is_set();
 
-        if (maybe_delta.has_value() && maybe_delta->valid() && maybe_delta->is_tuple()) {
-            auto tuple = maybe_delta->as_tuple();
-            View removed_keys_view;
-            if (tuple.size() > 2 && tuple.at(2).valid() && tuple.at(2).is_set()) {
-                removed_keys_view = tuple.at(2);
-                for (View elem : tuple.at(2).as_set()) {
-                    removed_out.add(elem.to_python());
+        if (tuple.size() > 1 && tuple.at(1).valid() && tuple.at(1).is_set()) {
+            for (View elem : tuple.at(1).as_set()) {
+                // Invalid-key removals are encoded as add+remove markers in the
+                // TSD delta slot so key_set consumers can still observe removal.
+                if (has_removed_keys && removed_keys_view.as_set().contains(elem)) {
+                    continue;
                 }
-            }
-            const bool has_removed_keys = removed_keys_view.valid() && removed_keys_view.is_set();
-
-            if (tuple.size() > 1 && tuple.at(1).valid() && tuple.at(1).is_set()) {
-                for (View elem : tuple.at(1).as_set()) {
-                    // Invalid-key removals are encoded as add+remove markers in the
-                    // TSD delta slot so key_set consumers can still observe removal.
-                    if (has_removed_keys && removed_keys_view.as_set().contains(elem)) {
-                        continue;
-                    }
-                    added_out.add(elem.to_python());
-                }
+                added_out.add(elem.to_python());
             }
         }
     }
@@ -685,26 +654,17 @@ nb::object tsd_key_set_unbind_delta_to_python(const ViewData& previous_data) {
 
     nb::set added_on_tick;
     nb::set removed_on_tick;
-    auto* delta_root = static_cast<const Value*>(previous_data.delta_data);
-    if (delta_root != nullptr && delta_root->has_value()) {
-        std::optional<View> maybe_delta;
-        if (previous_data.path.indices.empty()) {
-            maybe_delta = delta_root->view();
-        } else {
-            maybe_delta = navigate_const(delta_root->view(), previous_data.path.indices);
-        }
-
-        if (maybe_delta.has_value() && maybe_delta->valid() && maybe_delta->is_tuple()) {
-            auto tuple = maybe_delta->as_tuple();
-            if (tuple.size() > 1 && tuple.at(1).valid() && tuple.at(1).is_set()) {
-                for (View elem : tuple.at(1).as_set()) {
-                    added_on_tick.add(elem.to_python());
-                }
+    View native_delta = op_delta_value(previous_data);
+    if (native_delta.valid() && native_delta.is_tuple()) {
+        auto tuple = native_delta.as_tuple();
+        if (tuple.size() > 1 && tuple.at(1).valid() && tuple.at(1).is_set()) {
+            for (View elem : tuple.at(1).as_set()) {
+                added_on_tick.add(elem.to_python());
             }
-            if (tuple.size() > 2 && tuple.at(2).valid() && tuple.at(2).is_set()) {
-                for (View elem : tuple.at(2).as_set()) {
-                    removed_on_tick.add(elem.to_python());
-                }
+        }
+        if (tuple.size() > 2 && tuple.at(2).valid() && tuple.at(2).is_set()) {
+            for (View elem : tuple.at(2).as_set()) {
+                removed_on_tick.add(elem.to_python());
             }
         }
     }
