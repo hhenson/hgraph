@@ -916,24 +916,25 @@ public:
         using reference = View;
 
         const_iterator() = default;
-        const_iterator(const void* data, const TypeMeta* schema, size_t index, size_t /*size*/)
-            : _data(data), _schema(schema), _index(index) {}
+        const_iterator(const void* data, const TypeMeta* schema);
+
+        ~const_iterator();
 
         reference operator*() const;
 
-        const_iterator& operator++() {
-            ++_index;
-            return *this;
-        }
-
+        const_iterator& operator++();        
+        
         const_iterator operator++(int) {
             const_iterator tmp = *this;
-            ++_index;
+            ++*this;
             return tmp;
         }
 
         bool operator==(const const_iterator& other) const {
-            return _data == other._data && _index == other._index;
+            if (other._pos == std::numeric_limits<size_t>::max() && _pos == std::numeric_limits<size_t>::max()) {
+                return true; // Both are end iterators
+            }
+            return _data == other._data && _schema == other._schema && _pos == other._pos;
         }
 
         bool operator!=(const const_iterator& other) const {
@@ -943,18 +944,16 @@ public:
     private:
         const void* _data{nullptr};
         const TypeMeta* _schema{nullptr};
-        size_t _index{0};
+        size_t _pos{std::numeric_limits<size_t>::max()};
     };
 
     [[nodiscard]] const_iterator begin() const {
-        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0);
-        return const_iterator(_data, _schema, 0, size());
+        if (!valid()) return const_iterator();
+        return const_iterator(_data, _schema);
     }
 
     [[nodiscard]] const_iterator end() const {
-        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0);
-        size_t sz = size();
-        return const_iterator(_data, _schema, sz, sz);
+        return const_iterator();
     }
 
     // Templated operations - implemented after Value
@@ -1571,9 +1570,21 @@ inline void QueueView::pop() {
 // SetView Iterator Implementation
 // ============================================================================
 
+inline SetView::const_iterator::const_iterator(const void* data, const TypeMeta* schema)
+    : _data(data), _schema(schema) {
+
+    _pos = _schema->ops().specific.set.next(_data, _pos, _schema);
+}
+
+inline SetView::const_iterator::~const_iterator() {}
+
+inline SetView::const_iterator& SetView::const_iterator::operator++() {
+    _pos = _schema->ops().specific.set.next(_data, _pos, _schema);
+    return *this;
+}
+
 inline View SetView::const_iterator::operator*() const {
-    // Delegate to the ops layer's at() which iterates KeySet alive slots
-    const void* elem = _schema->ops().at(_data, _index, _schema);
+    const void* elem = _schema->ops().specific.set.at(_data, _pos, _schema);
     return View(elem, _schema->element_type);
 }
 

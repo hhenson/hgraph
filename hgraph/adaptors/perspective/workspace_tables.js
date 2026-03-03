@@ -65,17 +65,37 @@ async function processBlank(blank) {
 }
 
 export async function jsonToArrow(json, table_name) {
-    let data = json;
+    let data = undefined;
     if (tableFromJSON) {
         const schema = workspace_tables[table_name].arrow_schema;
         const keys = new Set();
-        json.forEach(row => Object.keys(row).forEach(k => keys.add(k)));
-        const columns = Object.assign({}, ...[...keys].map(props => ({[props]: json.map(prop => prop[props])})))
-        const vectors = Object.fromEntries(Object.entries(columns).filter((x) => x[0] in schema).map(([k, v]) => [
-            k, 
-            new arrow.Vector([...arrow.builderThroughIterable({type: schema[k], nullValues: [null, undefined]})(v)])
-        ]));
-        data = tableToIPC(new arrow.Table(vectors));
+        const batches = [];
+        let batch = undefined;
+        for (const row of json){
+            const keys = Object.keys(row);
+            const key = keys.sort().join(',');
+            if (batch === undefined || key !== batch.key) {
+                if (batch !== undefined) {
+                    batches.push(batch);
+                }
+                batch = {key, rows: Object.assign({}, ...[...keys].map(props => ({[props]: [row[props]]})))};
+            } else {
+                keys.forEach(k => { batch.rows[k].push(row[k]); });
+            }
+        }
+        if (batch !== undefined) {
+            batches.push(batch);
+        }
+        for (const batch of batches) {
+            const vectors = Object.fromEntries(Object.entries(batch.rows).filter((x) => x[0] in schema).map(([k, v]) => [
+                k, 
+                new arrow.Vector([...arrow.builderThroughIterable({type: schema[k], nullValues: [null, undefined]})(v)])
+            ]));
+            batch.data = tableToIPC(new arrow.Table(vectors));
+        }
+        data = batches.map(batch => batch.data);
+    } else {
+        data = [json];
     }
     return data;
 }
@@ -1284,7 +1304,10 @@ async function join_table_updated(target, removes_table, join_tables, table_name
     }
     if (join_data.length > 0) {
         DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "of", join_data.length, safeClone(join_data));
-        target.update(await jsonToArrow(join_data, join_tables._total.name));
+        const batches = await jsonToArrow(join_data, join_tables._total.name);
+        for (const batch of batches) {
+            target.update(batch);
+        }
     }
     if (new_row_indices.size > 0) {
         const total_index_col_name = join_tables._total.index;
@@ -1304,7 +1327,10 @@ async function join_table_updated(target, removes_table, join_tables, table_name
         }
         DEBUG && console.log("Joining", join_tables._total.name, join_data.length, "rows", "while processing update to", table_name, "of", update_data.length, safeClone(join_data));
         try {
-            target.update(await jsonToArrow(Array.from(join_data.values()), join_tables._total.name));
+            const batches = await jsonToArrow(Array.from(join_data.values()), join_tables._total.name);
+            for (const batch of batches) {
+                target.update(batch);
+            }
         } catch (e) {
             console.error("Failed to update join table", join_tables._total.name, "while processing update to", table_name, e);
             // sometimes when the table is pivoted and split, this might fail due to columns not being setup, can be ignored

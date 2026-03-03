@@ -186,7 +186,7 @@ class InspectorItemId:
         if self.node is None:
             return graph
 
-        node = graph.nodes[self.node]
+        node, _ = graph.node_info(self.node)
 
         if self.value_type is None:
             return node
@@ -220,7 +220,7 @@ class InspectorItemId:
         if self.node is None:
             return Graph
 
-        node = graph.nodes[self.node]
+        node, _ = graph.node_info(self.node)
 
         if self.value_type is None:
             return Node

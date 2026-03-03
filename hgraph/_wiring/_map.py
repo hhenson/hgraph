@@ -28,6 +28,7 @@ from hgraph._wiring._wiring_context import WiringContext
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_errors import NoTimeSeriesInputsError
 from hgraph._wiring._wiring_utils import stub_wiring_port, as_reference, wire_nested_graph
+from hgraph._types._time_series_types import TIME_SERIES_TYPE
 
 if TYPE_CHECKING:
     from hgraph._types._scalar_type_meta_data import HgAtomicType
@@ -206,7 +207,7 @@ def _deduce_signature_from_lambda_and_args(func, *args, __keys__=None, __key_arg
     from hgraph import with_signature, graph
 
     with WiringGraphContext(None, temporary=True) as context:
-        f = graph(with_signature(func, annotations=annotations, return_annotation=None))
+        f = graph(with_signature(func, annotations=annotations, return_annotation=TIME_SERIES_TYPE))
         out = f(**inputs_)
         if out is not None:
             output_type = out.output_type

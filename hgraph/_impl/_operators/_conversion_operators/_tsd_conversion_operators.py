@@ -78,10 +78,10 @@ def convert_tuple_to_enumerated_tsd(
 )
 def convert_set_to_tsd(
     keys: TS[Set[KEYABLE_SCALAR]],
-    ts: TIME_SERIES_TYPE,
+    ts: REF[TIME_SERIES_TYPE],
     to: Type[OUT] = DEFAULT[OUT],
-    _output: TSD_OUT[KEYABLE_SCALAR, TIME_SERIES_TYPE] = None,
-) -> TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE]:
+    _output: TSD_OUT[KEYABLE_SCALAR, REF[TIME_SERIES_TYPE]] = None,
+) -> TSD[KEYABLE_SCALAR, REF[TIME_SERIES_TYPE]]:
     remove = {k: REMOVE for k in _output.keys() if k not in keys.value} if _output.valid and keys.modified else {}
     if ts.modified:
         update = {k: ts.value for k in keys.value}

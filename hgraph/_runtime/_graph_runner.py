@@ -199,7 +199,10 @@ def evaluate_graph(graph: Callable, config: GraphConfiguration, *args, **kwargs)
 
         config.graph_logger.debug("Creating graph engine: %s", config.run_mode)
         engine = GraphEngineFactory.make(
-            graph_builder=graph_builder, run_mode=config.run_mode, observers=config.life_cycle_observers
+            graph_builder=graph_builder,
+            run_mode=config.run_mode,
+            observers=config.life_cycle_observers,
+            cleanup_on_error=config.cleanup_on_error,
         )
 
         gc.collect()  # Clean up any garbage from wiring

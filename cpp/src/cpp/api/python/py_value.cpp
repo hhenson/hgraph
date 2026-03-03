@@ -803,9 +803,8 @@ static void register_set_views(nb::module_& m) {
         // Iteration support
         .def("__iter__", [](SetView& self) {
             nb::list result;
-            for (size_t i = 0; i < self.size(); ++i) {
-                const void* elem = self.schema()->ops().at(self.data(), i, self.schema());
-                result.append(nb::cast(View(elem, self.schema()->element_type)));
+            for (auto elem : self) {
+                result.append(nb::cast(elem));
             }
             return nb::iter(result);
         }, "Iterate over elements");

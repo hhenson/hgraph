@@ -2,6 +2,7 @@ from ast import arg
 import functools
 from typing import Mapping, Any, TypeVar, Callable, TYPE_CHECKING, List, Tuple
 
+from frozendict import frozendict, deepfreeze
 from hgraph._types._generic_rank_util import scale_rank, combine_ranks
 from hgraph._wiring._wiring_errors import WiringError
 from hgraph._wiring._wiring_errors import WiringFailureError
@@ -16,6 +17,8 @@ from hgraph._wiring._wiring_node_class._wiring_node_class import (
 from hgraph._wiring._wiring_node_signature import WiringNodeType, AUTO_RESOLVE
 from hgraph._wiring._wiring_port import WiringPort
 from hgraph._wiring._wiring_utils import pretty_str_types
+
+from hgraph._types._scalar_type_meta_data import HgTypeOfTypeMetaData
 
 if TYPE_CHECKING:
     from hgraph._builder._node_builder import NodeBuilder
@@ -117,7 +120,7 @@ class OverloadedWiringNodeHelper:
 
     base: WiringNodeClass
     overloads: List[Tuple[WiringNodeClass, float]]
-    
+
     arg_count_cache: dict[object, list]  # no of args/kwarg names to applicable signatures
 
     def __init__(self, base: WiringNodeClass):
@@ -126,7 +129,7 @@ class OverloadedWiringNodeHelper:
             self.overloads = []
         else:
             self.overloads = [(base, self._calc_rank(base.signature))]
-            
+
         self.arg_count_cache = {}
 
     def overload(self, impl: WiringNodeClass):
@@ -153,7 +156,7 @@ class OverloadedWiringNodeHelper:
 
     def get_best_overload(self, *args, __return_sink_wp__: bool = False, **kwargs):
         overloads = self.overloads
-        
+
         arg_count_key = (len(args), frozenset(kwargs.keys()) - {"__pre_resolved_types__", "__return_sink_wp__", "__enforce_output_type__", "__recordable_id__"})
         cleaned_kwargs = {k: v for k, v in kwargs.items() if k in arg_count_key[1]}
         if arg_count_key in self.arg_count_cache:
@@ -168,18 +171,31 @@ class OverloadedWiringNodeHelper:
                     matches.append((c, r))
                     if c.signature.required_scalars:
                         scalars.update(c.signature.required_scalars)
+                        scalars.update(c.signature.args.index(k) for k in c.signature.required_scalars if k not in c.signature.kw_only_args)
+                    for k, t in c.signature.scalar_inputs.items():
+                        if isinstance(t, HgTypeOfTypeMetaData):
+                            scalars.add(k)
+                            scalars.add(c.signature.args.index(k))
                 except SyntaxError as e:
                     continue 
             self.arg_count_cache[arg_count_key] = matches, scalars, type_cache
             overloads = matches
 
-        # arg_type_key = {
-        #     **{i: HgTypeMetaData.parse_value(a) for i, a in enumerate(args)},
-        #     **{k: HgTypeMetaData.parse_value(v) for k, v in cleaned_kwargs.items()}
-        #     }
-        # if cache := type_cache.get(arg_type_key):
-        #     overloads = cache
-        
+        arg_type_key = {
+            **{i: HgTypeMetaData.parse_value(a) for i, a in enumerate(args)},
+            **{k: HgTypeMetaData.parse_value(v) for k, v in cleaned_kwargs.items()},
+            }
+        if scalars:
+            arg_type_key["__scalars__"] = frozendict({
+                **{i: a for i, a in enumerate(args) if i in scalars and arg_type_key[i].is_scalar},
+                **{k: v for k, v in cleaned_kwargs.items() if k in scalars and arg_type_key[k].is_scalar},
+            })
+        if prt := kwargs.get("__pre_resolved_types__"):
+            arg_type_key["__pre_resolved_types__"] = frozendict(prt)
+        arg_type_key = frozendict(arg_type_key)
+        if cache := type_cache.get(arg_type_key):
+            overloads = cache
+
         candidates = []
         rejected_candidates = []
         for c, r in overloads:
@@ -221,6 +237,9 @@ class OverloadedWiringNodeHelper:
             else None
         )
         from hgraph._wiring._wiring_observer import WiringObserverContext
+
+        if cache is None and pick is not None:
+            type_cache[arg_type_key] = [best_candidates[0]]
 
         WiringObserverContext.instance().notify_overload_resolution(
             self.base.signature,

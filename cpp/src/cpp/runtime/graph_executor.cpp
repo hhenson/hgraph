@@ -41,8 +41,8 @@ namespace hgraph
 
     void GraphExecutor::register_with_nanobind(nb::module_ &m) {
         nb::class_<GraphExecutor>(m, "GraphExecutor")
-            .def(nb::init<graph_builder_s_ptr, EvaluationMode, std::vector<EvaluationLifeCycleObserver::s_ptr>>(), "graph_builder"_a,
-                 "run_mode"_a, "observers"_a = std::vector<EvaluationLifeCycleObserver::s_ptr>{})
+            .def(nb::init<graph_builder_s_ptr, EvaluationMode, std::vector<EvaluationLifeCycleObserver::s_ptr>, bool>(), "graph_builder"_a,
+                 "run_mode"_a, "observers"_a = std::vector<EvaluationLifeCycleObserver::s_ptr>{}, "cleanup_on_error"_a = true)
             .def_prop_ro("run_mode", &GraphExecutor::run_mode)
             .def("run", &GraphExecutor::run)
             .def("__str__",
