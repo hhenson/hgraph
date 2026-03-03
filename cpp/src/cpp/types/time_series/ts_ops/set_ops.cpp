@@ -46,11 +46,6 @@ bool op_set_add(ViewData& vd, const View& elem, engine_time_t current_time) {
         }
     }
 
-    if (nb::object* cache_slot = resolve_python_value_cache_slot(vd, true); cache_slot != nullptr) {
-        *cache_slot = maybe_set->to_python();
-        vd.python_value_cache_slot = cache_slot;
-    }
-
     stamp_time_paths(vd, current_time);
     notify_link_target_observers(vd, current_time);
     return true;
@@ -98,11 +93,6 @@ bool op_set_remove(ViewData& vd, const View& elem, engine_time_t current_time) {
         if (!consumed_add && slots.removed_set.valid() && slots.removed_set.is_set()) {
             slots.removed_set.as_set().add(elem);
         }
-    }
-
-    if (nb::object* cache_slot = resolve_python_value_cache_slot(vd, true); cache_slot != nullptr) {
-        *cache_slot = maybe_set->to_python();
-        vd.python_value_cache_slot = cache_slot;
     }
 
     stamp_time_paths(vd, current_time);
@@ -160,10 +150,6 @@ void op_set_clear(ViewData& vd, engine_time_t current_time) {
         }
     }
     set.clear();
-    if (nb::object* cache_slot = resolve_python_value_cache_slot(vd, true); cache_slot != nullptr) {
-        *cache_slot = maybe_set->to_python();
-        vd.python_value_cache_slot = cache_slot;
-    }
     stamp_time_paths(vd, current_time);
     notify_link_target_observers(vd, current_time);
 }

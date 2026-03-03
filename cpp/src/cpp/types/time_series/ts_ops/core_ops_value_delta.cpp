@@ -459,11 +459,6 @@ void op_set_value(ViewData& vd, const View& src, engine_time_t current_time) {
             copy_view_data(*maybe_dst, src);
         }
     }
-    if (auto current = resolve_value_slot_const(vd); current.has_value()) {
-        seed_python_value_cache_slot(vd, current->valid() ? current->to_python() : nb::none());
-    } else {
-        seed_python_value_cache_slot(vd, nb::none());
-    }
     mark_tsd_parent_child_modified(vd, current_time);
     stamp_time_paths(vd, current_time);
     notify_link_target_observers(vd, current_time);

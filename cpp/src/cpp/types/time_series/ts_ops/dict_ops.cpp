@@ -59,11 +59,6 @@ bool op_dict_remove(ViewData& vd, const View& key, engine_time_t current_time) {
         }
     }
 
-    if (nb::object* cache_slot = resolve_python_value_cache_slot(vd, true); cache_slot != nullptr) {
-        *cache_slot = maybe_map->to_python();
-        vd.python_value_cache_slot = cache_slot;
-    }
-
     stamp_time_paths(vd, current_time);
     notify_link_target_observers(vd, current_time);
     return true;
@@ -146,10 +141,6 @@ TSView op_dict_create(ViewData& vd, const View& key, engine_time_t current_time)
         }
 
         invalidate_python_value_cache(vd);
-        if (nb::object* cache_slot = resolve_python_value_cache_slot(vd, true); cache_slot != nullptr) {
-            *cache_slot = maybe_map->to_python();
-            vd.python_value_cache_slot = cache_slot;
-        }
         stamp_time_paths(vd, current_time);
         notify_link_target_observers(vd, current_time);
     }
@@ -220,11 +211,6 @@ TSView op_dict_set(ViewData& vd, const View& key, const View& value, engine_time
     }
     if (slots.removed_set.valid() && slots.removed_set.is_set()) {
         slots.removed_set.as_set().remove(canonical_key);
-    }
-
-    if (nb::object* cache_slot = resolve_python_value_cache_slot(vd, true); cache_slot != nullptr) {
-        *cache_slot = maybe_map->to_python();
-        vd.python_value_cache_slot = cache_slot;
     }
 
     return op_child_at(vd, *slot, current_time);
