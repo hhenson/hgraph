@@ -172,6 +172,13 @@ void op_from_python_tss(ViewData& vd, const nb::object& src, engine_time_t curre
         !changed &&
         current_time != MIN_DT &&
         direct_last_modified_time(vd) == current_time;
+    if (changed || !was_valid) {
+        invalidate_python_value_cache(vd);
+        if (nb::object* cache_slot = resolve_python_value_cache_slot(vd, true); cache_slot != nullptr) {
+            *cache_slot = maybe_set->to_python();
+            vd.python_value_cache_slot = cache_slot;
+        }
+    }
     if (changed || !was_valid || preserve_existing_tick) {
         stamp_time_paths(vd, current_time);
         notify_link_target_observers(vd, current_time);

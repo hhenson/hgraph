@@ -59,6 +59,13 @@ void op_from_python_tsl(ViewData& vd, const nb::object& src, engine_time_t curre
         return;
     }
 
+    if (changed) {
+        if (nb::object* cache_slot = resolve_python_value_cache_slot(vd, true); cache_slot != nullptr) {
+            auto current_value = resolve_value_slot_const(vd);
+            *cache_slot = (current_value.has_value() && current_value->valid()) ? current_value->to_python() : nb::none();
+            vd.python_value_cache_slot = cache_slot;
+        }
+    }
     notify_if_static_container_children_changed(changed, vd, current_time);
 }
 
@@ -134,6 +141,13 @@ void op_from_python_tsb(ViewData& vd, const nb::object& src, engine_time_t curre
         return;
     }
 
+    if (changed) {
+        if (nb::object* cache_slot = resolve_python_value_cache_slot(vd, true); cache_slot != nullptr) {
+            auto current_value = resolve_value_slot_const(vd);
+            *cache_slot = (current_value.has_value() && current_value->valid()) ? current_value->to_python() : nb::none();
+            vd.python_value_cache_slot = cache_slot;
+        }
+    }
     notify_if_static_container_children_changed(changed, vd, current_time);
 }
 

@@ -69,6 +69,7 @@ void op_from_python_tsd_ref_impl(ViewData& vd,
     };
 
     bool changed = false;
+    std::vector<size_t> directly_mutated_slots;
 
     for (const auto& kv : items) {
         value::Value key_value(key_type);
@@ -120,6 +121,7 @@ void op_from_python_tsd_ref_impl(ViewData& vd,
 
             dst_map.remove(canonical_key);
             changed = true;
+            directly_mutated_slots.push_back(*removed_slot);
             compact_tsd_child_time_slot(vd, *removed_slot);
             compact_tsd_child_delta_slot(vd, *removed_slot);
             compact_tsd_child_link_slot(vd, *removed_slot);
@@ -169,6 +171,7 @@ void op_from_python_tsd_ref_impl(ViewData& vd,
                             slots.changed_values_map.as_map().remove(canonical_key);
                         }
                         changed = true;
+                        directly_mutated_slots.push_back(*slot);
                     }
                 }
                 continue;
@@ -187,6 +190,7 @@ void op_from_python_tsd_ref_impl(ViewData& vd,
         if (!slot.has_value()) {
             continue;
         }
+        directly_mutated_slots.push_back(*slot);
 
         Value canonical_key_value = canonical_map_key_for_slot(dst_map, *slot, key);
         const View canonical_key = canonical_key_value.view();
@@ -196,6 +200,7 @@ void op_from_python_tsd_ref_impl(ViewData& vd,
         ViewData child_vd = vd;
         child_vd.path.indices.push_back(*slot);
         stamp_time_paths(child_vd, current_time);
+        seed_python_value_cache_slot(child_vd, value_value.view().to_python());
 
         if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
             slots.changed_values_map.as_map().set(canonical_key, value_value.view());
@@ -237,9 +242,26 @@ void op_from_python_tsd_ref_impl(ViewData& vd,
     }
 
     if (changed || !was_valid) {
+        invalidate_python_delta_cache(vd);
+        if (!directly_mutated_slots.empty()) {
+            std::sort(directly_mutated_slots.begin(), directly_mutated_slots.end());
+            directly_mutated_slots.erase(
+                std::unique(directly_mutated_slots.begin(), directly_mutated_slots.end()),
+                directly_mutated_slots.end());
+            for (size_t slot : directly_mutated_slots) {
+                ViewData child_vd = vd;
+                child_vd.path.indices.push_back(slot);
+                invalidate_python_value_cache(child_vd);
+            }
+        }
+        if (nb::object* cache_slot = resolve_python_value_cache_slot(vd, true); cache_slot != nullptr) {
+            *cache_slot = maybe_dst->to_python();
+            vd.python_value_cache_slot = cache_slot;
+        }
         stamp_time_paths(vd, current_time);
         notify_link_target_observers(vd, current_time);
     } else if (ref_child_target_modified) {
+        invalidate_python_delta_cache(vd);
         notify_link_target_observers(vd, current_time);
     }
 }

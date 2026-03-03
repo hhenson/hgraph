@@ -459,6 +459,11 @@ void op_set_value(ViewData& vd, const View& src, engine_time_t current_time) {
             copy_view_data(*maybe_dst, src);
         }
     }
+    if (auto current = resolve_value_slot_const(vd); current.has_value()) {
+        seed_python_value_cache_slot(vd, current->valid() ? current->to_python() : nb::none());
+    } else {
+        seed_python_value_cache_slot(vd, nb::none());
+    }
     mark_tsd_parent_child_modified(vd, current_time);
     stamp_time_paths(vd, current_time);
     notify_link_target_observers(vd, current_time);
@@ -572,7 +577,19 @@ bool reset_root_value_and_delta_on_none(ViewData& vd,
     if (!vd.path.indices.empty() || !src.is_none()) {
         return false;
     }
-    invalidate_python_value_cache(vd);
+
+    bool had_value_or_delta = false;
+    if (auto* value_root = static_cast<Value*>(vd.value_data); value_root != nullptr) {
+        had_value_or_delta = had_value_or_delta || value_root->has_value();
+    }
+    if (auto* delta_root = static_cast<Value*>(vd.delta_data); delta_root != nullptr) {
+        had_value_or_delta = had_value_or_delta || delta_root->has_value();
+    }
+    if (had_value_or_delta) {
+        invalidate_python_value_cache(vd);
+    } else {
+        invalidate_python_delta_cache(vd);
+    }
 
     if (auto* value_root = static_cast<Value*>(vd.value_data); value_root != nullptr) {
         value_root->reset();
@@ -580,6 +597,7 @@ bool reset_root_value_and_delta_on_none(ViewData& vd,
     if (auto* delta_root = static_cast<Value*>(vd.delta_data); delta_root != nullptr) {
         delta_root->reset();
     }
+    seed_python_value_cache_slot(vd, nb::none());
     stamp_time_paths(vd, current_time);
     notify_link_target_observers(vd, current_time);
     return true;

@@ -103,7 +103,9 @@ void op_from_python_ref(ViewData& vd, const nb::object& src, engine_time_t curre
                      in_repr.c_str());
     }
 
+    invalidate_python_value_cache(vd);
     maybe_dst->from_python(normalized_src);
+    seed_python_value_cache_slot(vd, maybe_dst->valid() ? maybe_dst->to_python() : nb::none());
 
     TimeSeriesReference written_ref = TimeSeriesReference::make();
     bool written_ref_valid = false;

@@ -73,6 +73,7 @@ void op_from_python_tsw_tick(ViewData& vd, const nb::object& src, engine_time_t 
             vd, src, current, maybe_window, maybe_time_tuple, container_time, maybe_value)) {
         return;
     }
+    invalidate_python_value_cache(vd);
 
     clear_tsw_delta_if_new_tick(vd, current_time);
 
@@ -122,6 +123,7 @@ void op_from_python_tsw_duration(ViewData& vd, const nb::object& src, engine_tim
             vd, src, current, maybe_window, maybe_time_tuple, container_time, maybe_value)) {
         return;
     }
+    invalidate_python_value_cache(vd);
 
     clear_tsw_delta_if_new_tick(vd, current_time);
 
