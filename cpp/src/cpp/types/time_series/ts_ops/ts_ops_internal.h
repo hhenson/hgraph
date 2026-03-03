@@ -333,6 +333,7 @@ const PythonDeltaCacheEntry* resolve_python_delta_cache_slot(const ViewData& vd)
 void seed_python_value_cache_slot(ViewData& vd, const nb::object& value);
 void seed_python_value_cache_slot_from_view(ViewData& vd, const View& value);
 void invalidate_python_value_cache(ViewData& vd);
+void invalidate_python_delta_cache(ViewData& vd);
 std::optional<std::vector<size_t>> ts_path_to_delta_path(const TSMeta* root_meta, const std::vector<size_t>& ts_path);
 const value::MapStorage* map_storage_for_read(const value::MapView& map);
 std::optional<size_t> map_slot_for_key(const value::MapView& map, const View& key);

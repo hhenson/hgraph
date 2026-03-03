@@ -731,6 +731,20 @@ void notify_link_observer(LinkTarget& observer, engine_time_t current_time, bool
     }
 }
 
+void invalidate_observer_wrapper_delta_cache(LinkTarget& observer, bool debug_notify) {
+    ViewData wrapper_view = observer.observer_view;
+    if (wrapper_view.meta == nullptr || wrapper_view.python_value_cache_data == nullptr) {
+        return;
+    }
+    invalidate_python_delta_cache(wrapper_view);
+    if (debug_notify) {
+        std::fprintf(stderr,
+                     "[notify_obs]  invalidate wrapper delta-cache obs=%p path=%s\n",
+                     static_cast<void*>(&observer),
+                     wrapper_view.path.to_string().c_str());
+    }
+}
+
 void dispatch_link_observers(
     const ViewData& target_view,
     engine_time_t current_time,
@@ -746,6 +760,10 @@ void dispatch_link_observers(
         if (!observer->is_linked) {
             continue;
         }
+
+        // Source-side writes can change observer-visible delta semantics
+        // without local wrapper mutations. Keep wrapper delta caches coherent.
+        invalidate_observer_wrapper_delta_cache(*observer, debug_notify);
 
         // Keep REF-resolved bridge state up to date on source writes so
         // consumers can observe bind/unbind transitions in the same tick.

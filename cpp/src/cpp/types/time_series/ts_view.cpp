@@ -937,12 +937,6 @@ void populate_tsd_key_set_delta_cache(TsdKeySetDeltaCacheEntry& cache, const TSV
 }
 
 TsdKeySetDeltaCacheEntry* tsd_key_set_delta_cache_entry_for_view(const TSView& view) {
-    // Link-target-backed views can observe source updates without mutating the
-    // local wrapper cache root. Reusing the local cache entry can therefore
-    // return stale key-set deltas on remove-only ticks.
-    if (view.view_data().uses_link_target) {
-        return nullptr;
-    }
     auto* root = static_cast<PythonValueCacheNode*>(view.view_data().python_value_cache_data);
     if (root != nullptr) {
         return root->tsd_key_set_delta_cache();

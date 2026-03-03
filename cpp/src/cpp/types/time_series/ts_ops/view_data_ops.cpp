@@ -441,6 +441,53 @@ void invalidate_python_value_cache(ViewData& vd) {
     vd.python_value_cache_slot = nullptr;
 }
 
+void invalidate_python_delta_cache(ViewData& vd) {
+    HGRAPH_PY_CACHE_STATS_INC_INVALIDATION_CALLS();
+    auto* root = static_cast<PythonValueCacheNode*>(vd.python_value_cache_data);
+    if (root == nullptr || root->empty()) {
+        return;
+    }
+    HGRAPH_PY_CACHE_STATS_INC_INVALIDATION_EFFECTIVE();
+    root->keyed_delta_lookup_cache()->clear();
+    root->tsd_key_set_delta_cache()->clear();
+
+    if (Py_IsInitialized() == 0) {
+        root->abandon_delta_subtree();
+        return;
+    }
+
+    nb::gil_scoped_acquire gil;
+    if (vd.path.indices.empty()) {
+        root->clear_delta_subtree();
+        return;
+    }
+
+    // Keep container-level delta reads coherent for descendant invalidations.
+    root->delta_root_value()->clear();
+
+    PythonValueCacheNode* node = root;
+    for (size_t depth = 0; depth < vd.path.indices.size(); ++depth) {
+        const size_t index = vd.path.indices[depth];
+        PythonDeltaCacheEntry* delta_slot = node->delta_slot_value(index, false);
+        if (delta_slot == nullptr) {
+            return;
+        }
+        delta_slot->clear();
+
+        if (depth + 1 == vd.path.indices.size()) {
+            if (PythonValueCacheNode* child = node->child_node(index, false); child != nullptr) {
+                child->clear_delta_subtree();
+            }
+            return;
+        }
+
+        node = node->child_node(index, false);
+        if (node == nullptr) {
+            return;
+        }
+    }
+}
+
 bool has_local_ref_wrapper_value(const ViewData& vd) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
     if (!dispatch_meta_is_ref(current)) {

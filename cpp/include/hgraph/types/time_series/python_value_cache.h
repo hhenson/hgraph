@@ -293,6 +293,25 @@ public:
         tsd_key_set_delta_cache_.clear();
     }
 
+    void clear_delta_subtree() {
+        delta_root_value_.clear();
+        if (auto* slots = std::get_if<DeltaSlotStorage>(&delta_storage_); slots != nullptr) {
+            for (PythonDeltaCacheEntry& value : slots->slot_values) {
+                value.clear();
+            }
+        }
+        keyed_delta_lookup_cache_.clear();
+        tsd_key_set_delta_cache_.clear();
+
+        if (auto* slots = std::get_if<SlotStorage>(&storage_); slots != nullptr) {
+            for (auto& child : slots->slot_children) {
+                if (child != nullptr) {
+                    child->clear_delta_subtree();
+                }
+            }
+        }
+    }
+
     // Detach Python refs without decref; used only when interpreter is unavailable.
     void abandon_subtree() {
         if (nb::object* scalar = std::get_if<nb::object>(&storage_); scalar != nullptr) {
@@ -322,6 +341,26 @@ public:
         }
         keyed_delta_lookup_cache_.abandon();
         tsd_key_set_delta_cache_.abandon();
+    }
+
+    // Detach delta Python refs without decref; used only when interpreter is unavailable.
+    void abandon_delta_subtree() {
+        delta_root_value_.abandon();
+        if (auto* slots = std::get_if<DeltaSlotStorage>(&delta_storage_); slots != nullptr) {
+            for (PythonDeltaCacheEntry& value : slots->slot_values) {
+                value.abandon();
+            }
+        }
+        keyed_delta_lookup_cache_.abandon();
+        tsd_key_set_delta_cache_.abandon();
+
+        if (auto* slots = std::get_if<SlotStorage>(&storage_); slots != nullptr) {
+            for (auto& child : slots->slot_children) {
+                if (child != nullptr) {
+                    child->abandon_delta_subtree();
+                }
+            }
+        }
     }
 
 private:
