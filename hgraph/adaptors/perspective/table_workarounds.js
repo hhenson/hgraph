@@ -1400,7 +1400,8 @@ function createButtonAction(td, action, metadata, model, viewer) {
 
                                 const resp = await fetch(url, { method: "GET" });
                                 if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
-                                await target_tbl[mode](await resp.arrayBuffer());
+                                const buffer = await resp.arrayBuffer();
+                                if (buffer.byteLength > 0) await target_tbl[mode](buffer);
 
                                 console.server?.(`update_table: '${targetTableName}' updated via ${url} at ${new Date().toISOString()}`);
                             } finally {
