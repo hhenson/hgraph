@@ -120,9 +120,12 @@ public:
 
     [[nodiscard]] bool contains(const value::View& elem) const;
     [[nodiscard]] size_t size() const;
+    [[nodiscard]] bool empty() const { return size() == 0; }
     [[nodiscard]] std::vector<value::View> values() const;
     [[nodiscard]] std::vector<value::View> added() const;
     [[nodiscard]] std::vector<value::View> removed() const;
+    [[nodiscard]] bool was_added(const value::View& elem) const;
+    [[nodiscard]] bool was_removed(const value::View& elem) const;
 };
 
 class HGRAPH_EXPORT TSDInputView : public TSInputView {
@@ -209,9 +212,9 @@ public:
     [[nodiscard]] std::string_view name_at(size_t index) const;
     [[nodiscard]] std::optional<std::string_view> name_for_child(const TSInputView& child) const;
     [[nodiscard]] bool contains(std::string_view name) const;
-    [[nodiscard]] nb::list keys() const;
-    [[nodiscard]] nb::list valid_keys() const;
-    [[nodiscard]] nb::list modified_keys() const;
+    [[nodiscard]] std::vector<std::string_view> keys() const;
+    [[nodiscard]] std::vector<std::string_view> valid_keys() const;
+    [[nodiscard]] std::vector<std::string_view> modified_keys() const;
     [[nodiscard]] std::vector<TSInputView> values() const;
     [[nodiscard]] std::vector<TSInputView> valid_values() const;
     [[nodiscard]] std::vector<TSInputView> modified_values() const;

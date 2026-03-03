@@ -376,6 +376,39 @@ std::vector<value::View> tss_delta_values_for_view(const TSView& view, size_t tu
     return out;
 }
 
+bool tss_was_delta_value_for_view(const TSView& view, const value::View& elem, size_t tuple_slot) {
+    if (!elem.valid()) {
+        return false;
+    }
+
+    const value::View delta = view.delta_payload();
+    if (!delta.valid() || !delta.is_tuple()) {
+        return tuple_slot == 0 && view.sampled() && tss_contains_for_view(view, elem);
+    }
+
+    auto tuple = delta.as_tuple();
+    if (tuple_slot >= tuple.size()) {
+        return tuple_slot == 0 && view.sampled() && tss_contains_for_view(view, elem);
+    }
+
+    const value::View slot = tuple.at(tuple_slot);
+    if (!slot.valid()) {
+        return false;
+    }
+
+    if (slot.is_set()) {
+        auto set = slot.as_set();
+        return elem.schema() == set.element_type() && set.contains(elem);
+    }
+
+    if (slot.is_map()) {
+        auto map = slot.as_map();
+        return elem.schema() == map.key_type() && map.contains(elem);
+    }
+
+    return false;
+}
+
 template <typename ListView>
 using list_child_t = std::decay_t<decltype(std::declval<const ListView&>().at(size_t{}))>;
 
@@ -456,9 +489,10 @@ template <typename BundleView>
 using bundle_item_t = std::pair<std::string_view, bundle_child_t<BundleView>>;
 
 template <typename BundleView>
-nb::list ts_bundle_keys(const BundleView& bundle, TSCollectionFilter filter) {
-    nb::list out;
+std::vector<std::string_view> ts_bundle_keys(const BundleView& bundle, TSCollectionFilter filter) {
+    std::vector<std::string_view> out;
     const size_t count = bundle.count();
+    out.reserve(count);
     for (size_t i = 0; i < count; ++i) {
         const std::string_view name = bundle.name_at(i);
         if (name.empty()) {
@@ -477,7 +511,7 @@ nb::list ts_bundle_keys(const BundleView& bundle, TSCollectionFilter filter) {
             }
         }
 
-        out.append(nb::str(name.data(), name.size()));
+        out.push_back(name);
     }
     return out;
 }
@@ -1134,6 +1168,13 @@ std::vector<value::Value> tsd_removed_keys_for_view_native(const TSView& view) {
 bool tsd_was_modified_for_output_view(const TSView& view, const value::View& key);
 bool tsd_was_modified_for_input_view(const TSView& view, const value::View& key);
 
+bool tsd_was_modified_for_view(const TSView& view, const value::View& key) {
+    if (view.short_path().port_type == PortType::INPUT) {
+        return tsd_was_modified_for_input_view(view, key);
+    }
+    return tsd_was_modified_for_output_view(view, key);
+}
+
 bool tsd_ref_input_fallback_was_modified(const TSView& view, const value::View& key) {
     auto child = view.as_dict().at_key(key);
     if (!child || !child.modified()) {
@@ -1171,6 +1212,29 @@ std::vector<value::Value> tsd_modified_keys_for_output_view_native(const TSView&
     out.reserve(keys.size());
     for (auto& key : keys) {
         if (tsd_was_modified_for_output_view(view, key.view())) {
+            out.emplace_back(std::move(key));
+        }
+    }
+    if (tsd_is_ref_valued(view)) {
+        std::unordered_set<value::View> seen;
+        seen.reserve(out.size());
+        for (const auto& key : out) {
+            seen.insert(key.view());
+        }
+        for_each_tsd_key_set_delta_key(view, true, [&](const value::Value& key) {
+            append_unique_key(out, seen, key.view());
+        });
+        stable_sort_atomic_keys(out);
+    }
+    return out;
+}
+
+std::vector<value::Value> tsd_modified_keys_for_view_native(const TSView& view) {
+    std::vector<value::Value> out;
+    auto keys = tsd_keys_for_view(view, false);
+    out.reserve(keys.size());
+    for (auto& key : keys) {
+        if (tsd_was_modified_for_view(view, key.view())) {
             out.emplace_back(std::move(key));
         }
     }
@@ -1670,15 +1734,15 @@ bool TSBView::contains(std::string_view name) const {
     return bundle_contains_impl(view_data(), name);
 }
 
-nb::list TSBView::keys() const {
-    return ts_bundle_field_names(*this);
+std::vector<std::string_view> TSBView::keys() const {
+    return ts_bundle_keys(*this, TSCollectionFilter::All);
 }
 
-nb::list TSBView::valid_keys() const {
+std::vector<std::string_view> TSBView::valid_keys() const {
     return ts_bundle_keys(*this, TSCollectionFilter::Valid);
 }
 
-nb::list TSBView::modified_keys() const {
+std::vector<std::string_view> TSBView::modified_keys() const {
     return ts_bundle_keys(*this, TSCollectionFilter::Modified);
 }
 
@@ -1861,6 +1925,14 @@ std::vector<value::View> TSSView::removed() const {
     return tss_delta_values_for_view(*this, 1);
 }
 
+bool TSSView::was_added(const value::View& elem) const {
+    return tss_was_delta_value_for_view(*this, elem, 0);
+}
+
+bool TSSView::was_removed(const value::View& elem) const {
+    return tss_was_delta_value_for_view(*this, elem, 1);
+}
+
 bool TSSView::add(const value::View& elem) {
     const ts_set_ops* ops = resolve_set_ops(view_data());
     if (ops == nullptr || ops->add == nullptr) {
@@ -1901,6 +1973,202 @@ TSView TSDView::get(const value::View& key, TSView default_value) const {
 TSView TSDView::get_or_create(const value::View& key) {
     TSView child = at_key(key);
     return child ? child : create(key);
+}
+
+bool TSDView::contains(const value::View& key) const {
+    return static_cast<bool>(at_key(key));
+}
+
+std::vector<value::Value> TSDView::keys() const {
+    return tsd_keys_for_view(*this, false);
+}
+
+std::vector<value::Value> TSDView::valid_keys() const {
+    std::vector<value::Value> out;
+    auto dict = as_dict();
+    auto all_keys = keys();
+    for (auto& key : all_keys) {
+        auto child = dict.at_key(key.view());
+        if (child && child.valid()) {
+            out.emplace_back(std::move(key));
+        }
+    }
+    return out;
+}
+
+std::vector<value::Value> TSDView::modified_keys() const {
+    return tsd_modified_keys_for_view_native(*this);
+}
+
+std::vector<value::Value> TSDView::added_keys() const {
+    return tsd_added_keys_for_view_native(*this);
+}
+
+std::vector<value::Value> TSDView::removed_keys() const {
+    return tsd_removed_keys_for_view_native(*this);
+}
+
+bool TSDView::has_added() const {
+    return tsd_has_added_for_view(*this);
+}
+
+bool TSDView::has_removed() const {
+    return tsd_has_removed_for_view(*this);
+}
+
+bool TSDView::was_added(const value::View& key) const {
+    return tsd_was_added_for_view(*this, key);
+}
+
+bool TSDView::was_removed(const value::View& key) const {
+    return tsd_was_removed_for_view(*this, key);
+}
+
+bool TSDView::was_modified(const value::View& key) const {
+    return tsd_was_modified_for_view(*this, key);
+}
+
+std::vector<TSView> TSDView::values() const {
+    std::vector<TSView> out;
+    auto dict = as_dict();
+    for (const value::Value& key : keys()) {
+        auto child = dict.at_key(key.view());
+        if (child) {
+            out.emplace_back(std::move(child));
+        }
+    }
+    return out;
+}
+
+std::vector<TSView> TSDView::valid_values() const {
+    std::vector<TSView> out;
+    auto dict = as_dict();
+    for (const value::Value& key : valid_keys()) {
+        auto child = dict.at_key(key.view());
+        if (child) {
+            out.emplace_back(std::move(child));
+        }
+    }
+    return out;
+}
+
+std::vector<TSView> TSDView::modified_values() const {
+    std::vector<TSView> out;
+    auto dict = as_dict();
+    for (const value::Value& key : modified_keys()) {
+        auto child = dict.at_key(key.view());
+        if (child) {
+            out.emplace_back(std::move(child));
+        }
+    }
+    return out;
+}
+
+std::vector<TSView> TSDView::added_values() const {
+    std::vector<TSView> out;
+    auto dict = as_dict();
+    for (const value::Value& key : added_keys()) {
+        auto child = dict.at_key(key.view());
+        if (child) {
+            out.emplace_back(std::move(child));
+        }
+    }
+    return out;
+}
+
+std::vector<TSView> TSDView::removed_values() const {
+    std::vector<TSView> out;
+    TSView parent = *this;
+    auto dict = as_dict();
+    for (const value::Value& key : removed_keys()) {
+        auto child = dict.at_key(key.view());
+        if (child && child.valid()) {
+            out.emplace_back(std::move(child));
+            continue;
+        }
+
+        if (auto previous_child = tsd_previous_child_for_key(parent, key); previous_child.has_value()) {
+            TSView previous_view = parent;
+            previous_view.view_data() = previous_child->view_data();
+            previous_view.view_data().sampled = true;
+            out.emplace_back(std::move(previous_view));
+        }
+    }
+    return out;
+}
+
+std::vector<TSDView::item_type> TSDView::items() const {
+    std::vector<item_type> out;
+    auto dict = as_dict();
+    auto all_keys = keys();
+    for (auto& key : all_keys) {
+        auto child = dict.at_key(key.view());
+        if (child) {
+            out.emplace_back(std::move(key), std::move(child));
+        }
+    }
+    return out;
+}
+
+std::vector<TSDView::item_type> TSDView::valid_items() const {
+    std::vector<item_type> out;
+    auto dict = as_dict();
+    auto all_keys = valid_keys();
+    for (auto& key : all_keys) {
+        auto child = dict.at_key(key.view());
+        if (child) {
+            out.emplace_back(std::move(key), std::move(child));
+        }
+    }
+    return out;
+}
+
+std::vector<TSDView::item_type> TSDView::modified_items() const {
+    std::vector<item_type> out;
+    auto dict = as_dict();
+    auto all_keys = modified_keys();
+    for (auto& key : all_keys) {
+        auto child = dict.at_key(key.view());
+        if (child) {
+            out.emplace_back(std::move(key), std::move(child));
+        }
+    }
+    return out;
+}
+
+std::vector<TSDView::item_type> TSDView::added_items() const {
+    std::vector<item_type> out;
+    auto dict = as_dict();
+    auto all_keys = added_keys();
+    for (auto& key : all_keys) {
+        auto child = dict.at_key(key.view());
+        if (child) {
+            out.emplace_back(std::move(key), std::move(child));
+        }
+    }
+    return out;
+}
+
+std::vector<TSDView::item_type> TSDView::removed_items() const {
+    std::vector<item_type> out;
+    TSView parent = *this;
+    auto dict = as_dict();
+    auto all_keys = removed_keys();
+    for (auto& key : all_keys) {
+        auto child = dict.at_key(key.view());
+        if (child && child.valid()) {
+            out.emplace_back(std::move(key), std::move(child));
+            continue;
+        }
+
+        if (auto previous_child = tsd_previous_child_for_key(parent, key); previous_child.has_value()) {
+            TSView previous_view = parent;
+            previous_view.view_data() = previous_child->view_data();
+            previous_view.view_data().sampled = true;
+            out.emplace_back(std::move(key), std::move(previous_view));
+        }
+    }
+    return out;
 }
 
 std::optional<value::Value> TSDView::key_at_slot(size_t slot) const {
@@ -2178,6 +2446,14 @@ std::vector<value::View> TSSOutputView::removed() const {
     return as_ts_view().as_set().removed();
 }
 
+bool TSSOutputView::was_added(const value::View& elem) const {
+    return as_ts_view().as_set().was_added(elem);
+}
+
+bool TSSOutputView::was_removed(const value::View& elem) const {
+    return as_ts_view().as_set().was_removed(elem);
+}
+
 bool TSSOutputView::add(const value::View& elem) {
     return as_ts_view().as_set().add(elem);
 }
@@ -2432,6 +2708,30 @@ TSOutputView TSDOutputView::set(const value::View& key, const value::View& value
     return TSOutputView(owner_, as_ts_view().as_dict().set(key, value));
 }
 
+void TSDOutputView::clear() {
+    auto dict = as_ts_view().as_dict();
+    auto key_values = dict.keys();
+    for (const auto& key : key_values) {
+        (void)dict.remove(key.view());
+    }
+}
+
+TSOutputView TSDOutputView::pop(const value::View& key) {
+    TSOutputView child = at_key(key);
+    if (!child) {
+        return {};
+    }
+    if (!remove(key)) {
+        return {};
+    }
+    return child;
+}
+
+TSOutputView TSDOutputView::pop(const value::View& key, TSOutputView default_value) {
+    TSOutputView child = pop(key);
+    return child ? child : std::move(default_value);
+}
+
 TSOutputView TSIndexedOutputView::at(size_t index) const {
     return TSOutputView(owner_, as_ts_view().as_indexed_unchecked().at(index));
 }
@@ -2508,15 +2808,15 @@ bool TSBOutputView::contains(std::string_view name) const {
     return as_ts_view().as_bundle().contains(name);
 }
 
-nb::list TSBOutputView::keys() const {
+std::vector<std::string_view> TSBOutputView::keys() const {
     return as_ts_view().as_bundle().keys();
 }
 
-nb::list TSBOutputView::valid_keys() const {
+std::vector<std::string_view> TSBOutputView::valid_keys() const {
     return ts_bundle_keys(*this, TSCollectionFilter::Valid);
 }
 
-nb::list TSBOutputView::modified_keys() const {
+std::vector<std::string_view> TSBOutputView::modified_keys() const {
     return ts_bundle_keys(*this, TSCollectionFilter::Modified);
 }
 
@@ -2711,6 +3011,14 @@ std::vector<value::View> TSSInputView::added() const {
 
 std::vector<value::View> TSSInputView::removed() const {
     return as_ts_view().as_set().removed();
+}
+
+bool TSSInputView::was_added(const value::View& elem) const {
+    return as_ts_view().as_set().was_added(elem);
+}
+
+bool TSSInputView::was_removed(const value::View& elem) const {
+    return as_ts_view().as_set().was_removed(elem);
 }
 
 TSSInputView TSDInputView::key_set() const {
@@ -3019,15 +3327,15 @@ bool TSBInputView::contains(std::string_view name) const {
     return as_ts_view().as_bundle().contains(name);
 }
 
-nb::list TSBInputView::keys() const {
+std::vector<std::string_view> TSBInputView::keys() const {
     return as_ts_view().as_bundle().keys();
 }
 
-nb::list TSBInputView::valid_keys() const {
+std::vector<std::string_view> TSBInputView::valid_keys() const {
     return ts_bundle_keys(*this, TSCollectionFilter::Valid);
 }
 
-nb::list TSBInputView::modified_keys() const {
+std::vector<std::string_view> TSBInputView::modified_keys() const {
     return ts_bundle_keys(*this, TSCollectionFilter::Modified);
 }
 

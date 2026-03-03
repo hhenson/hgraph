@@ -41,6 +41,14 @@ namespace
         return out;
     }
 
+    nb::list wrap_names(std::vector<std::string_view> names) {
+        nb::list out;
+        for (const std::string_view name : names) {
+            out.append(nb::str(name.data(), name.size()));
+        }
+        return out;
+    }
+
     template <typename T_TS, typename Item>
     nb::list wrap_items(std::vector<Item> items) {
         nb::list out;
@@ -137,7 +145,7 @@ namespace
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::keys() const {
-        return bundle_view(*this).keys();
+        return wrap_names(bundle_view(*this).keys());
     }
 
     template <typename T_TS>
@@ -147,7 +155,7 @@ namespace
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::valid_keys() const {
-        return bundle_view(*this).valid_keys();
+        return wrap_names(bundle_view(*this).valid_keys());
     }
 
     template <typename T_TS>
@@ -157,7 +165,7 @@ namespace
 
     template <typename T_TS>
     nb::object PyTimeSeriesBundle<T_TS>::modified_keys() const {
-        return bundle_view(*this).modified_keys();
+        return wrap_names(bundle_view(*this).modified_keys());
     }
 
     template <typename T_TS>

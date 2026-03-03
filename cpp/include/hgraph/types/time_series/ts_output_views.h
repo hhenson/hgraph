@@ -121,9 +121,12 @@ public:
 
     [[nodiscard]] bool contains(const value::View& elem) const;
     [[nodiscard]] size_t size() const;
+    [[nodiscard]] bool empty() const { return size() == 0; }
     [[nodiscard]] std::vector<value::View> values() const;
     [[nodiscard]] std::vector<value::View> added() const;
     [[nodiscard]] std::vector<value::View> removed() const;
+    [[nodiscard]] bool was_added(const value::View& elem) const;
+    [[nodiscard]] bool was_removed(const value::View& elem) const;
     bool add(const value::View& elem);
     bool remove(const value::View& elem);
     void clear();
@@ -168,6 +171,9 @@ public:
     [[nodiscard]] size_t count() const;
     [[nodiscard]] size_t size() const { return count(); }
 
+    void clear();
+    [[nodiscard]] TSOutputView pop(const value::View& key);
+    [[nodiscard]] TSOutputView pop(const value::View& key, TSOutputView default_value);
     bool remove(const value::View& key);
     [[nodiscard]] TSOutputView create(const value::View& key);
     [[nodiscard]] TSOutputView set(const value::View& key, const value::View& value);
@@ -217,9 +223,9 @@ public:
     [[nodiscard]] std::string_view name_at(size_t index) const;
     [[nodiscard]] std::optional<std::string_view> name_for_child(const TSOutputView& child) const;
     [[nodiscard]] bool contains(std::string_view name) const;
-    [[nodiscard]] nb::list keys() const;
-    [[nodiscard]] nb::list valid_keys() const;
-    [[nodiscard]] nb::list modified_keys() const;
+    [[nodiscard]] std::vector<std::string_view> keys() const;
+    [[nodiscard]] std::vector<std::string_view> valid_keys() const;
+    [[nodiscard]] std::vector<std::string_view> modified_keys() const;
     [[nodiscard]] std::vector<TSOutputView> values() const;
     [[nodiscard]] std::vector<TSOutputView> valid_values() const;
     [[nodiscard]] std::vector<TSOutputView> modified_values() const;
