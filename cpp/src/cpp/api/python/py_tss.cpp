@@ -9,6 +9,29 @@ namespace hgraph
 {
 namespace
 {
+    nb::set current_set_values(const TSView &view);
+
+    nb::frozenset delta_set_values_from_delta_obj(const nb::object& delta_obj, bool added) {
+        if (delta_obj.is_none()) {
+            return nb::frozenset(nb::set());
+        }
+
+        nb::object bucket = nb::getattr(delta_obj, added ? "added" : "removed", nb::none());
+        if (bucket.is_none()) {
+            return nb::frozenset(nb::set());
+        }
+        if (PyCallable_Check(bucket.ptr()) != 0) {
+            bucket = bucket();
+        }
+        if (bucket.is_none()) {
+            return nb::frozenset(nb::set());
+        }
+        if (nb::isinstance<nb::frozenset>(bucket)) {
+            return nb::cast<nb::frozenset>(bucket);
+        }
+        return nb::frozenset(nb::cast<nb::set>(bucket));
+    }
+
     value::Value elem_from_python(const nb::object &elem, const TSMeta *meta) {
         const value::TypeMeta* elem_schema = nullptr;
         if (meta != nullptr) {
@@ -49,39 +72,11 @@ namespace
         return result;
     }
 
-    nb::frozenset delta_set_values_from_delta_obj(const nb::object& delta_obj, bool added) {
-        if (delta_obj.is_none()) {
-            return nb::frozenset(nb::set());
-        }
-
-        nb::object bucket = nb::getattr(delta_obj, added ? "added" : "removed", nb::none());
-        if (bucket.is_none()) {
-            return nb::frozenset(nb::set());
-        }
-
-        nb::set out;
-        for (const auto& item : nb::iter(bucket)) {
-            out.add(nb::cast<nb::object>(item));
-        }
-        return nb::frozenset(out);
-    }
-
     nb::frozenset input_delta_set_values(const TSInputView& input, bool added) {
-        if (!input.modified()) {
-            return nb::frozenset(nb::set());
-        }
-
-        if (input.sampled()) {
-            return added ? nb::frozenset(current_set_values(input.as_ts_view())) : nb::frozenset(nb::set());
-        }
-
         return delta_set_values_from_delta_obj(input.delta_to_python(), added);
     }
 
     nb::frozenset output_delta_set_values(const TSOutputView& output, bool added) {
-        if (!output.modified()) {
-            return nb::frozenset(nb::set());
-        }
         return delta_set_values_from_delta_obj(output.delta_to_python(), added);
     }
 }  // namespace

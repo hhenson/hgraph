@@ -1005,12 +1005,18 @@ static void register_map_views(nb::module_& m) {
         .def("keys", &MapView::keys, nb::rv_policy::reference_internal,
             "Get KeySetView over map keys")
         .def("values", [](MapView& self) {
-            nb::object py_dict = self.to_python();
-            return py_dict.attr("values")();
+            nb::list out;
+            for (auto item : self.items()) {
+                out.append(item.value.to_python());
+            }
+            return out;
         }, "Get view of values")
         .def("items", [](MapView& self) {
-            nb::object py_dict = self.to_python();
-            return py_dict.attr("items")();
+            nb::list out;
+            for (auto item : self.items()) {
+                out.append(nb::make_tuple(item.key.to_python(), item.value.to_python()));
+            }
+            return out;
         }, "Get view of (key, value) pairs");
 }
 
