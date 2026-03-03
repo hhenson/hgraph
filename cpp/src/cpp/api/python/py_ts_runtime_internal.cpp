@@ -641,9 +641,23 @@ bool set_output_remove(TSOutputView& self, const nb::object& elem_obj) {
 }
 
 struct ContainsOutputState {
+    value::Value key;
     std::shared_ptr<TSValue> output_value;
+    bool active{true};
     bool has_cached_value{false};
     bool cached_value{false};
+};
+
+struct NbObjectIdentityHash {
+    size_t operator()(const nb::object& obj) const noexcept {
+        return std::hash<const void*>{}(obj.ptr());
+    }
+};
+
+struct NbObjectIdentityEqual {
+    bool operator()(const nb::object& lhs, const nb::object& rhs) const noexcept {
+        return lhs.ptr() == rhs.ptr();
+    }
 };
 
 std::optional<value::Value> value_from_python(const value::TypeMeta* schema, const nb::object& obj) {
@@ -678,7 +692,37 @@ struct TSDRefOutputState {
     bool has_cached_target{false};
     bool cached_has_target{false};
     ViewData cached_target{};
+    std::unordered_map<nb::object, size_t, NbObjectIdentityHash, NbObjectIdentityEqual> requesters;
 };
+
+void add_requester_subscription(std::unordered_map<nb::object, size_t, NbObjectIdentityHash, NbObjectIdentityEqual>& requesters,
+                                const nb::object& requester) {
+    if (requester.ptr() == nullptr) {
+        return;
+    }
+    auto [it, inserted] = requesters.emplace(requester, size_t{1});
+    if (!inserted) {
+        ++it->second;
+    }
+}
+
+void remove_requester_subscription(
+    std::unordered_map<nb::object, size_t, NbObjectIdentityHash, NbObjectIdentityEqual>& requesters,
+                                   const nb::object& requester) {
+    if (requester.ptr() == nullptr) {
+        return;
+    }
+    auto it = requesters.find(requester);
+    if (it == requesters.end()) {
+        return;
+    }
+
+    if (it->second > 1) {
+        --it->second;
+        return;
+    }
+    requesters.erase(it);
+}
 
 class TSDRefFeatureObserver final : public LinkTarget {
 public:
@@ -716,6 +760,14 @@ public:
         registered_ = false;
     }
 
+    void ensure_registered() {
+        if (registered_) {
+            return;
+        }
+        register_ts_link_observer(*this);
+        registered_ = true;
+    }
+
     TSOutputView get_ref_output(const nb::object& key_obj, const nb::object& requester, engine_time_t requester_time) {
         if (key_type_ == nullptr || ref_meta_ == nullptr) {
             return {};
@@ -734,6 +786,7 @@ public:
             (void)inserted;
             it = inserted_it;
         }
+        add_requester_subscription(it->second.requesters, requester);
 
         update_ref_output(it->first.view(), it->second, requester_time);
         TSOutputView out(nullptr, it->second.output_value->ts_view(engine_time_ptr_));
@@ -754,15 +807,23 @@ public:
         if (it == ref_outputs_.end()) {
             return;
         }
-        (void)requester;
+        remove_requester_subscription(it->second.requesters, requester);
+        if (it->second.requesters.empty()) {
+            ref_outputs_.erase(it);
+        }
     }
 
     [[nodiscard]] bool has_consumers() const {
-        return !ref_outputs_.empty();
+        return std::any_of(ref_outputs_.begin(), ref_outputs_.end(), [](const auto& item) {
+            return !item.second.requesters.empty();
+        });
     }
 
     void notify(engine_time_t et) override {
         for (auto& [key, state] : ref_outputs_) {
+            if (state.requesters.empty()) {
+                continue;
+            }
             update_ref_output(key.view(), state, et);
         }
     }
@@ -918,43 +979,67 @@ public:
         registered_ = false;
     }
 
+    void ensure_registered() {
+        if (registered_) {
+            return;
+        }
+        register_ts_link_observer(*this);
+        registered_ = true;
+    }
+
     TSOutputView get_contains_output(const nb::object& item, const nb::object& requester) {
+        ensure_registered();
         auto maybe_key = value_from_python(resolve_element_type(), item);
         if (!maybe_key.has_value()) {
             return {};
         }
 
-        const value::View key_view = maybe_key->view();
-        auto it = contains_outputs_.find(key_view);
-        if (it == contains_outputs_.end()) {
-            ContainsOutputState state{};
-            state.output_value = make_bool_output();
-            auto [inserted_it, inserted] = contains_outputs_.emplace(std::move(*maybe_key), std::move(state));
-            (void)inserted;
-            it = inserted_it;
+        if (requester.ptr() == nullptr) {
+            return {};
         }
 
-        update_contains_output(it->first.view(), it->second);
+        purge_inactive_except(requester);
+
+        const value::View key_view = maybe_key->view();
+        auto it = contains_outputs_.find(requester);
+        bool key_changed = false;
+        if (it == contains_outputs_.end()) {
+            ContainsOutputState state{};
+            state.key = std::move(*maybe_key);
+            state.output_value = make_bool_output();
+            auto [inserted_it, inserted] = contains_outputs_.emplace(requester, std::move(state));
+            (void)inserted;
+            it = inserted_it;
+        } else if (!ValueEqual{}(it->second.key.view(), key_view)) {
+            it->second.key = std::move(*maybe_key);
+            key_changed = true;
+        }
+        if (key_changed) {
+            // Key switches are observable on the contains stream even if the resulting
+            // boolean value is unchanged; force a write on next update.
+            it->second.has_cached_value = false;
+        }
+        it->second.active = true;
+        update_contains_output(it->second.key.view(), it->second);
         TSOutputView out(nullptr, it->second.output_value->ts_view(engine_time_ptr_));
         out.set_delta_semantics(source_.delta_semantics);
         return out;
     }
 
     void release_contains_output(const nb::object& item, const nb::object& requester) {
-        auto maybe_key = value_from_python(element_type_, item);
-        if (!maybe_key.has_value()) {
+        (void)item;
+        if (requester.ptr() == nullptr) {
             return;
         }
-
-        auto it = contains_outputs_.find(maybe_key->view());
+        auto it = contains_outputs_.find(requester);
         if (it == contains_outputs_.end()) {
             return;
         }
-
-        (void)requester;
+        it->second.active = false;
     }
 
     TSOutputView get_is_empty_output() {
+        ensure_registered();
         has_is_empty_consumer_ = true;
         if (!is_empty_output_) {
             is_empty_output_ = make_bool_output();
@@ -969,18 +1054,34 @@ public:
         if (has_is_empty_consumer_) {
             return true;
         }
-        return !contains_outputs_.empty();
+        return std::any_of(contains_outputs_.begin(), contains_outputs_.end(), [](const auto& item) {
+            return item.second.active;
+        });
     }
 
     void notify(engine_time_t et) override {
         (void)et;
-        for (auto& [key, state] : contains_outputs_) {
-            update_contains_output(key.view(), state);
+        for (auto& [requester_obj, state] : contains_outputs_) {
+            (void)requester_obj;
+            if (!state.active) {
+                continue;
+            }
+            update_contains_output(state.key.view(), state);
         }
         update_is_empty_output();
     }
 
 private:
+    void purge_inactive_except(const nb::object& keep_requester) {
+        for (auto it = contains_outputs_.begin(); it != contains_outputs_.end();) {
+            if (!it->second.active && !NbObjectIdentityEqual{}(it->first, keep_requester)) {
+                it = contains_outputs_.erase(it);
+                continue;
+            }
+            ++it;
+        }
+    }
+
     [[nodiscard]] const value::TypeMeta* resolve_element_type() const {
         TSView source_view(source_, engine_time_ptr_);
         value::View source_value = source_view.value();
@@ -1005,33 +1106,61 @@ private:
 
     bool contains_key(const value::View& key) const {
         TSView source_view(source_, engine_time_ptr_);
-        nb::object source_obj = source_view.to_python();
-        if (source_obj.is_none()) {
+        value::View source_value = source_view.value();
+        if (!source_value.valid() || !key.valid()) {
             return false;
         }
 
-        nb::object key_obj = key.to_python();
-        const int contains = PySequence_Contains(source_obj.ptr(), key_obj.ptr());
-        if (contains < 0) {
-            PyErr_Clear();
-            return false;
+        if (source_.projection == ViewProjection::TSD_KEY_SET) {
+            if (!source_value.is_map()) {
+                return false;
+            }
+            auto source_map = source_value.as_map();
+            if (key.schema() != source_map.key_type()) {
+                return false;
+            }
+            return source_map.contains(key);
         }
-        return contains == 1;
+
+        if (source_value.is_set()) {
+            auto source_set = source_value.as_set();
+            if (key.schema() != source_set.element_type()) {
+                return false;
+            }
+            return source_set.contains(key);
+        }
+
+        if (source_value.is_map()) {
+            auto source_map = source_value.as_map();
+            if (key.schema() != source_map.key_type()) {
+                return false;
+            }
+            return source_map.contains(key);
+        }
+
+        return false;
     }
 
     bool is_empty() const {
         TSView source_view(source_, engine_time_ptr_);
-        nb::object source_obj = source_view.to_python();
-        if (source_obj.is_none()) {
+        value::View source_value = source_view.value();
+        if (!source_value.valid()) {
             return true;
         }
 
-        const Py_ssize_t size = PyObject_Size(source_obj.ptr());
-        if (size < 0) {
-            PyErr_Clear();
-            return true;
+        if (source_.projection == ViewProjection::TSD_KEY_SET) {
+            return source_value.is_map() ? source_value.as_map().size() == 0 : true;
         }
-        return size == 0;
+
+        if (source_value.is_set()) {
+            return source_value.as_set().size() == 0;
+        }
+
+        if (source_value.is_map()) {
+            return source_value.as_map().size() == 0;
+        }
+
+        return true;
     }
 
     void set_output_value(const std::shared_ptr<TSValue>& output_value, bool value) const {
@@ -1039,7 +1168,8 @@ private:
             return;
         }
         TSView out = output_value->ts_view(engine_time_ptr_);
-        out.from_python(nb::bool_(value));
+        value::Value bool_value(value);
+        out.set_value(bool_value.view());
     }
 
     void update_contains_output(const value::View& key, ContainsOutputState& state) {
@@ -1067,7 +1197,7 @@ private:
     const value::TypeMeta* element_type_{nullptr};
     const engine_time_t* engine_time_ptr_{nullptr};
 
-    std::unordered_map<value::Value, ContainsOutputState, ValueHash, ValueEqual> contains_outputs_{};
+    std::unordered_map<nb::object, ContainsOutputState, NbObjectIdentityHash, NbObjectIdentityEqual> contains_outputs_{};
 
     std::shared_ptr<TSValue> is_empty_output_{};
     bool has_is_empty_consumer_{false};
@@ -1231,7 +1361,6 @@ void tss_release_contains_output(TSOutputView& self, const nb::object& item, con
     observer->release_contains_output(item, requester);
     if (!observer->has_consumers()) {
         observer->detach();
-        registry->clear_feature_state(key);
     }
 }
 
