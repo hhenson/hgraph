@@ -538,13 +538,13 @@ bool ts_python_is_remove_if_exists_marker(const nb::object& obj) {
     return false;
 }
 
-std::optional<TSView> tsd_previous_child_for_key(const TSView& parent_view, const value::Value& key_val) {
-    if (key_val.schema() == nullptr) {
+std::optional<TSView> tsd_previous_child_for_key(const TSView& parent_view, const value::View& key) {
+    if (!key.valid()) {
         return std::nullopt;
     }
 
     if (auto removed_snapshot =
-            resolve_tsd_removed_child_snapshot(parent_view.view_data(), key_val.view(), parent_view.current_time());
+            resolve_tsd_removed_child_snapshot(parent_view.view_data(), key, parent_view.current_time());
         removed_snapshot.has_value()) {
         return removed_snapshot;
     }
@@ -555,7 +555,7 @@ std::optional<TSView> tsd_previous_child_for_key(const TSView& parent_view, cons
     }
 
     TSView previous_root(previous, parent_view.view_data().engine_time_ptr);
-    TSView previous_child = previous_root.as_dict().at_key(key_val.view());
+    TSView previous_child = previous_root.as_dict().at_key(key);
     if (!previous_child) {
         return std::nullopt;
     }

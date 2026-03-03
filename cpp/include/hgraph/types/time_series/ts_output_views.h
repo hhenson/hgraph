@@ -122,9 +122,9 @@ public:
     [[nodiscard]] bool contains(const value::View& elem) const;
     [[nodiscard]] size_t size() const;
     [[nodiscard]] bool empty() const { return size() == 0; }
-    [[nodiscard]] std::vector<value::View> values() const;
-    [[nodiscard]] std::vector<value::View> added() const;
-    [[nodiscard]] std::vector<value::View> removed() const;
+    [[nodiscard]] TSIterable<value::View> values() const;
+    [[nodiscard]] TSIterable<value::View> added() const;
+    [[nodiscard]] TSIterable<value::View> removed() const;
     [[nodiscard]] bool was_added(const value::View& elem) const;
     [[nodiscard]] bool was_removed(const value::View& elem) const;
     bool add(const value::View& elem);
@@ -134,7 +134,7 @@ public:
 
 class HGRAPH_EXPORT TSDOutputView : public TSOutputView {
 public:
-    using item_type = std::pair<value::Value, TSOutputView>;
+    using item_type = std::pair<value::View, TSOutputView>;
 
     TSDOutputView() = default;
     explicit TSDOutputView(TSOutputView base) noexcept : TSOutputView(std::move(base)) {}
@@ -144,26 +144,26 @@ public:
     [[nodiscard]] TSOutputView get(const value::View& key, TSOutputView default_value) const;
     [[nodiscard]] TSOutputView get_or_create(const value::View& key);
     [[nodiscard]] bool contains(const value::View& key) const;
-    [[nodiscard]] std::vector<value::Value> keys() const;
-    [[nodiscard]] std::vector<value::Value> valid_keys() const;
-    [[nodiscard]] std::vector<value::Value> modified_keys() const;
-    [[nodiscard]] std::vector<value::Value> added_keys() const;
-    [[nodiscard]] std::vector<value::Value> removed_keys() const;
+    [[nodiscard]] TSIterable<value::View> keys() const;
+    [[nodiscard]] TSIterable<value::View> valid_keys() const;
+    [[nodiscard]] TSIterable<value::View> modified_keys() const;
+    [[nodiscard]] TSIterable<value::View> added_keys() const;
+    [[nodiscard]] TSIterable<value::View> removed_keys() const;
     [[nodiscard]] bool has_added() const;
     [[nodiscard]] bool has_removed() const;
     [[nodiscard]] bool was_added(const value::View& key) const;
     [[nodiscard]] bool was_removed(const value::View& key) const;
     [[nodiscard]] bool was_modified(const value::View& key) const;
-    [[nodiscard]] std::vector<TSOutputView> values() const;
-    [[nodiscard]] std::vector<TSOutputView> valid_values() const;
-    [[nodiscard]] std::vector<TSOutputView> modified_values() const;
-    [[nodiscard]] std::vector<TSOutputView> added_values() const;
-    [[nodiscard]] std::vector<TSOutputView> removed_values() const;
-    [[nodiscard]] std::vector<item_type> items() const;
-    [[nodiscard]] std::vector<item_type> valid_items() const;
-    [[nodiscard]] std::vector<item_type> modified_items() const;
-    [[nodiscard]] std::vector<item_type> added_items() const;
-    [[nodiscard]] std::vector<item_type> removed_items() const;
+    [[nodiscard]] TSIterable<TSOutputView> values() const;
+    [[nodiscard]] TSIterable<TSOutputView> valid_values() const;
+    [[nodiscard]] TSIterable<TSOutputView> modified_values() const;
+    [[nodiscard]] TSIterable<TSOutputView> added_values() const;
+    [[nodiscard]] TSIterable<TSOutputView> removed_values() const;
+    [[nodiscard]] TSIterable<item_type> items() const;
+    [[nodiscard]] TSIterable<item_type> valid_items() const;
+    [[nodiscard]] TSIterable<item_type> modified_items() const;
+    [[nodiscard]] TSIterable<item_type> added_items() const;
+    [[nodiscard]] TSIterable<item_type> removed_items() const;
     [[nodiscard]] TSOutputView at_key(const value::View& key) const;
     [[nodiscard]] TSOutputView by_key(const value::View& key) const { return at_key(key); }
     [[nodiscard]] std::optional<value::Value> key_at_slot(size_t slot) const;
@@ -190,28 +190,28 @@ public:
 
 class HGRAPH_EXPORT TSLOutputView : public TSIndexedOutputView {
 public:
-    using item_type = std::pair<size_t, TSOutputView>;
+    using item_type = std::pair<value::View, TSOutputView>;
 
     TSLOutputView() = default;
     explicit TSLOutputView(TSOutputView base) noexcept : TSIndexedOutputView(std::move(base)) {}
     [[nodiscard]] TSOutputView operator[](size_t index) const { return at(index); }
-    [[nodiscard]] std::vector<size_t> keys() const;
-    [[nodiscard]] std::vector<size_t> valid_keys() const;
-    [[nodiscard]] std::vector<size_t> modified_keys() const;
-    [[nodiscard]] std::vector<TSOutputView> values() const;
-    [[nodiscard]] std::vector<TSOutputView> valid_values() const;
-    [[nodiscard]] std::vector<TSOutputView> modified_values() const;
-    [[nodiscard]] std::vector<item_type> items() const;
-    [[nodiscard]] std::vector<item_type> valid_items() const;
-    [[nodiscard]] std::vector<item_type> modified_items() const;
-    [[nodiscard]] std::vector<size_t> indices() const;
-    [[nodiscard]] std::vector<size_t> valid_indices() const;
-    [[nodiscard]] std::vector<size_t> modified_indices() const;
+    [[nodiscard]] TSIterable<value::View> keys() const;
+    [[nodiscard]] TSIterable<value::View> valid_keys() const;
+    [[nodiscard]] TSIterable<value::View> modified_keys() const;
+    [[nodiscard]] TSIterable<TSOutputView> values() const;
+    [[nodiscard]] TSIterable<TSOutputView> valid_values() const;
+    [[nodiscard]] TSIterable<TSOutputView> modified_values() const;
+    [[nodiscard]] TSIterable<item_type> items() const;
+    [[nodiscard]] TSIterable<item_type> valid_items() const;
+    [[nodiscard]] TSIterable<item_type> modified_items() const;
+    [[nodiscard]] TSIterable<value::View> indices() const;
+    [[nodiscard]] TSIterable<value::View> valid_indices() const;
+    [[nodiscard]] TSIterable<value::View> modified_indices() const;
 };
 
 class HGRAPH_EXPORT TSBOutputView : public TSIndexedOutputView {
 public:
-    using item_type = std::pair<std::string_view, TSOutputView>;
+    using item_type = std::pair<value::View, TSOutputView>;
 
     TSBOutputView() = default;
     explicit TSBOutputView(TSOutputView base) noexcept : TSIndexedOutputView(std::move(base)) {}
@@ -223,18 +223,18 @@ public:
     [[nodiscard]] std::string_view name_at(size_t index) const;
     [[nodiscard]] std::optional<std::string_view> name_for_child(const TSOutputView& child) const;
     [[nodiscard]] bool contains(std::string_view name) const;
-    [[nodiscard]] std::vector<std::string_view> keys() const;
-    [[nodiscard]] std::vector<std::string_view> valid_keys() const;
-    [[nodiscard]] std::vector<std::string_view> modified_keys() const;
-    [[nodiscard]] std::vector<TSOutputView> values() const;
-    [[nodiscard]] std::vector<TSOutputView> valid_values() const;
-    [[nodiscard]] std::vector<TSOutputView> modified_values() const;
-    [[nodiscard]] std::vector<item_type> items() const;
-    [[nodiscard]] std::vector<item_type> valid_items() const;
-    [[nodiscard]] std::vector<item_type> modified_items() const;
-    [[nodiscard]] std::vector<size_t> indices() const;
-    [[nodiscard]] std::vector<size_t> valid_indices() const;
-    [[nodiscard]] std::vector<size_t> modified_indices() const;
+    [[nodiscard]] TSIterable<value::View> keys() const;
+    [[nodiscard]] TSIterable<value::View> valid_keys() const;
+    [[nodiscard]] TSIterable<value::View> modified_keys() const;
+    [[nodiscard]] TSIterable<TSOutputView> values() const;
+    [[nodiscard]] TSIterable<TSOutputView> valid_values() const;
+    [[nodiscard]] TSIterable<TSOutputView> modified_values() const;
+    [[nodiscard]] TSIterable<item_type> items() const;
+    [[nodiscard]] TSIterable<item_type> valid_items() const;
+    [[nodiscard]] TSIterable<item_type> modified_items() const;
+    [[nodiscard]] TSIterable<size_t> indices() const;
+    [[nodiscard]] TSIterable<size_t> valid_indices() const;
+    [[nodiscard]] TSIterable<size_t> modified_indices() const;
 };
 
 }  // namespace hgraph

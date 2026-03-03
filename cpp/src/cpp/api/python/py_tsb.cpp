@@ -32,28 +32,29 @@ namespace
         }
     }
 
-    template <typename T_TS>
-    nb::list wrap_children(std::vector<typename PyTimeSeriesBundle<T_TS>::view_type> children) {
+    template <typename T_TS, typename Range>
+    nb::list wrap_children(Range&& children) {
         nb::list out;
-        for (auto &child : children) {
+        for (auto child : children) {
             out.append(wrap_child<T_TS>(std::move(child)));
         }
         return out;
     }
 
-    nb::list wrap_names(std::vector<std::string_view> names) {
+    template <typename Range>
+    nb::list wrap_names(Range&& names) {
         nb::list out;
-        for (const std::string_view name : names) {
-            out.append(nb::str(name.data(), name.size()));
+        for (auto name : names) {
+            out.append(name.to_python());
         }
         return out;
     }
 
-    template <typename T_TS, typename Item>
-    nb::list wrap_items(std::vector<Item> items) {
+    template <typename T_TS, typename Range>
+    nb::list wrap_items(Range&& items) {
         nb::list out;
-        for (auto &entry : items) {
-            out.append(nb::make_tuple(nb::str(entry.first.data(), entry.first.size()), wrap_child<T_TS>(std::move(entry.second))));
+        for (auto entry : items) {
+            out.append(nb::make_tuple(entry.first.to_python(), wrap_child<T_TS>(std::move(entry.second))));
         }
         return out;
     }

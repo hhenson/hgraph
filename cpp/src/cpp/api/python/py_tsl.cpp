@@ -55,7 +55,8 @@ namespace
     nb::object PyTimeSeriesList<T_TS>::keys() const {
         nb::list out;
         auto list_view = this->view().as_list();
-        for (size_t i : list_view.indices()) {
+        for (value::View idx_view : list_view.indices()) {
+            const size_t i = idx_view.as<size_t>();
             out.append(nb::int_(i));
         }
         return out;
@@ -65,7 +66,8 @@ namespace
     nb::object PyTimeSeriesList<T_TS>::values() const {
         nb::list out;
         auto list_view = this->view().as_list();
-        for (size_t i : list_view.indices()) {
+        for (value::View idx_view : list_view.indices()) {
+            const size_t i = idx_view.as<size_t>();
             auto child = child_at(*this, i);
             if (!child) {
                 continue;
@@ -79,7 +81,8 @@ namespace
     nb::object PyTimeSeriesList<T_TS>::valid_keys() const {
         nb::list out;
         auto list_view = this->view().as_list();
-        for (size_t i : list_view.valid_indices()) {
+        for (value::View idx_view : list_view.valid_indices()) {
+            const size_t i = idx_view.as<size_t>();
             out.append(nb::int_(i));
         }
         return out;
@@ -89,7 +92,8 @@ namespace
     nb::object PyTimeSeriesList<T_TS>::modified_keys() const {
         nb::list out;
         auto list_view = this->view().as_list();
-        for (size_t i : list_view.modified_indices()) {
+        for (value::View idx_view : list_view.modified_indices()) {
+            const size_t i = idx_view.as<size_t>();
             out.append(nb::int_(i));
         }
         return out;
@@ -104,7 +108,8 @@ namespace
     nb::object PyTimeSeriesList<T_TS>::items() const {
         nb::list out;
         auto list_view = this->view().as_list();
-        for (size_t i : list_view.indices()) {
+        for (value::View idx_view : list_view.indices()) {
+            const size_t i = idx_view.as<size_t>();
             auto child = child_at(*this, i);
             if (!child) {
                 continue;
@@ -118,7 +123,8 @@ namespace
     nb::object PyTimeSeriesList<T_TS>::valid_values() const {
         nb::list out;
         auto list_view = this->view().as_list();
-        for (size_t i : list_view.valid_indices()) {
+        for (value::View idx_view : list_view.valid_indices()) {
+            const size_t i = idx_view.as<size_t>();
             auto child = child_at(*this, i);
             if (child) {
                 out.append(wrap_child<T_TS>(std::move(child)));
@@ -131,7 +137,8 @@ namespace
     nb::object PyTimeSeriesList<T_TS>::valid_items() const {
         nb::list out;
         auto list_view = this->view().as_list();
-        for (size_t i : list_view.valid_indices()) {
+        for (value::View idx_view : list_view.valid_indices()) {
+            const size_t i = idx_view.as<size_t>();
             auto child = child_at(*this, i);
             if (child) {
                 out.append(nb::make_tuple(nb::int_(i), wrap_child<T_TS>(std::move(child))));
@@ -144,7 +151,8 @@ namespace
     nb::object PyTimeSeriesList<T_TS>::modified_values() const {
         nb::list out;
         auto list_view = this->view().as_list();
-        for (size_t i : list_view.modified_indices()) {
+        for (value::View idx_view : list_view.modified_indices()) {
+            const size_t i = idx_view.as<size_t>();
             auto child = child_at(*this, i);
             if (child) {
                 out.append(wrap_child<T_TS>(std::move(child)));
@@ -157,7 +165,8 @@ namespace
     nb::object PyTimeSeriesList<T_TS>::modified_items() const {
         nb::list out;
         auto list_view = this->view().as_list();
-        for (size_t i : list_view.modified_indices()) {
+        for (value::View idx_view : list_view.modified_indices()) {
+            const size_t i = idx_view.as<size_t>();
             auto child = child_at(*this, i);
             if (child) {
                 out.append(nb::make_tuple(nb::int_(i), wrap_child<T_TS>(std::move(child))));

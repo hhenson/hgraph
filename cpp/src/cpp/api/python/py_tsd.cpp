@@ -18,41 +18,46 @@ namespace hgraph
 {
 namespace
 {
-    nb::list wrap_keys(std::vector<value::Value> keys) {
+    template <typename Range>
+    nb::list wrap_keys(Range&& keys) {
         nb::list out;
-        for (auto& key : keys) {
+        for (auto key : keys) {
             out.append(key.to_python());
         }
         return out;
     }
 
-    nb::list wrap_output_values(std::vector<TSOutputView> values) {
+    template <typename Range>
+    nb::list wrap_output_values(Range&& values) {
         nb::list out;
-        for (auto &child : values) {
+        for (auto child : values) {
             out.append(wrap_output_view(std::move(child)));
         }
         return out;
     }
 
-    nb::list wrap_input_values(std::vector<TSInputView> values) {
+    template <typename Range>
+    nb::list wrap_input_values(Range&& values) {
         nb::list out;
-        for (auto &child : values) {
+        for (auto child : values) {
             out.append(wrap_input_view(std::move(child)));
         }
         return out;
     }
 
-    nb::list wrap_output_items(std::vector<TSDOutputView::item_type> items) {
+    template <typename Range>
+    nb::list wrap_output_items(Range&& items) {
         nb::list out;
-        for (auto &entry : items) {
+        for (auto entry : items) {
             out.append(nb::make_tuple(entry.first.to_python(), wrap_output_view(std::move(entry.second))));
         }
         return out;
     }
 
-    nb::list wrap_input_items(std::vector<TSDInputView::item_type> items) {
+    template <typename Range>
+    nb::list wrap_input_items(Range&& items) {
         nb::list out;
-        for (auto &entry : items) {
+        for (auto entry : items) {
             out.append(nb::make_tuple(entry.first.to_python(), wrap_input_view(std::move(entry.second))));
         }
         return out;

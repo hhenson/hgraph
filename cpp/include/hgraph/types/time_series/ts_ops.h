@@ -200,7 +200,7 @@ HGRAPH_EXPORT nb::list tsd_delta_keys_slot(const TSView& view, size_t tuple_inde
 HGRAPH_EXPORT bool ts_python_is_remove_marker(const nb::object& obj);
 HGRAPH_EXPORT bool ts_python_is_remove_if_exists_marker(const nb::object& obj);
 HGRAPH_EXPORT std::optional<TSView> tsd_previous_child_for_key(const TSView& parent_view,
-                                                                const value::Value& key_val);
+                                                                const value::View& key);
 HGRAPH_EXPORT std::optional<TSView> resolve_tsd_removed_child_snapshot(
     const ViewData& parent_view,
     const value::View& key,

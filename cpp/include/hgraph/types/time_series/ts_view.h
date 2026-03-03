@@ -15,6 +15,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/delta_view.h>
+#include <hgraph/types/time_series/ts_iterable.h>
 #include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/value/value_view.h>
 
@@ -128,6 +129,11 @@ private:
     ViewData view_data_{};
 };
 
+using ViewRange = TSIterable<value::View>;
+using TSViewRange = TSIterable<TSView>;
+using TSViewPair = std::pair<value::View, TSView>;
+using TSViewPairRange = TSIterable<TSViewPair>;
+
 class HGRAPH_EXPORT TSWView : public TSView {
 public:
     TSWView() = default;
@@ -150,9 +156,9 @@ public:
     [[nodiscard]] bool contains(const value::View& elem) const;
     [[nodiscard]] size_t size() const;
     [[nodiscard]] bool empty() const { return size() == 0; }
-    [[nodiscard]] std::vector<value::View> values() const;
-    [[nodiscard]] std::vector<value::View> added() const;
-    [[nodiscard]] std::vector<value::View> removed() const;
+    [[nodiscard]] TSIterable<value::View> values() const;
+    [[nodiscard]] TSIterable<value::View> added() const;
+    [[nodiscard]] TSIterable<value::View> removed() const;
     [[nodiscard]] bool was_added(const value::View& elem) const;
     [[nodiscard]] bool was_removed(const value::View& elem) const;
     bool add(const value::View& elem);
@@ -162,7 +168,7 @@ public:
 
 class HGRAPH_EXPORT TSDView : public TSView {
 public:
-    using item_type = std::pair<value::Value, TSView>;
+    using item_type = std::pair<value::View, TSView>;
 
     TSDView() = default;
     explicit TSDView(TSView ts_view) noexcept : TSView(std::move(ts_view)) {}
@@ -172,26 +178,26 @@ public:
     [[nodiscard]] TSView get(const value::View& key, TSView default_value) const;
     [[nodiscard]] TSView get_or_create(const value::View& key);
     [[nodiscard]] bool contains(const value::View& key) const;
-    [[nodiscard]] std::vector<value::Value> keys() const;
-    [[nodiscard]] std::vector<value::Value> valid_keys() const;
-    [[nodiscard]] std::vector<value::Value> modified_keys() const;
-    [[nodiscard]] std::vector<value::Value> added_keys() const;
-    [[nodiscard]] std::vector<value::Value> removed_keys() const;
+    [[nodiscard]] TSIterable<value::View> keys() const;
+    [[nodiscard]] TSIterable<value::View> valid_keys() const;
+    [[nodiscard]] TSIterable<value::View> modified_keys() const;
+    [[nodiscard]] TSIterable<value::View> added_keys() const;
+    [[nodiscard]] TSIterable<value::View> removed_keys() const;
     [[nodiscard]] bool has_added() const;
     [[nodiscard]] bool has_removed() const;
     [[nodiscard]] bool was_added(const value::View& key) const;
     [[nodiscard]] bool was_removed(const value::View& key) const;
     [[nodiscard]] bool was_modified(const value::View& key) const;
-    [[nodiscard]] std::vector<TSView> values() const;
-    [[nodiscard]] std::vector<TSView> valid_values() const;
-    [[nodiscard]] std::vector<TSView> modified_values() const;
-    [[nodiscard]] std::vector<TSView> added_values() const;
-    [[nodiscard]] std::vector<TSView> removed_values() const;
-    [[nodiscard]] std::vector<item_type> items() const;
-    [[nodiscard]] std::vector<item_type> valid_items() const;
-    [[nodiscard]] std::vector<item_type> modified_items() const;
-    [[nodiscard]] std::vector<item_type> added_items() const;
-    [[nodiscard]] std::vector<item_type> removed_items() const;
+    [[nodiscard]] TSIterable<TSView> values() const;
+    [[nodiscard]] TSIterable<TSView> valid_values() const;
+    [[nodiscard]] TSIterable<TSView> modified_values() const;
+    [[nodiscard]] TSIterable<TSView> added_values() const;
+    [[nodiscard]] TSIterable<TSView> removed_values() const;
+    [[nodiscard]] TSIterable<item_type> items() const;
+    [[nodiscard]] TSIterable<item_type> valid_items() const;
+    [[nodiscard]] TSIterable<item_type> modified_items() const;
+    [[nodiscard]] TSIterable<item_type> added_items() const;
+    [[nodiscard]] TSIterable<item_type> removed_items() const;
     [[nodiscard]] TSView at_key(const value::View& key) const { return child_by_key(key); }
     [[nodiscard]] TSView by_key(const value::View& key) const { return at_key(key); }
     [[nodiscard]] std::optional<value::Value> key_at_slot(size_t slot) const;
@@ -216,28 +222,28 @@ public:
 
 class HGRAPH_EXPORT TSLView : public TSIndexedView {
 public:
-    using item_type = std::pair<size_t, TSView>;
+    using item_type = std::pair<value::View, TSView>;
 
     TSLView() = default;
     explicit TSLView(TSView ts_view) noexcept : TSIndexedView(std::move(ts_view)) {}
 
-    [[nodiscard]] std::vector<size_t> keys() const;
-    [[nodiscard]] std::vector<size_t> valid_keys() const;
-    [[nodiscard]] std::vector<size_t> modified_keys() const;
-    [[nodiscard]] std::vector<TSView> values() const;
-    [[nodiscard]] std::vector<TSView> valid_values() const;
-    [[nodiscard]] std::vector<TSView> modified_values() const;
-    [[nodiscard]] std::vector<item_type> items() const;
-    [[nodiscard]] std::vector<item_type> valid_items() const;
-    [[nodiscard]] std::vector<item_type> modified_items() const;
-    [[nodiscard]] std::vector<size_t> indices() const;
-    [[nodiscard]] std::vector<size_t> valid_indices() const;
-    [[nodiscard]] std::vector<size_t> modified_indices() const;
+    [[nodiscard]] TSIterable<value::View> keys() const;
+    [[nodiscard]] TSIterable<value::View> valid_keys() const;
+    [[nodiscard]] TSIterable<value::View> modified_keys() const;
+    [[nodiscard]] TSIterable<TSView> values() const;
+    [[nodiscard]] TSIterable<TSView> valid_values() const;
+    [[nodiscard]] TSIterable<TSView> modified_values() const;
+    [[nodiscard]] TSIterable<item_type> items() const;
+    [[nodiscard]] TSIterable<item_type> valid_items() const;
+    [[nodiscard]] TSIterable<item_type> modified_items() const;
+    [[nodiscard]] TSIterable<value::View> indices() const;
+    [[nodiscard]] TSIterable<value::View> valid_indices() const;
+    [[nodiscard]] TSIterable<value::View> modified_indices() const;
 };
 
 class HGRAPH_EXPORT TSBView : public TSIndexedView {
 public:
-    using item_type = std::pair<std::string_view, TSView>;
+    using item_type = std::pair<value::View, TSView>;
 
     TSBView() = default;
     explicit TSBView(TSView ts_view) noexcept : TSIndexedView(std::move(ts_view)) {}
@@ -249,18 +255,18 @@ public:
     [[nodiscard]] std::string_view name_at(size_t index) const;
     [[nodiscard]] std::optional<std::string_view> name_for_child(const TSView& child) const;
     [[nodiscard]] bool contains(std::string_view name) const;
-    [[nodiscard]] std::vector<std::string_view> keys() const;
-    [[nodiscard]] std::vector<std::string_view> valid_keys() const;
-    [[nodiscard]] std::vector<std::string_view> modified_keys() const;
-    [[nodiscard]] std::vector<TSView> values() const;
-    [[nodiscard]] std::vector<TSView> valid_values() const;
-    [[nodiscard]] std::vector<TSView> modified_values() const;
-    [[nodiscard]] std::vector<item_type> items() const;
-    [[nodiscard]] std::vector<item_type> valid_items() const;
-    [[nodiscard]] std::vector<item_type> modified_items() const;
-    [[nodiscard]] std::vector<size_t> indices() const;
-    [[nodiscard]] std::vector<size_t> valid_indices() const;
-    [[nodiscard]] std::vector<size_t> modified_indices() const;
+    [[nodiscard]] TSIterable<value::View> keys() const;
+    [[nodiscard]] TSIterable<value::View> valid_keys() const;
+    [[nodiscard]] TSIterable<value::View> modified_keys() const;
+    [[nodiscard]] TSIterable<TSView> values() const;
+    [[nodiscard]] TSIterable<TSView> valid_values() const;
+    [[nodiscard]] TSIterable<TSView> modified_values() const;
+    [[nodiscard]] TSIterable<item_type> items() const;
+    [[nodiscard]] TSIterable<item_type> valid_items() const;
+    [[nodiscard]] TSIterable<item_type> modified_items() const;
+    [[nodiscard]] TSIterable<size_t> indices() const;
+    [[nodiscard]] TSIterable<size_t> valid_indices() const;
+    [[nodiscard]] TSIterable<size_t> modified_indices() const;
 };
 
 }  // namespace hgraph
