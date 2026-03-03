@@ -865,6 +865,8 @@ namespace hgraph
                                                        const TSInputView& outer_arg,
                                                        const TSInputView& inner_ts,
                                                        bool* used_local_fallback,
+                                                       bool* has_outer_key,
+                                                       bool* outer_key_valid,
                                                        int* stage_id) {
         return hgraph::resolve_keyed_view_with_delta_fallback(
             key,
@@ -875,8 +877,8 @@ namespace hgraph
                 return resolve_outer_key_view(outer_input.as_ts_view(), outer_key);
             },
             [&]() -> key_value_map_type& { return local_input_values_[arg]; },
-            nullptr,
-            nullptr,
+            has_outer_key,
+            outer_key_valid,
             used_local_fallback,
             nullptr,
             stage_id);
@@ -1001,13 +1003,27 @@ namespace hgraph
 
             int stage_id = 1;
             try {
-                TSView outer_key_value = resolve_multiplexed_outer_value(arg, key, outer_arg, inner_ts, nullptr, &stage_id);
+                bool has_outer_key = false;
+                bool outer_key_valid = false;
+                TSView outer_key_value =
+                    resolve_multiplexed_outer_value(arg, key, outer_arg, inner_ts, nullptr, &has_outer_key,
+                                                    &outer_key_valid, &stage_id);
+                const bool outer_arg_modified = outer_arg.modified();
+                const bool key_removed_this_tick = !has_outer_key && inner_ts.is_bound();
+                if (key_removed_this_tick) {
+                    inner_ts.unbind();
+                    node->notify();
+                    mux_all_valid = false;
+                    refreshed = true;
+                    continue;
+                }
+
                 mux_all_valid = mux_all_valid && outer_key_value.valid();
                 hgraph::BindingTargetComparison binding_targets = hgraph::compare_binding_targets(inner_ts, outer_key_value);
-                const bool key_value_modified = outer_key_value.valid() && outer_key_value.modified();
+                const bool key_value_modified = has_outer_key && (!outer_key_valid || outer_key_value.modified());
                 if (debug_tsd_map_bind_enabled()) {
                     std::fprintf(stderr,
-                                 "[tsd_map_bind] refresh arg=%s key=%s inner_path=%s inner_bound=%d inner_valid=%d inner_mod=%d inner_lmt=%lld outer_valid=%d outer_mod=%d current_target=%d desired_target=%d binding_changed=%d key_value_modified=%d\n",
+                                 "[tsd_map_bind] refresh arg=%s key=%s inner_path=%s inner_bound=%d inner_valid=%d inner_mod=%d inner_lmt=%lld outer_valid=%d outer_mod=%d has_key=%d key_valid=%d current_target=%d desired_target=%d binding_changed=%d key_value_modified=%d removed=%d\n",
                                  arg.c_str(),
                                  key_repr(key, key_type_meta_).c_str(),
                                  inner_ts.as_ts_view().short_path().to_string().c_str(),
@@ -1017,10 +1033,13 @@ namespace hgraph
                                  static_cast<long long>(inner_ts.as_ts_view().last_modified_time().time_since_epoch().count()),
                                  outer_key_value.valid() ? 1 : 0,
                                  outer_key_value.modified() ? 1 : 0,
+                                 has_outer_key ? 1 : 0,
+                                 outer_key_valid ? 1 : 0,
                                  binding_targets.current_inner_target.has_value() ? 1 : 0,
                                  binding_targets.desired_outer_target.has_value() ? 1 : 0,
                                  binding_targets.binding_changed ? 1 : 0,
-                                 key_value_modified ? 1 : 0);
+                                 key_value_modified ? 1 : 0,
+                                 key_removed_this_tick ? 1 : 0);
                 }
                 stage_id = 5;
                 if (!inner_ts.is_bound() || key_value_modified || binding_targets.binding_changed) {

@@ -200,8 +200,7 @@ private:
             return false;
         }
         // Allow pre-tick materialization only for explicit policy modes.
-        if (current_time_ == MIN_DT &&
-            computed_.delta_semantics == DeltaSemantics::AllowPreTickDelta) {
+        if (allows_pre_tick_delta(computed_.delta_semantics, current_time_)) {
             return false;
         }
         const ViewData computed = computed_with_time();

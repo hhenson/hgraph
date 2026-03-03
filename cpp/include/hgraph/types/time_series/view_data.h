@@ -44,6 +44,16 @@ enum class DeltaSemantics : uint8_t {
 };
 
 /**
+ * Explicit pre-tick delta policy check.
+ *
+ * This is intentionally policy-only: callers must opt-in via `delta_semantics`
+ * and should not infer behavior from clock pointer presence.
+ */
+[[nodiscard]] inline bool allows_pre_tick_delta(const DeltaSemantics semantics, engine_time_t current_time) noexcept {
+    return current_time == MIN_DT && semantics == DeltaSemantics::AllowPreTickDelta;
+}
+
+/**
  * Fully-qualified path element.
  */
 struct FQPathElement {

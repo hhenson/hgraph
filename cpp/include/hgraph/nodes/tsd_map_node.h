@@ -123,6 +123,8 @@ namespace hgraph
                                                const TSInputView& outer_arg,
                                                const TSInputView& inner_ts,
                                                bool* used_local_fallback = nullptr,
+                                               bool* has_outer_key = nullptr,
+                                               bool* outer_key_valid = nullptr,
                                                int* stage_id = nullptr);
 
         std::unordered_map<std::string, int64_t> input_node_ids_;

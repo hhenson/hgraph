@@ -125,6 +125,8 @@ def tsd_get_items(
     """
     # Use tsd as a reference to avoid the cost of the input wrapper
     # If we got here something was modified so release any previous value and replace
+    out = {}
+
     if ts.modified:
         next_ref = ts.value if ts.valid and not ts.value.is_empty else None
         next_tsd = next_ref.output if next_ref is not None and next_ref.has_output else None
@@ -151,6 +153,7 @@ def tsd_get_items(
                     _ref.get_or_create(k)
                     _ref[k].bind_output(output)
                     _ref[k].make_active()
+                    out[k] = _ref[k].value
         else:
             _state.tsd = next_tsd
 
@@ -163,10 +166,18 @@ def tsd_get_items(
         _ref.get_or_create(k)
         _ref[k].bind_output(output)
         _ref[k].make_active()
-
-    out = {}
+        out[k] = _ref[k].value
 
     for k in key.removed():
+        _state.key.discard(k)
+        _state.tsd.release_ref(k, _state.reference)
+        _ref.on_key_removed(k)
+        _ref_ref.on_key_removed(k)
+        out[k] = REMOVE_IF_EXISTS
+
+    for k in _state.tsd.key_set.removed():
+        if k not in _state.key:
+            continue
         _state.key.discard(k)
         _state.tsd.release_ref(k, _state.reference)
         _ref.on_key_removed(k)
@@ -176,7 +187,7 @@ def tsd_get_items(
     # This is required if tsd is a TSD of references, the TIME_SERIES_TYPE is captured dereferenced so
     # we cannot tell if we got one, but in that case tsd_get_ref will return a reference to reference
     # and the below 'if' deals with that by subscribing to the inner reference too
-    remove_ref_refs = []
+    remove_ref_refs = set()
     for k, v in _ref.modified_items():
         if k in _state.tsd.key_set.removed():
             out[k] = REMOVE_IF_EXISTS
@@ -189,7 +200,7 @@ def tsd_get_items(
             out[k] = v.value
             
         if k in _ref_ref:
-            remove_ref_refs.append(k)
+            remove_ref_refs.add(k)
             
     for k in remove_ref_refs:
         _ref_ref.on_key_removed(k)

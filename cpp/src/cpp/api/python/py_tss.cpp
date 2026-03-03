@@ -1,6 +1,7 @@
 #include <hgraph/api/python/py_tss.h>
 #include <hgraph/api/python/py_ts_runtime_internal.h>
 #include <hgraph/api/python/wrapper_factory.h>
+#include <hgraph/types/time_series/ts_ops.h>
 
 #include <fmt/format.h>
 
@@ -46,6 +47,42 @@ namespace
             }
         }
         return result;
+    }
+
+    nb::frozenset delta_set_values_from_delta_obj(const nb::object& delta_obj, bool added) {
+        if (delta_obj.is_none()) {
+            return nb::frozenset(nb::set());
+        }
+
+        nb::object bucket = nb::getattr(delta_obj, added ? "added" : "removed", nb::none());
+        if (bucket.is_none()) {
+            return nb::frozenset(nb::set());
+        }
+
+        nb::set out;
+        for (const auto& item : nb::iter(bucket)) {
+            out.add(nb::cast<nb::object>(item));
+        }
+        return nb::frozenset(out);
+    }
+
+    nb::frozenset input_delta_set_values(const TSInputView& input, bool added) {
+        if (!input.modified()) {
+            return nb::frozenset(nb::set());
+        }
+
+        if (input.sampled()) {
+            return added ? nb::frozenset(current_set_values(input.as_ts_view())) : nb::frozenset(nb::set());
+        }
+
+        return delta_set_values_from_delta_obj(input.delta_to_python(), added);
+    }
+
+    nb::frozenset output_delta_set_values(const TSOutputView& output, bool added) {
+        if (!output.modified()) {
+            return nb::frozenset(nb::set());
+        }
+        return delta_set_values_from_delta_obj(output.delta_to_python(), added);
     }
 }  // namespace
 
@@ -96,21 +133,11 @@ namespace
     }
 
     nb::object PyTimeSeriesSetOutput::added() const {
-        auto delta = view().delta_to_python();
-        if (delta.is_none()) {
-            return nb::frozenset(nb::set());
-        }
-        auto added = delta.attr("added");
-        return nb::isinstance<nb::frozenset>(added) ? added : nb::frozenset(nb::cast<nb::set>(added));
+        return output_delta_set_values(output_view(), true);
     }
 
     nb::object PyTimeSeriesSetOutput::removed() const {
-        auto delta = view().delta_to_python();
-        if (delta.is_none()) {
-            return nb::frozenset(nb::set());
-        }
-        auto removed = delta.attr("removed");
-        return nb::isinstance<nb::frozenset>(removed) ? removed : nb::frozenset(nb::cast<nb::set>(removed));
+        return output_delta_set_values(output_view(), false);
     }
 
     nb::bool_ PyTimeSeriesSetOutput::was_added(const nb::object &item) const {
@@ -212,21 +239,11 @@ namespace
     }
 
     nb::object PyTimeSeriesSetInput::added() const {
-        auto delta = view().delta_to_python();
-        if (delta.is_none()) {
-            return nb::frozenset(nb::set());
-        }
-        auto added = delta.attr("added");
-        return nb::isinstance<nb::frozenset>(added) ? added : nb::frozenset(nb::cast<nb::set>(added));
+        return input_delta_set_values(input_view(), true);
     }
 
     nb::object PyTimeSeriesSetInput::removed() const {
-        auto delta = view().delta_to_python();
-        if (delta.is_none()) {
-            return nb::frozenset(nb::set());
-        }
-        auto removed = delta.attr("removed");
-        return nb::isinstance<nb::frozenset>(removed) ? removed : nb::frozenset(nb::cast<nb::set>(removed));
+        return input_delta_set_values(input_view(), false);
     }
 
     nb::bool_ PyTimeSeriesSetInput::was_added(const nb::object &item) const {

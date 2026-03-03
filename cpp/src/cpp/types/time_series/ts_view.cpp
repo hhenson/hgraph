@@ -937,6 +937,12 @@ void populate_tsd_key_set_delta_cache(TsdKeySetDeltaCacheEntry& cache, const TSV
 }
 
 TsdKeySetDeltaCacheEntry* tsd_key_set_delta_cache_entry_for_view(const TSView& view) {
+    // Link-target-backed views can observe source updates without mutating the
+    // local wrapper cache root. Reusing the local cache entry can therefore
+    // return stale key-set deltas on remove-only ticks.
+    if (view.view_data().uses_link_target) {
+        return nullptr;
+    }
     auto* root = static_cast<PythonValueCacheNode*>(view.view_data().python_value_cache_data);
     if (root != nullptr) {
         return root->tsd_key_set_delta_cache();
@@ -1348,29 +1354,35 @@ bool tsd_was_modified_for_input_view(const TSView& view, const value::View& key)
 }
 
 TSView child_by_key_impl(const ViewData& view_data, const value::View& key, const engine_time_t* engine_time_ptr) {
+    value::View v = resolve_navigation_value(view_data);
+    if (v.valid() && v.is_map()) {
+        const auto slot = map_slot_for_key(v, key);
+        if (!slot.has_value()) {
+            // Source map is authoritative for keyed membership on resolved views.
+            // Do not fall back to local wrapper slots when the key is absent.
+            return {};
+        }
+
+        const bool debug_child_key = std::getenv("HGRAPH_DEBUG_CHILD_KEY") != nullptr;
+        if (debug_child_key) {
+            std::string key_s = nb::cast<std::string>(nb::repr(key.to_python()));
+            std::fprintf(stderr,
+                         "[child_by_key] path=%s key=%s map_size=%zu slot=%zu\n",
+                         view_data.path.to_string().c_str(),
+                         key_s.c_str(),
+                         v.as_map().size(),
+                         *slot);
+        }
+        return child_at_impl(view_data, *slot, engine_time_ptr);
+    }
+
     if (view_data.uses_link_target) {
         if (auto local_slot = map_slot_for_key(resolve_local_navigation_value(view_data), key); local_slot.has_value()) {
             return child_at_impl(view_data, *local_slot, engine_time_ptr);
         }
     }
 
-    value::View v = resolve_navigation_value(view_data);
-    const auto slot = map_slot_for_key(v, key);
-    if (!slot.has_value()) {
-        return {};
-    }
-
-    const bool debug_child_key = std::getenv("HGRAPH_DEBUG_CHILD_KEY") != nullptr;
-    if (debug_child_key) {
-        std::string key_s = nb::cast<std::string>(nb::repr(key.to_python()));
-        std::fprintf(stderr,
-                     "[child_by_key] path=%s key=%s map_size=%zu slot=%zu\n",
-                     view_data.path.to_string().c_str(),
-                     key_s.c_str(),
-                     v.as_map().size(),
-                     *slot);
-    }
-    return child_at_impl(view_data, *slot, engine_time_ptr);
+    return {};
 }
 
 size_t child_count_impl(const ViewData& view_data) {

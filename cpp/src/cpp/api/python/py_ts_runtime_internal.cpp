@@ -685,6 +685,9 @@ public:
     explicit TSDRefFeatureObserver(ViewData source)
         : source_(std::move(source)) {
         engine_time_ptr_ = resolve_engine_time_ptr(source_);
+        if (engine_time_ptr_ == nullptr) {
+            source_.delta_semantics = DeltaSemantics::AllowPreTickDelta;
+        }
         TSView source_view(source_, engine_time_ptr_);
         const TSMeta* meta = source_view.ts_meta();
         const ts_ops* ops = get_ts_ops(meta);
@@ -887,6 +890,9 @@ public:
     explicit TSSFeatureObserver(ViewData source)
         : source_(std::move(source)) {
         engine_time_ptr_ = resolve_engine_time_ptr(source_);
+        if (engine_time_ptr_ == nullptr) {
+            source_.delta_semantics = DeltaSemantics::AllowPreTickDelta;
+        }
         TSView source_view(source_, engine_time_ptr_);
         const TSMeta* meta = source_view.ts_meta();
         const ts_ops* ops = get_ts_ops(meta);
