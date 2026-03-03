@@ -1,3 +1,4 @@
+from copyreg import remove_extension
 from datetime import timedelta, datetime
 from typing import Tuple
 
@@ -9,6 +10,8 @@ from hgraph import (
     TS,
     MIN_TD,
     graph,
+    if_,
+    map_,
     schedule,
     SIGNAL,
     sample,
@@ -378,13 +381,37 @@ def test_filter_tsd():
     def g(condition: TS[bool], ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
         return filter_(condition, ts)
 
-    assert eval_node(g, [True, False, None, True], [{1: 1}, {2: 2, 1: 2}, {1: REMOVE}, {3: 3}, None, {0: 5}]) == [
+    assert eval_node(g, [True, False, None, True], [{1: 1}, {2: 2, 1: 2, 4: 2}, {1: REMOVE}, {3: 3, 2: REMOVE}, None, {0: 5}]) == [
         {1: 1},
         None,
         None,
-        {3: 3, 2: 2, 1: REMOVE},
+        {3: 3, 1: REMOVE, 4: 2},
         None,
         {0: 5},
+    ]
+
+
+def test_filter_str_tsd():
+    @graph
+    def g(condition: TS[bool], ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        ts1 = map_(lambda x: if_(x % 2 == 0, x).true, ts)
+        return filter_(condition, ts1)
+
+    assert eval_node(g, [True, False, None, True],
+                     [
+                         {"1": 2, "2": 3, "3": 4, "4": 5, "5": 6, "6": 7, "7": 8, "8": 9, "9": 10},
+                         None,
+                         {"1": 2, "2": REMOVE, "3": REMOVE, "4": REMOVE, "5": 6, "6": REMOVE, "7": 8, "8": REMOVE, "9": 10},
+                         {"1": 1},
+                         None,
+                         {"1": REMOVE}
+                         ]) == [
+        {"1": 2, "3": 4, "5": 6, "7": 8, "9": 10},
+        None,
+        None,
+        {"3": REMOVE, "5": 6, "7": 8, "9": 10},
+        None,
+        None # {"1": REMOVE},  FIXME: Item that has gone invalid does not show up in the renmoved items ever. This is a 'feature' but really needs some re-thinking
     ]
 
 

@@ -92,17 +92,20 @@ def test_mesh_2():
     def g(i: TSS[str], vars: TSD[str, TS[str]]) -> TSD[str, TS[float]]:
         return mesh_(operation, __key_arg__="i", __keys__=i, vars=vars)
 
+    i=[None, "e"] + [None] * 20 + ["f", "c"] + [None] * 10 + [{Removed("e")}]
+    vars=[{"a": "1.", "b": "2.", "c": "a+b", "d": "c-x", "x": "3.", "e": "d*a"}] \
+        + [None] * 10 \
+        + [{"a": "2."}] \
+        + [None] * 10 \
+        + [{"f": "b+x"}] \
+        + [None] * 12 \
+        + [{"b": "1."}]
+
     r = eval_node(
         g,
         # __trace__={"start": False, "stop": False},
-        i=[None, "e"] + [None] * 20 + ["f", "c"] + [None] * 10 + [{Removed("e")}],
-        vars=[{"a": "1.", "b": "2.", "c": "a+b", "d": "c-x", "x": "3.", "e": "d*a"}]
-        + [None] * 10
-        + [{"a": "2."}]
-        + [None] * 10
-        + [{"f": "b+x"}]
-        + [None] * 12
-        + [{"b": "1."}],
+        i,
+        vars
     )
 
     assert [x for x in r if x] == [{"e": 0.0}, {"e": 2.0}, {"f": 5.0}, {"c": 4.0}, {"e": REMOVE}, {"f": 4.0, "c": 3.0}]

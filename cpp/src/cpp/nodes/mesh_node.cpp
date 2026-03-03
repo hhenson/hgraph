@@ -359,9 +359,10 @@ namespace hgraph {
                                         re_rank_requests_.end());
             });
 
-            // Use component lifecycle functions like TsdMapNode does
+            graph->evaluation_engine_api()->add_before_evaluation_notification([builder = nested_graph_builder_, graph]() {
+                builder->release_instance(graph);
+            });
             stop_component(*graph);
-            nested_graph_builder_->release_instance(graph);
         }
     }
 

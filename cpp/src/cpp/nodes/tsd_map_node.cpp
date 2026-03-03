@@ -207,10 +207,10 @@ namespace hgraph
 
         un_wire_graph(key, graph);
 
-        auto cleanup = make_scope_exit([this, graph = graph]() {
-            // Release the graph back to the builder pool (which will call dispose)
-            nested_graph_builder_->release_instance(graph);
+        graph->evaluation_engine_api()->add_before_evaluation_notification([builder = nested_graph_builder_, graph]() {
+            builder->release_instance(graph);
         });
+
         stop_component(*graph);
     }
 
