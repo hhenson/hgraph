@@ -162,19 +162,16 @@ namespace
     }
 
     nb::object PyTimeSeriesSetOutput::get_contains_output(const nb::object &item, const nb::object &requester) const {
-        TSOutputView base = output_view();
-        auto out = runtime_tss_get_contains_output(base, item, requester);
+        auto out = output_view().as_set().get_contains_output(item, requester);
         return out ? wrap_output_view(std::move(out)) : nb::none();
     }
 
     void PyTimeSeriesSetOutput::release_contains_output(const nb::object &item, const nb::object &requester) const {
-        TSOutputView base = output_view();
-        runtime_tss_release_contains_output(base, item, requester);
+        output_view().as_set().release_contains_output(item, requester);
     }
 
     nb::object PyTimeSeriesSetOutput::is_empty_output() const {
-        TSOutputView base = output_view();
-        auto out = runtime_tss_get_is_empty_output(base);
+        auto out = output_view().as_set().is_empty_output();
         return out ? wrap_output_view(std::move(out)) : nb::none();
     }
 

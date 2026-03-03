@@ -1,5 +1,6 @@
 #include <hgraph/types/time_series/ts_view.h>
 
+#include <hgraph/api/python/py_ts_runtime_internal.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_ops.h>
@@ -2764,6 +2765,21 @@ void TSSOutputView::clear() {
     as_ts_view().as_set().clear();
 }
 
+TSOutputView TSSOutputView::get_contains_output(const nb::object& item, const nb::object& requester) {
+    TSOutputView base = *this;
+    return runtime_tss_get_contains_output(base, item, requester);
+}
+
+void TSSOutputView::release_contains_output(const nb::object& item, const nb::object& requester) {
+    TSOutputView base = *this;
+    runtime_tss_release_contains_output(base, item, requester);
+}
+
+TSOutputView TSSOutputView::is_empty_output() {
+    TSOutputView base = *this;
+    return runtime_tss_get_is_empty_output(base);
+}
+
 TSSOutputView TSDOutputView::key_set() const {
     return TSSOutputView(tsd_key_set_projection_view(*this));
 }
@@ -2930,6 +2946,16 @@ TSOutputView TSDOutputView::create(const value::View& key) {
 
 TSOutputView TSDOutputView::set(const value::View& key, const value::View& value) {
     return TSOutputView(owner_, as_ts_view().as_dict().set(key, value));
+}
+
+TSOutputView TSDOutputView::get_ref(const nb::object& key, const nb::object& requester) {
+    TSOutputView base = *this;
+    return runtime_tsd_get_ref_output(base, key, requester);
+}
+
+void TSDOutputView::release_ref(const nb::object& key, const nb::object& requester) {
+    TSOutputView base = *this;
+    runtime_tsd_release_ref_output(base, key, requester);
 }
 
 void TSDOutputView::clear() {

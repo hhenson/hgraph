@@ -130,6 +130,9 @@ public:
     bool add(const value::View& elem);
     bool remove(const value::View& elem);
     void clear();
+    [[nodiscard]] TSOutputView get_contains_output(const nb::object& item, const nb::object& requester);
+    void release_contains_output(const nb::object& item, const nb::object& requester);
+    [[nodiscard]] TSOutputView is_empty_output();
 };
 
 class HGRAPH_EXPORT TSDOutputView : public TSOutputView {
@@ -177,6 +180,8 @@ public:
     bool remove(const value::View& key);
     [[nodiscard]] TSOutputView create(const value::View& key);
     [[nodiscard]] TSOutputView set(const value::View& key, const value::View& value);
+    [[nodiscard]] TSOutputView get_ref(const nb::object& key, const nb::object& requester);
+    void release_ref(const nb::object& key, const nb::object& requester);
 };
 
 class HGRAPH_EXPORT TSIndexedOutputView : public TSOutputView {

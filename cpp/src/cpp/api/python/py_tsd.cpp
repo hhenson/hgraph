@@ -318,14 +318,12 @@ namespace
     }
 
     nb::object PyTimeSeriesDictOutput::get_ref(const nb::object &key, const nb::object &requester) {
-        TSOutputView base = output_view();
-        TSOutputView out = runtime_tsd_get_ref_output(base, key, requester);
+        TSOutputView out = output_view().as_dict().get_ref(key, requester);
         return out ? wrap_output_view(std::move(out)) : nb::none();
     }
 
     void PyTimeSeriesDictOutput::release_ref(const nb::object &key, const nb::object &requester) {
-        TSOutputView base = output_view();
-        runtime_tsd_release_ref_output(base, key, requester);
+        output_view().as_dict().release_ref(key, requester);
     }
 
     // ===== PyTimeSeriesDictInput Implementation =====
