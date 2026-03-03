@@ -82,7 +82,7 @@ class GraphEngineFactory:
 
     @staticmethod
     def make(
-        graph_builder: "GraphBuilder", run_mode: EvaluationMode, observers: Iterable[EvaluationLifeCycleObserver] = None
+        graph_builder: "GraphBuilder", run_mode: EvaluationMode, observers: Iterable[EvaluationLifeCycleObserver] = None, cleanup_on_error: bool = True
     ) -> GraphExecutor:
         """
         Make a new graph engine. If no engine is declared, the default engine will be used.
@@ -92,6 +92,6 @@ class GraphEngineFactory:
         :return: A new graph engine
         """
         if GraphEngineFactory.is_declared():
-            return GraphEngineFactory.declared()(graph_builder=graph_builder, run_mode=run_mode, observers=observers)
+            return GraphEngineFactory.declared()(graph_builder=graph_builder, run_mode=run_mode, observers=observers, cleanup_on_error=cleanup_on_error)
         else:
-            return GraphEngineFactory.default()(graph_builder=graph_builder, run_mode=run_mode, observers=observers)
+            return GraphEngineFactory.default()(graph_builder=graph_builder, run_mode=run_mode, observers=observers, cleanup_on_error=cleanup_on_error)

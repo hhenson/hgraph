@@ -23,8 +23,11 @@ from hgraph._wiring._wiring_node_class._wiring_node_class import (
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature, WiringNodeType
 from hgraph._wiring._wiring_observer import WiringObserverContext
 from hgraph._wiring._wiring_port import WiringPort
+from hgraph._types._scalar_types import STATE
+
 
 __all__ = ("WiringGraphContext", "GraphWiringNodeClass")
+
 
 
 class WiringGraphContext:
@@ -44,6 +47,13 @@ class WiringGraphContext:
     @classmethod
     def set_strict(cls, strict: bool):
         WiringGraphContext.__strict__ = strict
+
+    @classmethod
+    def is_temporary(cls) -> bool:
+        if c := WiringGraphContext.instance():
+            return c._temporary
+        else:
+            return False
 
     @classmethod
     def shelve_wiring(cls):
@@ -494,6 +504,17 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                 **kwargs,
             )
 
+            if WiringGraphContext.is_temporary():
+                # no need to wire anything as we know return type
+                from hgraph._wiring._wiring_port import _wiring_port_for
+                if resolved_signature.output_type is None:
+                    return None
+                elif resolved_signature.output_type.is_resolved:
+                    return _wiring_port_for(
+                        resolved_signature.output_type,
+                        STATE(output_type=resolved_signature.output_type, node=None), # fake wiring node instance
+                        tuple())
+
             # But graph nodes are evaluated at wiring time, so this is the graph expansion happening here!
             with WiringGraphContext(resolved_signature) as g:
                 out: WiringPort = self.fn(**kwargs_)
@@ -518,7 +539,7 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                                     f"Expected a time series of type '{str(output_type)}' but got a dict of "
                                     f"{{{', '.join(f'{k}:{str(v.output_type)}' for k, v in out.items())}}}"
                                 )
-                        else:
+                        elif out is not None:
                             try:
                                 # use build resolution dict from scalar as a proxy for "is this scalar a valid const value for this time series"
                                 output_type.build_resolution_dict_from_scalar({}, HgTypeMetaData.parse_value(out), out)
@@ -530,6 +551,14 @@ class GraphWiringNodeClass(BaseWiringNodeClass):
                                     f"{self.signature} was expected to return a time series of type"
                                     f" '{str(output_type)}' but returned '{str(out)}'"
                                 ) from e
+                        else:
+                            from hgraph._types._time_series_types import TIME_SERIES_TYPE
+                            if output_type.py_type is not TIME_SERIES_TYPE:
+                                raise WiringError(
+                                    f"{self.signature} was expected to return a time series of type"
+                                    f" '{str(output_type)}' but did not return anything"
+                                )
+                            return None  # TIME_SERIES_TYPE is allowed to be None as a special case
 
                     if not output_type.dereference().matches(out.output_type.dereference()):
                         raise WiringError(

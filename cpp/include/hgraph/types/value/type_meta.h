@@ -146,6 +146,7 @@ struct set_ops_t {
     size_t (*size)(const void* obj, const TypeMeta* schema);
     // Slot-based access (stable slot identity), not ordinal n-th element access.
     const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
+    size_t (*next)(const void* obj, size_t prev, const TypeMeta* schema);
     bool (*contains)(const void* obj, const void* element, const TypeMeta* schema);
     void (*add)(void* obj, const void* element, const TypeMeta* schema);
     void (*remove)(void* obj, const void* element, const TypeMeta* schema);
@@ -255,7 +256,6 @@ struct type_ops {
             case TypeKind::Bundle:      return specific.bundle.at(obj, index, schema);
             case TypeKind::Tuple:       return specific.tuple.at(obj, index, schema);
             case TypeKind::List:        return specific.list.at(obj, index, schema);
-            case TypeKind::Set:         return specific.set.at(obj, index, schema);
             case TypeKind::CyclicBuffer:return specific.cyclic_buffer.at(obj, index, schema);
             case TypeKind::Queue:       return specific.queue.at(obj, index, schema);
             default:                    return nullptr;
@@ -540,7 +540,7 @@ struct ScalarOps {
     }
 
     static size_t hash(const void* obj, const TypeMeta*) {
-        return std::hash<T>{}(*static_cast<const T*>(obj));
+        return std::hash<T>{}(*static_cast<const T*>(obj)) * UINT64_C(0x9ddfea08eb382d69);
     }
 
     static bool less_than(const void* a, const void* b, const TypeMeta*) {

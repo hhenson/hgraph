@@ -66,13 +66,13 @@ if is_feature_enabled("use_cpp"):
         hgraph._builder._graph_builder.GraphBuilder.register(_hgraph.GraphBuilder)
         hgraph.GraphBuilderFactory.declare(_make_cpp_graph_builder)
 
-        def _make_cpp_graph_engine(graph_builder, run_mode, observers):
+        def _make_cpp_graph_engine(graph_builder, run_mode, observers, cleanup_on_error = True):
             """Create a C++ GraphEngine from a Python GraphBuilder"""
             if hasattr(run_mode, "name"):
                 run_mode = _hgraph.EvaluationMode[run_mode.name]
             else:
                 run_mode = _hgraph.EvaluationMode(int(run_mode))
-            return _hgraph.GraphExecutor(graph_builder, run_mode, observers)
+            return _hgraph.GraphExecutor(graph_builder, run_mode, observers, cleanup_on_error)
 
         hgraph.GraphEngineFactory.declare(_make_cpp_graph_engine)
 

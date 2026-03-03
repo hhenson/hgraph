@@ -32,6 +32,7 @@
 #include <hgraph/types/value/path.h>
 
 #include <functional>
+#include <limits>
 #include <variant>
 #include <vector>
 
@@ -170,12 +171,19 @@ inline void deep_visit_impl(
 
         case TypeKind::Set: {
             auto set = view.as_set();
-            size_t i = 0;
-            for (View elem : set) {
+            // Use TypeOps get_at for indexed access to set elements
+            const auto* schema = set.schema();
+            for (size_t i = std::numeric_limits<size_t>::max();;)  {
+                i  = schema->ops().specific.set.next(set.data(), i, schema);
+                if (i == std::numeric_limits<size_t>::max()) {
+                    break; // No more elements
+                }
                 path.push_back(i);
-                deep_visit_impl(elem, path, callback);
+                const void* elem_data = schema->ops().specific.set.at(set.data(), i, schema);
+                if (elem_data) {
+                    deep_visit_impl(View(elem_data, schema->element_type), path, callback);
+                }
                 path.pop_back();
-                ++i;
             }
             break;
         }

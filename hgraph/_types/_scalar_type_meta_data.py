@@ -1190,13 +1190,18 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
 
     @property
     def is_resolved(self) -> bool:
+        if (r := getattr(self, "_is_resolved", None)) is not None:
+            return r
+
         if SchemaRecurseContext.is_in_context(self.py_type):
             return True
 
         with SchemaRecurseContext(self.py_type):
-            return all(tp.is_resolved for tp in self.meta_data_schema.values()) and not getattr(
+            resolved = all(tp.is_resolved for tp in self.meta_data_schema.values()) and not getattr(
                 self.py_type, "__parameters__", False
             )
+            object.__setattr__(self, "_is_resolved", resolved)
+            return resolved
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:

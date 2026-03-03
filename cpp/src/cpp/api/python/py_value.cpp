@@ -812,7 +812,7 @@ static void register_set_views(nb::module_& m) {
         // Iteration support
         .def("__iter__", [](SetView& self) {
             nb::list result;
-            for (View elem : self) {
+            for (auto elem : self) {
                 result.append(nb::cast(elem));
             }
             return nb::iter(result);

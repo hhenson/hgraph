@@ -570,7 +570,7 @@ namespace hgraph
 
     void NodeScheduler::schedule(engine_time_delta_t when, std::optional<std::string> tag, bool on_wall_clock) {
         // Use node's cached evaluation time pointer - direct memory access, no pointer chasing
-        auto eval_time = *_node->_cached_evaluation_time_ptr;
+        auto eval_time = on_wall_clock ? _node->graph()->evaluation_clock()->now() : *_node->_cached_evaluation_time_ptr;
         auto when_     = eval_time + when;
         if (std::getenv("HGRAPH_DEBUG_SCHED_TIME") != nullptr) {
             auto graph_now = _node->graph() != nullptr ? _node->graph()->evaluation_time() : MIN_DT;
