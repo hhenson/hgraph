@@ -825,20 +825,9 @@ namespace hgraph
 
         auto value{it->second};
 
-        // Determine was_valid: whether the INPUT's bound value had a valid result before removal.
-        //
-        // This handles two cases:
-        // 1. test_mesh_2: key 'e' produced a valid result before removal -> emit REMOVE
-        // 2. test_mesh_removal: key 7 never produced a valid result (fib(7) didn't complete) -> NO REMOVE
-        //
-        // We use the TSD OUTPUT's stored was_valid (captured BEFORE clearing and before notifying
-        // observers). This is the authoritative source because it captures validity before cascading.
-        bool was_valid = value->valid();  // Current validity of INPUT's bound value
-        if (!was_valid && has_output()) {
-            // Value is currently invalid due to cascading. Query the TSD OUTPUT for the
-            // authoritative was_valid that was captured before clearing.
-            was_valid = output_t().was_removed_valid(key);
-        }
+        // was_valid tracks whether the item was valid before removal, 
+        // which is needed for correct delta_value behavior (only emit REMOVE if it was valid)
+        bool was_valid = value->valid(); 
 
         _ts_values.erase(it);
         _remove_key_value(key, value);
