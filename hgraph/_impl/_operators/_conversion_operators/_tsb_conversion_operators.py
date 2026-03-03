@@ -98,7 +98,7 @@ def _convert_tsb_to_tsd_requirements(mapping, keys):
     )
 
 
-@compute_node(overloads=convert, requires=_convert_tsb_to_tsd_requirements)
+@graph(overloads=convert, requires=_convert_tsb_to_tsd_requirements)
 def convert_tsb_to_tsd(
     ts: TSB[TS_SCHEMA],
     to: type[TSD[str, TIME_SERIES_TYPE]],
@@ -112,6 +112,6 @@ def convert_tsb_to_tsd(
     """
     if keys is None:
         keys = _schema_tp.__meta_data_schema__.keys()
-    out = {k: v.delta_value for k in keys if (v := ts[k]).modified}
+    out = {k: getattr(ts, k) for k in keys}
     if out:
-        return out
+        return combine[TSD](tuple(out.keys()), *out.values())
