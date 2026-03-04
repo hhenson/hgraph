@@ -26,6 +26,7 @@ from hgraph import (
     TS_SCHEMA,
     TS_SCHEMA_1,
     add_,
+    contains_,
     graph,
     sub_,
     WiringError,
@@ -54,6 +55,11 @@ def sub_strs(lhs: TS[str], rhs: TS[str]) -> TS[str]:
 @compute_node(overloads=mul_)
 def mul_strs(lhs: TS[str], rhs: TS[int]) -> TS[str]:
     return lhs.value * rhs.value
+
+
+@compute_node(overloads=contains_)
+def contains_str(ts: TS[str], key: TS[str]) -> TS[bool]:
+    return key.value in ts.value
 
 
 @graph(overloads=str_)

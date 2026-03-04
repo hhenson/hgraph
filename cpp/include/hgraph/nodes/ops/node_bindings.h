@@ -76,6 +76,8 @@ namespace hgraph {
                 DivmodIntsSpec,
                 AddStrSpec,
                 MulStrsSpec,
+                ContainsStrSpec,
+                SubstrDefaultSpec,
                 AndBooleansSpec,
                 OrBooleansSpec,
                 NotBooleanSpec,

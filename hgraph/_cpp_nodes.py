@@ -84,6 +84,8 @@ def register_cpp_node_mappings(_hgraph_module) -> None:
             "divmod_ints": _hgraph_module.op_divmod_ints,
             "add_str": _hgraph_module.op_add_str,
             "mul_strs": _hgraph_module.op_mul_strs,
+            "contains_str": _hgraph_module.op_contains_str,
+            "substr_default": _hgraph_module.op_substr_default,
             "and_booleans": _hgraph_module.op_and_booleans,
             "or_booleans": _hgraph_module.op_or_booleans,
             "not_boolean": _hgraph_module.op_not_boolean,
