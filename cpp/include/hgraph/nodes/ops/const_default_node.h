@@ -9,6 +9,7 @@ namespace hgraph {
     namespace ops {
         struct ConstDefaultSpec {
             static constexpr const char* py_factory_name = "op_const_default";
+            static constexpr const char* schedule_tag = "const_default";
 
             struct state {
                 bool emitted{false};
@@ -42,12 +43,12 @@ namespace hgraph {
                     node.notify(now);
                     return;
                 }
-                node.scheduler()->schedule(state.emit_time, std::string{"const_default"});
+                node.scheduler()->schedule(state.emit_time, std::string{schedule_tag});
             }
 
             static void stop(Node& node, state&) {
                 if (node.has_scheduler()) {
-                    node.scheduler()->un_schedule("const_default");
+                    node.scheduler()->un_schedule(schedule_tag);
                 }
             }
 
@@ -57,14 +58,14 @@ namespace hgraph {
                 }
 
                 if (node.graph()->evaluation_time() < state.emit_time) {
-                    node.scheduler()->schedule(state.emit_time, std::string{"const_default"});
+                    node.scheduler()->schedule(state.emit_time, std::string{schedule_tag});
                     return;
                 }
 
                 node.output().from_python(state.value);
                 state.emitted = true;
                 if (node.has_scheduler()) {
-                    node.scheduler()->un_schedule("const_default");
+                    node.scheduler()->un_schedule(schedule_tag);
                 }
             }
         };

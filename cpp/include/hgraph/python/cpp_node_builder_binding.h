@@ -8,6 +8,23 @@ namespace hgraph {
     template<typename... Specs>
     struct CppNodeSpecList {};
 
+    template<typename... Lists>
+    struct CppNodeSpecListConcat;
+
+    template<typename... Specs>
+    struct CppNodeSpecListConcat<CppNodeSpecList<Specs...>>
+    {
+        using type = CppNodeSpecList<Specs...>;
+    };
+
+    template<typename... LeftSpecs, typename... RightSpecs, typename... Rest>
+    struct CppNodeSpecListConcat<CppNodeSpecList<LeftSpecs...>, CppNodeSpecList<RightSpecs...>, Rest...>
+        : CppNodeSpecListConcat<CppNodeSpecList<LeftSpecs..., RightSpecs...>, Rest...>
+    {};
+
+    template<typename... Lists>
+    using CppNodeSpecListConcat_t = typename CppNodeSpecListConcat<Lists...>::type;
+
     template<typename Spec>
     concept CppNodeSpecWithFactoryName =
         requires {
@@ -56,4 +73,3 @@ namespace hgraph {
         (bind_cpp_node_builder_factory<Specs>(m), ...);
     }
 }  // namespace hgraph
-

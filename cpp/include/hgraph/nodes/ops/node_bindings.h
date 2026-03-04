@@ -11,11 +11,14 @@
 
 namespace hgraph {
     namespace ops {
-        using bound_node_specs =
+        using core_node_specs =
             CppNodeSpecList<
                 NothingSpec,
                 NullSinkSpec,
-                ConstDefaultSpec,
+                ConstDefaultSpec>;
+
+        using number_node_specs =
+            CppNodeSpecList<
                 AddFloatToIntSpec,
                 AddIntToIntSpec,
                 AddFloatToFloatSpec,
@@ -73,20 +76,36 @@ namespace hgraph {
                 PowIntFloatSpec,
                 PowFloatIntSpec,
                 DivmodNumbersSpec,
-                DivmodIntsSpec,
+                DivmodIntsSpec>;
+
+        using string_node_specs =
+            CppNodeSpecList<
                 AddStrSpec,
                 MulStrsSpec,
                 ContainsStrSpec,
-                SubstrDefaultSpec,
+                SubstrDefaultSpec>;
+
+        using bool_node_specs =
+            CppNodeSpecList<
                 AndBooleansSpec,
                 OrBooleansSpec,
-                NotBooleanSpec,
+                NotBooleanSpec>;
+
+        using enum_node_specs =
+            CppNodeSpecList<
                 EqEnumSpec,
                 LtEnumSpec,
                 LeEnumSpec,
                 GtEnumSpec,
                 GeEnumSpec,
                 GetattrEnumNameSpec>;
+
+        using bound_node_specs = CppNodeSpecListConcat_t<
+            core_node_specs,
+            number_node_specs,
+            string_node_specs,
+            bool_node_specs,
+            enum_node_specs>;
 
         inline void bind_node_builders(nb::module_& m) {
             bind_cpp_node_builder_factories(m, bound_node_specs{});
