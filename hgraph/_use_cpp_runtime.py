@@ -129,6 +129,9 @@ if is_feature_enabled("use_cpp"):
         hgraph._wiring._wiring_node_class.PythonGeneratorWiringNodeClass.BUILDER_CLASS = (
             _hgraph.PythonGeneratorNodeBuilder
         )
+        import hgraph._cpp_nodes as _cpp_nodes
+
+        _cpp_nodes.register_cpp_node_mappings(_hgraph)
 
 
         def _create_set_delta(added, removed, tp):

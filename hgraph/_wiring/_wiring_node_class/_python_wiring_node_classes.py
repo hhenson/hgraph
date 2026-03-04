@@ -42,7 +42,16 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
         output_type = node_signature.time_series_output
         assert output_type is not None, "PythonGeneratorWiringNodeClass must have a time series output"
-        return PythonGeneratorWiringNodeClass.BUILDER_CLASS(
+
+        selected_builder = PythonGeneratorWiringNodeClass.BUILDER_CLASS
+        mapped_builder = None
+        cpp_node_id = try_derive_cpp_node_id(self.fn) if _is_cpp_runtime_enabled_for_dispatch() else None
+        if cpp_node_id is not None:
+            mapped_builder = lookup_cpp_node_builder(cpp_node_id)
+            if mapped_builder is not None:
+                selected_builder = mapped_builder
+
+        builder_kwargs = dict(
             signature=node_signature,
             scalars=scalars,
             input_builder=None,
@@ -52,6 +61,18 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
             ),
             eval_fn=self.fn,
         )
+        try:
+            return selected_builder(**builder_kwargs)
+        except Exception as e:
+            if mapped_builder is not None and cpp_node_id is not None:
+                fn_name = getattr(self.fn, "__qualname__", getattr(self.fn, "__name__", "<unknown>"))
+                fn_identity = f"{getattr(self.fn, '__module__', '<unknown>')}.{fn_name}"
+                raise CustomMessageWiringError(
+                    "Mapped C++ node builder failed for "
+                    f"'{fn_identity}' (derived id '{cpp_node_id}', signature '{resolved_wiring_signature.signature}'): "
+                    f"{e}"
+                ) from e
+            raise
 
 
 class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):

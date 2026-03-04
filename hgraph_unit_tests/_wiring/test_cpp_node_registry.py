@@ -1,6 +1,7 @@
 import pytest
+from datetime import timedelta
 
-from hgraph import TS, compute_node, const, graph, null_sink, wire_graph
+from hgraph import TS, compute_node, const, generator, graph, null_sink, wire_graph
 from hgraph._wiring._cpp_node_registry import (
     clear_cpp_node_mappings,
     derive_cpp_node_id,
@@ -108,3 +109,36 @@ def test_cpp_mapping_dispatch_raises_for_failed_builder(monkeypatch):
     assert cpp_node_id in message
     assert "mapped_fail" in message
     assert "boom" in message
+
+
+def test_cpp_mapping_dispatch_uses_registered_builder_for_generator(monkeypatch):
+    from hgraph._wiring._wiring_node_class import _python_wiring_node_classes as _pwc
+
+    monkeypatch.setattr(_pwc, "_is_cpp_runtime_enabled_for_dispatch", lambda: True)
+
+    @generator
+    def mapped_gen() -> TS[int]:
+        yield timedelta(), 1
+
+    base_builder = _pwc.PythonGeneratorWiringNodeClass.BUILDER_CLASS
+    if base_builder is None:
+        from hgraph._impl._builder import PythonGeneratorNodeBuilder
+
+        base_builder = PythonGeneratorNodeBuilder
+
+    calls = []
+
+    def _mapped_builder(**kwargs):
+        calls.append(kwargs["signature"].name)
+        return base_builder(**kwargs)
+
+    register_cpp_node_builder_for_callable(mapped_gen.fn, _mapped_builder)
+
+    @graph
+    def _g():
+        null_sink(mapped_gen())
+
+    with WiringNodeInstanceContext():
+        wire_graph(_g)
+
+    assert calls == ["mapped_gen"]
