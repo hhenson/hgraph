@@ -3,7 +3,6 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 
-#include <stdexcept>
 #include <string>
 
 namespace hgraph {
@@ -20,9 +19,6 @@ namespace hgraph {
             static state make_state(Node& node) {
                 state out{};
                 const nb::dict& scalars = node.scalars();
-                if (!scalars.contains("value")) {
-                    throw std::runtime_error("const_default requires scalar 'value'");
-                }
                 out.value = nb::cast<nb::object>(scalars["value"]);
 
                 engine_time_delta_t delay = MIN_TD;
@@ -65,12 +61,7 @@ namespace hgraph {
                     return;
                 }
 
-                auto output_view = node.output();
-                if (!output_view) {
-                    throw std::runtime_error("const_default requires TS output");
-                }
-
-                output_view.from_python(state.value);
+                node.output().from_python(state.value);
                 state.emitted = true;
                 if (node.has_scheduler()) {
                     node.scheduler()->un_schedule("const_default");
@@ -79,4 +70,3 @@ namespace hgraph {
         };
     }  // namespace ops
 }  // namespace hgraph
-
