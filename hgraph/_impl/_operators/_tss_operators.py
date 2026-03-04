@@ -246,7 +246,7 @@ def std_tss_unary(tss: TSS[KEYABLE_SCALAR]) -> TS[float]:
 
 
 @compute_node(overloads=var)
-def std_tss_unary(tss: TSS[KEYABLE_SCALAR]) -> TS[float]:
+def var_tss_unary(tss: TSS[KEYABLE_SCALAR]) -> TS[float]:
     """
     Unary variance for TSS
     The variance is that of the latest set value

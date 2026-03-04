@@ -100,7 +100,7 @@ def convert_tsb_to_mapping(
     resolvers={SCALAR: lambda m: m[OUT].value_scalar_tp.value_type},
     all_valid=lambda m, __strict__: ("ts",) if __strict__ else None,
 )
-def convert_tsb_to_mapping(
+def convert_tsb_kwargs_to_mapping(
     to: Type[OUT] = DEFAULT[OUT], __strict__: bool = False, **ts: TSB[TS_SCHEMA]
 ) -> TS[Mapping[str, SCALAR]]:
     return frozendict(ts.value)
