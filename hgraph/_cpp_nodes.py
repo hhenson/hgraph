@@ -101,6 +101,8 @@ def register_cpp_node_mappings(_hgraph_module) -> None:
             "pos_scalar": _hgraph_module.op_pos_scalar,
             "invert_scalar": _hgraph_module.op_invert_scalar,
             "abs_scalar": _hgraph_module.op_abs_scalar,
+            "len_scalar": _hgraph_module.op_len_scalar,
+            "cmp_scalars": _hgraph_module.op_cmp_scalars,
             "not_scalar": _hgraph_module.op_not_scalar,
             "and_scalars": _hgraph_module.op_and_scalars,
             "or_scalars": _hgraph_module.op_or_scalars,

@@ -100,6 +100,8 @@ namespace hgraph {
                 PosScalarSpec,
                 InvertScalarSpec,
                 AbsScalarSpec,
+                LenScalarSpec,
+                CmpScalarsSpec,
                 NotScalarSpec,
                 AndScalarsSpec,
                 OrScalarsSpec,

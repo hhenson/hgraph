@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <cstdint>
 
 namespace hgraph {
     namespace ops {
@@ -313,6 +314,55 @@ namespace hgraph {
                 const nb::object key = scalar_ops_detail::python_field(bundle, "key");
                 const nb::object contains = nb::cast<nb::object>(ts.attr("__contains__")(key));
                 scalar_ops_detail::emit_bool(node, nb::cast<bool>(contains));
+            }
+        };
+
+        struct LenScalarSpec {
+            static constexpr const char* py_factory_name = "op_len_scalar";
+
+            static void eval(Node& node) {
+                auto bundle = scalar_ops_detail::input_bundle(node);
+                const nb::object ts = scalar_ops_detail::python_field(bundle, "ts");
+                const Py_ssize_t size = PyObject_Size(ts.ptr());
+                if (size < 0) {
+                    nb::raise_python_error();
+                }
+                const int64_t out = static_cast<int64_t>(size);
+                node.output().set_value(value::View(&out, value::scalar_type_meta<int64_t>()));
+            }
+        };
+
+        struct CmpScalarsSpec {
+            static constexpr const char* py_factory_name = "op_cmp_scalars";
+
+            struct state {
+                nb::object eq;
+                nb::object lt;
+                nb::object gt;
+            };
+
+            static state make_state(Node&) {
+                const nb::object cmp_result = nb::cast<nb::object>(nb::module_::import_("hgraph").attr("CmpResult"));
+                return {
+                    nb::cast<nb::object>(cmp_result.attr("EQ")),
+                    nb::cast<nb::object>(cmp_result.attr("LT")),
+                    nb::cast<nb::object>(cmp_result.attr("GT")),
+                };
+            }
+
+            static void eval(Node& node, state& state) {
+                auto bundle = scalar_ops_detail::input_bundle(node);
+                const nb::object lhs = scalar_ops_detail::python_field(bundle, "lhs");
+                const nb::object rhs = scalar_ops_detail::python_field(bundle, "rhs");
+                if (scalar_ops_detail::rich_compare_bool(lhs, rhs, Py_EQ)) {
+                    scalar_ops_detail::emit_python(node, state.eq);
+                    return;
+                }
+                if (scalar_ops_detail::rich_compare_bool(lhs, rhs, Py_LT)) {
+                    scalar_ops_detail::emit_python(node, state.lt);
+                    return;
+                }
+                scalar_ops_detail::emit_python(node, state.gt);
             }
         };
     }  // namespace ops
