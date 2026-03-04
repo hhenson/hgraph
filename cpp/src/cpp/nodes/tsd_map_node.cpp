@@ -740,7 +740,8 @@ namespace hgraph
                         const bool outer_was_valid = outer_key.valid();
                         const bool outer_needs_init = !outer_was_valid || output_init_pending || force_emit;
                         if (inner_raw.modified() || outer_needs_init) {
-                            outer_key.from_python(inner_raw.to_python());
+                            ViewData dst_vd = outer_key.as_ts_view().view_data();
+                            apply_ref_payload(dst_vd, resolve_ref_payload_from_view(inner_raw.view_data()), node_time(*this));
                             if (auto pending_it = pending_keys_.find(key_value); pending_it != pending_keys_.end()) {
                                 pending_keys_.erase(pending_it);
                             }

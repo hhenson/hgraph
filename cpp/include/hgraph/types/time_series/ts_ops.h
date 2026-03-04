@@ -210,6 +210,8 @@ HGRAPH_EXPORT void notify_ts_link_observers(const ViewData& target_view, engine_
 HGRAPH_EXPORT nb::object op_to_python(const ViewData& vd);
 HGRAPH_EXPORT nb::object op_delta_to_python(const ViewData& vd, engine_time_t current_time);
 HGRAPH_EXPORT void op_from_python(ViewData& vd, const nb::object& src, engine_time_t current_time);
+HGRAPH_EXPORT TimeSeriesReference resolve_ref_payload_from_view(const ViewData& src);
+HGRAPH_EXPORT void apply_ref_payload(ViewData& dst, const TimeSeriesReference& payload, engine_time_t current_time);
 
 /**
  * Register/unregister a link observer against endpoint-owned TS observer registries.

@@ -2,7 +2,46 @@
 
 namespace hgraph {
 
-void op_from_python_ref(ViewData& vd, const nb::object& src, engine_time_t current_time) {
+namespace {
+
+bool extract_ref(const value::View& view, TimeSeriesReference& out) {
+    if (!view.valid() || view.schema() != ts_reference_meta()) {
+        return false;
+    }
+    out = *static_cast<const TimeSeriesReference*>(view.data());
+    return true;
+}
+
+}  // namespace
+
+TimeSeriesReference resolve_ref_payload_from_view(const ViewData& src) {
+    if (auto local = resolve_value_slot_const(src);
+        local.has_value() &&
+        local->valid() &&
+        local->schema() == ts_reference_meta()) {
+        const auto& local_ref = *static_cast<const TimeSeriesReference*>(local->data());
+        if (local_ref.is_empty()) {
+            ViewData bound_target{};
+            const bool has_distinct_bound_target =
+                resolve_bound_target_view_data(src, bound_target) &&
+                !same_view_identity(bound_target, src);
+            if (!has_distinct_bound_target) {
+                return TimeSeriesReference::make();
+            }
+        }
+    }
+
+    TimeSeriesReference resolved = TimeSeriesReference::make();
+    if (extract_ref(op_value(src), resolved)) {
+        return resolved;
+    }
+    if (auto bound = resolve_bound_view_data(src); bound.has_value()) {
+        return TimeSeriesReference::make(*bound);
+    }
+    return TimeSeriesReference::make();
+}
+
+void apply_ref_payload(ViewData& vd, const TimeSeriesReference& incoming_ref, engine_time_t current_time) {
     const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
     if (current == nullptr) {
         return;
@@ -10,37 +49,19 @@ void op_from_python_ref(ViewData& vd, const nb::object& src, engine_time_t curre
 
     const bool debug_ref_from = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_FROM");
 
-    // Python TimeSeriesReferenceOutput.apply_result(None) is a no-op.
-    if (src.is_none()) {
-        return;
-    }
-
     auto maybe_dst = resolve_value_slot_mut(vd);
-    if (!maybe_dst.has_value()) {
+    if (!maybe_dst.has_value() || !maybe_dst->valid() || maybe_dst->schema() != ts_reference_meta()) {
         return;
     }
 
-    nb::object normalized_src = src;
-    bool same_ref_identity = false;
-    TimeSeriesReference existing_ref = TimeSeriesReference::make();
-    bool existing_ref_valid = false;
-    TimeSeriesReference incoming_ref = TimeSeriesReference::make();
-    bool incoming_ref_valid = false;
-
-    if (maybe_dst->valid() && maybe_dst->schema() == ts_reference_meta()) {
-        existing_ref = nb::cast<TimeSeriesReference>(maybe_dst->to_python());
-        existing_ref_valid = true;
-        incoming_ref = nb::cast<TimeSeriesReference>(normalized_src);
-        incoming_ref_valid = true;
-        same_ref_identity = (existing_ref == incoming_ref);
-    }
-
-    const bool existing_payload_valid = existing_ref_valid && existing_ref.is_valid();
-    const bool incoming_payload_valid = incoming_ref_valid && incoming_ref.is_valid();
+    TimeSeriesReference existing_ref = *static_cast<const TimeSeriesReference*>(maybe_dst->data());
+    const bool existing_ref_valid = true;
+    const bool same_ref_identity = (existing_ref == incoming_ref);
+    const bool existing_payload_valid = existing_ref.is_valid();
+    const bool incoming_payload_valid = incoming_ref.is_valid();
     const bool has_prior_write = direct_last_modified_time(vd) != MIN_DT;
     const bool suppress_invalid_rebind_tick =
         vd.uses_link_target &&
-        incoming_ref_valid &&
         existing_ref_valid &&
         !incoming_payload_valid &&
         !existing_payload_valid;
@@ -48,12 +69,10 @@ void op_from_python_ref(ViewData& vd, const nb::object& src, engine_time_t curre
     if (same_ref_identity) {
         if (debug_ref_from) {
             std::fprintf(stderr,
-                         "[ref_from_same] path=%s now=%lld existing_ref_valid=%d existing_payload_valid=%d incoming_ref_valid=%d incoming_payload_valid=%d has_prior_write=%d suppress=%d\n",
+                         "[ref_from_same] path=%s now=%lld existing_payload_valid=%d incoming_payload_valid=%d has_prior_write=%d suppress=%d\n",
                          vd.path.to_string().c_str(),
                          static_cast<long long>(current_time.time_since_epoch().count()),
-                         existing_ref_valid ? 1 : 0,
                          existing_payload_valid ? 1 : 0,
-                         incoming_ref_valid ? 1 : 0,
                          incoming_payload_valid ? 1 : 0,
                          has_prior_write ? 1 : 0,
                          suppress_invalid_rebind_tick ? 1 : 0);
@@ -67,7 +86,7 @@ void op_from_python_ref(ViewData& vd, const nb::object& src, engine_time_t curre
             (dispatch_meta_is_tss(element_meta) || dispatch_meta_is_tsd(element_meta));
         if (dynamic_ref_container) {
             bool bound_target_modified = false;
-            if (incoming_ref_valid && incoming_payload_valid) {
+            if (incoming_payload_valid) {
                 if (const ViewData* bound = incoming_ref.bound_view(); bound != nullptr) {
                     ViewData bound_view = *bound;
                     bound_view.sampled = bound_view.sampled || vd.sampled;
@@ -87,42 +106,27 @@ void op_from_python_ref(ViewData& vd, const nb::object& src, engine_time_t curre
     }
 
     if (debug_ref_from) {
-        std::string in_repr{"<repr_error>"};
-        try {
-            in_repr = nb::cast<std::string>(nb::repr(normalized_src));
-        } catch (...) {}
         std::fprintf(stderr,
-                     "[ref_from] path=%s now=%lld before_valid=%d same=%d existing_payload_valid=%d incoming_payload_valid=%d suppress=%d in=%s\n",
+                     "[ref_from] path=%s now=%lld before_valid=%d same=%d existing_payload_valid=%d incoming_payload_valid=%d suppress=%d\n",
                      vd.path.to_string().c_str(),
                      static_cast<long long>(current_time.time_since_epoch().count()),
                      maybe_dst->valid() ? 1 : 0,
                      same_ref_identity ? 1 : 0,
                      existing_payload_valid ? 1 : 0,
                      incoming_payload_valid ? 1 : 0,
-                     suppress_invalid_rebind_tick ? 1 : 0,
-                     in_repr.c_str());
+                     suppress_invalid_rebind_tick ? 1 : 0);
     }
 
     invalidate_python_value_cache(vd);
-    maybe_dst->from_python(normalized_src);
-    seed_python_value_cache_slot(vd, maybe_dst->valid() ? maybe_dst->to_python() : nb::none());
-
-    TimeSeriesReference written_ref = TimeSeriesReference::make();
-    bool written_ref_valid = false;
-    if (maybe_dst->valid() && maybe_dst->schema() == ts_reference_meta()) {
-        written_ref = incoming_ref_valid ? incoming_ref : nb::cast<TimeSeriesReference>(maybe_dst->to_python());
-        written_ref_valid = true;
-    }
+    *static_cast<TimeSeriesReference*>(maybe_dst->data()) = incoming_ref;
 
     if (auto* ref_link = resolve_ref_link(vd, vd.path.indices); ref_link != nullptr) {
         unregister_ref_link_observer(*ref_link);
 
         bool has_bound_target = false;
-        if (written_ref_valid) {
-            if (const ViewData* bound = written_ref.bound_view(); bound != nullptr) {
-                store_to_ref_link(*ref_link, *bound);
-                has_bound_target = true;
-            }
+        if (const ViewData* bound = incoming_ref.bound_view(); bound != nullptr) {
+            store_to_ref_link(*ref_link, *bound);
+            has_bound_target = true;
         }
 
         if (!has_bound_target) {
@@ -138,33 +142,15 @@ void op_from_python_ref(ViewData& vd, const nb::object& src, engine_time_t curre
         }
     }
 
-    if (debug_ref_from && maybe_dst->valid()) {
-        std::string out_repr{"<repr_error>"};
-        try {
-            out_repr = nb::cast<std::string>(nb::repr(maybe_dst->to_python()));
-        } catch (...) {}
-        std::fprintf(stderr,
-                     "[ref_from] path=%s now=%lld after=%s\n",
-                     vd.path.to_string().c_str(),
-                     static_cast<long long>(current_time.time_since_epoch().count()),
-                     out_repr.c_str());
-    }
-
     if (suppress_invalid_rebind_tick) {
-        // Keep REF wrapper invalid-time semantics (no modified/lmt tick)
-        // but still notify active linked inputs that the wrapper payload
-        // changed shape on first invalid materialization.
         if (current_time != MIN_DT && !has_prior_write) {
             notify_link_target_observers(vd, current_time);
         }
         return;
     }
 
-    // When writing REF[TSB]/REF[TSL] composites, only stamp child timestamps
-    // for item-level reference identity changes. This preserves per-field delta
-    // behavior when only a subset of item bindings re-point.
-    if (current_time != MIN_DT && written_ref_valid && written_ref.is_unbound()) {
-        const auto& new_items = written_ref.items();
+    if (current_time != MIN_DT && incoming_ref.is_unbound()) {
+        const auto& new_items = incoming_ref.items();
         std::vector<size_t> changed_indices;
         bool can_compare_items =
             existing_ref_valid &&
@@ -200,6 +186,15 @@ void op_from_python_ref(ViewData& vd, const nb::object& src, engine_time_t curre
     stamp_time_paths(vd, current_time);
     mark_tsd_parent_child_modified(vd, current_time);
     notify_link_target_observers(vd, current_time);
+}
+
+void op_from_python_ref(ViewData& vd, const nb::object& src, engine_time_t current_time) {
+    // Python TimeSeriesReferenceOutput.apply_result(None) is a no-op.
+    if (src.is_none()) {
+        return;
+    }
+
+    apply_ref_payload(vd, nb::cast<TimeSeriesReference>(src), current_time);
 }
 
 }  // namespace hgraph
