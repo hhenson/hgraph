@@ -3,6 +3,7 @@ import types
 from typing import TYPE_CHECKING, Callable, Any, Mapping
 
 from hgraph._types._scalar_type_meta_data import RecordableStateInjector
+from hgraph._wiring._cpp_node_registry import lookup_cpp_node_builder, try_derive_cpp_node_id
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_class._wiring_node_class import BaseWiringNodeClass, create_input_output_builders
 from hgraph._wiring._wiring_node_signature import WiringNodeSignature
@@ -17,6 +18,10 @@ __all__ = ("PythonWiringNodeClass", "PythonPushQueueWiringNodeClass", "PythonGen
 
 def _is_cpp_node_builder(builder_cls: Any) -> bool:
     return getattr(builder_cls, "__module__", "") == "hgraph._hgraph"
+
+
+def _is_cpp_runtime_enabled_for_dispatch() -> bool:
+    return _is_cpp_node_builder(PythonWiringNodeClass.BUILDER_CLASS)
 
 
 class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
@@ -95,6 +100,7 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
             )
 
         super().__init__(signature, fn)
+        self.cpp_node_id = try_derive_cpp_node_id(fn)
 
     def create_node_builder_instance(
         self,
@@ -123,7 +129,15 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
             if recordable_state_builder is None and not _is_cpp_node_builder(PythonWiringNodeClass.BUILDER_CLASS):
                 raise CustomMessageWiringError("Recordable state injectable not found")
 
-        return PythonWiringNodeClass.BUILDER_CLASS(
+        selected_builder = PythonWiringNodeClass.BUILDER_CLASS
+        mapped_builder = None
+        cpp_node_id = self.cpp_node_id if _is_cpp_runtime_enabled_for_dispatch() else None
+        if cpp_node_id is not None:
+            mapped_builder = lookup_cpp_node_builder(cpp_node_id)
+            if mapped_builder is not None:
+                selected_builder = mapped_builder
+
+        builder_kwargs = dict(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,
@@ -134,3 +148,15 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
             start_fn=self.start_fn,
             stop_fn=self.stop_fn,
         )
+        try:
+            return selected_builder(**builder_kwargs)
+        except Exception as e:
+            if mapped_builder is not None and cpp_node_id is not None:
+                fn_name = getattr(self.fn, "__qualname__", getattr(self.fn, "__name__", "<unknown>"))
+                fn_identity = f"{getattr(self.fn, '__module__', '<unknown>')}.{fn_name}"
+                raise CustomMessageWiringError(
+                    "Mapped C++ node builder failed for "
+                    f"'{fn_identity}' (derived id '{cpp_node_id}', signature '{resolved_wiring_signature.signature}'): "
+                    f"{e}"
+                ) from e
+            raise
