@@ -1,5 +1,6 @@
 #pragma once
 
+#include <hgraph/nodes/ops/access_operator_nodes.h>
 #include <hgraph/nodes/ops/bool_operator_nodes.h>
 #include <hgraph/nodes/ops/const_default_node.h>
 #include <hgraph/nodes/ops/enum_operator_nodes.h>
@@ -17,6 +18,14 @@ namespace hgraph {
                 NothingSpec,
                 NullSinkSpec,
                 ConstDefaultSpec>;
+
+        using access_node_specs =
+            CppNodeSpecList<
+                GetattrCsSpec,
+                GetattrTypeNameSpec,
+                GetitemTupleFixedSpec,
+                GetitemTupleSpec,
+                GetitemFrozendictSpec>;
 
         using number_node_specs =
             CppNodeSpecList<
@@ -131,6 +140,7 @@ namespace hgraph {
 
         using bound_node_specs = CppNodeSpecListConcat_t<
             core_node_specs,
+            access_node_specs,
             number_node_specs,
             scalar_node_specs,
             string_node_specs,
