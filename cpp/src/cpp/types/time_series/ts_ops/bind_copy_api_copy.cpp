@@ -3,6 +3,10 @@
 namespace hgraph {
 
 void op_copy_scalar(ViewData dst, const ViewData& src, engine_time_t current_time) {
+    if (!op_valid(src)) {
+        op_invalidate(dst);
+        return;
+    }
     op_set_value(dst, op_value(src), current_time);
 }
 
@@ -139,10 +143,11 @@ void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
     auto dst_map = maybe_dst->as_map();
 
     const View src_value = op_value(src);
+    const bool src_is_map = src_value.valid() && src_value.is_map();
+    const auto src_map = src_is_map ? src_value.as_map() : value::MapView{};
 
     std::vector<Value> source_keys;
-    if (src_value.valid() && src_value.is_map()) {
-        auto src_map = src_value.as_map();
+    if (src_is_map) {
         source_keys.reserve(src_map.size());
         for (View key : src_map.keys()) {
             source_keys.emplace_back(key.clone());
@@ -255,12 +260,76 @@ void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
 
         TSView src_child = op_child_by_key(src, key.view(), current_time);
         TSView dst_child = op_child_at(dst, *slot, current_time);
-        if (!src_child || !dst_child) {
+        if (!dst_child) {
+            continue;
+        }
+        if (!src_child) {
+            const engine_time_t before = op_last_modified_time(dst_child.view_data());
+            if (const auto* map_schema = dst_map.schema(); map_schema != nullptr) {
+                map_schema->ops().set_item(dst_map.data(), canonical_key.data(), nullptr, map_schema);
+            }
+            compact_tsd_child_link_slot(dst, *slot);
+            op_invalidate(dst_child.view_data());
+            const bool child_changed = op_last_modified_time(dst_child.view_data()) > before;
+            if (child_changed) {
+                changed = true;
+            }
+            if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
+                slots.changed_values_map.as_map().remove(canonical_key);
+            }
+            if (slots.removed_set.valid() && slots.removed_set.is_set()) {
+                slots.removed_set.as_set().remove(canonical_key);
+            }
             continue;
         }
 
         const bool source_child_modified = op_modified(src_child.view_data(), current_time);
-        if (!source_child_modified && existed) {
+        bool source_child_valid = op_valid(src_child.view_data());
+        if (src_is_map) {
+            if (auto source_slot = map_slot_for_key(src_map, key.view()); source_slot.has_value()) {
+                TSView source_slot_child = op_child_at(src, *source_slot, current_time);
+                if (!source_slot_child || !op_valid(source_slot_child.view_data())) {
+                    source_child_valid = false;
+                }
+            }
+        }
+        if (source_child_valid && src_child.view_data().uses_link_target) {
+            ViewData source_bound_target{};
+            if (!resolve_bound_target_view_data(src_child.view_data(), source_bound_target) ||
+                !op_valid(source_bound_target)) {
+                source_child_valid = false;
+            }
+        }
+        if (debug_copy_keys) {
+            const TSMeta* src_child_meta = op_ts_meta(src_child.view_data());
+            View src_child_value = op_value(src_child.view_data());
+            std::string src_child_value_schema{"<invalid>"};
+            std::string src_child_value_repr{"<invalid>"};
+            if (src_child_value.valid()) {
+                if (const auto* schema = src_child_value.schema(); schema != nullptr) {
+                    if (schema->name != nullptr) {
+                        src_child_value_schema = schema->name;
+                    } else {
+                        src_child_value_schema = "<null_name>";
+                    }
+                }
+                try {
+                    src_child_value_repr = src_child_value.to_string();
+                } catch (...) {
+                    src_child_value_repr = "<to_string_error>";
+                }
+            }
+            std::fprintf(stderr,
+                         "[copy_tsd_keys]   key=%s src_mod=%d src_valid=%d src_uses_lt=%d src_kind=%d src_value_schema=%s src_value=%s\n",
+                         key.view().to_string().c_str(),
+                         source_child_modified ? 1 : 0,
+                         source_child_valid ? 1 : 0,
+                         src_child.view_data().uses_link_target ? 1 : 0,
+                         src_child_meta != nullptr ? static_cast<int>(src_child_meta->kind) : -1,
+                         src_child_value_schema.c_str(),
+                         src_child_value_repr.c_str());
+        }
+        if (!source_child_modified && source_child_valid && existed) {
             if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
                 slots.changed_values_map.as_map().remove(canonical_key);
             }
@@ -271,7 +340,32 @@ void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
         }
 
         const engine_time_t before = op_last_modified_time(dst_child.view_data());
-        copy_view_data_value_impl(dst_child.view_data(), src_child.view_data(), current_time);
+        if (!source_child_valid) {
+            if (const auto* map_schema = dst_map.schema(); map_schema != nullptr) {
+                map_schema->ops().set_item(dst_map.data(), canonical_key.data(), nullptr, map_schema);
+            }
+            compact_tsd_child_link_slot(dst, *slot);
+            op_invalidate(dst_child.view_data());
+        } else {
+            copy_view_data_value_impl(dst_child.view_data(), src_child.view_data(), current_time);
+        }
+        if (debug_copy_keys) {
+            const bool dst_valid = op_valid(dst_child.view_data());
+            View dst_value = op_value(dst_child.view_data());
+            std::string dst_value_repr{"<invalid>"};
+            if (dst_value.valid()) {
+                try {
+                    dst_value_repr = dst_value.to_string();
+                } catch (...) {
+                    dst_value_repr = "<to_string_error>";
+                }
+            }
+            std::fprintf(stderr,
+                         "[copy_tsd_keys]   key=%s dst_valid=%d dst_value=%s\n",
+                         key.view().to_string().c_str(),
+                         dst_valid ? 1 : 0,
+                         dst_value_repr.c_str());
+        }
         const bool child_changed = op_last_modified_time(dst_child.view_data()) > before;
         if (child_changed || !existed) {
             changed = true;
@@ -279,9 +373,17 @@ void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
 
         if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
             if (child_changed || !existed) {
-                View child_value = op_value(dst_child.view_data());
-                if (child_value.valid()) {
-                    slots.changed_values_map.as_map().set(canonical_key, child_value);
+                if (tsd_child_was_visible_before_removal(dst_child.view_data())) {
+                    View child_value = op_value(dst_child.view_data());
+                    if (child_value.valid()) {
+                        slots.changed_values_map.as_map().set(canonical_key, child_value);
+                    } else {
+                        slots.changed_values_map.as_map().remove(canonical_key);
+                    }
+                } else {
+                    // Structural key presence without visible payload should not
+                    // materialize a changed-value delta entry.
+                    slots.changed_values_map.as_map().remove(canonical_key);
                 }
             } else {
                 slots.changed_values_map.as_map().remove(canonical_key);

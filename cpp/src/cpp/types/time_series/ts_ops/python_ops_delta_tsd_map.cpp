@@ -32,10 +32,10 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
 
             const engine_time_t rebind_time = rebind_time_for_view(vd);
             const engine_time_t wrapper_time = ref_wrapper_last_modified_time_on_read_path(vd);
-            const bool has_changed_map =
-                changed_values.valid() && changed_values.is_map() && changed_values.as_map().size() > 0;
-            const bool single_changed_key =
-                changed_values.valid() && changed_values.is_map() && changed_values.as_map().size() == 1;
+            const bool changed_values_is_map = changed_values.valid() && changed_values.is_map();
+            const auto changed_map = changed_values_is_map ? changed_values.as_map() : value::MapView{};
+            const bool has_changed_map = changed_values_is_map && changed_map.size() > 0;
+            const bool single_changed_key = changed_values_is_map && changed_map.size() == 1;
             const bool has_added_keys =
                 added_keys.valid() && added_keys.is_set() && added_keys.as_set().size() > 0;
             const bool has_removed_keys =
@@ -46,10 +46,26 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
             const auto key_in_removed_set = [&removed_keys](View key) {
                 return view_is_set_and_contains_key_relaxed(removed_keys, key);
             };
-            const auto key_in_changed_map = [&changed_values](View key) {
-                return changed_values.valid() &&
-                       changed_values.is_map() &&
-                       map_slot_for_key(changed_values.as_map(), key).has_value();
+            const auto key_in_changed_map = [changed_values_is_map, changed_map](View key) {
+                if (!changed_values_is_map) {
+                    return false;
+                }
+                if (!map_slot_for_key(changed_map, key).has_value()) {
+                    return false;
+                }
+                View changed_entry = changed_map.at(key);
+                if (!changed_entry.valid()) {
+                    return false;
+                }
+                if (changed_entry.schema() == ts_reference_meta()) {
+                    try {
+                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(changed_entry.to_python());
+                        return ref.is_valid();
+                    } catch (...) {
+                        return false;
+                    }
+                }
+                return true;
             };
             const auto ref_target_modified_this_tick = [&](const ViewData& ref_child) -> bool {
                 ViewData target{};
@@ -65,6 +81,13 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
             if (!sampled_like && wrapper_modified && !resolved_modified && !has_changed_map) {
                 sampled_like = true;
             }
+            const bool include_unmodified_override =
+                vd.uses_link_target &&
+                !meta_is_ref_wrapper(element_meta) &&
+                wrapper_modified &&
+                resolved_modified &&
+                !has_changed_map &&
+                has_added_keys;
             if (!sampled_like &&
                 vd.uses_link_target &&
                 rebind_time == current_time) {
@@ -244,8 +267,8 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                 size_t changed_size = 0;
                 size_t added_size = 0;
                 size_t removed_size = 0;
-                if (changed_values.valid() && changed_values.is_map()) {
-                    changed_size = changed_values.as_map().size();
+                if (changed_values_is_map) {
+                    changed_size = changed_map.size();
                 }
                 if (added_keys.valid() && added_keys.is_set()) {
                     added_size = added_keys.as_set().size();
@@ -282,8 +305,8 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                                      dbg_key.to_string().c_str());
                     }
                 }
-                if (changed_values.valid() && changed_values.is_map()) {
-                    for (View dbg_key : changed_values.as_map().keys()) {
+                if (changed_values_is_map) {
+                    for (View dbg_key : changed_map.keys()) {
                         std::string key_s{"<key>"};
                         std::string val_s{"<value>"};
                         bool entry_valid = false;
@@ -293,7 +316,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                             key_s = dbg_key.to_string();
                         } catch (...) {}
                         try {
-                            View entry = changed_values.as_map().at(dbg_key);
+                            View entry = changed_map.at(dbg_key);
                             entry_valid = entry.valid();
                             entry_is_map = entry.valid() && entry.is_map();
                             entry_map_size = entry_is_map ? entry.as_map().size() : 0;
@@ -316,6 +339,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                 data,
                 current_time,
                 sampled_like,
+                include_unmodified_override,
                 has_changed_map,
                 nested_element,
                 single_changed_key,

@@ -555,8 +555,6 @@ namespace hgraph {
                             key_repr(key, key_type_meta_),
                             key_repr(key, key_type_meta_)));
         }
-        }
-    }
     }
 
     bool MeshNode::add_graph_dependency(const value::View &key, const value::View &depends_on) {

@@ -249,6 +249,7 @@ void tsd_emit_phase(const ViewData& vd,
                     const ViewData* data,
                     engine_time_t current_time,
                     bool sampled_like,
+                    bool include_unmodified_override,
                     bool has_changed_map,
                     bool nested_element,
                     bool single_changed_key,
@@ -301,7 +302,7 @@ void tsd_emit_phase(const ViewData& vd,
                 const auto changed_map = changed_values.as_map();
                 const bool debug_changed_map = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSD_CHANGED_MAP");
                 for_each_map_key_slot(value_map, [&](View key, size_t /*slot_index*/) {
-                    if (!map_slot_for_key(changed_map, key).has_value()) {
+                    if (!key_in_changed_map(key)) {
                         return;
                     }
                     auto slot = map_slot_for_key(value_map, key);
@@ -494,7 +495,7 @@ void tsd_emit_phase(const ViewData& vd,
                     }
                 });
             } else {
-                const bool include_unmodified = sampled_like;
+                const bool include_unmodified = sampled_like || include_unmodified_override;
                 const auto key_visible_in_previous_map = [&](View key) -> std::optional<bool> {
                     ViewData previous{};
                     value::MapView previous_map;
