@@ -60,5 +60,49 @@ namespace hgraph {
                 node.output().set_value(value::View(&date, value::scalar_type_meta<engine_date_t>()));
             }
         };
+
+        struct EvaluationTimeInRangeDateTimeSpec {
+            static constexpr const char* py_factory_name = "op_evaluation_time_in_range_date_time";
+
+            struct state {
+                nb::object eq;
+                nb::object lt;
+                nb::object gt;
+            };
+
+            static state make_state(Node&) {
+                const nb::object cmp_result = nb::cast<nb::object>(nb::module_::import_("hgraph").attr("CmpResult"));
+                return {
+                    nb::cast<nb::object>(cmp_result.attr("EQ")),
+                    nb::cast<nb::object>(cmp_result.attr("LT")),
+                    nb::cast<nb::object>(cmp_result.attr("GT")),
+                };
+            }
+
+            static void eval(Node& node, state& state) {
+                auto bundle = ts_property_ops_detail::input_bundle(node);
+                const engine_time_t start = bundle.field("start_time").value().template as<engine_time_t>();
+                const engine_time_t end = bundle.field("end_time").value().template as<engine_time_t>();
+
+                if (start > end) {
+                    PyErr_SetString(PyExc_ValueError, "Start time must be before end time");
+                    nb::raise_python_error();
+                }
+
+                const engine_time_t et = node.graph()->evaluation_time();
+                if (start <= et && et <= end) {
+                    node.scheduler()->schedule(end + MIN_TD, std::string{"_next"});
+                    node.output().from_python(state.eq);
+                    return;
+                }
+                if (et < start) {
+                    node.scheduler()->schedule(start, std::string{"_next"});
+                    node.output().from_python(state.lt);
+                    return;
+                }
+                node.scheduler()->un_schedule("_next");
+                node.output().from_python(state.gt);
+            }
+        };
     }  // namespace ops
 }  // namespace hgraph

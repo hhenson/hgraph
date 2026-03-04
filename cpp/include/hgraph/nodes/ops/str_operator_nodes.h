@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 namespace hgraph {
     namespace ops {
@@ -252,6 +253,75 @@ namespace hgraph {
                 auto bundle = str_ops_detail::require_input_bundle(node);
                 const nb::object strings = str_ops_detail::python_field(bundle, "strings");
                 nb::object out = nb::steal<nb::object>(PyUnicode_Join(state.separator.ptr(), strings.ptr()));
+                if (!out.is_valid()) {
+                    nb::raise_python_error();
+                }
+                str_ops_detail::emit_string(node, out);
+            }
+        };
+
+        struct FormatSpec {
+            static constexpr const char* py_factory_name = "op_format_";
+
+            struct state {
+                int64_t sample{-1};
+                int64_t count{0};
+            };
+
+            static state make_state(Node& node) {
+                const nb::dict& scalars = node.scalars();
+                if (!scalars.contains("__sample__")) {
+                    return {};
+                }
+                return {nb::cast<int64_t>(scalars["__sample__"]), 0};
+            }
+
+            static void eval(Node& node, state& state) {
+                if (state.sample > 1) {
+                    ++state.count;
+                    if (state.count % state.sample != 0) {
+                        return;
+                    }
+                }
+
+                auto bundle = str_ops_detail::require_input_bundle(node);
+                const nb::str fmt = str_ops_detail::require_string_field(bundle, "fmt");
+
+                std::vector<nb::object> pos_values;
+                if (bundle.contains("__pos_args__")) {
+                    auto pos_field = bundle.field("__pos_args__");
+                    if (auto pos_bundle = pos_field.try_as_bundle()) {
+                        pos_values.reserve(pos_bundle->count());
+                        for (size_t i : pos_bundle->indices()) {
+                            pos_values.emplace_back(pos_bundle->at(i).to_python());
+                        }
+                    }
+                }
+
+                nb::tuple pos_args = nb::steal<nb::tuple>(PyTuple_New(static_cast<Py_ssize_t>(pos_values.size())));
+                if (!pos_args.is_valid()) {
+                    nb::raise_python_error();
+                }
+                for (size_t i = 0; i < pos_values.size(); ++i) {
+                    PyTuple_SET_ITEM(pos_args.ptr(), static_cast<Py_ssize_t>(i), pos_values[i].release().ptr());
+                }
+
+                nb::dict kw_args;
+                if (bundle.contains("__kw_args__")) {
+                    auto kw_field = bundle.field("__kw_args__");
+                    if (auto kw_bundle = kw_field.try_as_bundle()) {
+                        for (size_t i : kw_bundle->indices()) {
+                            const std::string_view name = kw_bundle->name_at(i);
+                            if (name.empty()) {
+                                continue;
+                            }
+                            kw_args[nb::str(name.data(), name.size())] = kw_bundle->at(i).to_python();
+                        }
+                    }
+                }
+
+                const nb::object format_fn = nb::cast<nb::object>(fmt.attr("format"));
+                nb::object out = nb::steal<nb::object>(PyObject_Call(format_fn.ptr(), pos_args.ptr(), kw_args.ptr()));
                 if (!out.is_valid()) {
                     nb::raise_python_error();
                 }

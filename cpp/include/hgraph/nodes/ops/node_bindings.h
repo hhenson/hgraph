@@ -138,7 +138,8 @@ namespace hgraph {
                 MatchDefaultSpec,
                 ReplaceDefaultSpec,
                 SplitDefaultSpec,
-                JoinStrTupleSpec>;
+                JoinStrTupleSpec,
+                FormatSpec>;
 
         using bool_node_specs =
             CppNodeSpecList<
@@ -168,7 +169,8 @@ namespace hgraph {
             CppNodeSpecList<
                 ModifiedImplSpec,
                 LastModifiedTimeImplSpec,
-                LastModifiedDateImplSpec>;
+                LastModifiedDateImplSpec,
+                EvaluationTimeInRangeDateTimeSpec>;
 
         using bound_node_specs = CppNodeSpecListConcat_t<
             core_node_specs,
