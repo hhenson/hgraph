@@ -2,37 +2,6 @@
 
 namespace hgraph {
 
-void apply_fallback_from_python_write(ViewData& vd,
-                                      const nb::object& src,
-                                      engine_time_t current_time) {
-    auto maybe_dst = resolve_value_slot_mut(vd);
-    if (!maybe_dst.has_value()) {
-        return;
-    }
-
-    const bool had_value_before = maybe_dst->valid();
-    value::Value old_value{};
-    if (had_value_before) {
-        old_value = maybe_dst->clone();
-    }
-
-    maybe_dst->from_python(src);
-    const bool has_value_after = maybe_dst->valid();
-    bool value_changed = had_value_before != has_value_after;
-    if (!value_changed && had_value_before && has_value_after) {
-        const value::Value new_value = maybe_dst->clone();
-        value_changed = !old_value.equals(new_value);
-    }
-    if (value_changed) {
-        invalidate_python_value_cache(vd);
-    } else {
-        invalidate_python_delta_cache(vd);
-    }
-    seed_python_value_cache_slot(vd, maybe_dst->valid() ? maybe_dst->to_python() : nb::none());
-    stamp_time_paths(vd, current_time);
-    notify_link_target_observers(vd, current_time);
-}
-
 void notify_if_static_container_children_changed(bool changed,
                                                  const ViewData& vd,
                                                  engine_time_t current_time) {

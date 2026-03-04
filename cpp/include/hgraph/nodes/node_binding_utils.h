@@ -276,73 +276,76 @@ inline bool extract_tsd_key_delta(const TSInputView& keys_view,
         return false;
     }
 
-    nb::object delta = keys_view.delta_to_python();
-    if (delta.is_none()) {
+    value::View delta = keys_view.delta_value().value();
+    if (!delta.valid()) {
         return false;
     }
-
-    nb::object added_obj = nb::getattr(delta, "added", nb::none());
-    nb::object removed_obj = nb::getattr(delta, "removed", nb::none());
+    if (!delta.is_tuple()) {
+        return false;
+    }
+    auto tuple = delta.as_tuple();
 
     bool has_delta = false;
-    if (!added_obj.is_none()) {
-        for (const auto& item : nb::iter(added_obj)) {
-            auto key_value = key_value_from_python(nb::cast<nb::object>(item), key_type_meta);
-            if (!key_value.has_value()) {
-                continue;
+    if (tuple.size() > 0) {
+        value::View added_view = tuple.at(0);
+        if (added_view.valid() && added_view.is_set()) {
+            for (value::View key : added_view.as_set()) {
+                if (!key.valid() || key.schema() != key_type_meta) {
+                    continue;
+                }
+                added_out.emplace_back(key.clone());
+                has_delta = true;
             }
-            added_out.push_back(std::move(*key_value));
-            has_delta = true;
         }
     }
-    if (!removed_obj.is_none()) {
-        for (const auto& item : nb::iter(removed_obj)) {
-            auto key_value = key_value_from_python(nb::cast<nb::object>(item), key_type_meta);
-            if (!key_value.has_value()) {
-                continue;
+    if (tuple.size() > 1) {
+        value::View removed_view = tuple.at(1);
+        if (removed_view.valid() && removed_view.is_set()) {
+            for (value::View key : removed_view.as_set()) {
+                if (!key.valid() || key.schema() != key_type_meta) {
+                    continue;
+                }
+                removed_out.emplace_back(key.clone());
+                has_delta = true;
             }
-            removed_out.push_back(std::move(*key_value));
-            has_delta = true;
         }
     }
 
     return has_delta;
 }
 
-inline nb::object remove_marker() {
-    static nb::object marker = nb::none();
-    if (!marker.is_valid()) {
-        marker = nb::module_::import_("hgraph").attr("REMOVE");
-    }
-    return marker;
-}
-
-inline nb::object remove_if_exists_marker() {
-    static nb::object marker = nb::none();
-    if (!marker.is_valid()) {
-        marker = nb::module_::import_("hgraph").attr("REMOVE_IF_EXISTS");
-    }
-    return marker;
-}
-
-inline bool is_remove_marker(const nb::object& obj) {
-    if (obj.is(remove_marker()) || obj.is(remove_if_exists_marker())) {
-        return true;
+inline bool extract_tsd_changed_value_for_key(const TSInputView& input_view,
+                                              const value::View& key,
+                                              value::Value& out_value) {
+    if (!input_view || !key.valid()) {
+        return false;
     }
 
-    nb::object current = nb::getattr(obj, "name", nb::none());
-    for (size_t depth = 0; depth < 4 && !current.is_none(); ++depth) {
-        if (current.is(remove_marker()) || current.is(remove_if_exists_marker())) {
-            return true;
-        }
-        if (nb::isinstance<nb::str>(current)) {
-            std::string name = nb::cast<std::string>(current);
-            return name == "REMOVE" || name == "REMOVE_IF_EXISTS";
-        }
-        current = nb::getattr(current, "name", nb::none());
+    value::View delta = input_view.delta_value().value();
+    if (!delta.valid() || !delta.is_tuple()) {
+        return false;
+    }
+    auto tuple = delta.as_tuple();
+    if (tuple.size() == 0) {
+        return false;
     }
 
-    return false;
+    value::View changed_slot = tuple.at(0);
+    if (!changed_slot.valid() || !changed_slot.is_map()) {
+        return false;
+    }
+    value::MapView changed_map = changed_slot.as_map();
+    if (key.schema() != changed_map.key_type() || !changed_map.contains(key)) {
+        return false;
+    }
+
+    value::View changed_value = changed_map.at(key);
+    if (!changed_value.valid()) {
+        return false;
+    }
+
+    out_value = changed_value.clone();
+    return true;
 }
 
 inline bool keyed_delta_lookup_cache_matches(const KeyedDeltaLookupCacheEntry& cache,
@@ -376,29 +379,40 @@ inline void populate_keyed_delta_lookup_cache(KeyedDeltaLookupCacheEntry& cache,
     cache.link_data = view_data.link_data;
     cache.path = view_data.path.indices;
 
-    nb::object delta_obj = input_view.delta_to_python();
-    if (!nb::isinstance<nb::dict>(delta_obj)) {
+    value::View delta_view = input_view.delta_value().value();
+    if (!delta_view.valid() || !delta_view.is_tuple()) {
         return;
     }
 
-    nb::dict delta_dict = nb::cast<nb::dict>(delta_obj);
-    for (const auto& kv : delta_dict) {
-        auto key_value = key_value_from_python(nb::cast<nb::object>(kv.first), key_type_meta);
-        if (!key_value.has_value()) {
-            continue;
-        }
+    auto tuple = delta_view.as_tuple();
+    if (tuple.size() == 0) {
+        return;
+    }
 
-        nb::object value_obj = nb::cast<nb::object>(kv.second);
-        if (value_obj.is_none() || is_remove_marker(value_obj)) {
+    value::View changed_slot = tuple.at(0);
+    if (!changed_slot.valid() || !changed_slot.is_map()) {
+        return;
+    }
+
+    value::MapView changed_map = changed_slot.as_map();
+    for (value::View map_key : changed_map.keys()) {
+        if (!map_key.valid()) {
             continue;
         }
-        cache.values.insert_or_assign(std::move(*key_value), value_obj);
+        if (key_type_meta != nullptr && map_key.schema() != key_type_meta) {
+            continue;
+        }
+        value::View map_value = changed_map.at(map_key);
+        if (!map_value.valid()) {
+            continue;
+        }
+        cache.values.insert_or_assign(map_key.clone(), map_value.clone());
     }
 }
 
-inline std::optional<nb::object> lookup_keyed_delta_value(const TSInputView& input_view,
-                                                           const value::View& key,
-                                                           const value::TypeMeta* key_type_meta) {
+inline std::optional<value::Value> lookup_keyed_delta_value(const TSInputView& input_view,
+                                                            const value::View& key,
+                                                            const value::TypeMeta* key_type_meta) {
     if (!input_view || !key.valid() || key_type_meta == nullptr) {
         return std::nullopt;
     }
@@ -413,7 +427,7 @@ inline std::optional<nb::object> lookup_keyed_delta_value(const TSInputView& inp
         if (it == transient_cache.values.end()) {
             return std::nullopt;
         }
-        return it->second;
+        return it->second.view().clone();
     }
 
     KeyedDeltaLookupCacheEntry* cache = cache_root->keyed_delta_lookup_cache();
@@ -425,7 +439,7 @@ inline std::optional<nb::object> lookup_keyed_delta_value(const TSInputView& inp
     if (it == cache->values.end()) {
         return std::nullopt;
     }
-    return it->second;
+    return it->second.view().clone();
 }
 
 inline TSView resolve_tsd_child_view(const TSInputView& tsd_input, const value::View& key) {
@@ -482,7 +496,7 @@ inline TSView resolve_keyed_view_with_delta_fallback(const value::View& key,
                                                      bool* has_outer_key = nullptr,
                                                      bool* outer_key_valid = nullptr,
                                                      bool* used_local_fallback = nullptr,
-                                                     std::optional<nb::object>* fallback_delta = nullptr,
+                                                     std::optional<value::Value>* fallback_delta = nullptr,
                                                      int* stage_id = nullptr) {
     if (has_outer_key != nullptr) {
         *has_outer_key = false;
@@ -542,12 +556,12 @@ inline TSView resolve_keyed_view_with_delta_fallback(const value::View& key,
         *stage_id = 4;
     }
     TSView staged_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
-    staged_view.from_python(*delta_value);
+    staged_view.set_value(delta_value->view());
     if (used_local_fallback != nullptr) {
         *used_local_fallback = true;
     }
     if (fallback_delta != nullptr) {
-        *fallback_delta = *delta_value;
+        *fallback_delta = std::move(*delta_value);
     }
     return staged_view;
 }

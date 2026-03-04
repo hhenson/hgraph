@@ -40,7 +40,7 @@ namespace hgraph {
                         return nb::cast<const value::TypeMeta *>(cpp_type);
                     }
                 } catch (...) {
-                    // Fall through to py_type/object fallback.
+                    return nullptr;
                 }
             }
 
@@ -52,23 +52,18 @@ namespace hgraph {
                             return meta;
                         }
 
-                        try {
-                            auto value_mod = nb::module_::import_("hgraph._hgraph").attr("value");
-                            nb::object resolved = value_mod.attr("get_scalar_type_meta")(py_type);
-                            if (resolved.is_valid() && !resolved.is_none()) {
-                                return nb::cast<const value::TypeMeta *>(resolved);
-                            }
-                        } catch (...) {
-                            // Fallback below.
+                        auto value_mod = nb::module_::import_("hgraph._hgraph").attr("value");
+                        nb::object resolved = value_mod.attr("get_scalar_type_meta")(py_type);
+                        if (resolved.is_valid() && !resolved.is_none()) {
+                            return nb::cast<const value::TypeMeta *>(resolved);
                         }
                     }
                 } catch (...) {
-                    // Fall through to object fallback.
+                    return nullptr;
                 }
             }
 
-            // Python parity: unknown scalar schemas are represented as object.
-            return value::TypeRegistry::instance().get_scalar<nb::object>();
+            return nullptr;
         }
 
         const TSMeta *meta_from_ts_signature_object(const nb::object &obj) {
@@ -84,8 +79,6 @@ namespace hgraph {
                     }
                 }
 
-                // TSL fallback when element schema can be synthesized but cpp_type on the
-                // list metadata is unavailable (for example TSL[TS[type[...]], Size[N]]).
                 if (nb::hasattr(obj, "value_tp") && nb::hasattr(obj, "size_tp")) {
                     const TSMeta *element_meta = meta_from_ts_signature_object(nb::getattr(obj, "value_tp"));
                     if (element_meta != nullptr) {
@@ -104,9 +97,6 @@ namespace hgraph {
                     }
                 }
 
-                // TSD/TSD_OUT fallback when cpp_type is unavailable (for example
-                // TSD[str, TS[Frame[...]]], where Frame scalar metadata has no
-                // native cpp_type and must degrade to TS[object]).
                 if (nb::hasattr(obj, "key_tp") && nb::hasattr(obj, "value_tp")) {
                     nb::object key_tp = nb::getattr(obj, "key_tp");
                     nb::object value_tp = nb::getattr(obj, "value_tp");
@@ -117,8 +107,6 @@ namespace hgraph {
                     }
                 }
 
-                // TSB fallback for schemas that include fields whose Python metadata
-                // does not expose cpp_type (for example TS[Frame[...]] lanes).
                 if (nb::hasattr(obj, "bundle_schema_tp")) {
                     nb::object bundle_schema = nb::getattr(obj, "bundle_schema_tp");
                     if (bundle_schema.is_valid() && !bundle_schema.is_none() &&

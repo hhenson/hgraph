@@ -181,7 +181,7 @@ namespace hgraph {
                                                        bool* has_tsd_key,
                                                        bool* tsd_key_valid,
                                                        bool* used_local_fallback,
-                                                       std::optional<nb::object>* fallback_delta) {
+                                                       std::optional<value::Value>* fallback_delta) {
         const TSMeta* tsd_meta = tsd.ts_meta();
         const value::TypeMeta* key_type_meta =
             (tsd_meta != nullptr && tsd_meta->kind == TSKind::TSD) ? tsd_meta->key_type() : nullptr;
@@ -342,7 +342,7 @@ namespace hgraph {
                     bool has_tsd_key = false;
                     bool tsd_key_valid = false;
                     bool used_local_fallback = false;
-                    std::optional<nb::object> fallback_delta;
+                    std::optional<value::Value> fallback_delta;
                     TSView key_value_view = resolve_key_value_with_fallback(
                         tsd, key.view(), inner_ts, &has_tsd_key, &tsd_key_valid, &used_local_fallback, &fallback_delta);
                     bool rebound = false;
@@ -398,7 +398,7 @@ namespace hgraph {
                             std::string dv = "<repr-failed>";
                             if (fallback_delta.has_value()) {
                                 try {
-                                    dv = nb::cast<std::string>(nb::repr(*fallback_delta));
+                                    dv = nb::cast<std::string>(nb::repr(fallback_delta->to_python()));
                                 } catch (...) {}
                             }
                             std::fprintf(stderr,
@@ -816,7 +816,7 @@ namespace hgraph {
         bool has_tsd_key = false;
         bool tsd_key_valid = false;
         bool used_local_fallback = false;
-        std::optional<nb::object> fallback_delta;
+        std::optional<value::Value> fallback_delta;
         TSView key_value_view = resolve_key_value_with_fallback(
             tsd, key, inner_ts, &has_tsd_key, &tsd_key_valid, &used_local_fallback, &fallback_delta);
 
@@ -837,7 +837,7 @@ namespace hgraph {
                 std::string dv = "<repr-failed>";
                 if (fallback_delta.has_value()) {
                     try {
-                        dv = nb::cast<std::string>(nb::repr(*fallback_delta));
+                        dv = nb::cast<std::string>(nb::repr(fallback_delta->to_python()));
                     } catch (...) {}
                 }
                 std::fprintf(stderr,

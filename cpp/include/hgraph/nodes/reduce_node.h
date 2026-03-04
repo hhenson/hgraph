@@ -108,7 +108,7 @@ namespace hgraph {
                                                bool* has_tsd_key = nullptr,
                                                bool* tsd_key_valid = nullptr,
                                                bool* used_local_fallback = nullptr,
-                                               std::optional<nb::object>* fallback_delta = nullptr);
+                                               std::optional<value::Value>* fallback_delta = nullptr);
 
         graph_s_ptr nested_graph_;
         graph_builder_s_ptr nested_graph_builder_;

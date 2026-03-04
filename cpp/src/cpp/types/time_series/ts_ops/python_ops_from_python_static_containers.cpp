@@ -55,8 +55,7 @@ void op_from_python_tsl(ViewData& vd, const nb::object& src, engine_time_t curre
     }
 
     if (!handled) {
-        apply_fallback_from_python_write(vd, src, current_time);
-        return;
+        throw nb::type_error("TSL from_python expects dict/list/tuple input");
     }
 
     if (changed) {
@@ -137,8 +136,7 @@ void op_from_python_tsb(ViewData& vd, const nb::object& src, engine_time_t curre
     }
 
     if (!handled) {
-        apply_fallback_from_python_write(vd, src, current_time);
-        return;
+        throw nb::type_error("TSB from_python expects mapping or object with matching fields");
     }
 
     if (changed) {

@@ -644,7 +644,8 @@ namespace hgraph
                         // REF outputs can keep the same reference identity while the
                         // bound referee ticks. Mirror Python runtime behavior by
                         // surfacing the tick on the wrapper even when eval returns None.
-                        out_port.from_python(out_port.to_python());
+                        ViewData out_vd = out_port.as_ts_view().view_data();
+                        apply_ref_payload(out_vd, resolve_ref_payload_from_view(out_vd), node_time(*this));
                     }
                 }
             }

@@ -47,7 +47,7 @@ struct HGRAPH_EXPORT KeyedDeltaLookupCacheEntry {
     std::vector<size_t> path{};
     const value::TypeMeta* key_type_meta{nullptr};
     engine_time_t evaluation_time{MIN_DT};
-    std::unordered_map<value::Value, nb::object, ValueHash, ValueEqual> values{};
+    std::unordered_map<value::Value, value::Value, ValueHash, ValueEqual> values{};
 
     void clear() {
         value_data = nullptr;
@@ -61,11 +61,6 @@ struct HGRAPH_EXPORT KeyedDeltaLookupCacheEntry {
     }
 
     void abandon() {
-        for (auto& [_, value] : values) {
-            if (value.is_valid()) {
-                (void)value.release();
-            }
-        }
         clear();
     }
 };

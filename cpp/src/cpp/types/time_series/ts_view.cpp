@@ -1560,20 +1560,11 @@ bool tsd_ref_input_fallback_was_modified(const TSView& view, const value::View& 
         if (!child_value.valid()) {
             return true;
         }
-
-        nb::object ref_obj = child_value.to_python();
-        if (ref_obj.is_none()) {
-            return true;
-        }
-
-        nb::object is_valid_attr = nb::getattr(ref_obj, "is_valid", nb::none());
-        if (is_valid_attr.is_none()) {
+        if (child_value.schema() != ts_reference_meta()) {
             return false;
         }
-        if (PyCallable_Check(is_valid_attr.ptr()) != 0) {
-            is_valid_attr = is_valid_attr();
-        }
-        include = !nb::cast<bool>(is_valid_attr);
+        const auto& ref = *static_cast<const TimeSeriesReference*>(child_value.data());
+        include = !ref.is_valid();
     }
 
     return include;

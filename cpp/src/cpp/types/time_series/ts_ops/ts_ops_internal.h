@@ -742,7 +742,6 @@ bool assign_ref_value_from_bound_static_children(ViewData& vd);
 bool assign_ref_value_from_target(ViewData& vd, const ViewData& target);
 void clear_ref_value(ViewData& vd);
 void clear_ref_container_ancestor_cache(ViewData& vd);
-void apply_fallback_from_python_write(ViewData& vd, const nb::object& src, engine_time_t current_time);
 void notify_if_static_container_children_changed(bool changed, const ViewData& vd, engine_time_t current_time);
 void record_unbound_ref_item_changes(const ViewData& source,
                                      const std::vector<size_t>& changed_indices,
