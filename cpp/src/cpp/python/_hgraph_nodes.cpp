@@ -12,8 +12,17 @@
 #include <hgraph/nodes/context_node.h>
 #include <hgraph/nodes/python_generator_node.h>
 #include <hgraph/nodes/push_queue_node.h>
+#include <hgraph/python/cpp_node_builder_binding.h>
+
+namespace {
+    struct CppNoopSpec {
+        static constexpr const char* py_factory_name = "_cpp_noop_builder";
+        static void eval(hgraph::Node&) {}
+    };
+}
 
 void export_nodes(nb::module_ &m) {
     using namespace hgraph;
 
+    bind_cpp_node_builder_factories(m, CppNodeSpecList<CppNoopSpec>{});
 }

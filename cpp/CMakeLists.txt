@@ -278,7 +278,9 @@ set(HGRAPH_INCLUDES
         include/hgraph/builders/builder.h
         include/hgraph/builders/graph_builder.h
         include/hgraph/builders/node_builder.h
+        include/hgraph/builders/nodes/cpp_node_builder.h
         include/hgraph/nodes/base_python_node.h
+        include/hgraph/nodes/cpp_node_spec.h
         include/hgraph/nodes/component_node.h
         include/hgraph/nodes/last_value_pull_node.h
         include/hgraph/nodes/mesh_node.h
@@ -329,6 +331,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/python/global_keys.h
         include/hgraph/python/hashable.h
         include/hgraph/python/nb_types_ext.h
+        include/hgraph/python/cpp_node_builder_binding.h
         include/hgraph/python/reference_wrapper.h
         include/hgraph/util/date_time.h
         include/hgraph/util/lifecycle.h

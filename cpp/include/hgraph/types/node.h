@@ -174,7 +174,7 @@ namespace hgraph
     };
 
     using node_types =
-        tp::tpack<PushQueueNode, ContextStubSourceNode, LastValuePullNode, BasePythonNode, NestedNode,
+        tp::tpack<PushQueueNode, ContextStubSourceNode, LastValuePullNode, BasePythonNode, CppSpecNode, NestedNode,
             // BasePythonNode descendands
             PythonGeneratorNode, PythonNode,
             // NestedNode descendands (all non-templated now, including SwitchNode)

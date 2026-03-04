@@ -67,6 +67,7 @@ namespace hgraph {
     struct PushQueueNode;
     struct LastValuePullNode;
     struct BasePythonNode;
+    struct CppSpecNode;
     struct TsdNonAssociativeReduceNode;
     struct PythonGeneratorNode;
     struct PythonNode;
