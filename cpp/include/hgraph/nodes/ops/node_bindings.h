@@ -22,7 +22,14 @@ namespace hgraph {
                 EqFloatIntSpec,
                 EqIntFloatSpec,
                 EqFloatFloatSpec,
-                LnImplSpec>;
+                LnImplSpec,
+                DivNumbersSpec,
+                FloorDivNumbersSpec,
+                FloorDivIntsSpec,
+                ModNumbersSpec,
+                ModIntsSpec,
+                PowIntFloatSpec,
+                PowFloatIntSpec>;
 
         inline void bind_node_builders(nb::module_& m) {
             bind_cpp_node_builder_factories(m, bound_node_specs{});

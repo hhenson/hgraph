@@ -11,6 +11,10 @@ def test_cpp_node_builder_factories_are_exposed():
     assert hasattr(_hgraph, "op_add_float_to_int")
     assert hasattr(_hgraph, "op_eq_float_float")
     assert hasattr(_hgraph, "op_ln_impl")
+    assert hasattr(_hgraph, "op_div_numbers")
+    assert hasattr(_hgraph, "op_floordiv_numbers")
+    assert hasattr(_hgraph, "op_mod_numbers")
+    assert hasattr(_hgraph, "op_pow_int_float")
 
 
 def test_cpp_node_builder_factory_requires_signature_and_scalars():
@@ -31,3 +35,7 @@ def test_cpp_operator_mappings_are_registered():
     assert lookup_cpp_node_builder("hgraph::add_float_to_int") is _hgraph.op_add_float_to_int
     assert lookup_cpp_node_builder("hgraph::eq_float_float") is _hgraph.op_eq_float_float
     assert lookup_cpp_node_builder("hgraph::ln_impl") is _hgraph.op_ln_impl
+    assert lookup_cpp_node_builder("hgraph::div_numbers") is _hgraph.op_div_numbers
+    assert lookup_cpp_node_builder("hgraph::floordiv_numbers") is _hgraph.op_floordiv_numbers
+    assert lookup_cpp_node_builder("hgraph::mod_numbers") is _hgraph.op_mod_numbers
+    assert lookup_cpp_node_builder("hgraph::pow_int_float") is _hgraph.op_pow_int_float

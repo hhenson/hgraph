@@ -28,5 +28,12 @@ def register_cpp_node_mappings(_hgraph_module) -> None:
             "eq_int_float": _hgraph_module.op_eq_int_float,
             "eq_float_float": _hgraph_module.op_eq_float_float,
             "ln_impl": _hgraph_module.op_ln_impl,
+            "div_numbers": _hgraph_module.op_div_numbers,
+            "floordiv_numbers": _hgraph_module.op_floordiv_numbers,
+            "floordiv_ints": _hgraph_module.op_floordiv_ints,
+            "mod_numbers": _hgraph_module.op_mod_numbers,
+            "mod_ints": _hgraph_module.op_mod_ints,
+            "pow_int_float": _hgraph_module.op_pow_int_float,
+            "pow_float_int": _hgraph_module.op_pow_float_int,
         }
     })
