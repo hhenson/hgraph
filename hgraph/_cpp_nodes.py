@@ -39,6 +39,10 @@ def register_cpp_node_mappings(_hgraph_module) -> None:
             "eq_int_int": _hgraph_module.op_eq_int_int,
             "eq_int_float": _hgraph_module.op_eq_int_float,
             "eq_float_float": _hgraph_module.op_eq_float_float,
+            "ne_int_int": _hgraph_module.op_ne_int_int,
+            "ne_int_float": _hgraph_module.op_ne_int_float,
+            "ne_float_int": _hgraph_module.op_ne_float_int,
+            "ne_float_float": _hgraph_module.op_ne_float_float,
             "lt_int_int": _hgraph_module.op_lt_int_int,
             "lt_int_float": _hgraph_module.op_lt_int_float,
             "lt_float_int": _hgraph_module.op_lt_float_int,
@@ -78,5 +82,10 @@ def register_cpp_node_mappings(_hgraph_module) -> None:
             "pow_float_int": _hgraph_module.op_pow_float_int,
             "divmod_numbers": _hgraph_module.op_divmod_numbers,
             "divmod_ints": _hgraph_module.op_divmod_ints,
+            "add_str": _hgraph_module.op_add_str,
+            "mul_strs": _hgraph_module.op_mul_strs,
+            "and_booleans": _hgraph_module.op_and_booleans,
+            "or_booleans": _hgraph_module.op_or_booleans,
+            "not_boolean": _hgraph_module.op_not_boolean,
         }
     })

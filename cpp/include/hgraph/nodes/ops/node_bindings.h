@@ -1,10 +1,12 @@
 #pragma once
 
+#include <hgraph/nodes/ops/bool_operator_nodes.h>
 #include <hgraph/nodes/ops/const_default_node.h>
 #include <hgraph/nodes/ops/enum_operator_nodes.h>
 #include <hgraph/nodes/ops/number_operator_nodes.h>
 #include <hgraph/nodes/ops/nothing_node.h>
 #include <hgraph/nodes/ops/null_sink_node.h>
+#include <hgraph/nodes/ops/str_operator_nodes.h>
 #include <hgraph/python/cpp_node_builder_binding.h>
 
 namespace hgraph {
@@ -35,6 +37,10 @@ namespace hgraph {
                 EqIntIntSpec,
                 EqIntFloatSpec,
                 EqFloatFloatSpec,
+                NeIntIntSpec,
+                NeIntFloatSpec,
+                NeFloatIntSpec,
+                NeFloatFloatSpec,
                 LtIntIntSpec,
                 LtIntFloatSpec,
                 LtFloatIntSpec,
@@ -68,6 +74,11 @@ namespace hgraph {
                 PowFloatIntSpec,
                 DivmodNumbersSpec,
                 DivmodIntsSpec,
+                AddStrSpec,
+                MulStrsSpec,
+                AndBooleansSpec,
+                OrBooleansSpec,
+                NotBooleanSpec,
                 EqEnumSpec,
                 LtEnumSpec,
                 LeEnumSpec,

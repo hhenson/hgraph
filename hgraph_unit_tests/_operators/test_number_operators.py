@@ -14,6 +14,7 @@ from hgraph import (
     divmod_,
     pow_,
     eq_,
+    ne_,
     lt_,
     le_,
     gt_,
@@ -161,6 +162,23 @@ def test_eq_floats(lhs, rhs, expected, epsilon):
 )
 def test_ordering_numbers(op, lhs, rhs, expected):
     assert eval_node(op, [lhs], [rhs]) == [expected]
+
+
+@pytest.mark.parametrize(
+    ["lhs", "rhs", "expected"],
+    [
+        (1, 1, False),
+        (1, 2, True),
+        (1.0, 1.0, False),
+        (1.0, 2.0, True),
+        (1, 1.0, False),
+        (1, 2.0, True),
+        (1.0, 1, False),
+        (1.0, 2, True),
+    ],
+)
+def test_ne_numbers(lhs, rhs, expected):
+    assert eval_node(ne_, [lhs], [rhs]) == [expected]
 
 
 def test_ln():

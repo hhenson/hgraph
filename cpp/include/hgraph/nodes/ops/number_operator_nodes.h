@@ -242,6 +242,13 @@ namespace hgraph {
                 }
             };
 
+            struct Ne {
+                template<typename L, typename R>
+                static bool apply(L lhs, R rhs) {
+                    return lhs != rhs;
+                }
+            };
+
             struct Lt {
                 template<typename L, typename R>
                 static bool apply(L lhs, R rhs) {
@@ -671,6 +678,26 @@ namespace hgraph {
         struct EqFloatFloatSpec
             : number_ops_detail::EqWithEpsilonSpec<double, double> {
             static constexpr const char* py_factory_name = "op_eq_float_float";
+        };
+
+        struct NeIntIntSpec
+            : number_ops_detail::BinaryCompareSpec<int64_t, int64_t, number_ops_detail::Ne> {
+            static constexpr const char* py_factory_name = "op_ne_int_int";
+        };
+
+        struct NeIntFloatSpec
+            : number_ops_detail::BinaryCompareSpec<int64_t, double, number_ops_detail::Ne> {
+            static constexpr const char* py_factory_name = "op_ne_int_float";
+        };
+
+        struct NeFloatIntSpec
+            : number_ops_detail::BinaryCompareSpec<double, int64_t, number_ops_detail::Ne> {
+            static constexpr const char* py_factory_name = "op_ne_float_int";
+        };
+
+        struct NeFloatFloatSpec
+            : number_ops_detail::BinaryCompareSpec<double, double, number_ops_detail::Ne> {
+            static constexpr const char* py_factory_name = "op_ne_float_float";
         };
 
         struct LtIntIntSpec

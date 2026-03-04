@@ -16,6 +16,7 @@ from hgraph import (
     Size,
     pow_,
     eq_,
+    ne_,
     lt_,
     gt_,
     le_,
@@ -367,6 +368,26 @@ def eq_float_float(lhs: TS[float], rhs: TS[float], epsilon: TS[float] = EPSILON)
     """
     epsilon = epsilon.value
     return bool(-epsilon <= rhs.value - lhs.value <= epsilon)
+
+
+@compute_node(overloads=ne_)
+def ne_int_int(lhs: TS[int], rhs: TS[int]) -> TS[bool]:
+    return bool(lhs.value != rhs.value)
+
+
+@compute_node(overloads=ne_)
+def ne_int_float(lhs: TS[int], rhs: TS[float]) -> TS[bool]:
+    return bool(lhs.value != rhs.value)
+
+
+@compute_node(overloads=ne_)
+def ne_float_int(lhs: TS[float], rhs: TS[int]) -> TS[bool]:
+    return bool(lhs.value != rhs.value)
+
+
+@compute_node(overloads=ne_)
+def ne_float_float(lhs: TS[float], rhs: TS[float]) -> TS[bool]:
+    return bool(lhs.value != rhs.value)
 
 
 @compute_node(overloads=lt_)
