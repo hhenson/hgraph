@@ -3,6 +3,7 @@
 #include <hgraph/nodes/ops/access_operator_nodes.h>
 #include <hgraph/nodes/ops/bool_operator_nodes.h>
 #include <hgraph/nodes/ops/const_default_node.h>
+#include <hgraph/nodes/ops/date_time_operator_nodes.h>
 #include <hgraph/nodes/ops/enum_operator_nodes.h>
 #include <hgraph/nodes/ops/number_operator_nodes.h>
 #include <hgraph/nodes/ops/nothing_node.h>
@@ -165,6 +166,31 @@ namespace hgraph {
                 DowncastImplSpec,
                 DowncastRefImplSpec>;
 
+        using date_time_node_specs =
+            CppNodeSpecList<
+                ExplodeDateImplSpec,
+                AddDateTimeNodeSpec,
+                DateTimeDateAsDateTimeSpec,
+                DatetimePropertiesSpec,
+                DatetimeMethodsSpec,
+                DatePropertiesSpec,
+                DateMethodsSpec,
+                TimePropertiesSpec,
+                TimeMethodsSpec,
+                TimedeltaPropertiesSpec,
+                TimedeltaMethodsSpec,
+                AddDatetimeTimedeltaSpec,
+                AddDateTimedeltaSpec,
+                SubDatetimeTimedeltaSpec,
+                SubDateTimedeltaSpec,
+                SubDatesSpec,
+                SubDatetimesSpec,
+                MulTimedeltaNumberSpec,
+                MulNumberTimedeltaSpec,
+                DivTimedeltaNumberSpec,
+                DivTimedeltasSpec,
+                FloorDivTimedeltasSpec>;
+
         using time_series_property_node_specs =
             CppNodeSpecList<
                 ModifiedImplSpec,
@@ -180,6 +206,7 @@ namespace hgraph {
             string_node_specs,
             bool_node_specs,
             enum_node_specs,
+            date_time_node_specs,
             type_node_specs,
             time_series_property_node_specs>;
 
