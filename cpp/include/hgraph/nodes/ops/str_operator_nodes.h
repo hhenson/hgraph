@@ -3,6 +3,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/value/type_registry.h>
 
+#include <cstdint>
 #include <optional>
 #include <string_view>
 
@@ -16,6 +17,10 @@ namespace hgraph {
             inline nb::str require_string_field(const TSBInputView& bundle, std::string_view field_name) {
                 const nb::object obj = bundle.field(field_name).value().template as<nb::object>();
                 return nb::borrow<nb::str>(obj);
+            }
+
+            inline nb::object python_field(const TSBInputView& bundle, std::string_view field_name) {
+                return bundle.field(field_name).to_python();
             }
 
             inline int64_t require_int_field(const TSBInputView& bundle, std::string_view field_name) {
@@ -106,6 +111,151 @@ namespace hgraph {
                 const int64_t start = str_ops_detail::require_int_field(bundle, "start");
                 const std::optional<int64_t> end = str_ops_detail::optional_int_field(bundle, "end");
                 str_ops_detail::emit_string(node, str_ops_detail::string_substring(s, start, end));
+            }
+        };
+
+        struct StrDefaultSpec {
+            static constexpr const char* py_factory_name = "op_str_default";
+
+            static void eval(Node& node) {
+                auto bundle = str_ops_detail::require_input_bundle(node);
+                const nb::object ts = str_ops_detail::python_field(bundle, "ts");
+                nb::object out = nb::steal<nb::object>(PyObject_Str(ts.ptr()));
+                if (!out.is_valid()) {
+                    nb::raise_python_error();
+                }
+                str_ops_detail::emit_string(node, out);
+            }
+        };
+
+        struct StrBytesSpec {
+            static constexpr const char* py_factory_name = "op_str_bytes";
+
+            static void eval(Node& node) {
+                auto bundle = str_ops_detail::require_input_bundle(node);
+                const nb::object ts = str_ops_detail::python_field(bundle, "ts");
+                char* bytes_ptr = nullptr;
+                Py_ssize_t bytes_size = 0;
+                if (PyBytes_AsStringAndSize(ts.ptr(), &bytes_ptr, &bytes_size) < 0) {
+                    nb::raise_python_error();
+                }
+                nb::object decoded = nb::steal<nb::object>(PyUnicode_DecodeUTF8(bytes_ptr, bytes_size, nullptr));
+                if (!decoded.is_valid()) {
+                    nb::raise_python_error();
+                }
+                str_ops_detail::emit_string(node, decoded);
+            }
+        };
+
+        struct MatchDefaultSpec {
+            static constexpr const char* py_factory_name = "op_match_default";
+
+            struct state {
+                nb::object search;
+                nb::str is_match_key;
+                nb::str groups_key;
+            };
+
+            static state make_state(Node&) {
+                const nb::object re_module = nb::cast<nb::object>(nb::module_::import_("re"));
+                return {
+                    nb::cast<nb::object>(re_module.attr("search")),
+                    nb::str("is_match"),
+                    nb::str("groups"),
+                };
+            }
+
+            static void eval(Node& node, state& state) {
+                auto bundle = str_ops_detail::require_input_bundle(node);
+                const nb::str pattern = str_ops_detail::require_string_field(bundle, "pattern");
+                const nb::str s = str_ops_detail::require_string_field(bundle, "s");
+                const nb::object match = nb::cast<nb::object>(state.search(pattern, s));
+                nb::dict out;
+                if (match.is_none()) {
+                    out[state.is_match_key] = nb::bool_(false);
+                } else {
+                    out[state.is_match_key] = nb::bool_(true);
+                    out[state.groups_key] = nb::cast<nb::object>(match.attr("groups")());
+                }
+                node.output().from_python(out);
+            }
+        };
+
+        struct ReplaceDefaultSpec {
+            static constexpr const char* py_factory_name = "op_replace_default";
+
+            struct state {
+                nb::object sub;
+            };
+
+            static state make_state(Node&) {
+                const nb::object re_module = nb::cast<nb::object>(nb::module_::import_("re"));
+                return {nb::cast<nb::object>(re_module.attr("sub"))};
+            }
+
+            static void eval(Node& node, state& state) {
+                auto bundle = str_ops_detail::require_input_bundle(node);
+                const nb::str pattern = str_ops_detail::require_string_field(bundle, "pattern");
+                const nb::str repl = str_ops_detail::require_string_field(bundle, "repl");
+                const nb::str s = str_ops_detail::require_string_field(bundle, "s");
+                str_ops_detail::emit_string(node, nb::cast<nb::object>(state.sub(pattern, repl, s)));
+            }
+        };
+
+        struct SplitDefaultSpec {
+            static constexpr const char* py_factory_name = "op__split_default";
+
+            struct state {
+                nb::str separator;
+                int64_t maxsplit;
+            };
+
+            static state make_state(Node& node) {
+                const nb::dict& scalars = node.scalars();
+                return {
+                    nb::str(nb::cast<nb::object>(scalars["separator"])),
+                    nb::cast<int64_t>(scalars["maxsplit"]),
+                };
+            }
+
+            static void eval(Node& node, state& state) {
+                auto bundle = str_ops_detail::require_input_bundle(node);
+                const nb::str s = str_ops_detail::require_string_field(bundle, "s");
+                nb::object parts = nb::steal<nb::object>(
+                    PyUnicode_Split(s.ptr(), state.separator.ptr(), static_cast<Py_ssize_t>(state.maxsplit)));
+                if (!parts.is_valid()) {
+                    nb::raise_python_error();
+                }
+                nb::object out = nb::steal<nb::object>(PySequence_Tuple(parts.ptr()));
+                if (!out.is_valid()) {
+                    nb::raise_python_error();
+                }
+                node.output().from_python(out);
+            }
+        };
+
+        struct JoinStrTupleSpec {
+            static constexpr const char* py_factory_name = "op_join_str_tuple";
+
+            struct state {
+                nb::str separator;
+            };
+
+            static state make_state(Node& node) {
+                const nb::dict& scalars = node.scalars();
+                return {
+                    nb::str(nb::cast<nb::object>(scalars["separator"])),
+                };
+            }
+
+            static void eval(Node& node, state& state) {
+                auto bundle = str_ops_detail::require_input_bundle(node);
+                const nb::object strings = str_ops_detail::python_field(bundle, "strings");
+                nb::object out = nb::steal<nb::object>(PyUnicode_Join(state.separator.ptr(), strings.ptr()));
+                if (!out.is_valid()) {
+                    nb::raise_python_error();
+                }
+                str_ops_detail::emit_string(node, out);
             }
         };
     }  // namespace ops

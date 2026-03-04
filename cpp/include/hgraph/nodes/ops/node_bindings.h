@@ -9,6 +9,7 @@
 #include <hgraph/nodes/ops/null_sink_node.h>
 #include <hgraph/nodes/ops/scalar_operator_nodes.h>
 #include <hgraph/nodes/ops/str_operator_nodes.h>
+#include <hgraph/nodes/ops/time_series_property_operator_nodes.h>
 #include <hgraph/nodes/ops/type_operator_nodes.h>
 #include <hgraph/python/cpp_node_builder_binding.h>
 
@@ -131,7 +132,13 @@ namespace hgraph {
                 AddStrSpec,
                 MulStrsSpec,
                 ContainsStrSpec,
-                SubstrDefaultSpec>;
+                SubstrDefaultSpec,
+                StrDefaultSpec,
+                StrBytesSpec,
+                MatchDefaultSpec,
+                ReplaceDefaultSpec,
+                SplitDefaultSpec,
+                JoinStrTupleSpec>;
 
         using bool_node_specs =
             CppNodeSpecList<
@@ -157,6 +164,12 @@ namespace hgraph {
                 DowncastImplSpec,
                 DowncastRefImplSpec>;
 
+        using time_series_property_node_specs =
+            CppNodeSpecList<
+                ModifiedImplSpec,
+                LastModifiedTimeImplSpec,
+                LastModifiedDateImplSpec>;
+
         using bound_node_specs = CppNodeSpecListConcat_t<
             core_node_specs,
             access_node_specs,
@@ -165,7 +178,8 @@ namespace hgraph {
             string_node_specs,
             bool_node_specs,
             enum_node_specs,
-            type_node_specs>;
+            type_node_specs,
+            time_series_property_node_specs>;
 
         inline void bind_node_builders(nb::module_& m) {
             bind_cpp_node_builder_factories(m, bound_node_specs{});
