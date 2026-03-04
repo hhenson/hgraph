@@ -281,6 +281,9 @@ set(HGRAPH_INCLUDES
         include/hgraph/builders/nodes/cpp_node_builder.h
         include/hgraph/nodes/base_python_node.h
         include/hgraph/nodes/cpp_node_spec.h
+        include/hgraph/nodes/ops/const_default_node.h
+        include/hgraph/nodes/ops/noop_node.h
+        include/hgraph/nodes/ops/node_bindings.h
         include/hgraph/nodes/component_node.h
         include/hgraph/nodes/last_value_pull_node.h
         include/hgraph/nodes/mesh_node.h
