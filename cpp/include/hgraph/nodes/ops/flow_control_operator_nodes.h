@@ -6,6 +6,24 @@
 namespace hgraph {
     namespace ops {
         namespace flow_control_ops_detail {
+            struct CmpResultConstants {
+                nb::object lt;
+                nb::object eq;
+                nb::object gt;
+            };
+
+            inline const CmpResultConstants& cmp_result_constants() {
+                static const CmpResultConstants cached = [] {
+                    const nb::object cmp_result = nb::cast<nb::object>(nb::module_::import_("hgraph").attr("CmpResult"));
+                    return CmpResultConstants{
+                        nb::cast<nb::object>(cmp_result.attr("LT")),
+                        nb::cast<nb::object>(cmp_result.attr("EQ")),
+                        nb::cast<nb::object>(cmp_result.attr("GT")),
+                    };
+                }();
+                return cached;
+            }
+
             inline TSBInputView require_input_bundle(Node& node) {
                 return *node.input().try_as_bundle();
             }
@@ -20,6 +38,28 @@ namespace hgraph {
 
             inline void emit_int(Node& node, int64_t value) {
                 node.output().set_value(value::View(&value, value::scalar_type_meta<int64_t>()));
+            }
+
+            inline bool output_differs(const TSOutputView& output, const value::View& candidate) {
+                return !output.valid() || output.value() != candidate;
+            }
+
+            inline bool python_not_equal(const nb::object& lhs, const nb::object& rhs) {
+                const int eq = PyObject_RichCompareBool(lhs.ptr(), rhs.ptr(), Py_EQ);
+                if (eq < 0) {
+                    nb::raise_python_error();
+                }
+                return eq == 0;
+            }
+
+            inline bool output_ref_differs(Node& node, const TSInputView& candidate) {
+                const nb::object current = node.output().to_python();
+                const nb::object next = candidate.to_python();
+                return python_not_equal(current, next);
+            }
+
+            inline void emit_ref(Node& node, const TSInputView& candidate) {
+                node.output().copy_from_input(candidate);
             }
         }  // namespace flow_control_ops_detail
 
@@ -203,6 +243,106 @@ namespace hgraph {
                 }
 
                 flow_control_ops_detail::emit_int(node, -1);
+            }
+        };
+
+        struct IfTrueImplSpec {
+            static constexpr const char* py_factory_name = "op_if_true_impl";
+
+            static void eval(Node& node) {
+                auto bundle = flow_control_ops_detail::require_input_bundle(node);
+                auto condition = bundle.field("condition");
+                if (!condition.valid() || !condition.value().template as<bool>()) {
+                    return;
+                }
+
+                const nb::dict& scalars = node.scalars();
+                const bool tick_once_only = scalars.contains("tick_once_only")
+                    ? nb::cast<bool>(scalars["tick_once_only"])
+                    : false;
+                if (tick_once_only) {
+                    condition.make_passive();
+                }
+
+                flow_control_ops_detail::emit_bool(node, true);
+            }
+        };
+
+        struct IfCmpImplSpec {
+            static constexpr const char* py_factory_name = "op_if_cmp_impl";
+
+            static void eval(Node& node) {
+                auto bundle = flow_control_ops_detail::require_input_bundle(node);
+                auto cmp = bundle.field("cmp");
+                if (!cmp.valid()) {
+                    return;
+                }
+
+                TSInputView selected;
+                const nb::object cmp_value = cmp.value().template as<nb::object>();
+                const auto& cmp_result = flow_control_ops_detail::cmp_result_constants();
+                if (cmp_value.ptr() == cmp_result.lt.ptr()) {
+                    selected = bundle.field("lt");
+                } else if (cmp_value.ptr() == cmp_result.eq.ptr()) {
+                    selected = bundle.field("eq");
+                } else if (cmp_value.ptr() == cmp_result.gt.ptr()) {
+                    selected = bundle.field("gt");
+                } else {
+                    return;
+                }
+
+                if (!selected.valid()) {
+                    return;
+                }
+
+                if (flow_control_ops_detail::output_ref_differs(node, selected)) {
+                    flow_control_ops_detail::emit_ref(node, selected);
+                }
+            }
+        };
+
+        struct IfThenElseImplSpec {
+            static constexpr const char* py_factory_name = "op_if_then_else_impl";
+
+            static void eval(Node& node) {
+                auto bundle = flow_control_ops_detail::require_input_bundle(node);
+                auto condition = bundle.field("condition");
+                if (!condition.valid()) {
+                    return;
+                }
+
+                auto true_value = bundle.field("true_value");
+                auto false_value = bundle.field("false_value");
+                const bool condition_value = condition.value().template as<bool>();
+
+                if (condition.modified()) {
+                    if (condition_value) {
+                        if (true_value.valid()) {
+                            if (flow_control_ops_detail::output_ref_differs(node, true_value)) {
+                                flow_control_ops_detail::emit_ref(node, true_value);
+                            }
+                        }
+                    } else {
+                        if (false_value.valid()) {
+                            if (flow_control_ops_detail::output_ref_differs(node, false_value)) {
+                                flow_control_ops_detail::emit_ref(node, false_value);
+                            }
+                        }
+                    }
+                }
+
+                if (condition_value && true_value.modified()) {
+                    if (flow_control_ops_detail::output_ref_differs(node, true_value)) {
+                        flow_control_ops_detail::emit_ref(node, true_value);
+                    }
+                    return;
+                }
+
+                if (!condition_value && false_value.modified()) {
+                    if (flow_control_ops_detail::output_ref_differs(node, false_value)) {
+                        flow_control_ops_detail::emit_ref(node, false_value);
+                    }
+                }
             }
         };
     }  // namespace ops

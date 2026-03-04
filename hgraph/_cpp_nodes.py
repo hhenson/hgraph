@@ -173,5 +173,8 @@ def register_cpp_node_mappings(_hgraph_module) -> None:
             "any_tsd": _hgraph_module.op_any_tsd,
             "merge_ts_scalar": _hgraph_module.op_merge_ts_scalar,
             "index_of_impl": _hgraph_module.op_index_of_impl,
+            "if_true_impl": _hgraph_module.op_if_true_impl,
+            "if_cmp_impl": _hgraph_module.op_if_cmp_impl,
+            "if_then_else_impl": _hgraph_module.op_if_then_else_impl,
         }
     })

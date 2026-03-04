@@ -165,7 +165,10 @@ namespace hgraph {
                 AnyDefaultSpec,
                 AnyTsdSpec,
                 MergeTsScalarSpec,
-                IndexOfImplSpec>;
+                IndexOfImplSpec,
+                IfTrueImplSpec,
+                IfCmpImplSpec,
+                IfThenElseImplSpec>;
 
         using type_node_specs =
             CppNodeSpecList<
