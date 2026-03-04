@@ -192,7 +192,7 @@ def assert_default(condition: TS[bool], error_msg: str):
 
 
 @sink_node(overloads=assert_)
-def assert_default_ts_msg(condition: TS[bool], error_msg: TS[str]):
+def assert_default_ts(condition: TS[bool], error_msg: TS[str]):
     if condition.modified and not condition.value:
         raise AssertionError(error_msg.value)
 
