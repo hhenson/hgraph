@@ -33,11 +33,43 @@ def add_float_to_int(lhs: TS[int], rhs: TS[float]) -> TS[float]:
 
 
 @compute_node(overloads=add_)
+def add_int_to_int(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    """
+    Adds two int timeseries values.
+    """
+    return lhs.value + rhs.value
+
+
+@compute_node(overloads=add_)
+def add_float_to_float(lhs: TS[float], rhs: TS[float]) -> TS[float]:
+    """
+    Adds two float timeseries values.
+    """
+    return lhs.value + rhs.value
+
+
+@compute_node(overloads=add_)
 def add_int_to_float(lhs: TS[float], rhs: TS[int]) -> TS[float]:
     """
     Adds a timeseries of int to a timeseries of float
     """
     return lhs.value + rhs.value
+
+
+@compute_node(overloads=sub_)
+def sub_int_from_int(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    """
+    Subtracts one int timeseries from another.
+    """
+    return lhs.value - rhs.value
+
+
+@compute_node(overloads=sub_)
+def sub_float_from_float(lhs: TS[float], rhs: TS[float]) -> TS[float]:
+    """
+    Subtracts one float timeseries from another.
+    """
+    return lhs.value - rhs.value
 
 
 @compute_node(overloads=sub_)
@@ -54,6 +86,22 @@ def sub_float_from_int(lhs: TS[int], rhs: TS[float]) -> TS[float]:
     Subtracts a timeseries of float from a timeseries of int
     """
     return lhs.value - rhs.value
+
+
+@compute_node(overloads=mul_)
+def mul_int_and_int(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    """
+    Multiplies two int timeseries values.
+    """
+    return lhs.value * rhs.value
+
+
+@compute_node(overloads=mul_)
+def mul_float_and_float(lhs: TS[float], rhs: TS[float]) -> TS[float]:
+    """
+    Multiplies two float timeseries values.
+    """
+    return lhs.value * rhs.value
 
 
 @compute_node(overloads=mul_)

@@ -62,11 +62,21 @@ struct ScalarOps<nb::object> {
         const auto& obj_b = *static_cast<const nb::object*>(b);
         if (!obj_a.is_valid() && !obj_b.is_valid()) return true;
         if (!obj_a.is_valid() || !obj_b.is_valid()) return false;
-        try {
-            return obj_a.equal(obj_b);
-        } catch (...) {
+        if (obj_a.ptr() == obj_b.ptr()) return true;
+
+        PyObject* eq_result = PyObject_RichCompare(obj_a.ptr(), obj_b.ptr(), Py_EQ);
+        if (eq_result == nullptr) {
+            PyErr_Clear();
             return false;
         }
+
+        const int truth = PyObject_IsTrue(eq_result);
+        Py_DECREF(eq_result);
+        if (truth < 0) {
+            PyErr_Clear();
+            return false;
+        }
+        return truth == 1;
     }
 
     static size_t hash(const void* obj, const TypeMeta*) {

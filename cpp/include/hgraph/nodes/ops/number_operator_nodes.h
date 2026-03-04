@@ -141,6 +141,22 @@ namespace hgraph {
                 }
             }
 
+            template<typename T>
+            inline void emit_divmod_output(Node& node, T quotient, T remainder) {
+                auto output = node.output();
+                if (!output) {
+                    throw std::runtime_error("number operator requires TSL output");
+                }
+
+                auto list = output.as_list();
+                if (list.count() < 2) {
+                    throw std::runtime_error("number operator divmod output requires size >= 2");
+                }
+
+                list.at(0).set_value(value::View(&quotient, value::scalar_type_meta<T>()));
+                list.at(1).set_value(value::View(&remainder, value::scalar_type_meta<T>()));
+            }
+
             inline bool emit_int_divide_by_zero_policy(Node& node, DivideByZeroMode mode) {
                 switch (mode) {
                     case DivideByZeroMode::None:
@@ -373,6 +389,64 @@ namespace hgraph {
                         std::pow(static_cast<double>(lhs_value), static_cast<double>(rhs_value)));
                 }
             };
+
+            struct DivmodNumbersSpec {
+                struct state {
+                    DivideByZeroMode divide_by_zero_mode{DivideByZeroMode::Error};
+                };
+
+                static state make_state(Node& node) {
+                    return {divide_by_zero_mode_from_scalars(node)};
+                }
+
+                static void eval(Node& node, state& state) {
+                    auto bundle = require_input_bundle(node);
+                    const double lhs_value = require_numeric_field_as_double(bundle, "lhs");
+                    const double rhs_value = require_numeric_field_as_double(bundle, "rhs");
+
+                    if (rhs_value == 0.0) {
+                        if (state.divide_by_zero_mode == DivideByZeroMode::Error) {
+                            throw std::runtime_error("division by zero");
+                        }
+                        return;
+                    }
+
+                    const double quotient = std::floor(lhs_value / rhs_value);
+                    const double remainder = python_mod(lhs_value, rhs_value);
+                    emit_divmod_output<double>(node, quotient, remainder);
+                }
+            };
+
+            struct DivmodIntsSpec {
+                struct state {
+                    DivideByZeroMode divide_by_zero_mode{DivideByZeroMode::Error};
+                };
+
+                static state make_state(Node& node) {
+                    return {divide_by_zero_mode_from_scalars(node)};
+                }
+
+                static void eval(Node& node, state& state) {
+                    auto bundle = require_input_bundle(node);
+                    const int64_t lhs_value = require_scalar_field<int64_t>(bundle, "lhs");
+                    const int64_t rhs_value = require_scalar_field<int64_t>(bundle, "rhs");
+
+                    if (rhs_value == 0) {
+                        if (state.divide_by_zero_mode == DivideByZeroMode::None) {
+                            return;
+                        }
+                        throw std::runtime_error("division by zero");
+                    }
+
+                    int64_t quotient = lhs_value / rhs_value;
+                    int64_t remainder = lhs_value % rhs_value;
+                    if (remainder != 0 && ((remainder > 0) != (rhs_value > 0))) {
+                        quotient -= 1;
+                        remainder += rhs_value;
+                    }
+                    emit_divmod_output<int64_t>(node, quotient, remainder);
+                }
+            };
         }  // namespace number_ops_detail
 
         struct AddFloatToIntSpec
@@ -380,9 +454,29 @@ namespace hgraph {
             static constexpr const char* py_factory_name = "op_add_float_to_int";
         };
 
+        struct AddIntToIntSpec
+            : number_ops_detail::BinaryScalarSpec<int64_t, int64_t, int64_t, number_ops_detail::Add> {
+            static constexpr const char* py_factory_name = "op_add_int_to_int";
+        };
+
+        struct AddFloatToFloatSpec
+            : number_ops_detail::BinaryScalarSpec<double, double, double, number_ops_detail::Add> {
+            static constexpr const char* py_factory_name = "op_add_float_to_float";
+        };
+
         struct AddIntToFloatSpec
             : number_ops_detail::BinaryScalarSpec<double, int64_t, double, number_ops_detail::Add> {
             static constexpr const char* py_factory_name = "op_add_int_to_float";
+        };
+
+        struct SubIntFromIntSpec
+            : number_ops_detail::BinaryScalarSpec<int64_t, int64_t, int64_t, number_ops_detail::Sub> {
+            static constexpr const char* py_factory_name = "op_sub_int_from_int";
+        };
+
+        struct SubFloatFromFloatSpec
+            : number_ops_detail::BinaryScalarSpec<double, double, double, number_ops_detail::Sub> {
+            static constexpr const char* py_factory_name = "op_sub_float_from_float";
         };
 
         struct SubIntFromFloatSpec
@@ -398,6 +492,16 @@ namespace hgraph {
         struct MulFloatAndIntSpec
             : number_ops_detail::BinaryScalarSpec<double, int64_t, double, number_ops_detail::Mul> {
             static constexpr const char* py_factory_name = "op_mul_float_and_int";
+        };
+
+        struct MulIntAndIntSpec
+            : number_ops_detail::BinaryScalarSpec<int64_t, int64_t, int64_t, number_ops_detail::Mul> {
+            static constexpr const char* py_factory_name = "op_mul_int_and_int";
+        };
+
+        struct MulFloatAndFloatSpec
+            : number_ops_detail::BinaryScalarSpec<double, double, double, number_ops_detail::Mul> {
+            static constexpr const char* py_factory_name = "op_mul_float_and_float";
         };
 
         struct MulIntAndFloatSpec
@@ -464,6 +568,16 @@ namespace hgraph {
         struct PowFloatIntSpec
             : number_ops_detail::PowSpec<double, int64_t> {
             static constexpr const char* py_factory_name = "op_pow_float_int";
+        };
+
+        struct DivmodNumbersSpec
+            : number_ops_detail::DivmodNumbersSpec {
+            static constexpr const char* py_factory_name = "op_divmod_numbers";
+        };
+
+        struct DivmodIntsSpec
+            : number_ops_detail::DivmodIntsSpec {
+            static constexpr const char* py_factory_name = "op_divmod_ints";
         };
     }  // namespace ops
 }  // namespace hgraph
