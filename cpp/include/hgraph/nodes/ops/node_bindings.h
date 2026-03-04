@@ -5,6 +5,7 @@
 #include <hgraph/nodes/ops/const_default_node.h>
 #include <hgraph/nodes/ops/date_time_operator_nodes.h>
 #include <hgraph/nodes/ops/enum_operator_nodes.h>
+#include <hgraph/nodes/ops/flow_control_operator_nodes.h>
 #include <hgraph/nodes/ops/number_operator_nodes.h>
 #include <hgraph/nodes/ops/nothing_node.h>
 #include <hgraph/nodes/ops/null_sink_node.h>
@@ -157,6 +158,15 @@ namespace hgraph {
                 GeEnumSpec,
                 GetattrEnumNameSpec>;
 
+        using flow_control_node_specs =
+            CppNodeSpecList<
+                AllDefaultSpec,
+                AllTsdSpec,
+                AnyDefaultSpec,
+                AnyTsdSpec,
+                MergeTsScalarSpec,
+                IndexOfImplSpec>;
+
         using type_node_specs =
             CppNodeSpecList<
                 TypeCsSchemaSpec,
@@ -206,6 +216,7 @@ namespace hgraph {
             string_node_specs,
             bool_node_specs,
             enum_node_specs,
+            flow_control_node_specs,
             date_time_node_specs,
             type_node_specs,
             time_series_property_node_specs>;

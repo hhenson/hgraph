@@ -167,5 +167,11 @@ def register_cpp_node_mappings(_hgraph_module) -> None:
             "and_booleans": _hgraph_module.op_and_booleans,
             "or_booleans": _hgraph_module.op_or_booleans,
             "not_boolean": _hgraph_module.op_not_boolean,
+            "all_default": _hgraph_module.op_all_default,
+            "all_tsd": _hgraph_module.op_all_tsd,
+            "any_default": _hgraph_module.op_any_default,
+            "any_tsd": _hgraph_module.op_any_tsd,
+            "merge_ts_scalar": _hgraph_module.op_merge_ts_scalar,
+            "index_of_impl": _hgraph_module.op_index_of_impl,
         }
     })
