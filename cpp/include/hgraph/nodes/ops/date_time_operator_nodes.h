@@ -3,6 +3,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/value/type_registry.h>
 
+#include <datetime.h>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -105,12 +106,24 @@ namespace hgraph {
                 return (static_cast<int64_t>(wd.c_encoding()) + 6) % 7;
             }
 
+            inline void ensure_datetime_capi() {
+                static const bool initialized = []() {
+                    PyDateTime_IMPORT;
+                    return true;
+                }();
+                (void)initialized;
+            }
+
             inline time_parts split_python_time(const nb::object& value) {
+                ensure_datetime_capi();
+                if (!PyTime_Check(value.ptr())) {
+                    throw std::runtime_error("Expected datetime.time for TS[time] input");
+                }
                 return {
-                    nb::cast<int64_t>(nb::cast<nb::object>(value.attr("hour"))),
-                    nb::cast<int64_t>(nb::cast<nb::object>(value.attr("minute"))),
-                    nb::cast<int64_t>(nb::cast<nb::object>(value.attr("second"))),
-                    nb::cast<int64_t>(nb::cast<nb::object>(value.attr("microsecond"))),
+                    static_cast<int64_t>(PyDateTime_TIME_GET_HOUR(value.ptr())),
+                    static_cast<int64_t>(PyDateTime_TIME_GET_MINUTE(value.ptr())),
+                    static_cast<int64_t>(PyDateTime_TIME_GET_SECOND(value.ptr())),
+                    static_cast<int64_t>(PyDateTime_TIME_GET_MICROSECOND(value.ptr())),
                 };
             }
 
@@ -201,15 +214,10 @@ namespace hgraph {
             struct state {
                 nb::object datetime_cls;
                 nb::object zoneinfo_cls;
+                bool imports_initialized{false};
             };
 
-            static state make_state(Node&) {
-                const nb::object datetime_mod = nb::cast<nb::object>(nb::module_::import_("datetime"));
-                return {
-                    nb::cast<nb::object>(datetime_mod.attr("datetime")),
-                    nb::cast<nb::object>(nb::module_::import_("zoneinfo").attr("ZoneInfo")),
-                };
-            }
+            static state make_state(Node&) { return {}; }
 
             static void eval(Node& node, state& state) {
                 auto bundle = date_time_ops_detail::input_bundle(node);
@@ -219,6 +227,12 @@ namespace hgraph {
 
                 auto tz_field = bundle.field("tz");
                 if (tz_field && tz_field.valid()) {
+                    if (!state.imports_initialized) {
+                        const nb::object datetime_mod = nb::cast<nb::object>(nb::module_::import_("datetime"));
+                        state.datetime_cls = nb::cast<nb::object>(datetime_mod.attr("datetime"));
+                        state.zoneinfo_cls = nb::cast<nb::object>(nb::module_::import_("zoneinfo").attr("ZoneInfo"));
+                        state.imports_initialized = true;
+                    }
                     const nb::object lhs_py = nb::cast(lhs);
                     const nb::object tz = nb::cast<nb::object>(state.zoneinfo_cls(tz_field.to_python()));
                     const nb::object with_tz = nb::cast<nb::object>(state.datetime_cls.attr("combine")(lhs_py, rhs, tz));
@@ -328,20 +342,20 @@ namespace hgraph {
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
                 const std::string attr_name = nb::cast<std::string>(nb::str(scalars["attribute"]));
-                const nb::object datetime_mod = nb::cast<nb::object>(nb::module_::import_("datetime"));
                 if (attr_name == "weekday") {
-                    return {method::weekday, nb::cast<nb::object>(datetime_mod.attr("time"))};
+                    return {method::weekday, {}};
                 }
                 if (attr_name == "isoweekday") {
-                    return {method::isoweekday, nb::cast<nb::object>(datetime_mod.attr("time"))};
+                    return {method::isoweekday, {}};
                 }
                 if (attr_name == "timestamp") {
-                    return {method::timestamp, nb::cast<nb::object>(datetime_mod.attr("time"))};
+                    return {method::timestamp, {}};
                 }
                 if (attr_name == "date") {
-                    return {method::date, nb::cast<nb::object>(datetime_mod.attr("time"))};
+                    return {method::date, {}};
                 }
                 if (attr_name == "time") {
+                    const nb::object datetime_mod = nb::cast<nb::object>(nb::module_::import_("datetime"));
                     return {method::time, nb::cast<nb::object>(datetime_mod.attr("time"))};
                 }
                 throw std::runtime_error("Unsupported datetime method");
@@ -472,46 +486,101 @@ namespace hgraph {
         struct TimePropertiesSpec {
             static constexpr const char* py_factory_name = "op_time_properties";
 
+            enum class attr {
+                hour,
+                minute,
+                second,
+                microsecond,
+            };
+
             struct state {
-                std::string attribute;
+                attr attribute;
             };
 
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
-                return {nb::cast<std::string>(nb::str(scalars["attribute"]))};
+                const std::string attr_name = nb::cast<std::string>(nb::str(scalars["attribute"]));
+                if (attr_name == "hour") {
+                    return {attr::hour};
+                }
+                if (attr_name == "minute") {
+                    return {attr::minute};
+                }
+                if (attr_name == "second") {
+                    return {attr::second};
+                }
+                if (attr_name == "microsecond") {
+                    return {attr::microsecond};
+                }
+                throw std::runtime_error("Unsupported time property");
             }
 
             static void eval(Node& node, state& state) {
                 auto bundle = date_time_ops_detail::input_bundle(node);
                 const nb::object ts = date_time_ops_detail::python_field(bundle, "ts");
-                nb::object attr = nb::steal<nb::object>(PyObject_GetAttrString(ts.ptr(), state.attribute.c_str()));
-                if (!attr.is_valid()) {
-                    nb::raise_python_error();
+                const auto parts = date_time_ops_detail::split_python_time(ts);
+                switch (state.attribute) {
+                    case attr::hour:
+                        return date_time_ops_detail::emit_int(node, parts.hour);
+                    case attr::minute:
+                        return date_time_ops_detail::emit_int(node, parts.minute);
+                    case attr::second:
+                        return date_time_ops_detail::emit_int(node, parts.second);
+                    case attr::microsecond:
+                        return date_time_ops_detail::emit_int(node, parts.microsecond);
                 }
-                date_time_ops_detail::emit_python(node, attr);
             }
         };
 
         struct TimeMethodsSpec {
             static constexpr const char* py_factory_name = "op_time_methods";
 
+            enum class method {
+                isoformat,
+            };
+
             struct state {
-                std::string attribute;
+                method meth;
             };
 
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
-                return {nb::cast<std::string>(nb::str(scalars["attribute"]))};
+                const std::string attr_name = nb::cast<std::string>(nb::str(scalars["attribute"]));
+                if (attr_name == "isoformat") {
+                    return {method::isoformat};
+                }
+                throw std::runtime_error("Unsupported time method");
             }
 
             static void eval(Node& node, state& state) {
                 auto bundle = date_time_ops_detail::input_bundle(node);
                 const nb::object ts = date_time_ops_detail::python_field(bundle, "ts");
-                nb::object method = nb::steal<nb::object>(PyObject_GetAttrString(ts.ptr(), state.attribute.c_str()));
-                if (!method.is_valid()) {
-                    nb::raise_python_error();
+                const auto parts = date_time_ops_detail::split_python_time(ts);
+                switch (state.meth) {
+                    case method::isoformat: {
+                        if (parts.microsecond == 0) {
+                            char buf[16];
+                            std::snprintf(
+                                buf,
+                                sizeof(buf),
+                                "%02lld:%02lld:%02lld",
+                                static_cast<long long>(parts.hour),
+                                static_cast<long long>(parts.minute),
+                                static_cast<long long>(parts.second));
+                            return date_time_ops_detail::emit_python(node, nb::str(buf));
+                        }
+                        char buf[24];
+                        std::snprintf(
+                            buf,
+                            sizeof(buf),
+                            "%02lld:%02lld:%02lld.%06lld",
+                            static_cast<long long>(parts.hour),
+                            static_cast<long long>(parts.minute),
+                            static_cast<long long>(parts.second),
+                            static_cast<long long>(parts.microsecond));
+                        return date_time_ops_detail::emit_python(node, nb::str(buf));
+                    }
                 }
-                date_time_ops_detail::emit_python(node, nb::cast<nb::object>(method()));
             }
         };
 
