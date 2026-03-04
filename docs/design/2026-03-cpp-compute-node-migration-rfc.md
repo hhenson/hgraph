@@ -240,3 +240,135 @@ Potential extensions for later phases:
 Current RFC scope remains a single routing method:
 1. Derived id from Python declaration path.
 2. Lookup through the mapping table.
+
+## 14. Operator Conversion Plan
+
+This section defines the concrete plan to migrate operators to C++ in waves.
+
+## 14.1 Migration Unit
+
+One migration unit is one Python implementation function that wires to an operator overload:
+1. `@compute_node(overloads=...)`
+2. `@generator(overloads=...)`
+3. `@sink_node(overloads=...)`
+
+`@graph(overloads=...)` wrappers are not runtime nodes and are not migration units.
+They remain composition/wiring functions that call migrated leaf nodes.
+
+## 14.2 Current Baseline
+
+Already migrated and mapped:
+1. `hgraph::const_default`
+2. `hgraph::nothing_impl`
+3. `hgraph::null_sink_impl`
+
+Current mapping source:
+1. `hgraph/_cpp_nodes.py`
+
+## 14.3 Wave Order
+
+| Wave | Scope | Target modules | Why this order |
+|---|---|---|---|
+| 0 | Infrastructure hardening | Mapping + builder exposure + parity harness | Keep routing stable before large rollout |
+| 1 | Core foundational node leaves | `_graph_operators.py` compute/sink/generator implementations only (exclude `@graph` wrappers) | Highest fan-out, low algorithm complexity |
+| 2 | Scalar arithmetic/comparison/logical | `_scalar_operators.py`, `_number_operators.py`, `_bool_operators.py`, `_enum_operators.py` | High tick frequency and measurable hot-path gains |
+| 3 | Access/projection/indexing | `_getattr.py`, `_tuple_operators.py`, `_series_operators.py`, key `getitem_/getattr_` paths in `_tsd_operators.py` and `_tsb_operators.py` | Removes Python dispatch/conversion inside indexing-heavy paths |
+| 4 | Collection algebra and keyed ops | `_set_operators.py`, `_tss_operators.py`, `_tsd_operators.py`, `_tsl_operators.py` | Larger performance win after view APIs are in place |
+| 5 | Flow and stream control | `_flow_control.py`, `_stream_operators.py`, `_stream_analytical_operators.py`, `_time_series_properties.py`, `_tsw_operators.py` | More stateful semantics; do after primitives are stable |
+| 6 | Conversion and serialization | `_conversion_operators/*`, `_json.py`, `_to_json.py`, `_to_table_impl.py` | Broad surface, lower immediate compute ROI |
+
+## 14.4 Wave Exit Criteria
+
+Each wave must satisfy all gates:
+1. All selected operator impls mapped in `hgraph/_cpp_nodes.py`.
+2. Targeted parity tests pass in both modes:
+   - `HGRAPH_USE_CPP=0`
+   - `HGRAPH_USE_CPP=1`
+3. No mapped-node silent fallback:
+   - mapped + incompatible builder must fail wiring with a clear error.
+4. No hot-path Python conversion in C++ kernels unless required by semantics.
+5. Full `hgraph_unit_tests` pass in C++ mode before wave merge (allow existing xfail/skip only).
+6. Performance check shows neutral-or-better behavior on wave benchmark graphs.
+
+## 14.5 Implementation Pattern Per Operator
+
+For each operator impl:
+1. Add C++ spec in `cpp/include/hgraph/nodes/ops/<family>_nodes.h`.
+2. Add factory exposure symbol in `_hgraph` (for example `op_add_ts` style).
+3. Register in `node_bindings.h`.
+4. Add Python mapping entry in `hgraph/_cpp_nodes.py`.
+5. Add/extend tests:
+   - mapping registration test
+   - targeted operator parity tests
+   - failure-path test for mapped-incompatible signature
+
+## 14.6 Prioritization Rules Inside a Wave
+
+Within each wave, migrate in this priority order:
+1. Operators with highest usage in existing tests/graphs.
+2. Operators where Python wrapper iteration/conversion dominates runtime.
+3. Operators with straightforward scalar/container semantics and low ambiguity.
+4. Operators with minimal external adaptor/runtime dependencies.
+
+## 14.7 Progress Metrics
+
+Track progress with objective counters:
+1. `migrated_impl_count / total_impl_count` (compute + generator + sink overload impls).
+2. `mapped_impl_count / migrated_impl_count`.
+3. C++ dispatch coverage in test runs:
+   - number of mapped nodes instantiated
+   - number of ticks executed by mapped nodes
+4. Performance snapshots per wave:
+   - p50/p95 tick latency on benchmark graphs
+   - end-to-end graph runtime vs Python baseline
+
+## 14.8 First Execution Slice (recommended now)
+
+Start with Wave 2 subset:
+1. Arithmetic: `add_`, `sub_`, `mul_`, `div_`, `floordiv_`, `mod_`.
+2. Comparison: `eq_`, `ne_`, `lt_`, `le_`, `gt_`, `ge_`.
+3. Logical/bitwise: `and_`, `or_`, `not_`, `bit_and`, `bit_or`, `bit_xor`.
+4. Aggregates on scalar tuples/sets where already covered by tests: `min_`, `max_`, `sum_`, `mean`.
+
+Reason:
+1. Highest hot-path payoff.
+2. Existing tests are strong and localized.
+3. Minimal adaptor/runtime coupling.
+
+## 14.9 Templating Refinement Policy (Arithmetic and Similar Families)
+
+Some operator families require finer-grained specialization than one generic compute kernel.
+Arithmetic is the primary case.
+
+Policy:
+1. Keep one stable Python-derived id per operator implementation function.
+2. Map that id to one C++ factory symbol.
+3. Inside that factory, select a specialized builder/kernel at wiring time using resolved signature/type metadata.
+
+Specialization axes for arithmetic operators:
+1. Time-series shape:
+   - scalar TS vs collection/container projections.
+2. Scalar category:
+   - bool/integral/floating/date-time-duration paths as required by semantics.
+3. Strictness/behavior flags:
+   - for example divide-by-zero mode, strict validity behavior.
+
+Implementation rules:
+1. Prefer compile-time specialized kernels for hot combinations.
+2. Use a bounded instantiation matrix to avoid template explosion.
+3. Use explicit promotion rules (Python-parity) to route mixed numeric types to canonical kernels.
+4. If mapped and unsupported specialization is encountered, fail wiring/build with a clear error (no hidden fallback).
+
+Wave planning impact:
+1. Wave 2 should be delivered as sub-waves:
+   - 2a: core numeric hot-path specializations.
+   - 2b: mixed-type/promotion and less-common numeric combinations.
+2. Exit criteria apply per sub-wave, not only at the full Wave 2 boundary.
+
+## 14.10 Fallback Policy (explicit)
+
+Migration fallback policy for mapped operators:
+1. If `HGRAPH_USE_CPP=0`: use Python builder.
+2. If `HGRAPH_USE_CPP=1` and mapping missing: use Python builder.
+3. If `HGRAPH_USE_CPP=1` and mapping exists but incompatible: wiring/build error.
+4. No hidden runtime fallback for mapped nodes.
