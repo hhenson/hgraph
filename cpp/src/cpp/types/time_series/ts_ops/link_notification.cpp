@@ -1,4 +1,5 @@
 #include "ts_ops_internal.h"
+#include <cstdint>
 
 namespace hgraph {
 
@@ -257,8 +258,26 @@ ObserverList* observer_list_from_node(ValueView node, bool materialize) {
         return nullptr;
     }
 
+    auto schema_ptr_looks_valid = [](const value::TypeMeta* schema) -> bool {
+        if (schema == nullptr) {
+            return false;
+        }
+        const auto addr = reinterpret_cast<std::uintptr_t>(schema);
+        if (addr < 4096) {
+            return false;
+        }
+        if ((addr % alignof(value::TypeMeta)) != 0) {
+            return false;
+        }
+        return true;
+    };
+
     ValueView slot = node;
-    if (slot.is_tuple()) {
+    if (!slot.valid() || !schema_ptr_looks_valid(slot.schema())) {
+        return nullptr;
+    }
+
+    if (slot.schema()->kind == value::TypeKind::Tuple) {
         auto tuple = slot.as_tuple();
         if (tuple.size() == 0) {
             return nullptr;
@@ -279,7 +298,7 @@ ObserverList* observer_list_from_node(ValueView node, bool materialize) {
         }
     }
 
-    if (!slot.valid() || slot.schema() != observer_list_type) {
+    if (!slot.valid() || !schema_ptr_looks_valid(slot.schema()) || slot.schema() != observer_list_type) {
         return nullptr;
     }
     return static_cast<ObserverList*>(slot.data());
@@ -291,8 +310,26 @@ const ObserverList* observer_list_from_node(View node) {
         return nullptr;
     }
 
+    auto schema_ptr_looks_valid = [](const value::TypeMeta* schema) -> bool {
+        if (schema == nullptr) {
+            return false;
+        }
+        const auto addr = reinterpret_cast<std::uintptr_t>(schema);
+        if (addr < 4096) {
+            return false;
+        }
+        if ((addr % alignof(value::TypeMeta)) != 0) {
+            return false;
+        }
+        return true;
+    };
+
     View slot = node;
-    if (slot.is_tuple()) {
+    if (!slot.valid() || !schema_ptr_looks_valid(slot.schema())) {
+        return nullptr;
+    }
+
+    if (slot.schema()->kind == value::TypeKind::Tuple) {
         auto tuple = slot.as_tuple();
         if (tuple.size() == 0) {
             return nullptr;
@@ -300,7 +337,7 @@ const ObserverList* observer_list_from_node(View node) {
         slot = tuple.at(0);
     }
 
-    if (!slot.valid() || slot.schema() != observer_list_type) {
+    if (!slot.valid() || !schema_ptr_looks_valid(slot.schema()) || slot.schema() != observer_list_type) {
         return nullptr;
     }
     return static_cast<const ObserverList*>(slot.data());
