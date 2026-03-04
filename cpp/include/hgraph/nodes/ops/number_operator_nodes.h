@@ -200,6 +200,104 @@ namespace hgraph {
                 }
             };
 
+            struct LShift {
+                template<typename L, typename R>
+                static auto apply(L lhs, R rhs) {
+                    return lhs << rhs;
+                }
+            };
+
+            struct RShift {
+                template<typename L, typename R>
+                static auto apply(L lhs, R rhs) {
+                    return lhs >> rhs;
+                }
+            };
+
+            struct BitAnd {
+                template<typename L, typename R>
+                static auto apply(L lhs, R rhs) {
+                    return lhs & rhs;
+                }
+            };
+
+            struct BitOr {
+                template<typename L, typename R>
+                static auto apply(L lhs, R rhs) {
+                    return lhs | rhs;
+                }
+            };
+
+            struct BitXor {
+                template<typename L, typename R>
+                static auto apply(L lhs, R rhs) {
+                    return lhs ^ rhs;
+                }
+            };
+
+            struct Eq {
+                template<typename L, typename R>
+                static bool apply(L lhs, R rhs) {
+                    return lhs == rhs;
+                }
+            };
+
+            struct Lt {
+                template<typename L, typename R>
+                static bool apply(L lhs, R rhs) {
+                    return lhs < rhs;
+                }
+            };
+
+            struct Le {
+                template<typename L, typename R>
+                static bool apply(L lhs, R rhs) {
+                    return lhs <= rhs;
+                }
+            };
+
+            struct Gt {
+                template<typename L, typename R>
+                static bool apply(L lhs, R rhs) {
+                    return lhs > rhs;
+                }
+            };
+
+            struct Ge {
+                template<typename L, typename R>
+                static bool apply(L lhs, R rhs) {
+                    return lhs >= rhs;
+                }
+            };
+
+            struct Neg {
+                template<typename T>
+                static auto apply(T value) {
+                    return -value;
+                }
+            };
+
+            struct Pos {
+                template<typename T>
+                static auto apply(T value) {
+                    return +value;
+                }
+            };
+
+            struct Invert {
+                template<typename T>
+                static auto apply(T value) {
+                    return ~value;
+                }
+            };
+
+            struct Abs {
+                template<typename T>
+                static auto apply(T value) {
+                    return std::abs(value);
+                }
+            };
+
             template<typename L, typename R, typename Out, typename Op>
             struct BinaryScalarSpec {
                 static void eval(Node& node) {
@@ -207,6 +305,16 @@ namespace hgraph {
                     const L lhs_value = require_scalar_field<L>(bundle, "lhs");
                     const R rhs_value = require_scalar_field<R>(bundle, "rhs");
                     const Out output_value = static_cast<Out>(Op::apply(lhs_value, rhs_value));
+                    emit_scalar<Out>(node, output_value);
+                }
+            };
+
+            template<typename In, typename Out, typename Op>
+            struct UnaryScalarSpec {
+                static void eval(Node& node) {
+                    auto bundle = require_input_bundle(node);
+                    const In ts_value = require_scalar_field<In>(bundle, "ts");
+                    const Out output_value = static_cast<Out>(Op::apply(ts_value));
                     emit_scalar<Out>(node, output_value);
                 }
             };
@@ -221,6 +329,17 @@ namespace hgraph {
 
                     const double diff = static_cast<double>(rhs_value) - static_cast<double>(lhs_value);
                     const bool output_value = (-epsilon_value <= diff) && (diff <= epsilon_value);
+                    emit_scalar<bool>(node, output_value);
+                }
+            };
+
+            template<typename L, typename R, typename Compare>
+            struct BinaryCompareSpec {
+                static void eval(Node& node) {
+                    auto bundle = require_input_bundle(node);
+                    const L lhs_value = require_scalar_field<L>(bundle, "lhs");
+                    const R rhs_value = require_scalar_field<R>(bundle, "rhs");
+                    const bool output_value = Compare::apply(lhs_value, rhs_value);
                     emit_scalar<bool>(node, output_value);
                 }
             };
@@ -509,9 +628,39 @@ namespace hgraph {
             static constexpr const char* py_factory_name = "op_mul_int_and_float";
         };
 
+        struct LShiftIntsSpec
+            : number_ops_detail::BinaryScalarSpec<int64_t, int64_t, int64_t, number_ops_detail::LShift> {
+            static constexpr const char* py_factory_name = "op_lshift_ints";
+        };
+
+        struct RShiftIntsSpec
+            : number_ops_detail::BinaryScalarSpec<int64_t, int64_t, int64_t, number_ops_detail::RShift> {
+            static constexpr const char* py_factory_name = "op_rshift_ints";
+        };
+
+        struct BitAndIntsSpec
+            : number_ops_detail::BinaryScalarSpec<int64_t, int64_t, int64_t, number_ops_detail::BitAnd> {
+            static constexpr const char* py_factory_name = "op_bit_and_ints";
+        };
+
+        struct BitOrIntsSpec
+            : number_ops_detail::BinaryScalarSpec<int64_t, int64_t, int64_t, number_ops_detail::BitOr> {
+            static constexpr const char* py_factory_name = "op_bit_or_ints";
+        };
+
+        struct BitXorIntsSpec
+            : number_ops_detail::BinaryScalarSpec<int64_t, int64_t, int64_t, number_ops_detail::BitXor> {
+            static constexpr const char* py_factory_name = "op_bit_xor_ints";
+        };
+
         struct EqFloatIntSpec
             : number_ops_detail::EqWithEpsilonSpec<double, int64_t> {
             static constexpr const char* py_factory_name = "op_eq_float_int";
+        };
+
+        struct EqIntIntSpec
+            : number_ops_detail::BinaryCompareSpec<int64_t, int64_t, number_ops_detail::Eq> {
+            static constexpr const char* py_factory_name = "op_eq_int_int";
         };
 
         struct EqIntFloatSpec
@@ -522,6 +671,121 @@ namespace hgraph {
         struct EqFloatFloatSpec
             : number_ops_detail::EqWithEpsilonSpec<double, double> {
             static constexpr const char* py_factory_name = "op_eq_float_float";
+        };
+
+        struct LtIntIntSpec
+            : number_ops_detail::BinaryCompareSpec<int64_t, int64_t, number_ops_detail::Lt> {
+            static constexpr const char* py_factory_name = "op_lt_int_int";
+        };
+
+        struct LtIntFloatSpec
+            : number_ops_detail::BinaryCompareSpec<int64_t, double, number_ops_detail::Lt> {
+            static constexpr const char* py_factory_name = "op_lt_int_float";
+        };
+
+        struct LtFloatIntSpec
+            : number_ops_detail::BinaryCompareSpec<double, int64_t, number_ops_detail::Lt> {
+            static constexpr const char* py_factory_name = "op_lt_float_int";
+        };
+
+        struct LtFloatFloatSpec
+            : number_ops_detail::BinaryCompareSpec<double, double, number_ops_detail::Lt> {
+            static constexpr const char* py_factory_name = "op_lt_float_float";
+        };
+
+        struct LeIntIntSpec
+            : number_ops_detail::BinaryCompareSpec<int64_t, int64_t, number_ops_detail::Le> {
+            static constexpr const char* py_factory_name = "op_le_int_int";
+        };
+
+        struct LeIntFloatSpec
+            : number_ops_detail::BinaryCompareSpec<int64_t, double, number_ops_detail::Le> {
+            static constexpr const char* py_factory_name = "op_le_int_float";
+        };
+
+        struct LeFloatIntSpec
+            : number_ops_detail::BinaryCompareSpec<double, int64_t, number_ops_detail::Le> {
+            static constexpr const char* py_factory_name = "op_le_float_int";
+        };
+
+        struct LeFloatFloatSpec
+            : number_ops_detail::BinaryCompareSpec<double, double, number_ops_detail::Le> {
+            static constexpr const char* py_factory_name = "op_le_float_float";
+        };
+
+        struct GtIntIntSpec
+            : number_ops_detail::BinaryCompareSpec<int64_t, int64_t, number_ops_detail::Gt> {
+            static constexpr const char* py_factory_name = "op_gt_int_int";
+        };
+
+        struct GtIntFloatSpec
+            : number_ops_detail::BinaryCompareSpec<int64_t, double, number_ops_detail::Gt> {
+            static constexpr const char* py_factory_name = "op_gt_int_float";
+        };
+
+        struct GtFloatIntSpec
+            : number_ops_detail::BinaryCompareSpec<double, int64_t, number_ops_detail::Gt> {
+            static constexpr const char* py_factory_name = "op_gt_float_int";
+        };
+
+        struct GtFloatFloatSpec
+            : number_ops_detail::BinaryCompareSpec<double, double, number_ops_detail::Gt> {
+            static constexpr const char* py_factory_name = "op_gt_float_float";
+        };
+
+        struct GeIntIntSpec
+            : number_ops_detail::BinaryCompareSpec<int64_t, int64_t, number_ops_detail::Ge> {
+            static constexpr const char* py_factory_name = "op_ge_int_int";
+        };
+
+        struct GeIntFloatSpec
+            : number_ops_detail::BinaryCompareSpec<int64_t, double, number_ops_detail::Ge> {
+            static constexpr const char* py_factory_name = "op_ge_int_float";
+        };
+
+        struct GeFloatIntSpec
+            : number_ops_detail::BinaryCompareSpec<double, int64_t, number_ops_detail::Ge> {
+            static constexpr const char* py_factory_name = "op_ge_float_int";
+        };
+
+        struct GeFloatFloatSpec
+            : number_ops_detail::BinaryCompareSpec<double, double, number_ops_detail::Ge> {
+            static constexpr const char* py_factory_name = "op_ge_float_float";
+        };
+
+        struct NegIntSpec
+            : number_ops_detail::UnaryScalarSpec<int64_t, int64_t, number_ops_detail::Neg> {
+            static constexpr const char* py_factory_name = "op_neg_int";
+        };
+
+        struct NegFloatSpec
+            : number_ops_detail::UnaryScalarSpec<double, double, number_ops_detail::Neg> {
+            static constexpr const char* py_factory_name = "op_neg_float";
+        };
+
+        struct PosIntSpec
+            : number_ops_detail::UnaryScalarSpec<int64_t, int64_t, number_ops_detail::Pos> {
+            static constexpr const char* py_factory_name = "op_pos_int";
+        };
+
+        struct PosFloatSpec
+            : number_ops_detail::UnaryScalarSpec<double, double, number_ops_detail::Pos> {
+            static constexpr const char* py_factory_name = "op_pos_float";
+        };
+
+        struct InvertIntSpec
+            : number_ops_detail::UnaryScalarSpec<int64_t, int64_t, number_ops_detail::Invert> {
+            static constexpr const char* py_factory_name = "op_invert_int";
+        };
+
+        struct AbsIntSpec
+            : number_ops_detail::UnaryScalarSpec<int64_t, int64_t, number_ops_detail::Abs> {
+            static constexpr const char* py_factory_name = "op_abs_int";
+        };
+
+        struct AbsFloatSpec
+            : number_ops_detail::UnaryScalarSpec<double, double, number_ops_detail::Abs> {
+            static constexpr const char* py_factory_name = "op_abs_float";
         };
 
         struct LnImplSpec {

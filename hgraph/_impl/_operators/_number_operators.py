@@ -16,6 +16,19 @@ from hgraph import (
     Size,
     pow_,
     eq_,
+    lt_,
+    gt_,
+    le_,
+    ge_,
+    lshift_,
+    rshift_,
+    bit_and,
+    bit_or,
+    bit_xor,
+    neg_,
+    pos_,
+    invert_,
+    abs_,
     DivideByZero,
     ln,
 )
@@ -118,6 +131,31 @@ def mul_int_and_float(lhs: TS[int], rhs: TS[float]) -> TS[float]:
     Multiplies a timeseries of float with a timeseries of int
     """
     return lhs.value * rhs.value
+
+
+@compute_node(overloads=lshift_)
+def lshift_ints(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    return lhs.value << rhs.value
+
+
+@compute_node(overloads=rshift_)
+def rshift_ints(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    return lhs.value >> rhs.value
+
+
+@compute_node(overloads=bit_and)
+def bit_and_ints(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    return lhs.value & rhs.value
+
+
+@compute_node(overloads=bit_or)
+def bit_or_ints(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    return lhs.value | rhs.value
+
+
+@compute_node(overloads=bit_xor)
+def bit_xor_ints(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    return lhs.value ^ rhs.value
 
 
 @compute_node(overloads=div_)
@@ -297,6 +335,14 @@ EPSILON = 1e-10
 
 
 @compute_node(overloads=eq_)
+def eq_int_int(lhs: TS[int], rhs: TS[int]) -> TS[bool]:
+    """
+    Test for equality of two int numbers.
+    """
+    return bool(lhs.value == rhs.value)
+
+
+@compute_node(overloads=eq_)
 def eq_float_int(lhs: TS[float], rhs: TS[int], epsilon: TS[float] = EPSILON) -> TS[bool]:
     """
     Test for approximate equality of a float and int number
@@ -321,6 +367,121 @@ def eq_float_float(lhs: TS[float], rhs: TS[float], epsilon: TS[float] = EPSILON)
     """
     epsilon = epsilon.value
     return bool(-epsilon <= rhs.value - lhs.value <= epsilon)
+
+
+@compute_node(overloads=lt_)
+def lt_int_int(lhs: TS[int], rhs: TS[int]) -> TS[bool]:
+    return bool(lhs.value < rhs.value)
+
+
+@compute_node(overloads=lt_)
+def lt_int_float(lhs: TS[int], rhs: TS[float]) -> TS[bool]:
+    return bool(lhs.value < rhs.value)
+
+
+@compute_node(overloads=lt_)
+def lt_float_int(lhs: TS[float], rhs: TS[int]) -> TS[bool]:
+    return bool(lhs.value < rhs.value)
+
+
+@compute_node(overloads=lt_)
+def lt_float_float(lhs: TS[float], rhs: TS[float]) -> TS[bool]:
+    return bool(lhs.value < rhs.value)
+
+
+@compute_node(overloads=le_)
+def le_int_int(lhs: TS[int], rhs: TS[int]) -> TS[bool]:
+    return bool(lhs.value <= rhs.value)
+
+
+@compute_node(overloads=le_)
+def le_int_float(lhs: TS[int], rhs: TS[float]) -> TS[bool]:
+    return bool(lhs.value <= rhs.value)
+
+
+@compute_node(overloads=le_)
+def le_float_int(lhs: TS[float], rhs: TS[int]) -> TS[bool]:
+    return bool(lhs.value <= rhs.value)
+
+
+@compute_node(overloads=le_)
+def le_float_float(lhs: TS[float], rhs: TS[float]) -> TS[bool]:
+    return bool(lhs.value <= rhs.value)
+
+
+@compute_node(overloads=gt_)
+def gt_int_int(lhs: TS[int], rhs: TS[int]) -> TS[bool]:
+    return bool(lhs.value > rhs.value)
+
+
+@compute_node(overloads=gt_)
+def gt_int_float(lhs: TS[int], rhs: TS[float]) -> TS[bool]:
+    return bool(lhs.value > rhs.value)
+
+
+@compute_node(overloads=gt_)
+def gt_float_int(lhs: TS[float], rhs: TS[int]) -> TS[bool]:
+    return bool(lhs.value > rhs.value)
+
+
+@compute_node(overloads=gt_)
+def gt_float_float(lhs: TS[float], rhs: TS[float]) -> TS[bool]:
+    return bool(lhs.value > rhs.value)
+
+
+@compute_node(overloads=ge_)
+def ge_int_int(lhs: TS[int], rhs: TS[int]) -> TS[bool]:
+    return bool(lhs.value >= rhs.value)
+
+
+@compute_node(overloads=ge_)
+def ge_int_float(lhs: TS[int], rhs: TS[float]) -> TS[bool]:
+    return bool(lhs.value >= rhs.value)
+
+
+@compute_node(overloads=ge_)
+def ge_float_int(lhs: TS[float], rhs: TS[int]) -> TS[bool]:
+    return bool(lhs.value >= rhs.value)
+
+
+@compute_node(overloads=ge_)
+def ge_float_float(lhs: TS[float], rhs: TS[float]) -> TS[bool]:
+    return bool(lhs.value >= rhs.value)
+
+
+@compute_node(overloads=neg_)
+def neg_int(ts: TS[int]) -> TS[int]:
+    return -ts.value
+
+
+@compute_node(overloads=neg_)
+def neg_float(ts: TS[float]) -> TS[float]:
+    return -ts.value
+
+
+@compute_node(overloads=pos_)
+def pos_int(ts: TS[int]) -> TS[int]:
+    return +ts.value
+
+
+@compute_node(overloads=pos_)
+def pos_float(ts: TS[float]) -> TS[float]:
+    return +ts.value
+
+
+@compute_node(overloads=invert_)
+def invert_int(ts: TS[int]) -> TS[int]:
+    return ~ts.value
+
+
+@compute_node(overloads=abs_)
+def abs_int(ts: TS[int]) -> TS[int]:
+    return abs(ts.value)
+
+
+@compute_node(overloads=abs_)
+def abs_float(ts: TS[float]) -> TS[float]:
+    return abs(ts.value)
 
 
 @compute_node(overloads=ln)

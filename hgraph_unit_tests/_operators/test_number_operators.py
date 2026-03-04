@@ -1,8 +1,27 @@
 import math
+import operator
 
 import pytest
 
-from hgraph import add_, sub_, div_, exception_time_series, TS, graph, mod_, divmod_, pow_, eq_, const, DivideByZero, ln
+from hgraph import (
+    add_,
+    sub_,
+    div_,
+    exception_time_series,
+    TS,
+    graph,
+    mod_,
+    divmod_,
+    pow_,
+    eq_,
+    lt_,
+    le_,
+    gt_,
+    ge_,
+    const,
+    DivideByZero,
+    ln,
+)
 from hgraph._impl._operators._number_operators import div_numbers
 from hgraph.test import eval_node
 
@@ -125,6 +144,23 @@ def test_eq_floats(lhs, rhs, expected, epsilon):
             return eq_(lhs, rhs)
 
     assert eval_node(app, [lhs], [rhs]) == [expected]
+
+
+@pytest.mark.parametrize(
+    ["op", "lhs", "rhs", "expected"],
+    [
+        (lt_, 1, 2, True),
+        (lt_, 2.0, 1, False),
+        (le_, 2, 2.0, True),
+        (le_, 2.0, 1, False),
+        (gt_, 3, 2.0, True),
+        (gt_, 1.0, 2, False),
+        (ge_, 2, 2, True),
+        (ge_, 2.0, 3, False),
+    ],
+)
+def test_ordering_numbers(op, lhs, rhs, expected):
+    assert eval_node(op, [lhs], [rhs]) == [expected]
 
 
 def test_ln():

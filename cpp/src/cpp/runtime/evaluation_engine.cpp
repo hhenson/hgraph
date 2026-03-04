@@ -328,8 +328,15 @@ namespace hgraph {
                     std::unique_lock<std::mutex> lock(_condition_mutex);
                     scheduled = _push_node_requires_scheduling;
                     if (!scheduled) {
+                        // Wake slightly ahead of the deadline to reduce wall-clock overshoot
+                        // from kernel scheduling jitter, then re-check the target time in the loop.
+                        constexpr auto wake_guard = std::chrono::microseconds(500);
+                        auto wait_time = std::min(sleep_time, duration_cast<engine_time_delta_t>(std::chrono::seconds(10)));
+                        if (wait_time > wake_guard) {
+                            wait_time -= wake_guard;
+                        }
                         _push_node_requires_scheduling_condition.wait_for(
-                            lock, std::min(sleep_time, duration_cast<engine_time_delta_t>(std::chrono::seconds(10))));
+                            lock, wait_time);
                         scheduled = _push_node_requires_scheduling;
                     }
                 } // lock released here, then GIL is reacquired — no inversion
