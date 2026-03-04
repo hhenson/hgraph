@@ -99,27 +99,6 @@ if is_feature_enabled("use_cpp"):
                 return None
 
 
-        def _get_value_schema_for_scalar_type(scalar_type):
-            """Get the Value type schema for a scalar type."""
-            from hgraph._hgraph import value
-            schema_map = {
-                bool: value.scalar_type_meta_bool,
-                int: value.scalar_type_meta_int64,
-                float: value.scalar_type_meta_double,
-                str: value.scalar_type_meta_string,
-                date: value.scalar_type_meta_date,
-                datetime: value.scalar_type_meta_datetime,
-                timedelta: value.scalar_type_meta_timedelta,
-            }
-            schema_fn = schema_map.get(scalar_type.py_type)
-            if schema_fn is not None:
-                return schema_fn()
-            # Fallback: check if scalar_type has cpp_type, otherwise use Python object schema
-            if hasattr(scalar_type, 'cpp_type') and scalar_type.cpp_type is not None:
-                return scalar_type.cpp_type
-            # Default to object (nb::object) schema for unknown types
-            return value.get_scalar_type_meta(scalar_type.py_type)
-
         # Register the TimeSeriesBuilderFactory
         hgraph.TimeSeriesBuilderFactory.declare(HgCppFactory())
 
@@ -238,9 +217,23 @@ if is_feature_enabled("use_cpp"):
             reload_on_ticked,
             recordable_state_builder=None,
         ):
-            # Get key type schema for Value-based key storage
+            # Use the resolved TS cpp schema for key storage so switch key
+            # canonicalisation and runtime key values share identical TypeMeta.
             switch_input_type = signature.time_series_inputs["key"]
-            key_type_schema = _get_value_schema_for_scalar_type(switch_input_type.value_scalar_tp)
+            key_ts_meta = getattr(switch_input_type, "cpp_type", None)
+            if key_ts_meta is not None:
+                key_type_schema = getattr(key_ts_meta, "value_type", None)
+                if key_type_schema is None:
+                    raise RuntimeError("SwitchNodeBuilder key cpp_type is missing value_type schema")
+            else:
+                # Mirror C++ node signature scalar resolution path.
+                from hgraph._hgraph import value
+
+                key_scalar_meta = switch_input_type.value_scalar_tp
+                py_type = getattr(key_scalar_meta, "py_type", None)
+                if py_type is None:
+                    raise RuntimeError("SwitchNodeBuilder key scalar metadata is missing py_type")
+                key_type_schema = value.get_scalar_type_meta(py_type)
             return _hgraph.SwitchNodeBuilder(
                 signature,
                 scalars,

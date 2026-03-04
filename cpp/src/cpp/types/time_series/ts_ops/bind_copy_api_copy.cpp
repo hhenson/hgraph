@@ -14,14 +14,31 @@ void op_copy_scalar(ViewData dst, const ViewData& src, engine_time_t current_tim
 void op_copy_ref(ViewData dst, const ViewData& src, engine_time_t current_time) {
     if (auto local = resolve_value_slot_const(src);
         local.has_value() && local->valid() && local->schema() == ts_reference_meta()) {
-        // Empty local REF wrappers can be placeholders on linked inputs. In
-        // that case, copy the resolved source value instead of propagating the
-        // empty wrapper.
         const auto& local_ref = *static_cast<const TimeSeriesReference*>(local->data());
         if (!local_ref.is_empty()) {
             op_set_value(dst, *local, current_time);
             return;
         }
+
+        // Empty local REF wrappers can be placeholders on linked inputs. Prefer
+        // resolved REF payloads and, when needed, synthesize a bound reference
+        // from the resolved target without round-tripping through Python.
+        View ref_payload = op_value(src);
+        if (ref_payload.valid() && ref_payload.schema() == ts_reference_meta()) {
+            op_set_value(dst, ref_payload, current_time);
+            return;
+        }
+
+        if (auto bound = resolve_bound_view_data(src); bound.has_value()) {
+            value::Value bound_ref(ts_reference_meta());
+            bound_ref.emplace();
+            *static_cast<TimeSeriesReference*>(bound_ref.data()) = TimeSeriesReference::make(*bound);
+            op_set_value(dst, bound_ref.view(), current_time);
+            return;
+        }
+
+        op_set_value(dst, *local, current_time);
+        return;
     }
     op_set_value(dst, op_value(src), current_time);
 }

@@ -35,9 +35,18 @@ namespace hgraph {
                 return std::nullopt;
             }
 
+            if (key_view.schema() != key_type) {
+                const char* actual = key_view.schema() != nullptr && key_view.schema()->name != nullptr
+                    ? key_view.schema()->name
+                    : "<null>";
+                const char* expected = key_type->name != nullptr ? key_type->name : "<null>";
+                throw std::runtime_error(
+                    fmt::format("SwitchNode key schema mismatch: expected '{}', got '{}'", expected, actual));
+            }
+
             value::Value out(key_type);
             out.emplace();
-            key_type->ops().from_python(out.data(), key_view.to_python(), key_type);
+            key_type->ops().copy(out.data(), key_view.data(), key_type);
             return out;
         }
 
