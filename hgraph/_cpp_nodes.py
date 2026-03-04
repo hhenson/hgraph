@@ -16,5 +16,7 @@ def register_cpp_node_mappings(_hgraph_module) -> None:
     merge_cpp_node_mappings({
         "hgraph": {
             "const_default": _hgraph_module.op_const_default,
+            "nothing_impl": _hgraph_module.op_nothing_impl,
+            "null_sink_impl": _hgraph_module.op_null_sink_impl,
         }
     })

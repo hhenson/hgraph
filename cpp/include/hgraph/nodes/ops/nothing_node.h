@@ -4,10 +4,9 @@
 
 namespace hgraph {
     namespace ops {
-        struct NoopSpec {
-            static constexpr const char* py_factory_name = "_cpp_noop_builder";
+        struct NothingSpec {
+            static constexpr const char* py_factory_name = "op_nothing_impl";
             static void eval(Node&) {}
         };
     }  // namespace ops
 }  // namespace hgraph
-
