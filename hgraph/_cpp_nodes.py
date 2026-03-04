@@ -18,5 +18,15 @@ def register_cpp_node_mappings(_hgraph_module) -> None:
             "const_default": _hgraph_module.op_const_default,
             "nothing_impl": _hgraph_module.op_nothing_impl,
             "null_sink_impl": _hgraph_module.op_null_sink_impl,
+            "add_float_to_int": _hgraph_module.op_add_float_to_int,
+            "add_int_to_float": _hgraph_module.op_add_int_to_float,
+            "sub_int_from_float": _hgraph_module.op_sub_int_from_float,
+            "sub_float_from_int": _hgraph_module.op_sub_float_from_int,
+            "mul_float_and_int": _hgraph_module.op_mul_float_and_int,
+            "mul_int_and_float": _hgraph_module.op_mul_int_and_float,
+            "eq_float_int": _hgraph_module.op_eq_float_int,
+            "eq_int_float": _hgraph_module.op_eq_int_float,
+            "eq_float_float": _hgraph_module.op_eq_float_float,
+            "ln_impl": _hgraph_module.op_ln_impl,
         }
     })

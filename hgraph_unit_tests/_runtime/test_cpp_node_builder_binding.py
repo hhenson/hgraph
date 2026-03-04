@@ -8,6 +8,9 @@ def test_cpp_node_builder_factories_are_exposed():
     assert hasattr(_hgraph, "op_nothing_impl")
     assert hasattr(_hgraph, "op_null_sink_impl")
     assert hasattr(_hgraph, "op_const_default")
+    assert hasattr(_hgraph, "op_add_float_to_int")
+    assert hasattr(_hgraph, "op_eq_float_float")
+    assert hasattr(_hgraph, "op_ln_impl")
 
 
 def test_cpp_node_builder_factory_requires_signature_and_scalars():
@@ -25,3 +28,6 @@ def test_cpp_operator_mappings_are_registered():
     assert lookup_cpp_node_builder("hgraph::const_default") is _hgraph.op_const_default
     assert lookup_cpp_node_builder("hgraph::nothing_impl") is _hgraph.op_nothing_impl
     assert lookup_cpp_node_builder("hgraph::null_sink_impl") is _hgraph.op_null_sink_impl
+    assert lookup_cpp_node_builder("hgraph::add_float_to_int") is _hgraph.op_add_float_to_int
+    assert lookup_cpp_node_builder("hgraph::eq_float_float") is _hgraph.op_eq_float_float
+    assert lookup_cpp_node_builder("hgraph::ln_impl") is _hgraph.op_ln_impl

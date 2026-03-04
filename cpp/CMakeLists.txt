@@ -282,6 +282,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/nodes/base_python_node.h
         include/hgraph/nodes/cpp_node_spec.h
         include/hgraph/nodes/ops/const_default_node.h
+        include/hgraph/nodes/ops/number_operator_nodes.h
         include/hgraph/nodes/ops/nothing_node.h
         include/hgraph/nodes/ops/null_sink_node.h
         include/hgraph/nodes/ops/node_bindings.h

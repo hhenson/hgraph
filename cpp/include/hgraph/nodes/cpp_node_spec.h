@@ -106,6 +106,11 @@ namespace hgraph {
             cpp_node_detail::call_init<Spec>(*this, state);
         }
 
+        void start() override {
+            _initialise_inputs();
+            Node::start();
+        }
+
         void do_start() override {
             cpp_node_detail::call_start<Spec>(*this, ensure_state());
         }
@@ -144,4 +149,3 @@ namespace hgraph {
         std::optional<state_type> state_{};
     };
 }  // namespace hgraph
-
