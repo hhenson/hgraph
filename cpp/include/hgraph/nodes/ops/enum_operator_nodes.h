@@ -10,48 +10,19 @@ namespace hgraph {
     namespace ops {
         namespace enum_ops_detail {
             inline TSBInputView require_input_bundle(Node& node) {
-                auto input = node.input();
-                if (!input) {
-                    throw std::runtime_error("enum operator requires TS input");
-                }
-                auto bundle = input.try_as_bundle();
-                if (!bundle.has_value()) {
-                    throw std::runtime_error("enum operator requires bundle input");
-                }
-                return *bundle;
+                return *node.input().try_as_bundle();
             }
 
             inline nb::object require_enum_field(const TSBInputView& bundle, std::string_view field_name) {
-                auto field = bundle.field(field_name);
-                if (!field || !field.valid()) {
-                    throw std::runtime_error(std::string("enum operator missing valid field '") + std::string(field_name) + "'");
-                }
-
-                const value::View view = field.value();
-                if (!view.valid() || !view.template is_scalar_type<nb::object>()) {
-                    throw std::runtime_error(std::string("enum operator field has unexpected type: '") + std::string(field_name) + "'");
-                }
-
-                const nb::object enum_obj = view.template as<nb::object>();
-                if (!enum_obj.is_valid()) {
-                    throw std::runtime_error(std::string("enum operator field is invalid: '") + std::string(field_name) + "'");
-                }
-                return enum_obj;
+                return bundle.field(field_name).value().template as<nb::object>();
             }
 
             template<typename T>
             inline void emit_scalar(Node& node, const T& output_value) {
-                auto output = node.output();
-                if (!output) {
-                    throw std::runtime_error("enum operator requires TS output");
-                }
-                output.set_value(value::View(&output_value, value::scalar_type_meta<T>()));
+                node.output().set_value(value::View(&output_value, value::scalar_type_meta<T>()));
             }
 
             inline nb::object require_enum_value_attr(const nb::object& enum_obj) {
-                if (!nb::hasattr(enum_obj, "value")) {
-                    throw std::runtime_error("enum operator requires values with a 'value' attribute");
-                }
                 return nb::cast<nb::object>(enum_obj.attr("value"));
             }
 
@@ -97,7 +68,9 @@ namespace hgraph {
                 auto bundle = enum_ops_detail::require_input_bundle(node);
                 const nb::object lhs = enum_ops_detail::require_enum_field(bundle, "lhs");
                 const nb::object rhs = enum_ops_detail::require_enum_field(bundle, "rhs");
-                enum_ops_detail::emit_scalar<bool>(node, enum_ops_detail::compare_enum_values<enum_ops_detail::CompareOp::Lt>(lhs, rhs));
+                enum_ops_detail::emit_scalar<bool>(
+                    node,
+                    enum_ops_detail::compare_enum_values<enum_ops_detail::CompareOp::Lt>(lhs, rhs));
             }
         };
 
@@ -108,7 +81,9 @@ namespace hgraph {
                 auto bundle = enum_ops_detail::require_input_bundle(node);
                 const nb::object lhs = enum_ops_detail::require_enum_field(bundle, "lhs");
                 const nb::object rhs = enum_ops_detail::require_enum_field(bundle, "rhs");
-                enum_ops_detail::emit_scalar<bool>(node, enum_ops_detail::compare_enum_values<enum_ops_detail::CompareOp::Le>(lhs, rhs));
+                enum_ops_detail::emit_scalar<bool>(
+                    node,
+                    enum_ops_detail::compare_enum_values<enum_ops_detail::CompareOp::Le>(lhs, rhs));
             }
         };
 
@@ -119,7 +94,9 @@ namespace hgraph {
                 auto bundle = enum_ops_detail::require_input_bundle(node);
                 const nb::object lhs = enum_ops_detail::require_enum_field(bundle, "lhs");
                 const nb::object rhs = enum_ops_detail::require_enum_field(bundle, "rhs");
-                enum_ops_detail::emit_scalar<bool>(node, enum_ops_detail::compare_enum_values<enum_ops_detail::CompareOp::Gt>(lhs, rhs));
+                enum_ops_detail::emit_scalar<bool>(
+                    node,
+                    enum_ops_detail::compare_enum_values<enum_ops_detail::CompareOp::Gt>(lhs, rhs));
             }
         };
 
@@ -130,7 +107,9 @@ namespace hgraph {
                 auto bundle = enum_ops_detail::require_input_bundle(node);
                 const nb::object lhs = enum_ops_detail::require_enum_field(bundle, "lhs");
                 const nb::object rhs = enum_ops_detail::require_enum_field(bundle, "rhs");
-                enum_ops_detail::emit_scalar<bool>(node, enum_ops_detail::compare_enum_values<enum_ops_detail::CompareOp::Ge>(lhs, rhs));
+                enum_ops_detail::emit_scalar<bool>(
+                    node,
+                    enum_ops_detail::compare_enum_values<enum_ops_detail::CompareOp::Ge>(lhs, rhs));
             }
         };
 
@@ -140,26 +119,13 @@ namespace hgraph {
             static void eval(Node& node) {
                 auto bundle = enum_ops_detail::require_input_bundle(node);
                 const nb::object enum_obj = enum_ops_detail::require_enum_field(bundle, "ts");
-
                 const nb::dict& scalars = node.scalars();
-                if (!scalars.contains("attribute")) {
-                    throw std::runtime_error("getattr_enum_name requires scalar 'attribute'");
-                }
-
                 const std::string attribute = nb::cast<std::string>(nb::str(scalars["attribute"]));
                 if (attribute != "name") {
                     throw std::runtime_error("Cannot get " + attribute + " from TS[Enum]");
                 }
-
-                if (!nb::hasattr(enum_obj, "name")) {
-                    throw std::runtime_error("enum operator requires values with a 'name' attribute");
-                }
                 const nb::object name = nb::cast<nb::object>(enum_obj.attr("name"));
-                auto output = node.output();
-                if (!output) {
-                    throw std::runtime_error("enum operator requires TS output");
-                }
-                output.from_python(name);
+                node.output().from_python(name);
             }
         };
     }  // namespace ops

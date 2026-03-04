@@ -4,60 +4,22 @@
 #include <hgraph/types/value/type_registry.h>
 
 #include <optional>
-#include <stdexcept>
-#include <string>
 #include <string_view>
 
 namespace hgraph {
     namespace ops {
         namespace str_ops_detail {
             inline TSBInputView require_input_bundle(Node& node) {
-                auto input = node.input();
-                if (!input) {
-                    throw std::runtime_error("string operator requires TS input");
-                }
-                auto bundle = input.try_as_bundle();
-                if (!bundle.has_value()) {
-                    throw std::runtime_error("string operator requires bundle input");
-                }
-                return *bundle;
+                return *node.input().try_as_bundle();
             }
 
             inline nb::str require_string_field(const TSBInputView& bundle, std::string_view field_name) {
-                auto field = bundle.field(field_name);
-                if (!field || !field.valid()) {
-                    throw std::runtime_error(std::string("string operator missing valid field '") + std::string(field_name) + "'");
-                }
-                const value::View view = field.value();
-                if (!view.valid()) {
-                    throw std::runtime_error(
-                        std::string("string operator field has unexpected type: '") + std::string(field_name) + "'");
-                }
-
-                if (!view.template is_scalar_type<nb::object>()) {
-                    throw std::runtime_error(
-                        std::string("string operator field has unexpected type: '") + std::string(field_name) + "'");
-                }
-
-                const nb::object obj = view.template as<nb::object>();
-                if (!obj.is_valid() || !nb::isinstance<nb::str>(obj)) {
-                    throw std::runtime_error(
-                        std::string("string operator field has unexpected type: '") + std::string(field_name) + "'");
-                }
-                return nb::str(obj);
+                const nb::object obj = bundle.field(field_name).value().template as<nb::object>();
+                return nb::borrow<nb::str>(obj);
             }
 
             inline int64_t require_int_field(const TSBInputView& bundle, std::string_view field_name) {
-                auto field = bundle.field(field_name);
-                if (!field || !field.valid()) {
-                    throw std::runtime_error(std::string("string operator missing valid field '") + std::string(field_name) + "'");
-                }
-                const value::View view = field.value();
-                if (!view.valid() || !view.template is_scalar_type<int64_t>()) {
-                    throw std::runtime_error(
-                        std::string("string operator field has unexpected type: '") + std::string(field_name) + "'");
-                }
-                return view.template as<int64_t>();
+                return bundle.field(field_name).value().template as<int64_t>();
             }
 
             inline std::optional<int64_t> optional_int_field(const TSBInputView& bundle, std::string_view field_name) {
@@ -65,29 +27,15 @@ namespace hgraph {
                 if (!field || !field.valid()) {
                     return std::nullopt;
                 }
-
-                const value::View view = field.value();
-                if (!view.valid() || !view.template is_scalar_type<int64_t>()) {
-                    throw std::runtime_error(
-                        std::string("string operator field has unexpected type: '") + std::string(field_name) + "'");
-                }
-                return view.template as<int64_t>();
+                return field.value().template as<int64_t>();
             }
 
             inline void emit_string(Node& node, const nb::object& output_value) {
-                auto output = node.output();
-                if (!output) {
-                    throw std::runtime_error("string operator requires TS output");
-                }
-                output.from_python(output_value);
+                node.output().from_python(output_value);
             }
 
             inline void emit_bool(Node& node, bool output_value) {
-                auto output = node.output();
-                if (!output) {
-                    throw std::runtime_error("string operator requires TS output");
-                }
-                output.set_value(value::View(&output_value, value::scalar_type_meta<bool>()));
+                node.output().set_value(value::View(&output_value, value::scalar_type_meta<bool>()));
             }
 
             inline bool string_contains(const nb::str& value, const nb::str& needle) {

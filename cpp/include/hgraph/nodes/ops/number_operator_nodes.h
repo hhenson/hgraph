@@ -22,59 +22,25 @@ namespace hgraph {
             };
 
             inline TSBInputView require_input_bundle(Node& node) {
-                auto input = node.input();
-                if (!input) {
-                    throw std::runtime_error("number operator requires TS input");
-                }
-                auto bundle = input.try_as_bundle();
-                if (!bundle.has_value()) {
-                    throw std::runtime_error("number operator requires bundle input");
-                }
-                return *bundle;
+                return *node.input().try_as_bundle();
             }
 
             template<typename T>
             inline T require_scalar_field(const TSBInputView& bundle, std::string_view field_name) {
-                auto field = bundle.field(field_name);
-                if (!field || !field.valid()) {
-                    throw std::runtime_error(std::string("number operator missing valid field '") + std::string(field_name) + "'");
-                }
-
-                const value::View view = field.value();
-                if (!view.valid() || !view.template is_scalar_type<T>()) {
-                    throw std::runtime_error(std::string("number operator field has unexpected type: '") + std::string(field_name) + "'");
-                }
-                return view.template as<T>();
+                return bundle.field(field_name).value().template as<T>();
             }
 
             inline double require_numeric_field_as_double(const TSBInputView& bundle, std::string_view field_name) {
-                auto field = bundle.field(field_name);
-                if (!field || !field.valid()) {
-                    throw std::runtime_error(std::string("number operator missing valid field '") + std::string(field_name) + "'");
-                }
-
-                const value::View view = field.value();
-                if (!view.valid()) {
-                    throw std::runtime_error(std::string("number operator missing valid field '") + std::string(field_name) + "'");
-                }
-
+                const value::View view = bundle.field(field_name).value();
                 if (view.template is_scalar_type<double>()) {
                     return view.template as<double>();
                 }
-                if (view.template is_scalar_type<int64_t>()) {
-                    return static_cast<double>(view.template as<int64_t>());
-                }
-
-                throw std::runtime_error(std::string("number operator field has unexpected type: '") + std::string(field_name) + "'");
+                return static_cast<double>(view.template as<int64_t>());
             }
 
             template<typename T>
             inline void emit_scalar(Node& node, const T& output_value) {
-                auto output = node.output();
-                if (!output) {
-                    throw std::runtime_error("number operator requires TS output");
-                }
-                output.set_value(value::View(&output_value, value::scalar_type_meta<T>()));
+                node.output().set_value(value::View(&output_value, value::scalar_type_meta<T>()));
             }
 
             inline DivideByZeroMode parse_divide_by_zero_mode(const nb::object& mode_obj) {
@@ -82,29 +48,24 @@ namespace hgraph {
                     return DivideByZeroMode::Error;
                 }
 
-                try {
-                    if (nb::hasattr(mode_obj, "name")) {
-                        const std::string name = nb::cast<std::string>(nb::str(mode_obj.attr("name")));
-                        if (name == "ERROR") {
-                            return DivideByZeroMode::Error;
-                        }
-                        if (name == "NAN") {
-                            return DivideByZeroMode::Nan;
-                        }
-                        if (name == "INF") {
-                            return DivideByZeroMode::Inf;
-                        }
-                        if (name == "NONE") {
-                            return DivideByZeroMode::None;
-                        }
-                        if (name == "ZERO") {
-                            return DivideByZeroMode::Zero;
-                        }
-                        if (name == "ONE") {
-                            return DivideByZeroMode::One;
-                        }
-                    }
-                } catch (...) {
+                const std::string name = nb::cast<std::string>(nb::str(mode_obj.attr("name")));
+                if (name == "ERROR") {
+                    return DivideByZeroMode::Error;
+                }
+                if (name == "NAN") {
+                    return DivideByZeroMode::Nan;
+                }
+                if (name == "INF") {
+                    return DivideByZeroMode::Inf;
+                }
+                if (name == "NONE") {
+                    return DivideByZeroMode::None;
+                }
+                if (name == "ZERO") {
+                    return DivideByZeroMode::Zero;
+                }
+                if (name == "ONE") {
+                    return DivideByZeroMode::One;
                 }
 
                 throw std::runtime_error("Unsupported divide_by_zero mode");
@@ -143,16 +104,7 @@ namespace hgraph {
 
             template<typename T>
             inline void emit_divmod_output(Node& node, T quotient, T remainder) {
-                auto output = node.output();
-                if (!output) {
-                    throw std::runtime_error("number operator requires TSL output");
-                }
-
-                auto list = output.as_list();
-                if (list.count() < 2) {
-                    throw std::runtime_error("number operator divmod output requires size >= 2");
-                }
-
+                auto list = node.output().as_list();
                 list.at(0).set_value(value::View(&quotient, value::scalar_type_meta<T>()));
                 list.at(1).set_value(value::View(&remainder, value::scalar_type_meta<T>()));
             }
