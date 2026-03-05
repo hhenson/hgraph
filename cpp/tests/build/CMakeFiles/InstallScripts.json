@@ -1,0 +1,12 @@
+{
+	"InstallScripts" : 
+	[
+		"/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/cmake_install.cmake",
+		"/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/catch2-build/cmake_install.cmake",
+		"/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/catch2-build/src/cmake_install.cmake",
+		"/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/tpack-build/cmake_install.cmake",
+		"/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/dynamic_bitset-build/cmake_install.cmake",
+		"/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/_deps/nanoarrow-build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

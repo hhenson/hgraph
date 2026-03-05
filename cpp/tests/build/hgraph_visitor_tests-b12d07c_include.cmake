@@ -1,0 +1,5 @@
+if(EXISTS "/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests-b12d07c_tests.cmake")
+  include("/Users/hhenson/CLionProjects/hgraph/cpp/tests/build/hgraph_visitor_tests-b12d07c_tests.cmake")
+else()
+  add_test(hgraph_visitor_tests_NOT_BUILT-b12d07c hgraph_visitor_tests_NOT_BUILT-b12d07c)
+endif()
