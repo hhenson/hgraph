@@ -256,15 +256,12 @@ namespace hgraph {
                         process_added_key(key.view());
                     }
                 }
-                std::vector<value::Value> removal_keys;
-                removal_keys.reserve(external_keys_.size());
-                for (const auto& key : external_keys_) {
-                    if (current_keys.find(key.view()) == current_keys.end()) {
-                        removal_keys.push_back(key.view().clone());
+                for (auto it = external_keys_.begin(); it != external_keys_.end();) {
+                    const value::View key_view = it->view();
+                    ++it;
+                    if (current_keys.find(key_view) == current_keys.end()) {
+                        process_removed_key(key_view);
                     }
-                }
-                for (const auto& key : removal_keys) {
-                    process_removed_key(key.view());
                 }
             }
 

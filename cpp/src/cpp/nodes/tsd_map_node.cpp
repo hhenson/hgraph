@@ -410,6 +410,7 @@ namespace hgraph
         std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
         if (outer_bundle.has_value()) {
             const engine_time_t now = last_evaluation_time();
+            bool scheduled_all_for_tick = false;
             for (const auto& [arg, _] : input_node_ids_) {
                 if (arg == key_arg_) {
                     continue;
@@ -449,9 +450,11 @@ namespace hgraph
                         return any;
                     };
 
-                    if (schedule_from(dict_view.modified_keys()) ||
-                        schedule_from(dict_view.added_keys()) ||
-                        schedule_from(dict_view.removed_keys())) {
+                    bool any = false;
+                    any |= schedule_from(dict_view.modified_keys());
+                    any |= schedule_from(dict_view.added_keys());
+                    any |= schedule_from(dict_view.removed_keys());
+                    if (any) {
                         scheduled_from_delta = true;
                     }
                 };
@@ -468,19 +471,49 @@ namespace hgraph
                     if (tuple.size() == 0) {
                         return;
                     }
-                    value::View changed = tuple.at(0);
-                    if (!changed.valid() || !changed.is_map()) {
-                        return;
-                    }
+                    auto schedule_from_set = [&](value::View set_view) {
+                        bool any = false;
+                        if (!set_view.valid() || !set_view.is_set()) {
+                            return any;
+                        }
+                        for (value::View key_view : set_view.as_set()) {
+                            if (!key_view.valid()) {
+                                continue;
+                            }
+                            schedule_key_now(key_view, now);
+                            any = true;
+                        }
+                        return any;
+                    };
 
                     bool any = false;
-                    for (value::View key_view : changed.as_map().keys()) {
-                        if (!key_view.valid()) {
-                            continue;
+
+                    value::View first = tuple.at(0);
+                    if (first.valid() && first.is_map()) {
+                        for (value::View key_view : first.as_map().keys()) {
+                            if (!key_view.valid()) {
+                                continue;
+                            }
+                            schedule_key_now(key_view, now);
+                            any = true;
                         }
-                        schedule_key_now(key_view, now);
-                        any = true;
+                    } else if (first.valid() && first.is_set()) {
+                        any |= schedule_from_set(first);
                     }
+
+                    if (tuple.size() > 1) {
+                        value::View second = tuple.at(1);
+                        if (second.valid() && second.is_set()) {
+                            any |= schedule_from_set(second);
+                        }
+                    }
+                    if (tuple.size() > 2) {
+                        value::View third = tuple.at(2);
+                        if (third.valid() && third.is_set()) {
+                            any |= schedule_from_set(third);
+                        }
+                    }
+
                     if (any) {
                         scheduled_from_delta = true;
                     }
@@ -503,7 +536,10 @@ namespace hgraph
                 }
 
                 if (!scheduled_from_delta) {
-                    schedule_all_active_now(now);
+                    if (!scheduled_all_for_tick) {
+                        schedule_all_active_now(now);
+                        scheduled_all_for_tick = true;
+                    }
                 }
             }
         }

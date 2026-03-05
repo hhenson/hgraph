@@ -340,58 +340,20 @@ namespace hgraph {
         }
 
         bool add_from_delta_directly = false;
+        bool add_from_snapshot_directly = false;
         if (use_full_reconcile) {
             const bool got_keys = collect_tsd_keys(tsd, current_keys);
             if (got_keys) {
-                std::unordered_set<value::Value, ValueHash, ValueEqual> current_key_set;
+                std::unordered_set<value::View> current_key_set;
                 current_key_set.reserve(current_keys.size());
                 for (const auto& key : current_keys) {
-                    current_key_set.insert(key.view().clone());
+                    current_key_set.insert(key.view());
                 }
 
                 removed_keys.reserve(bound_node_indexes_.size());
                 for (const auto& [bound_key, _] : bound_node_indexes_) {
-                    if (current_key_set.find(bound_key) == current_key_set.end()) {
+                    if (current_key_set.find(bound_key.view()) == current_key_set.end()) {
                         removed_keys.push_back(bound_key.view().clone());
-                    }
-                }
-
-                added_keys.reserve(current_keys.size());
-                for (const auto& key : current_keys) {
-                    if (bound_node_indexes_.find(key.view()) == bound_node_indexes_.end()) {
-                        added_keys.push_back(key.view().clone());
-                    }
-                }
-
-                if (has_delta_keys) {
-                    std::unordered_set<value::View> removed_seen;
-                    removed_seen.reserve(removed_keys.size() + delta_removed_keys.size());
-                    for (const auto& key : removed_keys) {
-                        removed_seen.insert(key.view());
-                    }
-                    for (const auto& key : delta_removed_keys) {
-                        if (removed_seen.insert(key.view()).second) {
-                            removed_keys.push_back(key.view().clone());
-                        }
-                    }
-
-                    std::unordered_set<value::View> added_seen;
-                    added_seen.reserve(added_keys.size() + delta_added_keys.size());
-                    for (const auto& key : added_keys) {
-                        added_seen.insert(key.view());
-                    }
-                    for (const auto& key : delta_added_keys) {
-                        if (added_seen.insert(key.view()).second) {
-                            added_keys.push_back(key.view().clone());
-                        }
-                    }
-
-                    if (!removed_seen.empty() && !added_keys.empty()) {
-                        auto keep_it = std::remove_if(
-                            added_keys.begin(),
-                            added_keys.end(),
-                            [&](const value::Value& key) { return removed_seen.find(key.view()) != removed_seen.end(); });
-                        added_keys.erase(keep_it, added_keys.end());
                     }
                 }
             } else {
@@ -405,6 +367,24 @@ namespace hgraph {
                 }
             }
             remove_nodes_from_views(removed_keys);
+
+            if (got_keys) {
+                if (debug_reduce) {
+                    added_keys.reserve(current_keys.size());
+                    for (const auto& key : current_keys) {
+                        if (bound_node_indexes_.find(key.view()) == bound_node_indexes_.end()) {
+                            added_keys.push_back(key.view().clone());
+                        }
+                    }
+                } else {
+                    add_from_snapshot_directly = true;
+                    for (const auto& key : current_keys) {
+                        if (bound_node_indexes_.find(key.view()) == bound_node_indexes_.end()) {
+                            add_node_from_view(key.view());
+                        }
+                    }
+                }
+            }
         } else {
             add_from_delta_directly = true;
             for (const auto& key : delta_removed_keys) {
@@ -464,7 +444,7 @@ namespace hgraph {
             for (const auto& key : delta_added_keys) {
                 add_node_from_view(key.view());
             }
-        } else {
+        } else if (!add_from_snapshot_directly) {
             add_nodes_from_views(added_keys);
         }
 
