@@ -87,10 +87,12 @@ namespace hgraph
 
         bool request_re_rank(const value::View &key, const value::View &depends_on);
 
-        void re_rank(const value::View &key, const value::View &depends_on,
-                     std::vector<value::Value> re_rank_stack = {});
+        void re_rank(const value::View &key, const value::View &depends_on);
 
       private:
+        void re_rank_impl(const value::View &key, const value::View &depends_on,
+                          std::vector<value::View>& re_rank_stack);
+
         std::string                              full_context_path_;
         std::map<int, engine_time_t>             scheduled_ranks_;
         std::map<int, key_time_map_type>         scheduled_keys_by_rank_;

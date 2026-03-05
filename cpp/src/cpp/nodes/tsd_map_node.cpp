@@ -282,12 +282,14 @@ namespace hgraph
         pending_keys_.clear();
         local_input_values_.clear();
         force_emit_keys_.clear();
+        mux_delta_hints_.clear();
     }
 
     void TsdMapNode::dispose() {}
 
     void TsdMapNode::eval() {
         mark_evaluated();
+        mux_delta_hints_.clear();
         const bool debug_tsd_map = debug_tsd_map_enabled();
         if (debug_tsd_map) {
             std::fprintf(stderr,
@@ -392,16 +394,20 @@ namespace hgraph
                 return;
             }
             auto scheduled_it = scheduled_keys_.find(active_it->first.view());
-            if (scheduled_it == scheduled_keys_.end() || scheduled_it->second > now) {
-                scheduled_keys_.insert_or_assign(active_it->first.view().clone(), now);
+            if (scheduled_it == scheduled_keys_.end()) {
+                scheduled_keys_.emplace(active_it->first.view().clone(), now);
+            } else if (scheduled_it->second > now) {
+                scheduled_it->second = now;
             }
         };
 
         auto schedule_all_active_now = [&](engine_time_t now) {
             for (const auto& [key, _] : active_graphs_) {
                 auto scheduled_it = scheduled_keys_.find(key.view());
-                if (scheduled_it == scheduled_keys_.end() || scheduled_it->second > now) {
-                    scheduled_keys_.insert_or_assign(key.view().clone(), now);
+                if (scheduled_it == scheduled_keys_.end()) {
+                    scheduled_keys_.emplace(key.view().clone(), now);
+                } else if (scheduled_it->second > now) {
+                    scheduled_it->second = now;
                 }
             }
         };
@@ -459,7 +465,7 @@ namespace hgraph
                     }
                 };
 
-                auto schedule_changed_keys_from_raw_delta = [&](const TSView& ts_view) {
+                auto schedule_changed_keys_from_raw_delta = [&](const std::string& arg_name, const TSView& ts_view) {
                     if (!ts_view) {
                         return;
                     }
@@ -487,6 +493,8 @@ namespace hgraph
                     };
 
                     bool any = false;
+                    MuxArgDeltaHint hint{};
+                    bool hint_valid = false;
 
                     value::View first = tuple.at(0);
                     if (first.valid() && first.is_map()) {
@@ -497,23 +505,34 @@ namespace hgraph
                             schedule_key_now(key_view, now);
                             any = true;
                         }
+                        hint.changed_map = first;
+                        hint_valid = true;
                     } else if (first.valid() && first.is_set()) {
                         any |= schedule_from_set(first);
+                        hint.added_set = first;
+                        hint_valid = true;
                     }
 
                     if (tuple.size() > 1) {
                         value::View second = tuple.at(1);
                         if (second.valid() && second.is_set()) {
                             any |= schedule_from_set(second);
+                            hint.added_set = second;
+                            hint_valid = true;
                         }
                     }
                     if (tuple.size() > 2) {
                         value::View third = tuple.at(2);
                         if (third.valid() && third.is_set()) {
                             any |= schedule_from_set(third);
+                            hint.removed_set = third;
+                            hint_valid = true;
                         }
                     }
 
+                    if (hint_valid) {
+                        mux_delta_hints_.insert_or_assign(arg_name, hint);
+                    }
                     if (any) {
                         scheduled_from_delta = true;
                     }
@@ -527,12 +546,12 @@ namespace hgraph
                         schedule_changed_keys(*effective_dict);
                     }
                     if (!scheduled_from_delta) {
-                        schedule_changed_keys_from_raw_delta(effective_arg);
+                        schedule_changed_keys_from_raw_delta(arg, effective_arg);
                     }
                 }
 
                 if (!scheduled_from_delta) {
-                    schedule_changed_keys_from_raw_delta(outer_arg.as_ts_view());
+                    schedule_changed_keys_from_raw_delta(arg, outer_arg.as_ts_view());
                 }
 
                 if (!scheduled_from_delta) {
@@ -563,7 +582,12 @@ namespace hgraph
             }
             const engine_time_t next_dt = (dt == last_evaluation_time()) ? evaluate_graph(k.view()) : dt;
             if (next_dt != MAX_DT && next_dt > last_evaluation_time()) {
-                scheduled_keys_.insert_or_assign(k.view().clone(), next_dt);
+                auto scheduled_it = scheduled_keys_.find(k.view());
+                if (scheduled_it == scheduled_keys_.end()) {
+                    scheduled_keys_.emplace(k.view().clone(), next_dt);
+                } else if (scheduled_it->second > next_dt) {
+                    scheduled_it->second = next_dt;
+                }
                 graph()->schedule_node(node_ndx(), next_dt);
             }
         }
@@ -624,17 +648,18 @@ namespace hgraph
         }
 
         if (auto it = active_graphs_.find(key); it != active_graphs_.end()) {
-            const value::Value key_value = it->first.view().clone();
             auto nested_graph = it->second;
             active_graphs_.erase(it);
-            if (auto pending_it = pending_keys_.find(key_value); pending_it != pending_keys_.end()) {
+            if (auto pending_it = pending_keys_.find(key); pending_it != pending_keys_.end()) {
                 pending_keys_.erase(pending_it);
             }
-            if (auto emit_it = force_emit_keys_.find(key_value); emit_it != force_emit_keys_.end()) {
+            if (auto emit_it = force_emit_keys_.find(key); emit_it != force_emit_keys_.end()) {
                 force_emit_keys_.erase(emit_it);
             }
             for (auto& [_, values] : local_input_values_) {
-                values.erase(key.clone());
+                if (auto value_it = values.find(key); value_it != values.end()) {
+                    values.erase(value_it);
+                }
             }
 
             un_wire_graph(key, nested_graph);
@@ -662,8 +687,7 @@ namespace hgraph
         if (it == active_graphs_.end()) {
             return MAX_DT;
         }
-        const value::Value key_value = it->first.view().clone();
-        const bool force_emit = force_emit_keys_.find(key_value) != force_emit_keys_.end();
+        const bool force_emit = force_emit_keys_.find(key) != force_emit_keys_.end();
         const bool debug_tsd_map_copy = debug_tsd_map_copy_enabled();
 
         auto &nested = it->second;
@@ -751,11 +775,20 @@ namespace hgraph
             auto node = nested->nodes()[output_node_id_];
             auto inner = node->output();
             if (outer && inner) {
+                auto clear_pending_emit = [&]() {
+                    if (auto pending_it = pending_keys_.find(key); pending_it != pending_keys_.end()) {
+                        pending_keys_.erase(pending_it);
+                    }
+                    if (auto emit_it = force_emit_keys_.find(key); emit_it != force_emit_keys_.end()) {
+                        force_emit_keys_.erase(emit_it);
+                    }
+                };
+
                 TSView inner_raw = inner.as_ts_view();
                 TSView inner_effective = hgraph::resolve_effective_view(inner_raw);
                 TSView outer_existing = outer.as_ts_view().as_dict().at_key(key);
                 const bool has_outer_entry = static_cast<bool>(outer_existing);
-                const bool output_init_pending = pending_keys_.find(key_value) != pending_keys_.end();
+                const bool output_init_pending = pending_keys_.find(key) != pending_keys_.end();
 
                 const TSMeta* outer_meta = outer.as_ts_view().ts_meta();
                 const bool ref_output =
@@ -832,12 +865,7 @@ namespace hgraph
                         if (inner_raw.modified() || outer_needs_init) {
                             ViewData dst_vd = outer_key.as_ts_view().view_data();
                             apply_ref_payload(dst_vd, resolve_ref_payload_from_view(inner_raw.view_data()), node_time(*this));
-                            if (auto pending_it = pending_keys_.find(key_value); pending_it != pending_keys_.end()) {
-                                pending_keys_.erase(pending_it);
-                            }
-                            if (auto emit_it = force_emit_keys_.find(key_value); emit_it != force_emit_keys_.end()) {
-                                force_emit_keys_.erase(emit_it);
-                            }
+                            clear_pending_emit();
                         }
                     }
                 } else if (inner_effective.valid()) {
@@ -851,22 +879,12 @@ namespace hgraph
                         ViewData dst_vd = outer_key.as_ts_view().view_data();
                         ViewData src_vd = inner_effective.view_data();
                         copy_view_data_value(dst_vd, src_vd, node_time(*this));
-                        if (auto pending_it = pending_keys_.find(key_value); pending_it != pending_keys_.end()) {
-                            pending_keys_.erase(pending_it);
-                        }
-                        if (auto emit_it = force_emit_keys_.find(key_value); emit_it != force_emit_keys_.end()) {
-                            force_emit_keys_.erase(emit_it);
-                        }
+                        clear_pending_emit();
                     } else if (outer_needs_init) {
                         ViewData dst_vd = outer_key.as_ts_view().view_data();
                         ViewData src_vd = inner_effective.view_data();
                         copy_view_data_value(dst_vd, src_vd, node_time(*this));
-                        if (auto pending_it = pending_keys_.find(key_value); pending_it != pending_keys_.end()) {
-                            pending_keys_.erase(pending_it);
-                        }
-                        if (auto emit_it = force_emit_keys_.find(key_value); emit_it != force_emit_keys_.end()) {
-                            force_emit_keys_.erase(emit_it);
-                        }
+                        clear_pending_emit();
                     }
                 } else if (has_outer_entry && inner_effective.modified()) {
                     // Python parity: keyed map outputs keep key membership stable for
@@ -1111,27 +1129,45 @@ namespace hgraph
                 mux_all_valid = mux_all_valid && outer_key_value.valid();
                 hgraph::BindingTargetComparison binding_targets = hgraph::compare_binding_targets(inner_ts, outer_key_value);
                 bool key_specific_modified = false;
-                if (has_outer_key) {
-                    TSView outer_ts_view = outer_arg.as_ts_view();
-                    value::View outer_delta = outer_ts_view.delta_value().value();
-                    if (outer_delta.valid() && outer_delta.is_tuple()) {
-                        auto tuple = outer_delta.as_tuple();
-                        if (tuple.size() > 0) {
-                            value::View changed = tuple.at(0);
-                            if (changed.valid() && changed.is_map()) {
-                                key_specific_modified = changed.as_map().contains(key);
-                            }
+                if (has_outer_key && outer_arg.modified()) {
+                    bool used_hint = false;
+                    if (auto hint_it = mux_delta_hints_.find(arg); hint_it != mux_delta_hints_.end()) {
+                        const MuxArgDeltaHint& hint = hint_it->second;
+                        if (hint.changed_map.valid() && hint.changed_map.is_map()) {
+                            key_specific_modified = hint.changed_map.as_map().contains(key);
+                            used_hint = true;
                         }
-                        if (!key_specific_modified && tuple.size() > 1) {
-                            value::View added = tuple.at(1);
-                            if (added.valid() && added.is_set()) {
-                                key_specific_modified = added.as_set().contains(key);
-                            }
+                        if (!key_specific_modified && hint.added_set.valid() && hint.added_set.is_set()) {
+                            key_specific_modified = hint.added_set.as_set().contains(key);
+                            used_hint = true;
                         }
-                        if (!key_specific_modified && tuple.size() > 2) {
-                            value::View removed = tuple.at(2);
-                            if (removed.valid() && removed.is_set()) {
-                                key_specific_modified = removed.as_set().contains(key);
+                        if (!key_specific_modified && hint.removed_set.valid() && hint.removed_set.is_set()) {
+                            key_specific_modified = hint.removed_set.as_set().contains(key);
+                            used_hint = true;
+                        }
+                    }
+                    if (!used_hint) {
+                        TSView outer_ts_view = outer_arg.as_ts_view();
+                        value::View outer_delta = outer_ts_view.delta_value().value();
+                        if (outer_delta.valid() && outer_delta.is_tuple()) {
+                            auto tuple = outer_delta.as_tuple();
+                            if (tuple.size() > 0) {
+                                value::View changed = tuple.at(0);
+                                if (changed.valid() && changed.is_map()) {
+                                    key_specific_modified = changed.as_map().contains(key);
+                                }
+                            }
+                            if (!key_specific_modified && tuple.size() > 1) {
+                                value::View added = tuple.at(1);
+                                if (added.valid() && added.is_set()) {
+                                    key_specific_modified = added.as_set().contains(key);
+                                }
+                            }
+                            if (!key_specific_modified && tuple.size() > 2) {
+                                value::View removed = tuple.at(2);
+                                if (removed.valid() && removed.is_set()) {
+                                    key_specific_modified = removed.as_set().contains(key);
+                                }
                             }
                         }
                     }

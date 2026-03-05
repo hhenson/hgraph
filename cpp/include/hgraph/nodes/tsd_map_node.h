@@ -52,6 +52,12 @@ namespace hgraph
         using key_value_map_type = std::unordered_map<value::Value, std::unique_ptr<TSValue>, ValueHash, ValueEqual>;
         using key_ref_snapshot_map_type = std::unordered_map<value::Value, value::Value, ValueHash, ValueEqual>;
         using arg_key_value_map_type = std::unordered_map<std::string, key_value_map_type>;
+        struct MuxArgDeltaHint {
+            value::View changed_map{};
+            value::View added_set{};
+            value::View removed_set{};
+        };
+        using mux_arg_delta_hint_map_type = std::unordered_map<std::string, MuxArgDeltaHint>;
 
         static inline std::string KEYS_ARG = "__keys__";
         static inline std::string _KEY_ARG = "__key_arg__";
@@ -135,6 +141,7 @@ namespace hgraph
         arg_key_value_map_type                   local_input_values_;
         key_value_map_type                       local_output_values_;
         key_ref_snapshot_map_type                last_ref_source_values_;
+        mux_arg_delta_hint_map_type              mux_delta_hints_;
         std::string                              recordable_id_;
 
         friend MapNestedEngineEvaluationClock;

@@ -17,15 +17,6 @@
 #include <vector>
 
 namespace hgraph {
-    namespace {
-        void replace_key_set(TsdMapNode::key_set_type& dst, const TsdMapNode::key_set_type& src) {
-            dst.clear();
-            for (const auto& key : src) {
-                dst.insert(key.view().clone());
-            }
-        }
-    }  // namespace
-
     MeshNestedEngineEvaluationClock::MeshNestedEngineEvaluationClock(
         EngineEvaluationClock::ptr engine_evaluation_clock,
         value::Value key,
@@ -276,7 +267,7 @@ namespace hgraph {
             }
 
             if (have_current_keys) {
-                replace_key_set(external_keys_, current_keys);
+                external_keys_.swap(current_keys);
             } else {
                 external_keys_.clear();
             }
@@ -286,7 +277,7 @@ namespace hgraph {
                     create_new_graph(key.view());
                 }
             }
-            replace_key_set(external_keys_, current_keys);
+            external_keys_.swap(current_keys);
         }
 
         if (!pending_keys_.empty()) {
@@ -307,17 +298,13 @@ namespace hgraph {
         }
 
         if (!graphs_to_remove_.empty()) {
-            if (!have_current_keys && keys_view) {
-                have_current_keys = hgraph::collect_tsd_key_set(keys_view, current_keys);
-            }
-
             key_set_type to_remove;
             to_remove.swap(graphs_to_remove_);
 
             for (const auto& k : to_remove) {
                 auto deps_it = active_graphs_dependencies_.find(k.view());
                 const bool has_dependencies = deps_it != active_graphs_dependencies_.end() && !deps_it->second.empty();
-                const bool in_external_keys = have_current_keys && current_keys.find(k.view()) != current_keys.end();
+                const bool in_external_keys = external_keys_.find(k.view()) != external_keys_.end();
                 if (!has_dependencies && !in_external_keys) {
                     remove_graph(k.view());
                 }
@@ -348,10 +335,10 @@ namespace hgraph {
                     auto graphs = std::move(graphs_it->second);
                     scheduled_keys_by_rank_.erase(graphs_it);
 
-                    std::vector<std::pair<value::Value, engine_time_t>> ordered_graphs;
+                    std::vector<std::pair<value::View, engine_time_t>> ordered_graphs;
                     ordered_graphs.reserve(graphs.size());
                     for (const auto& [k, dtg] : graphs) {
-                        ordered_graphs.emplace_back(k.view().clone(), dtg);
+                        ordered_graphs.emplace_back(k.view(), dtg);
                     }
 
                     auto key_sequence = [&](const value::View& key) {
@@ -364,22 +351,22 @@ namespace hgraph {
                         ordered_graphs.begin(),
                         ordered_graphs.end(),
                         [&](const auto& lhs, const auto& rhs) {
-                            return key_sequence(lhs.first.view()) < key_sequence(rhs.first.view());
+                            return key_sequence(lhs.first) < key_sequence(rhs.first);
                         });
 
                     for (const auto& [k, dtg] : ordered_graphs) {
                         engine_time_t next_dtg = dtg;
                         if (dtg == dt) {
-                            if (auto refresh_it = refresh_before_eval_keys_.find(k.view());
+                            if (auto refresh_it = refresh_before_eval_keys_.find(k);
                                 refresh_it != refresh_before_eval_keys_.end()) {
                                 if (debug_dep) {
                                     std::fprintf(stderr,
                                                  "[mesh_dep] refresh_before_eval rank=%d key=%s now=%lld\n",
                                                  rank,
-                                                 key_repr(k.view(), key_type_meta_).c_str(),
+                                                 key_repr(k, key_type_meta_).c_str(),
                                                  static_cast<long long>(last_evaluation_time().time_since_epoch().count()));
                                 }
-                                if (auto graph_it = active_graphs_.find(k.view());
+                                if (auto graph_it = active_graphs_.find(k);
                                     graph_it != active_graphs_.end() && graph_it->second) {
                                     notify_graph_input_nodes(graph_it->second, last_evaluation_time());
                                     for (const auto& nested_node : graph_it->second->nodes()) {
@@ -390,20 +377,20 @@ namespace hgraph {
                                 }
                                 refresh_before_eval_keys_.erase(refresh_it);
                             }
-                            current_eval_graph_ = k.view().clone();
+                            current_eval_graph_ = k.clone();
                             if (debug_dep) {
                                 std::fprintf(stderr,
                                              "[mesh_dep] run rank=%d key=%s due=%lld\n",
                                              rank,
-                                             key_repr(k.view(), key_type_meta_).c_str(),
+                                             key_repr(k, key_type_meta_).c_str(),
                                              static_cast<long long>(dtg.time_since_epoch().count()));
                             }
-                            next_dtg = evaluate_graph(k.view());
+                            next_dtg = evaluate_graph(k);
                             current_eval_graph_.reset();
                         }
 
                         if (next_dtg != MAX_DT && next_dtg > last_evaluation_time()) {
-                            schedule_graph(k.view(), next_dtg);
+                            schedule_graph(k, next_dtg);
                             next_time = std::min(next_time, next_dtg);
                         }
                     }
@@ -464,11 +451,11 @@ namespace hgraph {
         child_owning_graph_id.push_back(-static_cast<int64_t>(count_++));
 
         auto graph_ = nested_graph_builder_->make_instance(child_owning_graph_id, this, key_str);
-        active_graphs_.insert_or_assign(key.clone(), graph_);
+        active_graphs_.emplace(key.clone(), graph_);
 
         const int assigned_rank = (rank < 0) ? max_rank_ : rank;
-        active_graphs_rank_.insert_or_assign(key.clone(), assigned_rank);
-        active_graphs_sequence_.insert_or_assign(key.clone(), next_graph_sequence_++);
+        active_graphs_rank_.emplace(key.clone(), assigned_rank);
+        active_graphs_sequence_.emplace(key.clone(), next_graph_sequence_++);
         max_rank_ = std::max(max_rank_, assigned_rank);
 
         graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
@@ -545,7 +532,12 @@ namespace hgraph {
         }
 
         const int rank = rank_it->second;
-        scheduled_keys_by_rank_[rank].insert_or_assign(key.clone(), tm);
+        auto& scheduled_for_rank = scheduled_keys_by_rank_[rank];
+        if (auto key_it = scheduled_for_rank.find(key); key_it == scheduled_for_rank.end()) {
+            scheduled_for_rank.emplace(key.clone(), tm);
+        } else {
+            key_it->second = tm;
+        }
 
         const engine_time_t eval_time = graph()->evaluation_time();
         const engine_time_t current = scheduled_ranks_.contains(rank) ? scheduled_ranks_[rank] : MAX_DT;
@@ -657,7 +649,13 @@ namespace hgraph {
         return true;
     }
 
-    void MeshNode::re_rank(const value::View &key, const value::View &depends_on, std::vector<value::Value> re_rank_stack) {
+    void MeshNode::re_rank(const value::View &key, const value::View &depends_on) {
+        std::vector<value::View> re_rank_stack;
+        re_rank_stack.reserve(8);
+        re_rank_impl(key, depends_on, re_rank_stack);
+    }
+
+    void MeshNode::re_rank_impl(const value::View &key, const value::View &depends_on, std::vector<value::View>& re_rank_stack) {
         const bool debug_dep = std::getenv("HGRAPH_DEBUG_MESH_DEP") != nullptr;
         auto key_rank_it = active_graphs_rank_.find(key);
         auto dep_rank_it = active_graphs_rank_.find(depends_on);
@@ -682,7 +680,7 @@ namespace hgraph {
 
         const int new_rank = below + 1;
         max_rank_ = std::max(max_rank_, new_rank);
-        active_graphs_rank_.insert_or_assign(key.clone(), new_rank);
+        key_rank_it->second = new_rank;
         refresh_before_eval_keys_.insert(key.clone());
         if (debug_dep) {
             std::fprintf(stderr,
@@ -706,28 +704,25 @@ namespace hgraph {
             for (const auto &k : deps_it->second) {
                 bool found_cycle = false;
                 for (const auto &stack_item : re_rank_stack) {
-                    if (ValueEqual{}(stack_item.view(), k.view())) {
+                    if (ValueEqual{}(stack_item, k.view())) {
                         found_cycle = true;
                         break;
                     }
                 }
 
                 if (found_cycle) {
-                    std::vector<value::Value> cycle;
-                    cycle.reserve(re_rank_stack.size() + 2);
-                    for (const auto& item : re_rank_stack) {
-                        cycle.push_back(item.view().clone());
-                    }
-                    cycle.push_back(key.clone());
-                    cycle.push_back(k.view().clone());
-
                     std::string cycle_str;
-                    for (size_t i = 0; i < cycle.size(); ++i) {
-                        if (i > 0) {
+                    auto append_cycle_key = [&](const value::View& cycle_key) {
+                        if (!cycle_str.empty()) {
                             cycle_str += " -> ";
                         }
-                        cycle_str += key_repr(cycle[i].view(), key_type_meta_);
+                        cycle_str += key_repr(cycle_key, key_type_meta_);
+                    };
+                    for (const auto& item : re_rank_stack) {
+                        append_cycle_key(item);
                     }
+                    append_cycle_key(key);
+                    append_cycle_key(k.view());
 
                     const std::string node_label =
                         signature().label.has_value() ? signature().label.value() : signature().name;
@@ -738,13 +733,9 @@ namespace hgraph {
                                     cycle_str));
                 }
 
-                std::vector<value::Value> new_stack;
-                new_stack.reserve(re_rank_stack.size() + 1);
-                for (const auto& item : re_rank_stack) {
-                    new_stack.push_back(item.view().clone());
-                }
-                new_stack.push_back(key.clone());
-                re_rank(k.view(), key, std::move(new_stack));
+                re_rank_stack.push_back(key);
+                re_rank_impl(k.view(), key, re_rank_stack);
+                re_rank_stack.pop_back();
             }
         }
     }

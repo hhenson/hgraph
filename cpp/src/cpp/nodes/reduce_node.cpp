@@ -298,30 +298,33 @@ namespace hgraph {
         std::vector<value::Value> current_keys;
         std::unordered_set<value::Value, ValueHash, ValueEqual> delta_added_keys;
         std::unordered_set<value::Value, ValueHash, ValueEqual> delta_removed_keys;
-        const bool has_delta_keys = for_each_tsd_key_delta(
-            tsd,
-            [&](value::View key) {
-                if (!key.valid()) {
-                    return;
-                }
-                value::Value owned_key = key.clone();
-                if (delta_removed_keys.find(owned_key) != delta_removed_keys.end()) {
-                    return;
-                }
-                delta_added_keys.insert(std::move(owned_key));
-            },
-            [&](value::View key) {
-                if (!key.valid()) {
-                    return;
-                }
-                value::Value owned_key = key.clone();
-                if (auto added_it = delta_added_keys.find(owned_key); added_it != delta_added_keys.end()) {
-                    delta_added_keys.erase(added_it);
-                }
-                delta_removed_keys.insert(std::move(owned_key));
-            });
+        bool has_delta_keys = false;
+        if (!bound_node_indexes_.empty()) {
+            has_delta_keys = for_each_tsd_key_delta(
+                tsd,
+                [&](value::View key) {
+                    if (!key.valid()) {
+                        return;
+                    }
+                    value::Value owned_key = key.clone();
+                    if (delta_removed_keys.find(owned_key) != delta_removed_keys.end()) {
+                        return;
+                    }
+                    delta_added_keys.insert(std::move(owned_key));
+                },
+                [&](value::View key) {
+                    if (!key.valid()) {
+                        return;
+                    }
+                    value::Value owned_key = key.clone();
+                    if (auto added_it = delta_added_keys.find(owned_key); added_it != delta_added_keys.end()) {
+                        delta_added_keys.erase(added_it);
+                    }
+                    delta_removed_keys.insert(std::move(owned_key));
+                });
+        }
 
-        bool use_full_reconcile = !has_delta_keys || bound_node_indexes_.empty();
+        bool use_full_reconcile = bound_node_indexes_.empty() || !has_delta_keys;
         if (!use_full_reconcile) {
             for (const auto& key : delta_removed_keys) {
                 if (bound_node_indexes_.find(key.view()) == bound_node_indexes_.end()) {
