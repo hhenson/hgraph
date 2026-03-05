@@ -285,20 +285,19 @@ bool tsd_child_was_visible_before_removal(const ViewData& child_vd) {
             }
         }
 
-        try {
-            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(child_value.to_python());
-            if (ref.is_valid()) {
-                return true;
-            }
-            if (const ViewData* bound = ref.bound_view(); bound != nullptr) {
-                if (op_valid(*bound) || op_last_modified_time(*bound) > MIN_DT) {
-                    return true;
-                }
-            }
-            return false;
-        } catch (...) {
+        TimeSeriesReference ref = TimeSeriesReference::make();
+        if (!extract_time_series_reference(child_value, ref)) {
             return false;
         }
+        if (ref.is_valid()) {
+            return true;
+        }
+        if (const ViewData* bound = ref.bound_view(); bound != nullptr) {
+            if (op_valid(*bound) || op_last_modified_time(*bound) > MIN_DT) {
+                return true;
+            }
+        }
+        return false;
     }
 
     return op_valid(child_vd);
@@ -562,6 +561,78 @@ Value canonical_map_key_for_slot(const value::MapView& map, size_t slot_index, c
     return fallback_key.clone();
 }
 
+namespace {
+
+struct TsdDeltaTickKey {
+    const void* delta_data{};
+    std::vector<size_t> path;
+    uint8_t projection{0};
+
+    bool operator==(const TsdDeltaTickKey& other) const noexcept {
+        return delta_data == other.delta_data &&
+               projection == other.projection &&
+               path == other.path;
+    }
+};
+
+struct TsdDeltaTickKeyHash {
+    size_t operator()(const TsdDeltaTickKey& key) const noexcept {
+        size_t h = std::hash<const void*>{}(key.delta_data);
+        h ^= std::hash<uint8_t>{}(key.projection) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+        for (size_t index : key.path) {
+            h ^= std::hash<size_t>{}(index) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+        }
+        return h;
+    }
+};
+
+struct TsdDeltaTickState {
+    std::unordered_map<TsdDeltaTickKey, engine_time_t, TsdDeltaTickKeyHash> last_cleared_tick;
+};
+
+constexpr std::string_view k_tsd_delta_tick_state_key{"tsd_delta_tick_state"};
+
+std::shared_ptr<TsdDeltaTickState> ensure_tsd_delta_tick_state(TSLinkObserverRegistry* registry) {
+    if (registry == nullptr) {
+        return {};
+    }
+    std::shared_ptr<void> existing = registry->feature_state(k_tsd_delta_tick_state_key);
+    if (existing) {
+        return std::static_pointer_cast<TsdDeltaTickState>(existing);
+    }
+    auto state = std::make_shared<TsdDeltaTickState>();
+    registry->set_feature_state(std::string{k_tsd_delta_tick_state_key}, state);
+    return state;
+}
+
+void clear_tsd_delta_once_per_tick(const ViewData& tsd_vd, engine_time_t current_time, TSDDeltaSlots slots) {
+    if (!slots.slot.valid()) {
+        return;
+    }
+
+    bool should_clear = false;
+    if (auto state = ensure_tsd_delta_tick_state(tsd_vd.link_observer_registry); state) {
+        TsdDeltaTickKey key{
+            tsd_vd.delta_data,
+            tsd_vd.path.indices,
+            static_cast<uint8_t>(tsd_vd.projection),
+        };
+        auto [it, inserted] = state->last_cleared_tick.emplace(std::move(key), current_time);
+        if (inserted || it->second < current_time) {
+            it->second = current_time;
+            should_clear = true;
+        }
+    } else {
+        should_clear = direct_last_modified_time(tsd_vd) < current_time;
+    }
+
+    if (should_clear) {
+        clear_tsd_delta_slots(slots);
+    }
+}
+
+}  // namespace
+
 void mark_tsd_parent_child_modified(ViewData child_vd, engine_time_t current_time) {
     if (child_vd.path.indices.empty()) {
         return;
@@ -595,7 +666,7 @@ void mark_tsd_parent_child_modified(ViewData child_vd, engine_time_t current_tim
         tsd_child_vd.path.indices.push_back(child_slot);
 
         auto slots = resolve_tsd_delta_slots(tsd_vd);
-        clear_tsd_delta_if_new_tick(tsd_vd, current_time, slots);
+        clear_tsd_delta_once_per_tick(tsd_vd, current_time, slots);
 
         if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
             View child_value = op_value(tsd_child_vd);
@@ -674,12 +745,7 @@ void clear_tss_delta_if_new_tick(ViewData& vd, engine_time_t current_time, TSSDe
 }
 
 void clear_tsd_delta_if_new_tick(ViewData& vd, engine_time_t current_time, TSDDeltaSlots slots) {
-    if (!slots.slot.valid()) {
-        return;
-    }
-    if (direct_last_modified_time(vd) < current_time) {
-        clear_tsd_delta_slots(slots);
-    }
+    clear_tsd_delta_once_per_tick(vd, current_time, slots);
 }
 
 void clear_tsw_delta_if_new_tick(ViewData& vd, engine_time_t current_time) {

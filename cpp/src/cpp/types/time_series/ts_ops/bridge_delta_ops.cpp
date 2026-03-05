@@ -16,7 +16,7 @@ nb::object tsd_bridge_delta_to_python(const ViewData& previous_data,
             return entry.to_python();
         }
 
-        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(entry.to_python());
+        TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(entry.data());
         if (const ViewData* target = ref.bound_view(); target != nullptr &&
             target->ops != nullptr) {
             return op_to_python(*target);

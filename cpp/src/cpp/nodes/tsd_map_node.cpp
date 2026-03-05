@@ -429,23 +429,82 @@ namespace hgraph
                 }
 
                 bool scheduled_from_delta = false;
-                TSView effective_arg = hgraph::resolve_effective_view(outer_arg.as_ts_view());
-                if (effective_arg) {
-                    const TSMeta* effective_meta = effective_arg.ts_meta();
-                    if (effective_meta != nullptr && effective_meta->kind == TSKind::TSD) {
-                        nb::object delta = effective_arg.delta_to_python();
-                        if (nb::isinstance<nb::dict>(delta)) {
-                            nb::dict delta_dict = nb::cast<nb::dict>(delta);
-                            for (const auto& kv : delta_dict) {
-                                auto key_value = hgraph::key_value_from_python(nb::cast<nb::object>(kv.first), key_type_meta_);
-                                if (!key_value.has_value()) {
-                                    continue;
-                                }
-                                schedule_key_now(key_value->view(), now);
-                                scheduled_from_delta = true;
+                auto schedule_changed_keys = [&](const auto& dict_view) {
+                    std::vector<value::Value> changed_keys;
+                    changed_keys.reserve(dict_view.count());
+                    for (value::View key_view : dict_view.modified_keys()) {
+                        if (!key_view.valid()) {
+                            continue;
+                        }
+                        changed_keys.emplace_back(key_view.clone());
+                    }
+                    if (changed_keys.empty()) {
+                        for (value::View key_view : dict_view.added_keys()) {
+                            if (!key_view.valid()) {
+                                continue;
                             }
+                            changed_keys.emplace_back(key_view.clone());
                         }
                     }
+                    if (changed_keys.empty()) {
+                        for (value::View key_view : dict_view.removed_keys()) {
+                            if (!key_view.valid()) {
+                                continue;
+                            }
+                            changed_keys.emplace_back(key_view.clone());
+                        }
+                    }
+
+                    for (const auto& key_value : changed_keys) {
+                        schedule_key_now(key_value.view(), now);
+                    }
+                    scheduled_from_delta = !changed_keys.empty();
+                };
+
+                auto schedule_changed_keys_from_raw_delta = [&](const TSView& ts_view) {
+                    if (!ts_view) {
+                        return;
+                    }
+                    value::View delta = ts_view.delta_value().value();
+                    if (!delta.valid() || !delta.is_tuple()) {
+                        return;
+                    }
+                    auto tuple = delta.as_tuple();
+                    if (tuple.size() == 0) {
+                        return;
+                    }
+                    value::View changed = tuple.at(0);
+                    if (!changed.valid() || !changed.is_map()) {
+                        return;
+                    }
+
+                    bool any = false;
+                    for (value::View key_view : changed.as_map().keys()) {
+                        if (!key_view.valid()) {
+                            continue;
+                        }
+                        schedule_key_now(key_view, now);
+                        any = true;
+                    }
+                    if (any) {
+                        scheduled_from_delta = true;
+                    }
+                };
+
+                if (auto outer_dict = outer_arg.try_as_dict(); outer_dict.has_value()) {
+                    schedule_changed_keys(*outer_dict);
+                } else {
+                    TSView effective_arg = hgraph::resolve_effective_view(outer_arg.as_ts_view());
+                    if (auto effective_dict = effective_arg.try_as_dict(); effective_dict.has_value()) {
+                        schedule_changed_keys(*effective_dict);
+                    }
+                    if (!scheduled_from_delta) {
+                        schedule_changed_keys_from_raw_delta(effective_arg);
+                    }
+                }
+
+                if (!scheduled_from_delta) {
+                    schedule_changed_keys_from_raw_delta(outer_arg.as_ts_view());
                 }
 
                 if (!scheduled_from_delta) {
@@ -1009,7 +1068,6 @@ namespace hgraph
                 TSView outer_key_value =
                     resolve_multiplexed_outer_value(arg, key, outer_arg, inner_ts, nullptr, &has_outer_key,
                                                     &outer_key_valid, &stage_id);
-                const bool outer_arg_modified = outer_arg.modified();
                 const bool key_removed_this_tick = !has_outer_key && inner_ts.is_bound();
                 if (key_removed_this_tick) {
                     inner_ts.unbind();
@@ -1021,7 +1079,40 @@ namespace hgraph
 
                 mux_all_valid = mux_all_valid && outer_key_value.valid();
                 hgraph::BindingTargetComparison binding_targets = hgraph::compare_binding_targets(inner_ts, outer_key_value);
-                const bool key_value_modified = has_outer_key && (!outer_key_valid || outer_key_value.modified());
+                bool key_specific_modified = false;
+                if (has_outer_key) {
+                    TSView outer_ts_view = outer_arg.as_ts_view();
+                    value::View outer_delta = outer_ts_view.delta_value().value();
+                    if (outer_delta.valid() && outer_delta.is_tuple()) {
+                        auto tuple = outer_delta.as_tuple();
+                        if (tuple.size() > 0) {
+                            value::View changed = tuple.at(0);
+                            if (changed.valid() && changed.is_map()) {
+                                key_specific_modified = changed.as_map().contains(key);
+                            }
+                        }
+                        if (!key_specific_modified && tuple.size() > 1) {
+                            value::View added = tuple.at(1);
+                            if (added.valid() && added.is_set()) {
+                                key_specific_modified = added.as_set().contains(key);
+                            }
+                        }
+                        if (!key_specific_modified && tuple.size() > 2) {
+                            value::View removed = tuple.at(2);
+                            if (removed.valid() && removed.is_set()) {
+                                key_specific_modified = removed.as_set().contains(key);
+                            }
+                        }
+                    }
+                    if (!key_specific_modified) {
+                        if (auto outer_dict = outer_arg.try_as_dict(); outer_dict.has_value()) {
+                            key_specific_modified = outer_dict->was_modified(key);
+                        } else {
+                            key_specific_modified = outer_key_value.modified();
+                        }
+                    }
+                }
+                const bool key_value_modified = has_outer_key && (!outer_key_valid || key_specific_modified);
                 if (debug_tsd_map_bind_enabled()) {
                     std::fprintf(stderr,
                                  "[tsd_map_bind] refresh arg=%s key=%s inner_path=%s inner_bound=%d inner_valid=%d inner_mod=%d inner_lmt=%lld outer_valid=%d outer_mod=%d has_key=%d key_valid=%d current_target=%d desired_target=%d binding_changed=%d key_value_modified=%d removed=%d\n",

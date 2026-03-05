@@ -66,7 +66,7 @@ bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewDat
 
         if (auto ref_value = resolve_value_slot_const(out);
             ref_value.has_value() && ref_value->valid() && ref_value->schema() == ts_reference_meta()) {
-            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value->to_python());
+            TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(ref_value->data());
             if (const ViewData* target = ref.bound_view(); target != nullptr) {
                 if (HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_ANCESTOR")) {
                     std::string target_repr{"<none>"};
@@ -499,7 +499,7 @@ bool has_local_ref_wrapper_value(const ViewData& vd) {
         return false;
     }
 
-    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(local->to_python());
+    TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(local->data());
     return !ref.is_empty();
 }
 
@@ -572,7 +572,7 @@ bool assign_ref_value_from_bound_static_children(ViewData& vd) {
                     local_ref_value.has_value() &&
                     local_ref_value->valid() &&
                     local_ref_value->schema() == ts_reference_meta()) {
-                    child_ref = nb::cast<TimeSeriesReference>(local_ref_value->to_python());
+                    child_ref = *static_cast<const TimeSeriesReference*>(local_ref_value->data());
                     resolved_from_local = true;
                 }
 
@@ -580,7 +580,7 @@ bool assign_ref_value_from_bound_static_children(ViewData& vd) {
                 if (!resolved_from_local &&
                     bound_value.valid() &&
                     bound_value.schema() == ts_reference_meta()) {
-                    child_ref = nb::cast<TimeSeriesReference>(bound_value.to_python());
+                    child_ref = *static_cast<const TimeSeriesReference*>(bound_value.data());
                 } else if (!resolved_from_local && op_valid(*bound)) {
                     child_ref = TimeSeriesReference::make(*bound);
                 }
@@ -595,7 +595,7 @@ bool assign_ref_value_from_bound_static_children(ViewData& vd) {
                     local_ref_value.has_value() &&
                     local_ref_value->valid() &&
                     local_ref_value->schema() == ts_reference_meta()) {
-                    child_ref = nb::cast<TimeSeriesReference>(local_ref_value->to_python());
+                    child_ref = *static_cast<const TimeSeriesReference*>(local_ref_value->data());
                     resolved_from_local = true;
                 }
             }
@@ -603,7 +603,7 @@ bool assign_ref_value_from_bound_static_children(ViewData& vd) {
             View child_value = op_value(child);
             if (!resolved_from_local && child_value.valid()) {
                 if (child_value.schema() == ts_reference_meta()) {
-                    child_ref = nb::cast<TimeSeriesReference>(child_value.to_python());
+                    child_ref = *static_cast<const TimeSeriesReference*>(child_value.data());
                 } else {
                     child_ref = TimeSeriesReference::make(child);
                 }
@@ -621,10 +621,11 @@ bool assign_ref_value_from_bound_static_children(ViewData& vd) {
         return false;
     }
 
+    auto* dst_ref = static_cast<TimeSeriesReference*>(maybe_dst->data());
     if (has_non_empty_child) {
-        maybe_dst->from_python(nb::cast(TimeSeriesReference::make(std::move(child_refs))));
+        *dst_ref = TimeSeriesReference::make(std::move(child_refs));
     } else {
-        maybe_dst->from_python(nb::cast(TimeSeriesReference::make()));
+        *dst_ref = TimeSeriesReference::make();
     }
     return true;
 }
@@ -634,7 +635,7 @@ bool assign_ref_value_from_target(ViewData& vd, const ViewData& target) {
     if (!maybe_dst.has_value() || !maybe_dst->valid() || maybe_dst->schema() != ts_reference_meta()) {
         return false;
     }
-    maybe_dst->from_python(nb::cast(TimeSeriesReference::make(target)));
+    *static_cast<TimeSeriesReference*>(maybe_dst->data()) = TimeSeriesReference::make(target);
     return true;
 }
 
@@ -658,7 +659,7 @@ void clear_ref_value(ViewData& vd) {
     if (!maybe_dst.has_value() || !maybe_dst->valid() || maybe_dst->schema() != ts_reference_meta()) {
         return;
     }
-    maybe_dst->from_python(nb::cast(TimeSeriesReference::make()));
+    *static_cast<TimeSeriesReference*>(maybe_dst->data()) = TimeSeriesReference::make();
     set_leaf_time_path(vd, MIN_DT);
 }
 

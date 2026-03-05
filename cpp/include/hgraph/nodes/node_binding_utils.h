@@ -67,15 +67,11 @@ inline bool resolve_ref_value_target_view_data(const TSView& ref_view, ViewData&
         return false;
     }
 
-    try {
-        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(payload.to_python());
-        if (const ViewData* target = ref.bound_view();
-            target != nullptr && !same_view_identity(*target, ref_view.view_data())) {
-            out_target = *target;
-            return true;
-        }
-    } catch (const std::exception&) {
-        return false;
+    const auto& ref = *static_cast<const TimeSeriesReference*>(payload.data());
+    if (const ViewData* target = ref.bound_view();
+        target != nullptr && !same_view_identity(*target, ref_view.view_data())) {
+        out_target = *target;
+        return true;
     }
 
     return false;
@@ -312,6 +308,105 @@ inline bool extract_tsd_key_delta(const TSInputView& keys_view,
     }
 
     return has_delta;
+}
+
+inline bool extract_tsd_key_delta_from_tsd(const TSView& tsd_view,
+                                           const value::TypeMeta* key_type_meta,
+                                           std::vector<value::Value>& added_out,
+                                           std::vector<value::Value>& removed_out) {
+    added_out.clear();
+    removed_out.clear();
+    if (!tsd_view || key_type_meta == nullptr) {
+        return false;
+    }
+
+    value::View delta = tsd_view.delta_value().value();
+    if (!delta.valid() || !delta.is_tuple()) {
+        return false;
+    }
+    auto tuple = delta.as_tuple();
+
+    value::SetView removed_set{};
+    if (tuple.size() > 2) {
+        value::View removed_view = tuple.at(2);
+        if (removed_view.valid() && removed_view.is_set()) {
+            removed_set = removed_view.as_set();
+            for (value::View key : removed_set) {
+                if (!key.valid()) {
+                    continue;
+                }
+                removed_out.emplace_back(key.clone());
+            }
+        }
+    }
+
+    if (tuple.size() > 1) {
+        value::View added_view = tuple.at(1);
+        if (added_view.valid() && added_view.is_set()) {
+            value::SetView added_set = added_view.as_set();
+            for (value::View key : added_set) {
+                if (!key.valid()) {
+                    continue;
+                }
+                if (removed_set.valid() &&
+                    key.schema() == removed_set.element_type() &&
+                    removed_set.contains(key)) {
+                    continue;
+                }
+                added_out.emplace_back(key.clone());
+            }
+        }
+    }
+
+    return !added_out.empty() || !removed_out.empty();
+}
+
+inline bool extract_tsd_key_delta_from_tsd(const TSInputView& tsd_input,
+                                           const value::TypeMeta* key_type_meta,
+                                           std::vector<value::Value>& added_out,
+                                           std::vector<value::Value>& removed_out) {
+    if (!tsd_input) {
+        added_out.clear();
+        removed_out.clear();
+        return false;
+    }
+    return extract_tsd_key_delta_from_tsd(tsd_input.as_ts_view(), key_type_meta, added_out, removed_out);
+}
+
+inline bool extract_tsd_changed_keys(const TSView& tsd_view,
+                                     const value::TypeMeta* key_type_meta,
+                                     std::vector<value::Value>& out) {
+    out.clear();
+    if (!tsd_view || key_type_meta == nullptr) {
+        return false;
+    }
+
+    const TSMeta* meta = tsd_view.ts_meta();
+    while (meta != nullptr && meta->kind == TSKind::REF) {
+        meta = meta->element_ts();
+    }
+    if (meta == nullptr || meta->kind != TSKind::TSD) {
+        return false;
+    }
+
+    TSDView tsd_dict(tsd_view);
+    for (value::View key : tsd_dict.modified_keys()) {
+        if (!key.valid()) {
+            continue;
+        }
+        out.emplace_back(key.clone());
+    }
+    return true;
+}
+
+inline bool extract_tsd_changed_keys(const TSInputView& tsd_input,
+                                     const value::TypeMeta* key_type_meta,
+                                     std::vector<value::Value>& out) {
+    if (!tsd_input) {
+        out.clear();
+        return false;
+    }
+    return extract_tsd_changed_keys(tsd_input.as_ts_view(), key_type_meta, out);
 }
 
 inline bool extract_tsd_changed_value_for_key(const TSInputView& input_view,
@@ -598,7 +693,7 @@ inline void bind_inner_from_outer(const TSView& outer_any,
         if (!ref_view.valid()) {
             return false;
         }
-        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_view.to_python());
+        const auto& ref = *static_cast<const TimeSeriesReference*>(ref_view.data());
         ref.bind_input(inner_any);
         return true;
     };

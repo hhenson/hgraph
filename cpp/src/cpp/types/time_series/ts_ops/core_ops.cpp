@@ -464,7 +464,7 @@ std::optional<bool> signal_valid_override(const ViewData& vd, const LinkTarget& 
         if (!(ref_value.valid() && ref_value.schema() == ts_reference_meta())) {
             return false;
         }
-        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value.to_python());
+        TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(ref_value.data());
         return ref.is_valid();
     }
     return dispatch_valid(source_view);
@@ -497,7 +497,7 @@ engine_time_t op_last_modified_ref(const ViewData& vd) {
             bool local_payload_valid = true;
             if (auto local = resolve_value_slot_const(vd);
                 local.has_value() && local->valid() && local->schema() == ts_reference_meta()) {
-                TimeSeriesReference local_ref = nb::cast<TimeSeriesReference>(local->to_python());
+                TimeSeriesReference local_ref = *static_cast<const TimeSeriesReference*>(local->data());
                 local_payload_valid = local_ref.is_valid();
             }
             if (local_payload_valid) {
@@ -514,7 +514,7 @@ engine_time_t op_last_modified_ref(const ViewData& vd) {
         bool local_ref_payload_valid = false;
         if (auto local = resolve_value_slot_const(vd);
             local.has_value() && local->valid() && local->schema() == ts_reference_meta()) {
-            TimeSeriesReference local_ref = nb::cast<TimeSeriesReference>(local->to_python());
+            TimeSeriesReference local_ref = *static_cast<const TimeSeriesReference*>(local->data());
             has_local_ref_value = true;
             local_ref_payload_valid = local_ref.is_valid();
         }

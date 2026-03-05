@@ -79,7 +79,7 @@ bool op_valid_ref_impl(const ViewData& vd) {
 
     if (auto local = resolve_value_slot_const(vd);
         local.has_value() && local->valid() && local->schema() == ts_reference_meta()) {
-        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(local->to_python());
+        TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(local->data());
         if (debug_ref_valid) {
             std::fprintf(stderr,
                          "[ref_valid] path=%s now=%lld uses_lt=%d local_valid=1 empty=%d unbound=%d payload_valid=%d lmt=%lld\n",
@@ -305,7 +305,7 @@ bool op_valid_tss(const ViewData& vd) {
             auto local = resolve_value_slot_const(*bound);
             int is_empty_ref = 0;
             if (local.has_value() && local->valid() && local->schema() == ts_reference_meta()) {
-                TimeSeriesReference ref = nb::cast<TimeSeriesReference>(local->to_python());
+                TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(local->data());
                 is_empty_ref = ref.is_empty() ? 1 : 0;
             }
             std::fprintf(stderr,

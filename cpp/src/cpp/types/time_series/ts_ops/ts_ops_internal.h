@@ -46,6 +46,39 @@ using value::View;
 using value::Value;
 using value::ValueView;
 
+const value::TypeMeta* ts_reference_meta();
+
+[[nodiscard]] inline const TimeSeriesReference* time_series_reference_ptr(const value::View& view) noexcept {
+    if (!view.valid() || view.schema() != ts_reference_meta()) {
+        return nullptr;
+    }
+    return static_cast<const TimeSeriesReference*>(view.data());
+}
+
+[[nodiscard]] inline bool extract_time_series_reference(const value::View& view,
+                                                        TimeSeriesReference& out) noexcept {
+    if (const TimeSeriesReference* ref = time_series_reference_ptr(view); ref != nullptr) {
+        out = *ref;
+        return true;
+    }
+    return false;
+}
+
+[[nodiscard]] inline TimeSeriesReference* time_series_reference_ptr(value::Value& value) noexcept {
+    if (!value.valid() || value.schema() != ts_reference_meta()) {
+        return nullptr;
+    }
+    return static_cast<TimeSeriesReference*>(value.data());
+}
+
+inline bool assign_time_series_reference(value::Value& value, const TimeSeriesReference& ref) noexcept {
+    if (TimeSeriesReference* dst = time_series_reference_ptr(value); dst != nullptr) {
+        *dst = ref;
+        return true;
+    }
+    return false;
+}
+
 [[nodiscard]] inline bool allow_pretick_delta(const ViewData& vd, engine_time_t current_time) noexcept {
     return current_time == MIN_DT &&
            (vd.delta_semantics == DeltaSemantics::AllowPreTickDelta || vd.engine_time_ptr == nullptr);

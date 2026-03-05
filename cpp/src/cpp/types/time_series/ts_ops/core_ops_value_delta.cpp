@@ -47,7 +47,7 @@ View op_value_ref(const ViewData& vd) {
 
     if (auto local = resolve_value_slot_const(vd); local.has_value() && local->valid()) {
         if (local->schema() == ts_reference_meta()) {
-            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(local->to_python());
+            TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(local->data());
             if (!ref.is_empty()) {
                 if (vd.uses_link_target) {
                     // Linked REF inputs can cache a local self-reference to the bound

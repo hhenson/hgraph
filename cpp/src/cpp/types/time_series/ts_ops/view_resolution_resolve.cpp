@@ -198,7 +198,7 @@ std::optional<ViewData> resolve_bound_view_data(const ViewData& vd) {
             // local reference payload over shared REFLink indirection.
             if (auto local = resolve_value_slot_const(vd);
                 local.has_value() && local->valid() && local->schema() == ts_reference_meta()) {
-                TimeSeriesReference ref = nb::cast<TimeSeriesReference>(local->to_python());
+                TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(local->data());
                 if (ref.is_empty()) {
                     return std::nullopt;
                 }

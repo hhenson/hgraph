@@ -12,6 +12,54 @@ bool extract_ref(const value::View& view, TimeSeriesReference& out) {
     return true;
 }
 
+bool ref_bound_target_modified_this_tick(const TimeSeriesReference& ref, const ViewData& owner_vd, engine_time_t current_time) {
+    if (!ref.is_valid()) {
+        return false;
+    }
+
+    const ViewData* bound = ref.bound_view();
+    if (bound == nullptr) {
+        return false;
+    }
+
+    ViewData bound_view = *bound;
+    bound_view.sampled = bound_view.sampled || owner_vd.sampled;
+    bind_view_data_ops(bound_view);
+
+    const TSMeta* bound_meta = meta_at_path(bound_view.meta, bound_view.path.indices);
+    if (dispatch_meta_is_scalar_like(bound_meta) && !dispatch_meta_is_ref(bound_meta)) {
+        if (direct_last_modified_time(bound_view) != current_time) {
+            return false;
+        }
+
+        ViewData previous_bound{};
+        if (resolve_previous_bound_target_view_data(owner_vd, previous_bound) &&
+            same_view_identity(previous_bound, bound_view)) {
+            const bool current_valid = op_valid(bound_view);
+            const bool previous_valid = op_valid(previous_bound);
+            if (current_valid == previous_valid) {
+                if (!current_valid) {
+                    return false;
+                }
+                View current_value = op_value(bound_view);
+                View previous_value = op_value(previous_bound);
+                if (current_value.valid() &&
+                    previous_value.valid() &&
+                    current_value.schema() == previous_value.schema() &&
+                    current_value.equals(previous_value)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+    if (bound_view.ops != nullptr && bound_view.ops->modified != nullptr) {
+        return bound_view.ops->modified(bound_view, current_time);
+    }
+    return false;
+}
+
 }  // namespace
 
 TimeSeriesReference resolve_ref_payload_from_view(const ViewData& src) {
@@ -85,17 +133,7 @@ void apply_ref_payload(ViewData& vd, const TimeSeriesReference& incoming_ref, en
             element_meta != nullptr &&
             (dispatch_meta_is_tss(element_meta) || dispatch_meta_is_tsd(element_meta));
         if (dynamic_ref_container) {
-            bool bound_target_modified = false;
-            if (incoming_payload_valid) {
-                if (const ViewData* bound = incoming_ref.bound_view(); bound != nullptr) {
-                    ViewData bound_view = *bound;
-                    bound_view.sampled = bound_view.sampled || vd.sampled;
-                    if (bound_view.ops != nullptr && bound_view.ops->modified != nullptr) {
-                        bound_target_modified = bound_view.ops->modified(bound_view, current_time);
-                    }
-                }
-            }
-            if (!bound_target_modified) {
+            if (!ref_bound_target_modified_this_tick(incoming_ref, vd, current_time)) {
                 return;
             }
         }

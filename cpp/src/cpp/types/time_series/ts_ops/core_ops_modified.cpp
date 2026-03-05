@@ -131,7 +131,7 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
         bool local_ref_payload_valid = false;
         if (auto local = resolve_value_slot_const(vd);
             local.has_value() && local->valid() && local->schema() == ts_reference_meta()) {
-            TimeSeriesReference local_ref = nb::cast<TimeSeriesReference>(local->to_python());
+            TimeSeriesReference local_ref = *static_cast<const TimeSeriesReference*>(local->data());
             has_local_ref_value = true;
             local_ref_payload_valid = local_ref.is_valid();
         }
@@ -177,7 +177,7 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
         bool local_payload_valid = true;
         if (auto local = resolve_value_slot_const(vd);
             local.has_value() && local->valid() && local->schema() == ts_reference_meta()) {
-            TimeSeriesReference local_ref = nb::cast<TimeSeriesReference>(local->to_python());
+            TimeSeriesReference local_ref = *static_cast<const TimeSeriesReference*>(local->data());
             local_payload_valid = local_ref.is_valid();
         }
         if (local_payload_valid) {

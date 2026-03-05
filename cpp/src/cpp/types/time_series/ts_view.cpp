@@ -334,6 +334,10 @@ TSIterable<value::View> value_view_iterable_from(Range range) {
     return TSIterable<value::View>::from_state(ValueViewIteratorState<Range>{std::move(range)});
 }
 
+std::vector<value::Value> tsd_key_set_delta_keys_for_view(const TSView& view, bool added);
+bool tsd_key_set_delta_contains(const TSView& view, bool added, const value::View& key);
+TSIterable<value::View> key_view_iterable_from_values(std::vector<value::Value> keys);
+
 TSIterable<value::View> tss_values_for_view(const TSView& view) {
     const value::View current = view.value();
     if (!current.valid()) {
@@ -351,6 +355,13 @@ TSIterable<value::View> tss_values_for_view(const TSView& view) {
 }
 
 TSIterable<value::View> tss_delta_values_for_view(const TSView& view, size_t tuple_slot) {
+    if (view.view_data().projection == ViewProjection::TSD_KEY_SET) {
+        if (tuple_slot > 1) {
+            return {};
+        }
+        return key_view_iterable_from_values(tsd_key_set_delta_keys_for_view(view, tuple_slot == 0));
+    }
+
     const value::View delta = view.delta_payload();
     if (!delta.valid() || !delta.is_tuple()) {
         if (tuple_slot == 0 && view.sampled()) {
@@ -385,6 +396,13 @@ TSIterable<value::View> tss_delta_values_for_view(const TSView& view, size_t tup
 bool tss_was_delta_value_for_view(const TSView& view, const value::View& elem, size_t tuple_slot) {
     if (!elem.valid()) {
         return false;
+    }
+
+    if (view.view_data().projection == ViewProjection::TSD_KEY_SET) {
+        if (tuple_slot > 1) {
+            return false;
+        }
+        return tsd_key_set_delta_contains(view, tuple_slot == 0, elem);
     }
 
     const value::View delta = view.delta_payload();
@@ -932,8 +950,14 @@ TSIterable<dict_item_t<DictView>> ts_dict_items(const DictView& dict, TSIterable
 }
 
 bool tsd_is_ref_valued(const TSView& view) {
-    const auto* meta = view.ts_meta();
-    return meta != nullptr && meta->element_ts() != nullptr && meta->element_ts()->kind == TSKind::REF;
+    const TSMeta* meta = view.ts_meta();
+    while (meta != nullptr && meta->kind == TSKind::REF) {
+        meta = meta->element_ts();
+    }
+    return meta != nullptr &&
+           meta->kind == TSKind::TSD &&
+           meta->element_ts() != nullptr &&
+           meta->element_ts()->kind == TSKind::REF;
 }
 
 bool tsd_delta_tuple_slot_set(const TSView& view, size_t tuple_index, value::SetView& out) {
@@ -1283,6 +1307,173 @@ bool tsd_key_set_delta_cache_matches(const TsdKeySetDeltaCacheEntry& cache,
            cache.evaluation_time == evaluation_time;
 }
 
+const value::TypeMeta* tsd_key_set_key_type_meta_for_view(const TSView& view) {
+    const TSMeta* meta = view.ts_meta();
+    if (meta != nullptr && meta->kind == TSKind::TSD) {
+        return meta->key_type();
+    }
+
+    if (meta != nullptr &&
+        meta->kind == TSKind::TSS &&
+        view.view_data().projection == ViewProjection::TSD_KEY_SET) {
+        ViewData source{};
+        if (!resolve_tsd_key_set_source(view.view_data(), source)) {
+            return nullptr;
+        }
+        const TSMeta* source_meta = meta_at_path(source.meta, source.path.indices);
+        if (source_meta == nullptr || source_meta->kind != TSKind::TSD) {
+            return nullptr;
+        }
+        return source_meta->key_type();
+    }
+    return nullptr;
+}
+
+void append_tsd_key_delta_key(const value::View& key,
+                              const value::TypeMeta* key_type_meta,
+                              std::vector<value::Value>& out,
+                              std::unordered_set<value::View>& seen) {
+    (void)key_type_meta;
+    if (!key.valid()) {
+        return;
+    }
+    if (!seen.insert(key).second) {
+        return;
+    }
+    out.emplace_back(key.clone());
+}
+
+void append_tsd_key_set_delta_from_source(const ViewData& source,
+                                          const value::TypeMeta* key_type_meta,
+                                          std::vector<value::Value>& added_out,
+                                          std::vector<value::Value>& removed_out,
+                                          std::unordered_set<value::View>& seen_added,
+                                          std::unordered_set<value::View>& seen_removed) {
+    value::View native_delta = op_delta_value(source);
+    if (!native_delta.valid() || !native_delta.is_tuple()) {
+        return;
+    }
+
+    auto tuple = native_delta.as_tuple();
+    value::SetView removed_keys{};
+    if (tuple.size() > 2 && tuple.at(2).valid() && tuple.at(2).is_set()) {
+        removed_keys = tuple.at(2).as_set();
+        for (value::View key : removed_keys) {
+            append_tsd_key_delta_key(key, key_type_meta, removed_out, seen_removed);
+        }
+    }
+
+    if (tuple.size() > 1 && tuple.at(1).valid() && tuple.at(1).is_set()) {
+        value::SetView added_keys = tuple.at(1).as_set();
+        for (value::View key : added_keys) {
+            if (removed_keys.valid() &&
+                key.valid() &&
+                key.schema() == removed_keys.element_type() &&
+                removed_keys.contains(key)) {
+                continue;
+            }
+            append_tsd_key_delta_key(key, key_type_meta, added_out, seen_added);
+        }
+    }
+}
+
+void append_tsd_key_set_all_added_from_source(const ViewData& source,
+                                              const value::TypeMeta* key_type_meta,
+                                              std::vector<value::Value>& added_out,
+                                              std::unordered_set<value::View>& seen_added) {
+    auto value = resolve_value_slot_const(source);
+    if (!(value.has_value() && value->valid() && value->is_map())) {
+        return;
+    }
+    for (value::View key : value->as_map().keys()) {
+        append_tsd_key_delta_key(key, key_type_meta, added_out, seen_added);
+    }
+}
+
+void append_tsd_key_set_bridge_delta_from_maps(const ViewData& previous_data,
+                                               const ViewData& current_data,
+                                               const value::TypeMeta* key_type_meta,
+                                               std::vector<value::Value>& added_out,
+                                               std::vector<value::Value>& removed_out,
+                                               std::unordered_set<value::View>& seen_added,
+                                               std::unordered_set<value::View>& seen_removed) {
+    auto previous_value = resolve_value_slot_const(previous_data);
+    auto current_value = resolve_value_slot_const(current_data);
+    const bool has_previous = previous_value.has_value() && previous_value->valid() && previous_value->is_map();
+    const bool has_current = current_value.has_value() && current_value->valid() && current_value->is_map();
+
+    if (has_current) {
+        auto current_map = current_value->as_map();
+        if (has_previous) {
+            auto previous_map = previous_value->as_map();
+            for (value::View key : current_map.keys()) {
+                if (!previous_map.contains(key)) {
+                    append_tsd_key_delta_key(key, key_type_meta, added_out, seen_added);
+                }
+            }
+        } else {
+            for (value::View key : current_map.keys()) {
+                append_tsd_key_delta_key(key, key_type_meta, added_out, seen_added);
+            }
+        }
+    }
+
+    if (has_previous) {
+        auto previous_map = previous_value->as_map();
+        if (has_current) {
+            auto current_map = current_value->as_map();
+            for (value::View key : previous_map.keys()) {
+                if (!current_map.contains(key)) {
+                    append_tsd_key_delta_key(key, key_type_meta, removed_out, seen_removed);
+                }
+            }
+        } else {
+            for (value::View key : previous_map.keys()) {
+                append_tsd_key_delta_key(key, key_type_meta, removed_out, seen_removed);
+            }
+        }
+    }
+}
+
+void append_tsd_key_set_unbind_removed_from_source(const ViewData& previous_data,
+                                                   const value::TypeMeta* key_type_meta,
+                                                   std::vector<value::Value>& removed_out,
+                                                   std::unordered_set<value::View>& seen_removed) {
+    auto previous_value = resolve_value_slot_const(previous_data);
+    if (!(previous_value.has_value() && previous_value->valid() && previous_value->is_map())) {
+        return;
+    }
+
+    value::SetView added_on_tick{};
+    value::SetView removed_on_tick{};
+    value::View native_delta = op_delta_value(previous_data);
+    if (native_delta.valid() && native_delta.is_tuple()) {
+        auto tuple = native_delta.as_tuple();
+        if (tuple.size() > 1 && tuple.at(1).valid() && tuple.at(1).is_set()) {
+            added_on_tick = tuple.at(1).as_set();
+        }
+        if (tuple.size() > 2 && tuple.at(2).valid() && tuple.at(2).is_set()) {
+            removed_on_tick = tuple.at(2).as_set();
+        }
+    }
+
+    for (value::View key : previous_value->as_map().keys()) {
+        if (added_on_tick.valid() &&
+            key.valid() &&
+            key.schema() == added_on_tick.element_type() &&
+            added_on_tick.contains(key)) {
+            continue;
+        }
+        append_tsd_key_delta_key(key, key_type_meta, removed_out, seen_removed);
+    }
+
+    if (removed_on_tick.valid()) {
+        for (value::View key : removed_on_tick) {
+            append_tsd_key_delta_key(key, key_type_meta, removed_out, seen_removed);
+        }
+    }
+}
+
 void populate_tsd_key_set_delta_cache(TsdKeySetDeltaCacheEntry& cache, const TSView& view) {
     cache.added.clear();
     cache.removed.clear();
@@ -1295,7 +1486,8 @@ void populate_tsd_key_set_delta_cache(TsdKeySetDeltaCacheEntry& cache, const TSV
     cache.evaluation_time = view.current_time();
 
     const TSMeta* meta = view.ts_meta();
-    if (meta == nullptr || meta->kind != TSKind::TSD || meta->key_type() == nullptr) {
+    const value::TypeMeta* key_type_meta = tsd_key_set_key_type_meta_for_view(view);
+    if (meta == nullptr || key_type_meta == nullptr) {
         return;
     }
 
@@ -1305,42 +1497,79 @@ void populate_tsd_key_set_delta_cache(TsdKeySetDeltaCacheEntry& cache, const TSV
     cache.observer_data = view_data.observer_data;
     cache.link_data = view_data.link_data;
     cache.path = view_data.path.indices;
-    cache.key_type_meta = meta->key_type();
+    cache.key_type_meta = key_type_meta;
 
-    TSView key_set_view = tsd_key_set_projection_view(view);
-    if (!key_set_view) {
-        return;
+    std::unordered_set<value::View> seen_added;
+    std::unordered_set<value::View> seen_removed;
+    const engine_time_t current_time = view.current_time();
+
+    ViewData key_set_source{};
+    bool has_key_set_source = resolve_tsd_key_set_source(view_data, key_set_source);
+    if (!has_key_set_source && meta->kind == TSKind::TSD) {
+        key_set_source = view_data;
+        has_key_set_source = true;
     }
 
-    nb::object key_set_delta = key_set_view.delta_to_python();
-    if (key_set_delta.is_none()) {
-        return;
-    }
-
-    const auto parse_member = [&](const char* member_name, std::vector<value::Value>& out) {
-        nb::object member = nb::getattr(key_set_delta, member_name, nb::none());
-        if (member.is_none()) {
-            return;
-        }
-        if (PyCallable_Check(member.ptr()) != 0) {
-            member = member();
-        }
-        if (member.is_none()) {
-            return;
-        }
-
-        for (auto item_h : nb::cast<nb::iterable>(member)) {
-            auto key_val = tsd_key_from_python(nb::cast<nb::object>(item_h), meta);
-            if (key_val.schema() == nullptr) {
-                continue;
+    if (has_key_set_source) {
+        const auto bridge_state = resolve_tsd_key_set_bridge_state(view_data, current_time);
+        if (bridge_state.has_previous_source || bridge_state.has_current_source) {
+            if (bridge_state.has_previous_source && !bridge_state.has_current_source) {
+                append_tsd_key_set_unbind_removed_from_source(
+                    bridge_state.previous_source,
+                    cache.key_type_meta,
+                    cache.removed,
+                    seen_removed);
+            } else {
+                append_tsd_key_set_bridge_delta_from_maps(
+                    bridge_state.has_previous_source ? bridge_state.previous_source : bridge_state.previous_bridge,
+                    bridge_state.has_current_source ? bridge_state.current_source : bridge_state.current_bridge,
+                    cache.key_type_meta,
+                    cache.added,
+                    cache.removed,
+                    seen_added,
+                    seen_removed);
             }
-            out.emplace_back(std::move(key_val));
+        } else if (LinkTarget* link_target = resolve_link_target(view_data, view_data.path.indices);
+                   is_first_bind_rebind_tick(link_target, current_time)) {
+            append_tsd_key_set_all_added_from_source(
+                key_set_source,
+                cache.key_type_meta,
+                cache.added,
+                seen_added);
+        } else if (op_modified(view_data, current_time)) {
+            append_tsd_key_set_delta_from_source(
+                key_set_source,
+                cache.key_type_meta,
+                cache.added,
+                cache.removed,
+                seen_added,
+                seen_removed);
         }
-        stable_sort_atomic_keys(out);
-    };
+    } else {
+        const auto bridge_state = resolve_tsd_key_set_bridge_state(view_data, current_time);
+        if (bridge_state.has_bridge &&
+            (bridge_state.has_previous_source || bridge_state.has_current_source)) {
+            if (bridge_state.has_previous_source && !bridge_state.has_current_source) {
+                append_tsd_key_set_unbind_removed_from_source(
+                    bridge_state.previous_source,
+                    cache.key_type_meta,
+                    cache.removed,
+                    seen_removed);
+            } else {
+                append_tsd_key_set_bridge_delta_from_maps(
+                    bridge_state.has_previous_source ? bridge_state.previous_source : bridge_state.previous_bridge,
+                    bridge_state.has_current_source ? bridge_state.current_source : bridge_state.current_bridge,
+                    cache.key_type_meta,
+                    cache.added,
+                    cache.removed,
+                    seen_added,
+                    seen_removed);
+            }
+        }
+    }
 
-    parse_member("added", cache.added);
-    parse_member("removed", cache.removed);
+    stable_sort_atomic_keys(cache.added);
+    stable_sort_atomic_keys(cache.removed);
 }
 
 TsdKeySetDeltaCacheEntry* tsd_key_set_delta_cache_entry_for_view(const TSView& view) {
@@ -1356,8 +1585,7 @@ const std::vector<value::Value>* tsd_key_set_delta_keys_cached(const TSView& vie
     if (cache == nullptr) {
         return nullptr;
     }
-    const TSMeta* meta = view.ts_meta();
-    const value::TypeMeta* key_type_meta = (meta != nullptr && meta->kind == TSKind::TSD) ? meta->key_type() : nullptr;
+    const value::TypeMeta* key_type_meta = tsd_key_set_key_type_meta_for_view(view);
     if (!tsd_key_set_delta_cache_matches(*cache, view.view_data(), key_type_meta, view.current_time())) {
         populate_tsd_key_set_delta_cache(*cache, view);
     }
@@ -1371,13 +1599,6 @@ std::vector<value::Value> tsd_key_set_delta_keys_uncached(const TSView& view, bo
         return std::move(cache.added);
     }
     return std::move(cache.removed);
-}
-
-bool tsd_key_set_delta_has_any(const TSView& view, bool added) {
-    if (const auto* cached = tsd_key_set_delta_keys_cached(view, added); cached != nullptr) {
-        return !cached->empty();
-    }
-    return !tsd_key_set_delta_keys_uncached(view, added).empty();
 }
 
 bool contains_key_value(const std::vector<value::Value>& keys, const value::View& key);
@@ -1475,9 +1696,52 @@ void append_bridge_removed_keys_for_view(const TSView& view,
     }
 }
 
+std::vector<value::Value> tsd_key_set_added_keys_via_projection(const TSView& view) {
+    std::vector<value::Value> out;
+    std::unordered_set<value::View> seen;
+    TSSView key_set = TSSView(tsd_key_set_projection_view(view));
+    for (value::View key : key_set.added()) {
+        append_unique_key(out, seen, key);
+    }
+    stable_sort_atomic_keys(out);
+    return out;
+}
+
+std::vector<value::Value> tsd_key_set_removed_keys_via_projection(const TSView& view) {
+    std::vector<value::Value> out;
+    std::unordered_set<value::View> seen;
+    TSSView key_set = TSSView(tsd_key_set_projection_view(view));
+    for (value::View key : key_set.removed()) {
+        append_unique_key(out, seen, key);
+    }
+    stable_sort_atomic_keys(out);
+    return out;
+}
+
+bool tsd_key_set_has_any_via_projection(const TSView& view, bool added) {
+    TSSView key_set = TSSView(tsd_key_set_projection_view(view));
+    if (added) {
+        for (value::View key : key_set.added()) {
+            (void)key;
+            return true;
+        }
+        return false;
+    }
+    for (value::View key : key_set.removed()) {
+        (void)key;
+        return true;
+    }
+    return false;
+}
+
+bool tsd_key_set_was_added_removed_via_projection(const TSView& view, const value::View& key, bool added) {
+    TSSView key_set = TSSView(tsd_key_set_projection_view(view));
+    return added ? key_set.was_added(key) : key_set.was_removed(key);
+}
+
 std::vector<value::Value> tsd_added_keys_for_view_native(const TSView& view) {
     if (tsd_is_ref_valued(view)) {
-        return tsd_key_set_delta_keys_for_view(view, true);
+        return tsd_key_set_added_keys_via_projection(view);
     }
 
     std::vector<value::Value> out;
@@ -1501,7 +1765,7 @@ std::vector<value::Value> tsd_added_keys_for_view_native(const TSView& view) {
 
 std::vector<value::Value> tsd_removed_keys_for_view_native(const TSView& view) {
     if (tsd_is_ref_valued(view)) {
-        auto out = tsd_key_set_delta_keys_for_view(view, false);
+        auto out = tsd_key_set_removed_keys_via_projection(view);
         if (out.empty() && view.view_data().sampled) {
             std::unordered_set<value::View> seen;
             for (const auto& key : out) {
@@ -1585,9 +1849,9 @@ std::vector<value::Value> tsd_modified_keys_for_output_view_native(const TSView&
         for (const auto& key : out) {
             seen.insert(key.view());
         }
-        for_each_tsd_key_set_delta_key(view, true, [&](const value::Value& key) {
+        for (const auto& key : tsd_key_set_added_keys_via_projection(view)) {
             append_unique_key(out, seen, key.view());
-        });
+        }
         stable_sort_atomic_keys(out);
     }
     return out;
@@ -1608,9 +1872,9 @@ std::vector<value::Value> tsd_modified_keys_for_view_native(const TSView& view) 
         for (const auto& key : out) {
             seen.insert(key.view());
         }
-        for_each_tsd_key_set_delta_key(view, true, [&](const value::Value& key) {
+        for (const auto& key : tsd_key_set_added_keys_via_projection(view)) {
             append_unique_key(out, seen, key.view());
-        });
+        }
         stable_sort_atomic_keys(out);
     }
     return out;
@@ -1631,9 +1895,9 @@ std::vector<value::Value> tsd_modified_keys_for_input_view_native(const TSView& 
         for (const auto& key : out) {
             seen.insert(key.view());
         }
-        for_each_tsd_key_set_delta_key(view, true, [&](const value::Value& key) {
+        for (const auto& key : tsd_key_set_added_keys_via_projection(view)) {
             append_unique_key(out, seen, key.view());
-        });
+        }
         stable_sort_atomic_keys(out);
     }
     return out;
@@ -1641,7 +1905,7 @@ std::vector<value::Value> tsd_modified_keys_for_input_view_native(const TSView& 
 
 bool tsd_has_added_for_view(const TSView& view) {
     if (tsd_is_ref_valued(view)) {
-        return tsd_key_set_delta_has_any(view, true);
+        return tsd_key_set_has_any_via_projection(view, true);
     }
 
     value::SetView tuple_added{};
@@ -1661,7 +1925,7 @@ bool tsd_was_added_for_view(const TSView& view, const value::View& key) {
     }
 
     if (tsd_is_ref_valued(view)) {
-        return tsd_key_set_delta_contains(view, true, key);
+        return tsd_key_set_was_added_removed_via_projection(view, key, true);
     }
 
     value::SetView tuple_added{};
@@ -1677,7 +1941,7 @@ bool tsd_was_added_for_view(const TSView& view, const value::View& key) {
 
 bool tsd_has_removed_for_view(const TSView& view) {
     if (tsd_is_ref_valued(view)) {
-        if (tsd_key_set_delta_has_any(view, false)) {
+        if (tsd_key_set_has_any_via_projection(view, false)) {
             return true;
         }
         return tsd_sampled_has_removed_any(view);
@@ -1700,7 +1964,7 @@ bool tsd_was_removed_for_view(const TSView& view, const value::View& key) {
     }
 
     if (tsd_is_ref_valued(view)) {
-        if (tsd_key_set_delta_contains(view, false, key)) {
+        if (tsd_key_set_was_added_removed_via_projection(view, key, false)) {
             return true;
         }
         return tsd_sampled_was_removed(view, key);

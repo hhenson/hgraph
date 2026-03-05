@@ -188,15 +188,11 @@ bool ref_child_payload_valid(const ViewData& ref_child_vd) {
         return false;
     }
     View ref_value = op_value(ref_child_vd);
-    if (!(ref_value.valid() && ref_value.schema() == ts_reference_meta())) {
+    TimeSeriesReference ref = TimeSeriesReference::make();
+    if (!extract_time_series_reference(ref_value, ref)) {
         return false;
     }
-    try {
-        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value.to_python());
-        return ref.is_valid();
-    } catch (...) {
-        return false;
-    }
+    return ref.is_valid();
 }
 
 bool container_child_valid_for_aggregation(const ViewData& child_vd) {
@@ -299,7 +295,7 @@ engine_time_t ref_wrapper_last_modified_time_on_read_path(const ViewData& vd) {
             return out;
         }
 
-        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(local->to_python());
+        TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(local->data());
         const ViewData* bound = ref.bound_view();
         if (bound == nullptr) {
             return out;
@@ -324,7 +320,7 @@ bool resolve_ref_bound_target_view_data(const ViewData& ref_view, ViewData& out)
         return false;
     }
 
-    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value->to_python());
+    TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(ref_value->data());
     const ViewData* bound = ref.bound_view();
     if (bound == nullptr) {
         return false;
@@ -444,7 +440,7 @@ std::optional<ViewData> resolve_ref_ancestor_descendant_view_data(const ViewData
             return std::nullopt;
         }
 
-        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(local->to_python());
+        TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(local->data());
         if (!resolve_unbound_ref_item_view_data(ref, residual_path, 0, resolved_ref)) {
             return std::nullopt;
         }
@@ -518,7 +514,7 @@ bool resolve_rebind_bridge_views(const ViewData& vd,
             return false;
         }
 
-        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(local->to_python());
+        TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(local->data());
         if (!ref.is_empty()) {
             return false;
         }

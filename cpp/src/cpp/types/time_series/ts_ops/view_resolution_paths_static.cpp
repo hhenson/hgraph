@@ -32,7 +32,7 @@ bool link_target_points_to_unbound_ref_composite(const ViewData& vd, const LinkT
         return false;
     }
 
-    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(local->to_python());
+    TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(local->data());
     return ref.is_unbound() && !ref.is_empty();
 }
 
