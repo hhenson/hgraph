@@ -3,6 +3,23 @@
 
 namespace hgraph {
 
+    namespace {
+        struct SetDeltaClasses {
+            nb::object python_set_delta;
+            nb::object removed;
+        };
+
+        const SetDeltaClasses& set_delta_classes() {
+            static const SetDeltaClasses cached = [] {
+                return SetDeltaClasses{
+                    nb::module_::import_("hgraph").attr("PythonSetDelta"),
+                    nb::module_::import_("hgraph").attr("Removed"),
+                };
+            }();
+            return cached;
+        }
+    }  // namespace
+
     void LastValuePullNode::do_start() {
         _setup_combine_function();
 
@@ -97,8 +114,9 @@ namespace hgraph {
         // For TimeSeriesSet, we need to combine SetDelta objects
         // Handle cases where deltas might be plain sets or SetDelta objects
 
-        nb::object py_set_delta_class = nb::module_::import_("hgraph").attr("PythonSetDelta");
-        nb::object py_removed_class = nb::module_::import_("hgraph").attr("Removed");
+        const auto& classes = set_delta_classes();
+        const nb::object& py_set_delta_class = classes.python_set_delta;
+        const nb::object& py_removed_class = classes.removed;
 
         // Helper to convert a set to a SetDelta
         auto to_set_delta = [&](const nb::object &delta) -> nb::object {
