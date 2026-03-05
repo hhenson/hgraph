@@ -177,6 +177,7 @@ HGRAPH_EXPORT void store_to_ref_link(REFLink& target, const ViewData& source);
 HGRAPH_EXPORT bool resolve_direct_bound_view_data(const ViewData& source, ViewData& out);
 HGRAPH_EXPORT bool resolve_bound_target_view_data(const ViewData& source, ViewData& out);
 HGRAPH_EXPORT bool resolve_previous_bound_target_view_data(const ViewData& source, ViewData& out);
+HGRAPH_EXPORT bool same_view_identity(const ViewData& lhs, const ViewData& rhs);
 HGRAPH_EXPORT engine_time_t resolve_notify_time(node_ptr owner, engine_time_t fallback);
 HGRAPH_EXPORT bool input_kind_requires_bound_validity(const TSInputView& input_view);
 HGRAPH_EXPORT std::optional<ViewData> resolve_input_bound_target_view_data(const TSInputView& input_view);

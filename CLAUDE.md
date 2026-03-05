@@ -84,6 +84,8 @@ HGRAPH_USE_CPP=0 uv run pytest ...  # Run with Python implementation
 
 The tests are currently all in python and can be found in ``hgraph_unit_tests``.
 
+**Important execution rule:** Do not run test suites in a restricted sandbox environment that blocks localhost sockets or network binds. Run tests directly using the documented commands so adaptor and real-time tests execute in a valid environment.
+
 ```bash
 # Run tests (uses C++ by default via hgraph_features.yaml)
 uv run pytest hgraph_unit_tests

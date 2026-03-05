@@ -2,6 +2,18 @@
 
 namespace hgraph {
 
+bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
+    return lhs.value_data == rhs.value_data &&
+           lhs.time_data == rhs.time_data &&
+           lhs.observer_data == rhs.observer_data &&
+           lhs.delta_data == rhs.delta_data &&
+           lhs.link_data == rhs.link_data &&
+           lhs.link_observer_registry == rhs.link_observer_registry &&
+           lhs.projection == rhs.projection &&
+           lhs.path.indices == rhs.path.indices &&
+           lhs.meta == rhs.meta;
+}
+
 bool is_same_view_data(const ViewData& lhs, const ViewData& rhs) {
     return lhs.value_data == rhs.value_data &&
            lhs.time_data == rhs.time_data &&
