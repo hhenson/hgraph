@@ -449,12 +449,17 @@ inline bool extract_tsd_changed_value_for_key(const TSInputView& input_view,
     if (!changed_slot.valid() || !changed_slot.is_map()) {
         return false;
     }
-    value::MapView changed_map = changed_slot.as_map();
+    const value::MapView changed_map = changed_slot.as_map();
     if (key.schema() != changed_map.key_type() || !changed_map.contains(key)) {
         return false;
     }
 
-    value::View changed_value = changed_map.at(key);
+    value::View changed_value;
+    try {
+        changed_value = changed_map.at(key);
+    } catch (const std::runtime_error&) {
+        return false;
+    }
     if (!changed_value.valid()) {
         return false;
     }
@@ -509,7 +514,7 @@ inline void populate_keyed_delta_lookup_cache(KeyedDeltaLookupCacheEntry& cache,
         return;
     }
 
-    value::MapView changed_map = changed_slot.as_map();
+    const value::MapView changed_map = changed_slot.as_map();
     for (value::View map_key : changed_map.keys()) {
         if (!map_key.valid()) {
             continue;
@@ -517,7 +522,13 @@ inline void populate_keyed_delta_lookup_cache(KeyedDeltaLookupCacheEntry& cache,
         if (key_type_meta != nullptr && map_key.schema() != key_type_meta) {
             continue;
         }
-        value::View map_value = changed_map.at(map_key);
+        value::View map_value;
+        try {
+            map_value = changed_map.at(map_key);
+        } catch (const std::runtime_error&) {
+            // TSD delta maps can contain removal-only keys without a value payload.
+            continue;
+        }
         if (!map_value.valid()) {
             continue;
         }

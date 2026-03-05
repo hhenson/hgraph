@@ -120,57 +120,16 @@ namespace hgraph {
                     ++added_count;
                     has_delta = true;
                 }
-                std::unordered_set<value::View> removed_seen;
+                std::unordered_set<value::Value> removed_seen;
                 for (value::View key : key_set.removed()) {
                     on_removed(key);
-                    removed_seen.insert(key);
+                    removed_seen.insert(key.clone());
                     ++removed_count;
                     has_delta = true;
                 }
 
-                // Some REF/TSD paths emit removals only through changed-map entries.
-                // Treat empty/invalid REF delta payloads as removals.
-                value::View delta = tsd_view.delta_value().value();
-                if (delta.valid() && delta.is_tuple()) {
-                    auto tuple = delta.as_tuple();
-                    if (tuple.size() > 0) {
-                        value::View changed_slot = tuple.at(0);
-                        if (changed_slot.valid() && changed_slot.is_map()) {
-                            const value::MapView changed_map = changed_slot.as_map();
-                            for (value::View key : changed_map.keys()) {
-                                if (!key.valid()) {
-                                    continue;
-                                }
-                                value::View changed_value = changed_map.at(key);
-                                bool removed_entry = !changed_value.valid();
-                                if (!removed_entry) {
-                                    const auto& ref = *static_cast<const TimeSeriesReference*>(changed_value.data());
-                                    removed_entry = ref.is_empty() || !ref.is_valid();
-                                    if (debug_reduce) {
-                                        std::fprintf(stderr,
-                                                     "[reduce] delta changed key=%s ref_empty=%d ref_valid=%d value_valid=%d\n",
-                                                     key.to_string().c_str(),
-                                                     ref.is_empty() ? 1 : 0,
-                                                     ref.is_valid() ? 1 : 0,
-                                                     changed_value.valid() ? 1 : 0);
-                                    }
-                                } else if (debug_reduce) {
-                                    std::fprintf(stderr,
-                                                 "[reduce] delta changed key=%s value_valid=0\n",
-                                                 key.to_string().c_str());
-                                }
-                                if (!removed_entry) {
-                                    continue;
-                                }
-                                if (removed_seen.insert(key).second) {
-                                    on_removed(key);
-                                    ++removed_count;
-                                    has_delta = true;
-                                }
-                            }
-                        }
-                    }
-                }
+                // NOTE: Changed-map key views in REF/TSD deltas may be unstable in
+                // some runtime paths. Rely on explicit key-set added/removed deltas.
                 if (debug_reduce) {
                     std::fprintf(stderr,
                                  "[reduce] delta ref added=%zu removed=%zu has_delta=%d\n",

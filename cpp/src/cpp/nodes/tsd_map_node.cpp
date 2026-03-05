@@ -19,6 +19,7 @@
 #include <vector>
 #include <cstdlib>
 #include <cstdio>
+#include <cstring>
 
 namespace hgraph
 {
@@ -320,7 +321,9 @@ namespace hgraph
                 remove_graph(key_view);
             };
 
-            bool use_full_diff = active_graphs_.empty();
+            // Delta key iteration can surface invalid transient key views for
+            // projected key sets; full snapshot diff is slower but stable.
+            bool use_full_diff = true;
             bool has_key_delta = false;
             std::vector<value::View> delta_added_keys;
             std::vector<value::View> delta_removed_keys;
@@ -395,7 +398,12 @@ namespace hgraph
         }
 
         auto schedule_key_now = [&](const value::View& key_view, engine_time_t now) {
-            auto active_it = active_graphs_.find(key_view);
+            if (!key_view.valid()) {
+                return;
+            }
+            const value::Value stable_key = key_view.clone();
+            const value::View owned_key_view = stable_key.view();
+            auto active_it = active_graphs_.find(owned_key_view);
             if (active_it == active_graphs_.end()) {
                 return;
             }
@@ -423,6 +431,7 @@ namespace hgraph
         if (outer_bundle.has_value()) {
             const engine_time_t now = last_evaluation_time();
             bool scheduled_all_for_tick = false;
+            const bool conservative_outer_reschedule = false;
             for (const auto& [arg, _] : input_node_ids_) {
                 if (arg == key_arg_) {
                     continue;
@@ -448,96 +457,28 @@ namespace hgraph
                                  outer_delta.c_str());
                 }
 
+                if (conservative_outer_reschedule) {
+                    // Python-object key deltas can expose transient views.
+                    if (!scheduled_all_for_tick) {
+                        schedule_all_active_now(now);
+                        scheduled_all_for_tick = true;
+                    }
+                    continue;
+                }
+
                 bool scheduled_from_delta = false;
                 auto schedule_changed_keys = [&](const auto& dict_view) {
-                    const auto schedule_from = [&](auto&& keys_iterable) {
-                        bool any = false;
-                        for (value::View key_view : keys_iterable) {
-                            if (!key_view.valid()) {
-                                continue;
-                            }
-                            schedule_key_now(key_view, now);
-                            any = true;
-                        }
-                        return any;
-                    };
-
                     bool any = false;
-                    any |= schedule_from(dict_view.modified_keys());
-                    any |= schedule_from(dict_view.added_keys());
-                    any |= schedule_from(dict_view.removed_keys());
-                    if (any) {
-                        scheduled_from_delta = true;
-                    }
-                };
-
-                auto schedule_changed_keys_from_raw_delta = [&](const std::string& arg_name, const TSView& ts_view) {
-                    if (!ts_view) {
-                        return;
-                    }
-                    value::View delta = ts_view.delta_value().value();
-                    if (!delta.valid() || !delta.is_tuple()) {
-                        return;
-                    }
-                    auto tuple = delta.as_tuple();
-                    if (tuple.size() == 0) {
-                        return;
-                    }
-                    auto schedule_from_set = [&](value::View set_view) {
-                        bool any = false;
-                        if (!set_view.valid() || !set_view.is_set()) {
-                            return any;
+                    for (const auto& [key, _] : active_graphs_) {
+                        const value::View key_view = key.view();
+                        if (!key_view.valid()) {
+                            continue;
                         }
-                        for (value::View key_view : set_view.as_set()) {
-                            if (!key_view.valid()) {
-                                continue;
-                            }
-                            schedule_key_now(key_view, now);
-                            any = true;
+                        if (!dict_view.was_modified(key_view)) {
+                            continue;
                         }
-                        return any;
-                    };
-
-                    bool any = false;
-                    MuxArgDeltaHint hint{};
-                    bool hint_valid = false;
-
-                    value::View first = tuple.at(0);
-                    if (first.valid() && first.is_map()) {
-                        for (value::View key_view : first.as_map().keys()) {
-                            if (!key_view.valid()) {
-                                continue;
-                            }
-                            schedule_key_now(key_view, now);
-                            any = true;
-                        }
-                        hint.changed_map = first;
-                        hint_valid = true;
-                    } else if (first.valid() && first.is_set()) {
-                        any |= schedule_from_set(first);
-                        hint.added_set = first;
-                        hint_valid = true;
-                    }
-
-                    if (tuple.size() > 1) {
-                        value::View second = tuple.at(1);
-                        if (second.valid() && second.is_set()) {
-                            any |= schedule_from_set(second);
-                            hint.added_set = second;
-                            hint_valid = true;
-                        }
-                    }
-                    if (tuple.size() > 2) {
-                        value::View third = tuple.at(2);
-                        if (third.valid() && third.is_set()) {
-                            any |= schedule_from_set(third);
-                            hint.removed_set = third;
-                            hint_valid = true;
-                        }
-                    }
-
-                    if (hint_valid) {
-                        mux_delta_hints_.insert_or_assign(arg_name, hint);
+                        schedule_key_now(key_view, now);
+                        any = true;
                     }
                     if (any) {
                         scheduled_from_delta = true;
@@ -551,20 +492,11 @@ namespace hgraph
                     if (auto effective_dict = effective_arg.try_as_dict(); effective_dict.has_value()) {
                         schedule_changed_keys(*effective_dict);
                     }
-                    if (!scheduled_from_delta) {
-                        schedule_changed_keys_from_raw_delta(arg, effective_arg);
-                    }
                 }
 
-                if (!scheduled_from_delta) {
-                    schedule_changed_keys_from_raw_delta(arg, outer_arg.as_ts_view());
-                }
-
-                if (!scheduled_from_delta) {
-                    if (!scheduled_all_for_tick) {
-                        schedule_all_active_now(now);
-                        scheduled_all_for_tick = true;
-                    }
+                if (conservative_outer_reschedule && !scheduled_from_delta && !scheduled_all_for_tick) {
+                    schedule_all_active_now(now);
+                    scheduled_all_for_tick = true;
                 }
             }
         }
@@ -1155,54 +1087,19 @@ namespace hgraph
 
                 mux_all_valid = mux_all_valid && outer_key_value.valid();
                 hgraph::BindingTargetComparison binding_targets = hgraph::compare_binding_targets(inner_ts, outer_key_value);
+                const bool conservative_outer_reschedule = false;
                 bool key_specific_modified = false;
                 if (has_outer_key && outer_arg.modified()) {
-                    bool used_hint = false;
-                    if (auto hint_it = mux_delta_hints_.find(arg); hint_it != mux_delta_hints_.end()) {
-                        const MuxArgDeltaHint& hint = hint_it->second;
-                        if (hint.changed_map.valid() && hint.changed_map.is_map()) {
-                            key_specific_modified = hint.changed_map.as_map().contains(key);
-                            used_hint = true;
-                        }
-                        if (!key_specific_modified && hint.added_set.valid() && hint.added_set.is_set()) {
-                            key_specific_modified = hint.added_set.as_set().contains(key);
-                            used_hint = true;
-                        }
-                        if (!key_specific_modified && hint.removed_set.valid() && hint.removed_set.is_set()) {
-                            key_specific_modified = hint.removed_set.as_set().contains(key);
-                            used_hint = true;
-                        }
-                    }
-                    if (!used_hint) {
-                        TSView outer_ts_view = outer_arg.as_ts_view();
-                        value::View outer_delta = outer_ts_view.delta_value().value();
-                        if (outer_delta.valid() && outer_delta.is_tuple()) {
-                            auto tuple = outer_delta.as_tuple();
-                            if (tuple.size() > 0) {
-                                value::View changed = tuple.at(0);
-                                if (changed.valid() && changed.is_map()) {
-                                    key_specific_modified = changed.as_map().contains(key);
-                                }
-                            }
-                            if (!key_specific_modified && tuple.size() > 1) {
-                                value::View added = tuple.at(1);
-                                if (added.valid() && added.is_set()) {
-                                    key_specific_modified = added.as_set().contains(key);
-                                }
-                            }
-                            if (!key_specific_modified && tuple.size() > 2) {
-                                value::View removed = tuple.at(2);
-                                if (removed.valid() && removed.is_set()) {
-                                    key_specific_modified = removed.as_set().contains(key);
-                                }
-                            }
-                        }
-                    }
-                    if (!key_specific_modified) {
-                        if (auto outer_dict = outer_arg.try_as_dict(); outer_dict.has_value()) {
-                            key_specific_modified = outer_dict->was_modified(key);
+                    if (conservative_outer_reschedule) {
+                        key_specific_modified = true;
+                    } else if (auto outer_dict = outer_arg.try_as_dict(); outer_dict.has_value()) {
+                        key_specific_modified = outer_dict->was_modified(key);
+                    } else {
+                        TSView effective_arg = hgraph::resolve_effective_view(outer_arg.as_ts_view());
+                        if (auto effective_dict = effective_arg.try_as_dict(); effective_dict.has_value()) {
+                            key_specific_modified = effective_dict->was_modified(key);
                         } else {
-                            key_specific_modified = outer_key_value.modified();
+                            key_specific_modified = false;
                         }
                     }
                 }

@@ -236,28 +236,28 @@ namespace hgraph {
         if (keys_view && keys_view.modified()) {
             size_t added_count = 0;
             size_t removed_count = 0;
-            std::vector<value::Value> delta_added_keys;
-            std::vector<value::Value> delta_removed_keys;
 
             const auto process_added_key = [&](const value::View& key_view) {
                 if (!key_view.valid()) {
                     return;
                 }
+                const value::Value stable_key = key_view.clone();
+                const value::View key = stable_key.view();
                 ++added_count;
                 if (debug_mesh) {
                     std::fprintf(stderr,
                                  "[mesh_eval] add key=%s exists=%d\n",
-                                 key_repr(key_view, key_type_meta_).c_str(),
-                                 active_graphs_.find(key_view) != active_graphs_.end() ? 1 : 0);
+                                 key_repr(key, key_type_meta_).c_str(),
+                                 active_graphs_.find(key) != active_graphs_.end() ? 1 : 0);
                 }
-                if (active_graphs_.find(key_view) == active_graphs_.end()) {
-                    create_new_graph(key_view);
+                if (active_graphs_.find(key) == active_graphs_.end()) {
+                    create_new_graph(key);
                 } else {
                     // External key-set can add a key that is already active as an
                     // internal dependency. Mark it so the next keyed evaluation
                     // emits its current value.
-                    mark_key_for_forced_emit(key_view);
-                    schedule_graph(key_view, last_evaluation_time());
+                    mark_key_for_forced_emit(key);
+                    schedule_graph(key, last_evaluation_time());
                 }
             };
 
@@ -265,43 +265,35 @@ namespace hgraph {
                 if (!key_view.valid()) {
                     return;
                 }
+                const value::Value stable_key = key_view.clone();
+                const value::View key = stable_key.view();
                 ++removed_count;
-                auto deps_it = active_graphs_dependencies_.find(key_view);
+                auto deps_it = active_graphs_dependencies_.find(key);
                 const bool has_dependencies = deps_it != active_graphs_dependencies_.end() && !deps_it->second.empty();
                 if (debug_mesh) {
                     std::fprintf(stderr,
                                  "[mesh_eval] remove key=%s has_deps=%d active=%d\n",
-                                 key_repr(key_view, key_type_meta_).c_str(),
+                                 key_repr(key, key_type_meta_).c_str(),
                                  has_dependencies ? 1 : 0,
-                                 active_graphs_.find(key_view) != active_graphs_.end() ? 1 : 0);
+                                 active_graphs_.find(key) != active_graphs_.end() ? 1 : 0);
                 }
                 if (has_dependencies) {
                     return;
                 }
-                if (auto rank_it = active_graphs_rank_.find(key_view); rank_it != active_graphs_rank_.end()) {
+                if (auto rank_it = active_graphs_rank_.find(key); rank_it != active_graphs_rank_.end()) {
                     if (auto sched_it = scheduled_keys_by_rank_.find(rank_it->second);
                         sched_it != scheduled_keys_by_rank_.end()) {
-                        if (auto key_it = sched_it->second.find(key_view); key_it != sched_it->second.end()) {
+                        if (auto key_it = sched_it->second.find(key); key_it != sched_it->second.end()) {
                             sched_it->second.erase(key_it);
                         }
                     }
                 }
-                remove_graph(key_view);
+                remove_graph(key);
             };
 
-            const bool has_key_delta = hgraph::for_each_tsd_key_delta(
-                keys_view,
-                key_type_meta_,
-                [&](value::View key_view) {
-                    process_added_key(key_view);
-                    delta_added_keys.emplace_back(key_view.clone());
-                },
-                [&](value::View key_view) {
-                    process_removed_key(key_view);
-                    delta_removed_keys.emplace_back(key_view.clone());
-                });
-
-            if ((!has_key_delta || external_keys_.empty()) && ensure_current_keys()) {
+            // Key delta views can be transient for Python-backed keys. Use a
+            // full snapshot diff so map/set lookups only use owned key storage.
+            if (ensure_current_keys()) {
                 for (const auto& key : current_keys) {
                     if (external_keys_.find(key.view()) == external_keys_.end()) {
                         process_added_key(key.view());
@@ -316,15 +308,6 @@ namespace hgraph {
                 }
 
                 external_keys_.swap(current_keys);
-            } else if (has_key_delta) {
-                for (const auto& key : delta_added_keys) {
-                    external_keys_.insert(key.view().clone());
-                }
-                for (const auto& key : delta_removed_keys) {
-                    if (auto it = external_keys_.find(key.view()); it != external_keys_.end()) {
-                        external_keys_.erase(it);
-                    }
-                }
             } else {
                 external_keys_.clear();
             }
@@ -333,7 +316,7 @@ namespace hgraph {
                 std::fprintf(stderr,
                              "[mesh_eval] node=%lld has_delta=%d added=%zu removed=%zu external_before=%zu\n",
                              static_cast<long long>(node_ndx()),
-                             has_key_delta ? 1 : 0,
+                             0,
                              added_count,
                              removed_count,
                              external_keys_.size());
