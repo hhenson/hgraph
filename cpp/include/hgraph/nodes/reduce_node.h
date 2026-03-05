@@ -78,8 +78,6 @@ namespace hgraph {
 
         void add_node_from_view(const value::View &key);
 
-        void remove_node_from_view(const value::View &key);
-
         // Uses View for key iteration from TSD
         void add_nodes_from_views(const std::vector<value::Value> &keys);
 

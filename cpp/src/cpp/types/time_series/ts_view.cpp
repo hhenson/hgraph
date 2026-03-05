@@ -1570,6 +1570,18 @@ void populate_tsd_key_set_delta_cache(TsdKeySetDeltaCacheEntry& cache, const TSV
 
     stable_sort_atomic_keys(cache.added);
     stable_sort_atomic_keys(cache.removed);
+
+    cache.added_lookup.clear();
+    cache.added_lookup.reserve(cache.added.size());
+    for (const auto& key : cache.added) {
+        cache.added_lookup.insert(key.view());
+    }
+
+    cache.removed_lookup.clear();
+    cache.removed_lookup.reserve(cache.removed.size());
+    for (const auto& key : cache.removed) {
+        cache.removed_lookup.insert(key.view());
+    }
 }
 
 TsdKeySetDeltaCacheEntry* tsd_key_set_delta_cache_entry_for_view(const TSView& view) {
@@ -1601,13 +1613,22 @@ std::vector<value::Value> tsd_key_set_delta_keys_uncached(const TSView& view, bo
     return std::move(cache.removed);
 }
 
-bool contains_key_value(const std::vector<value::Value>& keys, const value::View& key);
-
 bool tsd_key_set_delta_contains(const TSView& view, bool added, const value::View& key) {
-    if (const auto* cached = tsd_key_set_delta_keys_cached(view, added); cached != nullptr) {
-        return contains_key_value(*cached, key);
+    if (!key.valid()) {
+        return false;
     }
-    return contains_key_value(tsd_key_set_delta_keys_uncached(view, added), key);
+    if (const auto* cached = tsd_key_set_delta_keys_cached(view, added); cached != nullptr) {
+        const auto* cache = tsd_key_set_delta_cache_entry_for_view(view);
+        if (cache != nullptr) {
+            const auto& lookup = added ? cache->added_lookup : cache->removed_lookup;
+            return lookup.find(key) != lookup.end();
+        }
+        return false;
+    }
+    TsdKeySetDeltaCacheEntry cache{};
+    populate_tsd_key_set_delta_cache(cache, view);
+    const auto& lookup = added ? cache.added_lookup : cache.removed_lookup;
+    return lookup.find(key) != lookup.end();
 }
 
 template <typename Fn>
@@ -1639,21 +1660,6 @@ std::vector<value::Value> tsd_key_set_delta_keys_for_view(const TSView& view, bo
         out.emplace_back(key.view().clone());
     }
     return out;
-}
-
-bool contains_key_value(const std::vector<value::Value>& keys, const value::View& key) {
-    if (!key.valid()) {
-        return false;
-    }
-    for (const auto& candidate : keys) {
-        const value::View candidate_view = candidate.view();
-        if (candidate_view.valid() &&
-            candidate_view.schema() == key.schema() &&
-            candidate_view.equals(key)) {
-            return true;
-        }
-    }
-    return false;
 }
 
 void append_bridge_added_keys_for_view(const TSView& view,

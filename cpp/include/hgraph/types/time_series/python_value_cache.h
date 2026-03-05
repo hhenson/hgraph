@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -75,6 +76,8 @@ struct HGRAPH_EXPORT TsdKeySetDeltaCacheEntry {
     engine_time_t evaluation_time{MIN_DT};
     std::vector<value::Value> added{};
     std::vector<value::Value> removed{};
+    std::unordered_set<value::View> added_lookup{};
+    std::unordered_set<value::View> removed_lookup{};
 
     void clear() {
         value_data = nullptr;
@@ -86,6 +89,8 @@ struct HGRAPH_EXPORT TsdKeySetDeltaCacheEntry {
         evaluation_time = MIN_DT;
         added.clear();
         removed.clear();
+        added_lookup.clear();
+        removed_lookup.clear();
     }
 
     void abandon() {

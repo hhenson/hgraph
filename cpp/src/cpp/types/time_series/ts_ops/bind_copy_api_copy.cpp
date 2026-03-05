@@ -272,7 +272,7 @@ void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
         if (!slot.has_value()) {
             continue;
         }
-        Value canonical_key_value = canonical_map_key_for_slot(dst_map, *slot, key.view());
+        Value canonical_key_value = canonical_map_key_for_slot(dst_map, *slot);
         const View canonical_key = canonical_key_value.view();
 
         ensure_tsd_child_time_slot(dst, *slot);

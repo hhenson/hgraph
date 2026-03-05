@@ -16,7 +16,7 @@ bool op_dict_remove(ViewData& vd, const View& key, engine_time_t current_time) {
     if (!removed_slot.has_value()) {
         return false;
     }
-    Value canonical_key_value = canonical_map_key_for_slot(map, *removed_slot, key);
+    Value canonical_key_value = canonical_map_key_for_slot(map, *removed_slot);
     const View canonical_key = canonical_key_value.view();
     ViewData child_vd = vd;
     child_vd.path.indices.push_back(*removed_slot);
@@ -126,7 +126,7 @@ TSView op_dict_create(ViewData& vd, const View& key, engine_time_t current_time)
 
         Value canonical_key_value = key.clone();
         if (existing_slot.has_value()) {
-            canonical_key_value = canonical_map_key_for_slot(map, *existing_slot, key);
+            canonical_key_value = canonical_map_key_for_slot(map, *existing_slot);
         }
         const View canonical_key = canonical_key_value.view();
 
@@ -187,7 +187,7 @@ TSView op_dict_set(ViewData& vd, const View& key, const View& value, engine_time
     if (!slot.has_value()) {
         return {};
     }
-    Value canonical_key_value = canonical_map_key_for_slot(map, *slot, key);
+    Value canonical_key_value = canonical_map_key_for_slot(map, *slot);
     const View canonical_key = canonical_key_value.view();
 
     ensure_tsd_child_time_slot(vd, *slot);

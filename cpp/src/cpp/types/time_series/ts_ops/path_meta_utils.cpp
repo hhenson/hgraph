@@ -554,11 +554,11 @@ std::optional<Value> map_key_at_slot(const value::MapView& map, size_t slot_inde
     return key.clone();
 }
 
-Value canonical_map_key_for_slot(const value::MapView& map, size_t slot_index, const View& fallback_key) {
+Value canonical_map_key_for_slot(const value::MapView& map, size_t slot_index) {
     if (auto key_value = map_key_at_slot(map, slot_index); key_value.has_value()) {
         return std::move(*key_value);
     }
-    return fallback_key.clone();
+    throw std::runtime_error("canonical_map_key_for_slot: slot has no live key");
 }
 
 namespace {

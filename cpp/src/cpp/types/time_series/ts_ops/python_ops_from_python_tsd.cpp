@@ -204,7 +204,7 @@ void op_from_python_tsd_impl_for_scenario(ViewData& vd,
                     continue;
                 }
 
-                Value canonical_key_value = canonical_map_key_for_slot(dst_map, *removed_slot, key);
+                Value canonical_key_value = canonical_map_key_for_slot(dst_map, *removed_slot);
                 const View canonical_key = canonical_key_value.view();
                 bool removed_was_visible = false;
                 ViewData child_vd = vd;
@@ -264,7 +264,7 @@ void op_from_python_tsd_impl_for_scenario(ViewData& vd,
 
                             auto slot = map_slot_for_key(dst_map, key);
                             if (slot.has_value()) {
-                                Value canonical_key_value = canonical_map_key_for_slot(dst_map, *slot, key);
+                                Value canonical_key_value = canonical_map_key_for_slot(dst_map, *slot);
                                 const View canonical_key = canonical_key_value.view();
                                 ensure_tsd_child_time_slot(vd, *slot);
                                 ensure_tsd_child_delta_slot(vd, *slot);
@@ -299,7 +299,7 @@ void op_from_python_tsd_impl_for_scenario(ViewData& vd,
                 // semantics aligned with Python runtime views.
                 auto slot = map_slot_for_key(dst_map, key);
                 if (slot.has_value()) {
-                    Value canonical_key_value = canonical_map_key_for_slot(dst_map, *slot, key);
+                    Value canonical_key_value = canonical_map_key_for_slot(dst_map, *slot);
                     const View canonical_key = canonical_key_value.view();
                     directly_mutated_slots.push_back(*slot);
                     ensure_tsd_child_time_slot(vd, *slot);
@@ -338,7 +338,7 @@ void op_from_python_tsd_impl_for_scenario(ViewData& vd,
             if (!slot.has_value()) {
                 continue;
             }
-            Value canonical_key_value = canonical_map_key_for_slot(dst_map, *slot, key);
+            Value canonical_key_value = canonical_map_key_for_slot(dst_map, *slot);
             const View canonical_key = canonical_key_value.view();
 
             ensure_tsd_child_time_slot(vd, *slot);

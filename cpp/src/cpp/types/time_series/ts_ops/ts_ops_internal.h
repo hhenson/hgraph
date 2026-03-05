@@ -373,7 +373,7 @@ std::optional<size_t> map_slot_for_key(const value::MapView& map, const View& ke
 bool set_contains_key_relaxed(const value::SetView& set, const View& key);
 bool view_is_set_and_contains_key_relaxed(const View& maybe_set, const View& key);
 std::optional<Value> map_key_at_slot(const value::MapView& map, size_t slot_index);
-Value canonical_map_key_for_slot(const value::MapView& map, size_t slot_index, const View& fallback_key);
+Value canonical_map_key_for_slot(const value::MapView& map, size_t slot_index);
 void mark_tsd_parent_child_modified(ViewData child_vd, engine_time_t current_time);
 bool tss_delta_empty(const TSSDeltaSlots& slots);
 bool tsd_delta_empty(const TSDDeltaSlots& slots);

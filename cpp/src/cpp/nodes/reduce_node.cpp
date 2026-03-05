@@ -382,15 +382,13 @@ namespace hgraph {
             }
         } else {
             add_from_delta_directly = true;
+            removed_keys.reserve(delta_removed_keys.size());
             for (const auto& key : delta_removed_keys) {
-                remove_node_from_view(key.view());
+                removed_keys.push_back(key.view().clone());
             }
+            remove_nodes_from_views(removed_keys);
 
             if (debug_reduce) {
-                removed_keys.reserve(delta_removed_keys.size());
-                for (const auto& key : delta_removed_keys) {
-                    removed_keys.push_back(key.view().clone());
-                }
                 added_keys.reserve(delta_added_keys.size());
                 for (const auto& key : delta_added_keys) {
                     added_keys.push_back(key.view().clone());
@@ -710,55 +708,6 @@ namespace hgraph {
                          free_node_indexes_.size());
         }
         bind_key_to_node(key, ndx);
-    }
-
-    void ReduceNode::remove_node_from_view(const value::View &key) {
-        if (!key.valid()) {
-            return;
-        }
-
-        auto it = bound_node_indexes_.find(key);
-        if (it == bound_node_indexes_.end()) {
-            return;
-        }
-
-        auto ndx = it->second;
-        if (debug_reduce_enabled()) {
-            std::fprintf(stderr,
-                         "[reduce] remove key=%s ndx=(%lld,%lld)\n",
-                         key.to_string().c_str(),
-                         static_cast<long long>(std::get<0>(ndx)),
-                         static_cast<long long>(std::get<1>(ndx)));
-        }
-        bound_node_indexes_.erase(it);
-
-        if (!bound_node_indexes_.empty()) {
-            auto max_it = std::max_element(
-                bound_node_indexes_.begin(), bound_node_indexes_.end(),
-                [](const auto &a, const auto &b) { return a.second < b.second; });
-
-            value::Value max_key = max_it->first.view().clone();
-            auto max_ndx = max_it->second;
-            if (debug_reduce_enabled()) {
-                std::fprintf(stderr,
-                             "[reduce]  max key=%s ndx=(%lld,%lld)\n",
-                             max_key.view().to_string().c_str(),
-                             static_cast<long long>(std::get<0>(max_ndx)),
-                             static_cast<long long>(std::get<1>(max_ndx)));
-            }
-
-            if (max_ndx > ndx) {
-                swap_node(ndx, max_ndx);
-                bound_node_indexes_[std::move(max_key)] = ndx;
-                ndx = max_ndx;
-            }
-        }
-
-        free_node_indexes_.push_back(ndx);
-        zero_node(ndx);
-        if (auto local_it = local_key_values_.find(key); local_it != local_key_values_.end()) {
-            local_key_values_.erase(local_it);
-        }
     }
 
     void ReduceNode::add_nodes_from_views(const std::vector<value::Value> &keys) {
