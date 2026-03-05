@@ -7,6 +7,7 @@
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_view.h>
 
+#include <cassert>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -282,9 +283,14 @@ inline bool for_each_tsd_key_delta(const TSInputView& keys_view,
         value::View added_view = tuple.at(0);
         if (added_view.valid() && added_view.is_set()) {
             for (value::View key : added_view.as_set()) {
-                if (!key.valid() || key.schema() != key_type_meta) {
+                if (!key.valid()) {
                     continue;
                 }
+#ifndef NDEBUG
+                if (key_type_meta != nullptr) {
+                    assert(key.schema() == key_type_meta && "for_each_tsd_key_delta: key schema mismatch");
+                }
+#endif
                 on_added(key);
                 has_delta = true;
             }
@@ -294,9 +300,14 @@ inline bool for_each_tsd_key_delta(const TSInputView& keys_view,
         value::View removed_view = tuple.at(1);
         if (removed_view.valid() && removed_view.is_set()) {
             for (value::View key : removed_view.as_set()) {
-                if (!key.valid() || key.schema() != key_type_meta) {
+                if (!key.valid()) {
                     continue;
                 }
+#ifndef NDEBUG
+                if (key_type_meta != nullptr) {
+                    assert(key.schema() == key_type_meta && "for_each_tsd_key_delta: key schema mismatch");
+                }
+#endif
                 on_removed(key);
                 has_delta = true;
             }
@@ -632,6 +643,11 @@ inline TSView resolve_keyed_view_with_delta_fallback(const value::View& key,
         *outer_key_valid = key_valid;
     }
     if (key_valid) {
+        return outer_key_view;
+    }
+
+    // Delta fallback is only relevant on modified ticks with a delta payload.
+    if (!outer_input.modified() || !outer_input.has_delta() || key_type_meta == nullptr) {
         return outer_key_view;
     }
 

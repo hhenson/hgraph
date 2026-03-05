@@ -14,6 +14,7 @@
 #include <deque>
 #include <memory>
 #include <optional>
+#include <queue>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -799,8 +800,97 @@ namespace hgraph {
             return;
         }
 
+        struct HeapEntry {
+            std::tuple<int64_t, int64_t> ndx;
+            value::Value key;
+        };
+        auto ndx_less = [](const HeapEntry& lhs, const HeapEntry& rhs) {
+            return lhs.ndx < rhs.ndx;
+        };
+
+        // Build one max-heap of bound slots. Stale entries are pruned lazily
+        // against bound_node_indexes_ so we avoid repeated O(n) max scans.
+        std::priority_queue<HeapEntry, std::vector<HeapEntry>, decltype(ndx_less)> max_entries(ndx_less);
+        for (const auto& [bound_key, ndx] : bound_node_indexes_) {
+            max_entries.push(HeapEntry{ndx, bound_key.view().clone()});
+        }
+
+        const auto pop_valid_max = [&]() -> std::optional<HeapEntry> {
+            while (!max_entries.empty()) {
+                const HeapEntry& top = max_entries.top();
+                HeapEntry entry{
+                    top.ndx,
+                    top.key.view().clone(),
+                };
+                max_entries.pop();
+
+                auto it = bound_node_indexes_.find(entry.key.view());
+                if (it != bound_node_indexes_.end() && it->second == entry.ndx) {
+                    return entry;
+                }
+            }
+            return std::nullopt;
+        };
+
+        const bool debug_reduce = debug_reduce_enabled();
         for (const auto &key : keys) {
-            remove_node_from_view(key.view());
+            const value::View key_view = key.view();
+            if (!key_view.valid()) {
+                continue;
+            }
+
+            auto it = bound_node_indexes_.find(key_view);
+            if (it == bound_node_indexes_.end()) {
+                continue;
+            }
+
+            auto ndx = it->second;
+            if (debug_reduce) {
+                std::fprintf(stderr,
+                             "[reduce] remove key=%s ndx=(%lld,%lld)\n",
+                             key_view.to_string().c_str(),
+                             static_cast<long long>(std::get<0>(ndx)),
+                             static_cast<long long>(std::get<1>(ndx)));
+            }
+            bound_node_indexes_.erase(it);
+
+            if (!bound_node_indexes_.empty()) {
+                auto max_entry_opt = pop_valid_max();
+                if (max_entry_opt.has_value()) {
+                    HeapEntry max_entry = std::move(*max_entry_opt);
+                    const auto max_ndx = max_entry.ndx;
+
+                    if (max_ndx > ndx) {
+                        if (debug_reduce) {
+                            std::fprintf(stderr,
+                                         "[reduce]  max key=%s ndx=(%lld,%lld)\n",
+                                         max_entry.key.view().to_string().c_str(),
+                                         static_cast<long long>(std::get<0>(max_ndx)),
+                                         static_cast<long long>(std::get<1>(max_ndx)));
+                        }
+
+                        swap_node(ndx, max_ndx);
+
+                        if (auto moved_it = bound_node_indexes_.find(max_entry.key.view());
+                            moved_it != bound_node_indexes_.end()) {
+                            moved_it->second = ndx;
+                            max_entry.ndx = ndx;
+                        }
+                        ndx = max_ndx;
+                    }
+
+                    if (auto still_it = bound_node_indexes_.find(max_entry.key.view());
+                        still_it != bound_node_indexes_.end() && still_it->second == max_entry.ndx) {
+                        max_entries.push(std::move(max_entry));
+                    }
+                }
+            }
+
+            free_node_indexes_.push_back(ndx);
+            zero_node(ndx);
+            if (auto local_it = local_key_values_.find(key_view); local_it != local_key_values_.end()) {
+                local_key_values_.erase(local_it);
+            }
         }
     }
 

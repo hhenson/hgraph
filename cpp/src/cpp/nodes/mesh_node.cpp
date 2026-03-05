@@ -210,15 +210,23 @@ namespace hgraph {
 
         auto keys_view = hgraph::node_input_field(*this, KEYS_ARG);
         key_set_type current_keys;
-        bool have_current_keys = keys_view && hgraph::collect_tsd_key_set(keys_view, current_keys);
+        bool have_current_keys = false;
+        const auto ensure_current_keys = [&]() -> bool {
+            if (!keys_view || have_current_keys) {
+                return have_current_keys;
+            }
+            have_current_keys = hgraph::collect_tsd_key_set(keys_view, current_keys);
+            return have_current_keys;
+        };
         if (debug_mesh) {
+            const bool dbg_have_current_keys = ensure_current_keys();
             std::fprintf(stderr,
                          "[mesh_eval] node=%lld time=%lld keys_view=%d modified=%d have_current=%d current_size=%zu active=%zu pending=%zu to_remove=%zu\n",
                          static_cast<long long>(node_ndx()),
                          static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
                          keys_view ? 1 : 0,
                          (keys_view && keys_view.modified()) ? 1 : 0,
-                         have_current_keys ? 1 : 0,
+                         dbg_have_current_keys ? 1 : 0,
                          current_keys.size(),
                          active_graphs_.size(),
                          pending_keys_.size(),
@@ -228,6 +236,8 @@ namespace hgraph {
         if (keys_view && keys_view.modified()) {
             size_t added_count = 0;
             size_t removed_count = 0;
+            std::vector<value::Value> delta_added_keys;
+            std::vector<value::Value> delta_removed_keys;
 
             const auto process_added_key = [&](const value::View& key_view) {
                 if (!key_view.valid()) {
@@ -282,10 +292,16 @@ namespace hgraph {
             const bool has_key_delta = hgraph::for_each_tsd_key_delta(
                 keys_view,
                 key_type_meta_,
-                [&](value::View key_view) { process_added_key(key_view); },
-                [&](value::View key_view) { process_removed_key(key_view); });
+                [&](value::View key_view) {
+                    process_added_key(key_view);
+                    delta_added_keys.emplace_back(key_view.clone());
+                },
+                [&](value::View key_view) {
+                    process_removed_key(key_view);
+                    delta_removed_keys.emplace_back(key_view.clone());
+                });
 
-            if (!has_key_delta && have_current_keys) {
+            if ((!has_key_delta || external_keys_.empty()) && ensure_current_keys()) {
                 for (const auto& key : current_keys) {
                     if (external_keys_.find(key.view()) == external_keys_.end()) {
                         process_added_key(key.view());
@@ -298,6 +314,19 @@ namespace hgraph {
                         process_removed_key(key_view);
                     }
                 }
+
+                external_keys_.swap(current_keys);
+            } else if (has_key_delta) {
+                for (const auto& key : delta_added_keys) {
+                    external_keys_.insert(key.view().clone());
+                }
+                for (const auto& key : delta_removed_keys) {
+                    if (auto it = external_keys_.find(key.view()); it != external_keys_.end()) {
+                        external_keys_.erase(it);
+                    }
+                }
+            } else {
+                external_keys_.clear();
             }
 
             if (debug_mesh) {
@@ -309,13 +338,7 @@ namespace hgraph {
                              removed_count,
                              external_keys_.size());
             }
-
-            if (have_current_keys) {
-                external_keys_.swap(current_keys);
-            } else {
-                external_keys_.clear();
-            }
-        } else if (keys_view && active_graphs_.empty() && have_current_keys) {
+        } else if (keys_view && active_graphs_.empty() && ensure_current_keys()) {
             for (const auto& key : current_keys) {
                 if (active_graphs_.find(key.view()) == active_graphs_.end()) {
                     create_new_graph(key.view());
