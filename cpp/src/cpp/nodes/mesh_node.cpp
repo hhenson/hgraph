@@ -191,19 +191,74 @@ namespace hgraph {
         }
 
         if (keys_view && keys_view.modified()) {
-            std::vector<value::Value> added_keys;
-            std::vector<value::Value> removed_keys;
-            const bool has_key_delta = hgraph::extract_tsd_key_delta(keys_view, key_type_meta_, added_keys, removed_keys);
+            size_t added_count = 0;
+            size_t removed_count = 0;
+
+            const auto process_added_key = [&](const value::View& key_view) {
+                if (!key_view.valid()) {
+                    return;
+                }
+                ++added_count;
+                if (debug_mesh) {
+                    std::fprintf(stderr,
+                                 "[mesh_eval] add key=%s exists=%d\n",
+                                 key_repr(key_view, key_type_meta_).c_str(),
+                                 active_graphs_.find(key_view) != active_graphs_.end() ? 1 : 0);
+                }
+                if (active_graphs_.find(key_view) == active_graphs_.end()) {
+                    create_new_graph(key_view);
+                } else {
+                    // External key-set can add a key that is already active as an
+                    // internal dependency. Mark it so the next keyed evaluation
+                    // emits its current value.
+                    mark_key_for_forced_emit(key_view);
+                    schedule_graph(key_view, last_evaluation_time());
+                }
+            };
+
+            const auto process_removed_key = [&](const value::View& key_view) {
+                if (!key_view.valid()) {
+                    return;
+                }
+                ++removed_count;
+                auto deps_it = active_graphs_dependencies_.find(key_view);
+                const bool has_dependencies = deps_it != active_graphs_dependencies_.end() && !deps_it->second.empty();
+                if (debug_mesh) {
+                    std::fprintf(stderr,
+                                 "[mesh_eval] remove key=%s has_deps=%d active=%d\n",
+                                 key_repr(key_view, key_type_meta_).c_str(),
+                                 has_dependencies ? 1 : 0,
+                                 active_graphs_.find(key_view) != active_graphs_.end() ? 1 : 0);
+                }
+                if (has_dependencies) {
+                    return;
+                }
+                if (auto rank_it = active_graphs_rank_.find(key_view); rank_it != active_graphs_rank_.end()) {
+                    if (auto sched_it = scheduled_keys_by_rank_.find(rank_it->second);
+                        sched_it != scheduled_keys_by_rank_.end()) {
+                        if (auto key_it = sched_it->second.find(key_view); key_it != sched_it->second.end()) {
+                            sched_it->second.erase(key_it);
+                        }
+                    }
+                }
+                remove_graph(key_view);
+            };
+
+            const bool has_key_delta = hgraph::for_each_tsd_key_delta(
+                keys_view,
+                key_type_meta_,
+                [&](value::View key_view) { process_added_key(key_view); },
+                [&](value::View key_view) { process_removed_key(key_view); });
 
             if (!has_key_delta && have_current_keys) {
                 for (const auto& key : current_keys) {
                     if (external_keys_.find(key.view()) == external_keys_.end()) {
-                        added_keys.push_back(key.view().clone());
+                        process_added_key(key.view());
                     }
                 }
                 for (const auto& key : external_keys_) {
                     if (current_keys.find(key.view()) == current_keys.end()) {
-                        removed_keys.push_back(key.view().clone());
+                        process_removed_key(key.view());
                     }
                 }
             }
@@ -213,51 +268,9 @@ namespace hgraph {
                              "[mesh_eval] node=%lld has_delta=%d added=%zu removed=%zu external_before=%zu\n",
                              static_cast<long long>(node_ndx()),
                              has_key_delta ? 1 : 0,
-                             added_keys.size(),
-                             removed_keys.size(),
+                             added_count,
+                             removed_count,
                              external_keys_.size());
-            }
-
-            for (const auto& key : added_keys) {
-                if (debug_mesh) {
-                    std::fprintf(stderr,
-                                 "[mesh_eval] add key=%s exists=%d\n",
-                                 key_repr(key.view(), key_type_meta_).c_str(),
-                                 active_graphs_.find(key.view()) != active_graphs_.end() ? 1 : 0);
-                }
-                if (active_graphs_.find(key.view()) == active_graphs_.end()) {
-                    create_new_graph(key.view());
-                } else {
-                    // External key-set can add a key that is already active as an
-                    // internal dependency. Mark it so the next keyed evaluation
-                    // emits its current value.
-                    mark_key_for_forced_emit(key.view());
-                    schedule_graph(key.view(), last_evaluation_time());
-                }
-            }
-
-            for (const auto& key : removed_keys) {
-                auto deps_it = active_graphs_dependencies_.find(key.view());
-                const bool has_dependencies = deps_it != active_graphs_dependencies_.end() && !deps_it->second.empty();
-                if (debug_mesh) {
-                    std::fprintf(stderr,
-                                 "[mesh_eval] remove key=%s has_deps=%d active=%d\n",
-                                 key_repr(key.view(), key_type_meta_).c_str(),
-                                 has_dependencies ? 1 : 0,
-                                 active_graphs_.find(key.view()) != active_graphs_.end() ? 1 : 0);
-                }
-                if (has_dependencies) {
-                    continue;
-                }
-                if (auto rank_it = active_graphs_rank_.find(key.view()); rank_it != active_graphs_rank_.end()) {
-                    if (auto sched_it = scheduled_keys_by_rank_.find(rank_it->second);
-                        sched_it != scheduled_keys_by_rank_.end()) {
-                        if (auto key_it = sched_it->second.find(key.view()); key_it != sched_it->second.end()) {
-                            sched_it->second.erase(key_it);
-                        }
-                    }
-                }
-                remove_graph(key.view());
             }
 
             if (have_current_keys) {

@@ -430,35 +430,23 @@ namespace hgraph
 
                 bool scheduled_from_delta = false;
                 auto schedule_changed_keys = [&](const auto& dict_view) {
-                    std::vector<value::Value> changed_keys;
-                    changed_keys.reserve(dict_view.count());
-                    for (value::View key_view : dict_view.modified_keys()) {
-                        if (!key_view.valid()) {
-                            continue;
-                        }
-                        changed_keys.emplace_back(key_view.clone());
-                    }
-                    if (changed_keys.empty()) {
-                        for (value::View key_view : dict_view.added_keys()) {
+                    const auto schedule_from = [&](auto&& keys_iterable) {
+                        bool any = false;
+                        for (value::View key_view : keys_iterable) {
                             if (!key_view.valid()) {
                                 continue;
                             }
-                            changed_keys.emplace_back(key_view.clone());
+                            schedule_key_now(key_view, now);
+                            any = true;
                         }
-                    }
-                    if (changed_keys.empty()) {
-                        for (value::View key_view : dict_view.removed_keys()) {
-                            if (!key_view.valid()) {
-                                continue;
-                            }
-                            changed_keys.emplace_back(key_view.clone());
-                        }
-                    }
+                        return any;
+                    };
 
-                    for (const auto& key_value : changed_keys) {
-                        schedule_key_now(key_value.view(), now);
+                    if (schedule_from(dict_view.modified_keys()) ||
+                        schedule_from(dict_view.added_keys()) ||
+                        schedule_from(dict_view.removed_keys())) {
+                        scheduled_from_delta = true;
                     }
-                    scheduled_from_delta = !changed_keys.empty();
                 };
 
                 auto schedule_changed_keys_from_raw_delta = [&](const TSView& ts_view) {

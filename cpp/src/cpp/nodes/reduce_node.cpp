@@ -191,25 +191,6 @@ namespace hgraph {
             return has_delta;
         }
 
-        bool collect_tsd_changed_keys(const TSInputView& tsd_input, std::vector<value::Value>& out) {
-            out.clear();
-            if (!tsd_input) {
-                return false;
-            }
-
-            TSView tsd_view = resolve_tsd_input_view(tsd_input);
-            const TSMeta* tsd_meta = unwrap_ref_meta(tsd_view.ts_meta());
-            if (tsd_meta == nullptr || tsd_meta->kind != TSKind::TSD) {
-                return false;
-            }
-            TSDView tsd_dict(tsd_view);
-
-            for (value::View key : tsd_dict.modified_keys()) {
-                out.emplace_back(key.clone());
-            }
-            return true;
-        }
-
     }  // namespace
 
     ReduceNode::ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
@@ -418,14 +399,18 @@ namespace hgraph {
 
         re_balance_nodes();
 
-        std::vector<value::Value> changed_keys;
-        collect_tsd_changed_keys(tsd, changed_keys);
+        TSIterable<value::View> changed_keys;
+        TSView resolved_tsd = resolve_tsd_input_view(tsd);
+        if (const TSMeta* tsd_meta = unwrap_ref_meta(resolved_tsd.ts_meta());
+            tsd_meta != nullptr && tsd_meta->kind == TSKind::TSD) {
+            changed_keys = TSDView(resolved_tsd).modified_keys();
+        }
 
         if (tsd) {
             auto tsd_opt = tsd.try_as_dict();
             if (tsd_opt.has_value()) {
-                for (const auto& changed_key : changed_keys) {
-                    auto bound_it = bound_node_indexes_.find(changed_key.view());
+                for (value::View changed_key : changed_keys) {
+                    auto bound_it = bound_node_indexes_.find(changed_key);
                     if (bound_it == bound_node_indexes_.end()) {
                         continue;
                     }

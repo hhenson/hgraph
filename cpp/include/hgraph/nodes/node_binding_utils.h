@@ -262,21 +262,17 @@ inline std::optional<value::Value> key_value_from_python(const nb::object& key_o
     return key_value;
 }
 
-inline bool extract_tsd_key_delta(const TSInputView& keys_view,
-                                  const value::TypeMeta* key_type_meta,
-                                  std::vector<value::Value>& added_out,
-                                  std::vector<value::Value>& removed_out) {
-    added_out.clear();
-    removed_out.clear();
+template <typename OnAdded, typename OnRemoved>
+inline bool for_each_tsd_key_delta(const TSInputView& keys_view,
+                                   const value::TypeMeta* key_type_meta,
+                                   OnAdded&& on_added,
+                                   OnRemoved&& on_removed) {
     if (key_type_meta == nullptr) {
         return false;
     }
 
     value::View delta = keys_view.delta_value().value();
-    if (!delta.valid()) {
-        return false;
-    }
-    if (!delta.is_tuple()) {
+    if (!delta.valid() || !delta.is_tuple()) {
         return false;
     }
     auto tuple = delta.as_tuple();
@@ -289,7 +285,7 @@ inline bool extract_tsd_key_delta(const TSInputView& keys_view,
                 if (!key.valid() || key.schema() != key_type_meta) {
                     continue;
                 }
-                added_out.emplace_back(key.clone());
+                on_added(key);
                 has_delta = true;
             }
         }
@@ -301,13 +297,26 @@ inline bool extract_tsd_key_delta(const TSInputView& keys_view,
                 if (!key.valid() || key.schema() != key_type_meta) {
                     continue;
                 }
-                removed_out.emplace_back(key.clone());
+                on_removed(key);
                 has_delta = true;
             }
         }
     }
 
     return has_delta;
+}
+
+inline bool extract_tsd_key_delta(const TSInputView& keys_view,
+                                  const value::TypeMeta* key_type_meta,
+                                  std::vector<value::Value>& added_out,
+                                  std::vector<value::Value>& removed_out) {
+    added_out.clear();
+    removed_out.clear();
+    return for_each_tsd_key_delta(
+        keys_view,
+        key_type_meta,
+        [&](value::View key) { added_out.emplace_back(key.clone()); },
+        [&](value::View key) { removed_out.emplace_back(key.clone()); });
 }
 
 inline bool extract_tsd_key_delta_from_tsd(const TSView& tsd_view,
