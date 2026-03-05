@@ -109,6 +109,24 @@ namespace hgraph {
                 return parse_divide_by_zero_mode(nb::cast<nb::object>(scalars["divide_by_zero"]));
             }
 
+            struct CmpResultConstants {
+                nb::object eq;
+                nb::object lt;
+                nb::object gt;
+            };
+
+            inline const CmpResultConstants& cmp_result_constants() {
+                static const CmpResultConstants cached = [] {
+                    const nb::object cmp_result = nb::cast<nb::object>(nb::module_::import_("hgraph").attr("CmpResult"));
+                    return CmpResultConstants{
+                        nb::cast<nb::object>(cmp_result.attr("EQ")),
+                        nb::cast<nb::object>(cmp_result.attr("LT")),
+                        nb::cast<nb::object>(cmp_result.attr("GT")),
+                    };
+                }();
+                return cached;
+            }
+
             template<binary_number_op Op>
             struct BinaryNumberSpec {
                 static void eval(Node& node) {
@@ -335,34 +353,21 @@ namespace hgraph {
         struct CmpScalarsSpec {
             static constexpr const char* py_factory_name = "op_cmp_scalars";
 
-            struct state {
-                nb::object eq;
-                nb::object lt;
-                nb::object gt;
-            };
 
-            static state make_state(Node&) {
-                const nb::object cmp_result = nb::cast<nb::object>(nb::module_::import_("hgraph").attr("CmpResult"));
-                return {
-                    nb::cast<nb::object>(cmp_result.attr("EQ")),
-                    nb::cast<nb::object>(cmp_result.attr("LT")),
-                    nb::cast<nb::object>(cmp_result.attr("GT")),
-                };
-            }
-
-            static void eval(Node& node, state& state) {
+            static void eval(Node& node) {
                 auto bundle = scalar_ops_detail::input_bundle(node);
                 const nb::object lhs = scalar_ops_detail::python_field(bundle, "lhs");
                 const nb::object rhs = scalar_ops_detail::python_field(bundle, "rhs");
+                const auto& constants = scalar_ops_detail::cmp_result_constants();
                 if (scalar_ops_detail::rich_compare_bool(lhs, rhs, Py_EQ)) {
-                    scalar_ops_detail::emit_python(node, state.eq);
+                    scalar_ops_detail::emit_python(node, constants.eq);
                     return;
                 }
                 if (scalar_ops_detail::rich_compare_bool(lhs, rhs, Py_LT)) {
-                    scalar_ops_detail::emit_python(node, state.lt);
+                    scalar_ops_detail::emit_python(node, constants.lt);
                     return;
                 }
-                scalar_ops_detail::emit_python(node, state.gt);
+                scalar_ops_detail::emit_python(node, constants.gt);
             }
         };
     }  // namespace ops

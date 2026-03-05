@@ -30,6 +30,11 @@ namespace hgraph {
             inline void emit_python(Node& node, const nb::object& value) {
                 node.output().from_python(value);
             }
+
+            inline const nb::object& json_class() {
+                static const nb::object json_cls = nb::cast<nb::object>(nb::module_::import_("hgraph").attr("JSON"));
+                return json_cls;
+            }
         }  // namespace access_ops_detail
 
         struct GetattrCsSpec {
@@ -221,7 +226,7 @@ namespace hgraph {
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
                 return {
-                    nb::cast<nb::object>(nb::module_::import_("hgraph").attr("JSON")),
+                    access_ops_detail::json_class(),
                     nb::cast<nb::object>(scalars["key"]),
                 };
             }
@@ -254,7 +259,7 @@ namespace hgraph {
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
                 return {
-                    nb::cast<nb::object>(nb::module_::import_("hgraph").attr("JSON")),
+                    access_ops_detail::json_class(),
                     nb::cast<nb::object>(scalars["key"]),
                 };
             }

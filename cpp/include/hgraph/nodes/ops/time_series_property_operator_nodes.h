@@ -19,6 +19,24 @@ namespace hgraph {
             inline void emit_bool(Node& node, bool value) {
                 node.output().set_value(value::View(&value, value::scalar_type_meta<bool>()));
             }
+
+            struct CmpResultConstants {
+                nb::object eq;
+                nb::object lt;
+                nb::object gt;
+            };
+
+            inline const CmpResultConstants& cmp_result_constants() {
+                static const CmpResultConstants cached = [] {
+                    const nb::object cmp_result = nb::cast<nb::object>(nb::module_::import_("hgraph").attr("CmpResult"));
+                    return CmpResultConstants{
+                        nb::cast<nb::object>(cmp_result.attr("EQ")),
+                        nb::cast<nb::object>(cmp_result.attr("LT")),
+                        nb::cast<nb::object>(cmp_result.attr("GT")),
+                    };
+                }();
+                return cached;
+            }
         }  // namespace ts_property_ops_detail
 
         struct ModifiedImplSpec {
@@ -71,11 +89,11 @@ namespace hgraph {
             };
 
             static state make_state(Node&) {
-                const nb::object cmp_result = nb::cast<nb::object>(nb::module_::import_("hgraph").attr("CmpResult"));
+                const auto& constants = ts_property_ops_detail::cmp_result_constants();
                 return {
-                    nb::cast<nb::object>(cmp_result.attr("EQ")),
-                    nb::cast<nb::object>(cmp_result.attr("LT")),
-                    nb::cast<nb::object>(cmp_result.attr("GT")),
+                    constants.eq,
+                    constants.lt,
+                    constants.gt,
                 };
             }
 
