@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <map>
 #include <set>
+#include <unordered_map>
 
 namespace hgraph
 {
@@ -92,6 +93,8 @@ namespace hgraph
       private:
         void re_rank_impl(const value::View &key, const value::View &depends_on,
                           std::vector<value::View>& re_rank_stack);
+        void rebuild_re_rank_request_index();
+        void erase_re_rank_request(const value::View &key);
 
         std::string                              full_context_path_;
         std::map<int, engine_time_t>             scheduled_ranks_;
@@ -102,6 +105,7 @@ namespace hgraph
         key_set_map_type                         active_graphs_dependencies_;
         key_set_type                             external_keys_;
         std::vector<std::pair<value::Value, value::Value>> re_rank_requests_;
+        std::unordered_map<value::Value, size_t, ValueHash, ValueEqual> re_rank_request_index_;
         key_set_type                             graphs_to_remove_;
         std::optional<int>                       current_eval_rank_;
         std::optional<value::Value>         current_eval_graph_;

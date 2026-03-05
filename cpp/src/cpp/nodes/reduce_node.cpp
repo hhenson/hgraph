@@ -119,10 +119,10 @@ namespace hgraph {
                     ++added_count;
                     has_delta = true;
                 }
-                std::unordered_set<value::Value, ValueHash, ValueEqual> removed_seen;
+                std::unordered_set<value::View> removed_seen;
                 for (value::View key : key_set.removed()) {
                     on_removed(key);
-                    removed_seen.insert(key.clone());
+                    removed_seen.insert(key);
                     ++removed_count;
                     has_delta = true;
                 }
@@ -160,7 +160,7 @@ namespace hgraph {
                                 if (!removed_entry) {
                                     continue;
                                 }
-                                if (removed_seen.insert(key.clone()).second) {
+                                if (removed_seen.insert(key).second) {
                                     on_removed(key);
                                     ++removed_count;
                                     has_delta = true;
@@ -299,6 +299,7 @@ namespace hgraph {
         std::unordered_set<value::Value, ValueHash, ValueEqual> delta_added_keys;
         std::unordered_set<value::Value, ValueHash, ValueEqual> delta_removed_keys;
         bool has_delta_keys = false;
+        bool delta_requires_full_reconcile = false;
         if (!bound_node_indexes_.empty()) {
             has_delta_keys = for_each_tsd_key_delta(
                 tsd,
@@ -306,41 +307,31 @@ namespace hgraph {
                     if (!key.valid()) {
                         return;
                     }
-                    value::Value owned_key = key.clone();
-                    if (delta_removed_keys.find(owned_key) != delta_removed_keys.end()) {
+                    if (bound_node_indexes_.find(key) != bound_node_indexes_.end()) {
+                        delta_requires_full_reconcile = true;
+                    }
+                    if (auto removed_it = delta_removed_keys.find(key); removed_it != delta_removed_keys.end()) {
+                        delta_removed_keys.erase(removed_it);
                         return;
                     }
-                    delta_added_keys.insert(std::move(owned_key));
+                    delta_added_keys.insert(key.clone());
                 },
                 [&](value::View key) {
                     if (!key.valid()) {
                         return;
                     }
-                    value::Value owned_key = key.clone();
-                    if (auto added_it = delta_added_keys.find(owned_key); added_it != delta_added_keys.end()) {
-                        delta_added_keys.erase(added_it);
+                    if (bound_node_indexes_.find(key) == bound_node_indexes_.end()) {
+                        delta_requires_full_reconcile = true;
                     }
-                    delta_removed_keys.insert(std::move(owned_key));
+                    if (auto added_it = delta_added_keys.find(key); added_it != delta_added_keys.end()) {
+                        delta_added_keys.erase(added_it);
+                        return;
+                    }
+                    delta_removed_keys.insert(key.clone());
                 });
         }
 
-        bool use_full_reconcile = bound_node_indexes_.empty() || !has_delta_keys;
-        if (!use_full_reconcile) {
-            for (const auto& key : delta_removed_keys) {
-                if (bound_node_indexes_.find(key.view()) == bound_node_indexes_.end()) {
-                    use_full_reconcile = true;
-                    break;
-                }
-            }
-        }
-        if (!use_full_reconcile) {
-            for (const auto& key : delta_added_keys) {
-                if (bound_node_indexes_.find(key.view()) != bound_node_indexes_.end()) {
-                    use_full_reconcile = true;
-                    break;
-                }
-            }
-        }
+        bool use_full_reconcile = bound_node_indexes_.empty() || !has_delta_keys || delta_requires_full_reconcile;
 
         bool add_from_delta_directly = false;
         bool add_from_snapshot_directly = false;

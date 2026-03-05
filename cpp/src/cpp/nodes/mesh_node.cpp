@@ -11,12 +11,54 @@
 #include <hgraph/types/ref.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <limits>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace hgraph {
+    namespace {
+        [[nodiscard]] bool debug_mesh_keys_enabled() {
+            static const bool enabled = std::getenv("HGRAPH_DEBUG_MESH_KEYS") != nullptr;
+            return enabled;
+        }
+
+        [[nodiscard]] bool debug_mesh_dep_enabled() {
+            static const bool enabled = std::getenv("HGRAPH_DEBUG_MESH_DEP") != nullptr;
+            return enabled;
+        }
+    }  // namespace
+
+    void MeshNode::rebuild_re_rank_request_index() {
+        re_rank_request_index_.clear();
+        re_rank_request_index_.reserve(re_rank_requests_.size());
+        for (size_t i = 0; i < re_rank_requests_.size(); ++i) {
+            re_rank_request_index_.insert_or_assign(re_rank_requests_[i].first.view().clone(), i);
+        }
+    }
+
+    void MeshNode::erase_re_rank_request(const value::View &key) {
+        auto idx_it = re_rank_request_index_.find(key);
+        if (idx_it == re_rank_request_index_.end()) {
+            return;
+        }
+
+        const size_t idx = idx_it->second;
+        const size_t last_idx = re_rank_requests_.size() - 1;
+        if (idx != last_idx) {
+            re_rank_requests_[idx] = std::move(re_rank_requests_[last_idx]);
+            if (auto moved_it = re_rank_request_index_.find(re_rank_requests_[idx].first.view());
+                moved_it != re_rank_request_index_.end()) {
+                moved_it->second = idx;
+            } else {
+                re_rank_request_index_.insert_or_assign(re_rank_requests_[idx].first.view().clone(), idx);
+            }
+        }
+        re_rank_requests_.pop_back();
+        re_rank_request_index_.erase(idx_it);
+    }
+
     MeshNestedEngineEvaluationClock::MeshNestedEngineEvaluationClock(
         EngineEvaluationClock::ptr engine_evaluation_clock,
         value::Value key,
@@ -153,6 +195,7 @@ namespace hgraph {
         active_graphs_dependencies_.clear();
         external_keys_.clear();
         re_rank_requests_.clear();
+        re_rank_request_index_.clear();
         graphs_to_remove_.clear();
         current_eval_rank_.reset();
         current_eval_graph_.reset();
@@ -162,8 +205,8 @@ namespace hgraph {
 
     void MeshNode::eval() {
         mark_evaluated();
-        const bool debug_mesh = std::getenv("HGRAPH_DEBUG_MESH_KEYS") != nullptr;
-        const bool debug_dep = std::getenv("HGRAPH_DEBUG_MESH_DEP") != nullptr;
+        const bool debug_mesh = debug_mesh_keys_enabled();
+        const bool debug_dep = debug_mesh_dep_enabled();
 
         auto keys_view = hgraph::node_input_field(*this, KEYS_ARG);
         key_set_type current_keys;
@@ -336,60 +379,68 @@ namespace hgraph {
                     auto graphs = std::move(graphs_it->second);
                     scheduled_keys_by_rank_.erase(graphs_it);
 
-                    std::vector<std::pair<value::View, engine_time_t>> ordered_graphs;
-                    ordered_graphs.reserve(graphs.size());
+                    struct DueGraph {
+                        uint64_t sequence{std::numeric_limits<uint64_t>::max()};
+                        value::View key{};
+                    };
+
+                    std::vector<DueGraph> due_graphs;
+                    due_graphs.reserve(graphs.size());
+
                     for (const auto& [k, dtg] : graphs) {
-                        ordered_graphs.emplace_back(k.view(), dtg);
+                        if (dtg == dt) {
+                            uint64_t sequence = std::numeric_limits<uint64_t>::max();
+                            if (auto seq_it = active_graphs_sequence_.find(k.view());
+                                seq_it != active_graphs_sequence_.end()) {
+                                sequence = seq_it->second;
+                            }
+                            due_graphs.push_back({sequence, k.view()});
+                            continue;
+                        }
+                        if (dtg != MAX_DT && dtg > last_evaluation_time()) {
+                            schedule_graph(k.view(), dtg);
+                            next_time = std::min(next_time, dtg);
+                        }
                     }
 
-                    auto key_sequence = [&](const value::View& key) {
-                        auto it = active_graphs_sequence_.find(key);
-                        return it != active_graphs_sequence_.end()
-                                   ? it->second
-                                   : std::numeric_limits<uint64_t>::max();
-                    };
                     std::stable_sort(
-                        ordered_graphs.begin(),
-                        ordered_graphs.end(),
-                        [&](const auto& lhs, const auto& rhs) {
-                            return key_sequence(lhs.first) < key_sequence(rhs.first);
-                        });
+                        due_graphs.begin(),
+                        due_graphs.end(),
+                        [](const DueGraph& lhs, const DueGraph& rhs) { return lhs.sequence < rhs.sequence; });
 
-                    for (const auto& [k, dtg] : ordered_graphs) {
-                        engine_time_t next_dtg = dtg;
-                        if (dtg == dt) {
-                            if (auto refresh_it = refresh_before_eval_keys_.find(k);
-                                refresh_it != refresh_before_eval_keys_.end()) {
-                                if (debug_dep) {
-                                    std::fprintf(stderr,
-                                                 "[mesh_dep] refresh_before_eval rank=%d key=%s now=%lld\n",
-                                                 rank,
-                                                 key_repr(k, key_type_meta_).c_str(),
-                                                 static_cast<long long>(last_evaluation_time().time_since_epoch().count()));
-                                }
-                                if (auto graph_it = active_graphs_.find(k);
-                                    graph_it != active_graphs_.end() && graph_it->second) {
-                                    notify_graph_input_nodes(graph_it->second, last_evaluation_time());
-                                    for (const auto& nested_node : graph_it->second->nodes()) {
-                                        if (nested_node) {
-                                            nested_node->notify(last_evaluation_time());
-                                        }
-                                    }
-                                }
-                                refresh_before_eval_keys_.erase(refresh_it);
-                            }
-                            current_eval_graph_ = k.clone();
+                    for (const auto& due_graph : due_graphs) {
+                        const value::View k = due_graph.key;
+                        engine_time_t next_dtg = dt;
+                        if (auto refresh_it = refresh_before_eval_keys_.find(k);
+                            refresh_it != refresh_before_eval_keys_.end()) {
                             if (debug_dep) {
                                 std::fprintf(stderr,
-                                             "[mesh_dep] run rank=%d key=%s due=%lld\n",
+                                             "[mesh_dep] refresh_before_eval rank=%d key=%s now=%lld\n",
                                              rank,
                                              key_repr(k, key_type_meta_).c_str(),
-                                             static_cast<long long>(dtg.time_since_epoch().count()));
+                                             static_cast<long long>(last_evaluation_time().time_since_epoch().count()));
                             }
-                            next_dtg = evaluate_graph(k);
-                            current_eval_graph_.reset();
+                            if (auto graph_it = active_graphs_.find(k);
+                                graph_it != active_graphs_.end() && graph_it->second) {
+                                notify_graph_input_nodes(graph_it->second, last_evaluation_time());
+                                for (const auto& nested_node : graph_it->second->nodes()) {
+                                    if (nested_node) {
+                                        nested_node->notify(last_evaluation_time());
+                                    }
+                                }
+                            }
+                            refresh_before_eval_keys_.erase(refresh_it);
                         }
-
+                        current_eval_graph_ = k.clone();
+                        if (debug_dep) {
+                            std::fprintf(stderr,
+                                         "[mesh_dep] run rank=%d key=%s due=%lld\n",
+                                         rank,
+                                         key_repr(k, key_type_meta_).c_str(),
+                                         static_cast<long long>(dt.time_since_epoch().count()));
+                        }
+                        next_dtg = evaluate_graph(k);
+                        current_eval_graph_.reset();
                         if (next_dtg != MAX_DT && next_dtg > last_evaluation_time()) {
                             schedule_graph(k, next_dtg);
                             next_time = std::min(next_time, next_dtg);
@@ -407,6 +458,7 @@ namespace hgraph {
         if (!re_rank_requests_.empty()) {
             auto requests = std::move(re_rank_requests_);
             re_rank_requests_.clear();
+            re_rank_request_index_.clear();
             for (const auto& [k, d] : requests) {
                 re_rank(k.view(), d.view());
             }
@@ -511,13 +563,7 @@ namespace hgraph {
         if (auto refresh_it = refresh_before_eval_keys_.find(key); refresh_it != refresh_before_eval_keys_.end()) {
             refresh_before_eval_keys_.erase(refresh_it);
         }
-
-        re_rank_requests_.erase(
-            std::remove_if(
-                re_rank_requests_.begin(),
-                re_rank_requests_.end(),
-                [&key](const auto &pair) { return ValueEqual{}(pair.first.view(), key); }),
-            re_rank_requests_.end());
+        erase_re_rank_request(key);
 
         while (max_rank_ > 0) {
             if (auto count_it = active_rank_counts_.find(max_rank_);
@@ -563,8 +609,15 @@ namespace hgraph {
     }
 
     bool MeshNode::add_graph_dependency(const value::View &key, const value::View &depends_on) {
-        const bool debug_dep = std::getenv("HGRAPH_DEBUG_MESH_DEP") != nullptr;
-        active_graphs_dependencies_[depends_on.clone()].insert(key.clone());
+        const bool debug_dep = debug_mesh_dep_enabled();
+        auto deps_it = active_graphs_dependencies_.find(depends_on);
+        if (deps_it == active_graphs_dependencies_.end()) {
+            key_set_type deps;
+            deps.insert(key.clone());
+            deps_it = active_graphs_dependencies_.emplace(depends_on.clone(), std::move(deps)).first;
+        } else if (deps_it->second.find(key) == deps_it->second.end()) {
+            deps_it->second.insert(key.clone());
+        }
         if (debug_dep) {
             std::fprintf(stderr,
                          "[mesh_dep] add key=%s depends_on=%s has_dep_graph=%d key_active=%d\n",
@@ -575,21 +628,23 @@ namespace hgraph {
         }
 
         if (active_graphs_.find(depends_on) == active_graphs_.end()) {
-            pending_keys_.insert(depends_on.clone());
-            if (debug_dep) {
-                std::fprintf(stderr,
-                             "[mesh_dep] pending depends_on=%s now=%lld\n",
-                             key_repr(depends_on, key_type_meta_).c_str(),
-                             static_cast<long long>(last_evaluation_time().time_since_epoch().count()));
+            if (pending_keys_.find(depends_on) == pending_keys_.end()) {
+                pending_keys_.insert(depends_on.clone());
+                if (debug_dep) {
+                    std::fprintf(stderr,
+                                 "[mesh_dep] pending depends_on=%s now=%lld\n",
+                                 key_repr(depends_on, key_type_meta_).c_str(),
+                                 static_cast<long long>(last_evaluation_time().time_since_epoch().count()));
+                }
+                graph()->schedule_node(node_ndx(), last_evaluation_time() + MIN_TD);
             }
-            graph()->schedule_node(node_ndx(), last_evaluation_time() + MIN_TD);
             return false;
         }
         return request_re_rank(key, depends_on);
     }
 
     void MeshNode::remove_graph_dependency(const value::View &key, const value::View &depends_on) {
-        const bool debug_dep = std::getenv("HGRAPH_DEBUG_MESH_DEP") != nullptr;
+        const bool debug_dep = debug_mesh_dep_enabled();
         auto deps_it = active_graphs_dependencies_.find(depends_on);
         if (deps_it == active_graphs_dependencies_.end()) {
             return;
@@ -601,10 +656,13 @@ namespace hgraph {
         if (!deps_it->second.empty()) {
             return;
         }
+        active_graphs_dependencies_.erase(deps_it);
 
         const bool present_in_external_keys = external_keys_.find(depends_on) != external_keys_.end();
         if (!present_in_external_keys) {
-            graphs_to_remove_.insert(depends_on.clone());
+            if (graphs_to_remove_.find(depends_on) == graphs_to_remove_.end()) {
+                graphs_to_remove_.insert(depends_on.clone());
+            }
         }
         if (debug_dep) {
             std::fprintf(stderr,
@@ -617,7 +675,7 @@ namespace hgraph {
     }
 
     bool MeshNode::request_re_rank(const value::View &key, const value::View &depends_on) {
-        const bool debug_dep = std::getenv("HGRAPH_DEBUG_MESH_DEP") != nullptr;
+        const bool debug_dep = debug_mesh_dep_enabled();
         auto key_rank_it = active_graphs_rank_.find(key);
         auto dep_rank_it = active_graphs_rank_.find(depends_on);
         if (key_rank_it == active_graphs_rank_.end() || dep_rank_it == active_graphs_rank_.end()) {
@@ -633,14 +691,36 @@ namespace hgraph {
         }
 
         if (key_rank_it->second <= dep_rank_it->second) {
-            re_rank_requests_.emplace_back(key.clone(), depends_on.clone());
+            bool duplicate_request = false;
+            bool updated_request = false;
+            if (auto req_it = re_rank_request_index_.find(key); req_it != re_rank_request_index_.end()) {
+                auto& existing = re_rank_requests_[req_it->second];
+                duplicate_request = ValueEqual{}(existing.second.view(), depends_on);
+                if (!duplicate_request) {
+                    int existing_dep_rank = std::numeric_limits<int>::min();
+                    if (auto existing_dep_rank_it = active_graphs_rank_.find(existing.second.view());
+                        existing_dep_rank_it != active_graphs_rank_.end()) {
+                        existing_dep_rank = existing_dep_rank_it->second;
+                    }
+                    if (dep_rank_it->second > existing_dep_rank) {
+                        existing.second = depends_on.clone();
+                        updated_request = true;
+                    }
+                }
+            } else {
+                const size_t idx = re_rank_requests_.size();
+                re_rank_requests_.emplace_back(key.clone(), depends_on.clone());
+                re_rank_request_index_.insert_or_assign(key.clone(), idx);
+            }
             if (debug_dep) {
                 std::fprintf(stderr,
-                             "[mesh_dep] request_rerank enqueue key=%s rank=%d dep=%s dep_rank=%d\n",
+                             "[mesh_dep] request_rerank enqueue key=%s rank=%d dep=%s dep_rank=%d duplicate=%d updated=%d\n",
                              key_repr(key, key_type_meta_).c_str(),
                              key_rank_it->second,
                              key_repr(depends_on, key_type_meta_).c_str(),
-                             dep_rank_it->second);
+                             dep_rank_it->second,
+                             duplicate_request ? 1 : 0,
+                             updated_request ? 1 : 0);
             }
             return false;
         }
@@ -662,7 +742,7 @@ namespace hgraph {
     }
 
     void MeshNode::re_rank_impl(const value::View &key, const value::View &depends_on, std::vector<value::View>& re_rank_stack) {
-        const bool debug_dep = std::getenv("HGRAPH_DEBUG_MESH_DEP") != nullptr;
+        const bool debug_dep = debug_mesh_dep_enabled();
         auto key_rank_it = active_graphs_rank_.find(key);
         auto dep_rank_it = active_graphs_rank_.find(depends_on);
         if (key_rank_it == active_graphs_rank_.end() || dep_rank_it == active_graphs_rank_.end()) {
