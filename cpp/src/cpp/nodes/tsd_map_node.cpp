@@ -561,45 +561,51 @@ namespace hgraph
             }
         }
 
+        const engine_time_t now = last_evaluation_time();
+        engine_time_t next_time = MAX_DT;
         std::vector<std::pair<value::Value, engine_time_t>> due_keys;
         for (auto it = scheduled_keys_.begin(); it != scheduled_keys_.end();) {
             const engine_time_t dt = it->second;
-            if (dt < last_evaluation_time()) {
+            if (dt < now) {
                 throw std::runtime_error(
                     fmt::format("Scheduled time is in the past; last evaluation time: {}, scheduled time: {}, evaluation time: {}",
-                                last_evaluation_time(), dt, graph()->evaluation_time()));
+                                now, dt, graph()->evaluation_time()));
             }
 
-            if (dt == last_evaluation_time()) {
-                due_keys.emplace_back(it->first.view().clone(), dt);
-                it = scheduled_keys_.erase(it);
+            if (dt == now) {
+                auto node = scheduled_keys_.extract(it++);
+                due_keys.emplace_back(std::move(node.key()), node.mapped());
                 continue;
             }
 
-            if (dt != MAX_DT && dt > last_evaluation_time()) {
-                graph()->schedule_node(node_ndx(), dt);
+            if (dt != MAX_DT && dt > now) {
+                next_time = std::min(next_time, dt);
             }
             ++it;
         }
 
-        for (const auto &[k, dt] : due_keys) {
+        for (auto& [owned_key, dt] : due_keys) {
+            const value::View key_view = owned_key.view();
             if (debug_tsd_map) {
                 std::fprintf(stderr,
                              "[tsd_map]  run key=%s due=%lld now=%lld\n",
-                             key_repr(k.view(), key_type_meta_).c_str(),
+                             key_repr(key_view, key_type_meta_).c_str(),
                              static_cast<long long>(dt.time_since_epoch().count()),
-                             static_cast<long long>(last_evaluation_time().time_since_epoch().count()));
+                             static_cast<long long>(now.time_since_epoch().count()));
             }
-            const engine_time_t next_dt = evaluate_graph(k.view());
-            if (next_dt != MAX_DT && next_dt > last_evaluation_time()) {
-                auto scheduled_it = scheduled_keys_.find(k.view());
+            const engine_time_t next_dt = evaluate_graph(key_view);
+            if (next_dt != MAX_DT && next_dt > now) {
+                auto scheduled_it = scheduled_keys_.find(key_view);
                 if (scheduled_it == scheduled_keys_.end()) {
-                    scheduled_keys_.emplace(k.view().clone(), next_dt);
+                    scheduled_keys_.emplace(std::move(owned_key), next_dt);
                 } else if (scheduled_it->second > next_dt) {
                     scheduled_it->second = next_dt;
                 }
-                graph()->schedule_node(node_ndx(), next_dt);
+                next_time = std::min(next_time, next_dt);
             }
+        }
+        if (next_time < MAX_DT) {
+            graph()->schedule_node(node_ndx(), next_time);
         }
     }
 
