@@ -401,9 +401,7 @@ namespace hgraph
             if (!key_view.valid()) {
                 return;
             }
-            const value::Value stable_key = key_view.clone();
-            const value::View owned_key_view = stable_key.view();
-            auto active_it = active_graphs_.find(owned_key_view);
+            auto active_it = active_graphs_.find(key_view);
             if (active_it == active_graphs_.end()) {
                 return;
             }
