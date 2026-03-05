@@ -317,26 +317,25 @@ namespace hgraph
                 if (debug_tsd_map) {
                     std::fprintf(stderr, "[tsd_map]  key_remove=%s\n", key_repr(key_view, key_type_meta_).c_str());
                 }
-                if (active_graphs_.find(key_view) != active_graphs_.end()) {
-                    remove_graph(key_view);
-                    if (auto scheduled_it = scheduled_keys_.find(key_view); scheduled_it != scheduled_keys_.end()) {
-                        scheduled_keys_.erase(scheduled_it);
-                    }
-                }
+                remove_graph(key_view);
             };
 
             bool use_full_diff = active_graphs_.empty();
             bool has_key_delta = false;
+            std::vector<value::View> delta_added_keys;
+            std::vector<value::View> delta_removed_keys;
             if (!use_full_diff) {
                 has_key_delta = hgraph::for_each_tsd_key_delta(
                     keys_view,
                     key_type_meta_,
                     [&](value::View key_view) {
+                        delta_added_keys.push_back(key_view);
                         if (!use_full_diff && active_graphs_.find(key_view) != active_graphs_.end()) {
                             use_full_diff = true;
                         }
                     },
                     [&](value::View key_view) {
+                        delta_removed_keys.push_back(key_view);
                         if (!use_full_diff && active_graphs_.find(key_view) == active_graphs_.end()) {
                             use_full_diff = true;
                         }
@@ -371,19 +370,18 @@ namespace hgraph
                     remove_key(removed_key.view());
                 }
             } else {
-                (void)hgraph::for_each_tsd_key_delta(
-                    keys_view,
-                    key_type_meta_,
-                    [&](value::View key_view) { add_key(key_view); },
-                    [&](value::View key_view) { remove_key(key_view); });
+                for (value::View key_view : delta_added_keys) {
+                    add_key(key_view);
+                }
+                for (value::View key_view : delta_removed_keys) {
+                    remove_key(key_view);
+                }
             }
         } else if (keys_view && active_graphs_.empty()) {
             key_set_type current_keys;
             if (hgraph::collect_tsd_key_set(keys_view, current_keys)) {
                 for (const auto &key : current_keys) {
-                    if (active_graphs_.find(key.view()) == active_graphs_.end()) {
-                        create_new_graph(key.view());
-                    }
+                    create_new_graph(key.view());
                 }
             }
         }
@@ -650,6 +648,9 @@ namespace hgraph
         if (auto it = active_graphs_.find(key); it != active_graphs_.end()) {
             auto nested_graph = it->second;
             active_graphs_.erase(it);
+            if (auto scheduled_it = scheduled_keys_.find(key); scheduled_it != scheduled_keys_.end()) {
+                scheduled_keys_.erase(scheduled_it);
+            }
             if (auto pending_it = pending_keys_.find(key); pending_it != pending_keys_.end()) {
                 pending_keys_.erase(pending_it);
             }
