@@ -58,6 +58,8 @@ public:
 
     MapStorage& operator=(MapStorage&& other) noexcept {
         if (this != &other) {
+            destroy_live_values_();
+
             // Unregister old observer
             set_.key_set().remove_observer(&values_);
 
@@ -74,6 +76,8 @@ public:
     }
 
     ~MapStorage() {
+        destroy_live_values_();
+
         // Unregister observer before destruction
         set_.key_set().remove_observer(&values_);
     }
@@ -162,13 +166,9 @@ public:
     }
 
     void clear() {
-        // First destruct all values at live slots
-        if (value_type_ && value_type_->ops().destroy) {
-            for (auto slot : set_.key_set()) {
-                void* val_ptr = const_cast<void*>(values_.value_at_slot(slot));
-                value_type_->ops().destroy(val_ptr, value_type_);
-            }
-        }
+        // First destruct all values at live slots.
+        destroy_live_values_();
+
         // Now clear keys (KeySet::clear will call on_clear)
         set_.key_set().clear();
     }
@@ -214,6 +214,20 @@ public:
     [[nodiscard]] const KeySet& key_set() const { return set_.key_set(); }
 
 private:
+    void destroy_live_values_() {
+        if (!value_type_ || !value_type_->ops().destroy) {
+            return;
+        }
+        for (auto slot : set_.key_set()) {
+            if (!values_.is_constructed_slot(slot)) {
+                continue;
+            }
+            value_type_->ops().destroy(values_.value_at_slot(slot), value_type_);
+            values_.set_constructed_slot(slot, false);
+            values_.set_valid_slot(slot, false);
+        }
+    }
+
     SetStorage set_;           // Key storage (wraps KeySet)
     ValueArray values_;        // Parallel value storage (observes KeySet)
     const TypeMeta* key_type_{nullptr};
