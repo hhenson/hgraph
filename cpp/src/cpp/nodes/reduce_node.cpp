@@ -339,6 +339,7 @@ namespace hgraph {
             }
         }
 
+        bool add_from_delta_directly = false;
         if (use_full_reconcile) {
             const bool got_keys = collect_tsd_keys(tsd, current_keys);
             if (got_keys) {
@@ -403,17 +404,24 @@ namespace hgraph {
                     added_keys.push_back(key.view().clone());
                 }
             }
+            remove_nodes_from_views(removed_keys);
         } else {
-            removed_keys.reserve(delta_removed_keys.size());
+            add_from_delta_directly = true;
             for (const auto& key : delta_removed_keys) {
-                removed_keys.push_back(key.view().clone());
+                remove_node_from_view(key.view());
             }
-            added_keys.reserve(delta_added_keys.size());
-            for (const auto& key : delta_added_keys) {
-                added_keys.push_back(key.view().clone());
+
+            if (debug_reduce) {
+                removed_keys.reserve(delta_removed_keys.size());
+                for (const auto& key : delta_removed_keys) {
+                    removed_keys.push_back(key.view().clone());
+                }
+                added_keys.reserve(delta_added_keys.size());
+                for (const auto& key : delta_added_keys) {
+                    added_keys.push_back(key.view().clone());
+                }
             }
         }
-        remove_nodes_from_views(removed_keys);
 
         if (debug_reduce) {
             auto keys_to_str = [](const std::vector<value::Value>& keys) {
@@ -452,7 +460,13 @@ namespace hgraph {
                          has_delta_keys ? 1 : 0,
                          use_full_reconcile ? 1 : 0);
         }
-        add_nodes_from_views(added_keys);
+        if (add_from_delta_directly) {
+            for (const auto& key : delta_added_keys) {
+                add_node_from_view(key.view());
+            }
+        } else {
+            add_nodes_from_views(added_keys);
+        }
 
         re_balance_nodes();
 
@@ -696,6 +710,82 @@ namespace hgraph {
         return out_node->output();
     }
 
+    void ReduceNode::add_node_from_view(const value::View &key) {
+        if (!key.valid()) {
+            return;
+        }
+        if (bound_node_indexes_.find(key) != bound_node_indexes_.end()) {
+            return;
+        }
+        if (free_node_indexes_.empty()) {
+            grow_tree();
+        }
+        if (free_node_indexes_.empty()) {
+            return;
+        }
+
+        auto ndx = free_node_indexes_.back();
+        free_node_indexes_.pop_back();
+        if (debug_reduce_enabled()) {
+            std::fprintf(stderr,
+                         "[reduce] bind key=%s -> (%lld,%lld) free_after_pop=%zu\n",
+                         key.to_string().c_str(),
+                         static_cast<long long>(std::get<0>(ndx)),
+                         static_cast<long long>(std::get<1>(ndx)),
+                         free_node_indexes_.size());
+        }
+        bind_key_to_node(key, ndx);
+    }
+
+    void ReduceNode::remove_node_from_view(const value::View &key) {
+        if (!key.valid()) {
+            return;
+        }
+
+        auto it = bound_node_indexes_.find(key);
+        if (it == bound_node_indexes_.end()) {
+            return;
+        }
+
+        auto ndx = it->second;
+        if (debug_reduce_enabled()) {
+            std::fprintf(stderr,
+                         "[reduce] remove key=%s ndx=(%lld,%lld)\n",
+                         key.to_string().c_str(),
+                         static_cast<long long>(std::get<0>(ndx)),
+                         static_cast<long long>(std::get<1>(ndx)));
+        }
+        bound_node_indexes_.erase(it);
+
+        if (!bound_node_indexes_.empty()) {
+            auto max_it = std::max_element(
+                bound_node_indexes_.begin(), bound_node_indexes_.end(),
+                [](const auto &a, const auto &b) { return a.second < b.second; });
+
+            value::Value max_key = max_it->first.view().clone();
+            auto max_ndx = max_it->second;
+            if (debug_reduce_enabled()) {
+                std::fprintf(stderr,
+                             "[reduce]  max key=%s ndx=(%lld,%lld)\n",
+                             max_key.view().to_string().c_str(),
+                             static_cast<long long>(std::get<0>(max_ndx)),
+                             static_cast<long long>(std::get<1>(max_ndx)));
+            }
+
+            if (max_ndx > ndx) {
+                swap_node(ndx, max_ndx);
+                bound_node_indexes_[std::move(max_key)] = ndx;
+                ndx = max_ndx;
+            }
+        }
+
+        free_node_indexes_.push_back(ndx);
+        zero_node(ndx);
+        if (auto local_it = local_key_values_.find(key); local_it != local_key_values_.end()) {
+            local_key_values_.erase(local_it);
+        }
+    }
+
     void ReduceNode::add_nodes_from_views(const std::vector<value::Value> &keys) {
         if (keys.empty()) {
             return;
@@ -707,27 +797,7 @@ namespace hgraph {
         }
 
         for (const auto &key : keys) {
-            if (bound_node_indexes_.find(key.view()) != bound_node_indexes_.end()) {
-                continue;
-            }
-            if (free_node_indexes_.empty()) {
-                grow_tree();
-            }
-            if (free_node_indexes_.empty()) {
-                break;
-            }
-
-            auto ndx = free_node_indexes_.back();
-            free_node_indexes_.pop_back();
-            if (debug_reduce) {
-                std::fprintf(stderr,
-                             "[reduce] bind key=%s -> (%lld,%lld) free_after_pop=%zu\n",
-                             key.view().to_string().c_str(),
-                             static_cast<long long>(std::get<0>(ndx)),
-                             static_cast<long long>(std::get<1>(ndx)),
-                             free_node_indexes_.size());
-            }
-            bind_key_to_node(key.view(), ndx);
+            add_node_from_view(key.view());
         }
 
         if (debug_reduce) {
@@ -754,51 +824,9 @@ namespace hgraph {
         if (keys.empty()) {
             return;
         }
-        const bool debug_reduce = debug_reduce_enabled();
 
         for (const auto &key : keys) {
-            auto it = bound_node_indexes_.find(key.view());
-            if (it == bound_node_indexes_.end()) {
-                continue;
-            }
-
-            auto ndx = it->second;
-            if (debug_reduce) {
-                std::fprintf(stderr,
-                             "[reduce] remove key=%s ndx=(%lld,%lld)\n",
-                             key.view().to_string().c_str(),
-                             static_cast<long long>(std::get<0>(ndx)),
-                             static_cast<long long>(std::get<1>(ndx)));
-            }
-            bound_node_indexes_.erase(it);
-
-            if (!bound_node_indexes_.empty()) {
-                auto max_it = std::max_element(
-                    bound_node_indexes_.begin(), bound_node_indexes_.end(),
-                    [](const auto &a, const auto &b) { return a.second < b.second; });
-
-                value::Value max_key = max_it->first.view().clone();
-                auto max_ndx = max_it->second;
-                if (debug_reduce) {
-                    std::fprintf(stderr,
-                                 "[reduce]  max key=%s ndx=(%lld,%lld)\n",
-                                 max_key.view().to_string().c_str(),
-                                 static_cast<long long>(std::get<0>(max_ndx)),
-                                 static_cast<long long>(std::get<1>(max_ndx)));
-                }
-
-                if (max_ndx > ndx) {
-                    swap_node(ndx, max_ndx);
-                    bound_node_indexes_[std::move(max_key)] = ndx;
-                    ndx = max_ndx;
-                }
-            }
-
-            free_node_indexes_.push_back(ndx);
-            zero_node(ndx);
-            if (auto local_it = local_key_values_.find(key.view()); local_it != local_key_values_.end()) {
-                local_key_values_.erase(local_it);
-            }
+            remove_node_from_view(key.view());
         }
     }
 

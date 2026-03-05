@@ -293,12 +293,8 @@ namespace hgraph {
         }
 
         if (!pending_keys_.empty()) {
-            std::vector<value::Value> pending_copy;
-            pending_copy.reserve(pending_keys_.size());
-            for (const auto& k : pending_keys_) {
-                pending_copy.push_back(k.view().clone());
-            }
-            pending_keys_.clear();
+            key_set_type pending_copy;
+            pending_copy.swap(pending_keys_);
 
             for (const auto& k : pending_copy) {
                 if (active_graphs_.find(k.view()) == active_graphs_.end()) {
@@ -318,12 +314,8 @@ namespace hgraph {
                 have_current_keys = hgraph::collect_tsd_key_set(keys_view, current_keys);
             }
 
-            std::vector<value::Value> to_remove;
-            to_remove.reserve(graphs_to_remove_.size());
-            for (const auto& k : graphs_to_remove_) {
-                to_remove.push_back(k.view().clone());
-            }
-            graphs_to_remove_.clear();
+            key_set_type to_remove;
+            to_remove.swap(graphs_to_remove_);
 
             for (const auto& k : to_remove) {
                 auto deps_it = active_graphs_dependencies_.find(k.view());
