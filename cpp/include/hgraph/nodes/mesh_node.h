@@ -97,6 +97,7 @@ namespace hgraph
         std::map<int, engine_time_t>             scheduled_ranks_;
         std::map<int, key_time_map_type>         scheduled_keys_by_rank_;
         key_int_map_type                         active_graphs_rank_;
+        std::unordered_map<int, size_t>          active_rank_counts_;
         key_sequence_map_type                    active_graphs_sequence_;
         key_set_map_type                         active_graphs_dependencies_;
         key_set_type                             external_keys_;

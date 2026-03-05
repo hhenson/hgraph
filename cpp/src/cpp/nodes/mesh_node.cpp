@@ -148,6 +148,7 @@ namespace hgraph {
         scheduled_ranks_.clear();
         scheduled_keys_by_rank_.clear();
         active_graphs_rank_.clear();
+        active_rank_counts_.clear();
         active_graphs_sequence_.clear();
         active_graphs_dependencies_.clear();
         external_keys_.clear();
@@ -454,7 +455,9 @@ namespace hgraph {
         active_graphs_.emplace(key.clone(), graph_);
 
         const int assigned_rank = (rank < 0) ? max_rank_ : rank;
-        active_graphs_rank_.emplace(key.clone(), assigned_rank);
+        if (auto [_, inserted] = active_graphs_rank_.emplace(key.clone(), assigned_rank); inserted) {
+            active_rank_counts_[assigned_rank] += 1;
+        }
         active_graphs_sequence_.emplace(key.clone(), next_graph_sequence_++);
         max_rank_ = std::max(max_rank_, assigned_rank);
 
@@ -477,6 +480,14 @@ namespace hgraph {
         TsdMapNode::remove_graph(key);
 
         if (rank >= 0) {
+            if (auto count_it = active_rank_counts_.find(rank); count_it != active_rank_counts_.end()) {
+                if (count_it->second > 1) {
+                    count_it->second -= 1;
+                } else {
+                    active_rank_counts_.erase(count_it);
+                }
+            }
+
             if (auto it = scheduled_keys_by_rank_.find(rank); it != scheduled_keys_by_rank_.end()) {
                 if (auto key_it = it->second.find(key); key_it != it->second.end()) {
                     it->second.erase(key_it);
@@ -509,16 +520,11 @@ namespace hgraph {
             re_rank_requests_.end());
 
         while (max_rank_ > 0) {
-            bool has_rank = false;
-            for (const auto& [_, r] : active_graphs_rank_) {
-                if (r == max_rank_) {
-                    has_rank = true;
-                    break;
-                }
-            }
-            if (has_rank) {
+            if (auto count_it = active_rank_counts_.find(max_rank_);
+                count_it != active_rank_counts_.end() && count_it->second > 0) {
                 break;
             }
+            active_rank_counts_.erase(max_rank_);
             scheduled_keys_by_rank_.erase(max_rank_);
             scheduled_ranks_.erase(max_rank_);
             max_rank_ -= 1;
@@ -680,7 +686,17 @@ namespace hgraph {
 
         const int new_rank = below + 1;
         max_rank_ = std::max(max_rank_, new_rank);
-        key_rank_it->second = new_rank;
+        if (new_rank != prev_rank) {
+            if (auto count_it = active_rank_counts_.find(prev_rank); count_it != active_rank_counts_.end()) {
+                if (count_it->second > 1) {
+                    count_it->second -= 1;
+                } else {
+                    active_rank_counts_.erase(count_it);
+                }
+            }
+            active_rank_counts_[new_rank] += 1;
+            key_rank_it->second = new_rank;
+        }
         refresh_before_eval_keys_.insert(key.clone());
         if (debug_dep) {
             std::fprintf(stderr,
