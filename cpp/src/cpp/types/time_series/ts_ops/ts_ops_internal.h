@@ -1,5 +1,11 @@
 #pragma once
 
+// On Windows (MSVC), ssize_t is not defined by default
+#if defined(_MSC_VER)
+#include <BaseTsd.h>
+typedef SSIZE_T ssize_t;
+#endif
+
 #include <hgraph/types/time_series/ts_ops.h>
 
 #include <hgraph/types/time_series/link_observer_registry.h>

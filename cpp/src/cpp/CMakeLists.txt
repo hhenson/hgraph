@@ -181,11 +181,13 @@ if (HGRAPH_WITH_BACKWARD AND TARGET Backward::Backward)
 endif ()
 #target_compile_definitions(${PROJECT_NAME} PRIVATE BACKWARD_HAS_BACKTRACE=1)
 
-# Windows: link required debug helper libraries for backward-cpp stack traces
+# Windows: link required debug helper libraries for backward-cpp stack traces and process info
 if (WIN32)
     if (HGRAPH_WITH_BACKWARD)
         target_link_libraries(${PROJECT_NAME} PRIVATE Dbghelp Imagehlp)
     endif ()
+    # Link psapi for GetProcessMemoryInfo used in evaluation_profiler.cpp
+    target_link_libraries(${PROJECT_NAME} PRIVATE psapi)
 endif ()
 
 # Install directive for scikit-build-core

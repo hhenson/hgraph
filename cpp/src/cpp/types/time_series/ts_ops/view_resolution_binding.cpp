@@ -159,7 +159,7 @@ engine_time_t rebind_time_for_view(const ViewData& vd) {
     return out;
 }
 
-bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
+static bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
     return lhs.value_data == rhs.value_data &&
            lhs.time_data == rhs.time_data &&
            lhs.observer_data == rhs.observer_data &&
