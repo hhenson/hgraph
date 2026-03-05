@@ -136,11 +136,12 @@ namespace hgraph {
                     if (tuple.size() > 0) {
                         value::View changed_slot = tuple.at(0);
                         if (changed_slot.valid() && changed_slot.is_map()) {
-                            for (value::View key : changed_slot.as_map().keys()) {
+                            const value::MapView changed_map = changed_slot.as_map();
+                            for (value::View key : changed_map.keys()) {
                                 if (!key.valid()) {
                                     continue;
                                 }
-                                value::View changed_value = changed_slot.as_map().at(key);
+                                value::View changed_value = changed_map.at(key);
                                 bool removed_entry = !changed_value.valid();
                                 if (!removed_entry) {
                                     const auto& ref = *static_cast<const TimeSeriesReference*>(changed_value.data());

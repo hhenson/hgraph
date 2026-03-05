@@ -275,7 +275,7 @@ namespace hgraph {
 
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
-                const std::string attr_name = nb::cast<std::string>(nb::str(scalars["attribute"]));
+                const std::string attr_name = nb::cast<std::string>(nb::cast<nb::object>(scalars["attribute"]));
                 if (attr_name == "year") {
                     return {attr::year};
                 }
@@ -341,7 +341,7 @@ namespace hgraph {
 
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
-                const std::string attr_name = nb::cast<std::string>(nb::str(scalars["attribute"]));
+                const std::string attr_name = nb::cast<std::string>(nb::cast<nb::object>(scalars["attribute"]));
                 if (attr_name == "weekday") {
                     return {method::weekday, {}};
                 }
@@ -405,7 +405,7 @@ namespace hgraph {
 
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
-                const std::string attr_name = nb::cast<std::string>(nb::str(scalars["attribute"]));
+                const std::string attr_name = nb::cast<std::string>(nb::cast<nb::object>(scalars["attribute"]));
                 if (attr_name == "year") {
                     return {attr::year};
                 }
@@ -447,7 +447,7 @@ namespace hgraph {
 
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
-                const std::string attr_name = nb::cast<std::string>(nb::str(scalars["attribute"]));
+                const std::string attr_name = nb::cast<std::string>(nb::cast<nb::object>(scalars["attribute"]));
                 if (attr_name == "weekday") {
                     return {method::weekday};
                 }
@@ -499,7 +499,7 @@ namespace hgraph {
 
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
-                const std::string attr_name = nb::cast<std::string>(nb::str(scalars["attribute"]));
+                const std::string attr_name = nb::cast<std::string>(nb::cast<nb::object>(scalars["attribute"]));
                 if (attr_name == "hour") {
                     return {attr::hour};
                 }
@@ -545,7 +545,7 @@ namespace hgraph {
 
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
-                const std::string attr_name = nb::cast<std::string>(nb::str(scalars["attribute"]));
+                const std::string attr_name = nb::cast<std::string>(nb::cast<nb::object>(scalars["attribute"]));
                 if (attr_name == "isoformat") {
                     return {method::isoformat};
                 }
@@ -599,7 +599,7 @@ namespace hgraph {
 
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
-                const std::string attr_name = nb::cast<std::string>(nb::str(scalars["attribute"]));
+                const std::string attr_name = nb::cast<std::string>(nb::cast<nb::object>(scalars["attribute"]));
                 if (attr_name == "days") {
                     return {attr::days};
                 }

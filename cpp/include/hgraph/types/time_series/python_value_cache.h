@@ -50,6 +50,13 @@ struct HGRAPH_EXPORT KeyedDeltaLookupCacheEntry {
     engine_time_t evaluation_time{MIN_DT};
     std::unordered_map<value::Value, value::Value, ValueHash, ValueEqual> values{};
 
+    KeyedDeltaLookupCacheEntry() = default;
+    KeyedDeltaLookupCacheEntry(const KeyedDeltaLookupCacheEntry&) = delete;
+    KeyedDeltaLookupCacheEntry& operator=(const KeyedDeltaLookupCacheEntry&) = delete;
+    KeyedDeltaLookupCacheEntry(KeyedDeltaLookupCacheEntry&&) noexcept = default;
+    KeyedDeltaLookupCacheEntry& operator=(KeyedDeltaLookupCacheEntry&&) noexcept = default;
+    ~KeyedDeltaLookupCacheEntry() = default;
+
     void clear() {
         value_data = nullptr;
         delta_data = nullptr;
@@ -78,6 +85,13 @@ struct HGRAPH_EXPORT TsdKeySetDeltaCacheEntry {
     std::vector<value::Value> removed{};
     std::unordered_set<value::View> added_lookup{};
     std::unordered_set<value::View> removed_lookup{};
+
+    TsdKeySetDeltaCacheEntry() = default;
+    TsdKeySetDeltaCacheEntry(const TsdKeySetDeltaCacheEntry&) = delete;
+    TsdKeySetDeltaCacheEntry& operator=(const TsdKeySetDeltaCacheEntry&) = delete;
+    TsdKeySetDeltaCacheEntry(TsdKeySetDeltaCacheEntry&&) noexcept = default;
+    TsdKeySetDeltaCacheEntry& operator=(TsdKeySetDeltaCacheEntry&&) noexcept = default;
+    ~TsdKeySetDeltaCacheEntry() = default;
 
     void clear() {
         value_data = nullptr;

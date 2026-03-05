@@ -120,7 +120,7 @@ namespace hgraph {
                 auto bundle = enum_ops_detail::require_input_bundle(node);
                 const nb::object enum_obj = enum_ops_detail::require_enum_field(bundle, "ts");
                 const nb::dict& scalars = node.scalars();
-                const std::string attribute = nb::cast<std::string>(nb::str(scalars["attribute"]));
+                const std::string attribute = nb::cast<std::string>(nb::cast<nb::object>(scalars["attribute"]));
                 if (attribute != "name") {
                     throw std::runtime_error("Cannot get " + attribute + " from TS[Enum]");
                 }

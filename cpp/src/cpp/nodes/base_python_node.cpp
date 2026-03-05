@@ -246,7 +246,7 @@ namespace hgraph
                         return "<none>";
                     }
                     try {
-                        return nb::cast<std::string>(nb::str(obj.attr("__class__").attr("__name__")));
+                        return nb::cast<std::string>(nb::cast<nb::object>(obj.attr("__class__").attr("__name__")));
                     } catch (...) {
                         return "<unknown>";
                     }
@@ -614,7 +614,7 @@ namespace hgraph
                         std::string out_type{"<type_error>"};
                         std::string out_repr{"<repr_error>"};
                         try {
-                            out_type = nb::cast<std::string>(nb::str(out.attr("__class__").attr("__name__")));
+                            out_type = nb::cast<std::string>(nb::cast<nb::object>(out.attr("__class__").attr("__name__")));
                         } catch (...) {}
                         try {
                             out_repr = nb::cast<std::string>(nb::repr(out));

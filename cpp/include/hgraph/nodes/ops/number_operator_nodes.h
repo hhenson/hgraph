@@ -48,7 +48,7 @@ namespace hgraph {
                     return DivideByZeroMode::Error;
                 }
 
-                const std::string name = nb::cast<std::string>(nb::str(mode_obj.attr("name")));
+                const std::string name = nb::cast<std::string>(nb::cast<nb::object>(mode_obj.attr("name")));
                 if (name == "ERROR") {
                     return DivideByZeroMode::Error;
                 }
@@ -98,7 +98,7 @@ namespace hgraph {
                         return true;
                     case DivideByZeroMode::Error:
                     default:
-                        throw std::runtime_error("division by zero");
+                        throw std::runtime_error("ZeroDivisionError: division by zero");
                 }
             }
 
@@ -123,7 +123,7 @@ namespace hgraph {
                     case DivideByZeroMode::Nan:
                     case DivideByZeroMode::Inf:
                     default:
-                        throw std::runtime_error("division by zero");
+                        throw std::runtime_error("ZeroDivisionError: division by zero");
                 }
             }
 
@@ -404,7 +404,7 @@ namespace hgraph {
                             case DivideByZeroMode::Zero:
                             case DivideByZeroMode::One:
                             default:
-                                throw std::runtime_error("division by zero");
+                                throw std::runtime_error("ZeroDivisionError: division by zero");
                         }
                     }
 
@@ -431,7 +431,7 @@ namespace hgraph {
                         if (state.divide_by_zero_mode == DivideByZeroMode::None) {
                             return;
                         }
-                        throw std::runtime_error("division by zero");
+                        throw std::runtime_error("ZeroDivisionError: division by zero");
                     }
 
                     int64_t remainder = lhs_value % rhs_value;
@@ -484,7 +484,7 @@ namespace hgraph {
 
                     if (rhs_value == 0.0) {
                         if (state.divide_by_zero_mode == DivideByZeroMode::Error) {
-                            throw std::runtime_error("division by zero");
+                            throw std::runtime_error("ZeroDivisionError: division by zero");
                         }
                         return;
                     }
@@ -513,7 +513,7 @@ namespace hgraph {
                         if (state.divide_by_zero_mode == DivideByZeroMode::None) {
                             return;
                         }
-                        throw std::runtime_error("division by zero");
+                        throw std::runtime_error("ZeroDivisionError: division by zero");
                     }
 
                     int64_t quotient = lhs_value / rhs_value;

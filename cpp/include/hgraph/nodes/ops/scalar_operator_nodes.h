@@ -78,7 +78,7 @@ namespace hgraph {
                     return DivideByZeroMode::Error;
                 }
 
-                const std::string name = nb::cast<std::string>(nb::str(mode_obj.attr("name")));
+                const std::string name = nb::cast<std::string>(nb::cast<nb::object>(mode_obj.attr("name")));
                 if (name == "ERROR") {
                     return DivideByZeroMode::Error;
                 }

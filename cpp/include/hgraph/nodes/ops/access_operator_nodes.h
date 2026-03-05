@@ -46,7 +46,7 @@ namespace hgraph {
 
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
-                return {nb::cast<std::string>(nb::str(scalars["attr"]))};
+                return {nb::cast<std::string>(nb::cast<nb::object>(scalars["attr"]))};
             }
 
             static void eval(Node& node, state& state) {
@@ -79,7 +79,7 @@ namespace hgraph {
 
             static state make_state(Node& node) {
                 const nb::dict& scalars = node.scalars();
-                return {nb::cast<std::string>(nb::str(scalars["attr"]))};
+                return {nb::cast<std::string>(nb::cast<nb::object>(scalars["attr"]))};
             }
 
             static void eval(Node& node, state& state) {
