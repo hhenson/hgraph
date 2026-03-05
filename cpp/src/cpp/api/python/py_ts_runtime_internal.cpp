@@ -627,7 +627,7 @@ bool set_output_add(TSOutputView& self, const nb::object& elem_obj) {
 }
 
 const nb::object& removed_class() {
-    static nb::object cls = nb::none();
+    static nb::object cls;
     if (!cls.is_valid()) {
         cls = nb::module_::import_("hgraph").attr("Removed");
     }
@@ -882,7 +882,7 @@ private:
         if (request_time != MIN_DT && request_time > current_time) {
             current_time = request_time;
         }
-        const bool debug_tsd_ref = std::getenv("HGRAPH_DEBUG_TSD_REF_OUTPUT") != nullptr;
+        static const bool debug_tsd_ref = std::getenv("HGRAPH_DEBUG_TSD_REF_OUTPUT") != nullptr;
 
         bool changed = !state.has_cached_target;
         if (!changed && state.cached_has_target != target_present) {
