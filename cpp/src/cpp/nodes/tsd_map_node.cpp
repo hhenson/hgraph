@@ -302,71 +302,78 @@ namespace hgraph
 
         auto keys_view = hgraph::node_input_field(*this, KEYS_ARG);
         if (keys_view && keys_view.modified()) {
-            std::vector<value::Value> added_keys;
-            std::vector<value::Value> removed_keys;
-            const bool has_key_delta = hgraph::extract_tsd_key_delta(keys_view, key_type_meta_, added_keys, removed_keys);
-            key_set_type current_keys;
-            const bool have_current_keys = hgraph::collect_tsd_key_set(keys_view, current_keys);
+            const auto add_key = [&](const value::View& key_view) {
+                if (debug_tsd_map) {
+                    std::fprintf(stderr, "[tsd_map]  key_add=%s\n", key_repr(key_view, key_type_meta_).c_str());
+                }
+                if (active_graphs_.find(key_view) == active_graphs_.end()) {
+                    create_new_graph(key_view);
+                }
+            };
+
+            const auto remove_key = [&](const value::View& key_view) {
+                if (debug_tsd_map) {
+                    std::fprintf(stderr, "[tsd_map]  key_remove=%s\n", key_repr(key_view, key_type_meta_).c_str());
+                }
+                if (active_graphs_.find(key_view) != active_graphs_.end()) {
+                    remove_graph(key_view);
+                    if (auto scheduled_it = scheduled_keys_.find(key_view); scheduled_it != scheduled_keys_.end()) {
+                        scheduled_keys_.erase(scheduled_it);
+                    }
+                }
+            };
+
+            bool use_full_diff = active_graphs_.empty();
+            bool has_key_delta = false;
+            if (!use_full_diff) {
+                has_key_delta = hgraph::for_each_tsd_key_delta(
+                    keys_view,
+                    key_type_meta_,
+                    [&](value::View key_view) {
+                        if (!use_full_diff && active_graphs_.find(key_view) != active_graphs_.end()) {
+                            use_full_diff = true;
+                        }
+                    },
+                    [&](value::View key_view) {
+                        if (!use_full_diff && active_graphs_.find(key_view) == active_graphs_.end()) {
+                            use_full_diff = true;
+                        }
+                    });
+            }
+            if (!has_key_delta) {
+                use_full_diff = true;
+            }
 
             // When starting from an empty active set, key deltas alone are
             // insufficient (delta may only include incremental additions).
             // Bootstrap from the full current key snapshot in that case.
-            bool use_full_diff = !has_key_delta || active_graphs_.empty();
-            if (has_key_delta) {
-                for (const auto& key : added_keys) {
-                    if (active_graphs_.find(key.view()) != active_graphs_.end()) {
-                        use_full_diff = true;
-                        break;
-                    }
-                }
-                if (!use_full_diff) {
-                    for (const auto& key : removed_keys) {
-                        if (active_graphs_.find(key.view()) == active_graphs_.end()) {
-                            use_full_diff = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
             if (use_full_diff) {
-                if (!have_current_keys) {
+                key_set_type current_keys;
+                if (!hgraph::collect_tsd_key_set(keys_view, current_keys)) {
                     throw std::runtime_error("TsdMapNode expected set/map value for __keys__");
                 }
 
-                added_keys.clear();
-                removed_keys.clear();
-
                 for (const auto& key : current_keys) {
                     if (active_graphs_.find(key.view()) == active_graphs_.end()) {
-                        added_keys.push_back(key.view().clone());
+                        add_key(key.view());
                     }
                 }
 
-                for (const auto& [key, _] : active_graphs_) {
-                    if (current_keys.find(key.view()) == current_keys.end()) {
-                        removed_keys.push_back(key.view().clone());
+                for (auto it = active_graphs_.begin(); it != active_graphs_.end();) {
+                    if (current_keys.find(it->first.view()) != current_keys.end()) {
+                        ++it;
+                        continue;
                     }
+                    value::Value removed_key = it->first.view().clone();
+                    ++it;
+                    remove_key(removed_key.view());
                 }
-            }
-
-            for (const auto& key : added_keys) {
-                if (debug_tsd_map) {
-                    std::fprintf(stderr, "[tsd_map]  key_add=%s\n", key_repr(key.view(), key_type_meta_).c_str());
-                }
-                if (active_graphs_.find(key.view()) == active_graphs_.end()) {
-                    create_new_graph(key.view());
-                }
-            }
-
-            for (const auto& key : removed_keys) {
-                if (debug_tsd_map) {
-                    std::fprintf(stderr, "[tsd_map]  key_remove=%s\n", key_repr(key.view(), key_type_meta_).c_str());
-                }
-                if (active_graphs_.find(key.view()) != active_graphs_.end()) {
-                    remove_graph(key.view());
-                    scheduled_keys_.erase(key);
-                }
+            } else {
+                (void)hgraph::for_each_tsd_key_delta(
+                    keys_view,
+                    key_type_meta_,
+                    [&](value::View key_view) { add_key(key_view); },
+                    [&](value::View key_view) { remove_key(key_view); });
             }
         } else if (keys_view && active_graphs_.empty()) {
             key_set_type current_keys;

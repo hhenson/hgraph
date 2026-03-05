@@ -91,11 +91,8 @@ namespace hgraph {
             return true;
         }
 
-        bool collect_tsd_key_delta(const TSInputView& tsd_input,
-                                   std::vector<value::Value>& added,
-                                   std::vector<value::Value>& removed) {
-            added.clear();
-            removed.clear();
+        template <typename OnAdded, typename OnRemoved>
+        bool for_each_tsd_key_delta(const TSInputView& tsd_input, OnAdded&& on_added, OnRemoved&& on_removed) {
             if (!tsd_input) {
                 return false;
             }
@@ -114,13 +111,19 @@ namespace hgraph {
             bool has_delta = false;
             if (ref_valued) {
                 const bool debug_reduce = debug_reduce_enabled();
+                size_t added_count = 0;
+                size_t removed_count = 0;
                 auto key_set = tsd_dict.key_set();
                 for (value::View key : key_set.added()) {
-                    added.emplace_back(key.clone());
+                    on_added(key);
+                    ++added_count;
                     has_delta = true;
                 }
+                std::unordered_set<value::Value, ValueHash, ValueEqual> removed_seen;
                 for (value::View key : key_set.removed()) {
-                    removed.emplace_back(key.clone());
+                    on_removed(key);
+                    removed_seen.insert(key.clone());
+                    ++removed_count;
                     has_delta = true;
                 }
 
@@ -132,12 +135,6 @@ namespace hgraph {
                     if (tuple.size() > 0) {
                         value::View changed_slot = tuple.at(0);
                         if (changed_slot.valid() && changed_slot.is_map()) {
-                            std::unordered_set<value::View> removed_seen;
-                            removed_seen.reserve(removed.size());
-                            for (const auto& key : removed) {
-                                removed_seen.insert(key.view());
-                            }
-
                             for (value::View key : changed_slot.as_map().keys()) {
                                 if (!key.valid()) {
                                     continue;
@@ -163,8 +160,9 @@ namespace hgraph {
                                 if (!removed_entry) {
                                     continue;
                                 }
-                                if (removed_seen.insert(key).second) {
-                                    removed.emplace_back(key.clone());
+                                if (removed_seen.insert(key.clone()).second) {
+                                    on_removed(key);
+                                    ++removed_count;
                                     has_delta = true;
                                 }
                             }
@@ -174,17 +172,17 @@ namespace hgraph {
                 if (debug_reduce) {
                     std::fprintf(stderr,
                                  "[reduce] delta ref added=%zu removed=%zu has_delta=%d\n",
-                                 added.size(),
-                                 removed.size(),
+                                 added_count,
+                                 removed_count,
                                  has_delta ? 1 : 0);
                 }
             } else {
                 for (value::View key : tsd_dict.added_keys()) {
-                    added.emplace_back(key.clone());
+                    on_added(key);
                     has_delta = true;
                 }
                 for (value::View key : tsd_dict.removed_keys()) {
-                    removed.emplace_back(key.clone());
+                    on_removed(key);
                     has_delta = true;
                 }
             }
@@ -297,66 +295,123 @@ namespace hgraph {
         TSInputView tsd = ts();
         std::vector<value::Value> added_keys;
         std::vector<value::Value> removed_keys;
-        std::vector<value::Value> delta_added_keys;
-        std::vector<value::Value> delta_removed_keys;
-        const bool has_delta_keys = collect_tsd_key_delta(tsd, delta_added_keys, delta_removed_keys);
         std::vector<value::Value> current_keys;
-        const bool got_keys = collect_tsd_keys(tsd, current_keys);
-        if (got_keys) {
-            std::unordered_set<value::Value, ValueHash, ValueEqual> current_key_set;
-            current_key_set.reserve(current_keys.size());
-            for (const auto& key : current_keys) {
-                current_key_set.insert(key.view().clone());
-            }
-
-            removed_keys.reserve(bound_node_indexes_.size());
-            for (const auto& [bound_key, _] : bound_node_indexes_) {
-                if (current_key_set.find(bound_key) == current_key_set.end()) {
-                    removed_keys.push_back(bound_key.view().clone());
+        std::unordered_set<value::Value, ValueHash, ValueEqual> delta_added_keys;
+        std::unordered_set<value::Value, ValueHash, ValueEqual> delta_removed_keys;
+        const bool has_delta_keys = for_each_tsd_key_delta(
+            tsd,
+            [&](value::View key) {
+                if (!key.valid()) {
+                    return;
                 }
-            }
+                value::Value owned_key = key.clone();
+                if (delta_removed_keys.find(owned_key) != delta_removed_keys.end()) {
+                    return;
+                }
+                delta_added_keys.insert(std::move(owned_key));
+            },
+            [&](value::View key) {
+                if (!key.valid()) {
+                    return;
+                }
+                value::Value owned_key = key.clone();
+                if (auto added_it = delta_added_keys.find(owned_key); added_it != delta_added_keys.end()) {
+                    delta_added_keys.erase(added_it);
+                }
+                delta_removed_keys.insert(std::move(owned_key));
+            });
 
-            added_keys.reserve(current_keys.size());
-            for (const auto& key : current_keys) {
+        bool use_full_reconcile = !has_delta_keys || bound_node_indexes_.empty();
+        if (!use_full_reconcile) {
+            for (const auto& key : delta_removed_keys) {
                 if (bound_node_indexes_.find(key.view()) == bound_node_indexes_.end()) {
-                    added_keys.push_back(key.view().clone());
+                    use_full_reconcile = true;
+                    break;
                 }
             }
-
-            if (has_delta_keys) {
-                std::unordered_set<value::View> removed_seen;
-                removed_seen.reserve(removed_keys.size() + delta_removed_keys.size());
-                for (const auto& key : removed_keys) {
-                    removed_seen.insert(key.view());
+        }
+        if (!use_full_reconcile) {
+            for (const auto& key : delta_added_keys) {
+                if (bound_node_indexes_.find(key.view()) != bound_node_indexes_.end()) {
+                    use_full_reconcile = true;
+                    break;
                 }
-                for (const auto& key : delta_removed_keys) {
-                    if (removed_seen.insert(key.view()).second) {
-                        removed_keys.push_back(key.view().clone());
+            }
+        }
+
+        if (use_full_reconcile) {
+            const bool got_keys = collect_tsd_keys(tsd, current_keys);
+            if (got_keys) {
+                std::unordered_set<value::Value, ValueHash, ValueEqual> current_key_set;
+                current_key_set.reserve(current_keys.size());
+                for (const auto& key : current_keys) {
+                    current_key_set.insert(key.view().clone());
+                }
+
+                removed_keys.reserve(bound_node_indexes_.size());
+                for (const auto& [bound_key, _] : bound_node_indexes_) {
+                    if (current_key_set.find(bound_key) == current_key_set.end()) {
+                        removed_keys.push_back(bound_key.view().clone());
                     }
                 }
 
-                std::unordered_set<value::View> added_seen;
-                added_seen.reserve(added_keys.size() + delta_added_keys.size());
-                for (const auto& key : added_keys) {
-                    added_seen.insert(key.view());
-                }
-                for (const auto& key : delta_added_keys) {
-                    if (added_seen.insert(key.view()).second) {
+                added_keys.reserve(current_keys.size());
+                for (const auto& key : current_keys) {
+                    if (bound_node_indexes_.find(key.view()) == bound_node_indexes_.end()) {
                         added_keys.push_back(key.view().clone());
                     }
                 }
 
-                if (!removed_seen.empty() && !added_keys.empty()) {
-                    auto keep_it = std::remove_if(
-                        added_keys.begin(),
-                        added_keys.end(),
-                        [&](const value::Value& key) { return removed_seen.find(key.view()) != removed_seen.end(); });
-                    added_keys.erase(keep_it, added_keys.end());
+                if (has_delta_keys) {
+                    std::unordered_set<value::View> removed_seen;
+                    removed_seen.reserve(removed_keys.size() + delta_removed_keys.size());
+                    for (const auto& key : removed_keys) {
+                        removed_seen.insert(key.view());
+                    }
+                    for (const auto& key : delta_removed_keys) {
+                        if (removed_seen.insert(key.view()).second) {
+                            removed_keys.push_back(key.view().clone());
+                        }
+                    }
+
+                    std::unordered_set<value::View> added_seen;
+                    added_seen.reserve(added_keys.size() + delta_added_keys.size());
+                    for (const auto& key : added_keys) {
+                        added_seen.insert(key.view());
+                    }
+                    for (const auto& key : delta_added_keys) {
+                        if (added_seen.insert(key.view()).second) {
+                            added_keys.push_back(key.view().clone());
+                        }
+                    }
+
+                    if (!removed_seen.empty() && !added_keys.empty()) {
+                        auto keep_it = std::remove_if(
+                            added_keys.begin(),
+                            added_keys.end(),
+                            [&](const value::Value& key) { return removed_seen.find(key.view()) != removed_seen.end(); });
+                        added_keys.erase(keep_it, added_keys.end());
+                    }
+                }
+            } else {
+                removed_keys.reserve(delta_removed_keys.size());
+                for (const auto& key : delta_removed_keys) {
+                    removed_keys.push_back(key.view().clone());
+                }
+                added_keys.reserve(delta_added_keys.size());
+                for (const auto& key : delta_added_keys) {
+                    added_keys.push_back(key.view().clone());
                 }
             }
         } else {
-            added_keys = std::move(delta_added_keys);
-            removed_keys = std::move(delta_removed_keys);
+            removed_keys.reserve(delta_removed_keys.size());
+            for (const auto& key : delta_removed_keys) {
+                removed_keys.push_back(key.view().clone());
+            }
+            added_keys.reserve(delta_added_keys.size());
+            for (const auto& key : delta_added_keys) {
+                added_keys.push_back(key.view().clone());
+            }
         }
         remove_nodes_from_views(removed_keys);
 
@@ -386,14 +441,16 @@ namespace hgraph {
             }
             bound_out += "]";
             std::fprintf(stderr,
-                         "[reduce] now=%lld current=%s removed=%s added=%s bound=%s free=%zu node_count=%lld\n",
+                         "[reduce] now=%lld current=%s removed=%s added=%s bound=%s free=%zu node_count=%lld delta=%d full=%d\n",
                          static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
                          keys_to_str(current_keys).c_str(),
                          keys_to_str(removed_keys).c_str(),
                          keys_to_str(added_keys).c_str(),
                          bound_out.c_str(),
                          free_node_indexes_.size(),
-                         static_cast<long long>(node_count()));
+                         static_cast<long long>(node_count()),
+                         has_delta_keys ? 1 : 0,
+                         use_full_reconcile ? 1 : 0);
         }
         add_nodes_from_views(added_keys);
 
