@@ -373,10 +373,16 @@ namespace hgraph
                 }
             } else {
                 for (value::View key_view : delta_added_keys) {
-                    add_key(key_view);
+                    if (debug_tsd_map) {
+                        std::fprintf(stderr, "[tsd_map]  key_add=%s\n", key_repr(key_view, key_type_meta_).c_str());
+                    }
+                    create_new_graph(key_view);
                 }
                 for (value::View key_view : delta_removed_keys) {
-                    remove_key(key_view);
+                    if (debug_tsd_map) {
+                        std::fprintf(stderr, "[tsd_map]  key_remove=%s\n", key_repr(key_view, key_type_meta_).c_str());
+                    }
+                    remove_graph(key_view);
                 }
             }
         } else if (keys_view && active_graphs_.empty()) {
