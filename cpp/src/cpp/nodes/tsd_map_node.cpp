@@ -329,16 +329,18 @@ namespace hgraph
                     keys_view,
                     key_type_meta_,
                     [&](value::View key_view) {
-                        delta_added_keys.push_back(key_view);
-                        if (!use_full_diff && active_graphs_.find(key_view) != active_graphs_.end()) {
+                        if (active_graphs_.find(key_view) != active_graphs_.end()) {
                             use_full_diff = true;
+                            return;
                         }
+                        delta_added_keys.push_back(key_view);
                     },
                     [&](value::View key_view) {
-                        delta_removed_keys.push_back(key_view);
-                        if (!use_full_diff && active_graphs_.find(key_view) == active_graphs_.end()) {
+                        if (active_graphs_.find(key_view) == active_graphs_.end()) {
                             use_full_diff = true;
+                            return;
                         }
+                        delta_removed_keys.push_back(key_view);
                     });
             }
             if (!has_key_delta) {
@@ -563,7 +565,7 @@ namespace hgraph
 
         const engine_time_t now = last_evaluation_time();
         engine_time_t next_time = MAX_DT;
-        std::vector<std::pair<value::Value, engine_time_t>> due_keys;
+        std::vector<value::Value> due_keys;
         for (auto it = scheduled_keys_.begin(); it != scheduled_keys_.end();) {
             const engine_time_t dt = it->second;
             if (dt < now) {
@@ -574,7 +576,7 @@ namespace hgraph
 
             if (dt == now) {
                 auto node = scheduled_keys_.extract(it++);
-                due_keys.emplace_back(std::move(node.key()), node.mapped());
+                due_keys.emplace_back(std::move(node.key()));
                 continue;
             }
 
@@ -584,13 +586,13 @@ namespace hgraph
             ++it;
         }
 
-        for (auto& [owned_key, dt] : due_keys) {
+        for (auto& owned_key : due_keys) {
             const value::View key_view = owned_key.view();
             if (debug_tsd_map) {
                 std::fprintf(stderr,
                              "[tsd_map]  run key=%s due=%lld now=%lld\n",
                              key_repr(key_view, key_type_meta_).c_str(),
-                             static_cast<long long>(dt.time_since_epoch().count()),
+                             static_cast<long long>(now.time_since_epoch().count()),
                              static_cast<long long>(now.time_since_epoch().count()));
             }
             const engine_time_t next_dt = evaluate_graph(key_view);
