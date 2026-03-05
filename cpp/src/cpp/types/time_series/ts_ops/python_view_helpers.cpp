@@ -9,7 +9,7 @@
 namespace hgraph {
 namespace {
 
-std::optional<value::View> map_key_for_index(const value::View& map_view, size_t index) {
+[[maybe_unused]] std::optional<value::View> map_key_for_index(const value::View& map_view, size_t index) {
     if (!map_view.valid() || !map_view.is_map()) {
         return std::nullopt;
     }

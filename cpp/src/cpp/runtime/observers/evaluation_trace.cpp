@@ -202,7 +202,7 @@ namespace hgraph {
         }
     }
 
-    void EvaluationTrace::on_after_graph_push_nodes_evaluation(graph_ptr graph) {
+    void EvaluationTrace::on_after_graph_push_nodes_evaluation(graph_ptr /*graph*/) {
         // No-op for now - this would log after push nodes complete
     }
 
@@ -217,7 +217,7 @@ namespace hgraph {
         }
     }
 
-    void EvaluationTrace::on_before_stop_node(node_ptr node) {
+    void EvaluationTrace::on_before_stop_node(node_ptr /*node*/) {
         // No-op as in Python implementation
     }
 

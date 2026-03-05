@@ -8,6 +8,7 @@ option(HGRAPH_ENABLE_ASAN "Enable AddressSanitizer (address + leaks)" OFF)
 option(HGRAPH_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(HGRAPH_ENABLE_TSAN "Enable ThreadSanitizer (mutually exclusive with ASAN/UBSAN)" OFF)
 option(HGRAPH_ENABLE_PY_CACHE_STATS "Enable Python value-cache performance counters" OFF)
+option(HGRAPH_STRICT_WARNINGS "Enable strict compiler warnings for hgraph targets" OFF)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

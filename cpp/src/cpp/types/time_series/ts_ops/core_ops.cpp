@@ -172,7 +172,7 @@ std::optional<bool> valid_from_key_set_source(const ViewData& vd, bool debug_key
     return std::nullopt;
 }
 
-bool valid_from_resolved_slot(const ViewData& vd, const TSMeta* self_meta, bool ref_wrapper_mode) {
+bool valid_from_resolved_slot(const ViewData& vd, const TSMeta* /*self_meta*/, bool ref_wrapper_mode) {
     ViewData resolved{};
     if (!resolve_read_view_data(vd, resolved)) {
         return false;

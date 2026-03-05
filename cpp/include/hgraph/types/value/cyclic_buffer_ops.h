@@ -372,7 +372,7 @@ struct CyclicBufferOps {
      *
      * @throws std::out_of_range if the buffer is empty
      */
-    static void pop(void* obj, const TypeMeta* schema) {
+    static void pop(void* obj, const TypeMeta* /*schema*/) {
         auto* storage = static_cast<CyclicBufferStorage*>(obj);
         if (storage->size == 0) {
             throw std::out_of_range("pop_front on empty CyclicBuffer");
@@ -385,7 +385,7 @@ struct CyclicBufferOps {
     /**
      * @brief Clear all elements from the cyclic buffer.
      */
-    static void clear(void* obj, const TypeMeta* schema) {
+    static void clear(void* obj, const TypeMeta* /*schema*/) {
         auto* storage = static_cast<CyclicBufferStorage*>(obj);
 
         // Reset to empty state (elements remain constructed but are "unused")

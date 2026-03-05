@@ -313,11 +313,27 @@ private:
     }
 
     void move_data_from(TSMeta&& other) noexcept {
-        if (other.kind == TSKind::TSB) {
-            new (&data.tsb) TSBData{std::move(other.data.tsb)};
-        } else {
-            // All other KindData variants are trivially copyable
-            std::memcpy(&data, &other.data, sizeof(KindData));
+        switch (other.kind) {
+            case TSKind::TSD:
+                data.tsd = other.data.tsd;
+                break;
+            case TSKind::TSL:
+                data.tsl = other.data.tsl;
+                break;
+            case TSKind::TSW:
+                data.tsw = other.data.tsw;
+                break;
+            case TSKind::TSB:
+                new (&data.tsb) TSBData{std::move(other.data.tsb)};
+                break;
+            case TSKind::REF:
+                data.ref = other.data.ref;
+                break;
+            case TSKind::TSValue:
+            case TSKind::TSS:
+            case TSKind::SIGNAL:
+                data.empty = EmptyData{};
+                break;
         }
         other.kind = TSKind::SIGNAL;  // Prevent double-destroy of TSBData
     }

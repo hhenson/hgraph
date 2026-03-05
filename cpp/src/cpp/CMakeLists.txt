@@ -166,6 +166,15 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(${PROJECT_NAME} PRIVATE -Wno-tautological-compare)
 endif ()
 
+# Opt-in strict warnings for hgraph sources.
+if (HGRAPH_STRICT_WARNINGS)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(${PROJECT_NAME} PRIVATE -Wextra -Wpedantic -Werror)
+    elseif (MSVC)
+        target_compile_options(${PROJECT_NAME} PRIVATE /W4 /WX)
+    endif ()
+endif ()
+
 # Link Backward only if enabled and available
 if (HGRAPH_WITH_BACKWARD AND TARGET Backward::Backward)
     target_link_libraries(${PROJECT_NAME} PRIVATE Backward::Backward)

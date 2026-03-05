@@ -178,7 +178,7 @@ namespace hgraph {
         return sizeof(*node);
     }
 
-    size_t InspectionObserver::_estimate_value_size(node_ptr node) const {
+    size_t InspectionObserver::_estimate_value_size(node_ptr /*node*/) const {
         if (!_compute_sizes) {
             return 0;
         }
@@ -267,7 +267,7 @@ namespace hgraph {
         }
     }
 
-    void InspectionObserver::on_after_start_graph(graph_ptr graph) {
+    void InspectionObserver::on_after_start_graph(graph_ptr /*graph*/) {
         if (_current_graph->parent_graph) {
             _current_graph = _graphs[_current_graph->parent_graph];
         } else {

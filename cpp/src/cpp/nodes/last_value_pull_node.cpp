@@ -47,7 +47,7 @@ namespace hgraph {
         auto out = output();
         if (!out || out.ts_meta() == nullptr) {
             // Default to simple replacement
-            _delta_combine_fn = [](const nb::object &old_delta, const nb::object &new_delta) {
+            _delta_combine_fn = [](const nb::object & /*old_delta*/, const nb::object &new_delta) {
                 return new_delta;
             };
             return;
@@ -74,7 +74,7 @@ namespace hgraph {
         }
         // Default: simple replacement
         else {
-            _delta_combine_fn = [](const nb::object &old_delta, const nb::object &new_delta) {
+            _delta_combine_fn = [](const nb::object & /*old_delta*/, const nb::object &new_delta) {
                 return new_delta;
             };
         }
