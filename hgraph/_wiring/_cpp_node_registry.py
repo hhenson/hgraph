@@ -7,6 +7,7 @@ from typing import Any
 __all__ = (
     "clear_cpp_node_mappings",
     "derive_cpp_node_id",
+    "get_cpp_node_mappings",
     "list_cpp_node_mappings",
     "lookup_cpp_node_builder",
     "lookup_cpp_node_builder_for_callable",
@@ -20,6 +21,16 @@ __all__ = (
 
 _CPP_NODE_MAPPINGS: dict[str, Any] = {}
 _CPP_NODE_MAPPING_LOCK = RLock()
+
+
+def _clone_mapping_tree(mapping: Mapping[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key, value in mapping.items():
+        if isinstance(value, Mapping):
+            out[key] = _clone_mapping_tree(value)
+        else:
+            out[key] = value
+    return out
 
 
 def _split_cpp_node_id(cpp_node_id: str) -> tuple[str, ...]:
@@ -99,6 +110,11 @@ def _merge_mapping_tree(target: dict[str, Any], incoming: dict[str, Any], path: 
 def clear_cpp_node_mappings() -> None:
     with _CPP_NODE_MAPPING_LOCK:
         _CPP_NODE_MAPPINGS.clear()
+
+
+def get_cpp_node_mappings() -> Mapping[str, Any]:
+    with _CPP_NODE_MAPPING_LOCK:
+        return _clone_mapping_tree(_CPP_NODE_MAPPINGS)
 
 
 def set_cpp_node_mappings(mapping: Mapping[str, Any]) -> None:

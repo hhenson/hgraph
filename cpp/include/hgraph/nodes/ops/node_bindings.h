@@ -6,6 +6,7 @@
 #include <hgraph/nodes/ops/date_time_operator_nodes.h>
 #include <hgraph/nodes/ops/enum_operator_nodes.h>
 #include <hgraph/nodes/ops/flow_control_operator_nodes.h>
+#include <hgraph/nodes/ops/graph_operator_nodes.h>
 #include <hgraph/nodes/ops/number_operator_nodes.h>
 #include <hgraph/nodes/ops/nothing_node.h>
 #include <hgraph/nodes/ops/null_sink_node.h>
@@ -17,6 +18,14 @@
 
 namespace hgraph {
     namespace ops {
+        using graph_operator_node_specs =
+            CppNodeSpecList<
+                AssertDefaultSpec,
+                AssertDefaultTsSpec,
+                PrintSpec,
+                LogSpec,
+                DebugPrintImplSpec>;
+
         using core_node_specs =
             CppNodeSpecList<
                 NothingSpec,
@@ -212,6 +221,7 @@ namespace hgraph {
                 EvaluationTimeInRangeDateTimeSpec>;
 
         using bound_node_specs = CppNodeSpecListConcat_t<
+            graph_operator_node_specs,
             core_node_specs,
             access_node_specs,
             number_node_specs,
