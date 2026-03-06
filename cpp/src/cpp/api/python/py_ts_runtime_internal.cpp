@@ -35,9 +35,24 @@ namespace hgraph {
 namespace {
 
 using value::View;
+using value::ValueKeyHolder;
 
 nb::object view_to_python_or_none(const value::View& view) {
     return view.valid() ? view.to_python() : nb::none();
+}
+
+nb::list fq_path_elements_to_python(const FQPath& path) {
+    nb::list out;
+    for (const auto& elem : path.path) {
+        if (std::holds_alternative<std::string>(elem.element)) {
+            out.append(nb::cast(std::get<std::string>(elem.element)));
+        } else if (std::holds_alternative<size_t>(elem.element)) {
+            out.append(nb::cast(std::get<size_t>(elem.element)));
+        } else {
+            out.append(std::get<ValueKeyHolder>(elem.element).view().to_python());
+        }
+    }
+    return out;
 }
 
 enum class LinkPathMetaRole {
@@ -1654,6 +1669,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
     auto ts_view_cls = nb::class_<TSView>(test_mod, "TSView")
         .def("__bool__", [](const TSView& self) { return static_cast<bool>(self); })
         .def("fq_path_str", [](const TSView& self) { return self.fq_path().to_string(); })
+        .def("fq_path_elements", [](const TSView& self) { return fq_path_elements_to_python(self.fq_path()); })
         .def("short_indices", [](const TSView& self) { return self.short_path().indices; })
         .def("at", [](const TSView& self, size_t index) { return self.child_at(index); }, "index"_a, nb::keep_alive<0, 1>())
         .def("field", [](const TSView& self, std::string_view name) { return self.child_by_name(name); }, "name"_a, nb::keep_alive<0, 1>())
@@ -1812,6 +1828,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             return dict_contains_python_key(self.as_ts_view(), key);
         }, "key"_a)
         .def("fq_path_str", [](const TSOutputView& self) { return self.fq_path().to_string(); })
+        .def("fq_path_elements", [](const TSOutputView& self) { return fq_path_elements_to_python(self.fq_path()); })
         .def("short_indices", [](const TSOutputView& self) { return self.short_path().indices; })
         .def("set_value", &TSOutputView::set_value, "value"_a)
         .def("to_python", [](const TSOutputView& self) { return self.to_python(); })
@@ -2232,6 +2249,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
             return dict_contains_python_key(self.as_ts_view(), key);
         }, "key"_a)
         .def("fq_path_str", [](const TSInputView& self) { return self.fq_path().to_string(); })
+        .def("fq_path_elements", [](const TSInputView& self) { return fq_path_elements_to_python(self.fq_path()); })
         .def("short_indices", [](const TSInputView& self) { return self.short_path().indices; })
         .def("bind", &TSInputView::bind, "output"_a)
         .def("bind_output", &TSInputView::bind, "output"_a)

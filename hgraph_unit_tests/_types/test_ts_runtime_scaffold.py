@@ -205,6 +205,29 @@ def test_output_fq_path_tsd_uses_key_when_value_present():
     alpha_key = next(k for k in map_value.as_map().keys() if k.as_string() == "alpha")
     first_child = dict_view.at_key(alpha_key)
     assert first_child.fq_path_str().endswith(":out/1/alpha")
+    assert first_child.fq_path_elements() == [1, "alpha"]
+
+
+def test_output_fq_path_tsd_preserves_typed_non_string_key():
+    ts_int = _ts_int_meta()
+    key_type = value.scalar_type_meta_int64()
+    tsd_meta = _tsd_meta(key_type, ts_int)
+
+    output = runtime.TSOutput(tsd_meta, 8)
+    root = output.output_view()
+
+    map_value = value.Value(tsd_meta.value_type, {42: 7})
+    root.set_value(map_value.view())
+    dict_view = root.as_dict()
+
+    int_key = next(k for k in map_value.as_map().keys() if k.as_int() == 42)
+    child = dict_view.at_key(int_key)
+    elements = child.fq_path_elements()
+
+    assert child.fq_path_str().endswith(":out/8/42")
+    assert elements == [8, 42]
+    assert isinstance(elements[-1], int)
+    assert not isinstance(elements[-1], str)
 
 
 def test_output_fq_path_tsd_create_uses_key_path():

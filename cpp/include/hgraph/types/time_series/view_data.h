@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/value/path.h>
 
 #include <cstdint>
 #include <string>
@@ -57,7 +58,8 @@ enum class DeltaSemantics : uint8_t {
  * Fully-qualified path element.
  */
 struct FQPathElement {
-    using element_type = std::variant<std::string, size_t>;
+    // Preserve TSD keys as typed value payloads (no stringification).
+    using element_type = std::variant<std::string, size_t, value::ValueKeyHolder>;
 
     element_type element{};
 
@@ -67,6 +69,10 @@ struct FQPathElement {
 
     static FQPathElement index(size_t index) {
         return FQPathElement{index};
+    }
+
+    static FQPathElement key(value::View key_view) {
+        return FQPathElement{value::ValueKeyHolder::from_view(key_view)};
     }
 
     [[nodiscard]] std::string to_string() const;

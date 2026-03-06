@@ -96,23 +96,16 @@ std::optional<View> child_value_by_index(const View& view, size_t index) {
     return std::nullopt;
 }
 
-std::string key_to_path_string(const View& key) {
-    if (!key.valid()) {
-        return {};
-    }
-    if (key.is_scalar_type<std::string>()) {
-        return key.as<std::string>();
-    }
-    return key.to_string();
-}
-
 }  // namespace
 
 std::string FQPathElement::to_string() const {
     if (std::holds_alternative<std::string>(element)) {
         return std::get<std::string>(element);
     }
-    return std::to_string(std::get<size_t>(element));
+    if (std::holds_alternative<size_t>(element)) {
+        return std::to_string(std::get<size_t>(element));
+    }
+    return std::get<value::ValueKeyHolder>(element).view().to_string();
 }
 
 std::string FQPath::to_string() const {
@@ -182,7 +175,7 @@ FQPath ShortPath::to_fq(const ViewData& root) const {
             } else if (meta->kind == TSKind::TSD && current_value.has_value()) {
                 map_key = map_key_for_index(*current_value, index);
                 if (map_key.has_value()) {
-                    out.path.emplace_back(FQPathElement::field(key_to_path_string(*map_key)));
+                    out.path.emplace_back(FQPathElement::key(*map_key));
                     converted = true;
                 }
             }
