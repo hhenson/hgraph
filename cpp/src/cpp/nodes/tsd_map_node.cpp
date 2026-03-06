@@ -281,7 +281,6 @@ namespace hgraph
         active_graphs_.clear();
         scheduled_keys_.clear();
         pending_keys_.clear();
-        local_input_values_.clear();
         force_emit_keys_.clear();
         mux_delta_hints_.clear();
     }
@@ -615,12 +614,6 @@ namespace hgraph
             if (auto emit_it = force_emit_keys_.find(key); emit_it != force_emit_keys_.end()) {
                 force_emit_keys_.erase(emit_it);
             }
-            for (auto& [_, values] : local_input_values_) {
-                if (auto value_it = values.find(key); value_it != values.end()) {
-                    values.erase(value_it);
-                }
-            }
-
             un_wire_graph(key, nested_graph);
 
             auto builder = nested_graph_builder_;
@@ -928,25 +921,15 @@ namespace hgraph
         }
     }
 
-    TSView TsdMapNode::resolve_multiplexed_outer_value(const std::string& arg,
-                                                       const value::View& key,
+    TSView TsdMapNode::resolve_multiplexed_outer_value(const value::View& key,
                                                        const TSInputView& outer_arg,
-                                                       const TSInputView& inner_ts,
-                                                       bool* used_local_fallback,
                                                        bool* has_outer_key,
-                                                       bool* outer_key_valid,
-                                                       int* stage_id) {
+                                                       bool* outer_key_valid) {
         if (has_outer_key != nullptr) {
             *has_outer_key = false;
         }
         if (outer_key_valid != nullptr) {
             *outer_key_valid = false;
-        }
-        if (used_local_fallback != nullptr) {
-            *used_local_fallback = false;
-        }
-        if (stage_id != nullptr) {
-            *stage_id = 1;
         }
 
         TSView direct = resolve_outer_key_view(outer_arg.as_ts_view(), key);
@@ -963,30 +946,17 @@ namespace hgraph
         }
 
         // Python parity: map_ over multiplexed TSD inputs uses get_or_create(key)
-        // and returns an existing-but-invalid keyed child when the source map does
-        // not currently carry that key.
+        // and returns an existing keyed child that may still be invalid/unset.
         if (!has_direct) {
-            const TSMeta* inner_meta = inner_ts.ts_meta();
-            const TSMeta* staged_meta =
-                (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
-            if (staged_meta != nullptr) {
-                if (stage_id != nullptr) {
-                    *stage_id = 2;
-                }
-                auto& local_values = local_input_values_[arg];
-                auto it = local_values.find(key);
-                if (it == local_values.end()) {
-                    auto [inserted_it, _] = local_values.emplace(key.clone(), std::make_unique<TSValue>(staged_meta));
-                    it = inserted_it;
-                }
-                TSView staged = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
+            if (auto outer_dict = outer_arg.try_as_dict(); outer_dict.has_value()) {
+                TSInputView staged = outer_dict->get_or_create(key);
                 if (has_outer_key != nullptr) {
-                    *has_outer_key = true;
+                    *has_outer_key = static_cast<bool>(staged);
                 }
                 if (outer_key_valid != nullptr) {
                     *outer_key_valid = staged.valid();
                 }
-                return staged;
+                return staged.as_ts_view();
             }
             return {};
         }
@@ -1040,8 +1010,7 @@ namespace hgraph
             }
 
             if (multiplexed_args_.find(arg) != multiplexed_args_.end()) {
-                bool used_local_fallback = false;
-                TSView outer_key_value = resolve_multiplexed_outer_value(arg, key, outer_arg, inner_ts, &used_local_fallback);
+                TSView outer_key_value = resolve_multiplexed_outer_value(key, outer_arg);
                 if (debug_tsd_map) {
                     std::string outer_key_value_py{"<none>"};
                     try {
@@ -1056,7 +1025,7 @@ namespace hgraph
                                  static_cast<int>(inner_ts.as_ts_view().kind()),
                                  outer_key_value.valid() ? 1 : 0,
                                  outer_key_value.modified() ? 1 : 0,
-                                 used_local_fallback ? 1 : 0,
+                                 0,
                                  outer_key_value_py.c_str());
                 }
                 hgraph::bind_inner_from_outer(outer_key_value, inner_ts, RefBindOrder::BoundTargetThenRefValue);
@@ -1111,13 +1080,11 @@ namespace hgraph
                 continue;
             }
 
-            int stage_id = 1;
             try {
                 bool has_outer_key = false;
                 bool outer_key_valid = false;
                 TSView outer_key_value =
-                    resolve_multiplexed_outer_value(arg, key, outer_arg, inner_ts, nullptr, &has_outer_key,
-                                                    &outer_key_valid, &stage_id);
+                    resolve_multiplexed_outer_value(key, outer_arg, &has_outer_key, &outer_key_valid);
                 const bool key_removed_this_tick = !has_outer_key && inner_ts.is_bound();
                 if (key_removed_this_tick) {
                     inner_ts.unbind();
@@ -1166,7 +1133,6 @@ namespace hgraph
                                  key_value_modified ? 1 : 0,
                                  key_removed_this_tick ? 1 : 0);
                 }
-                stage_id = 5;
                 if (!inner_ts.is_bound() || key_value_modified || binding_targets.binding_changed) {
                     hgraph::bind_inner_from_outer(outer_key_value, inner_ts, RefBindOrder::BoundTargetThenRefValue);
                 }
@@ -1181,17 +1147,15 @@ namespace hgraph
                                  inner_ts.as_ts_view().modified() ? 1 : 0,
                                  static_cast<long long>(inner_ts.as_ts_view().last_modified_time().time_since_epoch().count()));
                 }
-                stage_id = 6;
                 if (key_value_modified || binding_targets.binding_changed) {
                     node->notify();
                 }
             } catch (const std::exception& e) {
                 if (debug_tsd_map_bind_enabled()) {
                     std::fprintf(stderr,
-                                 "[tsd_map_bind] refresh exception arg=%s key=%s stage_id=%d what=%s\n",
+                                 "[tsd_map_bind] refresh exception arg=%s key=%s what=%s\n",
                                  arg.c_str(),
                                  key_repr(key, key_type_meta_).c_str(),
-                                 stage_id,
                                  e.what());
                 }
                 throw;

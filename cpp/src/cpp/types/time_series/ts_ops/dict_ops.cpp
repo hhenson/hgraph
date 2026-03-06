@@ -99,16 +99,15 @@ TSView op_dict_create(ViewData& vd, const View& key, engine_time_t current_time)
     clear_tsd_delta_if_new_tick(vd, current_time, slots);
 
     if (!existing_slot.has_value()) {
-        const value::TypeMeta* value_type = map.value_type();
-        if (value_type == nullptr) {
+        auto* storage = static_cast<value::MapStorage*>(map.data());
+        if (storage == nullptr) {
             if (debug_create) {
-                std::fprintf(stderr, "[op_dict_create] value_type null\n");
+                std::fprintf(stderr, "[op_dict_create] map storage null\n");
             }
             return {};
         }
-        value::Value default_value(value_type);
-        default_value.emplace();
-        map.set(key, default_value.view());
+        // Python parity: create key membership without materializing a valid child payload.
+        storage->set_item(key.data(), nullptr);
         existing_slot = map_slot_for_key(map, key);
         if (debug_create) {
             std::fprintf(stderr,
