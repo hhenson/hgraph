@@ -753,6 +753,14 @@ namespace hgraph {
         }
 
         const bool debug_reduce = debug_reduce_enabled();
+        std::unordered_set<value::Value, ValueHash, ValueEqual> keys_to_remove;
+        keys_to_remove.reserve(keys.size());
+        for (const auto& key : keys) {
+            if (const auto key_view = key.view(); key_view.valid()) {
+                keys_to_remove.insert(key_view.clone());
+            }
+        }
+
         for (const auto &key : keys) {
             const value::View key_view = key.view();
             if (!key_view.valid()) {
@@ -776,27 +784,30 @@ namespace hgraph {
 
             // Keep active nodes left-packed before possible shrink, matching Python reduce behavior.
             if (!bound_node_indexes_.empty()) {
-                auto next_largest_it = std::max_element(
-                    bound_node_indexes_.begin(),
-                    bound_node_indexes_.end(),
-                    [](const auto& lhs, const auto& rhs) {
-                        return lhs.second < rhs.second;
-                    });
+                auto next_largest_it = bound_node_indexes_.end();
+                for (auto it2 = bound_node_indexes_.begin(); it2 != bound_node_indexes_.end(); ++it2) {
+                    // Only move survivors. Keys removed in this same tick should not be re-bound.
+                    if (keys_to_remove.find(it2->first.view()) != keys_to_remove.end()) {
+                        continue;
+                    }
+                    if (next_largest_it == bound_node_indexes_.end() || next_largest_it->second < it2->second) {
+                        next_largest_it = it2;
+                    }
+                }
 
-                if (next_largest_it != bound_node_indexes_.end() &&
-                    std::get<0>(next_largest_it->second) > std::get<0>(ndx)) {
+                if (next_largest_it != bound_node_indexes_.end() && next_largest_it->second > ndx) {
+                    value::Value moved_key = next_largest_it->first.view().clone();
                     const auto dst_ndx = next_largest_it->second;
                     if (debug_reduce) {
                         std::fprintf(stderr,
                                      "[reduce] compact move key=%s from=(%lld,%lld) to=(%lld,%lld)\n",
-                                     next_largest_it->first.view().to_string().c_str(),
+                                     moved_key.view().to_string().c_str(),
                                      static_cast<long long>(std::get<0>(dst_ndx)),
                                      static_cast<long long>(std::get<1>(dst_ndx)),
                                      static_cast<long long>(std::get<0>(ndx)),
                                      static_cast<long long>(std::get<1>(ndx)));
                     }
-                    swap_node(ndx, dst_ndx);
-                    next_largest_it->second = ndx;
+                    bind_key_to_node(moved_key.view(), ndx);
                     ndx = dst_ndx;
                 }
             }
@@ -958,10 +969,13 @@ namespace hgraph {
             return;
         }
 
+        // Ensure we do not retain stale observers from a previous key binding
+        // when this slot is reused during compaction.
+        inner_ts.unbind();
+
         auto tsd = ts();
         auto tsd_opt = tsd.try_as_dict();
         if (!tsd_opt.has_value()) {
-            inner_ts.unbind();
             node->notify(node_time(*this));
             return;
         }
