@@ -934,20 +934,62 @@ namespace hgraph
                                                        bool* has_outer_key,
                                                        bool* outer_key_valid,
                                                        int* stage_id) {
-        return hgraph::resolve_keyed_view_with_delta_fallback(
-            key,
-            outer_arg,
-            inner_ts,
-            key_type_meta_,
-            [](const TSInputView& outer_input, const value::View& outer_key) {
-                return resolve_outer_key_view(outer_input.as_ts_view(), outer_key);
-            },
-            [&]() -> key_value_map_type& { return local_input_values_[arg]; },
-            has_outer_key,
-            outer_key_valid,
-            used_local_fallback,
-            nullptr,
-            stage_id);
+        if (has_outer_key != nullptr) {
+            *has_outer_key = false;
+        }
+        if (outer_key_valid != nullptr) {
+            *outer_key_valid = false;
+        }
+        if (used_local_fallback != nullptr) {
+            *used_local_fallback = false;
+        }
+        if (stage_id != nullptr) {
+            *stage_id = 1;
+        }
+
+        TSView direct = resolve_outer_key_view(outer_arg.as_ts_view(), key);
+        const bool has_direct = static_cast<bool>(direct);
+        const bool direct_valid = has_direct && direct.valid();
+        if (has_outer_key != nullptr) {
+            *has_outer_key = has_direct;
+        }
+        if (outer_key_valid != nullptr) {
+            *outer_key_valid = direct_valid;
+        }
+        if (direct_valid) {
+            return direct;
+        }
+
+        // Python parity: map_ over multiplexed TSD inputs uses get_or_create(key)
+        // and returns an existing-but-invalid keyed child when the source map does
+        // not currently carry that key.
+        if (!has_direct) {
+            const TSMeta* inner_meta = inner_ts.ts_meta();
+            const TSMeta* staged_meta =
+                (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
+            if (staged_meta != nullptr) {
+                if (stage_id != nullptr) {
+                    *stage_id = 2;
+                }
+                auto& local_values = local_input_values_[arg];
+                auto it = local_values.find(key);
+                if (it == local_values.end()) {
+                    auto [inserted_it, _] = local_values.emplace(key.clone(), std::make_unique<TSValue>(staged_meta));
+                    it = inserted_it;
+                }
+                TSView staged = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
+                if (has_outer_key != nullptr) {
+                    *has_outer_key = true;
+                }
+                if (outer_key_valid != nullptr) {
+                    *outer_key_valid = staged.valid();
+                }
+                return staged;
+            }
+            return {};
+        }
+
+        return direct;
     }
 
     void TsdMapNode::wire_graph(const value::View &key, graph_s_ptr &graph) {
