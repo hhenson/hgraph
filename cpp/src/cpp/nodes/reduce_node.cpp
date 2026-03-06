@@ -73,14 +73,6 @@ namespace hgraph {
                     }
                     out.emplace_back(key.clone());
                 }
-                std::sort(out.begin(), out.end(), [](const value::Value& lhs, const value::Value& rhs) {
-                    const auto lhs_hash = lhs.view().hash();
-                    const auto rhs_hash = rhs.view().hash();
-                    if (lhs_hash != rhs_hash) {
-                        return lhs_hash < rhs_hash;
-                    }
-                    return lhs.view().to_string() < rhs.view().to_string();
-                });
                 return true;
             }
 

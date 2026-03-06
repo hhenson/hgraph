@@ -492,7 +492,9 @@ namespace hgraph
                     }
                 }
 
-                if (conservative_outer_reschedule && !scheduled_from_delta && !scheduled_all_for_tick) {
+                // Rebinding an outer input can produce modified() with an empty key delta.
+                // In that case, key-local diffing misses removals and leaves stale keyed outputs.
+                if (!scheduled_from_delta && !scheduled_all_for_tick) {
                     schedule_all_active_now(now);
                     scheduled_all_for_tick = true;
                 }
