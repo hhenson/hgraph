@@ -13,6 +13,7 @@
 #include <hgraph/nodes/ops/scalar_operator_nodes.h>
 #include <hgraph/nodes/ops/str_operator_nodes.h>
 #include <hgraph/nodes/ops/time_series_property_operator_nodes.h>
+#include <hgraph/nodes/ops/tuple_operator_nodes.h>
 #include <hgraph/nodes/ops/type_operator_nodes.h>
 #include <hgraph/python/cpp_node_builder_binding.h>
 
@@ -34,6 +35,7 @@ namespace hgraph {
 
         using access_node_specs =
             CppNodeSpecList<
+                SetattrCsSpec,
                 GetattrCsSpec,
                 GetattrTypeNameSpec,
                 GetitemTupleFixedSpec,
@@ -165,7 +167,26 @@ namespace hgraph {
                 LeEnumSpec,
                 GtEnumSpec,
                 GeEnumSpec,
+                MinEnumUnarySpec,
+                MinEnumBinarySpec,
+                MaxEnumUnarySpec,
+                MaxEnumBinarySpec,
                 GetattrEnumNameSpec>;
+
+        using tuple_node_specs =
+            CppNodeSpecList<
+                MulTupleIntSpec,
+                AndTuplesSpec,
+                OrTuplesSpec,
+                MinTupleUnarySpec,
+                MaxTupleUnarySpec,
+                SumTupleUnarySpec,
+                MeanTupleUnarySpec,
+                StdTupleUnarySpec,
+                VarTupleUnarySpec,
+                IndexOfTupleSpec,
+                AddTupleScalarSpec,
+                SubTupleScalarSpec>;
 
         using flow_control_node_specs =
             CppNodeSpecList<
@@ -229,6 +250,7 @@ namespace hgraph {
             string_node_specs,
             bool_node_specs,
             enum_node_specs,
+            tuple_node_specs,
             flow_control_node_specs,
             date_time_node_specs,
             type_node_specs,

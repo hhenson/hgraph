@@ -37,6 +37,34 @@ namespace hgraph {
             }
         }  // namespace access_ops_detail
 
+        struct SetattrCsSpec {
+            static constexpr const char* py_factory_name = "op_setattr_cs";
+
+            struct state {
+                std::string attr;
+                nb::object copy_fn;
+            };
+
+            static state make_state(Node& node) {
+                const nb::dict& scalars = node.scalars();
+                return {
+                    nb::cast<std::string>(nb::cast<nb::object>(scalars["attr"])),
+                    nb::module_::import_("copy").attr("copy"),
+                };
+            }
+
+            static void eval(Node& node, state& state) {
+                auto bundle = access_ops_detail::input_bundle(node);
+                const nb::object ts = access_ops_detail::python_field(bundle, "ts");
+                const nb::object value = access_ops_detail::python_field(bundle, "value");
+                nb::object copied = state.copy_fn(ts);
+                if (PyObject_SetAttrString(copied.ptr(), state.attr.c_str(), value.ptr()) < 0) {
+                    nb::raise_python_error();
+                }
+                access_ops_detail::emit_python(node, copied);
+            }
+        };
+
         struct GetattrCsSpec {
             static constexpr const char* py_factory_name = "op_getattr_cs";
 

@@ -113,6 +113,98 @@ namespace hgraph {
             }
         };
 
+        struct MinEnumUnarySpec {
+            static constexpr const char* py_factory_name = "op_min_enum_unary";
+
+            static void eval(Node& node) {
+                auto bundle = enum_ops_detail::require_input_bundle(node);
+                const nb::object ts_enum = bundle.field("ts").to_python();
+
+                if (!node.output().valid()) {
+                    node.output().from_python(ts_enum);
+                    return;
+                }
+                const nb::object out_enum = node.output().to_python();
+                const nb::object ts_val = enum_ops_detail::require_enum_value_attr(ts_enum);
+                const nb::object out_val = enum_ops_detail::require_enum_value_attr(out_enum);
+                if (PyObject_RichCompareBool(ts_val.ptr(), out_val.ptr(), Py_LT) > 0) {
+                    node.output().from_python(ts_enum);
+                }
+            }
+        };
+
+        struct MinEnumBinarySpec {
+            static constexpr const char* py_factory_name = "op_min_enum_binary";
+
+            static void eval(Node& node) {
+                auto bundle = enum_ops_detail::require_input_bundle(node);
+                auto lhs_field = bundle.field("lhs");
+                auto rhs_field = bundle.field("rhs");
+                const nb::object lhs = lhs_field.to_python();
+                const nb::object rhs = rhs_field.to_python();
+
+                if (lhs.is_none()) {
+                    node.output().from_python(rhs);
+                } else if (rhs.is_none()) {
+                    node.output().from_python(lhs);
+                } else {
+                    const nb::object l_val = enum_ops_detail::require_enum_value_attr(lhs);
+                    const nb::object r_val = enum_ops_detail::require_enum_value_attr(rhs);
+                    if (PyObject_RichCompareBool(l_val.ptr(), r_val.ptr(), Py_LE) > 0) {
+                        node.output().from_python(lhs);
+                    } else {
+                        node.output().from_python(rhs);
+                    }
+                }
+            }
+        };
+
+        struct MaxEnumUnarySpec {
+            static constexpr const char* py_factory_name = "op_max_enum_unary";
+
+            static void eval(Node& node) {
+                auto bundle = enum_ops_detail::require_input_bundle(node);
+                const nb::object ts_enum = bundle.field("ts").to_python();
+
+                if (!node.output().valid()) {
+                    node.output().from_python(ts_enum);
+                    return;
+                }
+                const nb::object out_enum = node.output().to_python();
+                const nb::object ts_val = enum_ops_detail::require_enum_value_attr(ts_enum);
+                const nb::object out_val = enum_ops_detail::require_enum_value_attr(out_enum);
+                if (PyObject_RichCompareBool(ts_val.ptr(), out_val.ptr(), Py_GT) > 0) {
+                    node.output().from_python(ts_enum);
+                }
+            }
+        };
+
+        struct MaxEnumBinarySpec {
+            static constexpr const char* py_factory_name = "op_max_enum_binary";
+
+            static void eval(Node& node) {
+                auto bundle = enum_ops_detail::require_input_bundle(node);
+                auto lhs_field = bundle.field("lhs");
+                auto rhs_field = bundle.field("rhs");
+                const nb::object lhs = lhs_field.to_python();
+                const nb::object rhs = rhs_field.to_python();
+
+                if (lhs.is_none()) {
+                    node.output().from_python(rhs);
+                } else if (rhs.is_none()) {
+                    node.output().from_python(lhs);
+                } else {
+                    const nb::object l_val = enum_ops_detail::require_enum_value_attr(lhs);
+                    const nb::object r_val = enum_ops_detail::require_enum_value_attr(rhs);
+                    if (PyObject_RichCompareBool(l_val.ptr(), r_val.ptr(), Py_GE) > 0) {
+                        node.output().from_python(lhs);
+                    } else {
+                        node.output().from_python(rhs);
+                    }
+                }
+            }
+        };
+
         struct GetattrEnumNameSpec {
             static constexpr const char* py_factory_name = "op_getattr_enum_name";
 

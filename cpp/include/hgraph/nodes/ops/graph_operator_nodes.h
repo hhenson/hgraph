@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/types/node.h>
+#include <hgraph/api/python/wrapper_factory.h>
 
 #include <iostream>
 #include <string>
@@ -94,8 +95,16 @@ namespace hgraph {
                 const bool final_value = scalars.contains("final_value")
                     ? nb::cast<bool>(scalars["final_value"])
                     : false;
-                nb::object logger = nb::cast<nb::object>(scalars["logger"]);
-                return {level, final_value, logger};
+                return {level, final_value, nb::none()};
+            }
+
+            static void start(Node& node, state& s) {
+                const nb::dict& scalars = node.scalars();
+                // scalars["logger"] is a LoggerInjector (an Injector subclass).
+                // Call it with the wrapped node to resolve the actual Logger.
+                nb::object injector = nb::cast<nb::object>(scalars["logger"]);
+                nb::object node_wrapper = wrap_node(node.shared_from_this());
+                s.logger = injector(node_wrapper);
             }
 
             static void eval(Node& node, state& s) {
