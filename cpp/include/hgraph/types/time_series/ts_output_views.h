@@ -68,6 +68,10 @@ public:
     [[nodiscard]] nb::object delta_to_python() const;
 
     void set_value(const value::View& src);
+    template<typename T>
+    void set_value(const T& src) {
+        ts_view_.set_value(src);
+    }
     void from_python(const nb::object& src);
     void copy_from_input(const TSInputView& input);
     void copy_from_output(const TSOutputView& output);

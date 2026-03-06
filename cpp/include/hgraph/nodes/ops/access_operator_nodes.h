@@ -575,8 +575,7 @@ namespace hgraph {
             static void eval(Node& node) {
                 auto bundle = access_ops_detail::input_bundle(node);
                 auto tsd = bundle.field("ts").as_dict();
-                int64_t out = static_cast<int64_t>(tsd.count());
-                node.output().set_value(value::View(&out, value::scalar_type_meta<int64_t>()));
+                node.output().set_value(static_cast<int64_t>(tsd.count()));
             }
         };
 

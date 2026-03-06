@@ -23,6 +23,7 @@
 
 #include <optional>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -84,6 +85,11 @@ public:
     [[nodiscard]] nb::object delta_to_python() const;
 
     void set_value(const value::View& src);
+    template<typename T>
+    void set_value(const T& src) {
+        using U = std::remove_cvref_t<T>;
+        set_value(value::View(&src, value::scalar_type_meta<U>()));
+    }
     void from_python(const nb::object& src);
     void apply_delta(const value::View& delta);
     void apply_delta(const DeltaView& delta);
