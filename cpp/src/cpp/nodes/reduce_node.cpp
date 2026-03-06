@@ -73,6 +73,14 @@ namespace hgraph {
                     }
                     out.emplace_back(key.clone());
                 }
+                std::sort(out.begin(), out.end(), [](const value::Value& lhs, const value::Value& rhs) {
+                    const auto lhs_hash = lhs.view().hash();
+                    const auto rhs_hash = rhs.view().hash();
+                    if (lhs_hash != rhs_hash) {
+                        return lhs_hash < rhs_hash;
+                    }
+                    return lhs.view().to_string() < rhs.view().to_string();
+                });
                 return true;
             }
 
@@ -257,10 +265,17 @@ namespace hgraph {
         std::vector<value::Value> added_keys;
         std::vector<value::Value> removed_keys;
         std::vector<value::Value> current_keys;
-        std::unordered_set<value::Value, ValueHash, ValueEqual> delta_added_keys;
-        std::unordered_set<value::Value, ValueHash, ValueEqual> delta_removed_keys;
+        std::vector<value::Value> delta_added_keys;
+        std::vector<value::Value> delta_removed_keys;
         bool has_delta_keys = false;
         bool delta_requires_full_reconcile = false;
+        const ValueEqual value_equal{};
+        const auto find_delta_key = [&](std::vector<value::Value>& keys_vec, value::View key) {
+            return std::find_if(
+                keys_vec.begin(),
+                keys_vec.end(),
+                [&](const value::Value& existing) { return value_equal(existing, key); });
+        };
         if (!bound_node_indexes_.empty()) {
             has_delta_keys = for_each_tsd_key_delta(
                 tsd,
@@ -271,11 +286,14 @@ namespace hgraph {
                     if (bound_node_indexes_.find(key) != bound_node_indexes_.end()) {
                         delta_requires_full_reconcile = true;
                     }
-                    if (auto removed_it = delta_removed_keys.find(key); removed_it != delta_removed_keys.end()) {
+                    if (auto removed_it = find_delta_key(delta_removed_keys, key);
+                        removed_it != delta_removed_keys.end()) {
                         delta_removed_keys.erase(removed_it);
                         return;
                     }
-                    delta_added_keys.insert(key.clone());
+                    if (find_delta_key(delta_added_keys, key) == delta_added_keys.end()) {
+                        delta_added_keys.push_back(key.clone());
+                    }
                 },
                 [&](value::View key) {
                     if (!key.valid()) {
@@ -284,11 +302,14 @@ namespace hgraph {
                     if (bound_node_indexes_.find(key) == bound_node_indexes_.end()) {
                         delta_requires_full_reconcile = true;
                     }
-                    if (auto added_it = delta_added_keys.find(key); added_it != delta_added_keys.end()) {
+                    if (auto added_it = find_delta_key(delta_added_keys, key);
+                        added_it != delta_added_keys.end()) {
                         delta_added_keys.erase(added_it);
                         return;
                     }
-                    delta_removed_keys.insert(key.clone());
+                    if (find_delta_key(delta_removed_keys, key) == delta_removed_keys.end()) {
+                        delta_removed_keys.push_back(key.clone());
+                    }
                 });
         }
 
@@ -403,6 +424,7 @@ namespace hgraph {
 
         re_balance_nodes();
 
+        const bool refresh_all_bound_keys = !removed_keys.empty() || !added_keys.empty();
         TSIterable<value::View> changed_keys;
         TSView resolved_tsd = resolve_tsd_input_view(tsd);
         if (const TSMeta* tsd_meta = unwrap_ref_meta(resolved_tsd.ts_meta());
@@ -410,117 +432,138 @@ namespace hgraph {
             changed_keys = TSDView(resolved_tsd).modified_keys();
         }
 
+        auto refresh_bound_key = [&](value::View changed_key, bool unbind_if_missing) {
+            auto bound_it = bound_node_indexes_.find(changed_key);
+            if (bound_it == bound_node_indexes_.end()) {
+                return;
+            }
+
+            const auto& key = bound_it->first;
+            const auto& ndx = bound_it->second;
+            auto [node_id, side] = ndx;
+            auto nodes = get_node(node_id);
+            if (side < 0 || side >= static_cast<int64_t>(nodes.size())) {
+                return;
+            }
+
+            auto node = nodes[side];
+            auto inner_ts = hgraph::node_inner_ts_input(*node, true);
+            if (!inner_ts) {
+                return;
+            }
+
+            bool has_tsd_key = false;
+            bool tsd_key_valid = false;
+            bool used_local_fallback = false;
+            std::optional<value::Value> fallback_delta;
+            TSView key_value_view = resolve_key_value_with_fallback(
+                tsd, key.view(), inner_ts, &has_tsd_key, &tsd_key_valid, &used_local_fallback, &fallback_delta);
+            bool rebound = false;
+
+            if (tsd_key_valid) {
+                bool preserve_existing_ref_binding = false;
+                if (const TSMeta* key_meta = key_value_view.ts_meta();
+                    key_meta != nullptr && key_meta->kind == TSKind::REF) {
+                    value::View ref_payload = key_value_view.value();
+                    if (!ref_payload.valid() && inner_ts.is_bound() && !key_value_view.modified()) {
+                        bool compatible_target = false;
+                        ViewData target{};
+                        if (resolve_bound_target_view_data(key_value_view.view_data(), target)) {
+                            TSView target_view(target, key_value_view.view_data().engine_time_ptr);
+                            const TSMeta* target_meta = target_view.ts_meta();
+                            const TSMeta* expected_meta = inner_ts.ts_meta();
+                            if (expected_meta != nullptr && expected_meta->kind == TSKind::REF) {
+                                expected_meta = expected_meta->element_ts();
+                            }
+                            if (target_meta != nullptr && expected_meta != nullptr) {
+                                compatible_target =
+                                    target_meta == expected_meta ||
+                                    (target_meta->kind == TSKind::REF && target_meta->element_ts() == expected_meta);
+                            }
+                        }
+                        preserve_existing_ref_binding = !compatible_target;
+                    }
+                }
+
+                if (auto local_it = local_key_values_.find(key.view()); local_it != local_key_values_.end()) {
+                    local_key_values_.erase(local_it);
+                }
+                if (!preserve_existing_ref_binding) {
+                    hgraph::bind_inner_from_outer(key_value_view, inner_ts);
+                    rebound = true;
+                }
+
+                if (debug_reduce) {
+                    if (preserve_existing_ref_binding) {
+                        std::fprintf(stderr,
+                                     "[reduce] refresh key=%s at_key=1 valid=1 fallback=0 -> preserve_empty_ref\n",
+                                     key.view().to_string().c_str());
+                    } else {
+                        std::fprintf(stderr,
+                                     "[reduce] refresh key=%s at_key=1 valid=1 fallback=0\n",
+                                     key.view().to_string().c_str());
+                    }
+                }
+            } else if (used_local_fallback) {
+                hgraph::bind_inner_from_outer(key_value_view, inner_ts);
+                rebound = true;
+                if (debug_reduce) {
+                    std::string dv = "<repr-failed>";
+                    if (fallback_delta.has_value()) {
+                        try {
+                            dv = nb::cast<std::string>(nb::repr(fallback_delta->to_python()));
+                        } catch (...) {}
+                    }
+                    std::fprintf(stderr,
+                                 "[reduce] refresh key=%s at_key=%d valid=%d fallback=1 delta=%s\n",
+                                 key.view().to_string().c_str(),
+                                 has_tsd_key ? 1 : 0,
+                                 tsd_key_valid ? 1 : 0,
+                                 dv.c_str());
+                }
+            } else if (!has_tsd_key) {
+                if (unbind_if_missing) {
+                    inner_ts.unbind();
+                    rebound = true;
+                    if (debug_reduce) {
+                        std::fprintf(stderr,
+                                     "[reduce] refresh key=%s at_key=0 valid=0 fallback=0 -> unbind\n",
+                                     key.view().to_string().c_str());
+                    }
+                } else if (debug_reduce) {
+                    std::fprintf(stderr,
+                                 "[reduce] refresh key=%s at_key=0 valid=0 fallback=0 -> preserve\n",
+                                 key.view().to_string().c_str());
+                }
+            } else if (debug_reduce) {
+                std::fprintf(stderr,
+                             "[reduce] refresh key=%s at_key=1 valid=0 fallback=0 -> preserve\n",
+                             key.view().to_string().c_str());
+            }
+
+            if (rebound) {
+                if (!inner_ts.active()) {
+                    inner_ts.make_active();
+                }
+                node->notify(node_time(*this));
+            }
+        };
+
         if (tsd) {
             auto tsd_opt = tsd.try_as_dict();
             if (tsd_opt.has_value()) {
-                for (value::View changed_key : changed_keys) {
-                    auto bound_it = bound_node_indexes_.find(changed_key);
-                    if (bound_it == bound_node_indexes_.end()) {
-                        continue;
+                if (refresh_all_bound_keys) {
+                    std::vector<value::Value> keys_to_refresh;
+                    keys_to_refresh.reserve(bound_node_indexes_.size());
+                    for (const auto& [bound_key, _] : bound_node_indexes_) {
+                        keys_to_refresh.push_back(bound_key.view().clone());
                     }
-
-                    const auto& key = bound_it->first;
-                    const auto& ndx = bound_it->second;
-                    auto [node_id, side] = ndx;
-                    auto nodes = get_node(node_id);
-                    if (side < 0 || side >= static_cast<int64_t>(nodes.size())) {
-                        continue;
+                    for (const auto& key_to_refresh : keys_to_refresh) {
+                        refresh_bound_key(key_to_refresh.view(), false);
                     }
-
-                    auto node = nodes[side];
-                    auto inner_ts = hgraph::node_inner_ts_input(*node, true);
-                    if (!inner_ts) {
-                        continue;
-                    }
-
-                    bool has_tsd_key = false;
-                    bool tsd_key_valid = false;
-                    bool used_local_fallback = false;
-                    std::optional<value::Value> fallback_delta;
-                    TSView key_value_view = resolve_key_value_with_fallback(
-                        tsd, key.view(), inner_ts, &has_tsd_key, &tsd_key_valid, &used_local_fallback, &fallback_delta);
-                    bool rebound = false;
-
-                    if (tsd_key_valid) {
-                        bool preserve_existing_ref_binding = false;
-                        if (const TSMeta* key_meta = key_value_view.ts_meta();
-                            key_meta != nullptr && key_meta->kind == TSKind::REF) {
-                            value::View ref_payload = key_value_view.value();
-                            if (!ref_payload.valid() && inner_ts.is_bound() && !key_value_view.modified()) {
-                                bool compatible_target = false;
-                                ViewData target{};
-                                if (resolve_bound_target_view_data(key_value_view.view_data(), target)) {
-                                    TSView target_view(target, key_value_view.view_data().engine_time_ptr);
-                                    const TSMeta* target_meta = target_view.ts_meta();
-                                    const TSMeta* expected_meta = inner_ts.ts_meta();
-                                    if (expected_meta != nullptr && expected_meta->kind == TSKind::REF) {
-                                        expected_meta = expected_meta->element_ts();
-                                    }
-                                    if (target_meta != nullptr && expected_meta != nullptr) {
-                                        compatible_target =
-                                            target_meta == expected_meta ||
-                                            (target_meta->kind == TSKind::REF && target_meta->element_ts() == expected_meta);
-                                    }
-                                }
-                                preserve_existing_ref_binding = !compatible_target;
-                            }
-                        }
-
-                        if (auto local_it = local_key_values_.find(key.view()); local_it != local_key_values_.end()) {
-                            local_key_values_.erase(local_it);
-                        }
-                        if (!preserve_existing_ref_binding) {
-                            hgraph::bind_inner_from_outer(key_value_view, inner_ts);
-                            rebound = true;
-                        }
-
-                        if (debug_reduce) {
-                            if (preserve_existing_ref_binding) {
-                                std::fprintf(stderr,
-                                             "[reduce] refresh key=%s at_key=1 valid=1 fallback=0 -> preserve_empty_ref\n",
-                                             key.view().to_string().c_str());
-                            } else {
-                                std::fprintf(stderr,
-                                             "[reduce] refresh key=%s at_key=1 valid=1 fallback=0\n",
-                                             key.view().to_string().c_str());
-                            }
-                        }
-                    } else if (used_local_fallback) {
-                        hgraph::bind_inner_from_outer(key_value_view, inner_ts);
-                        rebound = true;
-                        if (debug_reduce) {
-                            std::string dv = "<repr-failed>";
-                            if (fallback_delta.has_value()) {
-                                try {
-                                    dv = nb::cast<std::string>(nb::repr(fallback_delta->to_python()));
-                                } catch (...) {}
-                            }
-                            std::fprintf(stderr,
-                                         "[reduce] refresh key=%s at_key=%d valid=%d fallback=1 delta=%s\n",
-                                         key.view().to_string().c_str(),
-                                         has_tsd_key ? 1 : 0,
-                                         tsd_key_valid ? 1 : 0,
-                                         dv.c_str());
-                        }
-                    } else if (!has_tsd_key) {
-                        inner_ts.unbind();
-                        rebound = true;
-                        if (debug_reduce) {
-                            std::fprintf(stderr,
-                                         "[reduce] refresh key=%s at_key=0 valid=0 fallback=0 -> unbind\n",
-                                         key.view().to_string().c_str());
-                        }
-                    } else if (debug_reduce) {
-                        std::fprintf(stderr,
-                                     "[reduce] refresh key=%s at_key=1 valid=0 fallback=0 -> preserve\n",
-                                     key.view().to_string().c_str());
-                    }
-
-                    if (rebound) {
-                        if (!inner_ts.active()) {
-                            inner_ts.make_active();
-                        }
-                        node->notify(node_time(*this));
+                } else {
+                    for (value::View changed_key : changed_keys) {
+                        refresh_bound_key(changed_key, true);
                     }
                 }
             }
@@ -709,38 +752,6 @@ namespace hgraph {
             return;
         }
 
-        struct HeapEntry {
-            std::tuple<int64_t, int64_t> ndx;
-            value::Value key;
-        };
-        auto ndx_less = [](const HeapEntry& lhs, const HeapEntry& rhs) {
-            return lhs.ndx < rhs.ndx;
-        };
-
-        // Build one max-heap of bound slots. Stale entries are pruned lazily
-        // against bound_node_indexes_ so we avoid repeated O(n) max scans.
-        std::priority_queue<HeapEntry, std::vector<HeapEntry>, decltype(ndx_less)> max_entries(ndx_less);
-        for (const auto& [bound_key, ndx] : bound_node_indexes_) {
-            max_entries.push(HeapEntry{ndx, bound_key.view().clone()});
-        }
-
-        const auto pop_valid_max = [&]() -> std::optional<HeapEntry> {
-            while (!max_entries.empty()) {
-                const HeapEntry& top = max_entries.top();
-                HeapEntry entry{
-                    top.ndx,
-                    top.key.view().clone(),
-                };
-                max_entries.pop();
-
-                auto it = bound_node_indexes_.find(entry.key.view());
-                if (it != bound_node_indexes_.end() && it->second == entry.ndx) {
-                    return entry;
-                }
-            }
-            return std::nullopt;
-        };
-
         const bool debug_reduce = debug_reduce_enabled();
         for (const auto &key : keys) {
             const value::View key_view = key.view();
@@ -763,35 +774,30 @@ namespace hgraph {
             }
             bound_node_indexes_.erase(it);
 
+            // Keep active nodes left-packed before possible shrink, matching Python reduce behavior.
             if (!bound_node_indexes_.empty()) {
-                auto max_entry_opt = pop_valid_max();
-                if (max_entry_opt.has_value()) {
-                    HeapEntry max_entry = std::move(*max_entry_opt);
-                    const auto max_ndx = max_entry.ndx;
+                auto next_largest_it = std::max_element(
+                    bound_node_indexes_.begin(),
+                    bound_node_indexes_.end(),
+                    [](const auto& lhs, const auto& rhs) {
+                        return lhs.second < rhs.second;
+                    });
 
-                    if (max_ndx > ndx) {
-                        if (debug_reduce) {
-                            std::fprintf(stderr,
-                                         "[reduce]  max key=%s ndx=(%lld,%lld)\n",
-                                         max_entry.key.view().to_string().c_str(),
-                                         static_cast<long long>(std::get<0>(max_ndx)),
-                                         static_cast<long long>(std::get<1>(max_ndx)));
-                        }
-
-                        swap_node(ndx, max_ndx);
-
-                        if (auto moved_it = bound_node_indexes_.find(max_entry.key.view());
-                            moved_it != bound_node_indexes_.end()) {
-                            moved_it->second = ndx;
-                            max_entry.ndx = ndx;
-                        }
-                        ndx = max_ndx;
+                if (next_largest_it != bound_node_indexes_.end() &&
+                    std::get<0>(next_largest_it->second) > std::get<0>(ndx)) {
+                    const auto dst_ndx = next_largest_it->second;
+                    if (debug_reduce) {
+                        std::fprintf(stderr,
+                                     "[reduce] compact move key=%s from=(%lld,%lld) to=(%lld,%lld)\n",
+                                     next_largest_it->first.view().to_string().c_str(),
+                                     static_cast<long long>(std::get<0>(dst_ndx)),
+                                     static_cast<long long>(std::get<1>(dst_ndx)),
+                                     static_cast<long long>(std::get<0>(ndx)),
+                                     static_cast<long long>(std::get<1>(ndx)));
                     }
-
-                    if (auto still_it = bound_node_indexes_.find(max_entry.key.view());
-                        still_it != bound_node_indexes_.end() && still_it->second == max_entry.ndx) {
-                        max_entries.push(std::move(max_entry));
-                    }
+                    swap_node(ndx, dst_ndx);
+                    next_largest_it->second = ndx;
+                    ndx = dst_ndx;
                 }
             }
 
@@ -801,6 +807,9 @@ namespace hgraph {
                 local_key_values_.erase(local_it);
             }
         }
+
+        std::sort(free_node_indexes_.begin(), free_node_indexes_.end(),
+                  [](const auto &a, const auto &b) { return a > b; });
     }
 
     void ReduceNode::re_balance_nodes() {
@@ -1034,10 +1043,11 @@ namespace hgraph {
             return;
         }
 
+        // Clear the previous keyed binding first, then apply zero binding.
+        inner_ts.unbind();
+
         auto zero_ref = zero();
-        if (!zero_ref) {
-            inner_ts.unbind();
-        } else {
+        if (zero_ref) {
             hgraph::bind_inner_from_outer(zero_ref.as_ts_view(), inner_ts);
             if (!inner_ts.active()) {
                 inner_ts.make_active();
@@ -1086,7 +1096,16 @@ namespace hgraph {
                          dst_py.c_str());
         }
 
-        hgraph::bind_inner_from_outer(dst_input.as_ts_view(), src_input);
+        TSView src_view = src_input.as_ts_view();
+        TSView dst_view = dst_input.as_ts_view();
+        hgraph::bind_inner_from_outer(dst_view, src_input);
+        hgraph::bind_inner_from_outer(src_view, dst_input);
+        if (!src_input.active()) {
+            src_input.make_active();
+        }
+        if (!dst_input.active()) {
+            dst_input.make_active();
+        }
         src_node->notify(node_time(*this));
         dst_node->notify(node_time(*this));
     }
