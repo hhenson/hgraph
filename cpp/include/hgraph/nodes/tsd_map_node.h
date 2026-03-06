@@ -51,6 +51,7 @@ namespace hgraph
         using key_set_type = std::unordered_set<value::Value, ValueHash, ValueEqual>;
         using key_value_map_type = std::unordered_map<value::Value, std::unique_ptr<TSValue>, ValueHash, ValueEqual>;
         using key_ref_snapshot_map_type = std::unordered_map<value::Value, value::Value, ValueHash, ValueEqual>;
+        using arg_key_value_map_type = std::unordered_map<std::string, key_value_map_type>;
         struct MuxArgDeltaHint {
             value::View changed_map{};
             value::View added_set{};
@@ -123,16 +124,21 @@ namespace hgraph
         const value::TypeMeta* key_type_meta_{nullptr};
 
       private:
-        TSView resolve_multiplexed_outer_value(const value::View& key,
+        TSView resolve_multiplexed_outer_value(const std::string& arg,
+                                               const value::View& key,
                                                const TSInputView& outer_arg,
+                                               const TSInputView& inner_ts,
+                                               bool* used_local_fallback = nullptr,
                                                bool* has_outer_key = nullptr,
-                                               bool* outer_key_valid = nullptr);
+                                               bool* outer_key_valid = nullptr,
+                                               int* stage_id = nullptr);
 
         std::unordered_map<std::string, int64_t> input_node_ids_;
         int64_t                                  output_node_id_;
         std::unordered_set<std::string>          multiplexed_args_;
         std::string                              key_arg_;
         key_time_map_type                        scheduled_keys_;
+        arg_key_value_map_type                   local_input_values_;
         key_value_map_type                       local_output_values_;
         key_ref_snapshot_map_type                last_ref_source_values_;
         mux_arg_delta_hint_map_type              mux_delta_hints_;
