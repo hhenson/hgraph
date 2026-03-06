@@ -122,6 +122,7 @@ namespace hgraph {
                 const bool debug_reduce = debug_reduce_enabled();
                 size_t added_count = 0;
                 size_t removed_count = 0;
+                size_t modified_count = 0;
                 auto key_set = tsd_dict.key_set();
                 for (value::View key : key_set.added()) {
                     on_added(key);
@@ -136,22 +137,43 @@ namespace hgraph {
                     has_delta = true;
                 }
 
-                // NOTE: Changed-map key views in REF/TSD deltas may be unstable in
-                // some runtime paths. Rely on explicit key-set added/removed deltas.
+                // Also need to process modified keys - when key exists but value changed
+                TSIterable<value::View> modified_keys = tsd_dict.modified_keys();
+                for (value::View key : modified_keys) {
+                    if (removed_seen.find(key.clone()) != removed_seen.end()) {
+                        continue;  // Skip if already removed
+                    }
+                    on_added(key);  // Treat as added to refresh the binding
+                    ++modified_count;
+                    has_delta = true;
+                }
+
                 if (debug_reduce) {
                     std::fprintf(stderr,
-                                 "[reduce] delta ref added=%zu removed=%zu has_delta=%d\n",
+                                 "[reduce] delta ref added=%zu removed=%zu modified=%zu has_delta=%d\n",
                                  added_count,
                                  removed_count,
+                                 modified_count,
                                  has_delta ? 1 : 0);
                 }
             } else {
+                std::unordered_set<value::Value> removed_seen;
                 for (value::View key : tsd_dict.added_keys()) {
                     on_added(key);
                     has_delta = true;
                 }
                 for (value::View key : tsd_dict.removed_keys()) {
                     on_removed(key);
+                    removed_seen.insert(key.clone());
+                    has_delta = true;
+                }
+                // Also process modified keys for non-ref-valued TSDs
+                TSIterable<value::View> modified_keys = tsd_dict.modified_keys();
+                for (value::View key : modified_keys) {
+                    if (removed_seen.find(key.clone()) != removed_seen.end()) {
+                        continue;  // Skip if already removed
+                    }
+                    on_added(key);  // Treat as added to refresh the binding
                     has_delta = true;
                 }
             }
