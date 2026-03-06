@@ -1,5 +1,6 @@
 #pragma once
 
+#include <hgraph/nodes/node_binding_utils.h>
 #include <hgraph/types/node.h>
 
 #include <cstdint>
@@ -29,6 +30,19 @@ namespace hgraph {
 
             inline void emit_python(Node& node, const nb::object& value) {
                 node.output().from_python(value);
+            }
+
+            inline void emit_ref(Node& node, const TimeSeriesReference& value) {
+                ViewData out_vd = node.output().as_ts_view().view_data();
+                apply_ref_payload(out_vd, value, node_time(node));
+            }
+
+            inline bool python_equal(const nb::object& lhs, const nb::object& rhs) {
+                const int eq = PyObject_RichCompareBool(lhs.ptr(), rhs.ptr(), Py_EQ);
+                if (eq < 0) {
+                    nb::raise_python_error();
+                }
+                return eq == 1;
             }
 
             inline const nb::object& json_class() {
@@ -171,6 +185,122 @@ namespace hgraph {
                 const nb::object default_value =
                     access_ops_detail::optional_python_field(bundle, "default_value", nb::none());
                 access_ops_detail::emit_python(node, nb::cast<nb::object>(ts.attr("get")(key, default_value)));
+            }
+        };
+
+        struct TsdGetItemDefaultSpec {
+            static constexpr const char* py_factory_name = "op_tsd_get_item_default";
+
+            struct state {
+                nb::object requester;
+                nb::object key_obj;
+                std::optional<ViewData> source_target;
+                bool bound{false};
+            };
+
+            static state make_state(Node&) {
+                return {
+                    nb::module_::import_("builtins").attr("object")(),
+                    nb::none(),
+                    std::nullopt,
+                    false,
+                };
+            }
+
+            static void release_binding(Node& node, state& state) {
+                if (!state.bound || !state.source_target.has_value()) {
+                    state.bound = false;
+                    state.key_obj = nb::none();
+                    state.source_target.reset();
+                    return;
+                }
+
+                TSOutputView source_out(nullptr, TSView(*state.source_target, node_time_ptr(node)));
+                if (auto source_dict = source_out.try_as_dict(); source_dict.has_value()) {
+                    source_dict->release_ref(state.key_obj, state.requester);
+                }
+
+                state.bound = false;
+                state.key_obj = nb::none();
+                state.source_target.reset();
+            }
+
+            static std::optional<ViewData> resolve_dict_target(const TSInputView& ts, const Node& node) {
+                if (!ts || !ts.valid()) {
+                    return std::nullopt;
+                }
+                auto target = resolve_non_ref_target_view_data(ts.as_ts_view(), RefBindOrder::RefValueThenBoundTarget);
+                if (!target.has_value()) {
+                    return std::nullopt;
+                }
+
+                TSView target_view(*target, node_time_ptr(node));
+                const TSMeta* target_meta = target_view.ts_meta();
+                if (target_meta == nullptr || target_meta->kind != TSKind::TSD) {
+                    return std::nullopt;
+                }
+                return target;
+            }
+
+            static TimeSeriesReference read_bound_ref(Node& node, const state& state) {
+                if (!state.bound || !state.source_target.has_value()) {
+                    return TimeSeriesReference::make();
+                }
+
+                TSOutputView source_out(nullptr, TSView(*state.source_target, node_time_ptr(node)));
+                auto source_dict = source_out.try_as_dict();
+                if (!source_dict.has_value()) {
+                    return TimeSeriesReference::make();
+                }
+
+                TSOutputView outer_ref_output = source_dict->get_ref(state.key_obj, state.requester);
+                if (!outer_ref_output) {
+                    return TimeSeriesReference::make();
+                }
+
+                TimeSeriesReference result = resolve_ref_payload_from_view(outer_ref_output.as_ts_view().view_data());
+                if (const ViewData* bound = result.bound_view(); bound != nullptr) {
+                    TSView bound_view(*bound, node_time_ptr(node));
+                    const TSMeta* bound_meta = bound_view.ts_meta();
+                    if (bound_meta != nullptr && bound_meta->kind == TSKind::REF) {
+                        result = resolve_ref_payload_from_view(*bound);
+                    }
+                }
+                return result;
+            }
+
+            static void eval(Node& node, state& state) {
+                auto bundle = access_ops_detail::input_bundle(node);
+                auto ts = bundle.field("ts");
+                auto key = bundle.field("key");
+
+                const std::optional<ViewData> next_source = resolve_dict_target(ts, node);
+                const bool can_bind = next_source.has_value() && key && key.valid();
+                const nb::object next_key_obj = can_bind ? key.to_python() : nb::none();
+
+                bool binding_changed = (state.bound != can_bind);
+                if (!binding_changed && can_bind) {
+                    binding_changed =
+                        !state.source_target.has_value() ||
+                        !same_view_identity(*state.source_target, *next_source) ||
+                        !access_ops_detail::python_equal(state.key_obj, next_key_obj);
+                }
+
+                if (binding_changed) {
+                    release_binding(node, state);
+                    if (can_bind) {
+                        state.source_target = next_source;
+                        state.key_obj = next_key_obj;
+                        state.bound = true;
+                    }
+                }
+
+                TimeSeriesReference output_ref = read_bound_ref(node, state);
+                access_ops_detail::emit_ref(node, output_ref);
+            }
+
+            static void stop(Node& node, state& state) {
+                release_binding(node, state);
             }
         };
 

@@ -41,6 +41,7 @@ namespace hgraph {
                 GetitemTupleFixedSpec,
                 GetitemTupleSpec,
                 GetitemFrozendictSpec,
+                TsdGetItemDefaultSpec,
                 GetItemSeriesSpec,
                 GetItemSeriesTsSpec,
                 GetattrJsonStrSpec,

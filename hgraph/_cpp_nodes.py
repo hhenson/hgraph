@@ -194,6 +194,7 @@ def register_cpp_node_mappings(_hgraph_module) -> None:
             "time_properties": _hgraph_module.op_time_properties,
             "timedelta_methods": _hgraph_module.op_timedelta_methods,
             "timedelta_properties": _hgraph_module.op_timedelta_properties,
+            "tsd_get_item_default": _hgraph_module.op_tsd_get_item_default,
             "type_cs_schema": _hgraph_module.op_type_cs_schema,
             "type_cs_typevar": _hgraph_module.op_type_cs_typevar,
             "type_scalar": _hgraph_module.op_type_scalar,
