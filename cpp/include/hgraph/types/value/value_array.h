@@ -71,8 +71,8 @@ public:
     }
 
     ~ValueArray() {
-        // Note: Destruction of values is handled by on_clear or MapStorage destructor
-        // that knows which slots are alive
+        // Value lifetime is owned by the KeySet observer path and MapStorage.
+        // ValueArray itself does not know which slots are logically alive.
     }
 
     // ========== SlotObserver Implementation ==========

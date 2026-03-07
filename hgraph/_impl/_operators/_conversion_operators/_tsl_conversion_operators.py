@@ -42,7 +42,7 @@ def combine_tsl(
         SIZE: lambda m: None if m[OUT].py_type is TSL else m[OUT].size(),
     },
 )
-def convert_tuple_to_tsl(
+def convert_variadic_tuple_to_tsl(
     ts: TS[Tuple[SCALAR, ...]], to: Type[OUT] = DEFAULT[OUT], __strict__: bool = True
 ) -> TSL[TIME_SERIES_TYPE, SIZE]:
     return ts.value

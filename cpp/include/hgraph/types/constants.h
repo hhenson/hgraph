@@ -24,6 +24,8 @@ namespace hgraph {
 
     nb::object get_frozendict();
 
+    nb::object get_empty_frozendict();
+
     nb::object get_key_set_id();
 
     /**

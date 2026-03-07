@@ -10,6 +10,7 @@ namespace hgraph {
     }
 
     void SenderReceiverState::enqueue(value_type value) {
+        if (stopped()) { throw std::runtime_error("Cannot enqueue into a stopped receiver"); }
         // Replace `int` with the appropriate type.
         LockGuard guard(lock);
         if (stopped()) { throw std::runtime_error("Cannot enqueue into a stopped receiver"); }
@@ -18,6 +19,7 @@ namespace hgraph {
     }
 
     void SenderReceiverState::enqueue_front(value_type value) {
+        if (stopped()) { throw std::runtime_error("Cannot enqueue into a stopped receiver"); }
         LockGuard guard(lock);
         if (stopped()) { throw std::runtime_error("Cannot enqueue into a stopped receiver"); }
         queue.push_front(std::move(value));
@@ -39,9 +41,17 @@ namespace hgraph {
         return !queue.empty();
     }
 
-    bool SenderReceiverState::stopped() const { return _stopped; }
+    bool SenderReceiverState::stopped() const { return _stopped.load(std::memory_order_acquire); }
 
-    void SenderReceiverState::mark_stopped() { _stopped = true; }
+    void SenderReceiverState::mark_stopped() {
+        _stopped.store(true, std::memory_order_release);
+        LockGuard guard(lock);
+        evaluation_clock = nullptr;
+    }
+
+    void SenderReceiverState::mark_running() {
+        _stopped.store(false, std::memory_order_release);
+    }
 
     auto SenderReceiverState::guard() const -> LockGuard { return LockGuard(lock); }
 } // namespace hgraph

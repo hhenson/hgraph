@@ -1,4 +1,5 @@
 from hgraph._wiring._context_wiring import *
+from hgraph._wiring._cpp_node_registry import *
 from hgraph._wiring._decorators import *
 from hgraph._wiring._dispatch import *
 from hgraph._wiring._exception_handling import *

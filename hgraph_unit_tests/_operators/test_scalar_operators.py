@@ -20,6 +20,7 @@ from hgraph import (
     TS,
     abs_,
     len_,
+    not_,
     and_,
     or_,
     min_,
@@ -288,6 +289,10 @@ def test_and_scalars(lhs, rhs, expected):
 )
 def test_or_scalars(lhs, rhs, expected):
     assert eval_node(or_, lhs, rhs) == expected
+
+
+def test_not_scalar_bool():
+    assert eval_node(not_, [True, False]) == [False, True]
 
 
 def test_min_scalars_unary():

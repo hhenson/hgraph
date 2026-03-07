@@ -107,6 +107,10 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
             if v_ is REMOVE or v_ is REMOVE_IF_EXISTS:  # Supporting numpy arrays has its costs (==)
                 if v_ is REMOVE_IF_EXISTS and k not in self._ts_values:  # is check should be faster than contains check
                     continue
+                if v_ is REMOVE and k in self._removed_items:
+                    # Idempotent same-tick replay: output nodes can re-apply their own
+                    # emitted delta payload in the same evaluation pass.
+                    continue
                 del self[k]
             else:
                 self.get_or_create(k).value = v_
@@ -196,8 +200,13 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
             if v_ is None:
                 continue
             if v_ is REMOVE or v_ is REMOVE_IF_EXISTS:  # Supporting numpy arrays has its costs (==)
-                if v_ is REMOVE_IF_EXISTS and k not in self._ts_values:  # is check should be faster than contains check
-                    continue
+                if k not in self._ts_values:
+                    if v_ is REMOVE_IF_EXISTS:  # is check should be faster than contains check
+                        continue
+                    if k in self._removed_items:
+                        # Same-tick replay of a previously removed key is allowed.
+                        continue
+                    return False
                 if self[k].modified:
                     return False
             else:

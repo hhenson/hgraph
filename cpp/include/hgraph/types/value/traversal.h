@@ -32,6 +32,7 @@
 #include <hgraph/types/value/path.h>
 
 #include <functional>
+#include <limits>
 #include <variant>
 #include <vector>
 

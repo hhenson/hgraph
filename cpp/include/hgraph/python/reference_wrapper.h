@@ -20,7 +20,7 @@ struct type_caster<string_reference_wrapper> {
 
     )
 
-    bool from_python(handle src, uint8_t, cleanup_list *) noexcept {
+    bool from_python(handle /*src*/, uint8_t /*flags*/, cleanup_list* /*cleanup*/) noexcept {
         return false;
     }
 

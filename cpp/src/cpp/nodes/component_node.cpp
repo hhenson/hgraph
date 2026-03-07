@@ -1,5 +1,6 @@
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/component_node.h>
+#include <hgraph/nodes/node_binding_utils.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/python/global_keys.h>
 #include <hgraph/python/global_state.h>
@@ -7,7 +8,7 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
-#include <hgraph/types/tsb.h>
+#include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/util/lifecycle.h>
 #include <format>
 
@@ -15,33 +16,42 @@ namespace hgraph {
     // Helper functions for checking time-series validity and extracting values
     // These need to handle TimeSeriesReference specially
 
-    static bool _get_ts_valid(const time_series_input_s_ptr &ts) {
-        if (!ts->valid()) {
+    static bool _get_ts_valid(const TSInputView &ts) {
+        if (!ts || !ts.valid()) {
             return false;
         }
 
-        auto value = ts->py_value();
+        auto value = ts.to_python();
 
         // Check if it's a TimeSeriesReference using nanobind's isinstance
         // In Python: TimeSeriesReference.is_instance(value)
         try {
             auto ref = nb::cast<TimeSeriesReference>(value);
-            return ref.is_bound() && ref.output()->valid();
+            if (!ref.is_bound()) {
+                return false;
+            }
+            if (const ViewData* bound = ref.bound_view(); bound != nullptr) {
+                return bound->ops != nullptr ? bound->ops->valid(*bound) : false;
+            }
+            return false;
         } catch (const nb::cast_error &) {
             // Not a TimeSeriesReference, that's fine
             return true;
         }
     }
 
-    static nb::object _get_ts_value(const time_series_input_s_ptr &ts) {
-        auto value = ts->py_value();
+    static nb::object _get_ts_value(const TSInputView &ts) {
+        auto value = ts.to_python();
 
         // Check if it's a TimeSeriesReference
         try {
             auto ref = nb::cast<TimeSeriesReference>(value);
             // Must have output and it must be valid
             if (ref.is_bound()) {
-                return ref.output()->py_value();
+                if (const ViewData* bound = ref.bound_view(); bound != nullptr) {
+                    TSView bound_view(*bound, ts.as_ts_view().view_data().engine_time_ptr);
+                    return bound_view.to_python();
+                }
             }
             return value;
         } catch (const nb::cast_error &) {
@@ -51,9 +61,12 @@ namespace hgraph {
     }
 
     ComponentNode::ComponentNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                                 nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
+                                 nb::dict scalars, const TSMeta* input_meta, const TSMeta* output_meta,
+                                 const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
+                                 graph_builder_s_ptr nested_graph_builder,
                                  const std::unordered_map<std::string, int> &input_node_ids, int output_node_id)
-        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
+        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
+                     input_meta, output_meta, error_output_meta, recordable_state_meta),
           m_nested_graph_builder_(std::move(nested_graph_builder)), m_input_node_ids_(input_node_ids),
           m_output_node_id_(output_node_id), m_active_graph_(nullptr), m_last_evaluation_time_(std::nullopt) {
     }
@@ -110,10 +123,8 @@ namespace hgraph {
                 }
 
                 // Check all ts values are valid
-                // Use input() to get the bundle, then access individual inputs
-                auto input_bundle = input();
                 for (const auto &k: ts_values) {
-                    auto ts = (*input_bundle)[k];
+                    auto ts = hgraph::node_input_field(*this, k);
                     if (!_get_ts_valid(ts)) {
                         return {id_, false}; // Not all inputs valid yet
                     }
@@ -122,12 +133,11 @@ namespace hgraph {
 
             // Build args map for formatting
             nb::dict args;
-            auto input_bundle = input();
             for (const auto &k: dependencies) {
                 if (scalars().contains(k)) {
                     args[k.c_str()] = scalars()[k.c_str()];
                 } else {
-                    args[k.c_str()] = _get_ts_value((*input_bundle)[k]);
+                    args[k.c_str()] = _get_ts_value(hgraph::node_input_field(*this, k));
                 }
             }
 
@@ -175,23 +185,39 @@ namespace hgraph {
         initialise_component(*m_active_graph_);
 
         // Wire inputs
-        auto input_bundle = input();
+        auto outer_root = input();
+        if (!outer_root) {
+            return;
+        }
+        auto outer_bundle_opt = outer_root.try_as_bundle();
+        if (!outer_bundle_opt.has_value()) {
+            return;
+        }
+
         for (const auto &[arg, node_ndx]: m_input_node_ids_) {
             auto node = m_active_graph_->nodes()[node_ndx];
             node->notify();
 
-            auto ts = (*input_bundle)[arg];
-            // Copy input with new parent
-            node->reset_input(node->input()->copy_with(node.get(), {ts->shared_from_this()}));
+            auto outer_view = outer_bundle_opt->field(arg);
+            if (!outer_view) {
+                continue;
+            }
 
-            // Re-parent the ts input
-            ts->re_parent(node->input().get());
+            auto inner_ts = hgraph::node_inner_ts_input(*node, true);
+            if (!inner_ts) {
+                continue;
+            }
+
+            hgraph::bind_inner_from_outer(outer_view.as_ts_view(), inner_ts);
         }
 
         // Wire outputs
         if (m_output_node_id_ >= 0) {
             auto node = m_active_graph_->nodes()[m_output_node_id_];
-            node->set_output(output());
+            if (node != nullptr) {
+                m_wired_output_node_ = node.get();
+                m_wired_output_node_->set_output_override(this);
+            }
         }
 
         // Start if already started
@@ -232,6 +258,10 @@ namespace hgraph {
 
     void ComponentNode::dispose() {
         if (m_active_graph_) {
+            if (m_wired_output_node_ != nullptr) {
+                m_wired_output_node_->clear_output_override();
+                m_wired_output_node_ = nullptr;
+            }
             auto id_ = nb::cast<std::string>(m_active_graph_->traits().get_trait(RECORDABLE_ID_TRAIT));
             GlobalState::remove(keys::component_key(id_));
 

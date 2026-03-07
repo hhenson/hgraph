@@ -5,13 +5,12 @@
 namespace hgraph
 {
 
-    PyTimeSeriesValueOutput::PyTimeSeriesValueOutput(api_ptr impl)
-        : PyTimeSeriesOutput(std::move(impl)) {}
+    // View-based constructors
+    PyTimeSeriesValueOutput::PyTimeSeriesValueOutput(TSOutputView view)
+        : PyTimeSeriesOutput(std::move(view)) {}
 
-
-    PyTimeSeriesValueInput::PyTimeSeriesValueInput(api_ptr impl)
-        : PyTimeSeriesInput(std::move(impl)) {}
-
+    PyTimeSeriesValueInput::PyTimeSeriesValueInput(TSInputView view)
+        : PyTimeSeriesInput(std::move(view)) {}
 
     void ts_register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesValueOutput, PyTimeSeriesOutput>(m, "TimeSeriesValueOutput");

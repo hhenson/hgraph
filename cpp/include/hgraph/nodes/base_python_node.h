@@ -6,8 +6,13 @@
 #define HGRAPH_CPP_ENGINE_BASE_PYTHON_NODE_H
 
 #include <hgraph/types/node.h>
+#include <vector>
 
 namespace hgraph {
+    class TSInputView;
+    class TSOutputView;
+    class TSView;
+
     /**
      * BasePythonNode - Base class for Python-based compute nodes
      *
@@ -22,8 +27,18 @@ namespace hgraph {
      * - PythonGeneratorNode: Generator-based nodes
      */
     struct BasePythonNode : Node {
+        struct WrappedInputRef {
+            nb::object owner;
+        };
+
+        struct WrappedOutputRef {
+            nb::object owner;
+        };
+
         BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                       nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn);
+                       nb::dict scalars, const TSMeta* input_meta, const TSMeta* output_meta,
+                       const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
+                       nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn);
 
         void _initialise_kwargs();
 
@@ -31,11 +46,11 @@ namespace hgraph {
 
         void _initialise_state();
 
-        void reset_input(const time_series_bundle_input_s_ptr& value) override;
-
         VISITOR_SUPPORT()
 
     protected:
+        void _index_kwarg_time_views();
+
         void do_eval() override;
 
         void do_start() override;
@@ -48,11 +63,15 @@ namespace hgraph {
 
         void dispose() override;
 
+        void _refresh_kwarg_time_views();
+
         nb::callable _eval_fn;
         nb::callable _start_fn;
         nb::callable _stop_fn;
 
         nb::kwargs _kwargs;
+        std::vector<WrappedInputRef> _kwarg_wrapped_inputs;
+        std::vector<WrappedOutputRef> _kwarg_wrapped_outputs;
     };
 } // namespace hgraph
 

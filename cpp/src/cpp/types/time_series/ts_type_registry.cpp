@@ -4,6 +4,7 @@
  */
 
 #include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/time_series/ts_meta_schema_cache.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/value/type_registry.h>
 
@@ -112,6 +113,20 @@ TSMeta* TSTypeRegistry::create_schema() {
     return ptr;
 }
 
+void TSTypeRegistry::populate_parallel_schemas(TSMeta* meta) {
+    if (meta == nullptr) {
+        return;
+    }
+
+    const auto& schemas = TSMetaSchemaCache::instance().get(meta);
+    meta->time_schema_ = schemas.time_schema;
+    meta->observer_schema_ = schemas.observer_schema;
+    meta->delta_value_schema_ = schemas.delta_schema;
+    meta->link_schema_ = schemas.link_schema;
+    meta->input_link_schema_ = schemas.input_link_schema;
+    meta->active_schema_ = schemas.active_schema;
+}
+
 // ============================================================================
 // TS[T] - Scalar Time-Series
 // ============================================================================
@@ -125,6 +140,7 @@ const TSMeta* TSTypeRegistry::ts(const value::TypeMeta* value_type) {
     auto* meta = create_schema();
     meta->kind = TSKind::TSValue;
     meta->value_type = value_type;
+    populate_parallel_schemas(meta);
 
     ts_cache_[value_type] = meta;
     return meta;
@@ -151,6 +167,7 @@ const TSMeta* TSTypeRegistry::tss(const value::TypeMeta* element_type) {
     auto* meta = create_schema();
     meta->kind = TSKind::TSS;
     meta->value_type = value_schema;
+    populate_parallel_schemas(meta);
 
     tss_cache_[element_type] = meta;
     return meta;
@@ -177,9 +194,9 @@ const TSMeta* TSTypeRegistry::tsd(const value::TypeMeta* key_type, const TSMeta*
 
     auto* meta = create_schema();
     meta->kind = TSKind::TSD;
-    meta->key_type = key_type;
-    meta->element_ts = value_ts;
     meta->value_type = value_schema;
+    meta->set_tsd(key_type, value_ts);
+    populate_parallel_schemas(meta);
 
     tsd_cache_[cache_key] = meta;
     return meta;
@@ -206,9 +223,9 @@ const TSMeta* TSTypeRegistry::tsl(const TSMeta* element_ts, size_t fixed_size) {
 
     auto* meta = create_schema();
     meta->kind = TSKind::TSL;
-    meta->element_ts = element_ts;
-    meta->fixed_size = fixed_size;
     meta->value_type = value_schema;
+    meta->set_tsl(element_ts, fixed_size);
+    populate_parallel_schemas(meta);
 
     tsl_cache_[cache_key] = meta;
     return meta;
@@ -234,9 +251,8 @@ const TSMeta* TSTypeRegistry::tsw(const value::TypeMeta* value_type,
     auto* meta = create_schema();
     meta->kind = TSKind::TSW;
     meta->value_type = value_type;
-    meta->is_duration_based = false;
-    meta->window.tick.period = period;
-    meta->window.tick.min_period = min_period;
+    meta->set_tsw_tick(period, min_period);
+    populate_parallel_schemas(meta);
 
     tsw_cache_[cache_key] = meta;
     return meta;
@@ -263,9 +279,8 @@ const TSMeta* TSTypeRegistry::tsw_duration(const value::TypeMeta* value_type,
     auto* meta = create_schema();
     meta->kind = TSKind::TSW;
     meta->value_type = value_type;
-    meta->is_duration_based = true;
-    meta->window.duration.time_range = time_range;
-    meta->window.duration.min_time_range = min_time_range;
+    meta->set_tsw_duration(time_range, min_time_range);
+    populate_parallel_schemas(meta);
 
     tsw_cache_[cache_key] = meta;
     return meta;
@@ -307,11 +322,10 @@ const TSMeta* TSTypeRegistry::tsb(
 
     auto* meta = create_schema();
     meta->kind = TSKind::TSB;
-    meta->fields = field_array.get();
-    meta->field_count = field_count;
-    meta->bundle_name = intern_string(name);
-    meta->python_type = std::move(python_type);
     meta->value_type = value_schema;
+    const char* bundle_name = intern_string(name);
+    meta->set_tsb(field_array.get(), field_count, bundle_name, std::move(python_type));
+    populate_parallel_schemas(meta);
 
     field_arrays_.push_back(std::move(field_array));
 
@@ -331,8 +345,9 @@ const TSMeta* TSTypeRegistry::ref(const TSMeta* referenced_ts) {
 
     auto* meta = create_schema();
     meta->kind = TSKind::REF;
-    meta->element_ts = referenced_ts;
     meta->value_type = ts_reference_type_meta();
+    meta->set_ref(referenced_ts);
+    populate_parallel_schemas(meta);
 
     ref_cache_[referenced_ts] = meta;
     return meta;
@@ -350,6 +365,7 @@ const TSMeta* TSTypeRegistry::signal() {
     auto* meta = create_schema();
     meta->kind = TSKind::SIGNAL;
     meta->value_type = value::scalar_type_meta<bool>();
+    populate_parallel_schemas(meta);
     signal_singleton_ = meta;
     return meta;
 }
@@ -365,13 +381,13 @@ bool TSTypeRegistry::contains_ref(const TSMeta* meta) {
         case TSKind::REF:
             return true;
         case TSKind::TSB:
-            for (size_t i = 0; i < meta->field_count; ++i) {
-                if (contains_ref(meta->fields[i].ts_type)) return true;
+            for (size_t i = 0; i < meta->field_count(); ++i) {
+                if (contains_ref(meta->fields()[i].ts_type)) return true;
             }
             return false;
         case TSKind::TSL:
         case TSKind::TSD:
-            return contains_ref(meta->element_ts);
+            return contains_ref(meta->element_ts());
         default:
             return false;
     }
@@ -389,13 +405,13 @@ const TSMeta* TSTypeRegistry::dereference(const TSMeta* source) {
 
     switch (source->kind) {
         case TSKind::REF:
-            result = dereference(source->element_ts);
+            result = dereference(source->element_ts());
             break;
 
         case TSKind::TSB: {
             bool has_ref = false;
-            for (size_t i = 0; i < source->field_count; ++i) {
-                if (contains_ref(source->fields[i].ts_type)) {
+            for (size_t i = 0; i < source->field_count(); ++i) {
+                if (contains_ref(source->fields()[i].ts_type)) {
                     has_ref = true;
                     break;
                 }
@@ -405,33 +421,33 @@ const TSMeta* TSTypeRegistry::dereference(const TSMeta* source) {
                 result = source;
             } else {
                 std::vector<std::pair<std::string, const TSMeta*>> deref_fields;
-                deref_fields.reserve(source->field_count);
-                for (size_t i = 0; i < source->field_count; ++i) {
+                deref_fields.reserve(source->field_count());
+                for (size_t i = 0; i < source->field_count(); ++i) {
                     deref_fields.emplace_back(
-                        source->fields[i].name,
-                        dereference(source->fields[i].ts_type)
+                        source->fields()[i].name,
+                        dereference(source->fields()[i].ts_type)
                     );
                 }
-                std::string deref_name = source->bundle_name ? source->bundle_name : "";
+                std::string deref_name = source->bundle_name() ? source->bundle_name() : "";
                 if (!deref_name.empty()) deref_name += "_deref";
-                result = tsb(deref_fields, deref_name, source->python_type);
+                result = tsb(deref_fields, deref_name, source->python_type());
             }
             break;
         }
 
         case TSKind::TSL: {
-            const TSMeta* deref_element = dereference(source->element_ts);
-            result = (deref_element == source->element_ts)
+            const TSMeta* deref_element = dereference(source->element_ts());
+            result = (deref_element == source->element_ts())
                 ? source
-                : tsl(deref_element, source->fixed_size);
+                : tsl(deref_element, source->fixed_size());
             break;
         }
 
         case TSKind::TSD: {
-            const TSMeta* deref_value = dereference(source->element_ts);
-            result = (deref_value == source->element_ts)
+            const TSMeta* deref_value = dereference(source->element_ts());
+            result = (deref_value == source->element_ts())
                 ? source
-                : tsd(source->key_type, deref_value);
+                : tsd(source->key_type(), deref_value);
             break;
         }
 

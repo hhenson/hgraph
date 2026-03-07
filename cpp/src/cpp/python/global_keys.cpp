@@ -37,7 +37,6 @@ namespace hgraph {
         } else if (nb::isinstance<nb::int_>(id_or_label)) {
             return keys::component_key(nb::cast<int64_t>(id_or_label));
         }
-        // Fallback: use Python str() conversion
-        return keys::component_key(nb::cast<std::string>(nb::str(id_or_label)));
+        throw nb::type_error("component_key expects str or int");
     }
 } // namespace hgraph

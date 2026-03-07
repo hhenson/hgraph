@@ -3,8 +3,12 @@
 
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/nested_node.h>
-#include <hgraph/types/tsd.h>
+#include <hgraph/types/feature_extension.h>
+#include <hgraph/types/time_series/ts_value.h>
+#include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/value/value.h>
+
+#include <memory>
 
 namespace hgraph
 {
@@ -45,11 +49,22 @@ namespace hgraph
         using key_time_map_type = std::unordered_map<value::Value, engine_time_t,
                                                      ValueHash, ValueEqual>;
         using key_set_type = std::unordered_set<value::Value, ValueHash, ValueEqual>;
+        using key_value_map_type = std::unordered_map<value::Value, std::unique_ptr<TSValue>, ValueHash, ValueEqual>;
+        using key_ref_snapshot_map_type = std::unordered_map<value::Value, value::Value, ValueHash, ValueEqual>;
+        using arg_key_value_map_type = std::unordered_map<std::string, key_value_map_type>;
+        struct MuxArgDeltaHint {
+            value::View changed_map{};
+            value::View added_set{};
+            value::View removed_set{};
+        };
+        using mux_arg_delta_hint_map_type = std::unordered_map<std::string, MuxArgDeltaHint>;
 
         static inline std::string KEYS_ARG = "__keys__";
         static inline std::string _KEY_ARG = "__key_arg__";
 
         TsdMapNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature, nb::dict scalars,
+                   const TSMeta* input_meta, const TSMeta* output_meta,
+                   const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
                    graph_builder_s_ptr nested_graph_builder, const std::unordered_map<std::string, int64_t> &input_node_ids,
                    int64_t output_node_id, const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg);
 
@@ -80,7 +95,7 @@ namespace hgraph
 
         void do_eval() override {};
 
-        virtual TimeSeriesDictOutputImpl &tsd_output();
+        virtual TSDOutputView tsd_output();
 
         void create_new_graph(const value::View &key);
 
@@ -88,23 +103,45 @@ namespace hgraph
 
         engine_time_t evaluate_graph(const value::View &key);
 
+        void notify_graph_input_nodes(graph_s_ptr &graph, engine_time_t modified_time);
+
         void un_wire_graph(const value::View &key, graph_s_ptr &graph);
 
         void wire_graph(const value::View &key, graph_s_ptr &graph);
+
+        bool refresh_multiplexed_bindings(const value::View &key, graph_s_ptr &graph, bool* all_mux_inputs_valid = nullptr);
+
+        void mark_key_for_forced_emit(const value::View &key) {
+            force_emit_keys_.insert(key.clone());
+        }
 
         // Protected members accessible by derived classes (e.g., MeshNode)
         graph_builder_s_ptr nested_graph_builder_;
         key_graph_map_type  active_graphs_;
         key_set_type        pending_keys_;
+        key_set_type        force_emit_keys_;
         int64_t             count_{1};
         const value::TypeMeta* key_type_meta_{nullptr};
 
       private:
+        TSView resolve_multiplexed_outer_value(const std::string& arg,
+                                               const value::View& key,
+                                               const TSInputView& outer_arg,
+                                               const TSInputView& inner_ts,
+                                               bool* used_local_fallback = nullptr,
+                                               bool* has_outer_key = nullptr,
+                                               bool* outer_key_valid = nullptr,
+                                               int* stage_id = nullptr);
+
         std::unordered_map<std::string, int64_t> input_node_ids_;
         int64_t                                  output_node_id_;
         std::unordered_set<std::string>          multiplexed_args_;
         std::string                              key_arg_;
         key_time_map_type                        scheduled_keys_;
+        arg_key_value_map_type                   local_input_values_;
+        key_value_map_type                       local_output_values_;
+        key_ref_snapshot_map_type                last_ref_source_values_;
+        mux_arg_delta_hint_map_type              mux_delta_hints_;
         std::string                              recordable_id_;
 
         friend MapNestedEngineEvaluationClock;

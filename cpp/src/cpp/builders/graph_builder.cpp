@@ -1,49 +1,125 @@
-#include "hgraph/types/tsd.h"
 #include <hgraph/builders/builder.h>
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/builders/node_builder.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/ref.h>
-#include <hgraph/types/time_series_type.h>
 #include <hgraph/types/traits.h>
-#include <hgraph/types/ts_signal.h>
-#include <hgraph/types/tsb.h>
 
+#include <cstdio>
+#include <cstdlib>
 #include <string_view>
 
 namespace hgraph
 {
-    constexpr int64_t ERROR_PATH = -1;  // The path in the wiring edges representing the error output of the node
-    constexpr int64_t STATE_PATH = -2;
-    // The path in the wiring edges representing the recordable state output of the node
-    constexpr int64_t KEY_SET = -3;  // The path in the wiring edges representing the recordable state output of the node
+	    namespace {
+	        TSOutputView output_child_at(TSOutputView view, size_t index) {
+	            if (view.as_ts_view().try_as_indexed().has_value()) {
+	                return TSIndexedOutputView(view).at(index);
+	            }
+	            return TSOutputView(nullptr, view.as_ts_view().child_at(index));
+	        }
 
-    time_series_output_s_ptr _extract_output(node_ptr node, const std::vector<int64_t> &path) {
-        if (path.empty()) { throw std::runtime_error("No path to find an output for"); }
+	        TSInputView input_child_at(TSInputView view, size_t index) {
+	            if (view.as_ts_view().try_as_indexed().has_value()) {
+	                return TSIndexedInputView(view).at(index);
+	            }
+	            return TSInputView(nullptr, view.as_ts_view().child_at(index));
+	        }
 
-        auto output = node->output();
-        for (auto index : path) {
-            if (index == KEY_SET) {
-                auto tsd_output = std::dynamic_pointer_cast<TimeSeriesDictOutput>(output);
-                if (!tsd_output) { throw std::runtime_error("Output is not a TSD for KEY_SET access"); }
-                output = tsd_output->key_set().shared_from_this();
-            } else {
-                auto indexed_output = std::dynamic_pointer_cast<IndexedTimeSeriesOutput>(output);
-                if (!indexed_output) { throw std::runtime_error("Output is not an indexed time series"); }
-                output = (*indexed_output)[index];
+	        constexpr int64_t ERROR_PATH = -1;
+	        constexpr int64_t STATE_PATH = -2;
+	        constexpr int64_t KEY_SET_PATH_ID = -3;
+    }  // namespace
+
+	    bool _bind_ts_endpoint(node_ptr src_node, const std::vector<int64_t> &output_path,
+	                           node_ptr dst_node, const std::vector<int64_t> &input_path) {
+            const bool debug_bind = std::getenv("HGRAPH_DEBUG_BIND_ENDPOINT") != nullptr;
+	        TSInputView input_view = dst_node->input();
+	        if (!input_view) {
+	            return false;
+	        }
+            if (debug_bind) {
+                const TSMeta* root_in_meta = input_view.ts_meta();
+                std::fprintf(stderr,
+                             "[bind_endpoint] src=%s dst=%s in_path=[%s] out_path=[%s] in_root_kind=%d\n",
+                             src_node != nullptr ? src_node->signature().name.c_str() : "<null>",
+                             dst_node != nullptr ? dst_node->signature().name.c_str() : "<null>",
+                             fmt::format("{}", fmt::join(input_path, ",")).c_str(),
+                             fmt::format("{}", fmt::join(output_path, ",")).c_str(),
+                             root_in_meta != nullptr ? static_cast<int>(root_in_meta->kind) : -1);
             }
-        }
-        return output;
-    }
 
-    time_series_input_s_ptr _extract_input(node_ptr node, const std::vector<int64_t> &path) {
-        if (path.empty()) { throw std::runtime_error("No path to find an input for"); }
+	        for (int64_t index : input_path) {
+	            if (index == KEY_SET_PATH_ID) {
+	                if (input_view.as_ts_view().kind() != TSKind::TSD) {
+	                    return false;
+	                }
+	                input_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
+	                continue;
+	            }
+	            if (index < 0) {
+	                return false;
+	            }
+	            input_view = input_child_at(input_view, static_cast<size_t>(index));
+	            if (!input_view) {
+	                return false;
+	            }
+	        }
+            if (debug_bind) {
+                const TSMeta* in_meta = input_view.ts_meta();
+                std::fprintf(stderr,
+                             "[bind_endpoint] dst_view_path=%s in_kind=%d\n",
+                             input_view.as_ts_view().short_path().to_string().c_str(),
+                             in_meta != nullptr ? static_cast<int>(in_meta->kind) : -1);
+            }
 
-        time_series_input_s_ptr input = std::static_pointer_cast<TimeSeriesInput>(node->input());
+	        TSOutputView output_view;
+	        std::vector<int64_t> normalized_output_path = output_path;
+	        if (output_path.size() == 1 && output_path.front() == ERROR_PATH) {
+	            output_view = src_node->error_output();
+	            normalized_output_path.clear();
+	        } else if (output_path.size() == 1 && output_path.front() == STATE_PATH) {
+	            output_view = src_node->recordable_state();
+	            normalized_output_path.clear();
+	        } else {
+	            output_view = src_node->output();
+	        }
+	        if (!output_view) {
+	            return false;
+	        }
+            if (debug_bind) {
+                const TSMeta* root_out_meta = output_view.ts_meta();
+                std::fprintf(stderr,
+                             "[bind_endpoint] src_root_kind=%d\n",
+                             root_out_meta != nullptr ? static_cast<int>(root_out_meta->kind) : -1);
+            }
 
-        for (const auto &ndx : path) { input = input->get_input(ndx)->shared_from_this(); }
-        return input;
+	        for (int64_t index : normalized_output_path) {
+	            if (index == KEY_SET_PATH_ID) {
+	                if (output_view.as_ts_view().kind() != TSKind::TSD) {
+	                    return false;
+	                }
+	                output_view.as_ts_view().view_data().projection = ViewProjection::TSD_KEY_SET;
+	                continue;
+	            }
+	            if (index < 0) {
+	                return false;
+	            }
+	            output_view = output_child_at(output_view, static_cast<size_t>(index));
+	            if (!output_view) {
+	                return false;
+	            }
+	        }
+            if (debug_bind) {
+                const TSMeta* out_meta_dbg = output_view.ts_meta();
+                std::fprintf(stderr,
+                             "[bind_endpoint] src_view_path=%s out_kind=%d\n",
+                             output_view.as_ts_view().short_path().to_string().c_str(),
+                             out_meta_dbg != nullptr ? static_cast<int>(out_meta_dbg->kind) : -1);
+            }
+
+            input_view.bind(output_view);
+        return true;
     }
 
     GraphBuilder::GraphBuilder(std::vector<node_builder_s_ptr> node_builders_, std::vector<Edge> edges_)
@@ -108,18 +184,10 @@ namespace hgraph
             auto src_node = nodes[edge.src_node].get();
             auto dst_node = nodes[edge.dst_node].get();
 
-            time_series_output_s_ptr output;
-            if (edge.output_path.size() == 1 && edge.output_path[0] == ERROR_PATH) {
-                output = src_node->error_output();
-            } else if (edge.output_path.size() == 1 && edge.output_path[0] == STATE_PATH) {
-                output = std::static_pointer_cast<TimeSeriesOutput>(src_node->recordable_state());
-            } else {
-                output = edge.output_path.empty() ? src_node->output() : _extract_output(src_node, edge.output_path);
+            if (!_bind_ts_endpoint(src_node, edge.output_path, dst_node, edge.input_path)) {
+                throw std::runtime_error(
+                    fmt::format("TS endpoint bind failed for edge {} -> {}", edge.src_node, edge.dst_node));
             }
-
-            auto input = _extract_input(dst_node, edge.input_path);
-            // Convert raw output pointer to shared_ptr for bind_output
-            input->bind_output(output ? output->shared_from_this() : time_series_output_s_ptr{});
         }
 
         return nodes;
@@ -127,7 +195,7 @@ namespace hgraph
 
     void GraphBuilder::release_instance(graph_s_ptr item) const {
         auto &nodes = item->nodes();
-        for (size_t i = 0, l = nodes.size(), b = node_builders.size(); i < l; ++i) { node_builders[i % b]->release_instance(nodes[i]); }
+        for (size_t i = 0, l = nodes.size(); i < l; ++i) { node_builders[i]->release_instance(nodes[i]); }
         dispose_component(*item);
     }
 

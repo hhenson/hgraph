@@ -1,42 +1,102 @@
 #include "hgraph/api/python/wrapper_factory.h"
-#include "hgraph/types/time_series_type.h"
 
+#include <hgraph/api/python/py_ref.h>
+#include <hgraph/api/python/py_tsd.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/types/graph.h>
-#include <hgraph/types/ref.h>
+#include <hgraph/types/node.h>
+#include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_ops.h>
+#include <hgraph/types/time_series/ts_output.h>
+
+#include <cstdio>
+#include <cstdlib>
+#include <optional>
+#include <stdexcept>
+#include <utility>
 
 namespace hgraph
 {
+namespace
+{
+    bool has_parent(const ShortPath &path) { return !path.indices.empty(); }
+}  // namespace
+
+    // ========== PyTimeSeriesType Implementation ==========
+
+    PyTimeSeriesType::PyTimeSeriesType(TSView view) : view_{std::move(view)} {}
+
     nb::object PyTimeSeriesType::owning_node() const {
-        auto n = _impl->owning_node();
-        return n ? wrap_node(n->shared_from_this()) : nb::none();
+        auto *node_ptr = view().short_path().node;
+        return node_ptr ? wrap_node(node_ptr->shared_from_this()) : nb::none();
     }
 
     nb::object PyTimeSeriesType::owning_graph() const {
-        auto g = _impl->owning_graph();
-        return g ? wrap_graph(g->shared_from_this()) : nb::none();
+        auto *node_ptr = view().short_path().node;
+        if (!node_ptr) {
+            return nb::none();
+        }
+        auto *graph_ptr = node_ptr->graph();
+        return graph_ptr ? wrap_graph(graph_ptr->shared_from_this()) : nb::none();
     }
 
-    nb::bool_ PyTimeSeriesType::has_parent_or_node() const { return nb::bool_(_impl->has_parent_or_node()); }
+    nb::bool_ PyTimeSeriesType::has_parent_or_node() const {
+        const auto &path = view().short_path();
+        return nb::bool_(path.node != nullptr || has_parent(path));
+    }
 
-    nb::bool_ PyTimeSeriesType::has_owning_node() const { return nb::bool_(_impl->has_owning_node()); }
+    nb::bool_ PyTimeSeriesType::has_owning_node() const {
+        return nb::bool_(view().short_path().node != nullptr);
+    }
 
     nb::object PyTimeSeriesType::value() const {
-        // TODO: I would like to extract the python logic into this function, to use a visitor function.
-        return _impl->py_value();
+        if (auto* ref_input = dynamic_cast<const PyTimeSeriesReferenceInput*>(this)) {
+            return ref_input->ref_value();
+        }
+
+        const TSView& ts_view = view();
+        const TSMeta* meta = ts_view.ts_meta();
+        // Python scalar TS outputs expose `None` until first valid write.
+        if (meta != nullptr && meta->kind == TSKind::TSValue && !ts_view.valid()) {
+            return nb::none();
+        }
+        return ts_view.to_python();
     }
 
-    nb::object PyTimeSeriesType::delta_value() const { return _impl->py_delta_value(); }
+    nb::object PyTimeSeriesType::delta_value() const {
+        static const bool debug_delta_dispatch = std::getenv("HGRAPH_DEBUG_TS_DELTA_DISPATCH") != nullptr;
+        nb::object out = view().delta_to_python();
+        if (debug_delta_dispatch) {
+            std::fprintf(stderr,
+                         "[ts_delta_dispatch] kind=view path=%s out=%s\n",
+                         view().short_path().to_string().c_str(),
+                         nb::cast<std::string>(nb::repr(out)).c_str());
+        }
+        return out;
+    }
 
-    engine_time_t PyTimeSeriesType::last_modified_time() const { return _impl->last_modified_time(); }
+    engine_time_t PyTimeSeriesType::last_modified_time() const {
+        return view().last_modified_time();
+    }
 
-    nb::bool_ PyTimeSeriesType::valid() const { return nb::bool_(_impl->valid()); }
+    nb::bool_ PyTimeSeriesType::valid() const {
+        return nb::bool_(view().valid());
+    }
 
-    nb::bool_ PyTimeSeriesType::all_valid() const { return nb::bool_(_impl->all_valid()); }
+    nb::bool_ PyTimeSeriesType::all_valid() const {
+        return nb::bool_(view().all_valid());
+    }
 
-    nb::bool_ PyTimeSeriesType::is_reference() const { return nb::bool_(_impl->is_reference()); }
+    nb::bool_ PyTimeSeriesType::is_reference() const {
+        const auto *meta = view().ts_meta();
+        return nb::bool_(meta != nullptr && meta->kind == TSKind::REF);
+    }
 
-    nb::bool_ PyTimeSeriesType::modified() const { return nb::bool_(_impl->modified()); }
+    nb::bool_ PyTimeSeriesType::modified() const {
+        return nb::bool_(view().modified());
+    }
 
     void PyTimeSeriesType::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesType>(m, "TimeSeriesType")
@@ -48,36 +108,67 @@ namespace hgraph
             .def_prop_ro("valid", &PyTimeSeriesType::valid)
             .def_prop_ro("all_valid", &PyTimeSeriesType::all_valid)
             .def_prop_ro("last_modified_time", &PyTimeSeriesType::last_modified_time)
-            // .def("re_parent", static_cast<void (PyTimeSeriesType::*)(const Node::ptr &)>(&PyTimeSeriesType::re_parent))
-            // .def("re_parent", static_cast<void (PyTimeSeriesType::*)(const ptr &)>(&PyTimeSeriesType::re_parent))
             .def("is_reference", &PyTimeSeriesType::is_reference);
-        //.def("has_reference", &PyTimeSeriesType::has_reference)
     }
 
-    PyTimeSeriesType::PyTimeSeriesType(api_ptr impl) : _impl{std::move(impl)} {}
+    // ========== PyTimeSeriesOutput Implementation ==========
 
-    control_block_ptr PyTimeSeriesType::control_block() const { return _impl.control_block(); }
+    PyTimeSeriesOutput::PyTimeSeriesOutput(TSOutputView view)
+        : PyTimeSeriesType(view.as_ts_view())
+        , output_view_(std::move(view)) {}
 
-    nb::object PyTimeSeriesOutput::parent_output() const { return impl()->parent_output() ? wrap_output(impl()->parent_output()) : nb::none(); }
+    nb::object PyTimeSeriesOutput::parent_output() const {
+        const ShortPath &path = output_view().as_ts_view().short_path();
+        if (!has_parent(path) || path.node == nullptr) {
+            return nb::none();
+        }
 
-    nb::bool_ PyTimeSeriesOutput::has_parent_output() const { return nb::bool_(impl()->has_parent_output()); }
+        TSOutputView root = path.node->output();
+        if (!root) {
+            return nb::none();
+        }
 
-    void PyTimeSeriesOutput::apply_result(nb::object value) { impl()->apply_result(std::move(value)); }
+        TSView parent = root.as_ts_view();
+        for (size_t i = 0; i + 1 < path.indices.size(); ++i) {
+            parent = parent.child_at(path.indices[i]);
+        }
+        return wrap_output_view(TSOutputView(nullptr, std::move(parent)));
+    }
 
-    void PyTimeSeriesOutput::set_value(nb::object value) { impl()->py_set_value(std::move(value)); }
+    nb::bool_ PyTimeSeriesOutput::has_parent_output() const {
+        return nb::bool_(has_parent(output_view().as_ts_view().short_path()));
+    }
+
+    void PyTimeSeriesOutput::apply_result(nb::object value) {
+        if (!value.is_none()) {
+            output_view().from_python(value);
+        }
+    }
+
+    void PyTimeSeriesOutput::set_value(nb::object value) {
+        if (value.is_none()) {
+            output_view().invalidate();
+        } else {
+            output_view().from_python(value);
+        }
+    }
 
     void PyTimeSeriesOutput::copy_from_output(const PyTimeSeriesOutput &output) {
-        impl()->copy_from_output(*unwrap_output(output));
+        output_view().copy_from_output(output.output_view());
     }
 
-    void PyTimeSeriesOutput::copy_from_input(const PyTimeSeriesInput &input) { impl()->copy_from_input(*unwrap_input(input)); }
+    void PyTimeSeriesOutput::copy_from_input(const PyTimeSeriesInput &input) {
+        output_view().copy_from_input(input.input_view());
+    }
 
-    void PyTimeSeriesOutput::clear() { impl()->clear(); }
+    void PyTimeSeriesOutput::clear() { output_view().invalidate(); }
 
-    void PyTimeSeriesOutput::invalidate() { impl()->invalidate(); }
+    void PyTimeSeriesOutput::invalidate() { output_view().invalidate(); }
 
-    bool PyTimeSeriesOutput::can_apply_result(nb::object value) { return impl()->can_apply_result(std::move(value)); }
-
+    bool PyTimeSeriesOutput::can_apply_result(nb::object value) {
+        (void)value;
+        return static_cast<bool>(output_view()) && !output_view().modified();
+    }
 
     void PyTimeSeriesOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesOutput, PyTimeSeriesType>(m, "TimeSeriesOutput")
@@ -88,44 +179,131 @@ namespace hgraph
             .def("apply_result", &PyTimeSeriesOutput::apply_result, nb::arg("value").none())
             .def("clear", &PyTimeSeriesOutput::clear)
             .def("invalidate", &PyTimeSeriesOutput::invalidate)
-            // .def("mark_invalid", &PyTimeSeriesOutput::mark_invalid)
-            // .def("mark_modified", static_cast<void (PyTimeSeriesOutput::*)()>(&PyTimeSeriesOutput::mark_modified))
-            // .def("mark_modified", static_cast<void (PyTimeSeriesOutput::*)(engine_time_t)>(&PyTimeSeriesOutput::mark_modified))
-            // .def("subscribe", &PyTimeSeriesOutput::subscribe)
-            // .def("unsubscribe", &PyTimeSeriesOutput::un_subscribe)
             .def("copy_from_output", &PyTimeSeriesOutput::copy_from_output)
             .def("copy_from_input", &PyTimeSeriesOutput::copy_from_input);
     }
 
-    TimeSeriesOutput *PyTimeSeriesOutput::impl() const { return static_cast_impl<TimeSeriesOutput>(); }
+    // ========== PyTimeSeriesInput Implementation ==========
 
-    nb::object PyTimeSeriesInput::parent_input() const { return impl()->parent_input() ? wrap_input(impl()->parent_input()->shared_from_this()) : nb::none(); }
+    PyTimeSeriesInput::PyTimeSeriesInput(TSInputView view)
+        : PyTimeSeriesType(view.as_ts_view())
+        , input_view_(std::move(view)) {}
 
-    nb::bool_ PyTimeSeriesInput::has_parent_input() const { return nb::bool_(impl()->has_parent_input()); }
+    nb::object PyTimeSeriesInput::parent_input() const {
+        const ShortPath &path = input_view().as_ts_view().short_path();
+        if (!has_parent(path) || path.node == nullptr) {
+            return nb::none();
+        }
 
-    nb::bool_ PyTimeSeriesInput::active() const { return nb::bool_(impl()->active()); }
+        TSInputView root = path.node->input();
+        if (!root) {
+            return nb::none();
+        }
 
-    void PyTimeSeriesInput::make_active() { impl()->make_active(); }
-
-    void PyTimeSeriesInput::make_passive() { impl()->make_passive(); }
-
-    nb::bool_ PyTimeSeriesInput::bound() const { return nb::bool_(impl()->bound()); }
-
-    nb::bool_ PyTimeSeriesInput::has_peer() const { return nb::bool_(impl()->has_peer()); }
-
-    nb::object PyTimeSeriesInput::output() const { return wrap_output(impl()->output() ? impl()->output()->shared_from_this() : nullptr); }
-
-    nb::bool_ PyTimeSeriesInput::has_output() const { return nb::bool_(impl()->has_output()); }
-
-    nb::bool_ PyTimeSeriesInput::bind_output(nb::object output_) { return nb::bool_(impl()->bind_output(unwrap_output(output_))); }
-
-    void PyTimeSeriesInput::un_bind_output(bool unbind_refs) { return impl()->un_bind_output(unbind_refs); }
-
-    nb::object PyTimeSeriesInput::reference_output() const {
-        return wrap_output(impl()->reference_output());
+        TSView parent = root.as_ts_view();
+        for (size_t i = 0; i + 1 < path.indices.size(); ++i) {
+            parent = parent.child_at(path.indices[i]);
+        }
+        return wrap_input_view(TSInputView(nullptr, std::move(parent)));
     }
 
-    nb::object PyTimeSeriesInput::get_input(size_t index) const { return wrap_input(impl()->get_input(index)); }
+    nb::bool_ PyTimeSeriesInput::has_parent_input() const {
+        return nb::bool_(has_parent(input_view().as_ts_view().short_path()));
+    }
+
+    nb::bool_ PyTimeSeriesInput::active() const { return nb::bool_(input_view().active()); }
+
+    void PyTimeSeriesInput::make_active() { input_view().make_active(); }
+
+    void PyTimeSeriesInput::make_passive() { input_view().make_passive(); }
+
+    nb::bool_ PyTimeSeriesInput::bound() const {
+        return nb::bool_(input_has_effective_bound_target(input_view()));
+    }
+
+    nb::bool_ PyTimeSeriesInput::has_peer() const {
+        // Input-level default peer semantics match Python: bound implies peer.
+        return nb::bool_(input_has_effective_bound_target(input_view()));
+    }
+
+    nb::object PyTimeSeriesInput::output() const {
+        auto target = resolve_input_bound_target_view_data(input_view());
+        if (!target.has_value()) {
+            return nb::none();
+        }
+        return wrap_output_view(TSOutputView(nullptr, TSView(*target, input_view().as_ts_view().view_data().engine_time_ptr)));
+    }
+
+    nb::bool_ PyTimeSeriesInput::has_output() const {
+        return nb::bool_(input_has_effective_bound_target(input_view()));
+    }
+
+    nb::bool_ PyTimeSeriesInput::bind_output(nb::object output_) {
+        if (!nb::isinstance<PyTimeSeriesOutput>(output_)) {
+            throw std::runtime_error("bind_output requires a TimeSeriesOutput instance");
+        }
+
+        const bool was_bound = input_view().is_bound();
+        auto &py_output = nb::cast<PyTimeSeriesOutput &>(output_);
+        if (std::getenv("HGRAPH_DEBUG_REF_BIND_PATH") != nullptr) {
+            const TSMeta* in_meta = input_view().ts_meta();
+            const TSMeta* out_meta = py_output.output_view().ts_meta();
+            std::fprintf(stderr,
+                         "[bind_output] in_path=%s in_kind=%d out_path=%s out_kind=%d bound_before=%d\n",
+                         input_view().short_path().to_string().c_str(),
+                         in_meta != nullptr ? static_cast<int>(in_meta->kind) : -1,
+                         py_output.output_view().short_path().to_string().c_str(),
+                         out_meta != nullptr ? static_cast<int>(out_meta->kind) : -1,
+                         input_view().is_bound() ? 1 : 0);
+        }
+        input_view().bind(py_output.output_view());
+        if (std::getenv("HGRAPH_DEBUG_REF_BIND_PATH") != nullptr) {
+            std::fprintf(stderr,
+                         "[bind_output] in_path=%s bound_after=%d\n",
+                         input_view().short_path().to_string().c_str(),
+                         input_view().is_bound() ? 1 : 0);
+        }
+
+        node_ptr owner = input_view().short_path().node;
+        if (owner != nullptr && (owner->is_started() || owner->is_starting()) &&
+            input_view().is_bound() && (was_bound || input_view().valid()) &&
+            input_view().active()) {
+            const engine_time_t notify_time = resolve_notify_time(owner, input_view().current_time());
+            owner->notify(notify_time);
+        }
+
+        return nb::bool_(input_view().is_bound());
+    }
+
+    void PyTimeSeriesInput::un_bind_output(bool unbind_refs) {
+        (void)unbind_refs;
+        const bool was_valid = input_view().valid();
+        const bool was_active = input_view().active();
+        node_ptr owner = input_view().short_path().node;
+        input_view().unbind();
+        if (owner != nullptr && owner->is_started() && was_valid && was_active) {
+            const engine_time_t notify_time = resolve_notify_time(owner, input_view().current_time());
+            owner->notify(notify_time);
+        }
+    }
+
+    nb::object PyTimeSeriesInput::reference_output() const {
+        const auto *meta = input_view().ts_meta();
+        if (meta == nullptr || meta->kind != TSKind::REF) {
+            return nb::none();
+        }
+        return output();
+    }
+
+    nb::object PyTimeSeriesInput::get_input(size_t index) const {
+        if (auto list = input_view().try_as_list(); list.has_value()) {
+            return wrap_input_view(list->at(index));
+        }
+        if (auto bundle = input_view().try_as_bundle(); bundle.has_value()) {
+            return wrap_input_view(bundle->at(index));
+        }
+        throw nb::index_error();
+    }
 
     void PyTimeSeriesInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesInput, PyTimeSeriesType>(m, "TimeSeriesInput")
@@ -142,6 +320,4 @@ namespace hgraph
             .def("make_active", &PyTimeSeriesInput::make_active)
             .def("make_passive", &PyTimeSeriesInput::make_passive);
     }
-
-    TimeSeriesInput *PyTimeSeriesInput::impl() const { return static_cast_impl<TimeSeriesInput>(); }
 }  // namespace hgraph

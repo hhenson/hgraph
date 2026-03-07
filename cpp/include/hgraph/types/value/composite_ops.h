@@ -1333,10 +1333,14 @@ struct SetOps {
         return static_cast<const SetStorage*>(obj)->size();
     }
 
-    // ========== Indexable Operations (for iteration) ==========
+    // ========== Slot Access (stable index lookup) ==========
 
     static const void* at(const void* obj, size_t index, const TypeMeta* /*schema*/) {
-        return static_cast<const SetStorage*>(obj)->key_set().key_at_slot(index);
+        auto* storage = static_cast<const SetStorage*>(obj);
+        if (!storage->key_set().has_slot_value(index)) {
+            throw std::out_of_range("Set slot has no value");
+        }
+        return storage->key_set().key_at_slot(index);
     }
 
     static size_t next(const void* obj, size_t index, const TypeMeta* /*schema*/) {

@@ -282,7 +282,9 @@ def take_by_count(ts: TIME_SERIES_TYPE, count: int = 1, state: STATE[CounterStat
 
 
 @compute_node(overloads=take, valid=())
-def take_by_count(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int = 1, state: STATE[CounterState] = None) -> TIME_SERIES_TYPE:
+def take_by_count_with_reset(
+    ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int = 1, state: STATE[CounterState] = None
+) -> TIME_SERIES_TYPE:
     if reset.modified:
         state.count = 0
         ts.make_active()

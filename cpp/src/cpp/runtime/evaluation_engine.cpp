@@ -282,7 +282,7 @@ namespace hgraph {
             auto it = _alarms.begin();
             if (now >= it->first) {
                 // Extract the alarm key before erasing to avoid redundant copy
-                auto alarm_key = std::move(*it);
+                auto alarm_key = *it;
                 _alarms.erase(it);
                 next_scheduled_time = std::min(next_scheduled_time, std::max(now, evaluation_time() + MIN_TD));
 
@@ -328,8 +328,15 @@ namespace hgraph {
                     std::unique_lock<std::mutex> lock(_condition_mutex);
                     scheduled = _push_node_requires_scheduling;
                     if (!scheduled) {
+                        // Wake slightly ahead of the deadline to reduce wall-clock overshoot
+                        // from kernel scheduling jitter, then re-check the target time in the loop.
+                        constexpr auto wake_guard = std::chrono::microseconds(500);
+                        auto wait_time = std::min(sleep_time, duration_cast<engine_time_delta_t>(std::chrono::seconds(10)));
+                        if (wait_time > wake_guard) {
+                            wait_time -= wake_guard;
+                        }
                         _push_node_requires_scheduling_condition.wait_for(
-                            lock, std::min(sleep_time, duration_cast<engine_time_delta_t>(std::chrono::seconds(10))));
+                            lock, wait_time);
                         scheduled = _push_node_requires_scheduling;
                     }
                 } // lock released here, then GIL is reacquired — no inversion
@@ -346,7 +353,7 @@ namespace hgraph {
             auto it = _alarms.begin();
             if (now >= it->first) {
                 // Extract the alarm key before erasing to avoid redundant copy
-                auto alarm_key = std::move(*it);
+                auto alarm_key = *it;
                 _alarms.erase(it);
 
                 auto cb = _alarm_callbacks.find(alarm_key);

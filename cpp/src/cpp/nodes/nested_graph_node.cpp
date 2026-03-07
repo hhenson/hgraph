@@ -5,17 +5,18 @@
 #include <hgraph/runtime/record_replay.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/tsb.h>
-#include <hgraph/types/time_series_type.h>
-#include <hgraph/types/ref.h>
 #include <utility>
 
 namespace hgraph {
+
     NestedGraphNode::NestedGraphNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id,
                                      NodeSignature::s_ptr signature,
-                                     nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
+                                     nb::dict scalars, const TSMeta* input_meta, const TSMeta* output_meta,
+                                     const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
+                                     graph_builder_s_ptr nested_graph_builder,
                                      const std::unordered_map<std::string, int> &input_node_ids, int output_node_id)
-        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
+        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
+                     input_meta, output_meta, error_output_meta, recordable_state_meta),
           m_nested_graph_builder_(std::move(nested_graph_builder)), m_input_node_ids_(input_node_ids),
           m_output_node_id_(output_node_id), m_active_graph_(nullptr) {
     }
@@ -26,22 +27,45 @@ namespace hgraph {
     }
 
     void NestedGraphNode::write_inputs() {
-        // Align with Python's PythonNestedGraphNodeImpl._write_inputs:
-        // For each mapped inner node, notify it, set its input via copy_with(owning_node=node, ts=outer_ts),
-        // then re-parent the outer ts to the inner node's input bundle.
+        // Bind inner "ts" inputs to outer mapped inputs.
         if (!m_input_node_ids_.empty()) {
+            auto outer_root = input();
+            if (!outer_root) {
+                return;
+            }
+
+            auto outer_bundle_opt = outer_root.try_as_bundle();
+            if (!outer_bundle_opt.has_value()) {
+                return;
+            }
+
             for (const auto &[arg, node_ndx]: m_input_node_ids_) {
                 auto node = m_active_graph_->nodes()[node_ndx];
                 node->notify();
 
-                // Fetch the outer time-series input to be passed into the inner node as its 'ts'
-                auto ts = (*input())[arg];
+                auto outer_view = outer_bundle_opt->field(arg);
+                if (!outer_view) {
+                    continue;
+                }
 
-                // Replace the inner node's input with a copy that uses the outer ts and is owned by the inner node
-                node->reset_input(node->input()->copy_with(node.get(), {ts->shared_from_this()}));
+                auto inner_root = node->input();
+                if (!inner_root) {
+                    continue;
+                }
+                auto inner_bundle_opt = inner_root.try_as_bundle();
+                if (!inner_bundle_opt.has_value()) {
+                    continue;
+                }
 
-                // Re-parent the provided ts so its parent container becomes the inner node's input bundle
-                ts->re_parent(node->input().get());
+                auto inner_ts = inner_bundle_opt->field("ts");
+                if (!inner_ts && inner_bundle_opt->count() > 0) {
+                    inner_ts = inner_bundle_opt->at(0);
+                }
+                if (!inner_ts) {
+                    continue;
+                }
+
+                inner_ts.as_ts_view().bind(outer_view.as_ts_view());
             }
         }
     }
@@ -49,8 +73,10 @@ namespace hgraph {
     void NestedGraphNode::wire_outputs() {
         if (m_output_node_id_ >= 0) {
             auto node = m_active_graph_->nodes()[m_output_node_id_];
-            // Align with Python: simply replace the inner node's output with the parent node's output
-            node->set_output(output());
+            if (node != nullptr) {
+                m_wired_output_node_ = node.get();
+                m_wired_output_node_->set_output_override(this);
+            }
         }
     }
 
@@ -68,6 +94,12 @@ namespace hgraph {
 
     void NestedGraphNode::dispose() {
         if (m_active_graph_ == nullptr) { return; }
+
+        if (m_wired_output_node_ != nullptr) {
+            m_wired_output_node_->clear_output_override();
+            m_wired_output_node_ = nullptr;
+        }
+
         // Release the graph back to the builder pool (which will call the dispose life-cycle)
         m_nested_graph_builder_->release_instance(m_active_graph_);
         m_active_graph_ = nullptr;

@@ -31,6 +31,11 @@ def create_ref(ts: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]:
     return ts.value
 
 
+@compute_node
+def flatten_ref_ref(ts: REF[REF[TIME_SERIES_TYPE]]) -> REF[TIME_SERIES_TYPE]:
+    return cast(REF, ts.value)
+
+
 def test_ref():
     assert eval_node(create_ref[TIME_SERIES_TYPE : TS[int]], ts=[1, 2]) == [1, 2]
 
@@ -235,3 +240,47 @@ def test_free_tsl_ref_in_switch():
         {0: 1, 1: 2},
         {0: 4, 1: -4},
         ]
+
+
+def test_ref_ref_chain_switch_matches_direct_scalar_switch():
+    @graph
+    def direct_switch(s: TS[bool], a: TS[int], b: TS[int]) -> REF[TS[int]]:
+        selected = switch_(s, {True: lambda lhs, rhs: lhs, False: lambda lhs, rhs: rhs}, a, b)
+        return create_ref[TIME_SERIES_TYPE : TS[int]](selected)
+
+    @graph
+    def ref_chain_switch(s: TS[bool], a: TS[int], b: TS[int]) -> REF[TS[int]]:
+        selected = switch_(s, {True: lambda lhs, rhs: lhs, False: lambda lhs, rhs: rhs}, a, b)
+        ref_1 = create_ref[TIME_SERIES_TYPE : TS[int]](selected)
+        ref_2 = create_ref[TIME_SERIES_TYPE : REF[TS[int]]](ref_1)
+        return flatten_ref_ref[TIME_SERIES_TYPE : TS[int]](ref_2)
+
+    inputs = {
+        "s": [True, None, False, None, True, False],
+        "a": [1, 2, 3, 4, 5, 6],
+        "b": [10, 20, 30, 40, 50, 60],
+    }
+
+    assert eval_node(ref_chain_switch, **inputs) == eval_node(direct_switch, **inputs)
+
+
+def test_ref_ref_chain_switch_matches_direct_tsd_switch():
+    @graph
+    def direct_switch(s: TS[bool], left: TSD[int, TS[int]], right: TSD[int, TS[int]]) -> REF[TSD[int, TS[int]]]:
+        selected = switch_(s, {True: lambda lhs, rhs: lhs, False: lambda lhs, rhs: rhs}, left, right)
+        return create_ref[TIME_SERIES_TYPE : TSD[int, TS[int]]](selected)
+
+    @graph
+    def ref_chain_switch(s: TS[bool], left: TSD[int, TS[int]], right: TSD[int, TS[int]]) -> REF[TSD[int, TS[int]]]:
+        selected = switch_(s, {True: lambda lhs, rhs: lhs, False: lambda lhs, rhs: rhs}, left, right)
+        ref_1 = create_ref[TIME_SERIES_TYPE : TSD[int, TS[int]]](selected)
+        ref_2 = create_ref[TIME_SERIES_TYPE : REF[TSD[int, TS[int]]]](ref_1)
+        return flatten_ref_ref[TIME_SERIES_TYPE : TSD[int, TS[int]]](ref_2)
+
+    inputs = {
+        "s": [True, None, False, None, True, False],
+        "left": [{1: 1}, {2: 2}, {3: 3}, {1: REMOVE}, {2: REMOVE, 4: 4}, None],
+        "right": [{10: 10}, {20: 20}, {10: REMOVE, 30: 30}, None, {40: 40}, {30: REMOVE}],
+    }
+
+    assert eval_node(ref_chain_switch, **inputs) == eval_node(direct_switch, **inputs)

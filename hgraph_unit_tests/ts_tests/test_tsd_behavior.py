@@ -36,6 +36,7 @@ from hgraph import (
     K,
     map_,
     feedback,
+    switch_,
 )
 from hgraph.test import eval_node
 
@@ -146,6 +147,93 @@ def test_key_set_removes_keys():
     assert frozenset(result[1].removed) == {"a"}
 
 
+def test_key_set_modified_on_initial_empty_materialization():
+    """Test key_set ticks on initial invalid->empty materialization."""
+    @compute_node
+    def emit_empty(trigger: TS[bool]) -> TSD[str, TS[int]]:
+        return {}
+
+    @compute_node
+    def inspect_key_set(tsd: TSD[str, TS[int]]) -> TS[tuple]:
+        key_set = tsd.key_set
+        return (
+            key_set.modified,
+            tuple(sorted(key_set.added())),
+            tuple(sorted(key_set.removed())),
+            tuple(sorted(key_set.values())),
+        )
+
+    @graph
+    def g(trigger: TS[bool]) -> TS[tuple]:
+        return inspect_key_set(emit_empty(trigger))
+
+    assert eval_node(g, [True]) == [(True, (), (), ())]
+
+
+def test_key_set_modified_on_add_remove_same_cycle_with_empty_delta():
+    """Test key_set ticks even when same-cycle churn cancels add/remove delta."""
+    @compute_node
+    def add_then_remove(trigger: TS[bool], _output: TSD[str, TS[int]] = None) -> TSD[str, TS[int]]:
+        if trigger.value:
+            _output.get_or_create("a").value = 1
+            del _output["a"]
+        return _output.delta_value if _output.modified else None
+
+    @compute_node
+    def inspect_key_set(tsd: TSD[str, TS[int]]) -> TS[tuple]:
+        key_set = tsd.key_set
+        return (
+            key_set.modified,
+            tuple(sorted(key_set.added())),
+            tuple(sorted(key_set.removed())),
+            tuple(sorted(key_set.values())),
+        )
+
+    @graph
+    def g(trigger: TS[bool]) -> TS[tuple]:
+        return inspect_key_set(add_then_remove(trigger))
+
+    assert eval_node(g, [True]) == [(True, (), (), ())]
+
+
+def test_key_set_not_modified_on_value_only_update():
+    """Test key_set does not tick when only existing values update."""
+    @compute_node
+    def inspect_key_set_modified(tsd: TSD[str, TS[int]]) -> TS[bool]:
+        return tsd.key_set.modified
+
+    assert eval_node(inspect_key_set_modified, [{"a": 1}, {"a": 2}]) == [True, False]
+
+
+def test_key_set_coherence_after_clear_and_reinsert():
+    """Test key_set and modified_items remain coherent after clear and reinsert."""
+    @compute_node
+    def snapshot(tsd: TSD[str, TS[int]]) -> TS[tuple]:
+        live = tuple(sorted(tsd.key_set.values()))
+        added = tuple(sorted(tsd.key_set.added()))
+        removed = tuple(sorted(tsd.key_set.removed()))
+        modified = tuple(sorted(k for k, _ in tsd.modified_items()))
+        return live, added, removed, modified
+
+    result = eval_node(
+        snapshot,
+        [
+            {"a": 1, "b": 2},
+            {"a": REMOVE, "b": REMOVE},
+            {"a": 3},
+            {"a": REMOVE},
+            {"a": 4, "c": 5},
+        ],
+    )
+    assert result == [
+        (("a", "b"), ("a", "b"), (), ("a", "b")),
+        ((), (), ("a", "b"), ()),
+        (("a",), ("a",), (), ("a",)),
+        ((), (), ("a",), ()),
+        (("a", "c"), ("a", "c"), (), ("a", "c")),
+    ]
+
+
 # =============================================================================
 # CONTAINS TESTS
 # =============================================================================
@@ -243,6 +331,20 @@ def test_modified_on_key_change():
     assert eval_node(check_modified, [{"a": 1}, {"b": 2}]) == [True, True]
 
 
+def test_last_modified_time_updates_for_tsd_and_child_scalar():
+    """Test TSD and scalar child timestamps advance together on updates."""
+    @compute_node
+    def read_times(tsd: TSD[str, TS[int]]) -> TS[tuple]:
+        child = tsd["a"]
+        return tsd.last_modified_time, child.last_modified_time
+
+    result = eval_node(read_times, [{"a": 1}, {"a": 2}])
+
+    assert result[0][0] == result[0][1]
+    assert result[1][0] == result[1][1]
+    assert result[1][0] > result[0][0]
+
+
 def test_modified_keys_method():
     """Test modified_keys() returns recently modified keys."""
     @compute_node
@@ -298,6 +400,144 @@ def test_delta_value_includes_removes():
 
     result = eval_node(get_delta, [{"a": 1}, {"a": REMOVE}])
     assert result[1]["a"] is REMOVE
+
+
+def test_delta_value_repeated_reads_same_tick_are_stable():
+    """Test repeated delta_value reads in one tick return identical payloads."""
+    @compute_node
+    def source(trigger: TS[bool]) -> TSD[str, TS[int]]:
+        if trigger.value:
+            return {"a": 1}
+
+    @compute_node
+    def inspect(tsd: TSD[str, TS[int]], trigger: TS[bool]) -> TS[tuple]:
+        if not trigger.modified:
+            return None
+        first = dict(tsd.delta_value) if tsd.modified else {}
+        second = dict(tsd.delta_value) if tsd.modified else {}
+        return tsd.modified, first, second
+
+    @graph
+    def g(trigger: TS[bool]) -> TS[tuple]:
+        return inspect(source(trigger), trigger)
+
+    result = eval_node(g, [True, False])
+    assert result == [
+        (True, {"a": 1}, {"a": 1}),
+        (False, {}, {}),
+    ]
+
+
+def test_delta_value_clears_when_next_tick_has_no_changes():
+    """Test stale TSD deltas do not leak into later ticks without modifications."""
+    @compute_node
+    def source(trigger: TS[int]) -> TSD[str, TS[int]]:
+        if trigger.value == 1:
+            return {"a": 1}
+        if trigger.value == 2:
+            return {"a": 2}
+
+    @compute_node
+    def inspect(tsd: TSD[str, TS[int]], trigger: TS[int]) -> TS[tuple]:
+        if not trigger.modified:
+            return None
+        delta = dict(tsd.delta_value) if tsd.modified else {}
+        return tsd.modified, delta
+
+    @graph
+    def g(trigger: TS[int]) -> TS[tuple]:
+        return inspect(source(trigger), trigger)
+
+    result = eval_node(g, [1, 2, 0, 0])
+    assert result == [
+        (True, {"a": 1}),
+        (True, {"a": 2}),
+        (False, {}),
+        (False, {}),
+    ]
+
+
+def test_output_delta_first_mutation_after_idle_tick_has_no_stale_payload():
+    """Test output-side TSD delta clears stale entries before first mutation in a new tick."""
+    @compute_node
+    def mutate(trigger: TS[int], _output: TSD[str, TS[int]] = None) -> TSD[str, TS[int]]:
+        if trigger.modified and trigger.value == 1:
+            _output.get_or_create("a").value = 1
+        if trigger.modified and trigger.value == 2:
+            _output.get_or_create("b").value = 2
+        return _output.delta_value if _output.modified else None
+
+    result = eval_node(mutate, [1, None, 2])
+    assert result == [
+        {"a": 1},
+        None,
+        {"b": 2},
+    ]
+
+
+def test_output_delta_replay_remove_same_tick_is_idempotent():
+    """Test output-side REMOVE can be replayed in the same tick without throwing."""
+    @compute_node
+    def mutate(trigger: TS[int], _output: TSD[str, TS[int]] = None) -> TSD[str, TS[int]]:
+        if trigger.modified and trigger.value == 1:
+            _output.apply_result({"a": 1})
+        if trigger.modified and trigger.value == -1:
+            _output.apply_result({"a": REMOVE})
+        return _output.delta_value if _output.modified else None
+
+    result = eval_node(mutate, [1, -1])
+    assert result[0] == {"a": 1}
+    assert result[1]["a"] is REMOVE
+
+
+def test_output_delta_remove_idle_add_replay_path_has_no_stale_remove():
+    """Test output-side remove replay path does not leak stale REMOVE into later adds."""
+    @compute_node
+    def mutate(trigger: TS[int], _output: TSD[str, TS[int]] = None) -> TSD[str, TS[int]]:
+        if trigger.modified and trigger.value == 1:
+            _output.apply_result({"a": 1})
+        if trigger.modified and trigger.value == -1:
+            _output.apply_result({"a": REMOVE})
+        if trigger.modified and trigger.value == 2:
+            _output.apply_result({"b": 2})
+        return _output.delta_value if _output.modified else None
+
+    result = eval_node(mutate, [1, -1, None, 2])
+    assert result[0] == {"a": 1}
+    assert result[1]["a"] is REMOVE
+    assert result[2] is None
+    assert result[3] == {"b": 2}
+
+
+def test_read_delta_after_remove_then_idle_then_add_has_no_stale_remove():
+    """Test read-side TSD delta does not leak stale remove markers after an idle tick."""
+    @compute_node
+    def source(trigger: TS[int]) -> TSD[str, TS[int]]:
+        if trigger.value == 1:
+            return {"a": 1}
+        if trigger.value == -1:
+            return {"a": REMOVE}
+        if trigger.value == 2:
+            return {"b": 2}
+
+    @compute_node
+    def inspect(tsd: TSD[str, TS[int]], trigger: TS[int]) -> TS[tuple]:
+        if not trigger.modified:
+            return None
+        delta = dict(tsd.delta_value) if tsd.modified else {}
+        return tsd.modified, delta
+
+    @graph
+    def g(trigger: TS[int]) -> TS[tuple]:
+        return inspect(source(trigger), trigger)
+
+    result = eval_node(g, [1, -1, None, 2])
+    assert result == [
+        (True, {"a": 1}),
+        (True, {"a": REMOVE}),
+        None,
+        (True, {"b": 2}),
+    ]
 
 
 # =============================================================================
@@ -360,6 +600,136 @@ def test_add_then_update():
         return _output.delta_value if _output.modified else None
 
     assert eval_node(add_then_update, [1, 2, 3]) == [{"a": 1}, {"a": 2}, {"a": 3}]
+
+
+def test_tsd_rebind_reports_old_removed_and_new_added():
+    """Test rebind bridge emits removes from old source and adds from new source."""
+    @compute_node
+    def get_delta(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return tsd.delta_value if tsd.modified else None
+
+    @graph
+    def g(select_left: TS[bool], left: TSD[str, TS[int]], right: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return get_delta(switch_(select_left, {True: lambda l, r: l, False: lambda l, r: r}, left, right))
+
+    result = eval_node(
+        g,
+        select_left=[True, None, False],
+        left=[{"a": 1, "b": 2}, {"b": 3}, None],
+        right=[{"x": 10}, None, {"y": 20}],
+    )
+
+    assert result[0] == {"a": 1, "b": 2}
+    assert result[1] == {"b": 3}
+    assert result[2] == {"x": 10, "y": 20, "a": REMOVE, "b": REMOVE}
+
+
+def test_tsd_rebind_reports_old_removed_and_new_added_through_map():
+    """Test rebind bridge semantics are preserved through map-derived TSD branches."""
+    @compute_node
+    def get_delta(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return tsd.delta_value if tsd.modified else None
+
+    @graph
+    def g(select_left: TS[bool], left: TSD[str, TS[int]], right: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        left_mapped = map_(lambda x: x + 100, left)
+        right_mapped = map_(lambda x: x + 1000, right)
+        return get_delta(switch_(select_left, {True: lambda l, r: l, False: lambda l, r: r}, left_mapped, right_mapped))
+
+    result = eval_node(
+        g,
+        select_left=[True, None, False],
+        left=[{"a": 1, "b": 2}, {"b": 3}, None],
+        right=[{"x": 10}, None, {"y": 20}],
+    )
+
+    assert result[0] == {"a": 101, "b": 102}
+    assert result[1] == {"b": 103}
+    assert result[2] == {"x": 1010, "y": 1020, "a": REMOVE, "b": REMOVE}
+
+
+def test_tsd_rebind_reentry_safety_multitick():
+    """Test repeated rebinds do not leak stale _prev_output state across ticks."""
+    @compute_node
+    def get_delta(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return tsd.delta_value if tsd.modified else None
+
+    @graph
+    def g(select_left: TS[bool], left: TSD[str, TS[int]], right: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return get_delta(switch_(select_left, {True: lambda l, r: l, False: lambda l, r: r}, left, right))
+
+    result = eval_node(
+        g,
+        select_left=[True, False, True, False, True],
+        left=[{"a": 1}, None, None, None, None],
+        right=[{"x": 10}, None, None, None, None],
+    )
+
+    assert result == [
+        {"a": 1},
+        {"x": 10, "a": REMOVE},
+        {"a": 1, "x": REMOVE},
+        {"x": 10, "a": REMOVE},
+        {"a": 1, "x": REMOVE},
+    ]
+
+
+def test_tsd_rebind_reentry_safety_toggle_stress():
+    """Test long toggle runs keep bridge cleanup stable without stale carry-over."""
+    @compute_node
+    def get_delta(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return tsd.delta_value if tsd.modified else None
+
+    @graph
+    def g(select_left: TS[bool], left: TSD[str, TS[int]], right: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return get_delta(switch_(select_left, {True: lambda l, r: l, False: lambda l, r: r}, left, right))
+
+    select_left = [True, False, True, False, True, False, True, False, True]
+    left = [{"a": 1}] + [None] * (len(select_left) - 1)
+    right = [{"x": 10}] + [None] * (len(select_left) - 1)
+
+    result = eval_node(g, select_left=select_left, left=left, right=right)
+
+    expected = []
+    use_left = True
+    for _ in range(len(select_left)):
+        if use_left:
+            expected.append({"a": 1} if not expected else {"a": 1, "x": REMOVE})
+        else:
+            expected.append({"x": 10, "a": REMOVE})
+        use_left = not use_left
+
+    assert result == expected
+
+
+def test_tsd_rebind_reentry_safety_toggle_stress_through_map():
+    """Test long toggle runs stay stable when both branches are map-derived TSD outputs."""
+    @compute_node
+    def get_delta(tsd: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return tsd.delta_value if tsd.modified else None
+
+    @graph
+    def g(select_left: TS[bool], left: TSD[str, TS[int]], right: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        left_mapped = map_(lambda x: x + 100, left)
+        right_mapped = map_(lambda x: x + 1000, right)
+        return get_delta(switch_(select_left, {True: lambda l, r: l, False: lambda l, r: r}, left_mapped, right_mapped))
+
+    select_left = [True, False, True, False, True, False, True]
+    left = [{"a": 1}] + [None] * (len(select_left) - 1)
+    right = [{"x": 10}] + [None] * (len(select_left) - 1)
+
+    result = eval_node(g, select_left=select_left, left=left, right=right)
+
+    expected = []
+    use_left = True
+    for _ in range(len(select_left)):
+        if use_left:
+            expected.append({"a": 101} if not expected else {"a": 101, "x": REMOVE})
+        else:
+            expected.append({"x": 1010, "a": REMOVE})
+        use_left = not use_left
+
+    assert result == expected
 
 
 # =============================================================================

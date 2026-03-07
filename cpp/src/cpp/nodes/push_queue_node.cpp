@@ -1,126 +1,296 @@
-#include "hgraph/api/python/py_tsd.h"
-#include "hgraph/api/python/wrapper_factory.h"
-
 #include <hgraph/nodes/push_queue_node.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
-#include <hgraph/types/time_series_type.h>
-#include <hgraph/types/tsd.h>
 
 namespace hgraph {
+    namespace {
+        enum class RemoveMarkerKind { None, Remove, RemoveIfExists };
+
+        RemoveMarkerKind classify_remove_marker(
+            const nb::object &obj,
+            const nb::object &remove_marker,
+            const nb::object &remove_if_exists_marker) {
+            if (obj.is(remove_marker)) {
+                return RemoveMarkerKind::Remove;
+            }
+            if (obj.is(remove_if_exists_marker)) {
+                return RemoveMarkerKind::RemoveIfExists;
+            }
+            return RemoveMarkerKind::None;
+        }
+
+        value::Value key_from_python(const value::TypeMeta *key_type, const nb::handle &key_obj) {
+            value::Value key_value(key_type);
+            key_value.emplace();
+            key_type->ops().from_python(key_value.data(), nb::borrow(key_obj), key_type);
+            return key_value;
+        }
+
+        bool can_apply_result(const TSOutputView &output, const nb::object &value);
+
+        bool can_apply_result_to_bundle(const TSBOutputView &bundle_view, const nb::object &value) {
+            auto marker_items = nb::hasattr(value, "items") ? nb::getattr(value, "items")() : nb::iter(value);
+            for (const auto &pair : nb::iter(marker_items)) {
+                auto key = pair[0];
+                auto v = pair[1];
+                if (v.is_none()) {
+                    continue;
+                }
+
+                auto child = bundle_view.field(nb::cast<std::string>(key));
+                if (!child) {
+                    return false;
+                }
+                if (!can_apply_result(child, v)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool can_apply_result_to_dict(const TSDOutputView &dict_view, const nb::object &value) {
+            auto ts_meta = dict_view.as_ts_view().ts_meta();
+            if (ts_meta == nullptr || ts_meta->key_type() == nullptr) {
+                return false;
+            }
+
+            auto remove = get_remove();
+            auto remove_if_exists = get_remove_if_exists();
+
+            auto marker_items = nb::hasattr(value, "items") ? nb::getattr(value, "items")() : nb::iter(value);
+            for (const auto &pair : nb::iter(marker_items)) {
+                auto key = pair[0];
+                auto v = pair[1];
+                if (v.is_none()) {
+                    continue;
+                }
+
+                value::Value key_value(ts_meta->key_type());
+                key_value.emplace();
+                ts_meta->key_type()->ops().from_python(key_value.data(), key, ts_meta->key_type());
+                auto child = dict_view.at_key(key_value.view());
+
+                auto marker = classify_remove_marker(v, remove, remove_if_exists);
+                if (marker != RemoveMarkerKind::None) {
+                    if (child && child.modified()) {
+                        return false;
+                    }
+                    continue;
+                }
+
+                if (!child) {
+                    continue;
+                }
+                if (!can_apply_result(child, v)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        bool can_apply_result(const TSOutputView &output, const nb::object &value) {
+            if (value.is_none()) {
+                return true;
+            }
+
+            try {
+                if (auto bundle_view = output.try_as_bundle(); bundle_view.has_value()) {
+                    return can_apply_result_to_bundle(*bundle_view, value);
+                }
+                if (auto dict_view = output.try_as_dict(); dict_view.has_value()) {
+                    return can_apply_result_to_dict(*dict_view, value);
+                }
+
+                return !output.modified();
+            } catch (const nb::python_error &) {
+                return false;
+            }
+        }
+
+        nb::tuple append_tuple(const nb::object &existing, const nb::object &value) {
+            size_t existing_len = PyTuple_Size(existing.ptr());
+            nb::tuple new_tuple = nb::steal<nb::tuple>(PyTuple_New(existing_len + 1));
+            for (size_t i = 0; i < existing_len; ++i) {
+                PyTuple_SET_ITEM(new_tuple.ptr(), i, nb::borrow(existing[i]).release().ptr());
+            }
+            PyTuple_SET_ITEM(new_tuple.ptr(), existing_len, nb::borrow(value).release().ptr());
+            return new_tuple;
+        }
+    }  // namespace
+
     void PushQueueNode::do_eval() {
     }
 
     void PushQueueNode::enqueue_message(nb::object message) {
-        ++_messages_queued;
-        _receiver->enqueue({node_ndx(), std::move(message)});
+        auto sender_context = _sender_context;
+        if (!sender_context || !sender_context->active.load(std::memory_order_acquire)) {
+            return;
+        }
+        if (sender_context->receiver == nullptr) {
+            return;
+        }
+
+        sender_context->receiver->enqueue({sender_context->node_ndx, std::move(message)});
+        sender_context->queued.fetch_add(1, std::memory_order_relaxed);
     }
 
     bool PushQueueNode::apply_message(nb::object message) {
+        // Push queue payloads are Python objects coming from external threads.
+        // Message application runs on the graph thread, so re-acquire the GIL
+        // before any nanobind/Python API interaction.
+        nb::gil_scoped_acquire gil;
+
+        auto out_view = output();
+        if (!out_view) {
+            return false;
+        }
+
         if (_batch) {
             // Batch mode: accumulate messages into a tuple
-            auto output_ptr = output();
-
             if (_is_tsd) {
-                // TODO: This allows us to operate on the python level, would prefer to
-                //       Handle this better with correct type-matched objects.
-                auto tsd_output = wrap_time_series(output_ptr);
+                if (!out_view.valid()) {
+                    out_view.from_python(nb::dict{});
+                }
 
                 auto remove = get_remove();
                 auto remove_if_exist = get_remove_if_exists();
+                auto ts_meta = out_view.ts_meta();
+                if (ts_meta == nullptr || ts_meta->kind != TSKind::TSD || ts_meta->key_type() == nullptr) {
+                    return false;
+                }
+                auto key_type = ts_meta->key_type();
+                auto tsd_view = out_view.as_dict();
 
                 // For TSD outputs, iterate over message dict
-                auto msg_dict = nb::cast<nb::dict>(message);
+                nb::dict msg_dict = nb::borrow<nb::dict>(message);
                 for (auto [key, val]: msg_dict) {
                     if (val.is(remove) || val.is(remove_if_exist)) {
-                        auto child_output = tsd_output.attr("get")(nb::cast<nb::object>(key), nb::none());
-                        if (!child_output.is_none()) {
-                            auto unwrapped = unwrap_output(child_output);
-                            if (unwrapped && unwrapped->modified()) {
-                                return false; // reject message because cannot remove when there is unprocessed data
-                           }
+                        auto key_value = key_from_python(key_type, key);
+                        auto child_output = tsd_view.at_key(key_value.view());
+                        if (child_output && child_output.modified()) {
+                            return false; // reject message because cannot remove when there is unprocessed data
                         }
                     }
                 }
                 for (auto [key, val]: msg_dict) {
+                    auto key_value = key_from_python(key_type, key);
                     if (!val.is(remove) && !val.is(remove_if_exist)) {
-                        auto child_output_obj = tsd_output.attr("get_or_create")(nb::cast<nb::object>(key));
-                        auto child_output = unwrap_output(child_output_obj);
+                        auto child_output = tsd_view.at_key(key_value.view());
+                        if (!child_output) {
+                            child_output = tsd_view.create(key_value.view());
+                        }
 
-                        if (child_output->modified()) {
+                        if (child_output && child_output.modified()) {
                             // Append to existing tuple
-                            auto existing = child_output->py_value();
-                            size_t existing_len = PyTuple_Size(existing.ptr());
-                            nb::tuple new_tuple = nb::steal<nb::tuple>(PyTuple_New(existing_len + 1));
-                            for (size_t i = 0; i < existing_len; ++i) {
-                                PyTuple_SET_ITEM(new_tuple.ptr(), i, nb::borrow(existing[i]).release().ptr());
-                            }
-                            PyTuple_SET_ITEM(new_tuple.ptr(), existing_len, nb::borrow(val).release().ptr());
-                            child_output->py_set_value(new_tuple);
+                            auto existing = child_output.to_python();
+                            child_output.from_python(append_tuple(existing, nb::borrow(val)));
                         } else {
                             // Create new tuple with single element
                             nb::tuple new_tuple = nb::make_tuple(val);
-                            child_output->py_set_value(new_tuple);
+                            child_output.from_python(new_tuple);
                         }
                     } else {
-                        tsd_output.attr("pop")(nb::cast<nb::object>(key), nb::none());
+                        tsd_view.remove(key_value.view());
                     }
                 }
             } else {
                 // For non-TSD outputs, accumulate messages into a tuple
-                if (output_ptr->modified()) {
+                if (out_view.modified()) {
                     // Append to existing tuple
-                    auto existing = output_ptr->py_value();
-                    size_t existing_len = PyTuple_Size(existing.ptr());
-                    nb::tuple new_tuple = nb::steal<nb::tuple>(PyTuple_New(existing_len + 1));
-                    for (size_t i = 0; i < existing_len; ++i) {
-                        PyTuple_SET_ITEM(new_tuple.ptr(), i, nb::borrow(existing[i]).release().ptr());
-                    }
-                    PyTuple_SET_ITEM(new_tuple.ptr(), existing_len, message.release().ptr());
-                    output_ptr->py_set_value(new_tuple);
+                    auto existing = out_view.to_python();
+                    out_view.from_python(append_tuple(existing, message));
                 } else {
                     // Create new tuple with single element
                     nb::tuple new_tuple = nb::make_tuple(message);
-                    output_ptr->py_set_value(new_tuple);
+                    out_view.from_python(new_tuple);
                 }
             }
 
-            ++_messages_dequeued;
+            _messages_dequeued.fetch_add(1, std::memory_order_relaxed);
             return true;
         }
 
-        if (_elide || output()->can_apply_result(message)) {
-            output()->apply_result(std::move(message));
-            ++_messages_dequeued;
+        if (_elide) {
+            out_view.from_python(std::move(message));
+            _messages_dequeued.fetch_add(1, std::memory_order_relaxed);
             return true;
         }
+
+        // Python parity: in non-elide mode, only accept one message per cycle.
+        // If output already has an unconsumed value, keep this message in queue.
+        if (!can_apply_result(out_view, message)) {
+            return false;
+        }
+
+        try {
+            out_view.from_python(std::move(message));
+            _messages_dequeued.fetch_add(1, std::memory_order_relaxed);
+            return true;
+        } catch (...) {}
         return false;
     }
 
-    int64_t PushQueueNode::messages_in_queue() const { return _messages_queued - _messages_dequeued; }
+    int64_t PushQueueNode::messages_in_queue() const {
+        const auto sender_context = _sender_context;
+        const int64_t queued =
+            sender_context ? sender_context->queued.load(std::memory_order_relaxed) : 0;
+        const int64_t dequeued = _messages_dequeued.load(std::memory_order_relaxed);
+        return queued - dequeued;
+    }
 
-    void PushQueueNode::set_receiver(sender_receiver_state_ptr value) { _receiver = value; }
+    void PushQueueNode::set_receiver(sender_receiver_state_ptr value) {
+        if (!_sender_context) {
+            _sender_context = std::make_shared<SenderContext>();
+        }
+        _sender_context->receiver = value;
+        _sender_context->node_ndx = node_ndx();
+    }
 
     void PushQueueNode::do_start() {
-        _receiver = &graph()->receiver();
+        if (!_sender_context) {
+            _sender_context = std::make_shared<SenderContext>();
+        }
+        _sender_context->receiver = &graph()->receiver();
+        _sender_context->node_ndx = node_ndx();
+        _sender_context->queued.store(0, std::memory_order_relaxed);
+        _sender_context->active.store(true, std::memory_order_release);
+        _messages_dequeued.store(0, std::memory_order_relaxed);
+
         _elide = scalars().contains("elide") ? nb::cast<bool>(scalars()["elide"]) : false;
         _batch = scalars().contains("batch") ? nb::cast<bool>(scalars()["batch"]) : false;
-        _is_tsd = dynamic_cast<TimeSeriesDictOutput *>(output().get()) != nullptr;
+        auto out_view = output();
+        _is_tsd = out_view && out_view.ts_meta() != nullptr && out_view.ts_meta()->kind == TSKind::TSD;
 
         // If an eval function was provided (from push_queue decorator), call it with a sender and scalar kwargs
         if (_eval_fn.is_valid() && !_eval_fn.is_none()) {
             // Create a Python-callable sender that enqueues messages into this node
-            // The sender will be called from a Python thread, so it needs to acquire the GIL
-            nb::object sender = nb::cpp_function([this](nb::object m) {
+            // The sender must not capture `this` because it can outlive node teardown.
+            auto weak_sender_context = std::weak_ptr<SenderContext>(_sender_context);
+            nb::object sender = nb::cpp_function([weak_sender_context](nb::object m) {
                 // Acquire GIL in case we're being called from a thread that doesn't have it
                 nb::gil_scoped_acquire gil;
-                this->enqueue_message(std::move(m));
+                auto sender_context = weak_sender_context.lock();
+                if (!sender_context || !sender_context->active.load(std::memory_order_acquire)) {
+                    return;
+                }
+                if (sender_context->receiver == nullptr || sender_context->receiver->stopped()) {
+                    return;
+                }
+
+                sender_context->receiver->enqueue({sender_context->node_ndx, std::move(m)});
+                sender_context->queued.fetch_add(1, std::memory_order_relaxed);
             });
             // Call eval_fn(sender, **scalars)
             try {
                 _eval_fn(sender, **scalars());
             } catch (nb::python_error &e) { throw NodeException::capture_error(e, *this, "During push-queue start"); }
+        }
+    }
+
+    void PushQueueNode::do_stop() {
+        if (_sender_context) {
+            _sender_context->active.store(false, std::memory_order_release);
         }
     }
 } // namespace hgraph

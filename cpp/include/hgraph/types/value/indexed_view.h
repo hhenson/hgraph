@@ -860,9 +860,8 @@ public:
         assert(valid() && "add() on invalid view");
         require_mutable("add");
         require_typed_view(value, element_type(), "Set element");
-        if (contains(value)) return false;
-        _schema->ops().add(data(), value.data(), _schema);
-        return true;
+        auto* storage = static_cast<SetStorage*>(data());
+        return storage->add(value.data());
     }
 
     /**
@@ -874,9 +873,8 @@ public:
         assert(valid() && "remove() on invalid view");
         require_mutable("remove");
         require_typed_view(value, element_type(), "Set element");
-        if (!contains(value)) return false;
-        _schema->ops().remove(data(), value.data(), _schema);
-        return true;
+        auto* storage = static_cast<SetStorage*>(data());
+        return storage->remove(value.data());
     }
 
     /**
@@ -897,15 +895,42 @@ public:
         return _schema->element_type;
     }
 
+    /**
+     * @brief Check whether a slot currently holds a live element.
+     */
+    [[nodiscard]] bool is_live(size_t slot) const {
+        assert(valid() && "is_live() on invalid view");
+        const auto* storage = static_cast<const SetStorage*>(_data);
+        return storage->key_set().is_alive(slot);
+    }
+
+    /**
+     * @brief Get element by slot index (O(1)).
+     *
+     * This is a slot lookup, not ordinal "n-th element" access.
+     */
+    [[nodiscard]] View at(size_t slot) const {
+        assert(valid() && "at() on invalid view");
+        const auto* storage = static_cast<const SetStorage*>(_data);
+        if (!storage->key_set().has_slot_value(slot)) {
+            throw std::out_of_range("Set slot has no value");
+        }
+        return View(storage->key_set().key_at_slot(slot), _schema->element_type);
+    }
+
+    /**
+     * @brief Slot index operator (same semantics as at(slot)).
+     */
+    [[nodiscard]] View operator[](size_t slot) const {
+        return at(slot);
+    }
+
     // ========== Iteration ==========
 
     /**
      * @brief Const iterator for set views.
      *
-     * Iterates over set elements in O(n) total time using index-based access.
-     *
-     * IMPORTANT: Stores data pointer and schema directly (NOT a view pointer)
-     * to avoid dangling pointer issues when iterating over temporary views.
+     * Iterates directly over KeySet live slots in O(n) total time.
      */
     class const_iterator {
     public:
@@ -916,25 +941,26 @@ public:
         using reference = View;
 
         const_iterator() = default;
-        const_iterator(const void* data, const TypeMeta* schema);
+        const_iterator(const SetStorage* storage, KeySet::iterator it, const TypeMeta* element_type)
+            : _storage(storage), _it(it), _element_type(element_type) {}
 
-        ~const_iterator();
+        reference operator*() const {
+            return View(_storage->key_set().key_at_slot(*_it), _element_type);
+        }
 
-        reference operator*() const;
+        const_iterator& operator++() {
+            ++_it;
+            return *this;
+        }
 
-        const_iterator& operator++();        
-        
         const_iterator operator++(int) {
             const_iterator tmp = *this;
-            ++*this;
+            ++_it;
             return tmp;
         }
 
         bool operator==(const const_iterator& other) const {
-            if (other._pos == std::numeric_limits<size_t>::max() && _pos == std::numeric_limits<size_t>::max()) {
-                return true; // Both are end iterators
-            }
-            return _data == other._data && _schema == other._schema && _pos == other._pos;
+            return _storage == other._storage && _it == other._it;
         }
 
         bool operator!=(const const_iterator& other) const {
@@ -942,18 +968,21 @@ public:
         }
 
     private:
-        const void* _data{nullptr};
-        const TypeMeta* _schema{nullptr};
-        size_t _pos{std::numeric_limits<size_t>::max()};
+        const SetStorage* _storage{nullptr};
+        KeySet::iterator _it;
+        const TypeMeta* _element_type{nullptr};
     };
 
     [[nodiscard]] const_iterator begin() const {
-        if (!valid()) return const_iterator();
-        return const_iterator(_data, _schema);
+        if (!valid()) return const_iterator{};
+        const auto* storage = static_cast<const SetStorage*>(_data);
+        return const_iterator(storage, storage->key_set().begin(), _schema->element_type);
     }
 
     [[nodiscard]] const_iterator end() const {
-        return const_iterator();
+        if (!valid()) return const_iterator{};
+        const auto* storage = static_cast<const SetStorage*>(_data);
+        return const_iterator(storage, storage->key_set().end(), _schema->element_type);
     }
 
     // Templated operations - implemented after Value
@@ -1045,6 +1074,36 @@ public:
         return _schema->key_type;
     }
 
+    /**
+     * @brief Check whether a key slot is currently live.
+     */
+    [[nodiscard]] bool is_live(size_t slot) const {
+        assert(valid() && "is_live() on invalid view");
+        const auto* storage = static_cast<const MapStorage*>(_data);
+        return storage->key_set().is_alive(slot);
+    }
+
+    /**
+     * @brief Get key by slot index (O(1)).
+     *
+     * This is a slot lookup, not ordinal access over the key set.
+     */
+    [[nodiscard]] View at(size_t slot) const {
+        assert(valid() && "at() on invalid view");
+        const auto* storage = static_cast<const MapStorage*>(_data);
+        if (!storage->key_set().has_slot_value(slot)) {
+            throw std::out_of_range("Map key slot has no value");
+        }
+        return View(storage->key_at_slot(slot), _schema->key_type);
+    }
+
+    /**
+     * @brief Slot index operator (same semantics as at(slot)).
+     */
+    [[nodiscard]] View operator[](size_t slot) const {
+        return at(slot);
+    }
+
     // ========== Iteration ==========
 
     /**
@@ -1061,24 +1120,26 @@ public:
         using reference = View;
 
         const_iterator() = default;
-        const_iterator(const KeySetView* view, size_t index)
-            : _view(view), _index(index) {}
+        const_iterator(const MapStorage* storage, KeySet::iterator it, const TypeMeta* element_type)
+            : _storage(storage), _it(it), _element_type(element_type) {}
 
-        reference operator*() const;
+        reference operator*() const {
+            return View(_storage->key_at_slot(*_it), _element_type);
+        }
 
         const_iterator& operator++() {
-            ++_index;
+            ++_it;
             return *this;
         }
 
         const_iterator operator++(int) {
             const_iterator tmp = *this;
-            ++_index;
+            ++_it;
             return tmp;
         }
 
         bool operator==(const const_iterator& other) const {
-            return _view == other._view && _index == other._index;
+            return _storage == other._storage && _it == other._it;
         }
 
         bool operator!=(const const_iterator& other) const {
@@ -1086,16 +1147,21 @@ public:
         }
 
     private:
-        const KeySetView* _view{nullptr};
-        size_t _index{0};
+        const MapStorage* _storage{nullptr};
+        KeySet::iterator _it;
+        const TypeMeta* _element_type{nullptr};
     };
 
     [[nodiscard]] const_iterator begin() const {
-        return const_iterator(this, 0);
+        if (!valid()) return const_iterator{};
+        const auto* storage = static_cast<const MapStorage*>(_data);
+        return const_iterator(storage, storage->key_set().begin(), _schema->key_type);
     }
 
     [[nodiscard]] const_iterator end() const {
-        return const_iterator(this, size());
+        if (!valid()) return const_iterator{};
+        const auto* storage = static_cast<const MapStorage*>(_data);
+        return const_iterator(storage, storage->key_set().end(), _schema->key_type);
     }
 };
 
@@ -1141,11 +1207,12 @@ public:
     [[nodiscard]] View at(const View& key) const {
         assert(valid() && "at() on invalid view");
         require_typed_view(key, key_type(), "Map key");
-        if (!contains(key)) {
+        try {
+            const void* value_data = _schema->ops().map_at(_data, key.data(), _schema);
+            return View(value_data, _schema->element_type);
+        } catch (const std::out_of_range&) {
             throw std::runtime_error("Key not found");
         }
-        const void* value_data = _schema->ops().map_at(_data, key.data(), _schema);
-        return View(value_data, _schema->element_type);
     }
 
     /**
@@ -1155,11 +1222,12 @@ public:
         assert(valid() && "at() on invalid view");
         require_mutable("at");
         require_typed_view(key, key_type(), "Map key");
-        if (!contains(key)) {
+        try {
+            void* value_data = const_cast<void*>(_schema->ops().map_at(data(), key.data(), _schema));
+            return ValueView(value_data, _schema->element_type);
+        } catch (const std::out_of_range&) {
             throw std::runtime_error("Key not found");
         }
-        void* value_data = const_cast<void*>(_schema->ops().map_at(data(), key.data(), _schema));
-        return ValueView(value_data, _schema->element_type);
     }
 
     /**
@@ -1205,9 +1273,8 @@ public:
         require_mutable("add");
         require_typed_view(key, key_type(), "Map key");
         require_typed_view(value, value_type(), "Map value");
-        if (contains(key)) return false;
-        set(key, value);
-        return true;
+        auto* storage = static_cast<MapStorage*>(data());
+        return storage->add_item(key.data(), value.data());
     }
 
     /**
@@ -1219,9 +1286,8 @@ public:
         assert(valid() && "remove() on invalid view");
         require_mutable("remove");
         require_typed_view(key, key_type(), "Map key");
-        if (!contains(key)) return false;
-        _schema->ops().remove(data(), key.data(), _schema);
-        return true;
+        auto* storage = static_cast<MapStorage*>(data());
+        return storage->remove(key.data());
     }
 
     /**
@@ -1564,48 +1630,6 @@ inline void QueueView::push(const View& value) {
 inline void QueueView::pop() {
     require_mutable("pop");
     QueueOps::pop(data(), _schema);
-}
-
-// ============================================================================
-// SetView Iterator Implementation
-// ============================================================================
-
-inline SetView::const_iterator::const_iterator(const void* data, const TypeMeta* schema)
-    : _data(data), _schema(schema) {
-
-    _pos = _schema->ops().specific.set.next(_data, _pos, _schema);
-}
-
-inline SetView::const_iterator::~const_iterator() {}
-
-inline SetView::const_iterator& SetView::const_iterator::operator++() {
-    _pos = _schema->ops().specific.set.next(_data, _pos, _schema);
-    return *this;
-}
-
-inline View SetView::const_iterator::operator*() const {
-    const void* elem = _schema->ops().specific.set.at(_data, _pos, _schema);
-    return View(elem, _schema->element_type);
-}
-
-// ============================================================================
-// KeySetView Iterator Implementation
-// ============================================================================
-
-inline View KeySetView::const_iterator::operator*() const {
-    // Access the MapStorage to get the key at the current iteration position
-    auto* storage = static_cast<const MapStorage*>(_view->data());
-
-    if (_index >= storage->size()) {
-        throw std::out_of_range("Key set iterator out of range");
-    }
-
-    // Iterate KeySet alive slots to find the n-th key
-    auto it = storage->key_set().begin();
-    std::advance(it, _index);
-    size_t slot = *it;
-
-    return View(storage->key_at_slot(slot), _view->element_type());
 }
 
 } // namespace hgraph::value

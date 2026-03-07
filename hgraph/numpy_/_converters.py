@@ -118,23 +118,23 @@ def _get_item_not_scalar(m, idx):
 
 
 @compute_node(overloads=get_item, resolvers={OUT: _get_item_resolver, SCALAR: _get_item_scalar_resolver})
-def get_item_int(ts: TS[ARRAY], idx: int, s_type: type[SCALAR] = AUTO_RESOLVE) -> OUT:
+def get_item_int_scalar(ts: TS[ARRAY], idx: int, s_type: type[SCALAR] = AUTO_RESOLVE) -> OUT:
     v = ts.value[idx]
     return s_type(v)
 
 
 @compute_node(overloads=get_item, resolvers={OUT: _get_item_resolver}, requires=_get_item_not_scalar)
-def get_item_int(ts: TS[ARRAY], idx: int) -> OUT:
+def get_item_int_array(ts: TS[ARRAY], idx: int) -> OUT:
     v = ts.value[idx]
     return v
 
 
 @compute_node(overloads=get_item, resolvers={OUT: _get_item_resolver, SCALAR: _get_item_scalar_resolver})
-def get_item_tuple(ts: TS[ARRAY], idx: tuple[int, ...], s_type: type[SCALAR] = AUTO_RESOLVE) -> OUT:
+def get_item_tuple_scalar(ts: TS[ARRAY], idx: tuple[int, ...], s_type: type[SCALAR] = AUTO_RESOLVE) -> OUT:
     v = ts.value[idx]
     return s_type(v)
 
 
 @compute_node(overloads=get_item, resolvers={OUT: _get_item_resolver}, requires=_get_item_not_scalar)
-def get_item_tuple(ts: TS[ARRAY], idx: tuple[int, ...]) -> OUT:
+def get_item_tuple_array(ts: TS[ARRAY], idx: tuple[int, ...]) -> OUT:
     return ts.value[idx]

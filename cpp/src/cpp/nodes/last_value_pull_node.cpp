@@ -1,7 +1,25 @@
 #include <hgraph/nodes/last_value_pull_node.h>
-#include <hgraph/types/time_series_type.h>
+#include <hgraph/types/graph.h>
 
 namespace hgraph {
+
+    namespace {
+        struct SetDeltaClasses {
+            nb::object python_set_delta;
+            nb::object removed;
+        };
+
+        const SetDeltaClasses& set_delta_classes() {
+            static const SetDeltaClasses cached = [] {
+                return SetDeltaClasses{
+                    nb::module_::import_("hgraph").attr("PythonSetDelta"),
+                    nb::module_::import_("hgraph").attr("Removed"),
+                };
+            }();
+            return cached;
+        }
+    }  // namespace
+
     void LastValuePullNode::do_start() {
         _setup_combine_function();
 
@@ -26,65 +44,40 @@ namespace hgraph {
 
     void LastValuePullNode::_setup_combine_function() {
         // Determine which combine function to use based on the output type
-        if (!has_output()) {
+        auto out = output();
+        if (!out || out.ts_meta() == nullptr) {
             // Default to simple replacement
-            _delta_combine_fn = [](const nb::object &old_delta, const nb::object &new_delta) {
+            _delta_combine_fn = [](const nb::object & /*old_delta*/, const nb::object &new_delta) {
                 return new_delta;
             };
             return;
         }
 
-        auto output_obj = output().get();
+        auto kind = out.ts_meta()->kind;
 
         // Check the type of the output and set the appropriate combine function
         // TimeSeriesSet (TSS)
-        if (dynamic_cast<TimeSeriesSetOutput *>(output_obj)) {
+        if (kind == TSKind::TSS) {
             _delta_combine_fn = _combine_tss_delta;
         }
         // TimeSeriesDict (TSD)
-        else if (dynamic_cast<TimeSeriesDictOutput *>(output_obj)) {
+        else if (kind == TSKind::TSD) {
             _delta_combine_fn = _combine_tsd_delta;
         }
         // TimeSeriesBundle (TSB)
-        else if (dynamic_cast<TimeSeriesBundleOutput *>(output_obj)) {
+        else if (kind == TSKind::TSB) {
             _delta_combine_fn = _combine_tsb_delta;
         }
         // TimeSeriesList (TSL)
-        else if (dynamic_cast<TimeSeriesListOutput *>(output_obj)) {
+        else if (kind == TSKind::TSL) {
             _delta_combine_fn = _combine_tsl_delta_value;
         }
         // Default: simple replacement
         else {
-            _delta_combine_fn = [](const nb::object &old_delta, const nb::object &new_delta) {
+            _delta_combine_fn = [](const nb::object & /*old_delta*/, const nb::object &new_delta) {
                 return new_delta;
             };
         }
-    }
-
-    void LastValuePullNode::copy_from_input(const TimeSeriesInput &input) {
-        auto delta = input.py_delta_value();
-
-        if (_delta_value.has_value()) {
-            _delta_value = _delta_combine_fn(_delta_value.value(), delta);
-        } else {
-            _delta_value = delta;
-        }
-
-        // Notify for the next cycle since we're copying the value now
-        notify_next_cycle();
-    }
-
-    void LastValuePullNode::copy_from_output(const TimeSeriesOutput &output) {
-        auto delta = output.py_delta_value();
-
-        if (_delta_value.has_value()) {
-            _delta_value = _delta_combine_fn(_delta_value.value(), delta);
-        } else {
-            _delta_value = delta;
-        }
-
-        // Notify for the next cycle since we're copying the value now
-        notify_next_cycle();
     }
 
     void LastValuePullNode::apply_value(const nb::object &new_value) {
@@ -107,7 +100,8 @@ namespace hgraph {
 
     void LastValuePullNode::do_eval() {
         if (_delta_value.has_value()) {
-            output()->apply_result(_delta_value.value());
+            auto out_port = output();
+            if (out_port) { out_port.from_python(_delta_value.value()); }
             _delta_value.reset();
         }
     }
@@ -120,8 +114,9 @@ namespace hgraph {
         // For TimeSeriesSet, we need to combine SetDelta objects
         // Handle cases where deltas might be plain sets or SetDelta objects
 
-        nb::object py_set_delta_class = nb::module_::import_("hgraph").attr("PythonSetDelta");
-        nb::object py_removed_class = nb::module_::import_("hgraph").attr("Removed");
+        const auto& classes = set_delta_classes();
+        const nb::object& py_set_delta_class = classes.python_set_delta;
+        const nb::object& py_removed_class = classes.removed;
 
         // Helper to convert a set to a SetDelta
         auto to_set_delta = [&](const nb::object &delta) -> nb::object {

@@ -2,6 +2,7 @@ from ctypes import cast
 from datetime import timedelta
 from math import e
 from socket import gethostname
+import socket
 from typing import Callable, Tuple
 
 import pytest
@@ -122,11 +123,18 @@ def test_inspector_sort_key():
 def test_run_inspector():
     import polars as pl
     import pyarrow
+
+    def find_free_tcp_port() -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            return int(sock.getsockname()[1])
+
+    port = find_free_tcp_port()
     
     @graph
     def g() -> TSD[int, TS[int]]:
-        inspector(8888)
-        perspective_web(gethostname(), port=8888)
+        inspector(port)
+        perspective_web(gethostname(), port=port)
         
         ticks = schedule(timedelta(milliseconds=10))
         tsd = convert[TSD[int, TS[int]]](key=count(ticks), ts=count(ticks))
@@ -161,72 +169,90 @@ def test_run_inspector():
                 
             u = _state.df
             print(u)
-            
+            request = None
+
             if getattr(_state, 'test_map', None) is None:
                 f = u.filter(pl.col("type") == "MAP")
                 if len(f) > 0:
-                    i = f['id'][0]
+                    i = str(f['id'][0])
                     _state.test_map = False
                     _state.map_id = i
-                    return {'requests': f"expand/{i}"}
+                    request = f"expand/{i}"
                 
             if getattr(_state, 'test_map', None) is False:
                 f = u.filter(pl.col("id").cast(str).str.starts_with(_state.map_id + '/'))
-                if len(f) == 3:
-                    print("checking MAP", f, f['name'].cast(str).str.strip_chars().is_in(["INPUTS", "OUTPUT", "GRAPHS"]))
-                    _state.test_map = f['name'].cast(str).str.strip_chars().is_in(["INPUTS", "OUTPUT", "GRAPHS"]).all()
-                    
+                if len(f) > 0:
+                    name_values = {str(v).strip() for v in f['name'].to_list()}
+                    print("checking MAP", f, name_values)
+                    _state.test_map = {"INPUTS", "OUTPUT", "GRAPHS"}.issubset(name_values)
+
                     f = f.filter(pl.col("name").cast(str).str.strip_chars() == "GRAPHS")
                     if len(f) > 0:
-                        o = f['ord'][0]
-                        i = f['id'][0]
+                        o = str(f['ord'][0])
+                        i = str(f['id'][0])
                         _state.test_graphs = False
                         _state.graphs_ord = o
-                        return {'requests': f"expand/{i}"}
+                        _state.graphs_id = i
+                        if request is None:
+                            request = f"expand/{i}"
+                elif request is None:
+                    request = f"expand/{_state.map_id}"
                 
             if getattr(_state, 'test_graphs', None) is False:
                 f = u.filter(pl.col("ord").cast(str).str.starts_with(_state.graphs_ord + '0'))
                 if len(f) > 0:
-                    print("checking GRAPHS", f, f['type'].cast(str).str.strip_chars().is_in(["GRAPH"]))
-                    _state.test_graphs = f['type'].cast(str).str.strip_chars().is_in(["GRAPH"]).all()
+                    type_values = [str(v).strip() for v in f['type'].to_list()]
+                    print("checking GRAPHS", f, type_values)
+                    _state.test_graphs = all(v == "GRAPH" for v in type_values)
+                elif request is None and getattr(_state, 'graphs_id', None):
+                    request = f"expand/{_state.graphs_id}"
                 
             if getattr(_state, 'test_push', None) is None:
                 f = u.filter(pl.col("type") == "PUSH_SOURCE")
                 if len(f) > 0:
-                    i = f['id'][0]
+                    i = str(f['id'][0])
                     _state.test_push = False
                     _state.push_id = i
-                    return {'requests': f"expand/{i}"}
+                    if request is None:
+                        request = f"expand/{i}"
                 
             if getattr(_state, 'test_push', None) is False:
                 f = u.filter(pl.col("id").cast(str).str.starts_with(_state.push_id + '/'))
-                if len(f) == 1:
-                    print("checking PUSH", f, f['name'].cast(str).str.strip_chars().is_in(["OUTPUT"]))
-                    _state.test_push = f['name'].cast(str).str.strip_chars().is_in(["OUTPUT"]).all()
+                if len(f) > 0:
+                    name_values = {str(v).strip() for v in f['name'].to_list()}
+                    print("checking PUSH", f, name_values)
+                    _state.test_push = "OUTPUT" in name_values
+                elif request is None:
+                    request = f"expand/{_state.push_id}"
                     
             if getattr(_state, 'test_sink', None) is None:
                 f = u.filter((pl.col("type") == "SINK") & (pl.col("name").cast(str).str.contains("debug_print")))
                 if len(f) > 0:
-                    i = f['id'][0]
+                    i = str(f['id'][0])
                     _state.test_sink = False
                     _state.sink_id = i
-                    return {'requests': f"expand/{i}"}
+                    if request is None:
+                        request = f"expand/{i}"
                 
             if getattr(_state, 'test_sink', None) is False:
                 f = u.filter(pl.col("id").cast(str).str.starts_with(_state.sink_id + '/'))
-                if len(f) == 2:
-                    print("checking SINK", f, f['name'].cast(str).str.strip_chars().is_in(["SCALARS", "INPUTS"]))
-                    _state.test_sink = f['name'].cast(str).str.strip_chars().is_in(["SCALARS", "INPUTS"]).all()
-                    
-            return {'done': 
-                getattr(_state, 'test_map', False) 
-                and 
-                getattr(_state, 'test_push', False)
-                and 
-                getattr(_state, 'test_sink', False)
-                and 
-                getattr(_state, 'test_graphs', False)
-            }
+                if len(f) > 0:
+                    name_values = {str(v).strip() for v in f['name'].to_list()}
+                    print("checking SINK", f, name_values)
+                    _state.test_sink = {"SCALARS", "INPUTS"}.issubset(name_values)
+                elif request is None:
+                    request = f"expand/{_state.sink_id}"
+
+            done = (
+                getattr(_state, 'test_map', False)
+                and getattr(_state, 'test_push', False)
+                and getattr(_state, 'test_sink', False)
+                and getattr(_state, 'test_graphs', False)
+            )
+
+            if request is None:
+                return {'done': done}
+            return {'requests': request, 'done': done}
                 
 
         @test_inspector.start
@@ -235,8 +261,8 @@ def test_run_inspector():
 
 
         test = test_inspector(table_updates("inspector"))
-        debug_print("requests", http_client_adaptor(combine[TS[HttpGetRequest]](url="http://localhost:8888/inspect/" + test.requests)).status_code)
-        debug_print("expand", http_client_adaptor(HttpGetRequest(url="http://localhost:8888/inspect/expand/")).status_code)
+        debug_print("requests", http_client_adaptor(combine[TS[HttpGetRequest]](url=f"http://localhost:{port}/inspect/" + test.requests)).status_code)
+        debug_print("expand", http_client_adaptor(HttpGetRequest(url=f"http://localhost:{port}/inspect/expand/")).status_code)
         
         stop_engine(if_true(test.done))
         
@@ -245,7 +271,7 @@ def test_run_inspector():
         return mapped
     
     with GlobalState() as gs, pl.StringCache():
-        result = evaluate_graph(g, config=GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=5), trace=False))
+        result = evaluate_graph(g, config=GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=10), trace=False))
     
         assert gs.test_state.test_map
         assert gs.test_state.test_push

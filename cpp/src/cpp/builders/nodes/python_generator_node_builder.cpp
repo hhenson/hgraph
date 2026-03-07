@@ -1,6 +1,5 @@
 #include <hgraph/builders/nodes/python_generator_node_builder.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/tsb.h>
 #include <hgraph/nodes/python_generator_node.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 
@@ -11,20 +10,18 @@ namespace hgraph {
     }
 
     PythonGeneratorNodeBuilder::PythonGeneratorNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
-                                                           std::optional<input_builder_s_ptr> input_builder_,
-                                                           std::optional<output_builder_s_ptr> output_builder_,
-                                                           std::optional<output_builder_s_ptr> error_builder_,
                                                            nb::callable eval_fn)
-        : BaseNodeBuilder(std::move(signature_), std::move(scalars_), std::move(input_builder_),
-                          std::move(output_builder_),
-                          std::move(error_builder_), std::nullopt),
+        : BaseNodeBuilder(std::move(signature_), std::move(scalars_)),
           eval_fn{std::move(eval_fn)} {
     }
 
     node_s_ptr PythonGeneratorNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id,
                                                        int64_t node_ndx) const {
-        auto node = arena_make_shared_as<PythonGeneratorNode, Node>(node_ndx, owning_graph_id, signature, scalars, eval_fn, nb::callable{}, nb::callable{});
-        _build_inputs_and_outputs(node.get());
+        auto node = arena_make_shared_as<PythonGeneratorNode, Node>(
+            node_ndx, owning_graph_id, signature, scalars,
+            input_meta(), output_meta(), error_output_meta(), recordable_state_meta(),
+            eval_fn, nb::callable{}, nb::callable{});
+        configure_node_instance(node);
         return node;
     }
 
@@ -35,24 +32,9 @@ namespace hgraph {
                          auto signature_obj = kwargs["signature"];
                          auto signature_ = nb::cast<node_signature_s_ptr>(signature_obj);
                          auto scalars_ = nb::cast<nb::dict>(kwargs["scalars"]);
-
-                         std::optional<input_builder_s_ptr> input_builder_ =
-                                 kwargs.contains("input_builder")
-                                     ? nb::cast<std::optional<input_builder_s_ptr> >(kwargs["input_builder"])
-                                     : std::nullopt;
-                         std::optional<output_builder_s_ptr> output_builder_ =
-                                 kwargs.contains("output_builder")
-                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["output_builder"])
-                                     : std::nullopt;
-                         std::optional<output_builder_s_ptr> error_builder_ =
-                                 kwargs.contains("error_builder")
-                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["error_builder"])
-                                     : std::nullopt;
                          auto eval_fn = nb::cast<nb::callable>(kwargs["eval_fn"]);
                          new(self)
                                  PythonGeneratorNodeBuilder(std::move(signature_), std::move(scalars_),
-                                                            std::move(input_builder_),
-                                                            std::move(output_builder_), std::move(error_builder_),
                                                             std::move(eval_fn));
                      })
                 .def_ro("eval_fn", &PythonGeneratorNodeBuilder::eval_fn);

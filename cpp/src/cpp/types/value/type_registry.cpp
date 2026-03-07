@@ -105,6 +105,10 @@ static TypeFlags compute_bundle_flags(const BundleFieldInfo* fields, size_t coun
     return result;
 }
 
+static size_t hash_combine(size_t seed, size_t value) {
+    return seed ^ (value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2));
+}
+
 // ============================================================================
 // TypeRegistry Singleton
 // ============================================================================
@@ -112,6 +116,37 @@ static TypeFlags compute_bundle_flags(const BundleFieldInfo* fields, size_t coun
 TypeRegistry& TypeRegistry::instance() {
     static TypeRegistry registry;
     return registry;
+}
+
+size_t TypeRegistry::CompositeCacheKeyHash::operator()(const CompositeCacheKey& key) const noexcept {
+    size_t seed = std::hash<unsigned>{}(static_cast<unsigned>(key.kind));
+    seed = hash_combine(seed, std::hash<const TypeMeta*>{}(key.element_type));
+    seed = hash_combine(seed, std::hash<const TypeMeta*>{}(key.key_type));
+    seed = hash_combine(seed, std::hash<size_t>{}(key.fixed_size));
+    seed = hash_combine(seed, std::hash<bool>{}(key.variadic_tuple));
+    return seed;
+}
+
+const TypeMeta* TypeRegistry::lookup_composite_cache(TypeKind kind,
+                                                     const TypeMeta* element_type,
+                                                     const TypeMeta* key_type,
+                                                     size_t fixed_size,
+                                                     bool variadic_tuple) const {
+    const CompositeCacheKey key{kind, element_type, key_type, fixed_size, variadic_tuple};
+    if (auto it = _composite_cache.find(key); it != _composite_cache.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+void TypeRegistry::store_composite_cache(TypeKind kind,
+                                         const TypeMeta* element_type,
+                                         const TypeMeta* key_type,
+                                         size_t fixed_size,
+                                         bool variadic_tuple,
+                                         const TypeMeta* meta) {
+    const CompositeCacheKey key{kind, element_type, key_type, fixed_size, variadic_tuple};
+    _composite_cache.insert_or_assign(key, meta);
 }
 
 // ============================================================================
@@ -405,6 +440,12 @@ const TypeMeta* BundleBuilder::build() {
 // ============================================================================
 
 const TypeMeta* ListBuilder::build() {
+    if (const TypeMeta* cached =
+            _registry.lookup_composite_cache(TypeKind::List, _element_type, nullptr, _fixed_size, _is_variadic_tuple);
+        cached != nullptr) {
+        return cached;
+    }
+
     auto meta = std::make_unique<TypeMeta>();
     meta->kind = TypeKind::List;
     meta->flags = _is_variadic_tuple ? TypeFlags::VariadicTuple : TypeFlags::None;
@@ -431,7 +472,9 @@ const TypeMeta* ListBuilder::build() {
     meta->fields = nullptr;
     meta->fixed_size = _fixed_size;
 
-    return _registry.register_composite(std::move(meta));
+    const TypeMeta* result = _registry.register_composite(std::move(meta));
+    _registry.store_composite_cache(TypeKind::List, _element_type, nullptr, _fixed_size, _is_variadic_tuple, result);
+    return result;
 }
 
 // ============================================================================
@@ -439,6 +482,12 @@ const TypeMeta* ListBuilder::build() {
 // ============================================================================
 
 const TypeMeta* SetBuilder::build() {
+    if (const TypeMeta* cached =
+            _registry.lookup_composite_cache(TypeKind::Set, _element_type, nullptr, 0, false);
+        cached != nullptr) {
+        return cached;
+    }
+
     auto meta = std::make_unique<TypeMeta>();
     meta->kind = TypeKind::Set;
     meta->flags = TypeFlags::None;
@@ -452,7 +501,9 @@ const TypeMeta* SetBuilder::build() {
     meta->fields = nullptr;
     meta->fixed_size = 0;
 
-    return _registry.register_composite(std::move(meta));
+    const TypeMeta* result = _registry.register_composite(std::move(meta));
+    _registry.store_composite_cache(TypeKind::Set, _element_type, nullptr, 0, false, result);
+    return result;
 }
 
 // ============================================================================
@@ -460,6 +511,12 @@ const TypeMeta* SetBuilder::build() {
 // ============================================================================
 
 const TypeMeta* MapBuilder::build() {
+    if (const TypeMeta* cached =
+            _registry.lookup_composite_cache(TypeKind::Map, _value_type, _key_type, 0, false);
+        cached != nullptr) {
+        return cached;
+    }
+
     auto meta = std::make_unique<TypeMeta>();
     meta->kind = TypeKind::Map;
     meta->flags = TypeFlags::None;
@@ -473,7 +530,9 @@ const TypeMeta* MapBuilder::build() {
     meta->fields = nullptr;
     meta->fixed_size = 0;
 
-    return _registry.register_composite(std::move(meta));
+    const TypeMeta* result = _registry.register_composite(std::move(meta));
+    _registry.store_composite_cache(TypeKind::Map, _value_type, _key_type, 0, false, result);
+    return result;
 }
 
 // ============================================================================
@@ -481,6 +540,12 @@ const TypeMeta* MapBuilder::build() {
 // ============================================================================
 
 const TypeMeta* CyclicBufferBuilder::build() {
+    if (const TypeMeta* cached =
+            _registry.lookup_composite_cache(TypeKind::CyclicBuffer, _element_type, nullptr, _capacity, false);
+        cached != nullptr) {
+        return cached;
+    }
+
     auto meta = std::make_unique<TypeMeta>();
     meta->kind = TypeKind::CyclicBuffer;
     meta->flags = TypeFlags::None;
@@ -494,7 +559,9 @@ const TypeMeta* CyclicBufferBuilder::build() {
     meta->fields = nullptr;
     meta->fixed_size = _capacity;  // Store capacity in fixed_size
 
-    return _registry.register_composite(std::move(meta));
+    const TypeMeta* result = _registry.register_composite(std::move(meta));
+    _registry.store_composite_cache(TypeKind::CyclicBuffer, _element_type, nullptr, _capacity, false, result);
+    return result;
 }
 
 // ============================================================================
@@ -502,6 +569,12 @@ const TypeMeta* CyclicBufferBuilder::build() {
 // ============================================================================
 
 const TypeMeta* QueueBuilder::build() {
+    if (const TypeMeta* cached =
+            _registry.lookup_composite_cache(TypeKind::Queue, _element_type, nullptr, _max_capacity, false);
+        cached != nullptr) {
+        return cached;
+    }
+
     auto meta = std::make_unique<TypeMeta>();
     meta->kind = TypeKind::Queue;
     meta->flags = TypeFlags::None;
@@ -515,7 +588,9 @@ const TypeMeta* QueueBuilder::build() {
     meta->fields = nullptr;
     meta->fixed_size = _max_capacity;  // 0 = unbounded, >0 = max capacity
 
-    return _registry.register_composite(std::move(meta));
+    const TypeMeta* result = _registry.register_composite(std::move(meta));
+    _registry.store_composite_cache(TypeKind::Queue, _element_type, nullptr, _max_capacity, false, result);
+    return result;
 }
 
 } // namespace hgraph::value
