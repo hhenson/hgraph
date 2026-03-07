@@ -25,15 +25,11 @@ public:
     TSOutput(const TSMeta& ts_meta, Node* owner, size_t port_index = 0)
         : native_value_(ts_meta), owning_node_(owner), port_index_(port_index) {}
 
-    // View access - returns TSOutputView, schema determines native vs alternative
-    TSOutputView view(engine_time_t current_time, const TSMeta& schema) {
-        if (&schema == &native_value_.ts_meta()) {
-            return TSOutputView(&native_value_, this, current_time);
-        }
-        // Get or create alternative for this schema
-        TSValue& alt = get_or_create_alternative(schema);
-        return TSOutputView(&alt, this, current_time);
-    }
+    // Endpoint views use owning_node_->cached_evaluation_time_ptr() internally.
+    TSView view();                                       // Native schema
+    TSView view_for_input(const TSInput& input);         // Input schema (native or alternative)
+    TSOutputView output_view();
+    TSOutputView output_view_for_input(const TSInput& input);
 
     // Bulk mutation via delta
     void apply_value(const DeltaValue& delta) {
@@ -67,9 +63,8 @@ public:
     void set_value(View v) { ts_view_.set_value(v); }
     void apply_delta(DeltaView dv) { ts_view_.apply_delta(dv); }
 
-    // Observer management (delegates to TSValue's observer_value_)
-    void subscribe(Notifiable* observer);
-    void unsubscribe(Notifiable* observer);
+    // Observer wiring is owned by binding/activation in TSInput; TSOutputView
+    // does not expose subscribe/unsubscribe APIs.
 
     // Navigation - wraps TSView navigation
     TSOutputView field(std::string_view name);
@@ -77,7 +72,7 @@ public:
     TSOutputView operator[](View key);
 
     // Path access
-    const ShortPath& short_path() const { return ts_view_.short_path(); }
+    ShortPath short_path() const;
     FQPath fq_path() const { return ts_view_.fq_path(); }
 };
 ```
@@ -146,8 +141,8 @@ TSOutput
 
 ### Alternative Management
 
-Alternatives are created on-demand when a consumer requests a different schema.
-The `view()` method on TSOutput handles this transparently:
+Alternatives are created on-demand when a bound input requests a different schema.
+The endpoint APIs handle this transparently:
 
 ```cpp
 TSValue& TSOutput::get_or_create_alternative(const TSMeta& schema) {
@@ -164,6 +159,11 @@ TSValue& TSOutput::get_or_create_alternative(const TSMeta& schema) {
     auto& alt = alternatives_.emplace(&schema, TSValue(schema)).first->second;
     establish_sync(native_value_, alt);
     return alt;
+}
+
+TSView TSOutput::view_for_input(const TSInput& input) {
+    const TSMeta* input_meta = input.meta();
+    return input_meta == native_value_.meta() ? view() : view_for_schema(input_meta);
 }
 ```
 
@@ -300,23 +300,22 @@ Subscribes to TSOutput(s) and provides access to linked values. TSInput owns a T
 
 ```cpp
 class TSInput : public Notifiable {
-    TSValue value_;                             // Contains Links at leaves pointing to outputs
-    Value active_value_;                        // Subscription state (mirrors TS schema)
-    const TSMeta* meta_;                        // Schema
-    Node* owning_node_;                         // For scheduling
+    TSValue value_;
+    Value active_value_;
+    const TSMeta* meta_;
+    Node* owning_node_;
+    size_t port_index_;                         // Endpoint id on owning node
 
 public:
-    // View access - returns TSInputView
-    TSInputView view(engine_time_t time, const TSMeta& schema) {
-        return TSInputView(&value_, &active_value_, this, time, schema);
-    }
+    TSView view();                              // Uses owning_node cached time pointer
+    TSInputView input_view();
 
     // Subscription control
     void set_active(bool active);
-    void set_active(std::string_view field, bool active);  // For TSB
+    void set_active(const TSView& ts_view, bool active);
 
     // Notifiable interface - called when source changes
-    void notify() override;
+    void notify(engine_time_t et) override;
 
     // Schema access
     const TSMeta* meta() const { return meta_; }
@@ -340,81 +339,57 @@ TSInput.value_:
 
 ### TSInputView
 
-TSInputView wraps a Link for O(1) data access without runtime navigation:
+TSInputView wraps TSView and delegates bind/activation behavior back to TSInput:
 
 ```cpp
 class TSInputView {
-    Link* link_;                    // ViewData: path + data + ops
-    Value* active_value_;           // Active state at this path
-    engine_time_t current_time_;
-    TSInput* input_;
+    TSInput* owner_;
+    TSView ts_view_;
 
 public:
-    // Convert Link to TSView (just adds current_time)
-    TSView ts_view() const {
-        return TSView{link_->view_data, current_time_};
-    }
+    View value() const { return ts_view_.value(); }
+    DeltaView delta_value() const { return ts_view_.delta_value(); }
+    bool modified() const { return ts_view_.modified(); }
+    bool valid() const { return ts_view_.valid(); }
 
-    // Delegate to Link's ViewData for data access
-    View value() const {
-        return View{link_->view_data.data, link_->view_data.ops};
-    }
-
-    bool modified() const;
-    bool valid() const;
-
-    // Input-specific binding
-    void bind(TSOutputView& output);
+    void bind(const TSOutputView& output);
     void unbind();
 
-    // Subscription control
     void make_active();
     void make_passive();
     bool active() const;
-
-    // Navigation - returns new views with child Links
-    TSInputView field(std::string_view name);
-    TSInputView operator[](size_t index);
-
-    // Path access (via Link's ViewData)
-    const ShortPath& short_path() const { return link_->view_data.path; }
-    FQPath fq_path() const { return link_->view_data.path.to_fq(); }
+    ShortPath short_path() const;
+    FQPath fq_path() const;
 };
 ```
 
 ### Binding Process
 
-Binding establishes Links from input leaves to output values. The actual implementation delegates to TSView for core binding and separately manages subscription lifecycle:
+Binding establishes Links from input leaves to output values. The implementation delegates link setup/teardown to TSView and activation state to TSInput owner logic:
 
 ```cpp
-void TSInputView::bind(TSOutputView& output) {
-    // 1. Delegate link creation to TSView layer
-    //    TSView::bind() handles populating the Link's ViewData from output
-    ts_view_.bind(output.ts_view());
-
-    // 2. Track the bound output for subscription management
-    bound_output_ = output.output();
-
-    // 3. Subscribe for notifications if active
-    if (input_ && input_->active()) {
-        output.subscribe(input_);
+void TSInputView::bind(const TSOutputView& output) {
+    ts_view_.bind(output.as_ts_view());
+    if (owner_ && owner_->active(ts_view_)) {
+        // Active inputs that bind later must re-attach notifier wiring immediately.
+        owner_->set_active(ts_view_, true);
     }
 }
 
 void TSInputView::unbind() {
-    // 1. Unsubscribe if we were active and bound
-    if (bound_output_ && input_ && input_->active()) {
-        TSOutputView output_view = bound_output_->view(ts_view_.current_time());
-        output_view.unsubscribe(input_);
-    }
-
-    // 2. Clear the bound output reference
-    bound_output_ = nullptr;
-
-    // 3. Delegate link removal to TSView layer
     ts_view_.unbind();
 }
 ```
+
+### SIGNAL Bind-Time Resolution
+
+For `TSInputView` / `TSInput` binding of SIGNAL inputs, target selection is resolved at bind-time (not on each read):
+
+1. `SIGNAL[impl]`: bind directly to implementation target.
+2. Plain `SIGNAL` + `TSD[...]` source: bind to `key_set` projection (`ViewProjection::TSD_KEY_SET`).
+3. Otherwise: bind directly to source view.
+
+Bind-time resolution is the primary mechanism. Runtime read paths still include explicit SIGNAL semantics for link rebind transitions and direct SIGNAL-source handling to preserve Python parity during dynamic rewires.
 
 ### Active State
 
@@ -445,7 +420,7 @@ input_view.field("b")[1].bind(output3_view);
 When source TSOutput is modified, it notifies all observers:
 
 ```cpp
-void TSInput::notify() override {
+void TSInput::notify(engine_time_t et) override {
     // Input is notified that source changed
     // Scheduler can now consider this node for execution
     // No data copying needed - view() will get fresh data
@@ -511,7 +486,7 @@ ViewData (base)
     │
     ├── Link (no time) - stored in TSInput.value_
     │
-    └── TSView (+ time) - returned from access methods
+    └── TSView (+ engine time reference) - returned from access methods
 ```
 
 ## Graph Topology
@@ -547,7 +522,8 @@ When we navigate the outer input view to a field, the returned view's ViewData c
 
 ```cpp
 auto outer_field = outer_input_view.field("a");
-auto inner_input_view = inner_node->ts_input()->view(time);
+auto inner_input_view = inner_node->ts_input()->input_view();
+inner_input_view.set_current_time_ptr(&time);
 inner_input_view.ts_view().bind(outer_field.ts_view());
 ```
 
@@ -562,49 +538,73 @@ After this, the inner stub node reads upstream data via its LinkTarget and gets 
 
 ### Output Wiring: Inner Sink Writes to Outer's Output Data
 
-The inner sink node's TSOutput needs to redirect all writes to the outer component's TSOutput storage. This is achieved through a `forwarded_target_` LinkTarget on TSOutput.
+The inner sink node's TSOutput needs to redirect all writes to the outer component's TSOutput storage. This is achieved through a **Node-level output override** mechanism.
 
 **Why inner→outer direction?** During outer graph wiring (before `initialise()`), downstream TSInput LinkTargets are populated with raw pointers to the outer TSOutput's storage. These pointers are fixed. An outer→inner link would require downstream reads to follow an additional indirection they don't support. So the forwarding redirects inner **writes** to outer's storage.
 
+**Mechanism**: `Node::_output_override_node` — a raw pointer on Node that, when set, causes `Node::output()` to delegate to the override node's output view:
+
 ```cpp
-class TSOutput {
-    LinkTarget forwarded_target_;  // Populated during cross-graph wiring
-    // ...
-    TSOutputView view(engine_time_t current_time) {
-        if (forwarded_target_.is_linked) {
-            // All 7 fields from outer's storage
-            ViewData vd = make_view_data_from(forwarded_target_);
-            return TSOutputView(TSView(vd, current_time), this);
+class Node {
+    node_ptr _output_override_node{nullptr};  // Set during cross-graph wiring
+
+public:
+    TSOutputView output() const {
+        if (_output_override_node != nullptr && _output_override_node != this) {
+            return _output_override_node->output();  // Delegate to outer node
         }
-        // Normal path: use own native_value_
-        return TSOutputView(native_value_.ts_view(current_time), this);
+        // Normal path: use own TSOutput
+        return _output.output_view();
     }
+
+    void set_output_override(node_ptr source_node) noexcept;
+    void clear_output_override() noexcept;
 };
 ```
 
-`store_to_link_target` copies all 7 target-data fields including `ops` and `meta`, so every operation through the forwarded view uses the outer's ts_ops vtable, outer's time storage, and outer's observer list. Mutations land directly in outer storage and notify downstream nodes.
+When the inner sink node calls `output()`, it receives the **outer node's** TSOutputView. All writes from inner code land directly in the outer TSOutput's storage, using the outer's ts_ops vtable, time storage, and observer list. Mutations notify downstream nodes through the outer's observer infrastructure.
 
 During `wire_graph()`:
 ```cpp
-ViewData outer_data = ts_output()->native_value().make_view_data();
-store_to_link_target(inner_node->ts_output()->forwarded_target(), outer_data);
+// NestedGraphNode / ComponentNode
+auto inner_sink_node = m_active_graph_->nodes()[m_output_node_id_];
+inner_sink_node->set_output_override(this);  // "this" = outer node
+```
+
+**Design rationale**: The output override lives at the Node level rather than inside TSOutput. This keeps TSOutput's API clean (no forwarding concept) and makes the redirection a graph-wiring concern rather than a time-series concern. The inner sink node's own TSOutput is effectively unused — all output operations go through the override.
+
+**Cleanup**: On `dispose()`, the override is cleared to prevent dangling pointers:
+```cpp
+inner_sink_node->clear_output_override();
 ```
 
 ### TryExceptNode Special Case
 
-TryExceptNode's output is a bundle with "out" and "exception" fields. The inner graph's sink maps to the "out" sub-field:
+TryExceptNode uses a **hybrid approach** because its output is a bundle with "out" and "exception" fields, where only the "out" sub-field maps to the inner graph's sink:
 
+1. **Binding**: During `wire_outputs()`, the outer "out" field is bound to the inner output view for observer notification setup:
 ```cpp
-auto out_field_view = ts_output()->view(time).field("out");
-store_to_link_target(inner->ts_output()->forwarded_target(), out_field_view.view_data());
+auto outer_bundle = outer_view.try_as_bundle();
+auto out_ts = outer_bundle->field("out");
+out_ts.as_ts_view().bind(inner_view.as_ts_view());
 ```
+
+2. **Explicit copy**: During `do_eval()`, when the inner output is modified, values are explicitly copied to the outer "out" field:
+```cpp
+if (inner_view.modified() && inner_view.valid()) {
+    out_ts.copy_from_output(inner_view);
+}
+```
+
+This differs from the override pattern because the inner sink writes to its own TSOutput (not the outer's), and the outer node copies the result after evaluation. The "exception" field is written directly by the outer TryExceptNode when an exception is caught.
 
 ### Graph Lifecycle Ordering
 
 1. **Outer graph wiring** (before `initialise()`): Downstream TSInput LinkTargets populated with pointers to outer TSOutput storage
 2. **`initialise()`**: Creates inner graph, calls `wire_graph()`
-3. **`wire_graph()`**: Binds inner inputs + sets up output forwarding
+3. **`wire_graph()`**: Binds inner inputs + sets up output override (`set_output_override`)
 4. **`start()`**: Calls `_initialise_inputs()` on inner nodes, which calls `set_active(true)` to subscribe for node-scheduling
+5. **`dispose()`**: Clears output override (`clear_output_override`) before releasing inner graph
 
 ## Open Questions
 

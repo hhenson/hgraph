@@ -105,6 +105,8 @@ time-series collection class, where the delta represents the elements that
 were modified in this engine cycle. Whereas the ``value`` property represents
 the current valid values of the time-series, which include results that have
 previously been modified / set.
+When there is no valid delta, the underlying view is invalid/empty and the Python
+representation is ``None``.
 
 There are two useful flags associated to the time-series, ``modified`` and
 ``valid``. Where ``modified`` is ``True`` if the time-series type was modified
@@ -126,4 +128,3 @@ constraint is actually required to be enforced.
 Finally, the ``last_modified`` time represents the time this time-series
 value was last modified. This can be useful for a number of reasons, but
 a simple use-case is to deal with staleness checking of a value.
-

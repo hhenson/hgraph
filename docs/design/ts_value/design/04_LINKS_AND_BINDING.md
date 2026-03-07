@@ -89,10 +89,10 @@ TSView TSLView::element(size_t index) {
     LinkTarget* link = get_collection_link();
     if (link && link->is_linked) {
         // Navigate through the linked target
-        TSView target = make_view_from_link(*link, current_time_);
+        TSView target = make_view_from_link(*link, engine_time_ptr_);
         return target[index];
     }
-    return TSView{make_local_view_data(index), current_time_};
+    return TSView{make_local_view_data(index), engine_time_ptr_};
 }
 
 // TSB navigation - check per-field LinkTarget
@@ -100,9 +100,9 @@ TSView TSBView::field(size_t index) {
     LinkTarget* field_link = get_field_link(index);
     if (field_link && field_link->is_linked) {
         // Return target view for this field
-        return make_view_from_link(*field_link, current_time_);
+        return make_view_from_link(*field_link, engine_time_ptr_);
     }
-    return TSView{make_local_view_data(index), current_time_};
+    return TSView{make_local_view_data(index), engine_time_ptr_};
 }
 ```
 
@@ -727,6 +727,22 @@ REF participates in three binding modes:
 | TS → REF | TS[T] | REF[TS[T]] | Create TSReference pointing to native |
 | REF → REF | REF[TS[T]] | REF[TS[T]] | Normal LINK (TSReference is the value) |
 | REF → TS | REF[TS[T]] | TS[T] | REFLink that follows the reference |
+
+### SIGNAL Binding Mode (TSInput)
+
+`SIGNAL` follows a bind-time alternative resolution model, similar to REF: the input binds once to a concrete source view and read-path logic does not perform runtime fallback selection.
+
+Bind-time rules:
+
+1. `SIGNAL[impl]` binds directly to the implementation target.
+2. Plain `SIGNAL` bound to `TSD[...]` binds to the source `key_set` projection (`ViewProjection::TSD_KEY_SET`).
+3. Otherwise, plain `SIGNAL` binds directly to the source view.
+
+Invariants:
+
+1. SIGNAL mode selection happens at bind/unbind/rebind boundaries only.
+2. `modified` / `last_modified_time` / `valid` read paths do not apply SIGNAL-specific fallback heuristics.
+3. This keeps semantics deterministic and localized to binding.
 
 ### REF → TS (Dereferencing)
 

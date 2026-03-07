@@ -110,137 +110,144 @@ struct ViewPairRange {
 
 ### type_ops Vtable
 
+All `type_ops` function pointers receive a trailing `const TypeMeta* schema` parameter.
+This is necessary because **compound type operations are recursive**: to `construct` a
+bundle you must `construct` each field, to `copy` a list you must `copy` each element.
+The `schema` pointer carries the recursion context — child types, field offsets, element
+schemas — that cannot be derived from the raw `void*` data pointer alone.
+
 ```cpp
 // Kind-specific extension ops
 
 struct atomic_ops {
     // Ordering for sorted containers and comparison operators
-    bool (*less_than)(const void* a, const void* b);
+    bool (*less_than)(const void* a, const void* b, const TypeMeta* schema);
 };
 
 struct bundle_ops {
     // Field access by index
-    size_t (*size)(const void* ptr);
-    View (*at)(void* ptr, size_t idx);
-    void (*set_at)(void* ptr, size_t idx, View value);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
+    View (*at)(void* ptr, size_t idx, const TypeMeta* schema);
+    void (*set_at)(void* ptr, size_t idx, View value, const TypeMeta* schema);
     // Field access by name
-    View (*get_field)(void* ptr, std::string_view name);
-    void (*set_field)(void* ptr, std::string_view name, View value);
+    View (*get_field)(void* ptr, std::string_view name, const TypeMeta* schema);
+    void (*set_field)(void* ptr, std::string_view name, View value, const TypeMeta* schema);
     // Iteration (ViewPairRange: field_name -> value)
-    ViewPairRange (*items)(const void* ptr);
+    ViewPairRange (*items)(const void* ptr, const TypeMeta* schema);
 };
 
 struct tuple_ops {
     // Element access (positional only, no names)
-    size_t (*size)(const void* ptr);
-    View (*at)(void* ptr, size_t idx);
-    void (*set_at)(void* ptr, size_t idx, View value);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
+    View (*at)(void* ptr, size_t idx, const TypeMeta* schema);
+    void (*set_at)(void* ptr, size_t idx, View value, const TypeMeta* schema);
     // Iteration (ViewPairRange: index -> value)
-    ViewPairRange (*items)(const void* ptr);
+    ViewPairRange (*items)(const void* ptr, const TypeMeta* schema);
 };
 
 struct list_ops {
     // Element access
-    size_t (*size)(const void* ptr);
-    View (*at)(void* ptr, size_t idx);
-    void (*set_at)(void* ptr, size_t idx, View value);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
+    View (*at)(void* ptr, size_t idx, const TypeMeta* schema);
+    void (*set_at)(void* ptr, size_t idx, View value, const TypeMeta* schema);
 
     // Mutation
-    void (*append)(void* ptr, View elem);
-    void (*clear)(void* ptr);
+    void (*append)(void* ptr, View elem, const TypeMeta* schema);
+    void (*clear)(void* ptr, const TypeMeta* schema);
 
     // Iteration
-    ViewRange (*values)(const void* ptr);
-    ViewPairRange (*items)(const void* ptr);  // index -> value
+    ViewRange (*values)(const void* ptr, const TypeMeta* schema);
+    ViewPairRange (*items)(const void* ptr, const TypeMeta* schema);  // index -> value
 };
 
 struct set_ops {
     // Membership
-    bool (*contains)(const void* ptr, View elem);
-    size_t (*size)(const void* ptr);
+    bool (*contains)(const void* ptr, View elem, const TypeMeta* schema);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
 
     // Mutation
-    void (*add)(void* ptr, View elem);
-    bool (*remove)(void* ptr, View elem);
-    void (*clear)(void* ptr);
+    void (*add)(void* ptr, View elem, const TypeMeta* schema);
+    bool (*remove)(void* ptr, View elem, const TypeMeta* schema);
+    void (*clear)(void* ptr, const TypeMeta* schema);
 
     // Iteration
-    ViewRange (*values)(const void* ptr);
+    ViewRange (*values)(const void* ptr, const TypeMeta* schema);
 };
 
 struct map_ops {
     // Entry access
-    View (*at)(void* ptr, View key);
-    bool (*contains)(const void* ptr, View key);
-    size_t (*size)(const void* ptr);
+    View (*at)(void* ptr, View key, const TypeMeta* schema);
+    bool (*contains)(const void* ptr, View key, const TypeMeta* schema);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
 
     // Mutation
-    void (*set_item)(void* ptr, View key, View val);
-    bool (*remove)(void* ptr, View key);
-    void (*clear)(void* ptr);
+    void (*set_item)(void* ptr, View key, View val, const TypeMeta* schema);
+    bool (*remove)(void* ptr, View key, const TypeMeta* schema);
+    void (*clear)(void* ptr, const TypeMeta* schema);
 
     // Iteration
-    ViewRange (*keys)(const void* ptr);
-    ViewPairRange (*items)(const void* ptr);  // key -> value
+    ViewRange (*keys)(const void* ptr, const TypeMeta* schema);
+    ViewPairRange (*items)(const void* ptr, const TypeMeta* schema);  // key -> value
 };
 
 struct cyclic_buffer_ops {
     // Element access
-    size_t (*size)(const void* ptr);
-    View (*at)(void* ptr, size_t idx);
-    void (*set_at)(void* ptr, size_t idx, View value);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
+    View (*at)(void* ptr, size_t idx, const TypeMeta* schema);
+    void (*set_at)(void* ptr, size_t idx, View value, const TypeMeta* schema);
 
     // Mutation
-    void (*push)(void* ptr, View elem);
-    void (*pop)(void* ptr);
-    void (*clear)(void* ptr);
+    void (*push)(void* ptr, View elem, const TypeMeta* schema);
+    void (*pop)(void* ptr, const TypeMeta* schema);
+    void (*clear)(void* ptr, const TypeMeta* schema);
 
     // Capacity
-    size_t (*capacity)(const void* ptr);
+    size_t (*capacity)(const void* ptr, const TypeMeta* schema);
 
     // Iteration
-    ViewRange (*values)(const void* ptr);
+    ViewRange (*values)(const void* ptr, const TypeMeta* schema);
 };
 
 struct queue_ops {
     // Element access
-    size_t (*size)(const void* ptr);
-    View (*at)(void* ptr, size_t idx);
+    size_t (*size)(const void* ptr, const TypeMeta* schema);
+    View (*at)(void* ptr, size_t idx, const TypeMeta* schema);
 
     // Mutation
-    void (*push)(void* ptr, View elem);
-    void (*pop)(void* ptr);
-    void (*clear)(void* ptr);
+    void (*push)(void* ptr, View elem, const TypeMeta* schema);
+    void (*pop)(void* ptr, const TypeMeta* schema);
+    void (*clear)(void* ptr, const TypeMeta* schema);
 
     // Capacity
-    size_t (*max_capacity)(const void* ptr);
+    size_t (*max_capacity)(const void* ptr, const TypeMeta* schema);
 
     // Iteration
-    ViewRange (*values)(const void* ptr);
+    ViewRange (*values)(const void* ptr, const TypeMeta* schema);
 };
 
 struct type_ops {
     // === Common operations (all kinds) ===
+    // All take trailing `const TypeMeta* schema` for recursive compound dispatch.
 
     // Lifecycle
-    void (*construct)(void* dst);
-    void (*destroy)(void* ptr);
-    void (*copy)(void* dst, const void* src);
-    void (*move)(void* dst, void* src);
-    void (*move_construct)(void* dst, void* src);
+    void (*construct)(void* dst, const TypeMeta* schema);
+    void (*destroy)(void* ptr, const TypeMeta* schema);
+    void (*copy)(void* dst, const void* src, const TypeMeta* schema);
+    void (*move)(void* dst, void* src, const TypeMeta* schema);
+    void (*move_construct)(void* dst, void* src, const TypeMeta* schema);
 
     // Comparison
-    bool (*equals)(const void* a, const void* b);
+    bool (*equals)(const void* a, const void* b, const TypeMeta* schema);
 
     // Hashing
-    size_t (*hash)(const void* ptr);
+    size_t (*hash)(const void* ptr, const TypeMeta* schema);
 
     // String representation
-    std::string (*to_string)(const void* ptr);
+    std::string (*to_string)(const void* ptr, const TypeMeta* schema);
 
     // Python conversion (all types)
-    nb::object (*to_python)(const void* ptr);
-    void (*from_python)(void* ptr, nb::object obj);
+    nb::object (*to_python)(const void* ptr, const TypeMeta* schema);
+    void (*from_python)(void* ptr, nb::object obj, const TypeMeta* schema);
 
     // === Kind-specific extension ops (tagged by TypeMeta::kind_) ===
     TypeKind kind;
@@ -256,6 +263,11 @@ struct type_ops {
     } specific;
 };
 ```
+
+**Design rationale**: The `const TypeMeta* schema` parameter is passed explicitly rather
+than embedded in data for three reasons: (1) it avoids per-instance overhead — millions of
+values share one schema; (2) it keeps the function pointer signatures uniform and simple;
+(3) it enables the same ops table to be reused across all instances of a type.
 
 **Note**: The `specific` union is tagged by the `kind` field in type_ops. Only access the union member corresponding to the type's kind. This keeps all operations inline in a single struct, avoiding additional pointer chasing for kind-specific operations.
 
@@ -503,7 +515,7 @@ Describes time-series types with temporal tracking semantics.
 
 ### Structure
 
-TSMeta uses a **flat struct with tagged union** approach - the `kind` field determines which other fields are valid. This is more memory-efficient than an inheritance hierarchy and enables simple serialization.
+TSMeta uses a **compact tagged-union** approach. Two fields are always present (`kind` and `value_type`), while all kind-specific data is stored in a `KindData` union selected by `kind`. This minimizes per-instance footprint compared to a flat struct where most fields would be unused for any given kind.
 
 ```cpp
 /**
@@ -532,48 +544,12 @@ struct TSBFieldInfo {
 /**
  * Complete metadata describing a time-series type.
  *
- * TSMeta is the schema for a time-series type. It uses a tagged union approach
- * where the `kind` field determines which members are valid:
- *
- * - TSValue: value_type is valid
- * - TSS: value_type is valid (set element type)
- * - TSD: key_type, element_ts are valid
- * - TSL: element_ts, fixed_size are valid
- * - TSW: value_type, is_duration_based, window union are valid
- * - TSB: fields, field_count, bundle_name, python_type are valid
- * - REF: element_ts is valid (referenced time-series)
- * - SIGNAL: no additional fields
+ * TSMeta is a compact tagged structure:
+ * - `kind` + `value_type` are always present
+ * - kind-specific data is stored in a union to minimize per-instance footprint.
  */
 struct TSMeta {
-    TSKind kind;
-
-    // ========== Value/Key Types ==========
-    // Valid for: TSValue (value), TSS (element), TSW (value), TSD (key)
-
-    /// Value type - valid for: TSValue, TSS, TSW
-    const TypeMeta* value_type = nullptr;
-
-    /// Key type - valid for: TSD
-    const TypeMeta* key_type = nullptr;
-
-    // ========== Nested Time-Series ==========
-    // Valid for: TSD (value TS), TSL (element TS), REF (referenced TS)
-
-    /// Element time-series - valid for: TSD (value), TSL (element), REF (referenced)
-    const TSMeta* element_ts = nullptr;
-
-    // ========== Size Information ==========
-
-    /// Fixed size - valid for: TSL (0 = dynamic SIZE)
-    size_t fixed_size = 0;
-
-    // ========== Window Parameters ==========
-    // Valid for: TSW
-
-    /// True if duration-based window, false if tick-based
-    bool is_duration_based = false;
-
-    /// Window parameters union - saves space since only one is used
+    // ========== Window Parameters (shared type for TSWData) ==========
     union WindowParams {
         struct {
             size_t period;
@@ -584,71 +560,129 @@ struct TSMeta {
             engine_time_delta_t min_time_range;
         } duration;
 
-        // Default constructor - initialize tick params
-        WindowParams() : tick{0, 0} {}
-    } window;
+        constexpr WindowParams() : tick{0, 0} {}
+    };
 
-    // ========== Bundle Fields ==========
-    // Valid for: TSB
+    // ========== Kind-Specific Data Structs ==========
 
-    /// Field metadata array - valid for: TSB
-    const TSBFieldInfo* fields = nullptr;
+    struct EmptyData {};                       // TSValue, TSS, SIGNAL
 
-    /// Number of fields - valid for: TSB
-    size_t field_count = 0;
+    struct TSDData {
+        const TypeMeta* key_type = nullptr;    // Key value type
+        const TSMeta* value_ts = nullptr;      // Value time-series schema
+    };
 
-    /// Bundle schema name - valid for: TSB
-    const char* bundle_name = nullptr;
+    struct TSLData {
+        const TSMeta* element_ts = nullptr;    // Element time-series schema
+        size_t fixed_size = 0;                 // 0 = dynamic size
+    };
 
-    /// Python type for reconstruction - valid for: TSB (optional)
-    /// When set, to_python conversion returns an instance of this class.
-    /// When not set (None), returns a dict.
-    nb::object python_type;
+    struct TSWData {
+        bool is_duration_based = false;
+        WindowParams window{};
+    };
+
+    struct TSBData {
+        const TSBFieldInfo* fields = nullptr;
+        size_t field_count = 0;
+        const char* bundle_name = nullptr;
+        nb::object python_type{};                  // RAII-managed Python type (nb::object wraps PyObject*)
+    };
+
+    struct REFData {
+        const TSMeta* referenced_ts = nullptr;
+    };
+
+    // ========== Tagged Union ==========
+
+    union KindData {
+        EmptyData empty;
+        TSDData tsd;
+        TSLData tsl;
+        TSWData tsw;
+        TSBData tsb;
+        REFData ref;
+
+        constexpr KindData() : empty{} {}
+    };
+
+    // ========== Core Fields ==========
+
+    TSKind kind = TSKind::SIGNAL;
+    const TypeMeta* value_type = nullptr;      // Valid for: TSValue, TSS, TSW
+    KindData data{};                           // Selected by kind
+
+    // ========== Setters (used by builders/registry) ==========
+
+    void set_tsd(const TypeMeta* key_type, const TSMeta* value_ts) noexcept;
+    void set_tsl(const TSMeta* element_ts, size_t fixed_size) noexcept;
+    void set_tsw_tick(size_t period, size_t min_period) noexcept;
+    void set_tsw_duration(engine_time_delta_t time_range, engine_time_delta_t min_time_range) noexcept;
+    void set_tsb(const TSBFieldInfo* fields, size_t field_count, const char* bundle_name,
+                 nb::object python_type) noexcept;
+    void set_ref(const TSMeta* referenced_ts) noexcept;
+
+    // ========== Accessors (kind-guarded, return safe defaults) ==========
+
+    const TypeMeta* key_type() const noexcept;          // TSD only, else nullptr
+    const TSMeta* element_ts() const noexcept;           // TSD/TSL/REF, else nullptr
+    size_t fixed_size() const noexcept;                  // TSL only, else 0
+    bool is_duration_based() const noexcept;             // TSW only, else false
+    size_t period() const noexcept;                      // TSW tick only
+    size_t min_period() const noexcept;                  // TSW tick only
+    engine_time_delta_t time_range() const noexcept;     // TSW duration only
+    engine_time_delta_t min_time_range() const noexcept; // TSW duration only
+    const TSBFieldInfo* fields() const noexcept;         // TSB only, else nullptr
+    size_t field_count() const noexcept;                 // TSB only, else 0
+    const char* bundle_name() const noexcept;            // TSB only, else nullptr
+    const nb::object& python_type() const noexcept;       // TSB only, else static nb::none()
 
     // ========== Helper Methods ==========
 
-    /**
-     * Check if this is a collection time-series.
-     * @return true if TSS, TSD, TSL, or TSB
-     */
-    bool is_collection() const noexcept {
-        return kind == TSKind::TSS || kind == TSKind::TSD ||
-               kind == TSKind::TSL || kind == TSKind::TSB;
-    }
-
-    /**
-     * Check if this is a scalar-like time-series.
-     * @return true if TS, TSW, or SIGNAL
-     */
-    bool is_scalar_ts() const noexcept {
-        return kind == TSKind::TSValue || kind == TSKind::TSW ||
-               kind == TSKind::SIGNAL;
-    }
+    bool is_collection() const noexcept;    // true if TSS, TSD, TSL, or TSB
+    bool is_scalar_ts() const noexcept;     // true if TSValue, TSW, or SIGNAL
 };
 ```
 
-### Field Validity by TSKind
+**Design rationale**: The tagged union eliminates wasted space from unused fields. A flat struct with all fields (key_type, element_ts, fixed_size, is_duration_based, window, fields, field_count, bundle_name, python_type) would waste most of its footprint for any given kind. The KindData union means a TSValue instance only pays for `kind + value_type + sizeof(KindData)`, where KindData is sized to the largest variant (TSBData or TSWData).
 
-| TSKind | value_type | key_type | element_ts | fixed_size | window | fields/field_count | bundle_name |
-|--------|------------|----------|------------|------------|--------|-------------------|-------------|
-| TSValue | Y (value type) | - | - | - | - | - | - |
-| TSS | Y (element type) | - | - | - | - | - | - |
-| TSD | - | Y | Y (value TS) | - | - | - | - |
-| TSL | - | - | Y (element TS) | Y (0=dynamic) | - | - | - |
-| TSW | Y (value type) | - | - | - | Y | - | - |
-| TSB | - | - | - | - | - | Y | Y |
-| REF | - | - | Y (referenced TS) | - | - | - | - |
-| SIGNAL | - | - | - | - | - | - | - |
+**python_type note**: TSBData stores `nb::object` by value. Since `nb::object` wraps a `PyObject*` with RAII reference counting, this is lightweight (pointer-sized) and correctly manages Python object lifetime.
+
+### Kind ↔ KindData Variant Mapping
+
+| TSKind | KindData variant | value_type | Description |
+|--------|-----------------|------------|-------------|
+| TSValue | EmptyData | Y (value type) | Scalar time-series |
+| TSS | EmptyData | Y (element type) | Time-series set |
+| TSD | TSDData | - | key_type + value_ts |
+| TSL | TSLData | - | element_ts + fixed_size |
+| TSW | TSWData | Y (value type) | is_duration_based + window params |
+| TSB | TSBData | - | fields + field_count + bundle_name + python_type |
+| REF | REFData | - | referenced_ts |
+| SIGNAL | EmptyData | - | No additional data |
+
+### Accessor Dispatch Summary
+
+| Accessor | Returns from | Kind guard |
+|----------|-------------|------------|
+| `key_type()` | `data.tsd.key_type` | TSD only |
+| `element_ts()` | `data.tsd.value_ts` / `data.tsl.element_ts` / `data.ref.referenced_ts` | TSD, TSL, REF |
+| `fixed_size()` | `data.tsl.fixed_size` | TSL only |
+| `is_duration_based()` | `data.tsw.is_duration_based` | TSW only |
+| `period()` / `min_period()` | `data.tsw.window.tick.*` | TSW + tick only |
+| `time_range()` / `min_time_range()` | `data.tsw.window.duration.*` | TSW + duration only |
+| `fields()` / `field_count()` / `bundle_name()` | `data.tsb.*` | TSB only |
+| `python_type()` | `data.tsb.python_type` | TSB only |
 
 ### Operations Retrieval
 
 Operations for time-series types are retrieved via the `get_ts_ops()` function rather than being stored inline in TSMeta. This separation keeps TSMeta lightweight and allows different ops implementations for TSW variants.
 
 ```cpp
-// Get ops by TSKind (for TSW, returns scalar_ops)
+// Get ops by TSKind (for TSW, returns implementation default TSW table)
 const ts_ops* get_ts_ops(TSKind kind);
 
-// Get ops by TSMeta (for TSW, selects based on is_duration_based)
+// Get ops by TSMeta (for TSW, may select tick/duration specialization)
 const ts_ops* get_ts_ops(const TSMeta* meta);
 
 // Usage
@@ -707,6 +741,8 @@ TSInput input{ts_meta, node_ptr};
 
 The `ts_ops` structure provides the operations vtable for time-series types. Unlike `type_ops` which may be stored inline, `ts_ops` is retrieved via the `get_ts_ops()` function based on the TSMeta.
 
+Status note (2026-02-14): by-kind `ts_ops` compaction is implemented in the current scaffolding runtime. Common operations are shared, and window/set/dict families are stored in tagged kind-specific extensions.
+
 ```cpp
 /**
  * Operations vtable for time-series types.
@@ -744,10 +780,9 @@ struct ts_ops {
     void (*from_python)(ViewData& vd, const nb::object& src, engine_time_t current_time);
 
     // ========== Navigation ==========
-    TSView (*child_at)(const ViewData& vd, size_t index, engine_time_t current_time);
-    TSView (*child_by_name)(const ViewData& vd, const std::string& name, engine_time_t current_time);
-    TSView (*child_by_key)(const ViewData& vd, const value::View& key, engine_time_t current_time);
-    size_t (*child_count)(const ViewData& vd);
+    // No top-level navigation slots.
+    // TSL/TSB navigation is provided via kind-specific at()/size() extensions.
+    // Generic TSView fallback navigation remains schema-guided.
 
     // ========== Observer Management ==========
     value::View (*observer)(const ViewData& vd);
@@ -761,37 +796,69 @@ struct ts_ops {
     // ========== Input Active State Management ==========
     void (*set_active)(ViewData& vd, value::View active_view, bool active, TSInput* input);
 
-    // ========== Kind-Specific Operations ==========
-    // Window operations (nullptr for non-TSW)
-    const engine_time_t* (*window_value_times)(const ViewData& vd);
-    size_t (*window_value_times_count)(const ViewData& vd);
-    engine_time_t (*window_first_modified_time)(const ViewData& vd);
-    bool (*window_has_removed_value)(const ViewData& vd);
-    value::View (*window_removed_value)(const ViewData& vd);
-    size_t (*window_removed_value_count)(const ViewData& vd);
-    size_t (*window_size)(const ViewData& vd);
-    size_t (*window_min_size)(const ViewData& vd);
-    size_t (*window_length)(const ViewData& vd);
+    // ========== Kind-Specific Operations (Compacted) ==========
+    TSKind kind;
 
-    // Set operations (nullptr for non-TSS)
-    bool (*set_add)(ViewData& vd, const value::View& elem, engine_time_t current_time);
-    bool (*set_remove)(ViewData& vd, const value::View& elem, engine_time_t current_time);
-    void (*set_clear)(ViewData& vd, engine_time_t current_time);
+    struct ts_window_ops {
+        const engine_time_t* (*value_times)(const ViewData& vd);
+        size_t (*value_times_count)(const ViewData& vd);
+        engine_time_t (*first_modified_time)(const ViewData& vd);
+        bool (*has_removed_value)(const ViewData& vd);
+        value::View (*removed_value)(const ViewData& vd);
+        size_t (*removed_value_count)(const ViewData& vd);
+        size_t (*size)(const ViewData& vd);
+        size_t (*min_size)(const ViewData& vd);
+        size_t (*length)(const ViewData& vd);
+    };
 
-    // Dict operations (nullptr for non-TSD)
-    bool (*dict_remove)(ViewData& vd, const value::View& key, engine_time_t current_time);
-    TSView (*dict_create)(ViewData& vd, const value::View& key, engine_time_t current_time);
-    TSView (*dict_set)(ViewData& vd, const value::View& key, const value::View& value, engine_time_t current_time);
+    struct ts_set_ops {
+        bool (*add)(ViewData& vd, const value::View& elem, engine_time_t current_time);
+        bool (*remove)(ViewData& vd, const value::View& elem, engine_time_t current_time);
+        void (*clear)(ViewData& vd, engine_time_t current_time);
+    };
+
+    struct ts_dict_ops {
+        bool (*remove)(ViewData& vd, const value::View& key, engine_time_t current_time);
+        TSView (*create)(ViewData& vd, const value::View& key, engine_time_t current_time);
+        TSView (*set)(ViewData& vd, const value::View& key, const value::View& value, engine_time_t current_time);
+    };
+
+    struct ts_list_ops {
+        TSView (*at)(const ViewData& vd, size_t index, engine_time_t current_time);
+        size_t (*size)(const ViewData& vd);
+    };
+
+    struct ts_bundle_ops {
+        TSView (*at)(const ViewData& vd, size_t index, engine_time_t current_time);
+        TSView (*at_name)(const ViewData& vd, std::string_view name, engine_time_t current_time);
+        size_t (*size)(const ViewData& vd);
+    };
+
+    union specific_ops {
+        struct { uint8_t reserved; } none;
+        ts_window_ops window;
+        ts_set_ops set;
+        ts_dict_ops dict;
+        ts_list_ops list;
+        ts_bundle_ops bundle;
+    } specific;
+
+    const ts_window_ops* window_ops() const;
+    const ts_set_ops* set_ops() const;
+    const ts_dict_ops* dict_ops() const;
+    const ts_list_ops* list_ops() const;
+    const ts_bundle_ops* bundle_ops() const;
 };
 
-// Get ops by TSKind (for TSW, returns scalar_ops)
+// Get ops by TSKind (for TSW, returns implementation default TSW table)
 const ts_ops* get_ts_ops(TSKind kind);
 
-// Get ops by TSMeta (for TSW, selects based on is_duration_based)
+// Get ops by TSMeta (for TSW, may select tick/duration specialization)
 const ts_ops* get_ts_ops(const TSMeta* meta);
 ```
 
 **Note**: The ops pointer is obtained via `get_ts_ops(meta)` and stored in `ViewData` during view construction. This allows different implementations for TSW variants (tick-based vs duration-based windows).
+`TSView` exposes typed wrapper conversion (`try_as_window/set/dict/list/bundle`, `as_*`) similar to value-layer typed views.
 
 ### Parallel Value Structures
 
