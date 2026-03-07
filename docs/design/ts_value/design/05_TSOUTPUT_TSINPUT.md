@@ -1,5 +1,13 @@
 # TSOutput and TSInput Design
 
+## Status Note (2026-03-07)
+
+This document still describes the original endpoint direction, including alternative-heavy output handling.
+
+That approach proved too complex in the previous branch. The next implementation should prefer a smaller model centered on one native runtime representation plus explicit projection/adaptation points.
+
+See `09_SIMPLIFIED_RUNTIME.md` for the current clean implementation direction.
+
 ## Overview
 
 TSOutput and TSInput are the graph endpoints:

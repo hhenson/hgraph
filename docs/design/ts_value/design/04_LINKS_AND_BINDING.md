@@ -1,5 +1,13 @@
 # Links and Binding Design
 
+## Status Note (2026-03-07)
+
+This document captures the original detailed direction, but parts of it are now under revision.
+
+In particular, the next implementation should avoid reproducing the previous branch's highly generic, fallback-heavy link and REF machinery.
+
+See `09_SIMPLIFIED_RUNTIME.md` for the current clean implementation direction.
+
 ## Overview
 
 Links provide the mechanism for connecting TSInputs to TSOutputs:
