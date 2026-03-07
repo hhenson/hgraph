@@ -11,6 +11,9 @@ This document provides the high-level design overview for the new time-series in
 3. **Vtable-Based Polymorphism**: type_ops and ts_ops for runtime polymorphism
 4. **Memory Stability**: Stable addresses for linked data structures
 5. **Efficient Delta Tracking**: Support for both stored and computed deltas
+6. **Explicit Runtime State**: No hidden fallback state machines in the core runtime
+7. **Nested-Graph Compatibility**: Binding and rebind semantics must work cleanly for keyed and nested graphs
+8. **Python Parity Without Python-Driven Core Complexity**: Python remains a hard compatibility target, but wrapper behavior must not dictate a convoluted core architecture
 
 ## Document Structure
 
@@ -23,6 +26,8 @@ This document provides the high-level design overview for the new time-series in
 | 05_TSOUTPUT_TSINPUT.md | TSOutput, TSInput, paths, ViewData |
 | 06_ACCESS_PATTERNS.md | Reading, writing, iteration patterns |
 | 07_DELTA.md | DeltaView, DeltaValue, change tracking |
+| 08_IMPLEMENTATION_REVIEW.md | Review of the previous branch implementation and where it diverged from the design |
+| 09_SIMPLIFIED_RUNTIME.md | Clean implementation direction informed by real runtime complexity but designed to avoid the previous branch's failure modes |
 
 ## Key Data Structures
 
@@ -61,11 +66,48 @@ This document provides the high-level design overview for the new time-series in
 ├─────────────────────────────────────────────────────────────┤
 │  TSOutput                   TSInput                         │
 │  - native_value_ (TSValue)  - value_ (with LINKs)           │
-│  - alternatives_ (casts)    - active_value_ (subscriptions) │
+│  - explicit adapters        - active_value_ (subscriptions) │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Cross-Cutting Concerns
+## Reality Constraints
+
+The implementation review of the previous branch showed that the base design was directionally correct but under-specified in a few important areas:
+
+1. **Target identity is a first-class runtime concern**
+   - It is not enough to know that an input is "bound".
+   - The runtime must be able to compare the current effective target with a previous effective target without layering ad hoc fallback logic everywhere.
+
+2. **Dynamic containers and nested graphs change the problem**
+   - `TSD` and `TSS` do not just need delta support.
+   - They also need a clean strategy for keyed graph lifecycle, rebinding, and removal semantics.
+
+3. **REF semantics cannot be treated as a small extension**
+   - REF rebinding, sampled semantics, and composite references need an explicit state model.
+   - They should not be spread across many unrelated helpers.
+
+4. **Python compatibility is a hard requirement**
+   - However, the C++ runtime should expose explicit primitives for Python rather than accumulating Python-specific fallback behavior inside the core graph/value layers.
+
+## Simplification Direction
+
+The next implementation direction is:
+
+1. **Prefer one native runtime representation plus explicit adapters**
+   - Avoid eager alternative trees that recursively mirror the whole output state.
+
+2. **Keep runtime state explicit and local**
+   - If a node needs fallback or retained state, that state should usually live in the node, not in generic time-series infrastructure.
+
+3. **Promote hidden feature-extension behavior into the design**
+   - If a behavior is required for correctness, it must appear in the design as a named concept with lifecycle and invariants.
+
+4. **Treat nested-graph rebinding as a primary use case**
+   - The design should be easy to reason about for `reduce`, `map`, and other keyed nested-graph operators, not only for simple one-hop bindings.
+
+5. **Optimize for understandability first**
+   - The previous branch demonstrated that "generic" fallback-heavy behavior quickly becomes unmaintainable.
+   - The new design must favor fewer concepts, sharper boundaries, and explicit invariants.
 
 ### Memory Management
 
@@ -110,7 +152,9 @@ This document provides the high-level design overview for the new time-series in
 
 ## Open Questions
 
-- TODO: List unresolved design questions
+1. How much of schema adaptation should be handled by persistent endpoint-owned adapters versus transient view-level projections?
+2. Should input-side and output-side link payloads remain separate runtime types, or can they share a common structural base without reintroducing complexity?
+3. Which Python-observable behaviors belong in the core runtime contract, and which should be implemented as wrapper-layer composition?
 
 ## References
 
