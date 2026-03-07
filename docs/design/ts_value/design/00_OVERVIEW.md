@@ -50,7 +50,7 @@ This document provides the high-level design overview for the new time-series in
 │                    Time-Series Layer                        │
 ├─────────────────────────────────────────────────────────────┤
 │  TSValue                    TSView                          │
-│  - data_value_              - ViewData + current_time       │
+│  - data_value_              - ViewData + engine time ref    │
 │  - time_value_              - Kind-specific wrappers        │
 │  - observer_value_          - (TSBView, TSLView, etc.)      │
 └─────────────────────────────────────────────────────────────┘
@@ -114,5 +114,5 @@ This document provides the high-level design overview for the new time-series in
 
 ## References
 
-- User Guide: `ts_value_v2601/user_guide/`
-- Research: `ts_value_v2601/research/`
+- User Guide: `docs/design/ts_value/user_guide/`
+- Research: `docs/design/ts_value/research/`

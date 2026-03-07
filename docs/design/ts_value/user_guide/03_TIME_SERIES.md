@@ -472,7 +472,7 @@ When a time-series is not valid (either never set or explicitly invalidated):
 |--------|---------------------|
 | `.value()` | Returns `None` (Python) / sentinel value |
 | `.value<T>()` | Returns `None` (Python) / sentinel value |
-| `.delta_value()` | Throws exception |
+| `.delta_value()` | Returns invalid/empty delta view (no value) |
 | Navigation (`.field()`, `[]`) | Throws exception |
 | `.to_python()` | Returns `None` |
 
@@ -483,13 +483,19 @@ if (!price.valid()) {
     // value() is safe - returns None/sentinel
     auto v = price.value();  // v represents "no value"
 
-    // But delta and navigation throw
-    // price.delta_value();  // Would throw
+    // delta_value() is also safe: returns invalid/empty delta view
+    auto d = price.delta_value();
+    // d.valid() == false
+
+    // Python conversion of invalid delta returns None
+    // price.delta_to_python() -> None
+
+    // Navigation still throws on invalid base
     // price.field("x");     // Would throw
 }
 ```
 
-This design allows safe "peek" operations via `value()` while enforcing explicit validity checks before more complex operations.
+This design allows safe "peek" operations via `value()` and `delta_value()`, while still enforcing validity checks before navigation.
 
 ### `.all_valid()`
 

@@ -48,19 +48,19 @@ TSOutput owns and manages **multiple representations** of its data:
 │  └──────────────────────────────────────────────────────┘   │
 │                                                              │
 │  Core API:                                                   │
-│    view(engine_time_t, TSMeta&) → TSOutputView              │
+│    output_view() → TSOutputView                              │
+│    output_view_for_input(input) → TSOutputView               │
 │    apply_value(DeltaValue)                                  │
 │                                                              │
 │  TSOutputView API (type-erased):                            │
 │    value(), delta_value(), modified(), valid()              │
 │    set_value(), apply_delta()                               │
-│    subscribe(), unsubscribe()                               │
 │    Navigation: field(), operator[]                          │
 │    (does NOT support: bind, make_active/passive)            │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Note**: TSOutput follows the view pattern. Call `view(current_time, schema)` to get a type-erased `TSOutputView`. If the schema matches the native schema, returns a view of `native_value_`. If the schema differs (but is compatible), creates or returns an existing alternative representation. Observer management is handled by the TSValue's `observer_value_` component.
+**Note**: TSOutput endpoint access uses the owning node's cached `current_time` pointer internally. Schema selection for alternatives is internal to TSOutput (`output_view_for_input(input)`), not exposed as a schema argument on endpoint view APIs.
 
 ### Responsibilities
 
@@ -83,17 +83,9 @@ public:
     TSOutput(const TSMeta& ts_meta, Node* owner)
         : native_value_(ts_meta), owning_node_(owner) {}
 
-    // View access - returns type-erased TSOutputView
-    // If schema matches native, returns view of native_value_
-    // If schema differs (but compatible), creates/returns alternative
-    TSOutputView view(engine_time_t time, const TSMeta& schema) {
-        if (&schema == &native_value_.ts_meta()) {
-            return TSOutputView(&native_value_, this, time);
-        }
-        // Get or create alternative for this schema
-        TSValue& alt = get_or_create_alternative(schema);
-        return TSOutputView(&alt, this, time);
-    }
+    // Endpoint access (time comes from owning node)
+    TSOutputView output_view();
+    TSOutputView output_view_for_input(const TSInput& input);
 
     // Bulk mutation via delta (applies to native, syncs to alternatives)
     void apply_value(const DeltaValue& delta) {
@@ -144,16 +136,16 @@ public:
 
 ### Alternative Representations (Cast)
 
-When an input's schema differs from the output's native schema, the `view(time, schema)` method automatically creates and returns a view of an alternative representation:
+When an input's schema differs from the output's native schema, `output_view_for_input(input)` automatically creates and returns a view of an alternative representation:
 
 ```cpp
 // Input needs TSD[str, REF[TS[int]]] but output is TSD[str, TS[int]]
-TSOutputView out_view = output.view(current_time, ref_schema);
+TSOutputView out_view = output.output_view_for_input(input);
 // Internally creates alternative if needed, returns view of it
 
 // Multiple inputs with same cast requirement share the alternative
-TSOutputView view1 = output.view(current_time, ref_schema);  // Same alternative
-TSOutputView view2 = output.view(current_time, ref_schema);  // Same alternative
+TSOutputView view1 = output.output_view_for_input(input1);  // Same alternative
+TSOutputView view2 = output.output_view_for_input(input2);  // Same alternative
 ```
 
 Alternatives are indexed by schema pointer, allowing multiple inputs with the same cast requirement to share a single alternative representation. The `view()` method encapsulates the get-or-create logic.
@@ -165,7 +157,7 @@ Observer management is handled by TSValue's `observer_value_` component. The `TS
 ```cpp
 // Usage via view
 TSOutput output(ts_meta);
-TSOutputView view = output.view(current_time, native_schema);
+TSOutputView view = output.output_view();
 
 // Subscribe/unsubscribe through the view
 view.subscribe(input_ptr);
@@ -221,10 +213,10 @@ TSInput owns a **single TSValue** representing its view of bound data:
 │  └──────────────────────────────────┘                       │
 │                                                              │
 │  Core API:                                                   │
-│    view(engine_time_t, TSMeta&) → TSInputView               │
+│    input_view() → TSInputView                                │
 │                                                              │
 │  TSInputView API (type-erased):                             │
-│    value(), delta(), modified(), valid()                    │
+│    value(), delta_value(), modified(), valid()              │
 │    bind(), unbind()                                         │
 │    make_active(), make_passive(), active()                  │
 │    Navigation: field(), operator[]                          │
@@ -232,7 +224,7 @@ TSInput owns a **single TSValue** representing its view of bound data:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Note**: The `active_value_` mirrors the TS schema structure, allowing active/passive state to be tracked at each level of a composite input. This is analogous to how `time_value_` and `observer_value_` track modification time and observers at each level in TSValue.
+**Note**: The `active_value_` mirrors the TS schema structure, allowing active/passive state to be tracked at each level of a composite input. TSInput also carries a `port_index` (default `0`) so endpoint path conversion can include input-port identity when configured, without exposing that detail through the view API.
 
 ### Responsibilities
 
@@ -269,57 +261,44 @@ class TSInput {
     Node* owning_node_;
 
 public:
-    TSInput(const TSMeta& ts_meta, Node* owner)
-        : value_(ts_meta)
-        , active_value_(derive_active_schema(ts_meta))  // bool at each TS level
-        , owning_node_(owner) {}
-
-    // View access - returns type-erased TSInputView
-    TSInputView view(engine_time_t time, const TSMeta& schema) {
-        return TSInputView(&value_, &active_value_, this, time, schema);
-    }
+    // Endpoint access (time comes from owning node)
+    TSView view();
+    TSInputView input_view();
 };
 
-// TSInputView uses Link (ViewData) for O(1) data access
+// TSInputView wraps TSView + TSInput owner
 class TSInputView {
-    Link* link_;                    // ViewData: path + data + ops
-    Value* active_value_;           // Points to active state at this path
-    engine_time_t current_time_;    // Context for modification checks
-    TSInput* input_;                // Owning input for binding management
+    TSInput* owner_;
+    TSView ts_view_;
 
 public:
-    // Delegates to Link's ViewData for read-only access
-    View value() { return View{link_->view_data.data, link_->view_data.ops}; }
-    DeltaView delta();
-    bool modified();
-    bool valid();
+    // Delegates to TSView
+    View value() const { return ts_view_.value(); }
+    DeltaView delta_value() const { return ts_view_.delta_value(); }
+    bool modified() const { return ts_view_.modified(); }
+    bool valid() const { return ts_view_.valid(); }
 
-    // Input-specific binding
-    void bind(TSOutputView& output);
+    // Input-specific binding/activation
+    void bind(const TSOutputView& output);
     void unbind();
-
-    // Subscription control (operates on active_value_ at current path)
     void make_active();
     void make_passive();
-    bool active();        // Active at current path
-    bool any_active();    // Any child active (for composites)
-    bool all_active();    // All children active (for composites)
+    bool active() const;
 
-    // Navigation - returns new views with child Links (O(1) access)
+    // Navigation
     TSInputView field(std::string_view name);
     TSInputView operator[](size_t index);
-    TSInputView operator[](View key);
 };
 
-// Usage - input and output may have different schemas
+// Usage
 TSInput input(input_schema, owning_node);
-TSInputView in_view = input.view(current_time, input_schema);
+TSInputView in_view = input.input_view();
 
 TSOutput output(output_schema);
-// Output provides view with input's schema - creates alternative if needed
-TSOutputView out_view = output.view(current_time, input_schema);
+// Output selects native/alternative from the input's schema internally
+TSOutputView out_view = output.output_view_for_input(input);
 
-in_view.bind(out_view);  // Establishes LINK, subscribes if active
+in_view.bind(out_view);  // Establishes LINK and re-applies active wiring if needed
 ```
 
 ### Subscription Control
@@ -328,7 +307,7 @@ The active state controls whether the input receives notifications. Because `act
 
 ```cpp
 // Usage via view - active state is per-path
-TSInputView view = input.view(current_time, input_schema);
+TSInputView view = input.input_view();
 
 // Make entire input active
 view.make_active();
@@ -339,10 +318,6 @@ view.field("metadata").make_passive();   // Metadata passive
 
 // Check active state at current navigation path
 bool is_active = view.active();
-
-// For composites, can check if any/all children active
-bool any = view.any_active();
-bool all = view.all_active();
 ```
 
 The `active_value_` structure enables fine-grained subscription control:
@@ -360,7 +335,7 @@ The `active_value_` structure enables fine-grained subscription control:
 view.field("prices")[3].make_active();
 ```
 
-Internally, `make_active()` and `make_passive()` update the corresponding position in `active_value_` and subscribe/unsubscribe from the bound output's `observer_value_`.
+Internally, `make_active()` and `make_passive()` update the corresponding position in `active_value_` and notify the TS ops layer to attach/detach link observers for that path.
 
 ---
 
@@ -371,7 +346,7 @@ Paths describe the location of a time-series value within the graph. Two path ty
 - **ShortPath**: Compact runtime format with `Node*` pointer - used in Links and for navigation
 - **FQPath**: Fully qualified format with `node_id` integer - used for serialization and Python
 
-Paths are tracked only on **TSOutput**. Links contain a ShortPath as their descriptor.
+Paths are tracked on endpoint views through TSView/ViewData. For outputs, `TSOutputView::short_path()` includes the output `port_index` as the first index. For inputs, default `port_index=0` keeps existing root-relative paths, and non-zero input ports are prefixed in endpoint paths.
 
 ### Path Types
 
@@ -419,7 +394,8 @@ TSOutputView ShortPath::resolve(engine_time_t current_time) const {
     TSOutput* output = node->get_output(port_type);
 
     // Get root view
-    TSOutputView view = output->view(current_time);
+    TSOutputView view = output->output_view();
+    view.set_current_time_ptr(&current_time);
 
     // Navigate using indices
     for (size_t idx : indices) {
@@ -433,7 +409,7 @@ FQPath ShortPath::to_fq() const {
     FQPath result{node->id(), port_type, {}};
 
     // Expand indices to PathElements using schema
-    TSOutputView view = node->get_output(port_type)->view(0);  // Schema access only
+    TSOutputView view = node->get_output(port_type)->output_view();  // Schema access only
     for (size_t idx : indices) {
         result.path.push_back(view.index_to_path_element(idx));
         view = view[idx];
@@ -450,7 +426,7 @@ ShortPath FQPath::to_short(Node* node) const {
     ShortPath result{node, port_type, {}};
 
     // Convert PathElements to indices using schema
-    TSOutputView view = node->get_output(port_type)->view(0);  // Schema access only
+    TSOutputView view = node->get_output(port_type)->output_view();  // Schema access only
     for (const auto& elem : path) {
         size_t idx = view.path_element_to_index(elem);
         result.indices.push_back(idx);
@@ -468,142 +444,47 @@ nb::object FQPath::to_python() const {
 
 ### TSOutputView and Path Access
 
-TSOutputView is a graph endpoint wrapper. It provides output-specific operations (like subscribe/unsubscribe) and internally uses TSView for data access. Path tracking is through the underlying TSView:
+TSOutputView is a graph endpoint wrapper over `TSView` with owner-aware path conversion:
 
 ```cpp
 class TSOutputView {
-    TSView ts_view_;                // Core time-series view (includes path via ViewData)
-    TSOutput* output_;              // Owning output for subscription management
+    TSOutput* owner_;
+    TSView ts_view_;
 
 public:
-    TSOutputView(TSView view, TSOutput* output)
-        : ts_view_(std::move(view)), output_(output) {}
-
-    // Delegate to TSView for data access
     View value() const { return ts_view_.value(); }
+    DeltaView delta_value() const { return ts_view_.delta_value(); }
     bool modified() const { return ts_view_.modified(); }
     bool valid() const { return ts_view_.valid(); }
-    void set_value(View v) { ts_view_.set_value(v); }
+    void set_value(const View& v) { ts_view_.set_value(v); }
+    void apply_delta(const View& d) { ts_view_.apply_delta(d); }
 
-    // Path access through TSView
-    const ShortPath& short_path() const { return ts_view_.short_path(); }
-    FQPath fq_path() const { return ts_view_.fq_path(); }
-    engine_time_t current_time() const { return ts_view_.current_time(); }
-
-    // Navigation returns new TSOutputViews wrapping child TSViews
-    TSOutputView field(std::string_view name) {
-        return TSOutputView{ts_view_.field(name), output_};
-    }
-
-    TSOutputView operator[](size_t index) {
-        return TSOutputView{ts_view_[index], output_};
-    }
-
-    TSOutputView operator[](View key) {
-        return TSOutputView{ts_view_[key], output_};
-    }
-
-    // Output-specific: observer management
-    void subscribe(Notifiable* observer);
-    void unsubscribe(Notifiable* observer);
+    // Includes output port index as first short index.
+    ShortPath short_path() const;
+    FQPath fq_path() const;
 };
 ```
 
-### ViewData and Link
-
-**ViewData** is the common structure for accessing time-series data, defined in [Time-Series - TSView Internal Structure](03_TIME_SERIES.md#tsview-internal-structure):
-
-- **ViewData** = `ShortPath path` + `void* data` + `ts_ops* ops`
-- **TSView** = ViewData + `engine_time_t current_time_`
-
-**Link** contains a ViewData (no current_time needed):
-
-```cpp
-struct Link {
-    ViewData view_data;             // Path + data access
-
-    // Initial binding populates view_data from ShortPath
-    void bind() {
-        // Navigate ShortPath to populate data and ops
-        // Subscribe to notifications if active
-    }
-
-    void unbind() {
-        // Unsubscribe from notifications
-        // Clear data pointer
-    }
-
-    bool is_bound() const {
-        return view_data.data != nullptr;
-    }
-};
-```
-
-Converting a **Link to TSView** just adds the current_time:
-
-```cpp
-// Link already has ViewData (path + data + ops)
-// TSView = ViewData + current_time
-TSView view = TSView{link.view_data, current_time};
-```
-
-This means:
-- **Link = ViewData**: Everything needed to create a view without navigation
-- **TSView = ViewData + current_time**: A view is a Link with temporal context
-- Converting Link to TSView just adds current_time (no navigation needed)
-
-See [Time-Series](03_TIME_SERIES.md#tsview-internal-structure) for the full TSView definition.
+`TSOutput::view()` and `TSOutput::output_view()` keep runtime TS navigation schema-local internally, then `TSOutputView::short_path()` prepends `port_index` for endpoint-visible paths (required for FQ conversion).
 
 ### TSInputView and Link Access
 
-TSInputView is a graph endpoint wrapper. It provides input-specific operations (like bind/unbind, active/passive control) and uses Links (which are ViewData) for data access:
+TSInputView also wraps `TSView`, plus owning `TSInput` for bind/activation actions:
 
 ```cpp
 class TSInputView {
-    Link* link_;                    // ViewData: path + data + ops
-    Value* active_value_;           // Points to active state at this path
-    engine_time_t current_time_;    // Context for modification checks
-    TSInput* input_;                // Owning input for binding management
+    TSInput* owner_;
+    TSView ts_view_;
 
 public:
-    // Convert Link to TSView (just adds current_time)
-    TSView ts_view() const {
-        return TSView{link_->view_data, current_time_};
-    }
-
-    // Delegate to Link's ViewData for data access
-    View value() const {
-        return View{link_->view_data.data, link_->view_data.ops};
-    }
-
-    bool modified() const {
-        return check_modified(link_->view_data.data, current_time_);
-    }
-
-    // Path access via Link's ViewData
-    const ShortPath& short_path() const { return link_->view_data.path; }
-    FQPath fq_path() const { return link_->view_data.path.to_fq(); }
-    engine_time_t current_time() const { return current_time_; }
-
-    // Navigation returns new TSInputViews with child Links
-    // Each child has its own Link (ViewData) pre-established during binding
-    TSInputView field(std::string_view name) {
-        Link* child_link = get_child_link(name);
-        Value* child_active = get_child_active(name);
-        return TSInputView{child_link, child_active, current_time_, input_};
-    }
-
-    TSInputView operator[](size_t index) {
-        Link* child_link = get_child_link(index);
-        Value* child_active = get_child_active(index);
-        return TSInputView{child_link, child_active, current_time_, input_};
-    }
-
-    // Input-specific: binding
-    void bind(TSOutputView& output);
+    ShortPath short_path() const;
+    FQPath fq_path() const;
+    View value() const { return ts_view_.value(); }
+    DeltaView delta_value() const { return ts_view_.delta_value(); }
+    bool modified() const { return ts_view_.modified(); }
+    bool valid() const { return ts_view_.valid(); }
+    void bind(const TSOutputView& output);
     void unbind();
-
-    // Input-specific: active/passive control
     void make_active();
     void make_passive();
     bool active() const;
@@ -611,10 +492,9 @@ public:
 ```
 
 **Key points**:
-- Link contains ViewData (ShortPath + data + ops) - everything needed for O(1) access
-- TSInputView = Link* + active_value* + current_time + input*
-- No navigation needed at runtime - Link already points to the data
-- Each input field/element has its own Link established during binding
+- Endpoint APIs (`TSInput::input_view()`, `TSOutput::output_view()`, `TSOutput::output_view_for_input()`) do not take `current_time` or schema arguments.
+- Runtime wrappers can override a returned view's time pointer for tests/simulation, but endpoint APIs keep that internal.
+- `TSInput` still uses link-backed storage internally; `TSInputView` exposes TSView-style access to it.
 
 ### Port Type Enum
 
@@ -747,7 +627,7 @@ bool same_global = (view1.fq_path() == view2.fq_path());          // Includes no
 The navigation path enables tracing back to the owning node:
 
 ```cpp
-TSInputView view = input.view(time, schema).field("prices")[3];
+TSInputView view = input.input_view().field("prices")[3];
 
 // The view knows:
 // - Its path: ["prices", 3]
@@ -769,78 +649,62 @@ This is essential for:
 | Aspect | TSOutput / TSOutputView | TSInput / TSInputView |
 |--------|-------------------------|----------------------|
 | **Core owns** | Native TSValue + alternatives map | Single TSValue |
-| **View access** | `view(time, schema)` → TSOutputView | `view(time, schema)` → TSInputView |
-| **Read** | `value()`, `delta()`, `modified()` | `value()`, `delta()`, `modified()` |
+| **View access** | `output_view()` / `output_view_for_input(input)` → TSOutputView | `input_view()` → TSInputView |
+| **Read** | `value()`, `delta_value()`, `modified()`, `valid()` | `value()`, `delta_value()`, `modified()`, `valid()` |
 | **Mutation** | `set_value()`, `apply_delta()` | Read-only (no mutation methods) |
 | **Bind** | Not applicable (sources) | `bind()`, `unbind()` |
 | **Active/Passive** | Not applicable | `make_active()`, `make_passive()` |
 | **Observers** | `subscribe()`, `unsubscribe()` | Is an observer, receives notifications |
-| **Cast support** | `view(time, schema)` creates alt if needed | Passes schema to output's `view()` |
+| **Cast support** | `output_view_for_input(input)` resolves native vs alternative internally | `bind(output)` drives output schema selection via input metadata |
 
 ---
 
 ## Composition Model
 
-Both TSOutput and TSInput are **composed from** TSValue and follow the **view pattern** - access is through type-erased views with schema parameter:
+Both TSOutput and TSInput are composed from TSValue and expose type-erased endpoint views. Endpoint API surface is intentionally minimal: no schema argument and no explicit current-time argument.
 
 ```cpp
 class TSOutput {
-    TSValue native_value_;  // Contains data, time, AND observer management
+    TSValue native_value_;
     std::map<const TSMeta*, TSValue> alternatives_;
     Node* owning_node_;
+    size_t port_index_;
 
 public:
-    // View access - schema determines native vs alternative
-    TSOutputView view(engine_time_t time, const TSMeta& schema);
-
-    // Bulk mutation (applies to native, syncs alternatives)
-    void apply_value(const DeltaValue& delta);
-
-    Node* owning_node() const;
+    TSView view();                                    // native schema
+    TSView view_for_input(const TSInput& input);      // native or alternative
+    TSOutputView output_view();
+    TSOutputView output_view_for_input(const TSInput& input);
 };
 
 class TSInput {
     TSValue value_;
-    Value active_value_;  // Mirrors TS schema, bool at each level
+    Value active_value_;  // mirrors TS schema, bool at each level
     Node* owning_node_;
 
 public:
-    // View access
-    TSInputView view(engine_time_t time, const TSMeta& schema);
-
-    // Notification callback
-    void on_peer_modified();
+    TSView view();
+    TSInputView input_view();
 };
 
-// Core time-series view (TSView = ViewData + current_time)
 class TSView {
-    ViewData view_data_;            // ShortPath + data + ops
-    engine_time_t current_time_;
-
-    // Methods: value(), delta(), modified(), set_value()
-    // Navigation: field(), operator[]
-    // Path access: short_path(), fq_path()
+    ViewData view_data_;
+    const engine_time_t* engine_time_ptr;
 };
 
-// Graph endpoint views wrap TSView or Link
 class TSOutputView {
-    TSView ts_view_;                // Core time-series view
-    TSOutput* output_;              // For subscription management
-
-    // Methods: delegates to ts_view_, plus subscribe/unsubscribe
-    // Navigation: wraps ts_view_ navigation
-    // Path access: delegates to ts_view_
+    TSOutput* owner_;
+    TSView ts_view_;
+    ShortPath short_path() const;   // prepends output port index
+    FQPath fq_path() const;
 };
 
 class TSInputView {
-    Link* link_;                    // ViewData: path + data + ops
-    Value* active_value_;           // Active state at this path
-    engine_time_t current_time_;
-    TSInput* input_;                // For binding management
-
-    // Methods: value(), delta(), modified(), bind(), make_active()
-    // Navigation: via child Links (O(1) access)
-    // Path access: fq_path() (delegates to link)
+    TSInput* owner_;
+    TSView ts_view_;
+    void bind(const TSOutputView& output);
+    void make_active();
+    void make_passive();
 };
 ```
 
@@ -861,7 +725,8 @@ classDiagram
         -TSValue native_value_
         -map~TSMeta*, TSValue~ alternatives_
         -Node* owning_node_
-        +view(time, schema) TSOutputView
+        +output_view() TSOutputView
+        +output_view_for_input(input) TSOutputView
         +apply_value(delta: DeltaValue) void
         +owning_node() Node*
     }
@@ -888,8 +753,9 @@ classDiagram
 
     class TSOutputView {
         -TSView ts_view_
-        -TSOutput* output_
+        -TSOutput* owner_
         +value() View
+        +delta_value() DeltaView
         +modified() bool
         +set_value(v: View) void
         +subscribe(input: TSInput*) void
@@ -904,7 +770,7 @@ classDiagram
         -TSValue value_
         -Value active_value_
         -Node* owning_node_
-        +view(time, schema) TSInputView
+        +input_view() TSInputView
         +on_peer_modified() void
     }
 
@@ -916,14 +782,12 @@ classDiagram
     }
 
     class TSInputView {
-        -Link* link_
-        -Value* active_value_
-        -engine_time_t current_time_
-        -TSInput* input_
-        +ts_view() TSView
+        -TSView ts_view_
+        -TSInput* owner_
         +value() View
+        +delta_value() DeltaView
         +modified() bool
-        +bind(output: TSOutputView&) void
+        +bind(output: TSOutputView const&) void
         +unbind() void
         +make_active() void
         +make_passive() void
@@ -953,7 +817,6 @@ classDiagram
     TSView *-- ViewData : view_data_
     Link *-- ViewData : view_data
     TSOutputView *-- TSView : ts_view_
-    TSInputView --> Link : link_
     TSOutput "1" *-- "1" TSValue : native_value_
     TSOutput "1" *-- "*" TSValue : alternatives_
     TSOutput ..> TSOutputView : creates
@@ -966,8 +829,8 @@ classDiagram
     note for ViewData "Common structure:\npath + data + ops"
     note for TSView "TSView = ViewData + current_time\nCore time-series view"
     note for Link "Link = ViewData\nNo current_time needed"
-    note for TSOutputView "Wraps TSView\nAdds output-specific ops"
-    note for TSInputView "Uses Link for O(1) access\nNo navigation at runtime"
+    note for TSOutputView "Wraps TSView\nOwner adjusts endpoint paths"
+    note for TSInputView "Wraps TSView\nOwner drives bind/active behavior"
     note for TSValue "observer_value_ manages\nthe list of subscribed\nobservers."
 ```
 
@@ -981,15 +844,15 @@ sequenceDiagram
     participant O as TSOutput
     participant N as Node
 
-    Note over IV,N: Get views with schema
-    I->>IV: view(time, input_schema)
-    O->>OV: view(time, input_schema)
+    Note over IV,N: Get endpoint views (schema/time internal)
+    I->>IV: input_view()
+    O->>OV: output_view_for_input(input)
     Note over O: Creates alternative if schema differs
 
     Note over IV,N: Binding
     IV->>OV: bind(output_view)
     IV->>I: establish_link to TSValue behind view
-    IV->>OV: subscribe(input)
+    IV->>I: set_active(true) wires notifier subscriptions
     OV->>O: delegate to observer_value_
 
     Note over IV,N: Runtime notification
@@ -1175,8 +1038,6 @@ classDiagram
         +operator[](index) TSOutputView
         +short_path() ShortPath
         +fq_path() FQPath
-        +subscribe(input) void
-        +unsubscribe(input) void
     }
 
     class TSInputView {
@@ -1348,21 +1209,28 @@ This populates the inner's LinkTarget with the upstream output's data pointers a
 
 ### Output Wiring
 
-Inner sink nodes write to the outer component's output storage. TSOutput has a `forwarded_target_` LinkTarget that, when populated, redirects `view()` to return ViewData pointing to the outer's storage:
+Inner sink nodes write to the outer component's output storage. This is achieved through a **Node-level output override**: the inner sink node's `output()` method is redirected to return the outer node's TSOutputView.
 
 ```cpp
 // During wire_graph():
-ViewData outer_data = ts_output()->native_value().make_view_data();
-// Populate inner sink's forwarded_target_ with outer's 7-field data
-LinkTarget& ft = inner_node->ts_output()->forwarded_target();
-// ... copy all fields from outer_data into ft ...
+auto inner_sink_node = m_active_graph_->nodes()[m_output_node_id_];
+inner_sink_node->set_output_override(this);  // "this" = outer node
 ```
 
-After forwarding is set up, `inner_sink->ts_output()->view(time).from_python(value)` writes directly to the outer's storage, stamps outer's timestamps, and notifies outer's observers (which includes downstream nodes).
+After the override is set, `inner_sink->output().from_python(value)` writes directly to the outer's storage, stamps outer's timestamps, and notifies outer's observers (which includes downstream nodes). The inner sink's own TSOutput is effectively unused.
+
+The override is cleared during `dispose()` to prevent dangling pointers:
+```cpp
+inner_sink_node->clear_output_override();
+```
 
 ### TryExceptNode Special Case
 
-TryExceptNode's output is a bundle with "out" and "exception" fields. The inner sink's output forwards to the "out" sub-field of the outer output. The "exception" field is written directly by TryExceptNode's `do_eval()` catch block.
+TryExceptNode uses a **hybrid approach** because its output is a bundle with "out" and "exception" fields. Only the "out" sub-field maps to the inner graph's sink:
+
+1. During `wire_outputs()`, the outer "out" field is bound to the inner output for observer notification
+2. During `do_eval()`, when the inner output is modified, values are explicitly copied to the outer "out" field
+3. The "exception" field is written directly by TryExceptNode's `do_eval()` catch block
 
 ### Lifecycle Ordering
 
@@ -1370,8 +1238,9 @@ TryExceptNode's output is a bundle with "out" and "exception" fields. The inner 
 |-------|-------------|
 | Outer graph wiring | Downstream TSInput LinkTargets → outer TSOutput storage |
 | `initialise()` | Creates inner graph, calls `wire_graph()` |
-| `wire_graph()` | Binds inner inputs, sets up output forwarding |
+| `wire_graph()` | Binds inner inputs, sets up output override (`set_output_override`) |
 | `start()` | `_initialise_inputs()` → `set_active(true)` for node-scheduling |
+| `dispose()` | Clears output override (`clear_output_override`), releases inner graph |
 
 ---
 

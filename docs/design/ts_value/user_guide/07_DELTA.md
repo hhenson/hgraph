@@ -267,7 +267,12 @@ for (auto [key, ts] : stock_prices.items()) {
 ```cpp
 // Time-series that was never set
 if (!price.valid()) {
-    // price.delta_value() is undefined or sentinel
+    // delta is represented as an invalid/empty view (no value)
+    auto delta = price.delta_value();
+    // delta.valid() == false
+
+    // Python conversion yields None
+    // price.delta_to_python() -> None
 }
 
 // Time-series that was set then invalidated

@@ -100,7 +100,7 @@ TS[int]: 10  →  10  →  15  →  15  →  20
 | Property | Description |
 |----------|-------------|
 | `value` | Current value at this tick |
-| `delta_value` | Change since last tick (type-specific) |
+| `delta_value` | Change since last tick (type-specific; scalar-like invalid deltas are `None`, container deltas are empty containers when unchanged) |
 | `modified` | True if value changed this tick |
 | `valid` | True if value exists and can be read |
 | `last_modified_time` | Time of most recent modification |
