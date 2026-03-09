@@ -20,7 +20,14 @@ namespace hgraph
     struct BaseState;
 
     /**
-     * Final leaf states, excludes link states and signal derived state.
+     * Value variant covering the concrete time-series state structs currently
+     * used in the struct model.
+     */
+    using TimeSeriesStateV =
+        std::variant<TSState, TSLState, TSDState, TSBState, TSSState, TSWState, TargetLinkState, RefLinkState, SignalState>;
+
+    /**
+     * Pointer variant covering all concrete leaf state types.
      */
     using TimeSeriesLeafStatePtr = std::variant<TSState *, TSLState *, TSDState *, TSBState *, TSSState *, TSWState *>;
 
@@ -184,8 +191,10 @@ namespace hgraph
          */
         void reset_target() noexcept;
 
-        TimeSeriesLeafStatePtr target;
+        TimeSeriesLeafStatePtr    target;
         TargetLinkStateNotifiable target_notifiable;
+
+        [[nodiscard]] bool is_bound() const noexcept;
 
       private:
         void register_with_target() noexcept;
@@ -198,7 +207,9 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT RefLinkState : BaseState
     {
-        TargetLinkState bound_link;
+        [[nodiscard]] engine_time_t last_target_modified_time() const;
+        [[nodiscard]] bool          is_sampled() const;
+        TargetLinkState             bound_link;
     };
 
     /**
