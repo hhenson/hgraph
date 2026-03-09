@@ -692,7 +692,21 @@ bool is_modified = ops->modified(view_data, current_time);
 
 ### Schema Generation via TSMetaSchemaCache
 
-Parallel Value structures (time tracking, observer lists, delta tracking, etc.) are generated dynamically based on the TSMeta structure. The `TSMetaSchemaCache` singleton provides caching for these generated schemas:
+#### Revised Direction (2026-03-07)
+
+The earlier design in this section described independently generated time, observer, delta, link, and active schemas.
+
+That is no longer the preferred direction.
+
+The current design target is:
+
+- one payload schema derived from the underlying value shape
+- one runtime-state schema derived from the time-series shape
+- endpoint-local active/subscription state defined separately when an endpoint needs it
+
+`TSMetaSchemaCache` should therefore be read as the cache for runtime schemas, not as justification for many persistent side-car trees.
+
+Runtime schemas are generated dynamically based on the `TSMeta` structure. The `TSMetaSchemaCache` singleton provides caching for these generated schemas:
 
 ```cpp
 class TSMetaSchemaCache {
@@ -700,44 +714,39 @@ public:
     static TSMetaSchemaCache& instance();
 
     // Generated schemas - cached per TSMeta
-    const TypeMeta* get_time_schema(const TSMeta* ts_meta);
-    const TypeMeta* get_observer_schema(const TSMeta* ts_meta);
-    const TypeMeta* get_delta_value_schema(const TSMeta* ts_meta);
-    const TypeMeta* get_link_schema(const TSMeta* ts_meta);
-    const TypeMeta* get_active_schema(const TSMeta* ts_meta);  // For TSInput
+    const TypeMeta* get_value_schema(const TSMeta* ts_meta);
+    const TypeMeta* get_state_schema(const TSMeta* ts_meta);
+    const TypeMeta* get_input_state_schema(const TSMeta* ts_meta);  // For TSInput-local state if needed
 };
 ```
 
 **Schema generation rules:**
 
-| Schema | Scalar Types | TSD | TSB | TSL |
-|--------|--------------|-----|-----|-----|
-| time | engine_time_t | tuple[t, var_list[...]] | tuple[t, fixed_list[...]] | tuple[t, fixed_list[...]] |
-| observer | ObserverList | tuple[OL, var_list[...]] | tuple[OL, fixed_list[...]] | tuple[OL, fixed_list[...]] |
-| delta_value | nullptr | MapDelta | BundleDeltaNav* | ListDeltaNav* |
-| link | nullptr | bool | fixed_list[bool] | bool |
-| active | bool | tuple[bool, var_list[...]] | tuple[bool, fixed_list[...]] | tuple[bool, fixed_list[...]] |
-
-*For TSB/TSL delta_value, returns nullptr if no nested TSS/TSD exists.
+| Schema | Meaning |
+|--------|---------|
+| `value_schema` | User-visible payload shape |
+| `state_schema` | One schema-shaped runtime-state tree containing timestamps, observers, binding state, delta state, and child state |
+| `input_state_schema` | Endpoint-local state used only by `TSInput` when activation/subscription bookkeeping needs structured storage |
 
 ### TSOutput/TSInput Construction
 
-TSOutput and TSInput are constructed directly from TSMeta. The required parallel schemas are obtained via TSMetaSchemaCache:
+TSOutput and TSInput are constructed directly from `TSMeta`. The required runtime schemas are obtained via `TSMetaSchemaCache`:
 
 ```cpp
 // Construction - TSMeta passed to constructor
 TSOutput output{ts_meta, node_ptr};
 TSInput input{ts_meta, node_ptr};
 
-// Internally uses TSMetaSchemaCache for parallel structures:
-// - value storage: directly from TSMeta (value_type, element_ts, etc.)
-// - time tracking: TSMetaSchemaCache::get_time_schema(ts_meta)
-// - observer lists: TSMetaSchemaCache::get_observer_schema(ts_meta)
-// - delta tracking: TSMetaSchemaCache::get_delta_value_schema(ts_meta)
-// - active state (TSInput only): TSMetaSchemaCache::get_active_schema(ts_meta)
+// Internally:
+// - TSValue owns payload storage from get_value_schema(ts_meta)
+// - TSValue owns runtime-state storage from get_state_schema(ts_meta)
+// - TSInput may also own endpoint-local activation/subscription state
+//   from get_input_state_schema(ts_meta)
 ```
 
 ### ts_ops Vtable
+
+Status note (2026-03-07): the detailed slot list below is still useful for capability planning, but it should now be read as operating over paired `data_view_` / `state_view_` access. It should not be interpreted as endorsement of separate persistent time/observer/delta/link trees, and the time-series dispatch should be considered state-side first.
 
 The `ts_ops` structure provides the operations vtable for time-series types. Unlike `type_ops` which may be stored inline, `ts_ops` is retrieved via the `get_ts_ops()` function based on the TSMeta.
 
@@ -860,15 +869,25 @@ const ts_ops* get_ts_ops(const TSMeta* meta);
 **Note**: The ops pointer is obtained via `get_ts_ops(meta)` and stored in `ViewData` during view construction. This allows different implementations for TSW variants (tick-based vs duration-based windows).
 `TSView` exposes typed wrapper conversion (`try_as_window/set/dict/list/bundle`, `as_*`) similar to value-layer typed views.
 
-### Parallel Value Structures
+### TSValue Runtime Storage
 
-Time-series values internally contain parallel structures for tracking:
-1. **value_**: User-visible data (schema from TSMeta fields)
-2. **time_**: Modification timestamps (schema from `TSMetaSchemaCache::get_time_schema()`)
-3. **observer_**: Observer lists (schema from `TSMetaSchemaCache::get_observer_schema()`)
-4. **delta_value_**: Delta tracking (schema from `TSMetaSchemaCache::get_delta_value_schema()`)
-5. **link_**: Link targets (schema from `TSMetaSchemaCache::get_link_schema()`)
-6. **active_** (TSInput only): Active state (schema from `TSMetaSchemaCache::get_active_schema()`)
+Time-series values internally contain:
+
+1. **`data_value_`**: user-visible payload data
+2. **`state_value_`**: one schema-shaped runtime-state tree for timestamps, observers, binding, delta, and child state
+3. **endpoint-local state** where required, but owned outside `TSValue`
+
+Conceptually:
+
+```cpp
+class TSValue {
+    Value data_value_;
+    Value state_value_;
+    const TSMeta* meta_;
+};
+```
+
+The key invariant is that navigation through `data_value_` and `state_value_` must stay path-aligned.
 
 ## Type Registration
 

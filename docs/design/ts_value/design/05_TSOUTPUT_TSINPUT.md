@@ -8,6 +8,46 @@ That approach proved too complex in the previous branch. The next implementation
 
 See `09_SIMPLIFIED_RUNTIME.md` for the current clean implementation direction.
 
+Also note the storage boundary from `03_TIME_SERIES.md`: `TSValue` now means payload data plus one schema-shaped runtime-state tree. Endpoint activation, subscription, projection, and node-owned retained state should remain outside that generic per-value runtime storage.
+
+One explicit retained endpoint behavior remains important: `TSInput` may still own collections of non-peered child elements with `LINK`s at the leaves. That is endpoint-local binding structure, not a contradiction of the `TSValue = data_value_ + state_value_` model.
+
+For the scaffolded C++ API, this means `TSInput` should only require `TSMeta` at construction time. The endpoint-local input value shape is derived internally:
+- callers should not have to provide a separate value schema for the input side
+- `TSInput` should own:
+  `Value value_`
+  `TSValue ts_value_`
+  `Value active_state_`
+  `node_ptr owning_node_`
+  `int8_t port_index_`
+  `TSMeta* ts_meta_`
+- `value_` holds the input data elements
+- `ts_value_` holds the runtime TS layer for that data
+- `active_state_` is a separate active-state value derived from `TSMeta`
+
+Initial construction assumption for the scaffold:
+- preserve `TSB` structure on the input side
+- represent every non-bundle leaf as a link/reference payload
+- support recreating the input value if that assumption later needs to change
+
+The same principle should apply to state-side behavior lookup:
+- the runtime should resolve the correct `TSStateOps` primarily from `TSMeta`
+- the runtime bound/unbound and peered/non-peered state should be encoded in the `TSMeta` used to construct `ts_value_`
+- endpoint code should not manually thread bespoke ops tables through normal construction paths
+
+Minimal public C++ scaffold:
+- `cpp/include/hgraph/types/time_series/ts_state_ops.h`
+- `cpp/include/hgraph/types/time_series/ts_value.h`
+- `cpp/include/hgraph/types/time_series/ts_view.h`
+- `cpp/include/hgraph/types/time_series/ts_input_active_schema.h`
+- `cpp/include/hgraph/types/time_series/ts_input.h`
+- `cpp/include/hgraph/types/time_series/ts_input_value_schema.h`
+- `cpp/include/hgraph/types/time_series/ts_input_view.h`
+- `cpp/include/hgraph/types/time_series/ts_output.h`
+- `cpp/include/hgraph/types/time_series/ts_output_view.h`
+
+These headers intentionally focus on the public methods and data/view split. They are not yet the full runtime implementation.
+
 ## Overview
 
 TSOutput and TSInput are the graph endpoints:
@@ -18,13 +58,13 @@ TSOutput and TSInput are the graph endpoints:
 
 ### Purpose
 Owns native time-series value and manages cast alternatives. Provides views to consumers.
-Observer management is delegated to TSValue's `observer_value_` component.
+Observer management is delegated to the runtime state owned by `TSValue`.
 
 ### Structure
 
 ```cpp
 class TSOutput {
-    TSValue native_value_;                              // Native representation (includes observer_value_)
+    TSValue native_value_;                              // Native representation (payload + runtime state)
     robin_hood::unordered_map<const TSMeta*, TSValue> alternatives_;     // Cast/peer representations
     Node* owning_node_;                                 // For graph context
     size_t port_index_;                                 // Port index on owning node

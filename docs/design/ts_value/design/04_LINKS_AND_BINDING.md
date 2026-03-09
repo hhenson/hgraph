@@ -8,6 +8,8 @@ In particular, the next implementation should avoid reproducing the previous bra
 
 See `09_SIMPLIFIED_RUNTIME.md` for the current clean implementation direction.
 
+Also note the updated storage boundary from `03_TIME_SERIES.md`: binding state belongs inside the per-level runtime-state node. Any `LinkTarget` or `REFLink` object used in the implementation should be treated as part of that state node, not as a separate persistent link tree.
+
 ## Overview
 
 Links provide the mechanism for connecting TSInputs to TSOutputs:
