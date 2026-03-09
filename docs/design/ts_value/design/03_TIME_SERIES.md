@@ -1,1190 +1,374 @@
 # Time Series Design
 
-## Overview
+## Purpose
 
-Time series extend values with temporal semantics:
-- **TSValue**: Owns time-series data with modification tracking
-- **TSView**: Provides time-aware access to time-series data
+Time-series infrastructure adds temporal behavior to the existing value system without replacing it.
 
-### Status Note (2026-02-14)
+The core separation is:
 
-For the current phase-2 scaffolding runtime, schema contracts are sourced from active code/tests:
-- `cpp/include/hgraph/types/time_series/ts_meta.h`
-- `cpp/src/cpp/types/time_series/ts_type_registry.cpp`
-- `hgraph_unit_tests/_types/test_ts_cpp_type.py`
+- `Value/View` for user-visible payload data
+- `TSState` for runtime metadata
+- `TSValue` as the owner of both
 
-Current implementation snapshot (pending design sign-off, not locked):
-- `TSMeta.value_type` for `TSW` is the element scalar type `T` (for example `float`).
-- `TSMeta.value_type` for `SIGNAL` is `bool`.
+This is the authoritative direction for the next implementation.
 
-Design target for full cutover remains `TSW -> WindowStorage[T]` and `SIGNAL -> void` (pure tick).
+## Design Position (2026-03-07)
+
+The earlier design split runtime metadata into separate time, observer, delta, and link trees.
+
+That approach is now retired.
+
+The preferred model is:
+
+- keep payloads in the existing `Value/View` logic
+- give every time-series level exactly one runtime-state node
+- make that state-node shape follow the schema kind at that level
+- keep endpoint-local and node-local retained state outside the generic `TSValue`
+
+This produces a simpler and more understandable runtime:
+
+- one payload tree
+- one runtime-state tree
+- explicit endpoint and node state where required
+
+## Core Data Separation
+
+### Payload data
+
+Payload data is the data the user thinks they are working with:
+
+- scalar values
+- bundle fields
+- list elements
+- dict key/value content
+- set membership
+- window contents
+
+Payload data continues to use the existing `Value/View` ownership, nullability, and navigation rules.
+
+### Runtime state
+
+Runtime state is everything needed to make the payload behave as a time series:
+
+- modification time
+- validity and sampled semantics where applicable
+- observer registration
+- binding/rebinding state
+- delta bookkeeping
+- REF resolution state
+- recursively embedded child state for composite types
+
+Runtime state is not exposed as a second user payload. It is internal runtime structure.
+
+### State kept out of `TSValue`
+
+The generic time-series runtime should not absorb all runtime concerns.
+
+These remain separate:
+
+- `TSInput` activation/subscription state
+- `TSInput` endpoint-local collections of non-peered child elements and leaf `LINK`s
+- `TSOutput` projection/adaptation caches
+- node-local retained keyed state for nested graphs
+- operator-specific fallback or reconciliation buffers
+
+That boundary is important. If a piece of state exists only because of a particular endpoint or operator lifecycle, it should not be hidden inside generic per-value runtime storage.
+
+In particular, `TSInput` is still allowed to be special:
+
+- it may hold a collection of non-peered child inputs
+- those child structures may terminate in leaf `LINK`s
+- that endpoint structure is not the same thing as the generic `TSValue` runtime-state tree
 
 ## TSMeta Schema Generation
 
-When a TSMeta is created, it generates five parallel schemas from the core TS type:
+Each `TSMeta` generates two primary schemas:
 
-1. **value_schema_**: Schema for user-visible data
-2. **time_meta_**: Schema for modification timestamps (mirrors data structure)
-3. **observer_meta_**: Schema for observer lists (mirrors data structure)
-4. **delta_value_meta_**: Schema for delta tracking data (only where TSS/TSD exist)
-5. **link_schema_**: Schema for link tracking data (REFLink storage for binding support)
+1. `value_schema_`: the user-visible payload shape
+2. `state_schema_`: the runtime-state shape
 
-### TS Type to Value Schema Mapping
+The key rule is:
 
-Each TS type maps to a corresponding value storage type:
+- `value_schema_` follows the payload type system
+- `state_schema_` follows the time-series schema structure
 
-| TS Type | Value Schema | Notes |
-|---------|--------------|-------|
-| TS[T] | T (atomic) | Single scalar value |
-| TSB[...] | Bundle | Named fields, each field is a TS type |
-| TSL[T] | List[T] | Fixed-size list of TS elements |
-| TSS[T] | Set[T] | Set with delta tracking |
-| TSD[K,V] | Map[K,V] | Map with delta tracking |
-| TSW[T] | WindowStorage[T] | Custom cyclic + queue buffer |
-| REF[T] | TimeSeriesReference | Reference to another TS |
-| SIGNAL | void | No data, pure tick |
+### Runtime schema catalogue
 
-### Time Schema Generation
+| TS kind | Payload shape | Runtime-state shape |
+|---------|---------------|---------------------|
+| `TS[T]` | `T` | `ScalarState` |
+| `TSB[...]` | bundle | `BundleState` |
+| `TSL[T]` | list of payloads | `ListState` |
+| `TSS[T]` | set payload | `SetState` |
+| `TSD[K,V]` | map payload | `DictState` |
+| `TSW[T]` | window payload | `WindowState` |
+| `REF[T]` | reference payload | `RefState` |
+| `SIGNAL` | no payload | `SignalState` |
 
-The time schema is **recursive**: every container has its own `engine_time_t` plus a collection of child time schemas (if it has children). This design supports peered/un-peered modes as a **runtime access pattern** rather than a structural difference.
-
-#### Time Schema Rules
-
-```
-time_schema(TS[T])     = engine_time_t                                    // Atomic
-time_schema(TSS[T])    = engine_time_t                                    // Delta tracks membership
-time_schema(TSW[T])    = engine_time_t                                    // Entry times in buffer
-time_schema(REF[T])    = engine_time_t                                    // Reference time
-time_schema(SIGNAL)    = engine_time_t                                    // Tick time
-time_schema(TSB[...])  = tuple[engine_time_t, fixed_list[time_schema(field_i), ...]]
-time_schema(TSL[T])    = tuple[engine_time_t, fixed_list[time_schema(T), N]]
-time_schema(TSD[K,V])  = tuple[engine_time_t, var_list[time_schema(V)]]
-```
-
-| TS Type | Time Schema | Notes |
-|---------|-------------|-------|
-| TS[T] | `engine_time_t` | Atomic - no children |
-| TSB[...] | `tuple[engine_time_t, fixed_list[...]]` | Container time + per-field child times |
-| TSL[T] | `tuple[engine_time_t, fixed_list[...]]` | Container time + per-element child times |
-| TSD[K,V] | `tuple[engine_time_t, var_list[...]]` | Container time + per-slot child times |
-| TSS[T] | `engine_time_t` | Container time only (delta tracks membership) |
-| TSW[T] | `engine_time_t` | Container time (entry times embedded in buffer) |
-| REF[T] | `engine_time_t` | Reference modification time |
-| SIGNAL | `engine_time_t` | Tick time |
-
-#### Worked Examples
-
-**TSL[TS[int]]:**
-```
-tuple[engine_time_t, fixed_list[engine_time_t, N]]
-       ↑                        ↑
-       container time           per-element times (fixed size N)
-```
-
-**TSL[TSL[TS[int]]]:**
-```
-tuple[engine_time_t, fixed_list[tuple[engine_time_t, fixed_list[engine_time_t, M]], N]]
-       ↑                              ↑                        ↑
-       outer time                     inner time               leaf times
-```
-
-**TSB[a: TS[int], b: TSL[TS[float]]]:**
-```
-tuple[engine_time_t, fixed_list[engine_time_t, tuple[engine_time_t, fixed_list[engine_time_t, M]]]]
-       ↑                        ↑                    ↑                        ↑
-       bundle time              field 'a' time       field 'b' time           field 'b' elements
-```
-
-**TSD[str, TS[int]]:**
-```
-tuple[engine_time_t, var_list[engine_time_t]]
-       ↑                      ↑
-       container time         per-slot times (variable size, grows with map)
-```
-
-**TSD[str, TSL[TS[int]]]:**
-```
-tuple[engine_time_t, var_list[tuple[engine_time_t, fixed_list[engine_time_t, M]]]]
-       ↑                            ↑                        ↑
-       container time               per-slot TSL time        per-slot TSL element times
-```
-
-**TSS[int]:**
-```
-engine_time_t    // Just container time - delta_ handles add/remove tracking
-```
-
-#### Peered vs Un-Peered (Runtime Behavior)
-
-The time structure is **identical** for peered and un-peered modes. The difference is in **access pattern**:
-
-- **Peered**: Check container's `engine_time_t` for all children (ignore child times)
-- **Un-peered**: Check each child's individual `engine_time_t`
-
-This allows peered/un-peered status to change at runtime without restructuring data.
-
-### Observer Schema Generation
-
-The observer schema is **recursive**: every container has its own `ObserverList` plus a collection of child observer schemas (if it has children). This mirrors the time schema structure exactly.
-
-#### Observer Schema Rules
-
-```
-observer_schema(TS[T])     = ObserverList                                    // Atomic
-observer_schema(TSS[T])    = ObserverList                                    // Container-level only
-observer_schema(TSW[T])    = ObserverList                                    // Container-level only
-observer_schema(REF[T])    = ObserverList                                    // Reference-level only
-observer_schema(SIGNAL)    = ObserverList                                    // Container-level only
-observer_schema(TSB[...])  = tuple[ObserverList, fixed_list[observer_schema(field_i), ...]]
-observer_schema(TSL[T])    = tuple[ObserverList, fixed_list[observer_schema(T), N]]
-observer_schema(TSD[K,V])  = tuple[ObserverList, var_list[observer_schema(V)]]
-```
-
-| TS Type | Observer Schema | Notes |
-|---------|-----------------|-------|
-| TS[T] | `ObserverList` | Atomic - no children |
-| TSB[...] | `tuple[ObserverList, fixed_list[...]]` | Container observers + per-field child observers |
-| TSL[T] | `tuple[ObserverList, fixed_list[...]]` | Container observers + per-element child observers |
-| TSD[K,V] | `tuple[ObserverList, var_list[...]]` | Container observers + per-slot child observers |
-| TSS[T] | `ObserverList` | Container-level only (no per-element observers) |
-| TSW[T] | `ObserverList` | Container-level only |
-| REF[T] | `ObserverList` | Reference-level only |
-| SIGNAL | `ObserverList` | Container-level only |
-
-#### Worked Examples
-
-**TSL[TS[int]]:**
-```
-tuple[ObserverList, fixed_list[ObserverList, N]]
-       ↑                        ↑
-       container observers      per-element observers (fixed size N)
-```
-
-**TSL[TSL[TS[int]]]:**
-```
-tuple[ObserverList, fixed_list[tuple[ObserverList, fixed_list[ObserverList, M]], N]]
-       ↑                              ↑                        ↑
-       outer observers                inner observers          leaf observers
-```
-
-**TSB[a: TS[int], b: TSL[TS[float]]]:**
-```
-tuple[ObserverList, fixed_list[ObserverList, tuple[ObserverList, fixed_list[ObserverList, M]]]]
-       ↑                        ↑                    ↑                        ↑
-       bundle observers         field 'a' obs        field 'b' obs            field 'b' elements
-```
-
-**TSD[str, TS[int]]:**
-```
-tuple[ObserverList, var_list[ObserverList]]
-       ↑                      ↑
-       container observers    per-slot observers (variable size, grows with map)
-```
-
-**TSD[str, TSL[TS[int]]]:**
-```
-tuple[ObserverList, var_list[tuple[ObserverList, fixed_list[ObserverList, M]]]]
-       ↑                            ↑                        ↑
-       container observers          per-slot TSL obs         per-slot TSL element obs
-```
-
-**TSS[int]:**
-```
-ObserverList    // Just container observers - no per-element observer tracking
-```
-
-#### Observer Purpose
-
-Observers enable fine-grained subscription to changes:
-- **Container-level**: Notified when any part of the container changes
-- **Child-level**: Notified when specific field/element/slot changes
-
-This supports efficient partial subscriptions (e.g., subscribe only to `tsb.field_a` changes).
-
-### Delta Schema Generation
-
-Delta tracking uses a single `delta_value_` component that contains actual delta data - only exists where needed (TSS/TSD and their containers).
-
-**Key insight**: Delta validity can be derived from `time_` data since modifications bubble up. When `engine_time_ptr != nullptr && *engine_time_ptr > time_[container]`, the delta for that subtree needs clearing. This eliminates the need for a separate `delta_time_` parallel structure.
-
-**Modified status**: Can be derived from `time_` data, so delta tracking is only needed for TSS/TSD which have dynamic add/remove operations. TSB/TSL only appear in delta_value_ as navigation scaffolding when they contain TSS/TSD.
-
-#### has_delta() - Determines if delta tracking is needed
-
-```
-has_delta(TS[T])     = false
-has_delta(TSS[T])    = true                    // TSS needs add/remove tracking
-has_delta(TSD[K,V])  = true                    // TSD needs add/remove/update tracking
-has_delta(TSW[T])    = false
-has_delta(REF[T])    = false
-has_delta(SIGNAL)    = false
-has_delta(TSB[...])  = any(has_delta(field_i) for field_i in fields)
-has_delta(TSL[T])    = has_delta(T)
-```
-
-#### delta_value_ Schema
-
-```
-delta_value_schema(X)        = void                     // if not has_delta(X)
-
-delta_value_schema(TSS[T])   = SetDelta {
-                                   added[],             // Slot indices
-                                   removed[]            // Slot indices
-                               }
-
-delta_value_schema(TSD[K,V]) = MapDelta {
-                                   added[],             // Slot indices
-                                   removed[],           // Slot indices
-                                   updated[],           // Slot indices (existing, modified)
-                                   children[]           // var_list[delta_value_schema(V)]
-                               }                        // children parallels key vector
-
-delta_value_schema(TSB[...]) = BundleDeltaNav {
-                                   children[]           // fixed_list[delta_value_schema(field_i)]
-                               }                        // only if has_delta(TSB)
-
-delta_value_schema(TSL[T])   = ListDeltaNav {
-                                   children[]           // fixed_list[delta_value_schema(T), N]
-                               }                        // only if has_delta(TSL)
-```
-
-#### Clear Optimization (Optional)
-
-Navigation structures can optionally embed `last_cleared_time` to short-circuit recursive clearing:
-
-```
-BundleDeltaNav {
-    last_cleared_time,       // Optional: skip clear if time_ unchanged
-    children[]
-}
-
-ListDeltaNav {
-    last_cleared_time,       // Optional: skip clear if time_ unchanged
-    children[]
-}
-```
-
-When clearing, compare `time_[container]` against `last_cleared_time`. If unchanged, skip clearing that subtree. This avoids recursively visiting unchanged branches.
-
-#### Delta Value Structures
-
-| Type | Structure | Purpose |
-|------|-----------|---------|
-| `SetDelta` | `{added[], removed[]}` | Terminal - tracks TSS membership changes |
-| `MapDelta` | `{added[], removed[], updated[], children[]}` | Terminal + navigation - tracks TSD changes + child deltas |
-| `BundleDeltaNav` | `{children[]}` | Navigation only - routes to fields with delta |
-| `ListDeltaNav` | `{children[]}` | Navigation only - routes to elements with delta |
-| `void` | - | No delta tracking needed |
-
-#### Worked Examples
-
-**TS[int]:**
-```
-has_delta = false
-delta_value_: void
-```
-
-**TSS[int]:**
-```
-has_delta = true
-delta_value_: SetDelta { added: [2, 5], removed: [0] }
-```
-
-**TSD[str, TS[int]]:**
-```
-has_delta = true
-delta_value_: MapDelta {
-    added: [3],
-    removed: [1],
-    updated: [0, 4],
-    children: []          // void children - TS[int] has no delta
-}
-```
-
-**TSL[TS[int]] size 4:**
-```
-has_delta = false         // TS[int] has no delta
-delta_value_: void
-```
-
-**TSL[TSS[int]] size 3:**
-```
-has_delta = true          // TSS[int] has delta
-delta_value_: ListDeltaNav {
-    children: [
-        SetDelta { added: [...], removed: [...] },   // element 0
-        SetDelta { added: [...], removed: [...] },   // element 1
-        SetDelta { added: [...], removed: [...] }    // element 2
-    ]
-}
-```
-
-**TSB[a: TS[int], b: TSD[str, TS[float]]]:**
-```
-has_delta = true          // field 'b' has delta
-delta_value_: BundleDeltaNav {
-    children: [
-        void,             // field 'a': TS[int] has no delta
-        MapDelta {        // field 'b': TSD
-            added: [...],
-            removed: [...],
-            updated: [...],
-            children: []  // TS[float] has void delta
-        }
-    ]
-}
-```
-
-**TSD[str, TSL[TSS[int]]] with TSL size 2:**
-```
-has_delta = true
-delta_value_: MapDelta {
-    added: [...],
-    removed: [...],
-    updated: [...],
-    children: [           // Parallels slot storage
-        ListDeltaNav {    // Slot 0's TSL
-            children: [SetDelta{...}, SetDelta{...}]
-        },
-        ListDeltaNav {    // Slot 1's TSL
-            children: [SetDelta{...}, SetDelta{...}]
-        },
-        ...
-    ]
-}
-```
-
-**TSD[str, TSD[int, TS[float]]]:**
-```
-has_delta = true
-delta_value_: MapDelta {
-    added: [...],
-    removed: [...],
-    updated: [...],
-    children: [           // Parallels outer slot storage
-        MapDelta {        // Slot 0's inner TSD
-            added: [...], removed: [...], updated: [...],
-            children: []  // TS[float] has void delta
-        },
-        MapDelta {        // Slot 1's inner TSD
-            added: [...], removed: [...], updated: [...],
-            children: []
-        },
-        ...
-    ]
-}
-```
-
-#### Lazy Clearing
-
-Delta validity is derived from `time_`. When accessing delta with `engine_time_ptr != nullptr && *engine_time_ptr > time_[container]`, the delta is automatically cleared. Since modifications bubble up through `time_`, the container-level timestamp indicates whether any subtree has been modified.
-
-```cpp
-void clear_delta(SetDelta& d) {
-    d.added.clear();
-    d.removed.clear();
-}
-
-void clear_delta(MapDelta& d) {
-    d.added.clear();
-    d.removed.clear();
-    d.updated.clear();
-    for (auto& child : d.children) {
-        clear_delta(child);
-    }
-}
-
-void clear_delta(BundleDeltaNav& d) {
-    for (auto& child : d.children) {
-        if (child) clear_delta(*child);
-    }
-}
-
-void clear_delta(ListDeltaNav& d) {
-    for (auto& child : d.children) {
-        clear_delta(child);
-    }
-}
-```
-
-**Optimization**: Navigation structures can optionally track `last_cleared_time` to short-circuit clearing unchanged subtrees. Compare child's `time_` against `last_cleared_time` - if unchanged, skip that branch.
-
-#### Slot-Based Tracking
-
-For TSS/TSD, delta stores slot indices (not element copies). Element data is accessed via KeySet when iterating. This enables zero-copy delta during the tick.
-
-### Link Schema Generation
-
-The link schema provides storage for binding support. It uses **REFLink** at each position that can be bound, enabling both simple linking and REF→TS dereferencing.
-
-#### Link Schema Rules
-
-```
-link_schema(TS[T])     = nullptr                  // Scalars don't support binding
-link_schema(TSS[T])    = nullptr                  // Sets don't support binding
-link_schema(TSW[T])    = nullptr                  // Windows don't support binding
-link_schema(REF[T])    = nullptr                  // REFs don't support binding
-link_schema(SIGNAL)    = nullptr                  // Signals don't support binding
-link_schema(TSB[...])  = fixed_list[REFLink, field_count]  // Per-field REFLink
-link_schema(TSL[T])    = REFLink                  // Collection-level REFLink
-link_schema(TSD[K,V])  = REFLink                  // Collection-level REFLink
-```
-
-| TS Type | Link Schema | Notes |
-|---------|-------------|-------|
-| TS[T] | `nullptr` | Scalars are bound at parent level |
-| TSB[...] | `fixed_list[REFLink, N]` | One REFLink per field |
-| TSL[T] | `REFLink` | Single collection-level link |
-| TSD[K,V] | `REFLink` | Single collection-level link |
-| TSS[T] | `nullptr` | Sets don't support binding |
-| TSW[T] | `nullptr` | Windows don't support binding |
-| REF[T] | `nullptr` | References don't support binding |
-| SIGNAL | `nullptr` | Signals don't support binding |
-
-#### REFLink Purpose
-
-REFLink serves dual purposes:
-1. **Simple linking**: When not bound to a REF source, stores target ViewData (like a simple pointer)
-2. **REF dereferencing**: When bound to a REF source, handles dynamic rebinding when the REF value changes
-
-See [Links and Binding](04_LINKS_AND_BINDING.md) for detailed REFLink documentation.
-
-### TSW WindowStorage
-
-TSW requires a custom storage type that maintains a time-ordered window of values:
-
-```cpp
-struct WindowStorage {
-    // Cyclic buffer for the main window (fixed capacity)
-    struct CyclicBuffer {
-        std::vector<engine_time_t> times;   // Timestamps
-        std::vector<std::byte> values;       // Type-erased values (element_size * capacity)
-        size_t head;                         // Write position
-        size_t count;                        // Current element count
-        size_t capacity;                     // Maximum elements
-    } cyclic;
-
-    // Queue buffer for overflow (unbounded, oldest items)
-    struct QueueBuffer {
-        std::vector<engine_time_t> times;
-        std::vector<std::byte> values;
-    } queue;
-
-    // Schema for element type
-    const TypeMeta* element_meta;
-};
-```
-
-**Window Semantics:**
-- New values are added to the cyclic buffer
-- When cyclic buffer is full, oldest values overflow to queue
-- Query methods provide time-range access
-- Both buffers maintain parallel time/value arrays
+The runtime state for a kind is a single schema-defined structure for that level. We do not generate separate side-car schemas for time, observer, delta, and links.
 
 ## TSValue
 
-### Purpose
-Owning container for time-series data with five parallel value structures.
+`TSValue` owns the payload tree and the runtime-state tree.
 
-### Structure
+Conceptually:
 
 ```cpp
 class TSValue {
-    Value value_;             // User-visible data (schema from ts_meta->value_schema_)
-    Value time_;              // Modification timestamps (schema from ts_meta->time_meta_)
-    Value observer_;          // Observer lists (schema from ts_meta->observer_meta_)
-    Value delta_value_;       // Delta tracking data (schema from ts_meta->delta_value_meta_)
-    Value link_;              // Link tracking data (schema from link_schema, see 04_LINKS_AND_BINDING)
-    const TSMeta* meta_;      // Time-series schema
-    engine_time_t last_delta_clear_time_{MIN_ENGINE_TIME};  // For lazy clearing
-
-public:
-    // Construction from TSMeta
-    explicit TSValue(const TSMeta* meta)
-        : value_(meta->value_schema())
-        , time_(meta->time_meta())
-        , observer_(meta->observer_meta())
-        , delta_value_(meta->delta_value_meta())  // May be void if no TSS/TSD
-        , link_(generate_link_schema(meta))       // REFLink storage for binding support
-        , meta_(meta)
-    {}
-
-    // Schema access
-    const TSMeta* meta() const { return meta_; }
-
-    // Data access
-    View value_view() { return value_.view(); }
-    const View value_view() const { return value_.view(); }
-
-    // Time access
-    View time_view() { return time_.view(); }
-    engine_time_t last_modified_time() const;
-    bool modified(engine_time_t current_time) const;
-    bool valid() const;
-
-    // Observer access
-    View observer_view() { return observer_.view(); }
-
-    // Delta access (with lazy clearing based on time_)
-    View delta_value_view(const engine_time_t* engine_time_ptr);  // Triggers lazy clear via *engine_time_ptr
-    DeltaView delta(const engine_time_t* engine_time_ptr);
-
-    // TSView creation
-    TSView ts_view(const engine_time_t* engine_time_ptr);
+    Value data_value_;
+    Value state_value_;
+    const TSMeta* meta_;
 };
 ```
 
-### Delta Access and Lazy Clearing
+### Invariants
 
-Delta validity is derived from `time_` - since modifications bubble up, the container-level timestamp in `time_` tells us if the structure has been modified. When accessing delta_value_:
+1. `data_value_` and `state_value_` always represent the same logical path.
+2. Every schema level owns exactly one state node.
+3. All per-value runtime behavior is expressed through that state node.
+4. Operator-specific retained behavior is not stored in `state_value_`.
+
+## TSState Model
+
+### Common header
+
+Every runtime-state node begins with the same conceptual header:
 
 ```cpp
-View TSValue::delta_value_view(const engine_time_t* engine_time_ptr) {
-    if (engine_time_ptr != nullptr && *engine_time_ptr > last_delta_clear_time_) {
-        // Lazy clear: reset delta_value_ contents
-        clear_delta_value();
-        last_delta_clear_time_ = *engine_time_ptr;
-    }
-    return delta_value_.view();
-}
+struct TSStateHeader {
+    engine_time_t last_modified_time;
+    ObserverList observers;
+};
 ```
 
-This eliminates the need for explicit `begin_tick()` calls - delta state is managed automatically on access.
+Concrete kinds extend that header with the fields they require.
 
-**Note**: `delta_value_` may be void if the TS type contains no TSS/TSD. In that case, delta access is a no-op.
+### Kind-specific state
 
-### Five-Value Parallel Structure
+```cpp
+struct ScalarState {
+    TSStateHeader header;
+    BindingState binding;
+};
 
-Each TSValue has five separate Value instances:
+struct BundleState {
+    TSStateHeader header;
+    std::array<StateNode, field_count> children;
+};
 
-1. **value_**: User-visible data (schema from ts_meta->value_schema_)
-2. **time_**: Modification timestamps (recursive, mirrors data structure)
-3. **observer_**: Observer lists (recursive, mirrors data structure)
-4. **delta_value_**: Delta tracking data (only where TSS/TSD exist)
-5. **link_**: Link tracking data (REFLink storage for binding support)
+struct ListState {
+    TSStateHeader header;
+    BindingState binding;
+    ListDeltaState delta;
+    DynamicChildStates children;
+};
+
+struct SetState {
+    TSStateHeader header;
+    BindingState binding;
+    SetDeltaState delta;
+};
+
+struct DictState {
+    TSStateHeader header;
+    BindingState binding;
+    DictDeltaState delta;
+    DynamicChildStates value_children;
+};
+
+struct WindowState {
+    TSStateHeader header;
+    BindingState binding;
+    WindowRuntimeState window;
+};
+
+struct RefState {
+    TSStateHeader header;
+    BindingState binding;
+    RefResolutionState resolution;
+    OptionalChildState resolved_child;
+};
+
+struct SignalState {
+    TSStateHeader header;
+};
+```
+
+The exact low-level storage layout can still evolve, but the state responsibilities should not.
+
+## Binding State Lives In The State Node
+
+Binding is not a separate tree. It is part of the runtime state for the level that is bound.
+
+Conceptually:
+
+```cpp
+struct BindingState {
+    BindingMode mode;                 // unbound, direct, ref-driven, projected
+    TargetIdentity source_identity;   // nominal source
+    TargetIdentity effective_target;  // current resolved target
+};
+```
+
+This matters because:
+
+- rebinding is a state transition on the level
+- nested graphs need a stable concept of effective target identity
+- notification and modification stamping belong to the same level state that describes the binding
+
+The implementation may still use helper objects such as `LinkTarget` or `REFLink`, but they should be understood as payloads inside the per-level state node, not as justification for a separate link tree.
+
+## Delta State Lives In The Same Node
+
+Delta tracking is also part of the per-level runtime state.
 
 Examples:
 
-**TS[int]** (atomic, no delta tracking):
+- `SetState` owns membership delta
+- `DictState` owns added/removed/updated key delta
+- `ListState` owns element-update bookkeeping when list semantics need it
+- `WindowState` owns whatever runtime state is required for window expiration and removal tracking
 
-```
-value_:       int(42)
-time_:        engine_time_t(100)
-observer_:    ObserverList[...]
-delta_value_: void                      // No TSS/TSD
-```
+This keeps all "what changed at this level" information attached to the level that changed.
 
-**TSB[a: TS[int], b: TS[float]]** (no delta tracking):
-
-```
-value_:       Bundle{a: int(42), b: float(3.14)}
-time_:        tuple[engine_time_t(100), [engine_time_t(100), engine_time_t(50)]]
-observer_:    tuple[ObserverList, [ObserverList, ObserverList]]
-delta_value_: void                      // No TSS/TSD in fields
-```
-
-**TSL[TS[int]] with size 3** (no delta tracking):
-
-```
-value_:       List[10, 20, 30]
-time_:        tuple[engine_time_t(100), [engine_time_t(100), engine_time_t(75), engine_time_t(100)]]
-observer_:    tuple[ObserverList, [ObserverList, ObserverList, ObserverList]]
-delta_value_: void                      // No TSS/TSD
-```
-
-**TSD[str, TS[int]]** (has delta tracking):
-
-```
-value_:       MapStorage{KeySet: ["foo","bar"], values: [42, 99]}
-time_:        tuple[engine_time_t(100), var_list[engine_time_t(100), engine_time_t(75)]]
-observer_:    tuple[ObserverList, var_list[ObserverList, ObserverList]]
-delta_value_: MapDelta{added: [1], removed: [], updated: [0], children: []}
-```
-
-**TSD[str, TSL[TS[int]]] with TSL size 2** (has delta tracking):
-
-```
-value_:       MapStorage{KeySet: ["foo"], values: [List[10, 20]]}
-time_:        tuple[engine_time_t(100), var_list[tuple[engine_time_t(90), [engine_time_t(90), engine_time_t(85)]]]]
-observer_:    tuple[ObserverList, var_list[tuple[ObserverList, [ObserverList, ObserverList]]]]
-delta_value_: MapDelta{added: [], removed: [], updated: [], children: []}  // TSL has void delta
-```
-
-**TSS[int]** (has delta tracking):
-
-```
-value_:       SetStorage{KeySet: [1, 2, 3, 4]}
-time_:        engine_time_t(100)
-observer_:    ObserverList[...]
-delta_value_: SetDelta{added: [2, 3], removed: []}  // Slot indices
-```
-
-**TSL[TSS[int]] with size 2** (has delta tracking via children):
-
-```
-value_:       List[SetStorage{...}, SetStorage{...}]
-time_:        tuple[engine_time_t(100), [engine_time_t(90), engine_time_t(85)]]
-observer_:    tuple[ObserverList, [ObserverList, ObserverList]]
-delta_value_: ListDeltaNav{
-                  children: [
-                      SetDelta{added: [...], removed: [...]},   // element 0
-                      SetDelta{added: [...], removed: [...]}    // element 1
-                  ]
-              }
-```
-
-**TSB[a: TS[int], b: TSD[str, TS[float]]]** (has delta tracking via field b):
-
-```
-value_:       Bundle{a: int(42), b: MapStorage{...}}
-time_:        tuple[engine_time_t(100), [engine_time_t(100), tuple[engine_time_t(90), var_list[...]]]]
-observer_:    tuple[ObserverList, [ObserverList, tuple[ObserverList, var_list[...]]]]
-delta_value_: BundleDeltaNav{
-                  children: [
-                      void,             // field 'a': no delta
-                      MapDelta{...}     // field 'b': TSD has delta
-                  ]
-              }
-```
-
-**TSW[float] with period=3** (no delta tracking):
-
-```
-value_:       WindowStorage{
-                  cyclic: {times: [t1, t2, t3], values: [1.0, 2.0, 3.0]},
-                  queue: {times: [], values: []}
-              }
-time_:        engine_time_t(t3)
-observer_:    ObserverList[...]
-delta_value_: void                      // No TSS/TSD
-```
+User-facing `DeltaView` and persistent `DeltaValue` remain useful concepts, but the runtime bookkeeping that produces them belongs in `TSState`.
 
 ## TSView
 
-### Purpose
-Type-erased non-owning reference to time-series data with engine-time context. TSView provides coordinated access to the four parallel structures (value, time, observer, delta_value) in TSValue and reads current time via an engine-time pointer (no per-view copied timestamp).
+`TSView` is the non-owning view over a logical time-series position.
 
-### Structure
+It navigates payload and runtime state in lockstep.
+
+Conceptually:
 
 ```cpp
 class TSView {
-    View value_view_;                // View into TSValue::value_
-    View time_view_;                 // View into TSValue::time_
-    View observer_view_;             // View into TSValue::observer_
-    View delta_value_view_;          // View into TSValue::delta_value_ (lazily cleared)
-    const TSMeta* meta_;             // Time-series schema
-    const engine_time_t* engine_time_ptr_;  // Engine time reference (typically Node::cached_evaluation_time_ptr)
- 
-public:
-    // Construction (handles lazy delta clearing)
-    TSView(TSValue& ts_value, const engine_time_t* engine_time_ptr)
-        : value_view_(ts_value.value_view())
-        , time_view_(ts_value.time_view())
-        , observer_view_(ts_value.observer_view())
-        , delta_value_view_(ts_value.delta_value_view(engine_time_ptr))  // Lazy clear on access via pointer
-        , meta_(ts_value.schema())
-        , engine_time_ptr_(engine_time_ptr)
-    {}
-
-    // Schema access
-    const TSMeta* meta() const { return meta_; }
-
-    // State queries
-    bool modified() const { return time_view_.as<engine_time_t>() >= current_time(); }
-    bool valid() const { return time_view_.as<engine_time_t>() != MIN_ENGINE_TIME; }
-
-    // Data access
-    View value() const { return value_view_; }
-
-    // Delta access (delta_value_ already lazily cleared during construction)
-    View delta_value() const { return delta_value_view_; }  // May be void if no TSS/TSD
-    DeltaView delta() const;  // Typed delta view for kind-specific access
-
-    // Time access
-    engine_time_t last_modified_time() const { return time_view_.as<engine_time_t>(); }
-    engine_time_t current_time() const {
-        return engine_time_ptr_ != nullptr ? *engine_time_ptr_ : MIN_ENGINE_TIME;
-    }
-
-    // Observer access (for internal use)
-    View observer() const { return observer_view_; }
+    View data_view_;
+    View state_view_;
+    const engine_time_t* engine_time_ptr_;
 };
 ```
 
-### Kind-Specific Wrappers
+Where:
 
-| Kind | Wrapper | Additional Interface |
-|------|---------|---------------------|
-| Scalar | TSScalarView | value<T>() |
-| Bundle | TSBView | field(name), field(index), __getattr__ |
-| List | TSLView | size(), at(index), __iter__ |
-| Dict | TSDView | at(key), keys(), added_keys(), removed_keys() |
-| Set | TSSView | added(), removed() |
-| Window | TSWView | values(), times(), at_time(t), range(t1, t2) |
+- `data_view_` follows the existing `Value/View` logic for payload access
+- `state_view_` gives access to the per-level runtime state
+- kind-specific wrappers are built on top of those two views
 
-### Example: TSBView
+### State-side operations
 
-```cpp
-class TSBView : public TSView {
-public:
-    // Field access
-    TSView field(std::string_view name);
-    TSView field(size_t index);
+The time-series operations for a `TSView` should be driven from the state side.
 
-    // Per-field modification
-    bool modified(std::string_view name) const;
-    bool valid(std::string_view name) const;
+That means:
 
-    // Python-style access
-    TSView __getattr__(std::string_view name);
-};
-```
+- data reads and writes operate through `data_view_`
+- time, modified, valid, observer, binding, and delta queries operate through `state_view_`
+- kind-specific state dispatch should come from the state-view side because that is where the time-series runtime contract lives
+- the runtime should be able to look up the appropriate state operations from `TSMeta` plus a small runtime role context rather than manually threading vtables through endpoint code
+- the resolved state ops for a level should expose whether that level is currently peered/non-peered and bound/unbound
 
-### Example: TSWView
+This keeps the payload model simple while making runtime semantics explicit.
 
-```cpp
-class TSWView : public TSView {
-public:
-    // Access all values in the window (time-ordered, oldest first)
-    ViewRange values() const;
+### Navigation rule
 
-    // Access all timestamps in the window
-    ViewRange times() const;
+When a `TSView` navigates to a child:
 
-    // Access value at specific time (or nearest)
-    View at_time(engine_time_t t) const;
+1. navigate `data_view_` to the child payload
+2. navigate `state_view_` to the matching child state
+3. construct the child `TSView` from the paired result
 
-    // Access values in time range [start, end)
-    ViewRange range(engine_time_t start, engine_time_t end) const;
+That rule is what preserves the data/state separation while still making the runtime coherent.
 
-    // Window properties
-    size_t size() const;              // Current number of values
-    size_t capacity() const;          // Maximum values in cyclic buffer
-    engine_time_t oldest_time() const;
-    engine_time_t newest_time() const;
+## Worked Examples
 
-    // Iteration with timestamps
-    ViewPairRange items() const;      // (time, value) pairs
-};
-```
-
-## Modification Tracking
-
-Modification tracking uses the **four-value parallel structure** in TSValue:
-- `value_`: User-visible data
-- `time_`: Modification timestamps (mirrors data structure)
-- `observer_`: Observer lists (mirrors data structure)
-- `delta_value_`: Delta tracking data (only where TSS/TSD exist)
-
-For collections (TSL, TSD, TSS), `time_` contains per-element timestamps that track when each element was last modified. This is tracked independently within TSValue - no separate overlay needed.
-
-### Tick Detection
+### `TS[int]`
 
 ```cpp
-bool TSView::modified() const {
-    return time_value() >= current_time();
-}
-```
-
-### Validity
-
-```cpp
-bool TSView::valid() const {
-    return time_value() != MIN_ENGINE_TIME;
-}
-```
-
-### Per-Element Tracking (Collections)
-
-For TSL, TSD, TSS - each element has its own timestamp in `time_`, indexed by the same slot index as the data:
-
-```cpp
-// TSL example - time_ is a parallel array of timestamps
-bool TSLView::element_modified(size_t idx) const {
-    return time_.at(idx) >= current_time();
-}
-
-// TSD example - time_ is parallel array, shares slot index with MapStorage
-bool TSDView::key_modified(const Key& key) const {
-    // 1. Look up slot index from value_'s index_set
-    size_t idx = value_.index_of(key);
-    // 2. Access timestamp at same index
-    return time_.at(idx) >= current_time();
-}
-```
-
-**TSD Key Sharing**: For TSD, the key set lives only in `value_` (MapStorage). The `time_` and `observer_` are parallel arrays indexed by the same slot index - no duplicate key storage.
-
-### Nested Modification
-
-For compounds, modification cascades up:
-- If `tsb.a` is modified, `tsb` is also marked modified
-- Parent timestamps are max of child timestamps
-
-## Peered vs Un-Peered (TSB)
-
-### Peered TSB
-- All fields tick together
-- Single timestamp for entire bundle
-- Atomic update semantics
-
-### Un-Peered TSB
-- Fields tick independently
-- Per-field timestamps
-- Fine-grained update tracking
-
-## TSS and TSD Storage Architecture
-
-TSS and TSD extend the Set/Map storage architecture (see `01_SCHEMA.md`) with time-series extensions via the SlotObserver protocol.
-
-### Layer Structure
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      ts_ops layer                               │
-│  TSSStorage, TSDStorage - time-series semantics, delta tracking │
-├─────────────────────────────────────────────────────────────────┤
-│                     type_ops layer                              │
-│  SetStorage, MapStorage - value semantics via set_ops/map_ops   │
-├─────────────────────────────────────────────────────────────────┤
-│                    KeySet (core)                                │
-│  Slot management, hash index, membership, generation            │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### TS Extension: TimeArray
-
-Parallel timestamp array that observes KeySet:
-
-```cpp
-class TimeArray : public SlotObserver {
-    std::vector<engine_time_t> times_;
-
-public:
-    void on_capacity(size_t, size_t new_cap) override {
-        times_.resize(new_cap, MIN_ENGINE_TIME);
-    }
-    void on_insert(size_t slot) override {
-        times_[slot] = MIN_ENGINE_TIME;  // Invalid until set
-    }
-    void on_erase(size_t slot) override {
-        // Keep time (may be queried for delta)
-    }
-    void on_clear() override {
-        std::fill(times_.begin(), times_.end(), MIN_ENGINE_TIME);
-    }
-
-    engine_time_t at(size_t slot) const { return times_[slot]; }
-    void set(size_t slot, engine_time_t t) { times_[slot] = t; }
-    bool modified(size_t slot, engine_time_t current) const {
-        return times_[slot] >= current;
-    }
-    bool valid(size_t slot) const { return times_[slot] != MIN_ENGINE_TIME; }
-
-    // Toll-free numpy/Arrow access
-    engine_time_t* data() { return times_.data(); }
-};
-```
-
-### TS Extension: ObserverArray
-
-Parallel observer lists that observe KeySet:
-
-```cpp
-class ObserverArray : public SlotObserver {
-    std::vector<ObserverList> observers_;
-
-public:
-    void on_capacity(size_t, size_t new_cap) override {
-        observers_.resize(new_cap);
-    }
-    void on_insert(size_t slot) override {
-        observers_[slot].clear();
-    }
-    void on_erase(size_t slot) override {
-        observers_[slot].notify_removed();
-        observers_[slot].clear();
-    }
-    void on_clear() override {
-        for (auto& obs : observers_) {
-            obs.notify_removed();
-            obs.clear();
-        }
-    }
-
-    ObserverList& at(size_t slot) { return observers_[slot]; }
-};
-```
-
-### TS Extension: Delta Storage (in delta_ Value)
-
-Delta tracking for TSS/TSD is stored in the `delta_` Value of TSValue. Delta uses **slot-based tracking** - storing slot indices, not element copies. The engine time is read from the shared `engine_time_ptr` on access (not copied into delta structures). See `07_DELTA.md` for full delta design.
-
-**SetDelta Schema** (for TSS):
-```cpp
-struct SetDelta {
-    std::vector<size_t> added;    // Slot indices added this tick
-    std::vector<size_t> removed;  // Slot indices removed this tick
-};
-```
-
-**MapDelta Schema** (for TSD):
-```cpp
-struct MapDelta {
-    std::vector<size_t> added;    // Slot indices added this tick
-    std::vector<size_t> removed;  // Slot indices removed this tick
-};
-```
-
-**Lazy Clearing**: When accessing delta with `engine_time_ptr != nullptr && *engine_time_ptr > last_delta_clear_time_`:
-1. Clear added/removed slot vectors
-2. Update `last_delta_clear_time_ = *engine_time_ptr`
-3. Return cleared delta view
-
-This replaces explicit `begin_tick()` calls with automatic management on access.
-
-**Delta Population via SlotObserver**: The delta storage implements SlotObserver to receive insert/erase notifications from KeySet:
-
-```cpp
-// SetDelta/MapDelta as SlotObserver (embedded in delta_ Value)
-void on_insert(size_t slot) {
-    // If was removed this tick, cancel out; else add to added
-    auto it = std::find(removed.begin(), removed.end(), slot);
-    if (it != removed.end()) {
-        removed.erase(it);
-    } else {
-        added.push_back(slot);
-    }
-}
-
-void on_erase(size_t slot) {
-    // If was added this tick, cancel out; else add to removed
-    auto it = std::find(added.begin(), added.end(), slot);
-    if (it != added.end()) {
-        added.erase(it);
-    } else {
-        removed.push_back(slot);
+TSValue {
+    data_value_: int
+    state_value_: ScalarState {
+        header,
+        binding
     }
 }
 ```
 
-**Slot-Based Benefits**:
-- Zero-copy during tick - slots reference live data in KeySet
-- Stable slot indices until reused
-- Element/key/value data accessed via KeySet when iterating delta
-
-### TSS: Four Parallel Values
-
-For TSS, the schemas are simple (no per-element time/observer tracking):
-
-| Value | Schema | Contents |
-|-------|--------|----------|
-| `value_` | SetStorage | KeySet (elements) |
-| `time_` | `engine_time_t` | Container modification time |
-| `observer_` | `ObserverList` | Container-level observers |
-| `delta_value_` | SetDelta | added/removed slot indices |
-
-Delta observes the KeySet in value_ for add/remove tracking:
+### `TSB[a: TS[int], b: TSL[TS[float]]]`
 
 ```cpp
-// TSValue construction for TSS
-TSValue::TSValue(const TSMeta* meta) {
-    // value_ contains SetStorage with KeySet
-    auto& ks = value_.as<SetStorage>().key_set();
-
-    // delta_value_ observes KeySet (for add/remove tracking)
-    ks.observers_.push_back(&delta_value_.as<SetDelta>());
-}
-
-// SetDelta in delta_value_ (implements SlotObserver)
-struct SetDelta : public SlotObserver {
-    std::vector<size_t> added;    // Slot indices
-    std::vector<size_t> removed;  // Slot indices
-
-    // SlotObserver interface - tracks slot indices
-    void on_insert(size_t slot) override {
-        auto it = std::find(removed.begin(), removed.end(), slot);
-        if (it != removed.end()) { removed.erase(it); }
-        else { added.push_back(slot); }
+TSValue {
+    data_value_: bundle {
+        a: int,
+        b: list<float>
     }
-    void on_erase(size_t slot) override {
-        auto it = std::find(added.begin(), added.end(), slot);
-        if (it != added.end()) { added.erase(it); }
-        else { removed.push_back(slot); }
-    }
-
-    void clear() {
-        added.clear();
-        removed.clear();
-    }
-};
-
-// Lazy clearing is handled by checking *engine_time_ptr against last_delta_clear_time_
-```
-
-### TSD: Four Parallel Values
-
-For TSD, the schemas follow the recursive pattern with variable-size lists for slots:
-
-| Value | Schema | Contents |
-|-------|--------|----------|
-| `value_` | MapStorage | KeySet (keys) + ValueArray (values) |
-| `time_` | `tuple[engine_time_t, var_list[time_schema(V)]]` | Container time + per-slot child times |
-| `observer_` | `tuple[ObserverList, var_list[observer_schema(V)]]` | Container + per-slot observers |
-| `delta_value_` | MapDelta | added/removed/updated slot indices + child deltas |
-
-Time and observer var_lists grow with the map. Delta observes KeySet for add/remove:
-
-```cpp
-// TSValue construction for TSD wires up observers
-TSValue::TSValue(const TSMeta* meta) {
-    // value_ contains MapStorage with KeySet + ValueArray
-    auto& ks = value_.as<MapStorage>().as_set().key_set();
-
-    // time_, observer_ var_lists track slot additions/removals
-    ks.observers_.push_back(&time_.as<TimeTuple>().var_list());
-    ks.observers_.push_back(&observer_.as<ObserverTuple>().var_list());
-
-    // delta_value_ tracks add/remove for delta queries
-    ks.observers_.push_back(&delta_value_.as<MapDelta>());
-}
-
-// MapDelta in delta_value_ (implements SlotObserver)
-struct MapDelta : public SlotObserver {
-    std::vector<size_t> added;    // Slot indices added this tick
-    std::vector<size_t> removed;  // Slot indices removed this tick
-    std::vector<size_t> updated;  // Slot indices updated (existing, modified)
-    std::vector<ChildDelta> children;  // Parallels slot storage (for nested TSS/TSD)
-
-    // SlotObserver interface - tracks slot indices
-    void on_insert(size_t slot) override {
-        auto it = std::find(removed.begin(), removed.end(), slot);
-        if (it != removed.end()) { removed.erase(it); }
-        else { added.push_back(slot); }
-    }
-    void on_erase(size_t slot) override {
-        auto it = std::find(added.begin(), added.end(), slot);
-        if (it != added.end()) { added.erase(it); }
-        else { removed.push_back(slot); }
-    }
-
-    // Called when an existing slot's value is modified (not added/removed)
-    void on_update(size_t slot) {
-        if (std::find(added.begin(), added.end(), slot) == added.end()) {
-            // Only track as updated if not already in added
-            if (std::find(updated.begin(), updated.end(), slot) == updated.end()) {
-                updated.push_back(slot);
+    state_value_: BundleState {
+        header,
+        children: [
+            ScalarState {
+                header,
+                binding
+            },
+            ListState {
+                header,
+                binding,
+                delta,
+                children: [
+                    ScalarState { header, binding },
+                    ...
+                ]
             }
-        }
+        ]
     }
-
-    void clear() {
-        added.clear();
-        removed.clear();
-        updated.clear();
-        for (auto& child : children) {
-            child.clear();
-        }
-    }
-};
-
-// Lazy clearing is handled by checking *engine_time_ptr against last_delta_clear_time_
+}
 ```
 
-### Composition Diagram
-
-TSValue has four parallel Values with recursive schemas. For TSD[K, TS[V]]:
-
-```
-TSValue (4 parallel Values)
-│
-├── value_: MapStorage
-│   ├── SetStorage (as_set() returns reference)
-│   │   └── KeySet
-│   │       ├── keys_[]        ──► Arrow key column
-│   │       ├── alive_ bits    ──► key liveness bitmap
-│   │       └── observers_ ────────┬──────┬──────┐
-│   └── ValueArray                 │      │      │
-│       ├── values_[]      ──► Arrow value column│
-│       └── validity_ bits ──► value null bitmap │
-│                                  │      │      │
-├── time_: tuple[engine_time_t, var_list] ◄──────┤
-│   ├── container_time                           │
-│   └── child_times[]     ──► per-slot times     │
-│                         (var_list observes KS) │
-│                                                │
-├── observer_: tuple[ObserverList, var_list] ◄───┤
-│   ├── container_observers                      │
-│   └── child_observers[] ──► per-slot observers │
-│                         (var_list observes KS) │
-│                                                │
-└── delta_value_: MapDelta ◄─────────────────────┘
-    ├── added[]           // Slot indices
-    ├── removed[]         // Slot indices
-    ├── updated[]         // Slot indices
-    └── children[]        // Per-slot child deltas
-```
-
-For TSS[T] (simpler - no per-element tracking):
-
-```
-TSValue (4 parallel Values)
-│
-├── value_: SetStorage
-│   └── KeySet
-│       └── observers_ ──────────────────────────┐
-│                                                │
-├── time_: engine_time_t      // Container time only
-│                                                │
-├── observer_: ObserverList   // Container-level only
-│                                                │
-└── delta_value_: SetDelta ◄─────────────────────┘
-    ├── added[]
-    └── removed[]
-```
-
-**Key Points:**
-- `value_` = user data (MapStorage, SetStorage, Bundle, List, scalar)
-- `time_` = recursive: `engine_time_t` or `tuple[engine_time_t, list[...]]` (also used for delta validity)
-- `observer_` = recursive: `ObserverList` or `tuple[ObserverList, list[...]]`
-- `delta_value_` = kind-specific delta tracking (only where TSS/TSD exist)
-
-### Toll-Free Casting Chain
-
-All casts return references - no copying:
+### `TSD[str, TS[int]]`
 
 ```cpp
-// TSD → Map → Set → KeySet
-const KeySet& ks = tsd.as_map().as_set().key_set();
-
-// TSS → Set → KeySet
-const KeySet& ks = tss.as_set().key_set();
-
-// Access underlying arrays for Arrow conversion
-const std::byte* keys = ks.keys_.data();
-const std::byte* values = tsd.as_map().value_data();
-engine_time_t* times = tsd.times_.data();
+TSValue {
+    data_value_: map<string, int>
+    state_value_: DictState {
+        header,
+        binding,
+        delta,
+        value_children: [
+            ScalarState { header, binding },
+            ...
+        ]
+    }
+}
 ```
 
-### Design Rationale
+### `REF[TSL[TS[int]]]`
 
-| Decision | Rationale |
-|----------|-----------|
-| Four parallel Values | Clean separation: value_, time_, observer_, delta_value_ each have distinct schema |
-| Delta validity from time_ | Modifications bubble up through time_; no separate delta_time_ structure needed |
-| Lazy clearing via time_ | No explicit begin_tick(); delta auto-clears when `engine_time_ptr != nullptr && *engine_time_ptr > last_delta_clear_time_` |
-| SlotObserver protocol | Decouples TS extensions from core storage; each owns its memory |
-| Slot-based delta tracking | Zero-copy during tick; slots reference live KeySet data |
-| No tombstoning in KeySet | KeySet liveness bits handle alive/dead slots; delta tracks slots |
-| Composition over inheritance | Enables toll-free casting; clear ownership |
-| Parallel arrays by slot index | All extensions use same slot index; zero translation |
+```cpp
+TSValue {
+    data_value_: reference_payload
+    state_value_: RefState {
+        header,
+        binding,
+        resolution,
+        resolved_child: ListState { ... }
+    }
+}
+```
 
-## Open Questions
+## Why This Model Is Better
 
-- TODO: How to handle time wrap-around?
-- TODO: Observer notification mechanism?
+This separation is cleaner for implementation and debugging:
 
-## References
+1. The user payload model stays unchanged.
+2. There is only one place to look for runtime metadata at a given level.
+3. Binding, delta, and modification tracking no longer need independent mirrored schema walkers.
+4. Nested-graph rebinding can compare effective target identity directly from the relevant state node.
+5. The generic runtime is smaller because endpoint and node-specific state stays outside it.
 
-- User Guide: `03_TIME_SERIES.md`
-- Research: `01_BASE_TIME_SERIES.md`, `03_TSB.md`
+## Consequences For The Rest Of The Design
+
+This model changes how the surrounding docs should be read:
+
+- `01_SCHEMA.md`: runtime schema generation should produce payload schema plus runtime-state schema
+- `04_LINKS_AND_BINDING.md`: link payloads are part of binding state, not a side-car tree
+- `05_TSOUTPUT_TSINPUT.md`: endpoint-local active/subscription state remains outside `TSValue`
+- `07_DELTA.md`: delta surfaces remain important, but runtime delta bookkeeping belongs in `TSState`
+- `09_SIMPLIFIED_RUNTIME.md`: this document is the detailed runtime-storage expression of that simplified direction

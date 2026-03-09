@@ -12,8 +12,9 @@ This document provides the high-level design overview for the new time-series in
 4. **Memory Stability**: Stable addresses for linked data structures
 5. **Efficient Delta Tracking**: Support for both stored and computed deltas
 6. **Explicit Runtime State**: No hidden fallback state machines in the core runtime
-7. **Nested-Graph Compatibility**: Binding and rebind semantics must work cleanly for keyed and nested graphs
-8. **Python Parity Without Python-Driven Core Complexity**: Python remains a hard compatibility target, but wrapper behavior must not dictate a convoluted core architecture
+7. **Collapsed Runtime State Tree**: Keep user data in `Value/View`, but collapse time/observer/link/delta metadata into one schema-shaped runtime state tree
+8. **Nested-Graph Compatibility**: Binding and rebind semantics must work cleanly for keyed and nested graphs
+9. **Python Parity Without Python-Driven Core Complexity**: Python remains a hard compatibility target, but wrapper behavior must not dictate a convoluted core architecture
 
 ## Document Structure
 
@@ -38,7 +39,7 @@ This document provides the high-level design overview for the new time-series in
 │  TypeMeta (value schema)    TSMeta (time-series schema)     │
 │  - type_ops vtable          - ts_ops vtable                 │
 │  - size, alignment          - value_schema (TypeMeta)       │
-│  - child schemas            - time_meta, observer_meta      │
+│  - child schemas            - state_schema (TypeMeta)       │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -55,9 +56,9 @@ This document provides the high-level design overview for the new time-series in
 │                    Time-Series Layer                        │
 ├─────────────────────────────────────────────────────────────┤
 │  TSValue                    TSView                          │
-│  - data_value_              - ViewData + engine time ref    │
-│  - time_value_              - Kind-specific wrappers        │
-│  - observer_value_          - (TSBView, TSLView, etc.)      │
+│  - data_value_              - data_view_                    │
+│  - state_value_             - state_view_                   │
+│  - schema-shaped state      - Kind-specific wrappers        │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -65,8 +66,9 @@ This document provides the high-level design overview for the new time-series in
 │                    Graph Endpoint Layer                     │
 ├─────────────────────────────────────────────────────────────┤
 │  TSOutput                   TSInput                         │
-│  - native_value_ (TSValue)  - value_ (with LINKs)           │
-│  - explicit adapters        - active_value_ (subscriptions) │
+│  - native_value_ (TSValue)  - input_value_                  │
+│  - explicit adapters        - active_state_                 │
+│                            - non-peered elems + leaf LINKs  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -89,6 +91,10 @@ The implementation review of the previous branch showed that the base design was
 4. **Python compatibility is a hard requirement**
    - However, the C++ runtime should expose explicit primitives for Python rather than accumulating Python-specific fallback behavior inside the core graph/value layers.
 
+5. **The parallel side-car model should be collapsed**
+   - The previous "time tree + observer tree + delta tree + link tree" split made the model harder to reason about.
+   - The preferred direction is to keep data separate but collapse the rest into one runtime state tree whose shape follows the time-series schema.
+
 ## Simplification Direction
 
 The next implementation direction is:
@@ -96,16 +102,20 @@ The next implementation direction is:
 1. **Prefer one native runtime representation plus explicit adapters**
    - Avoid eager alternative trees that recursively mirror the whole output state.
 
-2. **Keep runtime state explicit and local**
+2. **Use one schema-shaped runtime state tree**
+   - Keep value payloads in `Value/View`.
+   - Represent time, observers, binding state, and delta state in one per-level runtime state structure.
+
+3. **Keep runtime state explicit and local**
    - If a node needs fallback or retained state, that state should usually live in the node, not in generic time-series infrastructure.
 
-3. **Promote hidden feature-extension behavior into the design**
+4. **Promote hidden feature-extension behavior into the design**
    - If a behavior is required for correctness, it must appear in the design as a named concept with lifecycle and invariants.
 
-4. **Treat nested-graph rebinding as a primary use case**
+5. **Treat nested-graph rebinding as a primary use case**
    - The design should be easy to reason about for `reduce`, `map`, and other keyed nested-graph operators, not only for simple one-hop bindings.
 
-5. **Optimize for understandability first**
+6. **Optimize for understandability first**
    - The previous branch demonstrated that "generic" fallback-heavy behavior quickly becomes unmaintainable.
    - The new design must favor fewer concepts, sharper boundaries, and explicit invariants.
 

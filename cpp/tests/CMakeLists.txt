@@ -27,6 +27,11 @@ if (NOT fmt_FOUND)
     FetchContent_MakeAvailable(fmt)
 endif()
 
+set(HGRAPH_TEST_FMT_TARGET fmt::fmt)
+if (TARGET fmt::fmt-header-only)
+    set(HGRAPH_TEST_FMT_TARGET fmt::fmt-header-only)
+endif ()
+
 # Create test executable
 add_executable(hgraph_visitor_tests
     test_visitor_standalone.cpp
@@ -34,7 +39,7 @@ add_executable(hgraph_visitor_tests
 
 target_link_libraries(hgraph_visitor_tests PRIVATE
     Catch2::Catch2WithMain
-    fmt::fmt
+    ${HGRAPH_TEST_FMT_TARGET}
 )
 
 # Set C++ standard

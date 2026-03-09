@@ -1,5 +1,17 @@
 # Delta Design
 
+## Status Note (2026-03-07)
+
+This document still uses the older `delta_value` terminology in places.
+
+The updated runtime-storage direction is:
+
+- delta bookkeeping lives inside the per-level runtime-state node described in `03_TIME_SERIES.md`
+- `DeltaView` remains the user/runtime access surface for "what changed"
+- `DeltaValue` remains the persistent materialized form when a delta must outlive the tick
+
+So the delta APIs remain relevant, but the runtime bookkeeping that feeds them is no longer a separate persistent delta tree.
+
 ## Overview
 
 Delta tracking provides efficient access to changes. The design supports **two forms of delta**:

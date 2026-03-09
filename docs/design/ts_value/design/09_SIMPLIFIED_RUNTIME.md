@@ -31,13 +31,10 @@ But it must do so with a smaller and more explicit model than the previous branc
 
 `TSValue` remains the owning runtime representation.
 
-It still owns parallel structures:
+It owns:
 
-- value
-- time
-- observer
-- delta
-- link
+- payload data, using the existing `Value/View` logic
+- one schema-shaped runtime state tree for everything else
 
 However:
 
@@ -47,6 +44,33 @@ However:
 
 This removes a major source of duplication and lifecycle complexity.
 
+### 1a. Collapsed runtime state tree
+
+The earlier design split runtime metadata across separate time, observer, delta, and link trees.
+
+The revised direction is to collapse those into one state tree:
+
+- one state node per time-series level
+- state-node shape determined by the schema kind at that level
+- payload data remains separate
+
+Conceptually:
+
+```cpp
+class TSValue {
+    Value data_value_;
+    Value state_value_;
+};
+```
+
+Where `state_value_` recursively contains:
+
+- modification time
+- observers
+- binding state
+- delta state when needed
+- child state nodes when the schema has children
+
 ### 2. Core runtime state must be explicit
 
 The core runtime must not hide behavior inside generic "fallback" logic.
@@ -54,7 +78,7 @@ The core runtime must not hide behavior inside generic "fallback" logic.
 If a behavior needs state, it must be modeled directly as one of:
 
 - endpoint state
-- link state
+- binding state
 - adapter state
 - node-local state
 
@@ -117,11 +141,8 @@ If a Python-visible behavior is required, it must be represented as an explicit 
 ```mermaid
 classDiagram
     class TSValue {
-        +value_
-        +time_
-        +observer_
-        +delta_
-        +link_
+        +data_value_
+        +state_value_
     }
 
     class TSView {
@@ -185,8 +206,8 @@ Retain:
 
 Simplify:
 
-- reduce link state to the minimum necessary for rebinding and notification
-- separate structural state from semantic state
+- treat binding as part of the per-level runtime state
+- reduce binding state to the minimum necessary for rebinding and notification
 - define peered vs un-peered as an explicit input binding mode, not as emergent behavior scattered across bind helpers
 
 Avoid:
@@ -228,6 +249,17 @@ Avoid:
 
 - maintaining many mirrored `TSValue` trees per output
 - generic alternative sync machinery unless a concrete adapter requires it
+
+### Runtime state layout
+
+The intended runtime split is now:
+
+1. `Value/View` for payload
+2. `TSState` for runtime metadata
+3. endpoint-local state for activation and scheduling
+4. node-local state for operator-specific retained behavior
+
+This is the main simplification move. It keeps the data model familiar while making runtime metadata explicit and inspectable.
 
 ### Nested graphs
 

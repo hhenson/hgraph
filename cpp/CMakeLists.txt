@@ -134,6 +134,11 @@ else ()
     message(STATUS "Found fmt via Conan/system: ${fmt_DIR}")
 endif ()
 
+set(HGRAPH_FMT_TARGET fmt::fmt)
+if (TARGET fmt::fmt-header-only)
+    set(HGRAPH_FMT_TARGET fmt::fmt-header-only)
+endif ()
+
 # sul::dynamic_bitset - header-only library for dynamic bitsets (used by KeySet)
 find_package(dynamic_bitset CONFIG QUIET)
 if (NOT dynamic_bitset_FOUND)
@@ -311,6 +316,15 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/ref.h
         include/hgraph/types/scalar_types.h
         include/hgraph/types/schema_type.h
+        include/hgraph/types/time_series/time_series_state.h
+        include/hgraph/types/time_series/ts_input.h
+        include/hgraph/types/time_series/ts_input_view.h
+        include/hgraph/types/time_series/ts_meta.h
+        include/hgraph/types/time_series/ts_output.h
+        include/hgraph/types/time_series/ts_output_view.h
+        include/hgraph/types/time_series/ts_type_registry.h
+        include/hgraph/types/time_series/ts_value.h
+        include/hgraph/types/time_series/ts_view.h
         include/hgraph/types/time_series_type.h
         include/hgraph/types/traits.h
         include/hgraph/types/ts.h
