@@ -26,7 +26,7 @@ namespace hgraph {
  * `TargetLinkState`, rather than by taking ownership of duplicated output leaf
  * storage.
  */
-struct HGRAPH_EXPORT TSOutput {
+struct HGRAPH_EXPORT TSOutput : TSValue {
     /**
      * Construct an output endpoint.
      *
@@ -37,11 +37,33 @@ struct HGRAPH_EXPORT TSOutput {
 
     [[nodiscard]] TSOutputView view();
 
-private:
-    [[nodiscard]] TimeSeriesStatePtr state_ptr() noexcept;
+    /**
+     * Return the registered alternative representations for this output.
+     */
+    [[nodiscard]] const std::unordered_map<const TSMeta *, TSValue> &alternatives() const noexcept { return m_alternatives; }
 
-    TimeSeriesStateV state;
-    TSValue value_storage;
+    /**
+     * Locate an existing alternative representation for the supplied schema.
+     */
+    [[nodiscard]] TSValue *find_alternative(const TSMeta *schema) noexcept;
+
+    /**
+     * Locate an existing alternative representation for the supplied schema.
+     */
+    [[nodiscard]] const TSValue *find_alternative(const TSMeta *schema) const noexcept;
+
+    /**
+     * Create or return the alternative representation for the supplied schema.
+     */
+    [[nodiscard]] TSValue &ensure_alternative(const TSMeta *schema);
+
+    /**
+     * Remove any alternative representation for the supplied schema.
+     */
+    void remove_alternative(const TSMeta *schema) noexcept;
+
+private:
+    std::unordered_map<const TSMeta *, TSValue> m_alternatives;
 };
 
 }  // namespace hgraph
