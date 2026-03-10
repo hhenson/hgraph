@@ -4,8 +4,14 @@
 
 namespace hgraph
 {
-    TSInputView::TSInputView(value::ValueView active_state, TimeSeriesStatePtr state) noexcept :
-        m_active_state(active_state), m_state(state)
+    TSInputView::TSInputView(value::ValueView active_state, TimeSeriesStatePtr state,
+                             Notifiable *scheduling_notifier) noexcept :
+        m_active_state(active_state), m_state(state), m_scheduling_notifier(scheduling_notifier)
+    {}
+
+    TSInputCollectionView::TSInputCollectionView(value::ValueView active_state, TimeSeriesStatePtr state,
+                                                 Notifiable *scheduling_notifier) noexcept :
+        TSInputView(active_state, state, scheduling_notifier)
     {}
 
     void TSInputView::make_active() noexcept
