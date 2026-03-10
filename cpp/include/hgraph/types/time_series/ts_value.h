@@ -45,6 +45,7 @@ struct HGRAPH_EXPORT TSValue {
      */
     TSValue() = default;
 
+protected:
     /**
      * Return the logical time-series schema satisfied by this storage.
      */
@@ -72,7 +73,7 @@ struct HGRAPH_EXPORT TSValue {
             m_state);
     }
 
-protected:
+private:
     /**
      * Owning value payload whose shape is governed by `m_schema`.
      */
