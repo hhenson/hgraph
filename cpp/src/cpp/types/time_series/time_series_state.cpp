@@ -5,6 +5,14 @@
 
 namespace hgraph
 {
+    void BaseState::subscribe(Notifiable *subscriber) noexcept {
+        if (subscriber != nullptr) { subscribers.insert(subscriber); }
+    }
+
+    void BaseState::unsubscribe(Notifiable *subscriber) noexcept {
+        if (subscriber != nullptr) { subscribers.erase(subscriber); }
+    }
+
     void BaseState::mark_modified(engine_time_t modified_time) noexcept {
         last_modified_time = modified_time;
 
@@ -80,7 +88,7 @@ namespace hgraph
     void TargetLinkState::register_with_target() noexcept {
         std::visit(
             [this](auto *ptr) {
-                if (ptr != nullptr) { ptr->subscribers.insert(&target_notifiable); }
+                if (ptr != nullptr) { ptr->subscribe(&target_notifiable); }
             },
             target);
     }
@@ -88,7 +96,7 @@ namespace hgraph
     void TargetLinkState::unregister_from_target() noexcept {
         std::visit(
             [this](auto *ptr) {
-                if (ptr != nullptr) { ptr->subscribers.erase(&target_notifiable); }
+                if (ptr != nullptr) { ptr->unsubscribe(&target_notifiable); }
             },
             target);
     }

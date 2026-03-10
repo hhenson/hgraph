@@ -61,6 +61,18 @@ namespace hgraph
         std::unordered_set<Notifiable *> subscribers;
 
         /**
+         * Register a subscriber for direct modification notifications from
+         * this state node.
+         */
+        void subscribe(Notifiable *subscriber) noexcept;
+
+        /**
+         * Remove a subscriber from direct modification notifications from
+         * this state node.
+         */
+        void unsubscribe(Notifiable *subscriber) noexcept;
+
+        /**
          * Mark this state as modified for the supplied engine time, notify any
          * direct subscribers, and propagate that change to its parent.
          *
