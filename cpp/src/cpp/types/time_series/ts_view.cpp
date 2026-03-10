@@ -25,7 +25,7 @@ const ts_ops* resolve_kind_ops(const ViewData& view_data) {
     if (view_data.ops != nullptr) {
         return view_data.ops;
     }
-    return get_ts_ops(ts_view_meta_at_path(view_data.meta, view_data.path.indices));
+    return get_ts_ops(view_data.meta);
 }
 
 const ts_window_ops* resolve_window_ops(const ViewData& view_data) {
@@ -169,7 +169,7 @@ value::View resolve_local_navigation_value(const ViewData& view_data) {
     };
 
     value::View current = value_root->view();
-    for (size_t index : view_data.path.indices) {
+    for (size_t index : view_data.path_indices()) {
         auto next = child_value_by_index(current, index);
         if (!next.has_value()) {
             return {};
@@ -203,13 +203,20 @@ std::optional<size_t> map_slot_for_key(const value::View& map_view, const value:
 
 TSView child_at_impl(const ViewData& view_data, size_t index, const engine_time_t* engine_time_ptr) {
     ViewData child = view_data;
-    child.path.indices.push_back(index);
-    child.ops = get_ts_ops(ts_view_meta_at_path(child.meta, child.path.indices));
+    child.path = PathHandle(PathNode::make_child(view_data.path.get(), index));
+    // Resolve child level entry from parent
+    if (view_data.level != nullptr) {
+        child.level = view_data.level->ensure_child(index);
+        child.level_depth = view_data.level_depth + 1;
+    }
+    // Step meta to child level (root_meta inherited from parent via copy)
+    child.meta = dispatch_meta_child(view_data.meta, index);
+    child.ops = get_ts_ops(child.meta);
     return TSView(child, engine_time_ptr);
 }
 
 TSView child_by_name_impl(const ViewData& view_data, std::string_view name, const engine_time_t* engine_time_ptr) {
-    const TSMeta* current = ts_view_meta_at_path(view_data.meta, view_data.path.indices);
+    const TSMeta* current = view_data.meta;
     if (current == nullptr || current->kind != TSKind::TSB || current->fields() == nullptr) {
         return {};
     }
@@ -223,7 +230,7 @@ TSView child_by_name_impl(const ViewData& view_data, std::string_view name, cons
 }
 
 std::optional<size_t> bundle_index_of_impl(const ViewData& view_data, std::string_view name) {
-    const TSMeta* current = ts_view_meta_at_path(view_data.meta, view_data.path.indices);
+    const TSMeta* current = view_data.meta;
     if (current == nullptr || current->kind != TSKind::TSB || current->fields() == nullptr) {
         return std::nullopt;
     }
@@ -238,7 +245,7 @@ std::optional<size_t> bundle_index_of_impl(const ViewData& view_data, std::strin
 }
 
 std::string_view bundle_name_at_impl(const ViewData& view_data, size_t index) {
-    const TSMeta* current = ts_view_meta_at_path(view_data.meta, view_data.path.indices);
+    const TSMeta* current = view_data.meta;
     if (current == nullptr || current->kind != TSKind::TSB || current->fields() == nullptr || index >= current->field_count()) {
         return {};
     }
@@ -1302,7 +1309,7 @@ bool tsd_key_set_delta_cache_matches(const TsdKeySetDeltaCacheEntry& cache,
            cache.delta_data == view_data.delta_data &&
            cache.observer_data == view_data.observer_data &&
            cache.link_data == view_data.link_data &&
-           cache.path == view_data.path.indices &&
+           cache.path == view_data.path_indices() &&
            cache.key_type_meta == key_type_meta &&
            cache.evaluation_time == evaluation_time;
 }
@@ -1320,7 +1327,7 @@ const value::TypeMeta* tsd_key_set_key_type_meta_for_view(const TSView& view) {
         if (!resolve_tsd_key_set_source(view.view_data(), source)) {
             return nullptr;
         }
-        const TSMeta* source_meta = meta_at_path(source.meta, source.path.indices);
+        const TSMeta* source_meta = source.meta;
         if (source_meta == nullptr || source_meta->kind != TSKind::TSD) {
             return nullptr;
         }
@@ -1496,7 +1503,7 @@ void populate_tsd_key_set_delta_cache(TsdKeySetDeltaCacheEntry& cache, const TSV
     cache.delta_data = view_data.delta_data;
     cache.observer_data = view_data.observer_data;
     cache.link_data = view_data.link_data;
-    cache.path = view_data.path.indices;
+    cache.path = view_data.path_indices();
     cache.key_type_meta = key_type_meta;
 
     std::unordered_set<value::View> seen_added;
@@ -1529,7 +1536,7 @@ void populate_tsd_key_set_delta_cache(TsdKeySetDeltaCacheEntry& cache, const TSV
                     seen_added,
                     seen_removed);
             }
-        } else if (LinkTarget* link_target = resolve_link_target(view_data, view_data.path.indices);
+        } else if (LinkTarget* link_target = resolve_link_target(view_data, view_data.path_indices());
                    is_first_bind_rebind_tick(link_target, current_time)) {
             append_tsd_key_set_all_added_from_source(
                 key_set_source,
@@ -2060,7 +2067,7 @@ TSView child_by_key_impl(const ViewData& view_data, const value::View& key, cons
             std::string key_s = nb::cast<std::string>(nb::repr(key.to_python()));
             std::fprintf(stderr,
                          "[child_by_key] path=%s key=%s map_size=%zu slot=%zu\n",
-                         view_data.path.to_string().c_str(),
+                         view_data.to_short_path().to_string().c_str(),
                          key_s.c_str(),
                          v.as_map().size(),
                          *slot);
@@ -2078,7 +2085,7 @@ TSView child_by_key_impl(const ViewData& view_data, const value::View& key, cons
 }
 
 size_t child_count_impl(const ViewData& view_data) {
-    const TSMeta* current = ts_view_meta_at_path(view_data.meta, view_data.path.indices);
+    const TSMeta* current = view_data.meta;
     if (current == nullptr) {
         return 0;
     }

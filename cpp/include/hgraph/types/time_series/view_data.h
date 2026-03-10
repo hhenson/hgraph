@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/ts_level_entry.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/value/path.h>
 
@@ -90,7 +91,7 @@ struct FQPath {
 };
 
 /**
- * Runtime path representation.
+ * Runtime path representation (used for FQ path construction and debugging).
  */
 struct ShortPath {
     node_ptr node{nullptr};
@@ -103,13 +104,141 @@ struct ShortPath {
     [[nodiscard]] std::string to_string() const;
 };
 
+// ---------------------------------------------------------------------------
+// PathNode — intrusive ref-counted linked list for cheap TSView copies
+// ---------------------------------------------------------------------------
+
+/**
+ * Each node in the path chain stores one index level. Root nodes carry
+ * the owning node pointer and port type; children cache their depth for
+ * O(1) access. Copies are a single ref_count increment.
+ */
+struct PathNode {
+    PathNode* parent{nullptr};
+    size_t index{0};          // port_index for root, child index for others
+    uint32_t ref_count{1};
+
+    union {
+        struct {              // root (parent == nullptr)
+            node_ptr node;
+            PortType port_type;
+            bool     sentinel;   // true when root has no indices (depth 0)
+        } root_data;
+        struct {              // child (parent != nullptr)
+            uint16_t depth;   // distance from root (root sentinel=0: first child=1; root sentinel=false: first child=2)
+        } child_data;
+    };
+
+    void retain() noexcept { ++ref_count; }
+    void release() noexcept {
+        if (--ref_count == 0) {
+            if (parent) parent->release();
+            delete this;
+        }
+    }
+
+    [[nodiscard]] bool is_root() const noexcept { return parent == nullptr; }
+
+    [[nodiscard]] uint16_t depth() const noexcept {
+        if (is_root()) return root_data.sentinel ? 0 : 1;
+        return child_data.depth;
+    }
+
+    [[nodiscard]] std::vector<size_t> collect_indices() const {
+        const uint16_t d = depth();
+        if (d == 0) return {};
+        std::vector<size_t> result(d);
+        size_t i = d;
+        for (const PathNode* n = this; n && i > 0; n = n->parent)
+            result[--i] = n->index;
+        return result;
+    }
+
+    [[nodiscard]] const PathNode* root() const noexcept {
+        const PathNode* n = this;
+        while (n->parent) n = n->parent;
+        return n;
+    }
+
+    [[nodiscard]] node_ptr owner_node() const noexcept { return root()->root_data.node; }
+    [[nodiscard]] PortType port_type() const noexcept { return root()->root_data.port_type; }
+
+    static PathNode* make_child(PathNode* parent, size_t child_index) {
+        auto* n = new PathNode{};
+        n->parent = parent;
+        n->index = child_index;
+        n->ref_count = 1;
+        n->child_data.depth = parent ? static_cast<uint16_t>(parent->depth() + 1) : 1;
+        if (parent) parent->retain();
+        return n;
+    }
+
+    static PathNode* make_root(node_ptr node, PortType pt, size_t port_index, bool sentinel = false) {
+        auto* n = new PathNode{};
+        n->parent = nullptr;
+        n->index = port_index;
+        n->ref_count = 1;
+        n->root_data.node = node;
+        n->root_data.port_type = pt;
+        n->root_data.sentinel = sentinel;
+        return n;
+    }
+};
+
+/**
+ * RAII handle for PathNode ref counting.
+ */
+struct PathHandle {
+    PathNode* node{nullptr};
+
+    PathHandle() = default;
+    explicit PathHandle(PathNode* n) noexcept : node(n) {}
+    PathHandle(const PathHandle& o) noexcept : node(o.node) { if (node) node->retain(); }
+    PathHandle(PathHandle&& o) noexcept : node(o.node) { o.node = nullptr; }
+    PathHandle& operator=(const PathHandle& o) noexcept {
+        if (this != &o) { if (node) node->release(); node = o.node; if (node) node->retain(); }
+        return *this;
+    }
+    PathHandle& operator=(PathHandle&& o) noexcept {
+        if (this != &o) { if (node) node->release(); node = o.node; o.node = nullptr; }
+        return *this;
+    }
+    ~PathHandle() { if (node) node->release(); }
+
+    explicit operator bool() const noexcept { return node != nullptr; }
+    PathNode* operator->() const noexcept { return node; }
+    PathNode* get() const noexcept { return node; }
+};
+
+// ---------------------------------------------------------------------------
+// PathHandle factory helpers — build from ShortPath or indices
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a PathHandle chain from a ShortPath. Used at endpoint boundaries
+ * (TSOutput::view, TSInput::view, TSValue::make_view_data) where a ShortPath
+ * is constructed once and converted to the cheap ref-counted representation.
+ */
+inline PathHandle path_handle_from_short_path(const ShortPath& sp) {
+    if (sp.indices.empty()) {
+        // Sentinel root: carries node/port_type but depth() == 0, collect_indices() == {}
+        return PathHandle(PathNode::make_root(sp.node, sp.port_type, 0, /*sentinel=*/true));
+    }
+    // First index becomes the root
+    PathHandle handle(PathNode::make_root(sp.node, sp.port_type, sp.indices[0]));
+    for (size_t i = 1; i < sp.indices.size(); ++i) {
+        handle = PathHandle(PathNode::make_child(handle.get(), sp.indices[i]));
+    }
+    return handle;
+}
+
 /**
  * Shared data contract for TS views.
  *
  * This matches the locked full contract: path + five storage pointers + flags + ops/meta.
  */
 struct ViewData {
-    ShortPath path;
+    PathHandle path;
     const engine_time_t* engine_time_ptr{nullptr};
 
     void* value_data{nullptr};
@@ -117,6 +246,9 @@ struct ViewData {
     void* observer_data{nullptr};
     void* delta_data{nullptr};
     void* link_data{nullptr};
+    TSLevelEntry* level{nullptr};
+    TSLevelEntry* root_level{nullptr};  // root of the level tree (for re-navigation)
+    uint16_t level_depth{0};            // depth of level pointer relative to TSValue root
     void* python_value_cache_data{nullptr};
     void* python_value_cache_slot{nullptr};
     TSLinkObserverRegistry* link_observer_registry{nullptr};
@@ -127,7 +259,8 @@ struct ViewData {
     DeltaSemantics delta_semantics{DeltaSemantics::Strict};
 
     const ts_ops* ops{nullptr};
-    const TSMeta* meta{nullptr};
+    const TSMeta* meta{nullptr};       // resolved meta for THIS level (not root)
+    const TSMeta* root_meta{nullptr};  // root TSMeta (for ancestor navigation)
 
     [[nodiscard]] bool is_null() const {
         return value_data == nullptr && time_data == nullptr && observer_data == nullptr &&
@@ -136,6 +269,21 @@ struct ViewData {
 
     [[nodiscard]] LinkTarget* as_link_target() const;
     [[nodiscard]] REFLink* as_ref_link() const;
+
+    // --- Path convenience accessors ---
+
+    [[nodiscard]] ShortPath to_short_path() const;
+
+    /// Build an FQPath from the PathNode chain, using root_meta for field name resolution.
+    [[nodiscard]] FQPath to_fq_path() const;
+
+    [[nodiscard]] std::vector<size_t> path_indices() const {
+        return path ? path->collect_indices() : std::vector<size_t>{};
+    }
+    [[nodiscard]] size_t path_depth() const noexcept { return path ? path->depth() : 0; }
+    [[nodiscard]] size_t last_index() const noexcept { return path ? path->index : 0; }
+    [[nodiscard]] node_ptr owner_node() const noexcept { return path ? path->owner_node() : nullptr; }
+    [[nodiscard]] PortType port_type() const noexcept { return path ? path->port_type() : PortType::OUTPUT; }
 };
 
 /**

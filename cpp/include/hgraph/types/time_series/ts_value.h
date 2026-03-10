@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/python_value_cache.h>
+#include <hgraph/types/time_series/ts_level_entry.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/value/value.h>
@@ -69,6 +70,7 @@ private:
     value::Value observer_;
     value::Value delta_value_;
     value::Value link_;
+    mutable TSLevelEntry root_level_{};
     mutable PythonValueCacheNode python_value_cache_{};
 
     const TSMeta* meta_{nullptr};

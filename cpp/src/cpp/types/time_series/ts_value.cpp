@@ -6,6 +6,9 @@
 
 namespace hgraph {
 
+// Defined in path_meta_utils.cpp — tags delta kinds on the level tree (no allocation).
+void tag_level_delta_kinds(TSLevelEntry& level, const TSMeta* meta);
+
 namespace {
 
 value::View to_const_view_or_empty(const value::Value& value) {
@@ -121,6 +124,10 @@ void TSValue::initialize(const TSMeta* meta, const value::TypeMeta* link_schema,
         link_ = value::Value(resolved_link_schema);
         link_.emplace();
     }
+
+    // Tag delta kinds on the level tree (no allocation — just sets delta_kind).
+    // Actual LevelDelta storage is created lazily via ensure_level_delta().
+    tag_level_delta_kinds(root_level_, meta_);
 }
 
 value::View TSValue::value_view() const {
@@ -203,20 +210,23 @@ bool TSValue::has_delta() const {
 
 ViewData TSValue::make_view_data(ShortPath path, const engine_time_t* engine_time_ptr) const {
     ViewData vd;
-    vd.path = std::move(path);
+    vd.path = path_handle_from_short_path(path);
     vd.engine_time_ptr = engine_time_ptr;
     vd.value_data = value_.schema() != nullptr ? const_cast<value::Value*>(&value_) : nullptr;
     vd.time_data = time_.schema() != nullptr ? const_cast<value::Value*>(&time_) : nullptr;
     vd.observer_data = observer_.schema() != nullptr ? const_cast<value::Value*>(&observer_) : nullptr;
     vd.delta_data = delta_value_.schema() != nullptr ? const_cast<value::Value*>(&delta_value_) : nullptr;
     vd.link_data = link_.schema() != nullptr ? const_cast<value::Value*>(&link_) : nullptr;
+    vd.level = const_cast<TSLevelEntry*>(&root_level_);
+    vd.root_level = vd.level;
     vd.python_value_cache_data = const_cast<PythonValueCacheNode*>(&python_value_cache_);
     vd.python_value_cache_slot = nullptr;
     vd.link_observer_registry = link_observer_registry_;
     vd.sampled = false;
     vd.uses_link_target = uses_link_target_;
-    vd.ops = get_ts_ops(meta_at_path(meta_, vd.path.indices));
-    vd.meta = meta_;
+    vd.root_meta = meta_;
+    vd.meta = meta_at_path(meta_, path.indices);
+    vd.ops = get_ts_ops(vd.meta);
 
     debug_assert_view_data_consistency(vd);
     return vd;

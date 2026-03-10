@@ -105,8 +105,7 @@ void op_from_python_tsd_ref_impl(ViewData& vd,
             Value canonical_key_value = canonical_map_key_for_slot(dst_map, *removed_slot);
             const View canonical_key = canonical_key_value.view();
             bool removed_was_visible = false;
-            ViewData child_vd = vd;
-            child_vd.path.indices.push_back(*removed_slot);
+            ViewData child_vd = make_child_view_data(vd, *removed_slot);
             removed_was_visible = tsd_child_was_visible_before_removal(child_vd);
             record_tsd_removed_child_snapshot(vd, canonical_key, child_vd, current_time);
 
@@ -158,6 +157,7 @@ void op_from_python_tsd_ref_impl(ViewData& vd,
                     if (slot.has_value()) {
                         Value canonical_key_value = canonical_map_key_for_slot(dst_map, *slot);
                         const View canonical_key = canonical_key_value.view();
+                        // Level entry creation deferred to dict_ops callers.
                         ensure_tsd_child_time_slot(vd, *slot);
                         ensure_tsd_child_delta_slot(vd, *slot);
                         ensure_tsd_child_link_slot(vd, *slot);
@@ -197,8 +197,7 @@ void op_from_python_tsd_ref_impl(ViewData& vd,
         ensure_tsd_child_time_slot(vd, *slot);
         ensure_tsd_child_link_slot(vd, *slot);
 
-        ViewData child_vd = vd;
-        child_vd.path.indices.push_back(*slot);
+        ViewData child_vd = make_child_view_data(vd, *slot);
         stamp_time_paths(child_vd, current_time);
         seed_python_value_cache_slot(child_vd, value_value.view().to_python());
 
@@ -219,8 +218,7 @@ void op_from_python_tsd_ref_impl(ViewData& vd,
     auto current_value = resolve_value_slot_const(vd);
     if (current_value.has_value() && current_value->valid() && current_value->is_map()) {
         for_each_map_key_slot(current_value->as_map(), [&](View key, size_t slot) {
-            ViewData child_vd = vd;
-            child_vd.path.indices.push_back(slot);
+            ViewData child_vd = make_child_view_data(vd, slot);
             ViewData target_vd{};
             const bool target_modified =
                 resolve_bound_target_view_data(child_vd, target_vd) && op_modified(target_vd, current_time);
@@ -249,8 +247,7 @@ void op_from_python_tsd_ref_impl(ViewData& vd,
                 std::unique(directly_mutated_slots.begin(), directly_mutated_slots.end()),
                 directly_mutated_slots.end());
             for (size_t slot : directly_mutated_slots) {
-                ViewData child_vd = vd;
-                child_vd.path.indices.push_back(slot);
+                ViewData child_vd = make_child_view_data(vd, slot);
                 invalidate_python_value_cache(child_vd);
             }
         }
@@ -269,7 +266,7 @@ void op_from_python_tsd_ref_impl(ViewData& vd,
 }  // namespace
 
 void op_from_python_tsd_ref(ViewData& vd, const nb::object& src, engine_time_t current_time) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (current == nullptr) {
         return;
     }

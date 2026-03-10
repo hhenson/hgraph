@@ -3,7 +3,7 @@
 namespace hgraph {
 
 void op_from_python_tss(ViewData& vd, const nb::object& src, engine_time_t current_time) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (current == nullptr) {
         return;
     }

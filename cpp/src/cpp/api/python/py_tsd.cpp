@@ -354,7 +354,7 @@ namespace
                 auto* value_root = static_cast<const value::Value*>(vd.value_data);
                 if (value_root != nullptr && value_root->has_value()) {
                     local_nav = value_root->view();
-                    for (size_t index : vd.path.indices) {
+                    for (size_t index : vd.path_indices()) {
                         if (!local_nav.valid() || !local_nav.is_tuple()) {
                             local_nav = {};
                             break;

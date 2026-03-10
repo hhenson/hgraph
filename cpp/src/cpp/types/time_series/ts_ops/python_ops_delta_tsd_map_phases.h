@@ -123,7 +123,7 @@ void tsd_emit_removed_phase(const ViewData& vd,
                     if (debug_tsd_delta) {
                         std::fprintf(stderr,
                                      "[tsd_delta_dbg] remove_probe path=%s key=%s has_added=%d in_added=%d in_removed=%d in_changed=%d seen_visible=%d\n",
-                                     vd.path.to_string().c_str(),
+                                     vd.to_short_path().to_string().c_str(),
                                      key.to_string().c_str(),
                                      has_added_set ? 1 : 0,
                                      in_added_set ? 1 : 0,
@@ -140,7 +140,7 @@ void tsd_emit_removed_phase(const ViewData& vd,
                         if (debug_tsd_delta) {
                             std::fprintf(stderr,
                                          "[tsd_delta_dbg] remove_skip_structural_unseen path=%s key=%s\n",
-                                         vd.path.to_string().c_str(),
+                                         vd.to_short_path().to_string().c_str(),
                                          key.to_string().c_str());
                         }
                         continue;
@@ -153,7 +153,7 @@ void tsd_emit_removed_phase(const ViewData& vd,
                         if (debug_tsd_delta) {
                             std::fprintf(stderr,
                                          "[tsd_delta_dbg] remove_skip_added_removed path=%s key=%s\n",
-                                         vd.path.to_string().c_str(),
+                                         vd.to_short_path().to_string().c_str(),
                                          key.to_string().c_str());
                         }
                         continue;
@@ -163,7 +163,7 @@ void tsd_emit_removed_phase(const ViewData& vd,
                             if (debug_tsd_delta) {
                                 std::fprintf(stderr,
                                              "[tsd_delta_dbg] remove_emit_added_prev_present path=%s key=%s\n",
-                                             vd.path.to_string().c_str(),
+                                             vd.to_short_path().to_string().c_str(),
                                              key.to_string().c_str());
                             }
                             delta_out[key.to_python()] = remove;
@@ -173,7 +173,7 @@ void tsd_emit_removed_phase(const ViewData& vd,
                             if (debug_tsd_delta) {
                                 std::fprintf(stderr,
                                              "[tsd_delta_dbg] remove_emit_prev_present path=%s key=%s\n",
-                                             vd.path.to_string().c_str(),
+                                             vd.to_short_path().to_string().c_str(),
                                              key.to_string().c_str());
                             }
                             delta_out[key.to_python()] = remove;
@@ -189,7 +189,7 @@ void tsd_emit_removed_phase(const ViewData& vd,
                                 if (debug_tsd_delta) {
                                     std::fprintf(stderr,
                                                  "[tsd_delta_dbg] remove_emit_ref_link_target path=%s key=%s snapshot_visible=%d target_written=%d seen_visible=%d\n",
-                                                 vd.path.to_string().c_str(),
+                                                 vd.to_short_path().to_string().c_str(),
                                                  key.to_string().c_str(),
                                                  visible_in_snapshot ? 1 : 0,
                                                  target_written ? 1 : 0,
@@ -201,7 +201,7 @@ void tsd_emit_removed_phase(const ViewData& vd,
                             if (debug_tsd_delta) {
                                 std::fprintf(stderr,
                                              "[tsd_delta_dbg] remove_skip_ref_link_target_invisible path=%s key=%s\n",
-                                             vd.path.to_string().c_str(),
+                                             vd.to_short_path().to_string().c_str(),
                                              key.to_string().c_str());
                             }
                         }
@@ -209,7 +209,7 @@ void tsd_emit_removed_phase(const ViewData& vd,
                             if (debug_tsd_delta) {
                                 std::fprintf(stderr,
                                              "[tsd_delta_dbg] remove_emit_container_ref path=%s key=%s\n",
-                                             vd.path.to_string().c_str(),
+                                             vd.to_short_path().to_string().c_str(),
                                              key.to_string().c_str());
                             }
                             delta_out[key.to_python()] = remove;
@@ -218,7 +218,7 @@ void tsd_emit_removed_phase(const ViewData& vd,
                         if (debug_tsd_delta) {
                             std::fprintf(stderr,
                                          "[tsd_delta_dbg] remove_skip_not_visible path=%s key=%s\n",
-                                         vd.path.to_string().c_str(),
+                                         vd.to_short_path().to_string().c_str(),
                                          key.to_string().c_str());
                         }
                         continue;
@@ -226,7 +226,7 @@ void tsd_emit_removed_phase(const ViewData& vd,
                     if (debug_tsd_delta) {
                         std::fprintf(stderr,
                                      "[tsd_delta_dbg] remove_emit path=%s key=%s\n",
-                                     vd.path.to_string().c_str(),
+                                     vd.to_short_path().to_string().c_str(),
                                      key.to_string().c_str());
                     }
                     delta_out[key.to_python()] = remove;
@@ -310,7 +310,7 @@ void tsd_emit_phase(const ViewData& vd,
                         if (debug_changed_map) {
                             std::fprintf(stderr,
                                          "[tsd_changed_map] path=%s key=%s slot=<none>\n",
-                                         vd.path.to_string().c_str(),
+                                         vd.to_short_path().to_string().c_str(),
                                          key.to_string().c_str());
                         }
                         return;
@@ -319,8 +319,7 @@ void tsd_emit_phase(const ViewData& vd,
                     DeltaView changed_entry_delta = DeltaView::from_stored(changed_entry);
                     const bool changed_entry_has_delta = tsd_has_delta_payload(changed_entry_delta);
 
-                    ViewData child = *data;
-                    child.path.indices.push_back(*slot);
+                    ViewData child = make_child_view_data(*data, *slot);
                     bind_view_data_ops(child);
                     const TSMeta* child_meta = op_ts_meta(child);
                     const bool child_ref = child_is_ref(child);
@@ -351,7 +350,7 @@ void tsd_emit_phase(const ViewData& vd,
                             if (debug_changed_map) {
                                 std::fprintf(stderr,
                                              "[tsd_changed_map] path=%s key=%s slot=%zu child_kind=REF include_unmod=%d out_none=%d\n",
-                                             vd.path.to_string().c_str(),
+                                             vd.to_short_path().to_string().c_str(),
                                              key.to_string().c_str(),
                                              *slot,
                                              include_unmodified_ref_payload ? 1 : 0,
@@ -366,7 +365,7 @@ void tsd_emit_phase(const ViewData& vd,
                             if (debug_changed_map) {
                                 std::fprintf(stderr,
                                              "[tsd_changed_map] path=%s key=%s slot=%zu child_valid=0\n",
-                                             vd.path.to_string().c_str(),
+                                             vd.to_short_path().to_string().c_str(),
                                              key.to_string().c_str(),
                                              *slot);
                             }
@@ -389,7 +388,7 @@ void tsd_emit_phase(const ViewData& vd,
                         if (debug_changed_map) {
                             std::fprintf(stderr,
                                          "[tsd_changed_map] path=%s key=%s slot=%zu child_kind=%d include_unmod=%d out_none=%d\n",
-                                         vd.path.to_string().c_str(),
+                                         vd.to_short_path().to_string().c_str(),
                                          key.to_string().c_str(),
                                          *slot,
                                          child_meta != nullptr ? static_cast<int>(child_meta->kind) : -1,
@@ -427,7 +426,7 @@ void tsd_emit_phase(const ViewData& vd,
                                 !include_unmodified_ref_payload &&
                                 changed_entry_has_delta &&
                                 scalar_ref_target &&
-                                vd.path.port_type == PortType::INPUT &&
+                                vd.port_type() == PortType::INPUT &&
                                 !has_added_keys &&
                                 !has_removed_keys &&
                                 single_changed_key) {
@@ -544,7 +543,7 @@ void tsd_emit_phase(const ViewData& vd,
                         } catch (...) {}
                         std::fprintf(stderr,
                                      "[tsd_delta_dbg] value_entry path=%s key=%s slot=%zu valid=%d is_map=%d map_size=%zu value=%s\n",
-                                     data->path.to_string().c_str(),
+                                     data->to_short_path().to_string().c_str(),
                                      key_s.c_str(),
                                      slot,
                                      entry_valid ? 1 : 0,
@@ -552,8 +551,7 @@ void tsd_emit_phase(const ViewData& vd,
                                      entry_map_size,
                                      entry_s.c_str());
                     }
-                    ViewData child = *data;
-                    child.path.indices.push_back(slot);
+                    ViewData child = make_child_view_data(*data, slot);
                     child.sampled = false;
                     if (include_unmodified) {
                         bind_view_data_ops(child);
@@ -623,7 +621,7 @@ void tsd_emit_phase(const ViewData& vd,
                         } catch (...) {}
                         std::fprintf(stderr,
                                      "[tsd_delta_dbg] child_probe path=%s key=%s slot=%zu last=%lld now=%lld\n",
-                                     child.path.to_string().c_str(),
+                                     child.to_short_path().to_string().c_str(),
                                      key_s.c_str(),
                                      slot,
                                      static_cast<long long>(child_last.time_since_epoch().count()),
@@ -647,7 +645,7 @@ void tsd_emit_phase(const ViewData& vd,
                         } catch (...) {}
                         std::fprintf(stderr,
                                      "[tsd_delta_dbg] child_flags path=%s key=%s child_kind=%d in_added=%d in_removed=%d forced_changed=%d forced_add=%d rebound=%d\n",
-                                     child.path.to_string().c_str(),
+                                     child.to_short_path().to_string().c_str(),
                                      key_s.c_str(),
                                      child_meta != nullptr ? static_cast<int>(child_meta->kind) : -1,
                                      key_in_added_set(key) ? 1 : 0,
@@ -801,8 +799,7 @@ void tsd_emit_backfill_phase(const ViewData& /*vd*/,
                     if (!slot.has_value()) {
                         continue;
                     }
-                    ViewData child = *data;
-                    child.path.indices.push_back(*slot);
+                    ViewData child = make_child_view_data(*data, *slot);
                     bind_view_data_ops(child);
                     const TSMeta* child_meta = op_ts_meta(child);
                     const bool child_ref = child_is_ref(child);

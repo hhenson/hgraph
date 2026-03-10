@@ -21,11 +21,17 @@ bool op_set_add(ViewData& vd, const View& elem, engine_time_t current_time) {
     mark_tsd_parent_child_modified(vd, current_time);
 
     bool consumed_remove = false;
-    if (!vd.path.indices.empty()) {
+    if (vd.path_depth() > 0) {
         ViewData parent = vd;
-        const size_t child_slot = parent.path.indices.back();
-        parent.path.indices.pop_back();
-        const TSMeta* parent_meta = meta_at_path(parent.meta, parent.path.indices);
+        const size_t child_slot = parent.last_index();
+        if (parent.path.get() && parent.path.get()->parent) {
+            parent.path.get()->parent->retain();
+            parent.path = PathHandle(parent.path.get()->parent);
+        } else {
+            parent.path = PathHandle();
+        }
+        sync_level_to_path(parent);
+        const TSMeta* parent_meta = parent.meta;
         if (dispatch_meta_is_tsd(parent_meta)) {
             ensure_tsd_child_delta_slot(parent, child_slot);
         }
@@ -70,11 +76,17 @@ bool op_set_remove(ViewData& vd, const View& elem, engine_time_t current_time) {
     mark_tsd_parent_child_modified(vd, current_time);
 
     bool consumed_add = false;
-    if (!vd.path.indices.empty()) {
+    if (vd.path_depth() > 0) {
         ViewData parent = vd;
-        const size_t child_slot = parent.path.indices.back();
-        parent.path.indices.pop_back();
-        const TSMeta* parent_meta = meta_at_path(parent.meta, parent.path.indices);
+        const size_t child_slot = parent.last_index();
+        if (parent.path.get() && parent.path.get()->parent) {
+            parent.path.get()->parent->retain();
+            parent.path = PathHandle(parent.path.get()->parent);
+        } else {
+            parent.path = PathHandle();
+        }
+        sync_level_to_path(parent);
+        const TSMeta* parent_meta = parent.meta;
         if (dispatch_meta_is_tsd(parent_meta)) {
             ensure_tsd_child_delta_slot(parent, child_slot);
         }
@@ -120,11 +132,17 @@ void op_set_clear(ViewData& vd, engine_time_t current_time) {
 
     mark_tsd_parent_child_modified(vd, current_time);
 
-    if (!vd.path.indices.empty()) {
+    if (vd.path_depth() > 0) {
         ViewData parent = vd;
-        const size_t child_slot = parent.path.indices.back();
-        parent.path.indices.pop_back();
-        const TSMeta* parent_meta = meta_at_path(parent.meta, parent.path.indices);
+        const size_t child_slot = parent.last_index();
+        if (parent.path.get() && parent.path.get()->parent) {
+            parent.path.get()->parent->retain();
+            parent.path = PathHandle(parent.path.get()->parent);
+        } else {
+            parent.path = PathHandle();
+        }
+        sync_level_to_path(parent);
+        const TSMeta* parent_meta = parent.meta;
         if (dispatch_meta_is_tsd(parent_meta)) {
             ensure_tsd_child_delta_slot(parent, child_slot);
         }

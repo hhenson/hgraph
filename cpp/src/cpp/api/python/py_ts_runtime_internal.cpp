@@ -97,7 +97,7 @@ LinkPathMetaRole classify_link_path_meta_role(const TSMeta* meta) {
 }
 
 const engine_time_t* resolve_engine_time_ptr(const ViewData& vd) {
-    if (node_ptr owner = vd.path.node; owner != nullptr) {
+    if (node_ptr owner = vd.owner_node(); owner != nullptr) {
         if (graph_ptr g = owner->graph(); g != nullptr) {
             if (const engine_time_t* et = g->cached_evaluation_time_ptr(); et != nullptr) {
                 return et;
@@ -107,7 +107,7 @@ const engine_time_t* resolve_engine_time_ptr(const ViewData& vd) {
     if (vd.engine_time_ptr != nullptr) {
         return vd.engine_time_ptr;
     }
-    if (node_ptr owner = vd.path.node; owner != nullptr) {
+    if (node_ptr owner = vd.owner_node(); owner != nullptr) {
         if (const engine_time_t* et = owner->cached_evaluation_time_ptr(); et != nullptr) {
             return et;
         }
@@ -223,7 +223,7 @@ std::optional<View> resolve_link_payload(const TSView& ts_view) {
         return std::nullopt;
     }
 
-    const auto link_path = ts_path_to_link_path(vd.meta, vd.path.indices);
+    const auto link_path = ts_path_to_link_path(vd.root_meta != nullptr ? vd.root_meta : vd.meta, vd.path_indices());
     return navigate_const(link_root->view(), link_path);
 }
 
@@ -242,7 +242,7 @@ std::vector<size_t> linked_source_indices(const TSView& ts_view) {
     if (link == nullptr || !link->is_linked) {
         return {};
     }
-    return link->source.path.indices;
+    return link->source.path_indices();
 }
 
 std::vector<size_t> linked_target_indices(const TSView& ts_view) {
@@ -696,8 +696,11 @@ std::optional<value::Value> value_from_python(const value::TypeMeta* schema, con
 }
 
 bool view_data_identity_equals(const ViewData& lhs, const ViewData& rhs) {
-    return lhs.path.indices == rhs.path.indices &&
-           lhs.value_data == rhs.value_data &&
+    //TODO: Here is another example of being overly dillegent, it is not likely
+    //      that we get a partial match since each of these items are created for
+    //      the instance and they are pointer (data, etc.) so just one or two checks would be
+    //      sufficient
+    return lhs.value_data == rhs.value_data &&
            lhs.time_data == rhs.time_data &&
            lhs.observer_data == rhs.observer_data &&
            lhs.delta_data == rhs.delta_data &&
@@ -912,11 +915,11 @@ private:
             try {
                 key_repr = nb::cast<std::string>(nb::repr(key.to_python()));
             } catch (...) {}
-            std::string target_path = target_present ? target->path.to_string() : std::string{"<none>"};
-            std::string cached_path = state.cached_has_target ? state.cached_target.path.to_string() : std::string{"<none>"};
+            std::string target_path = target_present ? target->to_short_path().to_string() : std::string{"<none>"};
+            std::string cached_path = state.cached_has_target ? state.cached_target.to_short_path().to_string() : std::string{"<none>"};
             std::fprintf(stderr,
                          "[tsd_ref_update] source=%s key=%s now=%lld target_present=%d target=%s cached=%d cached_target=%s changed=%d\n",
-                         source_.path.to_string().c_str(),
+                         source_.to_short_path().to_string().c_str(),
                          key_repr.c_str(),
                          static_cast<long long>(current_time.time_since_epoch().count()),
                          target_present ? 1 : 0,
@@ -939,7 +942,7 @@ private:
             } catch (...) {}
             std::fprintf(stderr,
                          "[tsd_ref_update_applied] source=%s now=%lld out_path=%s out_valid=%d out_mod=%d out_lmt=%lld out=%s\n",
-                         source_.path.to_string().c_str(),
+                         source_.to_short_path().to_string().c_str(),
                          static_cast<long long>(current_time.time_since_epoch().count()),
                          out_view.short_path().to_string().c_str(),
                          out_view.valid() ? 1 : 0,
@@ -1189,7 +1192,7 @@ private:
         }
         TSView out = output_value->ts_view(engine_time_ptr_);
         value::Value bool_value(value);
-        out.set_value(bool_value.view());
+        out.set_value(static_cast<value::View>(bool_value.view()));
     }
 
     void update_contains_output(const value::View& key, ContainsOutputState& state) {
@@ -1229,16 +1232,11 @@ private:
 
 std::string tss_source_runtime_key_for(const TSOutputView& self) {
     const ViewData& vd = self.as_ts_view().view_data();
+    const auto indices = vd.path_indices();
     std::string key;
-    key.reserve(96 + vd.path.indices.size() * 12);
-    key.append("node:");
-    key.append(std::to_string(reinterpret_cast<uintptr_t>(vd.path.node)));
-    key.append("|port:");
-    key.append(std::to_string(static_cast<unsigned>(vd.path.port_type)));
-    key.append("|proj:");
-    key.append(std::to_string(static_cast<unsigned>(vd.projection)));
-    key.append("|path");
-    for (size_t index : vd.path.indices) {
+    key.reserve(4 + indices.size() * 8);
+    key.append("tss:");
+    for (size_t index : indices) {
         key.push_back('/');
         key.append(std::to_string(index));
     }
@@ -1246,7 +1244,16 @@ std::string tss_source_runtime_key_for(const TSOutputView& self) {
 }
 
 std::string tsd_ref_source_runtime_key_for(const TSOutputView& self) {
-    return std::string("tsd_ref:") + tss_source_runtime_key_for(self);
+    const ViewData& vd = self.as_ts_view().view_data();
+    const auto indices = vd.path_indices();
+    std::string key;
+    key.reserve(8 + indices.size() * 8);
+    key.append("tsd_ref:");
+    for (size_t index : indices) {
+        key.push_back('/');
+        key.append(std::to_string(index));
+    }
+    return key;
 }
 
 std::shared_ptr<TSSFeatureObserver> ensure_tss_feature_observer(const TSOutputView& self) {
@@ -1678,7 +1685,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("size", &TSView::size)
         .def("to_python", &TSView::to_python)
         .def("delta_to_python", &TSView::delta_to_python)
-        .def("set_value", &TSView::set_value, "value"_a)
+        .def("set_value", static_cast<void (TSView::*)(const value::View&)>(&TSView::set_value), "value"_a)
         .def("from_python", &TSView::from_python, "value"_a)
         .def("kind", &TSView::kind)
         .def("is_window", &TSView::is_window)
@@ -1830,7 +1837,7 @@ void ts_runtime_internal_register_with_nanobind(nb::module_& m) {
         .def("fq_path_str", [](const TSOutputView& self) { return self.fq_path().to_string(); })
         .def("fq_path_elements", [](const TSOutputView& self) { return fq_path_elements_to_python(self.fq_path()); })
         .def("short_indices", [](const TSOutputView& self) { return self.short_path().indices; })
-        .def("set_value", &TSOutputView::set_value, "value"_a)
+        .def("set_value", static_cast<void (TSOutputView::*)(const value::View&)>(&TSOutputView::set_value), "value"_a)
         .def("to_python", [](const TSOutputView& self) { return self.to_python(); })
         .def("delta_to_python", [](const TSOutputView& self) { return self.delta_to_python(); })
         .def("delta_value_direct_to_python", [](const TSOutputView& self) {

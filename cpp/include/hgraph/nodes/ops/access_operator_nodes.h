@@ -49,7 +49,7 @@ namespace hgraph {
 
                 value::Value empty_map(meta->value_type);
                 empty_map.emplace();
-                out.set_value(empty_map.view());
+                out.set_value(static_cast<value::View>(empty_map.view()));
             }
 
             inline bool python_equal(const nb::object& lhs, const nb::object& rhs) {

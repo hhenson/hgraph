@@ -125,7 +125,7 @@ const engine_time_t* resolve_bound_view_current_time_ptr(const ViewData& vd) {
     if (vd.engine_time_ptr != nullptr) {
         return vd.engine_time_ptr;
     }
-    node_ptr owner = vd.path.node;
+    node_ptr owner = vd.owner_node();
     if (owner == nullptr) {
         return nullptr;
     }
@@ -141,7 +141,7 @@ engine_time_t resolve_bound_view_current_time(const ViewData& vd) {
         return *et;
     }
 
-    node_ptr owner = vd.path.node;
+    node_ptr owner = vd.owner_node();
     if (owner == nullptr) {
         return MIN_DT;
     }

@@ -13,8 +13,9 @@
 namespace hgraph {
     namespace {
         bool view_data_equals(const ViewData &lhs, const ViewData &rhs) {
-            return lhs.path.indices == rhs.path.indices &&
-                   lhs.value_data == rhs.value_data &&
+            //TODO: Another dam eqals method. These are spotted throughout the code base and are all just
+            //      duplicates WOuld it not make sense to just put an equals operator onto the View/ViewData, etc.
+            return lhs.value_data == rhs.value_data &&
                    lhs.time_data == rhs.time_data &&
                    lhs.observer_data == rhs.observer_data &&
                    lhs.delta_data == rhs.delta_data &&

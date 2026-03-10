@@ -420,7 +420,21 @@ const ts_ops* get_ts_ops(const TSMeta* meta) {
 }
 
 const ts_ops* get_ts_ops(const ViewData& view) {
-    const TSMeta* meta = meta_at_path(view.meta, view.path.indices);
+    const TSMeta* meta = view.meta;
+    // Detect unresolved meta — should have been resolved at construction
+    if (meta != nullptr && !view.path_indices().empty()) {
+        const TSMeta* expected = meta_at_path(
+            view.root_meta != nullptr ? view.root_meta : meta,
+            view.path_indices());
+        if (expected != meta) {
+            std::fprintf(stderr,
+                "[get_ts_ops] UNRESOLVED meta: path=%s meta_kind=%d expected_kind=%d root_meta=%p\n",
+                view.to_short_path().to_string().c_str(),
+                meta != nullptr ? static_cast<int>(meta->kind) : -1,
+                expected != nullptr ? static_cast<int>(expected->kind) : -1,
+                static_cast<const void*>(view.root_meta));
+        }
+    }
     if (view.projection == ViewProjection::TSD_KEY_SET &&
         meta != nullptr &&
         dispatch_meta_is_tsd(meta)) {

@@ -214,22 +214,29 @@ private:
             return nullptr;
         }
 
-        if (vd.path.indices.empty()) {
+        const uint16_t d = vd.path_depth();
+        if (d == 0) {
             return root->delta_root_value();
         }
 
+        // Collect indices into a stack buffer by walking PathNode leaf→root.
+        // Depth is typically 1-4; 16 covers any realistic nesting.
+        size_t buf[16];
+        size_t i = d;
+        for (const PathNode* n = vd.path.get(); n && i > 0; n = n->parent)
+            buf[--i] = n->index;
+
         PythonValueCacheNode* node = root;
-        for (size_t depth = 0; depth < vd.path.indices.size(); ++depth) {
-            const size_t index = vd.path.indices[depth];
-            PythonDeltaCacheEntry* slot = node->delta_slot_value(index, create);
+        for (size_t depth = 0; depth < d; ++depth) {
+            PythonDeltaCacheEntry* slot = node->delta_slot_value(buf[depth], create);
             if (slot == nullptr) {
                 return nullptr;
             }
-            if (depth + 1 == vd.path.indices.size()) {
+            if (depth + 1 == d) {
                 return slot;
             }
 
-            node = node->child_node(index, create);
+            node = node->child_node(buf[depth], create);
             if (node == nullptr) {
                 return nullptr;
             }

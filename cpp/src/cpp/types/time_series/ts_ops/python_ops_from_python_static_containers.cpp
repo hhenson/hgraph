@@ -3,7 +3,15 @@
 namespace hgraph {
 
 void op_from_python_tsl(ViewData& vd, const nb::object& src, engine_time_t current_time) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    if (HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_FROM_PYTHON")) {
+        std::fprintf(stderr, "[from_py_tsl] path=%s depth=%zu level=%p level_depth=%u root_level=%p\n",
+                     vd.to_short_path().to_string().c_str(),
+                     vd.path_depth(),
+                     static_cast<void*>(vd.level),
+                     vd.level_depth,
+                     static_cast<void*>(vd.root_level));
+    }
+    const TSMeta* current = vd.meta;
     if (current == nullptr) {
         return;
     }
@@ -22,8 +30,7 @@ void op_from_python_tsl(ViewData& vd, const nb::object& src, engine_time_t curre
         if (current->fixed_size() > 0 && index >= child_count) {
             return;
         }
-        ViewData child_vd = vd;
-        child_vd.path.indices.push_back(index);
+        ViewData child_vd = make_child_view_data(vd, index);
         op_from_python(child_vd, child_obj, current_time);
         changed = changed || op_modified(child_vd, current_time);
     };
@@ -69,7 +76,7 @@ void op_from_python_tsl(ViewData& vd, const nb::object& src, engine_time_t curre
 }
 
 void op_from_python_tsb(ViewData& vd, const nb::object& src, engine_time_t current_time) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (current == nullptr) {
         return;
     }
@@ -85,13 +92,12 @@ void op_from_python_tsb(ViewData& vd, const nb::object& src, engine_time_t curre
         if (child_obj.is_none()) {
             return;
         }
-        ViewData child_vd = vd;
-        child_vd.path.indices.push_back(index);
+        ViewData child_vd = make_child_view_data(vd, index);
         if (debug_ref_from) {
-            const TSMeta* child_meta = meta_at_path(child_vd.meta, child_vd.path.indices);
+            const TSMeta* child_meta = child_vd.meta;
             std::fprintf(stderr,
                          "[tsb_from] child path=%s kind=%d\n",
-                         child_vd.path.to_string().c_str(),
+                         child_vd.to_short_path().to_string().c_str(),
                          child_meta != nullptr ? static_cast<int>(child_meta->kind) : -1);
         }
         op_from_python(child_vd, child_obj, current_time);
@@ -117,7 +123,7 @@ void op_from_python_tsb(ViewData& vd, const nb::object& src, engine_time_t curre
                     } catch (...) {}
                     std::fprintf(stderr,
                                  "[tsb_from] path=%s field=%s idx=%zu v=%s\n",
-                                 vd.path.to_string().c_str(),
+                                 vd.to_short_path().to_string().c_str(),
                                  field_name.c_str(),
                                  index,
                                  v_repr.c_str());

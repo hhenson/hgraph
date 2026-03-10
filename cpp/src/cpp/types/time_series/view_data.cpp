@@ -137,10 +137,10 @@ FQPath ShortPath::to_fq() const {
 FQPath ShortPath::to_fq(const ViewData& root) const {
     FQPath out;
     out.port_type = port_type;
-    const node_ptr resolved_node = node != nullptr ? node : root.path.node;
+    const node_ptr resolved_node = node != nullptr ? node : root.owner_node();
     out.node_id = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(resolved_node));
 
-    const auto& root_indices = root.path.indices;
+    const auto root_indices = root.path_indices();
     if (indices.size() < root_indices.size() ||
         !std::equal(root_indices.begin(), root_indices.end(), indices.begin())) {
         out.path.reserve(indices.size());
@@ -155,7 +155,7 @@ FQPath ShortPath::to_fq(const ViewData& root) const {
         out.path.emplace_back(FQPathElement::index(indices[i]));
     }
 
-    const TSMeta* meta = root.meta;
+    const TSMeta* meta = root.root_meta != nullptr ? root.root_meta : root.meta;
     std::optional<View> current_value;
     if (const auto* root_value = static_cast<const value::Value*>(root.value_data);
         root_value != nullptr && root_value->has_value()) {
@@ -200,8 +200,95 @@ FQPath ShortPath::to_fq(const ViewData& root) const {
     return out;
 }
 
+FQPath ViewData::to_fq_path() const {
+    if (!path) {
+        return FQPath{};
+    }
+
+    const auto indices = path_indices();
+    FQPath out;
+    out.port_type = path->port_type();
+    out.node_id = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(path->owner_node()));
+    out.path.reserve(indices.size());
+
+    if (root_meta == nullptr && meta == nullptr) {
+        for (size_t index : indices) {
+            out.path.emplace_back(FQPathElement::index(index));
+        }
+        return out;
+    }
+
+    // Determine the start of TS-tree indices.
+    // When the root PathNode is a sentinel (no port index), all indices are TS-tree indices.
+    // Otherwise the first index is the port index and is always numeric.
+    const PathNode* root_node = path->root();
+    const bool has_port_index = root_node != nullptr && !root_node->root_data.sentinel;
+    const size_t ts_start = has_port_index ? 1 : 0;
+
+    // Use root_meta to walk the path and convert indices to field names / TSD keys.
+    const TSMeta* cursor = root_meta != nullptr ? root_meta : meta;
+    std::optional<View> current_value;
+    if (const auto* root_value = static_cast<const value::Value*>(value_data);
+        root_value != nullptr && root_value->has_value()) {
+        current_value = root_value->view();
+    }
+
+    for (size_t i = 0; i < indices.size(); ++i) {
+        const size_t index = indices[i];
+
+        // Port index — always numeric.
+        if (i < ts_start) {
+            out.path.emplace_back(FQPathElement::index(index));
+            continue;
+        }
+
+        bool converted = false;
+        std::optional<View> map_key;
+        if (cursor != nullptr) {
+            if (cursor->kind == TSKind::TSB && cursor->fields() != nullptr && index < cursor->field_count() &&
+                cursor->fields()[index].name != nullptr) {
+                out.path.emplace_back(FQPathElement::field(cursor->fields()[index].name));
+                converted = true;
+            } else if (cursor->kind == TSKind::TSD && current_value.has_value()) {
+                map_key = map_key_for_index(*current_value, index);
+                if (map_key.has_value()) {
+                    out.path.emplace_back(FQPathElement::key(*map_key));
+                    converted = true;
+                }
+            }
+        }
+
+        if (!converted) {
+            out.path.emplace_back(FQPathElement::index(index));
+        }
+
+        if (current_value.has_value()) {
+            if (cursor != nullptr && cursor->kind == TSKind::TSD && map_key.has_value()) {
+                const value::MapView map_view = current_value->as_map();
+                current_value = map_view.at(*map_key);
+            } else {
+                current_value = child_value_by_index(*current_value, index);
+            }
+        }
+
+        cursor = meta_child(cursor, index);
+    }
+
+    return out;
+}
+
 std::string ShortPath::to_string() const {
     return to_fq().to_string();
+}
+
+ShortPath ViewData::to_short_path() const {
+    ShortPath sp;
+    if (path) {
+        sp.node = path->owner_node();
+        sp.port_type = path->port_type();
+        sp.indices = path->collect_indices();
+    }
+    return sp;
 }
 
 LinkTarget* ViewData::as_link_target() const {

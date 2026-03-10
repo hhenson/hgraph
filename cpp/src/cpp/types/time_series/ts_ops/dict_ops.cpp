@@ -18,8 +18,7 @@ bool op_dict_remove(ViewData& vd, const View& key, engine_time_t current_time) {
     }
     Value canonical_key_value = canonical_map_key_for_slot(map, *removed_slot);
     const View canonical_key = canonical_key_value.view();
-    ViewData child_vd = vd;
-    child_vd.path.indices.push_back(*removed_slot);
+    ViewData child_vd = make_child_view_data(vd, *removed_slot);
     const bool removed_was_valid = tsd_child_was_visible_before_removal(child_vd);
     record_tsd_removed_child_snapshot(vd, canonical_key, child_vd, current_time);
 
@@ -43,6 +42,9 @@ bool op_dict_remove(ViewData& vd, const View& key, engine_time_t current_time) {
     compact_tsd_child_time_slot(vd, *removed_slot);
     compact_tsd_child_delta_slot(vd, *removed_slot);
     compact_tsd_child_link_slot(vd, *removed_slot);
+    if (vd.level != nullptr) {
+        vd.level->compact_child(*removed_slot);
+    }
 
     if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
         slots.changed_values_map.as_map().remove(canonical_key);
@@ -98,6 +100,8 @@ TSView op_dict_create(ViewData& vd, const View& key, engine_time_t current_time)
     auto slots = resolve_tsd_delta_slots(vd);
     clear_tsd_delta_if_new_tick(vd, current_time, slots);
 
+    const bool debug_delta_create = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_LEVEL");
+
     if (!existing_slot.has_value()) {
         const value::TypeMeta* value_type = map.value_type();
         if (value_type == nullptr) {
@@ -117,6 +121,7 @@ TSView op_dict_create(ViewData& vd, const View& key, engine_time_t current_time)
                          existing_slot.has_value() ? 1 : 0);
         }
         if (existing_slot.has_value()) {
+            ensure_tsd_child_level_entry(vd, *existing_slot);
             ensure_tsd_child_time_slot(vd, *existing_slot);
             ensure_tsd_child_delta_slot(vd, *existing_slot);
             ensure_tsd_child_link_slot(vd, *existing_slot);
@@ -132,6 +137,12 @@ TSView op_dict_create(ViewData& vd, const View& key, engine_time_t current_time)
 
         if (slots.added_set.valid() && slots.added_set.is_set()) {
             slots.added_set.as_set().add(canonical_key);
+            if (debug_delta_create) {
+                std::fprintf(stderr, "[dict_create] added key=%s to added_set size=%zu level=%p root_level=%p\n",
+                             canonical_key.to_string().c_str(),
+                             slots.added_set.as_set().size(),
+                             (void*)vd.level, (void*)vd.root_level);
+            }
         }
         if (slots.removed_set.valid() && slots.removed_set.is_set()) {
             slots.removed_set.as_set().remove(canonical_key);
@@ -190,12 +201,12 @@ TSView op_dict_set(ViewData& vd, const View& key, const View& value, engine_time
     Value canonical_key_value = canonical_map_key_for_slot(map, *slot);
     const View canonical_key = canonical_key_value.view();
 
+    ensure_tsd_child_level_entry(vd, *slot);
     ensure_tsd_child_time_slot(vd, *slot);
     ensure_tsd_child_delta_slot(vd, *slot);
     ensure_tsd_child_link_slot(vd, *slot);
 
-    ViewData child_vd = vd;
-    child_vd.path.indices.push_back(*slot);
+    ViewData child_vd = make_child_view_data(vd, *slot);
     op_set_value(child_vd, value, current_time);
 
     if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {

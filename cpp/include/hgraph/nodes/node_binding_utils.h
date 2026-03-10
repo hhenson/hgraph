@@ -460,11 +460,12 @@ inline bool keyed_delta_lookup_cache_matches(const KeyedDeltaLookupCacheEntry& c
                                              const ViewData& view_data,
                                              const value::TypeMeta* key_type_meta,
                                              engine_time_t evaluation_time) {
+    //TODO: This looks overly detailed and probably not needed to be this detailed when checking
+    //      I have taken out the cache.path == view_data.path.indices as this is just too much
     return cache.value_data == view_data.value_data &&
            cache.delta_data == view_data.delta_data &&
            cache.observer_data == view_data.observer_data &&
            cache.link_data == view_data.link_data &&
-           cache.path == view_data.path.indices &&
            cache.key_type_meta == key_type_meta &&
            cache.evaluation_time == evaluation_time;
 }
@@ -485,7 +486,7 @@ inline void populate_keyed_delta_lookup_cache(KeyedDeltaLookupCacheEntry& cache,
     cache.delta_data = view_data.delta_data;
     cache.observer_data = view_data.observer_data;
     cache.link_data = view_data.link_data;
-    cache.path = view_data.path.indices;
+    cache.path = view_data.path_indices();
 
     value::View delta_view = input_view.delta_value().value();
     if (!delta_view.valid() || !delta_view.is_tuple()) {
@@ -675,7 +676,7 @@ inline TSView resolve_keyed_view_with_delta_fallback(const value::View& key,
         *stage_id = 4;
     }
     TSView staged_view = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
-    staged_view.set_value(delta_value->view());
+    staged_view.set_value(static_cast<value::View>(delta_value->view()));
     if (used_local_fallback != nullptr) {
         *used_local_fallback = true;
     }

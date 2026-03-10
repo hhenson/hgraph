@@ -3,6 +3,16 @@
 namespace hgraph {
 
 void op_from_python_scalar(ViewData& vd, const nb::object& src, engine_time_t current_time) {
+    if (HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_FROM_PYTHON")) {
+        std::fprintf(stderr, "[from_py] path=%s depth=%zu level=%p level_depth=%u meta=%p root_meta=%p time=%lld\n",
+                     vd.to_short_path().to_string().c_str(),
+                     vd.path_depth(),
+                     static_cast<void*>(vd.level),
+                     vd.level_depth,
+                     static_cast<const void*>(vd.meta),
+                     static_cast<const void*>(vd.root_meta),
+                     static_cast<long long>(current_time.time_since_epoch().count()));
+    }
     auto maybe_dst = resolve_value_slot_mut(vd);
     if (!maybe_dst.has_value()) {
         return;
@@ -14,7 +24,7 @@ void op_from_python_scalar(ViewData& vd, const nb::object& src, engine_time_t cu
         old_value = maybe_dst->clone();
     }
 
-    if (vd.path.indices.empty() && src.is_none()) {
+    if (vd.path_depth() == 0 && src.is_none()) {
         auto* value_root = static_cast<Value*>(vd.value_data);
         if (value_root != nullptr) {
             if (value_root->has_value()) {

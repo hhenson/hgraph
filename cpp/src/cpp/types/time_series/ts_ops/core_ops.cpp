@@ -62,7 +62,7 @@ bool modified_default_tail(const ViewData& vd, engine_time_t current_time) {
     }
 
     if (vd.uses_link_target) {
-        if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices);
+        if (LinkTarget* link_target = resolve_link_target(vd);
             link_target != nullptr &&
             link_target->has_previous_target &&
             link_target->modified(current_time) &&
@@ -78,7 +78,7 @@ std::optional<bool> modified_from_key_set_source(const ViewData& vd,
                                                  engine_time_t  current_time,
                                                  bool           debug_keyset_bridge,
                                                  bool           enable_bridge_logic) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     ViewData key_set_source{};
     if (!resolve_tsd_key_set_source(vd, key_set_source)) {
         return std::nullopt;
@@ -88,9 +88,9 @@ std::optional<bool> modified_from_key_set_source(const ViewData& vd,
     if (debug_keyset_bridge) {
         std::fprintf(stderr,
                      "[keyset_mod] direct path=%s self_kind=%d source=%s modified=%d\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
-                     key_set_source.path.to_string().c_str(),
+                     key_set_source.to_short_path().to_string().c_str(),
                      key_set_modified ? 1 : 0);
     }
     if (key_set_modified) {
@@ -103,9 +103,9 @@ std::optional<bool> modified_from_key_set_source(const ViewData& vd,
             if (debug_keyset_bridge) {
                 std::fprintf(stderr,
                              "[keyset_mod] bridge path=%s prev=%s curr=%s has_prev=%d has_curr=%d\n",
-                             vd.path.to_string().c_str(),
-                             bridge_state.previous_bridge.path.to_string().c_str(),
-                             bridge_state.current_bridge.path.to_string().c_str(),
+                             vd.to_short_path().to_string().c_str(),
+                             bridge_state.previous_bridge.to_short_path().to_string().c_str(),
+                             bridge_state.current_bridge.to_short_path().to_string().c_str(),
                              bridge_state.has_previous_source ? 1 : 0,
                              bridge_state.has_current_source ? 1 : 0);
             }
@@ -113,12 +113,12 @@ std::optional<bool> modified_from_key_set_source(const ViewData& vd,
                 return true;
             }
         } else {
-            LinkTarget* lt = resolve_link_target(vd, vd.path.indices);
+            LinkTarget* lt = resolve_link_target(vd);
             if (debug_keyset_bridge && lt != nullptr) {
                 const bool first_bind = is_first_bind_rebind_tick(lt, current_time);
                 std::fprintf(stderr,
                              "[keyset_mod] no_bridge path=%s linked=%d prev=%d resolved=%d rebind=%lld now=%lld first_bind=%d\n",
-                             vd.path.to_string().c_str(),
+                             vd.to_short_path().to_string().c_str(),
                              lt->is_linked ? 1 : 0,
                              lt->has_previous_target ? 1 : 0,
                              lt->has_resolved_target ? 1 : 0,
@@ -132,7 +132,7 @@ std::optional<bool> modified_from_key_set_source(const ViewData& vd,
                 if (debug_keyset_bridge && lt != nullptr) {
                     std::fprintf(stderr,
                                  "[keyset_mod] first_bind path=%s linked=%d prev=%d rebind=%lld now=%lld\n",
-                                 vd.path.to_string().c_str(),
+                                 vd.to_short_path().to_string().c_str(),
                                  lt->is_linked ? 1 : 0,
                                  lt->has_previous_target ? 1 : 0,
                                  static_cast<long long>(lt->last_rebind_time.time_since_epoch().count()),
@@ -156,8 +156,8 @@ std::optional<bool> valid_from_key_set_source(const ViewData& vd, bool debug_key
     if (debug_keyset_valid) {
         std::fprintf(stderr,
                      "[keyset_valid] direct path=%s source=%s has_value=%d valid=%d is_map=%d\n",
-                     vd.path.to_string().c_str(),
-                     key_set_source.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
+                     key_set_source.to_short_path().to_string().c_str(),
                      value.has_value() ? 1 : 0,
                      (value.has_value() && value->valid()) ? 1 : 0,
                      (value.has_value() && value->valid() && value->is_map()) ? 1 : 0);
@@ -173,8 +173,13 @@ std::optional<bool> valid_from_key_set_source(const ViewData& vd, bool debug_key
 }
 
 bool valid_from_resolved_slot(const ViewData& vd, const TSMeta* /*self_meta*/, bool ref_wrapper_mode) {
+    const bool debug_valid = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_VALID_SLOT");
     ViewData resolved{};
     if (!resolve_read_view_data(vd, resolved)) {
+        if (debug_valid) {
+            std::fprintf(stderr, "[valid_slot] path=%s -> false (resolve_read failed)\n",
+                vd.to_short_path().to_string().c_str());
+        }
         return false;
     }
     if (ref_wrapper_mode && same_view_identity(resolved, vd)) {
@@ -189,15 +194,53 @@ bool valid_from_resolved_slot(const ViewData& vd, const TSMeta* /*self_meta*/, b
 
     auto* value_root = static_cast<const Value*>(data->value_data);
     if (value_root == nullptr || !value_root->has_value()) {
+        if (debug_valid) {
+            std::fprintf(stderr, "[valid_slot] path=%s -> false (value_root=%p has_value=%d)\n",
+                vd.to_short_path().to_string().c_str(),
+                (const void*)value_root,
+                value_root != nullptr ? value_root->has_value() ? 1 : 0 : -1);
+        }
         return false;
     }
-    auto maybe = navigate_const(value_root->view(), data->path.indices);
+    auto maybe = navigate_const(value_root->view(), data->path_indices());
     if (!maybe.has_value() || !maybe->valid()) {
+        if (debug_valid) {
+            auto indices = data->path_indices();
+            std::string idx_str;
+            for (auto i : indices) { idx_str += "/" + std::to_string(i); }
+            std::fprintf(stderr, "[valid_slot] path=%s resolved_path=%s -> false (navigate failed has_val=%d indices=%s)\n",
+                vd.to_short_path().to_string().c_str(),
+                resolved.to_short_path().to_string().c_str(),
+                maybe.has_value() ? 1 : 0,
+                idx_str.c_str());
+        }
         return false;
     }
 
+    auto lmt = dispatch_last_modified_time(*data);
+    if (debug_valid && lmt <= MIN_DT) {
+        auto resolved_indices = data->path_indices();
+        std::string ridx_str;
+        for (auto i : resolved_indices) { ridx_str += "/" + std::to_string(i); }
+        const TSMeta* rmeta = data->meta;
+        engine_time_t dlmt = direct_last_modified_time(*data);
+        engine_time_t lvl_lmt = (data->level != nullptr) ? data->level->last_modified_time : MIN_DT;
+        std::fprintf(stderr, "[valid_slot] path=%s resolved_path=%s -> false (lmt=%lld dlmt=%lld lvl_lmt=%lld vdata=%p tdata=%p ridx=%s rmeta_kind=%d uses_lt=%d level=%p lvl_depth=%u path_depth=%zu)\n",
+            vd.to_short_path().to_string().c_str(),
+            resolved.to_short_path().to_string().c_str(),
+            static_cast<long long>(lmt.time_since_epoch().count()),
+            static_cast<long long>(dlmt.time_since_epoch().count()),
+            static_cast<long long>(lvl_lmt.time_since_epoch().count()),
+            data->value_data, data->time_data,
+            ridx_str.c_str(),
+            rmeta != nullptr ? static_cast<int>(rmeta->kind) : -1,
+            data->uses_link_target ? 1 : 0,
+            (void*)data->level,
+            (unsigned)data->level_depth,
+            data->path_depth());
+    }
     // A default-constructed value slot is not valid until the underlying view has been stamped.
-    return dispatch_last_modified_time(*data) > MIN_DT;
+    return lmt > MIN_DT;
 }
 
 engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
@@ -208,10 +251,10 @@ engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
     refresh_dynamic_ref_binding(vd, MIN_DT);
     const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
     if (debug_keyset_bridge && is_tsd_key_set_projection(vd) && vd.uses_link_target) {
-        if (LinkTarget* lt = resolve_link_target(vd, vd.path.indices); lt != nullptr) {
+        if (LinkTarget* lt = resolve_link_target(vd); lt != nullptr) {
             std::fprintf(stderr,
                          "[keyset_lmt] path=%s linked=%d prev=%d resolved=%d rebind=%lld\n",
-                         vd.path.to_string().c_str(),
+                         vd.to_short_path().to_string().c_str(),
                          lt->is_linked ? 1 : 0,
                          lt->has_previous_target ? 1 : 0,
                          lt->has_resolved_target ? 1 : 0,
@@ -219,15 +262,15 @@ engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
         } else {
             std::fprintf(stderr,
                          "[keyset_lmt] path=%s link_target=<none>\n",
-                         vd.path.to_string().c_str());
+                         vd.to_short_path().to_string().c_str());
         }
     }
     const engine_time_t rebind_time = rebind_time_for_view(vd);
     const engine_time_t ref_wrapper_time = ref_wrapper_last_modified_time_on_read_path(vd);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     engine_time_t base_time = include_wrapper_time ? std::max(rebind_time, ref_wrapper_time) : rebind_time;
     if (!include_wrapper_time && vd.uses_link_target) {
-        if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices);
+        if (LinkTarget* link_target = resolve_link_target(vd);
             link_target != nullptr &&
             link_target->is_linked &&
             link_target->has_resolved_target &&
@@ -243,7 +286,7 @@ engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
         int prev = -1;
         int resolved = -1;
         if (vd.uses_link_target) {
-            if (LinkTarget* lt = resolve_link_target(vd, vd.path.indices); lt != nullptr) {
+            if (LinkTarget* lt = resolve_link_target(vd); lt != nullptr) {
                 linked = lt->is_linked ? 1 : 0;
                 prev = lt->has_previous_target ? 1 : 0;
                 resolved = lt->has_resolved_target ? 1 : 0;
@@ -251,7 +294,7 @@ engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
         }
         std::fprintf(stderr,
                      "[keyset_lmt] enter path=%s base=%lld rebind=%lld ref_wrapper=%lld linked=%d prev=%d resolved=%d\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      static_cast<long long>(base_time.time_since_epoch().count()),
                      static_cast<long long>(rebind_time.time_since_epoch().count()),
                      static_cast<long long>(ref_wrapper_time.time_since_epoch().count()),
@@ -271,8 +314,7 @@ engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
         engine_time_t out = base_time;
         const size_t n = static_container_child_count(self_meta);
         for (size_t i = 0; i < n; ++i) {
-            ViewData child = vd;
-            child.path.indices.push_back(i);
+            ViewData child = make_child_view_data(vd, i);
             out = std::max(out, dispatch_last_modified_time(child));
         }
         return out;
@@ -284,28 +326,31 @@ engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
     }
     const ViewData* data = &resolved;
 
-    auto* time_root = static_cast<const Value*>(data->time_data);
     engine_time_t out = base_time;
-    if (time_root != nullptr && time_root->has_value()) {
-        auto time_path = ts_path_to_time_path(data->meta, data->path.indices);
-        std::optional<View> maybe_time;
-        if (time_path.empty()) {
-            maybe_time = time_root->view();
-        } else {
-            maybe_time = navigate_const(time_root->view(), time_path);
-        }
-        if (maybe_time.has_value()) {
-            out = std::max(extract_time_value(*maybe_time), base_time);
+    if (data->level != nullptr && data->level_depth == data->path_depth()) {
+        out = std::max(data->level->last_modified_time, base_time);
+    } else {
+        auto* time_root = static_cast<const Value*>(data->time_data);
+        if (time_root != nullptr && time_root->has_value()) {
+            auto time_path = ts_path_to_time_path(data->root_meta, data->path_indices());
+            std::optional<View> maybe_time;
+            if (time_path.empty()) {
+                maybe_time = time_root->view();
+            } else {
+                maybe_time = navigate_const(time_root->view(), time_path);
+            }
+            if (maybe_time.has_value()) {
+                out = std::max(extract_time_value(*maybe_time), base_time);
+            }
         }
     }
 
-    const TSMeta* current = meta_at_path(data->meta, data->path.indices);
+    const TSMeta* current = data->meta;
     if (include_map_children) {
         auto value = resolve_value_slot_const(*data);
         if (value.has_value() && value->valid() && value->is_map()) {
             for_each_map_key_slot(value->as_map(), [&](View /*key*/, size_t slot) {
-                ViewData child = *data;
-                child.path.indices.push_back(slot);
+                ViewData child = make_child_view_data(*data, slot);
                 out = std::max(out, dispatch_last_modified_time(child));
             });
         }
@@ -313,8 +358,7 @@ engine_time_t last_modified_fallback_no_dispatch(const ViewData& vd,
     if (include_static_children && current != nullptr) {
         const size_t child_count = static_container_child_count(current);
         for (size_t i = 0; i < child_count; ++i) {
-            ViewData child = *data;
-            child.path.indices.push_back(i);
+            ViewData child = make_child_view_data(*data, i);
             out = std::max(out, dispatch_last_modified_time(child));
         }
     }
@@ -328,7 +372,7 @@ bool modified_fallback_no_dispatch(const ViewData& vd,
     refresh_dynamic_ref_binding(vd, current_time);
     const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
     const bool debug_op_modified = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_OP_MODIFIED");
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (allow_ops_dispatch && self_meta != nullptr) {
         if (const ts_ops* ops = get_ts_ops(self_meta); ops != nullptr && ops->modified != nullptr) {
             ViewData dispatch_vd = vd;
@@ -339,7 +383,7 @@ bool modified_fallback_no_dispatch(const ViewData& vd,
     if (debug_op_modified) {
         std::fprintf(stderr,
                      "[op_mod] path=%s kind=%d uses_lt=%d sampled=%d now=%lld\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
                      vd.uses_link_target ? 1 : 0,
                      vd.sampled ? 1 : 0,
@@ -361,7 +405,7 @@ bool valid_fallback_no_dispatch(const ViewData& vd, bool allow_ops_dispatch) {
     if (current_time != MIN_DT) {
         refresh_dynamic_ref_binding(vd, current_time);
     }
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (allow_ops_dispatch && self_meta != nullptr) {
         if (const ts_ops* ops = get_ts_ops(self_meta); ops != nullptr && ops->valid != nullptr) {
             ViewData dispatch_vd = vd;
@@ -379,12 +423,12 @@ bool valid_fallback_no_dispatch(const ViewData& vd, bool allow_ops_dispatch) {
 
 const TSMeta* op_ts_meta(const ViewData& vd) {
     if (is_tsd_key_set_projection(vd)) {
-        const TSMeta* source_meta = meta_at_path(vd.meta, vd.path.indices);
+        const TSMeta* source_meta = vd.meta;
         if (source_meta != nullptr && dispatch_meta_is_tsd(source_meta) && source_meta->key_type() != nullptr) {
             return TSTypeRegistry::instance().tss(source_meta->key_type());
         }
     }
-    return meta_at_path(vd.meta, vd.path.indices);
+    return vd.meta;
 }
 
 bool resolve_signal_source_view(const ViewData& vd,
@@ -399,7 +443,7 @@ bool resolve_signal_source_view(const ViewData& vd,
                       ? signal_link.resolved_target
                       : signal_link.as_view_data(vd.sampled);
     bind_view_data_ops(source_view);
-    const TSMeta* source_meta = meta_at_path(source_view.meta, source_view.path.indices);
+    const TSMeta* source_meta = source_view.meta;
     source_is_signal = dispatch_meta_is_signal(source_meta);
     return true;
 }
@@ -457,7 +501,7 @@ std::optional<bool> signal_valid_override(const ViewData& vd, const LinkTarget& 
     }
 
     ViewData source_dispatch = dispatch_view_for_path(source_view);
-    const TSMeta* source_meta = meta_at_path(source_dispatch.meta, source_dispatch.path.indices);
+    const TSMeta* source_meta = source_dispatch.meta;
     const bool source_is_ref_wrapper = dispatch_meta_is_ref(source_meta);
     if (source_is_ref_wrapper) {
         View ref_value = op_value(source_dispatch);
@@ -480,7 +524,7 @@ engine_time_t op_last_modified_time(const ViewData& vd) {
 
 engine_time_t op_last_modified_ref(const ViewData& vd) {
     refresh_dynamic_ref_binding(vd, MIN_DT);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return last_modified_fallback_no_dispatch(vd, true, true, false, false);
     }
@@ -519,7 +563,7 @@ engine_time_t op_last_modified_ref(const ViewData& vd) {
             local_ref_payload_valid = local_ref.is_valid();
         }
 
-        if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices);
+        if (LinkTarget* link_target = resolve_link_target(vd);
             link_target != nullptr &&
             !link_target->has_previous_target &&
             !link_target->has_resolved_target &&
@@ -547,14 +591,14 @@ engine_time_t op_last_modified_tss(const ViewData& vd) {
 
 engine_time_t op_last_modified_signal(const ViewData& vd) {
     refresh_dynamic_ref_binding(vd, MIN_DT);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
 
     const engine_time_t rebind_time = rebind_time_for_view(vd);
     const engine_time_t ref_wrapper_time = ref_wrapper_last_modified_time_on_read_path(vd);
     const bool include_wrapper_time = self_meta == nullptr;
     engine_time_t base_time = include_wrapper_time ? std::max(rebind_time, ref_wrapper_time) : rebind_time;
     if (!include_wrapper_time && vd.uses_link_target) {
-        if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices);
+        if (LinkTarget* link_target = resolve_link_target(vd);
             link_target != nullptr &&
             link_target->is_linked &&
             link_target->has_resolved_target &&
@@ -564,7 +608,7 @@ engine_time_t op_last_modified_signal(const ViewData& vd) {
     }
 
     if (vd.uses_link_target) {
-        if (LinkTarget* signal_link = resolve_link_target(vd, vd.path.indices); signal_link != nullptr) {
+        if (LinkTarget* signal_link = resolve_link_target(vd); signal_link != nullptr) {
             return signal_last_modified_time(vd, *signal_link, base_time);
         }
     }

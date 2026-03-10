@@ -26,7 +26,7 @@ bool ref_bound_target_modified_this_tick(const TimeSeriesReference& ref, const V
     bound_view.sampled = bound_view.sampled || owner_vd.sampled;
     bind_view_data_ops(bound_view);
 
-    const TSMeta* bound_meta = meta_at_path(bound_view.meta, bound_view.path.indices);
+    const TSMeta* bound_meta = bound_view.meta;
     if (dispatch_meta_is_scalar_like(bound_meta) && !dispatch_meta_is_ref(bound_meta)) {
         if (direct_last_modified_time(bound_view) != current_time) {
             return false;
@@ -90,7 +90,7 @@ TimeSeriesReference resolve_ref_payload_from_view(const ViewData& src) {
 }
 
 void apply_ref_payload(ViewData& vd, const TimeSeriesReference& incoming_ref, engine_time_t current_time) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (current == nullptr) {
         return;
     }
@@ -118,7 +118,7 @@ void apply_ref_payload(ViewData& vd, const TimeSeriesReference& incoming_ref, en
         if (debug_ref_from) {
             std::fprintf(stderr,
                          "[ref_from_same] path=%s now=%lld existing_payload_valid=%d incoming_payload_valid=%d has_prior_write=%d suppress=%d\n",
-                         vd.path.to_string().c_str(),
+                         vd.to_short_path().to_string().c_str(),
                          static_cast<long long>(current_time.time_since_epoch().count()),
                          existing_payload_valid ? 1 : 0,
                          incoming_payload_valid ? 1 : 0,
@@ -146,7 +146,7 @@ void apply_ref_payload(ViewData& vd, const TimeSeriesReference& incoming_ref, en
     if (debug_ref_from) {
         std::fprintf(stderr,
                      "[ref_from] path=%s now=%lld before_valid=%d same=%d existing_payload_valid=%d incoming_payload_valid=%d suppress=%d\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      static_cast<long long>(current_time.time_since_epoch().count()),
                      maybe_dst->valid() ? 1 : 0,
                      same_ref_identity ? 1 : 0,
@@ -158,7 +158,7 @@ void apply_ref_payload(ViewData& vd, const TimeSeriesReference& incoming_ref, en
     invalidate_python_value_cache(vd);
     *static_cast<TimeSeriesReference*>(maybe_dst->data()) = incoming_ref;
 
-    if (auto* ref_link = resolve_ref_link(vd, vd.path.indices); ref_link != nullptr) {
+    if (auto* ref_link = resolve_ref_link(vd); ref_link != nullptr) {
         unregister_ref_link_observer(*ref_link);
 
         bool has_bound_target = false;
@@ -203,7 +203,7 @@ void apply_ref_payload(ViewData& vd, const TimeSeriesReference& incoming_ref, en
             if (debug_ref_from) {
                 std::fprintf(stderr,
                              "[ref_from_items] path=%s now=%lld idx=%zu changed=%d can_compare=%d\n",
-                             vd.path.to_string().c_str(),
+                             vd.to_short_path().to_string().c_str(),
                              static_cast<long long>(current_time.time_since_epoch().count()),
                              i,
                              changed_item ? 1 : 0,
@@ -213,8 +213,7 @@ void apply_ref_payload(ViewData& vd, const TimeSeriesReference& incoming_ref, en
                 continue;
             }
             changed_indices.push_back(i);
-            ViewData child = vd;
-            child.path.indices.push_back(i);
+            ViewData child = make_child_view_data(vd, i);
             stamp_time_paths(child, current_time);
         }
 

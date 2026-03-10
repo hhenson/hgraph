@@ -40,7 +40,7 @@ bool use_ref_child_zero_dispatch_for_scenario(const TSMeta* element_meta) {
 template <bool DeclaredScalarLike, bool DeclaredStaticContainer, bool DeclaredDynamicContainer>
 bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
@@ -61,7 +61,7 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
         if (resolve_bound_target_view_data(vd, resolved_target) &&
             !same_view_identity(resolved_target, vd)) {
             suppress_wrapper_local_time = true;
-            resolved_target_path = resolved_target.path.to_string();
+            resolved_target_path = resolved_target.to_short_path().to_string();
 
             // REF->REF chains must preserve wrapper-modified semantics on the
             // immediate source wrapper (rebinds without target-value changes).
@@ -72,7 +72,7 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
                 bind_view_data_ops(direct_target);
                 if (direct_target.ops != nullptr && direct_target.ops->value == &op_value_ref) {
                     direct_target_is_ref = true;
-                    resolved_target_path = direct_target.path.to_string();
+                    resolved_target_path = direct_target.to_short_path().to_string();
                 }
             }
 
@@ -92,7 +92,7 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
         }
     }
     if (!suppress_wrapper_local_time && vd.uses_link_target && static_ref_container) {
-        if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices);
+        if (LinkTarget* link_target = resolve_link_target(vd);
             link_target != nullptr && link_target->peered && !has_bound_ref_static_children(vd)) {
             // Peered REF[TSS/TSB]-style wrappers should not tick on child value updates.
             // They tick on bind/rebind, while un-peered child links drive child ticks directly.
@@ -106,13 +106,13 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
         int linked = -1;
         int peered = -1;
         int has_children = has_bound_ref_static_children(vd) ? 1 : 0;
-        if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices); link_target != nullptr) {
+        if (LinkTarget* link_target = resolve_link_target(vd); link_target != nullptr) {
             linked = link_target->is_linked ? 1 : 0;
             peered = link_target->peered ? 1 : 0;
         }
         std::fprintf(stderr,
                      "[ref_mod] path=%s sampled=%d now=%lld rebind=%lld suppress=%d resolved_mod=%d resolved_path=%s linked=%d peered=%d has_children=%d\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      vd.sampled ? 1 : 0,
                      static_cast<long long>(current_time.time_since_epoch().count()),
                      static_cast<long long>(rebind_time.time_since_epoch().count()),
@@ -138,7 +138,7 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
 
         bool suppress_first_empty_bind = false;
         if (vd.uses_link_target) {
-            if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices); link_target != nullptr) {
+            if (LinkTarget* link_target = resolve_link_target(vd); link_target != nullptr) {
                 suppress_first_empty_bind =
                     !link_target->has_previous_target &&
                     !link_target->has_resolved_target &&
@@ -149,10 +149,10 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
             }
         } else {
             bool parent_is_static_container = false;
-            if (!vd.path.indices.empty()) {
-                std::vector<size_t> parent_path = vd.path.indices;
+            if (vd.path_depth() > 0) {
+                std::vector<size_t> parent_path = vd.path_indices();
                 parent_path.pop_back();
-                if (const TSMeta* parent_meta = meta_at_path(vd.meta, parent_path);
+                if (const TSMeta* parent_meta = meta_at_path(vd.root_meta, parent_path);
                     parent_meta != nullptr) {
                     parent_is_static_container = dispatch_meta_is_static_container(parent_meta);
                 }
@@ -208,10 +208,9 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
         if (has_unpeered_children && dispatch_valid(vd)) {
             const size_t n = static_container_child_count(element_meta);
             for (size_t i = 0; i < n; ++i) {
-                ViewData child = vd;
-                child.path.indices.push_back(i);
+                ViewData child = make_child_view_data(vd, i);
                 if (vd.uses_link_target) {
-                    LinkTarget* child_link = resolve_link_target(vd, child.path.indices);
+                    LinkTarget* child_link = resolve_link_target(vd, child.path_indices());
                     if (child_link == nullptr || !child_link->is_linked) {
                         continue;
                     }
@@ -231,9 +230,8 @@ bool op_modified_ref_impl(const ViewData& vd, engine_time_t current_time) {
         use_ref_child_zero_dispatch_for_scenario<DeclaredScalarLike, DeclaredStaticContainer, DeclaredDynamicContainer>(
             element_meta);
     if (vd.uses_link_target && type_erased_or_scalar_ref) {
-        ViewData child = vd;
-        child.path.indices.push_back(0);
-        if (LinkTarget* child_link = resolve_link_target(vd, child.path.indices);
+        ViewData child = make_child_view_data(vd, 0);
+        if (LinkTarget* child_link = resolve_link_target(vd, child.path_indices());
             child_link != nullptr && child_link->is_linked) {
             return dispatch_modified(child, current_time);
         }
@@ -270,7 +268,7 @@ bool op_modified_ref_dynamic_container(const ViewData& vd, engine_time_t current
 
 bool op_modified_tsvalue(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
@@ -280,7 +278,7 @@ bool op_modified_tsvalue(const ViewData& vd, engine_time_t current_time) {
     if (debug_op_modified) {
         std::fprintf(stderr,
                      "[op_mod] path=%s kind=%d uses_lt=%d sampled=%d now=%lld\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      static_cast<int>(self_meta->kind),
                      vd.uses_link_target ? 1 : 0,
                      vd.sampled ? 1 : 0,
@@ -288,20 +286,47 @@ bool op_modified_tsvalue(const ViewData& vd, engine_time_t current_time) {
     }
 
     const bool valid_now = dispatch_valid(vd);
-    if (rebind_time_for_view(vd) == current_time && valid_now) {
+    const engine_time_t rebind_t = rebind_time_for_view(vd);
+    if (debug_op_modified) {
+        std::fprintf(stderr,
+                     "[op_mod_tsv] path=%s valid=%d rebind=%lld now=%lld uses_lt=%d\n",
+                     vd.to_short_path().to_string().c_str(),
+                     valid_now ? 1 : 0,
+                     static_cast<long long>(rebind_t.time_since_epoch().count()),
+                     static_cast<long long>(current_time.time_since_epoch().count()),
+                     vd.uses_link_target ? 1 : 0);
+    }
+    if (rebind_t == current_time && valid_now) {
         return true;
     }
 
     if (vd.uses_link_target) {
         if (!valid_now) {
+            if (debug_op_modified) {
+                std::fprintf(stderr, "[op_mod_tsv] path=%s uses_lt=1 NOT valid -> false\n",
+                             vd.to_short_path().to_string().c_str());
+            }
             return false;
         }
 
         ViewData bound_target{};
-        if (resolve_bound_target_view_data(vd, bound_target) &&
-            !same_view_identity(bound_target, vd)) {
+        bool resolved = resolve_bound_target_view_data(vd, bound_target);
+        bool same_id = resolved && same_view_identity(bound_target, vd);
+        if (debug_op_modified) {
+            std::fprintf(stderr, "[op_mod_tsv] path=%s resolved=%d same_id=%d bound_path=%s\n",
+                         vd.to_short_path().to_string().c_str(),
+                         resolved ? 1 : 0,
+                         same_id ? 1 : 0,
+                         resolved ? bound_target.to_short_path().to_string().c_str() : "<none>");
+        }
+        if (resolved && !same_id) {
             if (bound_target.ops != nullptr && bound_target.ops->modified != nullptr) {
-                return bound_target.ops->modified(bound_target, current_time);
+                bool r = bound_target.ops->modified(bound_target, current_time);
+                if (debug_op_modified) {
+                    std::fprintf(stderr, "[op_mod_tsv] path=%s bound_mod=%d\n",
+                                 vd.to_short_path().to_string().c_str(), r ? 1 : 0);
+                }
+                return r;
             }
             return dispatch_last_modified_time(bound_target) == current_time;
         }
@@ -318,7 +343,7 @@ bool op_modified_tsvalue(const ViewData& vd, engine_time_t current_time) {
 
 bool op_modified_signal(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
@@ -328,7 +353,7 @@ bool op_modified_signal(const ViewData& vd, engine_time_t current_time) {
     if (debug_op_modified) {
         std::fprintf(stderr,
                      "[op_mod] path=%s kind=%d uses_lt=%d sampled=%d now=%lld\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      static_cast<int>(self_meta->kind),
                      vd.uses_link_target ? 1 : 0,
                      vd.sampled ? 1 : 0,
@@ -351,7 +376,7 @@ bool op_modified_tsw(const ViewData& vd, engine_time_t current_time) {
 
 bool op_modified_tss(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
@@ -361,7 +386,7 @@ bool op_modified_tss(const ViewData& vd, engine_time_t current_time) {
     if (debug_op_modified) {
         std::fprintf(stderr,
                      "[op_mod] path=%s kind=%d uses_lt=%d sampled=%d now=%lld\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      static_cast<int>(self_meta->kind),
                      vd.uses_link_target ? 1 : 0,
                      vd.sampled ? 1 : 0,
@@ -384,7 +409,7 @@ bool op_modified_tss(const ViewData& vd, engine_time_t current_time) {
 
 bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
@@ -394,7 +419,7 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
     if (debug_op_modified) {
         std::fprintf(stderr,
                      "[op_mod] path=%s kind=%d uses_lt=%d sampled=%d now=%lld\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      static_cast<int>(self_meta->kind),
                      vd.uses_link_target ? 1 : 0,
                      vd.sampled ? 1 : 0,
@@ -412,7 +437,7 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
     }
 
     if (vd.uses_link_target) {
-        if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices);
+        if (LinkTarget* link_target = resolve_link_target(vd);
             is_first_bind_rebind_tick(link_target, current_time)) {
             ViewData current_view =
                 link_target->has_resolved_target ? link_target->resolved_target : link_target->as_view_data(vd.sampled);
@@ -431,13 +456,13 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
     ViewData resolved{};
     if (resolve_read_view_data(vd, resolved)) {
         bool any_child_modified = false;
-        const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
+        const TSMeta* resolved_meta = resolved.meta;
         const TSMeta* element_meta = resolved_meta != nullptr ? resolved_meta->element_ts() : nullptr;
         const bool ref_valued_tsd = element_meta != nullptr && meta_is_ref_wrapper(element_meta);
         const bool suppress_ref_target_child_mods =
-            ref_valued_tsd && vd.path.port_type == PortType::INPUT;
+            ref_valued_tsd && vd.port_type() == PortType::INPUT;
         const bool include_ref_target_child_mods =
-            ref_valued_tsd && vd.path.port_type == PortType::OUTPUT;
+            ref_valued_tsd && vd.port_type() == PortType::OUTPUT;
         auto value = resolve_value_slot_const(resolved);
 
         // Dynamic TSD key-slot views (path .../key_slot) resolve to scalar
@@ -452,8 +477,7 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
                 if (any_child_modified) {
                     return;
                 }
-                ViewData child = resolved;
-                child.path.indices.push_back(slot);
+                ViewData child = make_child_view_data(resolved, slot);
                 if (suppress_ref_target_child_mods) {
                     // Python parity: TSD[REF[...]] container modified state tracks
                     // structural/reference wrapper changes, not target value updates.
@@ -483,7 +507,7 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
             auto value = resolve_value_slot_const(resolved);
             std::fprintf(stderr,
                          "[op_mod_tsd] path=%s now=%lld key_set_mod=%d has_tuple=%d has_changed_map=%d has_added=%d has_removed=%d value_valid=%d value_is_map=%d value_size=%zu sampled=%d\n",
-                         resolved.path.to_string().c_str(),
+                         resolved.to_short_path().to_string().c_str(),
                          static_cast<long long>(current_time.time_since_epoch().count()),
                          key_set_modified ? 1 : 0,
                          state.has_delta_tuple ? 1 : 0,
@@ -514,8 +538,7 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
                 if (any_wrapper_child_modified) {
                     return;
                 }
-                ViewData child = vd;
-                child.path.indices.push_back(slot);
+                ViewData child = make_child_view_data(vd, slot);
                 any_wrapper_child_modified = direct_last_modified_time(child) == current_time;
             });
         }
@@ -532,7 +555,7 @@ bool op_modified_tsd(const ViewData& vd, engine_time_t current_time) {
 
 bool op_modified_tsb(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
@@ -542,7 +565,7 @@ bool op_modified_tsb(const ViewData& vd, engine_time_t current_time) {
     if (debug_op_modified) {
         std::fprintf(stderr,
                      "[op_mod] path=%s kind=%d uses_lt=%d sampled=%d now=%lld\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      static_cast<int>(self_meta->kind),
                      vd.uses_link_target ? 1 : 0,
                      vd.sampled ? 1 : 0,
@@ -557,8 +580,7 @@ bool op_modified_tsb(const ViewData& vd, engine_time_t current_time) {
 
     const size_t n = static_container_child_count(self_meta);
     for (size_t i = 0; i < n; ++i) {
-        ViewData child = vd;
-        child.path.indices.push_back(i);
+        ViewData child = make_child_view_data(vd, i);
         if (dispatch_modified(child, current_time)) {
             return true;
         }
@@ -571,7 +593,7 @@ bool op_modified_tsb(const ViewData& vd, engine_time_t current_time) {
 
 bool op_modified_tsl(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
@@ -581,7 +603,7 @@ bool op_modified_tsl(const ViewData& vd, engine_time_t current_time) {
     if (debug_op_modified) {
         std::fprintf(stderr,
                      "[op_mod] path=%s kind=%d uses_lt=%d sampled=%d now=%lld\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      static_cast<int>(self_meta->kind),
                      vd.uses_link_target ? 1 : 0,
                      vd.sampled ? 1 : 0,
@@ -597,8 +619,7 @@ bool op_modified_tsl(const ViewData& vd, engine_time_t current_time) {
     if (self_meta->fixed_size() > 0) {
         const size_t n = static_container_child_count(self_meta);
         for (size_t i = 0; i < n; ++i) {
-            ViewData child = vd;
-            child.path.indices.push_back(i);
+            ViewData child = make_child_view_data(vd, i);
             if (dispatch_modified(child, current_time)) {
                 return true;
             }

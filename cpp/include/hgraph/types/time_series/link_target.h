@@ -2,6 +2,7 @@
 
 #include <hgraph/types/time_series/active_notifier.h>
 #include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/ts_level_entry.h>
 #include <hgraph/types/time_series/view_data.h>
 
 #include <vector>
@@ -44,12 +45,16 @@ struct HGRAPH_EXPORT LinkTarget : Notifiable {
     void* observer_data{nullptr};
     void* delta_data{nullptr};
     void* link_data{nullptr};
+    TSLevelEntry* level{nullptr};
+    TSLevelEntry* root_level{nullptr};
+    uint16_t level_depth{0};
     void* python_value_cache_data{nullptr};
     const engine_time_t* engine_time_ptr{nullptr};
     TSLinkObserverRegistry* link_observer_registry{nullptr};
     ViewProjection projection{ViewProjection::NONE};
     const ts_ops* ops{nullptr};
     const TSMeta* meta{nullptr};
+    const TSMeta* root_meta{nullptr};
 
     // Structural fields (owner-local)
     engine_time_t* owner_time_ptr{nullptr};

@@ -3,7 +3,7 @@
 namespace hgraph {
 
 const TSMeta* op_ts_meta_tsd_key_set(const ViewData& vd) {
-    const TSMeta* source_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* source_meta = vd.meta;
     if (source_meta != nullptr &&
         dispatch_meta_is_tsd(source_meta) &&
         source_meta->key_type() != nullptr) {
@@ -14,7 +14,7 @@ const TSMeta* op_ts_meta_tsd_key_set(const ViewData& vd) {
 
 bool op_modified_tsd_key_set(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return modified_fallback_no_dispatch(vd, current_time, false);
     }
@@ -34,7 +34,7 @@ bool op_modified_tsd_key_set(const ViewData& vd, engine_time_t current_time) {
 }
 
 bool op_valid_tsd_key_set(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return valid_fallback_no_dispatch(vd, false);
     }

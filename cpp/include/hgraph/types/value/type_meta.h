@@ -570,6 +570,9 @@ struct ScalarOps {
             } catch (...) {
                 return 0;
             }
+        } else if constexpr (std::is_enum_v<T>) {
+            return std::hash<std::underlying_type_t<T>>{}(
+                static_cast<std::underlying_type_t<T>>(*static_cast<const T*>(obj))) * UINT64_C(0x9ddfea08eb382d69);
         } else {
             return std::hash<T>{}(*static_cast<const T*>(obj)) * UINT64_C(0x9ddfea08eb382d69);
         }
@@ -585,6 +588,9 @@ struct ScalarOps {
             } catch (...) {
                 return false;
             }
+        } else if constexpr (std::is_enum_v<T>) {
+            return static_cast<std::underlying_type_t<T>>(*static_cast<const T*>(a)) <
+                   static_cast<std::underlying_type_t<T>>(*static_cast<const T*>(b));
         } else {
             return *static_cast<const T*>(a) < *static_cast<const T*>(b);
         }

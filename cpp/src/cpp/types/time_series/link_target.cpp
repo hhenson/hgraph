@@ -116,12 +116,16 @@ void LinkTarget::copy_target_data_from(const LinkTarget& other) {
     observer_data = other.observer_data;
     delta_data = other.delta_data;
     link_data = other.link_data;
+    level = other.level;
+    root_level = other.root_level;
+    level_depth = other.level_depth;
     python_value_cache_data = other.python_value_cache_data;
     engine_time_ptr = other.engine_time_ptr;
     link_observer_registry = other.link_observer_registry;
     projection = other.projection;
     ops = other.ops;
     meta = other.meta;
+    root_meta = other.root_meta;
     fan_in_targets = other.fan_in_targets;
     notify_on_ref_wrapper_write = other.notify_on_ref_wrapper_write;
     observer_is_signal = other.observer_is_signal;
@@ -152,12 +156,16 @@ void LinkTarget::clear_target_data() {
     observer_data = nullptr;
     delta_data = nullptr;
     link_data = nullptr;
+    level = nullptr;
+    root_level = nullptr;
+    level_depth = 0;
     python_value_cache_data = nullptr;
     engine_time_ptr = nullptr;
     link_observer_registry = nullptr;
     projection = ViewProjection::NONE;
     ops = nullptr;
     meta = nullptr;
+    root_meta = nullptr;
     fan_in_targets.clear();
     notify_on_ref_wrapper_write = true;
     observer_is_signal = false;
@@ -171,12 +179,15 @@ void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
     const bool was_linked = is_linked;
     const bool same_binding =
         was_linked &&
-        target_path.indices == target.path.indices &&
+        target_path.indices == target.path_indices() &&
         value_data == target.value_data &&
         time_data == target.time_data &&
         observer_data == target.observer_data &&
         delta_data == target.delta_data &&
         link_data == target.link_data &&
+        level == target.level &&
+        root_level == target.root_level &&
+        level_depth == target.level_depth &&
         python_value_cache_data == target.python_value_cache_data &&
         engine_time_ptr == bind_engine_time_ptr &&
         link_observer_registry == target.link_observer_registry &&
@@ -199,18 +210,22 @@ void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
     }
 
     is_linked = true;
-    target_path = target.path;
+    target_path = target.to_short_path();
     value_data = target.value_data;
     time_data = target.time_data;
     observer_data = target.observer_data;
     delta_data = target.delta_data;
     link_data = target.link_data;
+    level = target.level;
+    root_level = target.root_level;
+    level_depth = target.level_depth;
     python_value_cache_data = target.python_value_cache_data;
     engine_time_ptr = bind_engine_time_ptr;
     link_observer_registry = target.link_observer_registry;
     projection = target.projection;
     ops = target.ops;
     meta = target.meta;
+    root_meta = target.root_meta;
     fan_in_targets.clear();
 
     if (current_time != MIN_DT) {
@@ -260,13 +275,16 @@ bool LinkTarget::modified(engine_time_t current_time) const {
 
 ViewData LinkTarget::as_view_data(bool sampled) const {
     ViewData vd;
-    vd.path = target_path;
+    vd.path = path_handle_from_short_path(target_path);
     vd.engine_time_ptr = engine_time_ptr != nullptr ? engine_time_ptr : owner_time_ptr;
     vd.value_data = value_data;
     vd.time_data = time_data;
     vd.observer_data = observer_data;
     vd.delta_data = delta_data;
     vd.link_data = link_data;
+    vd.level = level;
+    vd.root_level = root_level;
+    vd.level_depth = level_depth;
     vd.python_value_cache_data = python_value_cache_data;
     vd.python_value_cache_slot = nullptr;
     vd.link_observer_registry = link_observer_registry;
@@ -275,6 +293,7 @@ ViewData LinkTarget::as_view_data(bool sampled) const {
     vd.projection = projection;
     vd.ops = ops;
     vd.meta = meta;
+    vd.root_meta = root_meta;
     return vd;
 }
 

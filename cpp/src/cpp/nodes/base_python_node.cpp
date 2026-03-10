@@ -236,6 +236,12 @@ namespace hgraph
     };
 
     void BasePythonNode::do_eval() {
+        if (std::getenv("HGRAPH_DEBUG_DO_EVAL") != nullptr) {
+            std::fprintf(stderr, "[do_eval] node=%lld name=%s now=%lld\n",
+                         static_cast<long long>(node_ndx()),
+                         signature().name.c_str(),
+                         static_cast<long long>(node_time(*this).time_since_epoch().count()));
+        }
         _refresh_kwarg_time_views();
         ContextManager context_manager(*this);
         if (std::getenv("HGRAPH_DEBUG_TSD_GET_ITEMS_KW") != nullptr) {
@@ -275,7 +281,7 @@ namespace hgraph
                         }
                         ViewData bound{};
 	                        if (resolve_bound_target_view_data(ts_input.as_ts_view().view_data(), bound)) {
-	                            bound_path = bound.path.to_string();
+	                            bound_path = bound.to_short_path().to_string();
 	                            TSView bound_view(bound, ts_input.as_ts_view().view_data().engine_time_ptr);
 	                            if (const TSMeta* meta = bound_view.ts_meta(); meta != nullptr) {
 	                                bound_kind = static_cast<int>(meta->kind);

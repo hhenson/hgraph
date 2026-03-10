@@ -17,12 +17,12 @@ View op_value_non_ref(const ViewData& vd) {
     if (value_root == nullptr || !value_root->has_value()) {
         return {};
     }
-    auto maybe = navigate_const(value_root->view(), data->path.indices);
+    auto maybe = navigate_const(value_root->view(), data->path_indices());
     return maybe.has_value() ? *maybe : View{};
 }
 
 View op_value_ref(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return op_value_non_ref(vd);
     }
@@ -60,7 +60,7 @@ View op_value_ref(const ViewData& vd) {
                                lhs.delta_data == rhs.delta_data &&
                                lhs.link_data == rhs.link_data &&
                                lhs.python_value_cache_data == rhs.python_value_cache_data &&
-                               lhs.path.indices == rhs.path.indices;
+                               lhs.path_indices() == rhs.path_indices();
                     };
                     if (const ViewData* local_target = ref.bound_view(); local_target != nullptr) {
                         if (auto peer = resolve_bound_view_data(vd); peer.has_value()) {
@@ -68,9 +68,9 @@ View op_value_ref(const ViewData& vd) {
                             if (debug_ref_value) {
                                 std::fprintf(stderr,
                                              "[op_value_ref] path=%s local_target=%s peer=%s same=%d\n",
-                                             vd.path.to_string().c_str(),
-                                             local_target->path.to_string().c_str(),
-                                             peer->path.to_string().c_str(),
+                                             vd.to_short_path().to_string().c_str(),
+                                             local_target->to_short_path().to_string().c_str(),
+                                             peer->to_short_path().to_string().c_str(),
                                              same_endpoint ? 1 : 0);
                             }
                             if (!same_endpoint) {
@@ -80,8 +80,8 @@ View op_value_ref(const ViewData& vd) {
                             if (debug_ref_value) {
                                 std::fprintf(stderr,
                                              "[op_value_ref] path=%s local_target=%s peer=<none>\n",
-                                             vd.path.to_string().c_str(),
-                                             local_target->path.to_string().c_str());
+                                             vd.to_short_path().to_string().c_str(),
+                                             local_target->to_short_path().to_string().c_str());
                             }
                             return *local;
                         }
@@ -104,9 +104,9 @@ View op_value_ref(const ViewData& vd) {
                                resolved.time_data == vd.time_data &&
                                resolved.link_data == vd.link_data &&
                                resolved.python_value_cache_data == vd.python_value_cache_data &&
-                               resolved.path.indices == vd.path.indices;
+                               resolved.path_indices() == vd.path_indices();
         if (!same_view) {
-            const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
+            const TSMeta* resolved_meta = resolved.meta;
             const bool resolved_is_ref_wrapper = dispatch_meta_is_ref(resolved_meta);
             if (resolved_is_ref_wrapper) {
                 if (resolved.ops != nullptr && resolved.ops->value != nullptr) {
@@ -137,37 +137,38 @@ View op_delta_value_scalar(const ViewData& vd) {
 }
 
 View op_delta_value_container(const ViewData& vd) {
+    const bool debug = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_LEVEL");
     ViewData      resolved{};
     if (!resolve_read_view_data(vd, resolved)) {
         return {};
     }
-    const ViewData* data = &resolved;
 
     const engine_time_t current_time = view_evaluation_time(vd);
     if (!allow_pretick_delta(vd, current_time) && !dispatch_modified(vd, current_time)) {
         return {};
     }
 
-    auto* delta_root = static_cast<const Value*>(data->delta_data);
-    if (delta_root != nullptr && delta_root->has_value()) {
-        if (auto delta_path = ts_path_to_delta_path(data->meta, data->path.indices); delta_path.has_value()) {
-            std::optional<View> maybe;
-            if (delta_path->empty()) {
-                maybe = delta_root->view();
-            } else {
-                maybe = navigate_const(delta_root->view(), *delta_path);
+    auto maybe = resolve_delta_slot_const(resolved);
+    if (debug && maybe.has_value()) {
+        auto v = *maybe;
+        if (v.is_tuple()) {
+            auto t = v.as_tuple();
+            std::fprintf(stderr, "[delta_val_cont] path=%s tuple_size=%zu",
+                         vd.to_short_path().to_string().c_str(), t.size());
+            for (size_t i = 0; i < t.size(); ++i) {
+                auto e = t.at(i);
+                std::fprintf(stderr, " [%zu]valid=%d", i, e.valid() ? 1 : 0);
+                if (e.valid() && e.is_map()) std::fprintf(stderr, "/map(%zu)", e.as_map().size());
+                if (e.valid() && e.is_set()) std::fprintf(stderr, "/set(%zu)", e.as_set().size());
             }
-            if (maybe.has_value()) {
-                return *maybe;
-            }
+            std::fprintf(stderr, "\n");
         }
     }
-
-    return {};
+    return maybe.has_value() ? *maybe : View{};
 }
 
 View op_delta_value_tsw_tick(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return {};
     }
@@ -183,7 +184,7 @@ View op_delta_value_tsw_tick(const ViewData& vd) {
         dispatch_data.ops->delta_value != nullptr) {
         return dispatch_data.ops->delta_value(dispatch_data);
     }
-    const TSMeta*   current = meta_at_path(data->meta, data->path.indices);
+    const TSMeta*   current = data->meta;
     if (current == nullptr) {
         return {};
     }
@@ -207,7 +208,7 @@ View op_delta_value_tsw_tick(const ViewData& vd) {
 }
 
 View op_delta_value_tsw_duration(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return {};
     }
@@ -223,7 +224,7 @@ View op_delta_value_tsw_duration(const ViewData& vd) {
         dispatch_data.ops->delta_value != nullptr) {
         return dispatch_data.ops->delta_value(dispatch_data);
     }
-    const TSMeta* current = meta_at_path(data->meta, data->path.indices);
+    const TSMeta* current = data->meta;
     if (current == nullptr) {
         return {};
     }
@@ -242,7 +243,7 @@ View op_delta_value_tsw_duration(const ViewData& vd) {
     if (time_root == nullptr || !time_root->has_value()) {
         return {};
     }
-    auto time_path = ts_path_to_time_path(data->meta, data->path.indices);
+    auto time_path = ts_path_to_time_path(data->root_meta, data->path_indices());
     if (time_path.empty()) {
         return {};
     }
@@ -303,14 +304,8 @@ bool op_has_delta_default(const ViewData& vd) {
     if (!resolve_read_view_data(vd, resolved)) {
         return false;
     }
-    const ViewData* data = &resolved;
 
-    auto* delta_root = static_cast<const Value*>(data->delta_data);
-    if (delta_root != nullptr && delta_root->has_value()) {
-        return true;
-    }
-
-    return false;
+    return has_delta_data(resolved);
 }
 
 bool op_has_delta(const ViewData& vd) {
@@ -336,14 +331,8 @@ bool op_has_delta_scalar(const ViewData& vd) {
     if (!resolve_read_view_data(vd, resolved)) {
         return false;
     }
-    const ViewData* data = &resolved;
 
-    auto* delta_root = static_cast<const Value*>(data->delta_data);
-    if (delta_root != nullptr && delta_root->has_value()) {
-        return true;
-    }
-
-    return dispatch_valid(*data);
+    return has_delta_data(resolved) || dispatch_valid(resolved);
 }
 
 bool op_has_delta_tss(const ViewData& vd) {
@@ -361,21 +350,8 @@ bool op_has_delta_tss(const ViewData& vd) {
     if (!resolve_read_view_data(vd, resolved)) {
         return false;
     }
-    const ViewData* data = &resolved;
 
-    auto* delta_root = static_cast<const Value*>(data->delta_data);
-    if (delta_root == nullptr || !delta_root->has_value()) {
-        return false;
-    }
-
-    std::optional<View> maybe_delta;
-    if (auto delta_path = ts_path_to_delta_path(data->meta, data->path.indices); delta_path.has_value()) {
-        if (delta_path->empty()) {
-            maybe_delta = delta_root->view();
-        } else {
-            maybe_delta = navigate_const(delta_root->view(), *delta_path);
-        }
-    }
+    auto maybe_delta = resolve_delta_slot_const(resolved);
     if (!maybe_delta.has_value() || !maybe_delta->valid() || !maybe_delta->is_tuple()) {
         return false;
     }
@@ -403,21 +379,8 @@ bool op_has_delta_tsd(const ViewData& vd) {
     if (!resolve_read_view_data(vd, resolved)) {
         return false;
     }
-    const ViewData* data = &resolved;
 
-    auto* delta_root = static_cast<const Value*>(data->delta_data);
-    if (delta_root == nullptr || !delta_root->has_value()) {
-        return false;
-    }
-
-    std::optional<View> maybe_delta;
-    if (auto delta_path = ts_path_to_delta_path(data->meta, data->path.indices); delta_path.has_value()) {
-        if (delta_path->empty()) {
-            maybe_delta = delta_root->view();
-        } else {
-            maybe_delta = navigate_const(delta_root->view(), *delta_path);
-        }
-    }
+    auto maybe_delta = resolve_delta_slot_const(resolved);
     if (!maybe_delta.has_value() || !maybe_delta->valid() || !maybe_delta->is_tuple()) {
         return false;
     }
@@ -443,18 +406,18 @@ void op_set_value(ViewData& vd, const View& src, engine_time_t current_time) {
         value_root->emplace();
     }
 
-    if (vd.path.indices.empty()) {
+    if (vd.path_depth() == 0) {
         if (!src.valid()) {
             value_root->reset();
         } else {
             if (value_root->schema() != src.schema()) {
                 throw std::runtime_error(
-                    "TS scaffolding set_value root schema mismatch at path " + vd.path.to_string());
+                    "TS scaffolding set_value root schema mismatch at path " + vd.to_short_path().to_string());
             }
             value_root->schema()->ops().copy(value_root->data(), src.data(), value_root->schema());
         }
     } else {
-        auto maybe_dst = navigate_mut(value_root->view(), vd.path.indices);
+        auto maybe_dst = navigate_mut(value_root->view(), vd.path_indices());
         if (maybe_dst.has_value() && src.valid()) {
             copy_view_data(*maybe_dst, src);
         }
@@ -469,26 +432,26 @@ void op_apply_delta_scalar(ViewData& vd, const View& delta, engine_time_t curren
 }
 
 void op_apply_delta_container(ViewData& vd, const View& delta, engine_time_t current_time) {
-    auto* delta_root = static_cast<Value*>(vd.delta_data);
-    if (delta_root == nullptr || delta_root->schema() == nullptr) {
-        return;
+    const bool debug = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_LEVEL");
+    if (debug) {
+        std::fprintf(stderr, "[apply_delta_cont] path=%s delta_valid=%d root_level=%p level=%p\n",
+                     vd.to_short_path().to_string().c_str(),
+                     delta.valid() ? 1 : 0,
+                     (void*)vd.root_level, (void*)vd.level);
     }
     invalidate_python_value_cache(vd);
 
-    if (!delta_root->has_value()) {
-        delta_root->emplace();
-    }
-
-    if (vd.path.indices.empty()) {
-        if (!delta.valid()) {
-            delta_root->reset();
-        } else if (delta_root->schema() == delta.schema()) {
-            delta_root->schema()->ops().copy(delta_root->data(), delta.data(), delta_root->schema());
-        }
+    if (!delta.valid()) {
+        if (debug) std::fprintf(stderr, "[apply_delta_cont] RESET path=%s\n", vd.to_short_path().to_string().c_str());
+        reset_delta_data(vd);
     } else {
-        auto maybe_dst = navigate_mut(delta_root->view(), vd.path.indices);
-        if (maybe_dst.has_value() && delta.valid()) {
-            copy_view_data(*maybe_dst, delta);
+        auto maybe_dst = resolve_delta_slot_mut(vd);
+        if (maybe_dst.has_value()) {
+            if (maybe_dst->schema() == delta.schema()) {
+                maybe_dst->schema()->ops().copy(maybe_dst->data(), delta.data(), maybe_dst->schema());
+            } else {
+                copy_view_data(*maybe_dst, delta);
+            }
         }
     }
 
@@ -514,7 +477,7 @@ void op_invalidate(ViewData& vd) {
 
     const engine_time_t current_time = view_evaluation_time(vd);
 
-    if (vd.path.indices.empty()) {
+    if (vd.path_depth() == 0) {
         value_root->reset();
     }
 
@@ -557,7 +520,7 @@ void op_invalidate_tsd(ViewData& vd) {
         }
     }
 
-    if (vd.path.indices.empty()) {
+    if (vd.path_depth() == 0) {
         value_root->reset();
     }
 
@@ -569,16 +532,16 @@ void op_invalidate_tsd(ViewData& vd) {
 bool reset_root_value_and_delta_on_none(ViewData& vd,
                                         const nb::object& src,
                                         engine_time_t current_time) {
-    if (!vd.path.indices.empty() || !src.is_none()) {
+    if (vd.path_depth() > 0 || !src.is_none()) {
         return false;
     }
 
     bool had_value_or_delta = false;
     if (auto* value_root = static_cast<Value*>(vd.value_data); value_root != nullptr) {
-        had_value_or_delta = had_value_or_delta || value_root->has_value();
+        had_value_or_delta = value_root->has_value();
     }
-    if (auto* delta_root = static_cast<Value*>(vd.delta_data); delta_root != nullptr) {
-        had_value_or_delta = had_value_or_delta || delta_root->has_value();
+    if (!had_value_or_delta) {
+        had_value_or_delta = has_delta_data(vd);
     }
     if (had_value_or_delta) {
         invalidate_python_value_cache(vd);
@@ -589,9 +552,7 @@ bool reset_root_value_and_delta_on_none(ViewData& vd,
     if (auto* value_root = static_cast<Value*>(vd.value_data); value_root != nullptr) {
         value_root->reset();
     }
-    if (auto* delta_root = static_cast<Value*>(vd.delta_data); delta_root != nullptr) {
-        delta_root->reset();
-    }
+    reset_delta_data(vd);
     seed_python_value_cache_slot(vd, nb::none());
     stamp_time_paths(vd, current_time);
     notify_link_target_observers(vd, current_time);

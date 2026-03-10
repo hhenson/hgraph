@@ -51,13 +51,13 @@ std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
                                                             bool debug_keyset_bridge,
                                                             bool emit_first_bind_all_added,
                                                             bool allow_bridge_fallback) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     ViewData key_set_source{};
     if (resolve_tsd_key_set_source(vd, key_set_source)) {
         if (debug_delta_kind) {
             std::fprintf(stderr,
                          "[delta_kind] keyset path=%s self_kind=%d proj=%d uses_lt=%d now=%lld\n",
-                         vd.path.to_string().c_str(),
+                         vd.to_short_path().to_string().c_str(),
                          self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
                          static_cast<int>(vd.projection),
                          vd.uses_link_target ? 1 : 0,
@@ -66,21 +66,21 @@ std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
         if (debug_keyset_bridge) {
             std::fprintf(stderr,
                          "[keyset_delta] direct path=%s self_kind=%d uses_lt=%d source=%s\n",
-                         vd.path.to_string().c_str(),
+                         vd.to_short_path().to_string().c_str(),
                          self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
                          vd.uses_link_target ? 1 : 0,
-                         key_set_source.path.to_string().c_str());
+                         key_set_source.to_short_path().to_string().c_str());
         }
         const auto bridge_state = resolve_tsd_key_set_bridge_state(vd, current_time);
         if (bridge_state.has_previous_source || bridge_state.has_current_source) {
             if (debug_keyset_bridge) {
                 std::fprintf(stderr,
                              "[keyset_delta] bridge path=%s prev=%s curr=%s has_prev=%d has_curr=%d\n",
-                             vd.path.to_string().c_str(),
+                             vd.to_short_path().to_string().c_str(),
                              (bridge_state.has_previous_source ? bridge_state.previous_source : bridge_state.previous_bridge)
-                                 .path.to_string().c_str(),
+                                 .to_short_path().to_string().c_str(),
                              (bridge_state.has_current_source ? bridge_state.current_source : bridge_state.current_bridge)
-                                 .path.to_string().c_str(),
+                                 .to_short_path().to_string().c_str(),
                              bridge_state.has_previous_source ? 1 : 0,
                              bridge_state.has_current_source ? 1 : 0);
             }
@@ -95,12 +95,12 @@ std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
         // First bind from empty REF -> concrete TSD has no previous bridge yet.
         // Emit full "added" snapshot so key_set consumers observe immediate adds.
         if (emit_first_bind_all_added) {
-            if (LinkTarget* lt = resolve_link_target(vd, vd.path.indices);
+            if (LinkTarget* lt = resolve_link_target(vd);
                 is_first_bind_rebind_tick(lt, current_time)) {
                 if (debug_keyset_bridge) {
                     std::fprintf(stderr,
                                  "[keyset_delta] first_bind path=%s linked=%d prev=%d rebind=%lld now=%lld\n",
-                                 vd.path.to_string().c_str(),
+                                 vd.to_short_path().to_string().c_str(),
                                  lt->is_linked ? 1 : 0,
                                  lt->has_previous_target ? 1 : 0,
                                  static_cast<long long>(lt->last_rebind_time.time_since_epoch().count()),
@@ -122,9 +122,9 @@ std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
             if (debug_keyset_bridge) {
                 std::fprintf(stderr,
                              "[keyset_delta] fallback path=%s prev_bridge=%s curr_bridge=%s has_prev=%d has_curr=%d\n",
-                             vd.path.to_string().c_str(),
-                             bridge_state.previous_bridge.path.to_string().c_str(),
-                             bridge_state.current_bridge.path.to_string().c_str(),
+                             vd.to_short_path().to_string().c_str(),
+                             bridge_state.previous_bridge.to_short_path().to_string().c_str(),
+                             bridge_state.current_bridge.to_short_path().to_string().c_str(),
                              bridge_state.has_previous_source ? 1 : 0,
                              bridge_state.has_current_source ? 1 : 0);
             }
@@ -138,11 +138,11 @@ std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
             }
         } else if (debug_keyset_bridge) {
             if (vd.uses_link_target) {
-                if (LinkTarget* lt = resolve_link_target(vd, vd.path.indices); lt != nullptr) {
-                    const TSMeta* target_meta = meta_at_path(lt->meta, lt->target_path.indices);
+                if (LinkTarget* lt = resolve_link_target(vd); lt != nullptr) {
+                    const TSMeta* target_meta = lt->meta;
                     std::fprintf(stderr,
                                  "[keyset_delta] no_bridge path=%s self_kind=%d uses_lt=%d linked=%d prev=%d resolved=%d source_kind=%d last_rebind=%lld now=%lld\n",
-                                 vd.path.to_string().c_str(),
+                                 vd.to_short_path().to_string().c_str(),
                                  self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
                                  vd.uses_link_target ? 1 : 0,
                                  lt->is_linked ? 1 : 0,
@@ -154,14 +154,14 @@ std::optional<nb::object> maybe_tsd_key_set_delta_to_python(const ViewData& vd,
                 } else {
                     std::fprintf(stderr,
                                  "[keyset_delta] no_bridge path=%s self_kind=%d uses_lt=%d link_target=<none>\n",
-                                 vd.path.to_string().c_str(),
+                                 vd.to_short_path().to_string().c_str(),
                                  self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
                                  vd.uses_link_target ? 1 : 0);
                 }
             }
             std::fprintf(stderr,
                          "[keyset_delta] no_bridge path=%s self_kind=%d uses_lt=%d\n",
-                         vd.path.to_string().c_str(),
+                         vd.to_short_path().to_string().c_str(),
                          self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
                          vd.uses_link_target ? 1 : 0);
         }
@@ -213,7 +213,7 @@ nb::object op_delta_to_python_ref_dynamic(const ViewData& vd, engine_time_t curr
 }
 
 nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     refresh_dynamic_ref_binding(vd, current_time);
     const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
     const bool debug_delta_kind = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_KIND");
@@ -234,7 +234,7 @@ nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time
         return nb::none();
     }
     const ViewData* data = &resolved;
-    const TSMeta* current = meta_at_path(data->meta, data->path.indices);
+    const TSMeta* current = data->meta;
     if (current == nullptr) {
         return nb::none();
     }
@@ -242,7 +242,7 @@ nb::object op_delta_to_python_tss(const ViewData& vd, engine_time_t current_time
     if (debug_delta_kind) {
         std::fprintf(stderr,
                      "[delta_kind] path=%s self_kind=%d resolved_kind=%d self_proj=%d resolved_proj=%d uses_lt=%d now=%lld\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
                      static_cast<int>(current->kind),
                      static_cast<int>(vd.projection),
@@ -346,16 +346,16 @@ nb::object op_delta_to_python_tsw(const ViewData& vd, engine_time_t current_time
 
 nb::object op_delta_to_python_default(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     const bool debug_delta_kind = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_KIND");
 
     if (debug_delta_kind) {
         ViewData resolved{};
         const bool resolved_ok = resolve_read_view_data(vd, resolved);
-        const TSMeta* resolved_meta = resolved_ok ? meta_at_path(resolved.meta, resolved.path.indices) : nullptr;
+        const TSMeta* resolved_meta = resolved_ok ? resolved.meta : nullptr;
         std::fprintf(stderr,
                      "[delta_kind] path=%s self_kind=%d resolved_kind=%d self_proj=%d resolved_proj=%d uses_lt=%d now=%lld resolved_ok=%d\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
                      resolved_meta != nullptr ? static_cast<int>(resolved_meta->kind) : -1,
                      static_cast<int>(vd.projection),

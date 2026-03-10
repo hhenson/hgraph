@@ -11,7 +11,7 @@ bool prepare_tsw_from_python_inputs(ViewData& vd,
                                     std::optional<ValueView>& maybe_time_tuple,
                                     ValueView& container_time,
                                     std::optional<Value>& maybe_value) {
-    current = meta_at_path(vd.meta, vd.path.indices);
+    current = vd.meta;
     if (current == nullptr || src.is_none()) {
         return false;
     }
@@ -29,7 +29,7 @@ bool prepare_tsw_from_python_inputs(ViewData& vd,
         time_root->emplace();
     }
 
-    auto time_path = ts_path_to_time_path(vd.meta, vd.path.indices);
+    auto time_path = ts_path_to_time_path(vd.root_meta, vd.path_indices());
     if (time_path.empty()) {
         return false;
     }

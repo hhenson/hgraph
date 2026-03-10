@@ -59,7 +59,7 @@ public:
         ShortPath fq_path = to_short_path(view);
 
         ViewData root = view.view_data();
-        root.path = root_path();
+        root.path = path_handle_from_short_path(root_path());
         return fq_path.to_fq(root);
     }
 

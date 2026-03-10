@@ -12,6 +12,20 @@ const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indice
     return meta;
 }
 
+ViewData make_child_view_data(const ViewData& parent, size_t index) {
+    ViewData child = parent;
+    child.path = PathHandle(PathNode::make_child(parent.path.get(), index));
+    if (child.level != nullptr) {
+        child.level = child.level->ensure_child(index);
+        child.level_depth = parent.level_depth + 1;
+    }
+    // Step meta to child level — parent.meta is already resolved for parent's level
+    if (parent.meta != nullptr) {
+        child.meta = dispatch_meta_child(parent.meta, index);
+    }
+    return child;
+}
+
 void bind_view_data_ops(ViewData& vd) {
     vd.ops = get_ts_ops(vd);
 
@@ -20,7 +34,18 @@ void bind_view_data_ops(ViewData& vd) {
         throw std::runtime_error("bind_view_data_ops: resolved null ops table");
     }
 
-    const TSMeta* dispatch_meta = meta_at_path(vd.meta, vd.path.indices);
+    // Every non-root ViewData must have root_meta set and meta resolved
+    if (vd.path_depth() > 0 && vd.meta != nullptr && vd.root_meta == nullptr) {
+        std::fprintf(stderr,
+                     "[bind_view_data_ops] MISSING root_meta: path=%s depth=%zu meta=%p kind=%d\n",
+                     vd.to_short_path().to_string().c_str(),
+                     vd.path_depth(),
+                     static_cast<const void*>(vd.meta),
+                     static_cast<int>(vd.meta->kind));
+        throw std::runtime_error("bind_view_data_ops: non-root ViewData missing root_meta");
+    }
+
+    const TSMeta* dispatch_meta = vd.meta;
     if (dispatch_meta == nullptr) {
         return;
     }
@@ -247,7 +272,7 @@ bool resolve_container_rebind_bridge_views(const ViewData& vd,
         return true;
     }
 
-    const TSMeta* current_bridge_meta = meta_at_path(current_bridge.meta, current_bridge.path.indices);
+    const TSMeta* current_bridge_meta = current_bridge.meta;
     return current_bridge_meta == nullptr || dispatch_meta_ops(current_bridge_meta) != dispatch_meta_ops(container_meta);
 }
 
@@ -265,7 +290,7 @@ bool tsd_child_was_visible_before_removal(const ViewData& child_vd) {
         return false;
     }
 
-    const TSMeta* child_meta = meta_at_path(child_vd.meta, child_vd.path.indices);
+    const TSMeta* child_meta = child_vd.meta;
     const bool ref_like_child =
         dispatch_meta_is_ref(child_meta) ||
         child_value.schema() == ts_reference_meta();
@@ -303,26 +328,175 @@ bool tsd_child_was_visible_before_removal(const ViewData& child_vd) {
     return op_valid(child_vd);
 }
 
+
+namespace {
+
+// Navigate the level tree from root_level to the correct depth for delta access.
+// For mutable access: creates children on demand and tags dynamic TSD children.
+TSLevelEntry* navigate_level_for_delta_mut(ViewData& vd) {
+    // Fast path: level already synced to path depth
+    if (vd.level != nullptr && vd.level_depth == vd.path_depth()) {
+        // Tag delta_kind if not yet done (e.g. dynamic TSD children created by make_child_view_data)
+        if (vd.level->delta_kind == LevelDeltaKind::None && vd.meta != nullptr &&
+            has_delta_descendants(vd.meta)) {
+            tag_level_delta_kinds(*vd.level, vd.meta);
+        }
+        return vd.level;
+    }
+
+    TSLevelEntry* level = vd.root_level;
+    if (level == nullptr) return nullptr;
+
+    const TSMeta* current_meta = vd.meta;
+    const auto indices = vd.path_indices();
+    for (size_t i = 0; i < indices.size(); ++i) {
+        while (current_meta != nullptr && current_meta->kind == TSKind::REF) {
+            current_meta = current_meta->element_ts();
+        }
+        if (current_meta == nullptr) return nullptr;
+
+        level = level->ensure_child(indices[i]);
+
+        // Tag dynamic TSD children that weren't pre-tagged at init
+        if (current_meta->kind == TSKind::TSD && level->delta_kind == LevelDeltaKind::None) {
+            const TSMeta* child_meta = current_meta->element_ts();
+            if (child_meta != nullptr && has_delta_descendants(child_meta)) {
+                tag_level_delta_kinds(*level, child_meta);
+            }
+        }
+
+        switch (current_meta->kind) {
+            case TSKind::TSB:
+                current_meta = (current_meta->fields() != nullptr && indices[i] < current_meta->field_count())
+                                   ? current_meta->fields()[indices[i]].ts_type
+                                   : nullptr;
+                break;
+            case TSKind::TSL:
+            case TSKind::TSD:
+                current_meta = current_meta->element_ts();
+                break;
+            default:
+                return nullptr;
+        }
+    }
+    return level;
+}
+
+// Navigate the level tree for const access (no child creation).
+// Returns nullptr if any child in the path doesn't exist (meaning no delta was ever written).
+TSLevelEntry* navigate_level_for_delta_const(const ViewData& vd) {
+    // Fast path: level already synced to path depth
+    if (vd.level != nullptr && vd.level_depth == vd.path_depth()) {
+        return vd.level;
+    }
+
+    TSLevelEntry* level = vd.root_level;
+    if (level == nullptr) return nullptr;
+
+    const auto indices = vd.path_indices();
+    for (size_t idx : indices) {
+        level = level->child_at(idx);
+        if (level == nullptr) return nullptr;
+    }
+    return level;
+}
+
+// Recursively reset all LevelDelta storage in a level tree.
+void reset_all_delta_on_level(TSLevelEntry& level) {
+    if (level.delta) {
+        auto* ld = static_cast<LevelDelta*>(level.delta.get());
+        if (ld->has_value()) {
+            ld->tuple.reset();
+        }
+    }
+    for (auto& child : level.children) {
+        if (child) {
+            reset_all_delta_on_level(*child);
+        }
+    }
+}
+
+}  // namespace
+
 std::optional<ValueView> resolve_delta_slot_mut(ViewData& vd) {
-    auto* delta_root = static_cast<Value*>(vd.delta_data);
-    if (delta_root == nullptr || delta_root->schema() == nullptr) {
+    const bool debug = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_LEVEL");
+    TSLevelEntry* level = navigate_level_for_delta_mut(vd);
+    if (level == nullptr) {
+        if (debug) std::fprintf(stderr, "[delta_mut] path=%s level=null\n", vd.to_short_path().to_string().c_str());
         return std::nullopt;
     }
-    if (!delta_root->has_value()) {
-        delta_root->emplace();
-    }
-    auto delta_path = ts_path_to_delta_path(vd.meta, vd.path.indices);
-    if (!delta_path.has_value()) {
+
+    const TSMeta* leaf_meta = vd.meta;
+    LevelDelta* ld = ensure_level_delta(*level, leaf_meta);
+    if (ld == nullptr) {
+        if (debug) std::fprintf(stderr, "[delta_mut] path=%s level=%p delta_kind=%d leaf_meta=%p ld=null\n",
+                                vd.to_short_path().to_string().c_str(), (void*)level,
+                                (int)level->delta_kind, (void*)leaf_meta);
         return std::nullopt;
     }
-    if (delta_path->empty()) {
-        return delta_root->view();
+
+    ld->emplace();
+    if (debug) std::fprintf(stderr, "[delta_mut] path=%s level=%p ld=%p schema=%p\n",
+                            vd.to_short_path().to_string().c_str(), (void*)level, (void*)ld,
+                            (void*)ld->tuple.schema());
+    return ld->mutable_view();
+}
+
+std::optional<View> resolve_delta_slot_const(const ViewData& vd) {
+    const bool debug = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_LEVEL");
+    TSLevelEntry* level = navigate_level_for_delta_const(vd);
+    if (level == nullptr) {
+        if (debug) std::fprintf(stderr, "[delta_const] path=%s level=null root_level=%p\n",
+                                vd.to_short_path().to_string().c_str(), (void*)vd.root_level);
+        return std::nullopt;
     }
-    return navigate_mut(delta_root->view(), *delta_path);
+    if (level->delta == nullptr) {
+        if (debug) std::fprintf(stderr, "[delta_const] path=%s level=%p delta=null delta_kind=%d\n",
+                                vd.to_short_path().to_string().c_str(), (void*)level, (int)level->delta_kind);
+        return std::nullopt;
+    }
+
+    auto* ld = static_cast<LevelDelta*>(level->delta.get());
+    if (!ld->has_value()) {
+        if (debug) std::fprintf(stderr, "[delta_const] path=%s level=%p ld=%p no_value\n",
+                                vd.to_short_path().to_string().c_str(), (void*)level, (void*)ld);
+        return std::nullopt;
+    }
+    if (debug) std::fprintf(stderr, "[delta_const] path=%s level=%p ld=%p has_value\n",
+                            vd.to_short_path().to_string().c_str(), (void*)level, (void*)ld);
+    return ld->view();
+}
+
+bool has_delta_data(const ViewData& vd) {
+    TSLevelEntry* level = navigate_level_for_delta_const(vd);
+    if (level == nullptr) return false;
+    if (level->delta == nullptr) return false;
+
+    auto* ld = static_cast<LevelDelta*>(level->delta.get());
+    return ld->has_value();
+}
+
+void reset_delta_data(ViewData& vd) {
+    const bool debug = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_LEVEL");
+    if (debug) std::fprintf(stderr, "[reset_delta] path=%s depth=%zu root_level=%p\n",
+                            vd.to_short_path().to_string().c_str(), vd.path_depth(), (void*)vd.root_level);
+    if (vd.path_depth() == 0 && vd.root_level != nullptr) {
+        reset_all_delta_on_level(*vd.root_level);
+        return;
+    }
+
+    TSLevelEntry* level = navigate_level_for_delta_mut(vd);
+    if (level == nullptr) return;
+    if (level->delta == nullptr) return;
+    auto* ld = static_cast<LevelDelta*>(level->delta.get());
+    if (ld->has_value()) {
+        ld->tuple.reset();
+    }
 }
 
 TSSDeltaSlots resolve_tss_delta_slots(ViewData& vd) {
     TSSDeltaSlots out{};
+
     auto maybe_slot = resolve_delta_slot_mut(vd);
     if (!maybe_slot.has_value()) {
         return out;
@@ -345,6 +519,7 @@ TSSDeltaSlots resolve_tss_delta_slots(ViewData& vd) {
 
 TSDDeltaSlots resolve_tsd_delta_slots(ViewData& vd) {
     TSDDeltaSlots out{};
+
     auto maybe_slot = resolve_delta_slot_mut(vd);
     if (!maybe_slot.has_value()) {
         return out;
@@ -370,6 +545,7 @@ TSDDeltaSlots resolve_tsd_delta_slots(ViewData& vd) {
 
 TSWTickDeltaSlots resolve_tsw_tick_delta_slots(ViewData& vd) {
     TSWTickDeltaSlots out{};
+
     auto maybe_slot = resolve_delta_slot_mut(vd);
     if (!maybe_slot.has_value()) {
         return out;
@@ -392,6 +568,7 @@ TSWTickDeltaSlots resolve_tsw_tick_delta_slots(ViewData& vd) {
 
 TSWDurationDeltaSlots resolve_tsw_duration_delta_slots(ViewData& vd) {
     TSWDurationDeltaSlots out{};
+
     auto maybe_slot = resolve_delta_slot_mut(vd);
     if (!maybe_slot.has_value()) {
         return out;
@@ -564,12 +741,12 @@ Value canonical_map_key_for_slot(const value::MapView& map, size_t slot_index) {
 namespace {
 
 struct TsdDeltaTickKey {
-    const void* delta_data{};
+    const TSLevelEntry* root_level{};
     std::vector<size_t> path;
     uint8_t projection{0};
 
     bool operator==(const TsdDeltaTickKey& other) const noexcept {
-        return delta_data == other.delta_data &&
+        return root_level == other.root_level &&
                projection == other.projection &&
                path == other.path;
     }
@@ -577,7 +754,7 @@ struct TsdDeltaTickKey {
 
 struct TsdDeltaTickKeyHash {
     size_t operator()(const TsdDeltaTickKey& key) const noexcept {
-        size_t h = std::hash<const void*>{}(key.delta_data);
+        size_t h = std::hash<const TSLevelEntry*>{}(key.root_level);
         h ^= std::hash<uint8_t>{}(key.projection) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
         for (size_t index : key.path) {
             h ^= std::hash<size_t>{}(index) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
@@ -613,8 +790,8 @@ void clear_tsd_delta_once_per_tick(const ViewData& tsd_vd, engine_time_t current
     bool should_clear = false;
     if (auto state = ensure_tsd_delta_tick_state(tsd_vd.link_observer_registry); state) {
         TsdDeltaTickKey key{
-            tsd_vd.delta_data,
-            tsd_vd.path.indices,
+            tsd_vd.root_level,
+            tsd_vd.path_indices(),
             static_cast<uint8_t>(tsd_vd.projection),
         };
         auto [it, inserted] = state->last_cleared_tick.emplace(std::move(key), current_time);
@@ -634,20 +811,21 @@ void clear_tsd_delta_once_per_tick(const ViewData& tsd_vd, engine_time_t current
 }  // namespace
 
 void mark_tsd_parent_child_modified(ViewData child_vd, engine_time_t current_time) {
-    if (child_vd.path.indices.empty()) {
+    if (child_vd.path_depth() == 0) {
         return;
     }
 
-    const std::vector<size_t> full_path = child_vd.path.indices;
+    const std::vector<size_t> full_path = child_vd.path_indices();
     for (size_t depth = 0; depth < full_path.size(); ++depth) {
         std::vector<size_t> tsd_path(full_path.begin(), full_path.begin() + depth);
-        const TSMeta* parent_meta = meta_at_path(child_vd.meta, tsd_path);
+        const TSMeta* parent_meta = meta_at_path(child_vd.root_meta, tsd_path);
         if (!dispatch_meta_is_tsd(parent_meta)) {
             continue;
         }
 
         ViewData tsd_vd = child_vd;
-        tsd_vd.path.indices = std::move(tsd_path);
+        tsd_vd.path = path_handle_from_short_path(ShortPath{tsd_vd.owner_node(), tsd_vd.port_type(), std::move(tsd_path)});
+        sync_level_to_path(tsd_vd);
         const size_t child_slot = full_path[depth];
 
         auto maybe_parent_value = resolve_value_slot_const(tsd_vd);
@@ -662,8 +840,7 @@ void mark_tsd_parent_child_modified(ViewData child_vd, engine_time_t current_tim
         }
         const View key = maybe_key->view();
 
-        ViewData tsd_child_vd = tsd_vd;
-        tsd_child_vd.path.indices.push_back(child_slot);
+        ViewData tsd_child_vd = make_child_view_data(tsd_vd, child_slot);
 
         auto slots = resolve_tsd_delta_slots(tsd_vd);
         clear_tsd_delta_once_per_tick(tsd_vd, current_time, slots);
@@ -803,6 +980,97 @@ nb::object python_set_delta(const nb::object& added, const nb::object& removed) 
     return PythonSetDelta(added, removed);
 }
 
+void install_level_delta(TSLevelEntry& level, const TSMeta* meta) {
+    tag_level_delta_kinds(level, meta);
+}
 
+void tag_level_delta_kinds(TSLevelEntry& level, const TSMeta* meta) {
+    if (meta == nullptr) {
+        return;
+    }
+
+    // Tag the delta kind based on the TSMeta kind.
+    // No allocation happens here — delta storage is created lazily on first access
+    // via ensure_level_delta(). This avoids heap allocations at TSValue init time
+    // that could perturb map iteration ordering.
+    switch (meta->kind) {
+        case TSKind::TSS: {
+            const auto& schema_cache = TSMetaSchemaCache::instance().get(meta);
+            if (schema_cache.delta_schema != nullptr || meta->delta_value_schema() != nullptr) {
+                level.delta_kind = LevelDeltaKind::TSS;
+            }
+            break;
+        }
+        case TSKind::TSD: {
+            const auto& schema_cache = TSMetaSchemaCache::instance().get(meta);
+            if (schema_cache.delta_schema != nullptr || meta->delta_value_schema() != nullptr) {
+                level.delta_kind = LevelDeltaKind::TSD;
+            }
+            break;
+        }
+        case TSKind::TSW: {
+            const auto& schema_cache = TSMetaSchemaCache::instance().get(meta);
+            if (schema_cache.delta_schema != nullptr || meta->delta_value_schema() != nullptr) {
+                if (meta->is_duration_based()) {
+                    level.delta_kind = LevelDeltaKind::TSWDuration;
+                } else {
+                    level.delta_kind = LevelDeltaKind::TSWTick;
+                }
+            }
+            break;
+        }
+        case TSKind::TSB: {
+            // TSB doesn't have its own delta; children carry their own.
+            for (size_t i = 0; i < meta->field_count(); ++i) {
+                const TSMeta* field_meta = meta->fields()[i].ts_type;
+                if (field_meta != nullptr && has_delta_descendants(field_meta)) {
+                    tag_level_delta_kinds(*level.ensure_child(i), field_meta);
+                }
+            }
+            break;
+        }
+        case TSKind::TSL: {
+            // Fixed TSL: tag children.
+            if (meta->fixed_size() > 0) {
+                const TSMeta* child_meta = meta->element_ts();
+                if (child_meta != nullptr && has_delta_descendants(child_meta)) {
+                    for (size_t i = 0; i < meta->fixed_size(); ++i) {
+                        tag_level_delta_kinds(*level.ensure_child(i), child_meta);
+                    }
+                }
+            }
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+const value::TypeMeta* delta_schema_for_meta(const TSMeta* meta) {
+    if (meta == nullptr) return nullptr;
+    const auto& schema_cache = TSMetaSchemaCache::instance().get(meta);
+    const value::TypeMeta* schema = schema_cache.delta_schema;
+    if (schema == nullptr) {
+        schema = meta->delta_value_schema();
+    }
+    return schema;
+}
+
+LevelDelta* ensure_level_delta(TSLevelEntry& level, const TSMeta* meta) {
+    if (level.delta_kind == LevelDeltaKind::None) {
+        return nullptr;
+    }
+    if (level.delta != nullptr) {
+        return static_cast<LevelDelta*>(level.delta.get());
+    }
+    // Lazily allocate delta storage on first access.
+    const value::TypeMeta* schema = delta_schema_for_meta(meta);
+    if (schema == nullptr) {
+        return nullptr;
+    }
+    auto ld = std::make_shared<LevelDelta>(schema);
+    level.delta = ld;
+    return ld.get();
+}
 
 }  // namespace hgraph

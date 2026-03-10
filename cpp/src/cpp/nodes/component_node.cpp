@@ -274,7 +274,6 @@ namespace hgraph {
         if (!m_active_graph_) {
             wire_graph();
             if (!m_active_graph_) {
-                // Still pending
                 return;
             }
         }

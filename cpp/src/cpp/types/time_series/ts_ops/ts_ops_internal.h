@@ -9,6 +9,7 @@ typedef SSIZE_T ssize_t;
 #include <hgraph/types/time_series/ts_ops.h>
 
 #include <hgraph/types/time_series/link_observer_registry.h>
+#include <hgraph/types/time_series/ts_meta_schema_cache.h>
 #include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/python_value_cache_stats.h>
@@ -53,6 +54,42 @@ using value::Value;
 using value::ValueView;
 
 const value::TypeMeta* ts_reference_meta();
+
+// Forward declarations needed by inline helpers below.
+const TSMeta* meta_at_path(const TSMeta* root, const std::vector<size_t>& indices);
+
+// Create a child ViewData from a parent, advancing the path and level pointer.
+// Use this instead of manual `child = parent; child.path = ...` patterns.
+// Note: meta is stepped to child via dispatch_meta_child (defined later in this header).
+ViewData make_child_view_data(const ViewData& parent, size_t index);
+
+// Re-navigate the level tree from root_level to match the current path.
+// Call this after modifying vd.path outside of make_child_view_data
+// (e.g., path shortening, path_handle_from_short_path).
+// NOTE: Only use on same-endpoint ViewData (where root_level belongs to the
+// same TSValue). Do NOT use on cross-endpoint resolved views (e.g., after
+// link target or REF link resolution) — their level trees are from different
+// TSValue instances and syncing would be incorrect.
+inline void sync_level_to_path(ViewData& vd) {
+    if (vd.root_level == nullptr) {
+        vd.level = nullptr;
+        vd.level_depth = 0;
+    } else {
+        TSLevelEntry* current = vd.root_level;
+        uint16_t depth = 0;
+        const auto indices = vd.path_indices();
+        for (size_t idx : indices) {
+            current = current->ensure_child(idx);
+            ++depth;
+        }
+        vd.level = current;
+        vd.level_depth = depth;
+    }
+    // Sync meta to match the current path
+    if (vd.root_meta != nullptr) {
+        vd.meta = meta_at_path(vd.root_meta, vd.path_indices());
+    }
+}
 
 [[nodiscard]] inline const TimeSeriesReference* time_series_reference_ptr(const value::View& view) noexcept {
     if (!view.valid() || view.schema() != ts_reference_meta()) {
@@ -114,6 +151,39 @@ struct TSWDurationDeltaSlots {
     ValueView has_removed;
     ValueView removed_values;
 };
+
+// Per-level delta storage — owned by TSLevelEntry::delta (shared_ptr<void>).
+// Each container kind stores a single tuple Value matching the legacy delta schema
+// for that level, providing O(1) access without parallel-tree navigation.
+
+struct LevelDelta {
+    value::Value tuple;  // tuple matching the kind's delta schema
+
+    explicit LevelDelta(const value::TypeMeta* tuple_schema)
+        : tuple(tuple_schema) {}
+
+    void emplace() {
+        if (!tuple.has_value()) tuple.emplace();
+    }
+
+    [[nodiscard]] bool has_value() const { return tuple.has_value(); }
+    [[nodiscard]] value::View view() const { return tuple.view(); }
+    [[nodiscard]] value::ValueView mutable_view() { return tuple.view(); }
+};
+
+// Helper to create and install a per-level delta struct in a TSLevelEntry.
+// Legacy entry point — delegates to tag_level_delta_kinds.
+void install_level_delta(TSLevelEntry& level, const TSMeta* meta);
+
+// Tag delta kinds on the level tree (no allocation — sets delta_kind only).
+void tag_level_delta_kinds(TSLevelEntry& level, const TSMeta* meta);
+
+// Get the delta schema for a given TSMeta.
+const value::TypeMeta* delta_schema_for_meta(const TSMeta* meta);
+
+// Lazily create LevelDelta storage on a level entry. Returns nullptr if
+// the level has no delta kind or no schema is available.
+LevelDelta* ensure_level_delta(TSLevelEntry& level, const TSMeta* meta);
 
 struct TsdRemovedChildSnapshotRecord {
     std::vector<size_t> parent_path;
@@ -300,12 +370,16 @@ bool is_unpeered_static_container_view(const ViewData& vd, const TSMeta* current
 engine_time_t extract_time_value(const View& time_view);
 engine_time_t* extract_time_ptr(ValueView time_view);
 std::optional<View> resolve_link_view(const ViewData& vd, const std::vector<size_t>& ts_path);
+inline std::optional<View> resolve_link_view(const ViewData& vd) { return resolve_link_view(vd, vd.path_indices()); }
 const value::TypeMeta* link_target_meta();
 const value::TypeMeta* ref_link_meta();
 const value::TypeMeta* ts_reference_meta();
 LinkTarget* resolve_link_target(const ViewData& vd, const std::vector<size_t>& ts_path);
+inline LinkTarget* resolve_link_target(const ViewData& vd) { return resolve_link_target(vd, vd.path_indices()); }
 REFLink* resolve_ref_link(const ViewData& vd, const std::vector<size_t>& ts_path);
+inline REFLink* resolve_ref_link(const ViewData& vd) { return resolve_ref_link(vd, vd.path_indices()); }
 engine_time_t* resolve_owner_time_ptr(ViewData& vd);
+void ensure_tsd_child_level_entry(ViewData& vd, size_t child_slot);
 void ensure_tsd_child_time_slot(ViewData& vd, size_t child_slot);
 std::optional<ValueView> resolve_tsd_child_link_list(ViewData& vd);
 void ensure_tsd_child_link_slot(ViewData& vd, size_t child_slot);
@@ -358,6 +432,9 @@ void copy_view_data(ValueView dst, const View& src);
 void clear_map_slot(value::ValueView map_view);
 bool tsd_child_was_visible_before_removal(const ViewData& child_vd);
 std::optional<ValueView> resolve_delta_slot_mut(ViewData& vd);
+std::optional<View> resolve_delta_slot_const(const ViewData& vd);
+bool has_delta_data(const ViewData& vd);
+void reset_delta_data(ViewData& vd);
 TSSDeltaSlots resolve_tss_delta_slots(ViewData& vd);
 TSDDeltaSlots resolve_tsd_delta_slots(ViewData& vd);
 TSWTickDeltaSlots resolve_tsw_tick_delta_slots(ViewData& vd);
@@ -769,6 +846,7 @@ nb::object tsd_key_set_all_added_to_python(const ViewData& source);
 nb::object tsd_key_set_bridge_delta_to_python(const ViewData& previous_data, const ViewData& current_data);
 nb::object tsd_key_set_unbind_delta_to_python(const ViewData& previous_data);
 bool is_same_view_data(const ViewData& lhs, const ViewData& rhs);
+void navigate_level_to_path(ViewData& vd);
 bool resolve_read_view_data(const ViewData& vd, ViewData& out);
 bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewData& out);
 void stamp_time_paths(ViewData& vd, engine_time_t current_time);

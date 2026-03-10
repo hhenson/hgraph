@@ -53,7 +53,7 @@ void record_tsd_removed_child_snapshot(const ViewData& parent_view,
         return;
     }
 
-    const TSMeta* child_meta = meta_at_path(child_view.meta, child_view.path.indices);
+    const TSMeta* child_meta = child_view.meta;
     if (child_meta == nullptr) {
         return;
     }
@@ -72,7 +72,7 @@ void record_tsd_removed_child_snapshot(const ViewData& parent_view,
                 if (record.time != current_time) {
                     return true;
                 }
-                return record.parent_path == parent_view.path.indices &&
+                return record.parent_path == parent_view.path_indices() &&
                        key_matches_relaxed(record.key.view(), key);
             }),
         records.end());
@@ -82,7 +82,7 @@ void record_tsd_removed_child_snapshot(const ViewData& parent_view,
     copy_view_data_value(snapshot_view, child_view, current_time);
 
     TsdRemovedChildSnapshotRecord record{};
-    record.parent_path = parent_view.path.indices;
+    record.parent_path = parent_view.path_indices();
     record.time = current_time;
     record.key = key.clone();
     record.snapshot = std::move(snapshot);
@@ -104,7 +104,7 @@ void mark_tsd_visible_key_history(const ViewData& parent_view, const value::View
 
     auto& records = state->entries[parent_view.value_data];
     for (auto& record : records) {
-        if (record.parent_path == parent_view.path.indices &&
+        if (record.parent_path == parent_view.path_indices() &&
             key_matches_relaxed(record.key.view(), key)) {
             record.last_seen = current_time;
             return;
@@ -112,7 +112,7 @@ void mark_tsd_visible_key_history(const ViewData& parent_view, const value::View
     }
 
     TsdVisibleKeyHistoryRecord record{};
-    record.parent_path = parent_view.path.indices;
+    record.parent_path = parent_view.path_indices();
     record.key = key.clone();
     record.last_seen = current_time;
     records.push_back(std::move(record));
@@ -150,7 +150,7 @@ bool has_tsd_visible_key_history(const ViewData& parent_view, const value::View&
         }
 
         for (const auto& record : it->second) {
-            if (record.parent_path == lookup_view.path.indices &&
+            if (record.parent_path == lookup_view.path_indices() &&
                 key_matches_relaxed(record.key.view(), key) &&
                 record.last_seen > MIN_DT) {
                 return true;
@@ -198,7 +198,7 @@ void clear_tsd_visible_key_history(const ViewData& parent_view, const value::Vie
                 records.begin(),
                 records.end(),
                 [&](const TsdVisibleKeyHistoryRecord& record) {
-                    return record.parent_path == lookup_view.path.indices &&
+                    return record.parent_path == lookup_view.path_indices() &&
                            key_matches_relaxed(record.key.view(), key);
                 }),
             records.end());

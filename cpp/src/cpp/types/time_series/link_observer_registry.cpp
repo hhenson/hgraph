@@ -38,6 +38,9 @@ std::shared_ptr<void>* TSLinkObserverRegistry::known_state_slot(std::string_view
     if (key == kRefUnboundItemChangesKey) {
         return &ref_unbound_item_changes_state_;
     }
+    if (key == kTsdDeltaTickStateKey) {
+        return &tsd_delta_tick_state_;
+    }
     return nullptr;
 }
 
@@ -50,6 +53,9 @@ const std::shared_ptr<void>* TSLinkObserverRegistry::known_state_slot(std::strin
     }
     if (key == kRefUnboundItemChangesKey) {
         return &ref_unbound_item_changes_state_;
+    }
+    if (key == kTsdDeltaTickStateKey) {
+        return &tsd_delta_tick_state_;
     }
     return nullptr;
 }
@@ -107,6 +113,7 @@ void TSLinkObserverRegistry::clear() {
     tsd_removed_child_snapshots_state_.reset();
     tsd_visible_key_history_state_.reset();
     ref_unbound_item_changes_state_.reset();
+    tsd_delta_tick_state_.reset();
     extra_feature_states_.reset();
 }
 

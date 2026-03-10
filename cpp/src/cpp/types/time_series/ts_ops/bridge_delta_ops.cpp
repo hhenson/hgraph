@@ -26,8 +26,8 @@ nb::object tsd_bridge_delta_to_python(const ViewData& previous_data,
 
     auto previous_value = resolve_value_slot_const(previous_data);
     auto current_value = resolve_value_slot_const(current_data);
-    const TSMeta* previous_meta = meta_at_path(previous_data.meta, previous_data.path.indices);
-    const TSMeta* current_meta = meta_at_path(current_data.meta, current_data.path.indices);
+    const TSMeta* previous_meta = previous_data.meta;
+    const TSMeta* current_meta = current_data.meta;
     const auto is_tsd_of_ref = [](const TSMeta* meta) {
         return meta != nullptr &&
                dispatch_meta_is_tsd(meta) &&
@@ -83,8 +83,8 @@ nb::object tsd_bridge_delta_to_python(const ViewData& previous_data,
         std::fprintf(stderr,
                      "[tsd_bridge_delta] now=%lld prev_path=%s curr_path=%s has_prev=%d has_curr=%d carry_prev_ref=%d\n",
                      static_cast<long long>(current_time.time_since_epoch().count()),
-                     previous_data.path.to_string().c_str(),
-                     current_data.path.to_string().c_str(),
+                     previous_data.to_short_path().to_string().c_str(),
+                     current_data.to_short_path().to_string().c_str(),
                      has_previous ? 1 : 0,
                      has_current ? 1 : 0,
                      carry_missing_from_previous_ref ? 1 : 0);
@@ -323,10 +323,10 @@ bool try_container_bridge_delta_to_python_impl(const ViewData& vd,
     if (debug_bridge) {
         std::fprintf(stderr,
                      "[tsd_bridge_dbg] path=%s kind=%d prev=%s curr=%s now=%lld curr_modified=%d\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      static_cast<int>(container_meta->kind),
-                     previous_bridge.path.to_string().c_str(),
-                     current_bridge.path.to_string().c_str(),
+                     previous_bridge.to_short_path().to_string().c_str(),
+                     current_bridge.to_short_path().to_string().c_str(),
                      static_cast<long long>(current_time.time_since_epoch().count()),
                      op_modified(current_bridge, current_time) ? 1 : 0);
     }
@@ -398,7 +398,7 @@ bool resolve_tsd_key_set_source(const ViewData& vd, ViewData& out) {
     if (is_tsd_key_set_projection(vd)) {
         ViewData source = vd;
         source.projection = ViewProjection::NONE;
-        const TSMeta* source_meta = meta_at_path(source.meta, source.path.indices);
+        const TSMeta* source_meta = source.meta;
         if (!dispatch_meta_is_tsd(source_meta)) {
             return false;
         }
@@ -408,12 +408,12 @@ bool resolve_tsd_key_set_source(const ViewData& vd, ViewData& out) {
         }
 
         out.projection = ViewProjection::NONE;
-        const TSMeta* current = meta_at_path(out.meta, out.path.indices);
+        const TSMeta* current = out.meta;
         return dispatch_meta_is_tsd(current);
     }
 
     // Explicit key_set bridge: graph TSS endpoint linked to backing TSD source.
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (!dispatch_meta_is_tss(self_meta)) {
         return false;
     }
@@ -423,7 +423,7 @@ bool resolve_tsd_key_set_source(const ViewData& vd, ViewData& out) {
     }
 
     out.projection = ViewProjection::NONE;
-    const TSMeta* current = meta_at_path(out.meta, out.path.indices);
+    const TSMeta* current = out.meta;
     return dispatch_meta_is_tsd(current);
 }
 
@@ -435,7 +435,7 @@ bool resolve_tsd_key_set_bridge_source(const ViewData& vd, ViewData& out) {
         return true;
     }
 
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (!dispatch_meta_is_tsd(self_meta)) {
         return false;
     }
@@ -445,14 +445,14 @@ bool resolve_tsd_key_set_bridge_source(const ViewData& vd, ViewData& out) {
     }
 
     out.projection = ViewProjection::NONE;
-    const TSMeta* current = meta_at_path(out.meta, out.path.indices);
+    const TSMeta* current = out.meta;
     return dispatch_meta_is_tsd(current);
 }
 
 TSDKeySetBridgeState resolve_tsd_key_set_bridge_state(const ViewData& vd,
                                                       engine_time_t current_time) {
     TSDKeySetBridgeState state{};
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return state;
     }
@@ -473,19 +473,7 @@ TSDKeySetBridgeState resolve_tsd_key_set_bridge_state(const ViewData& vd,
 TSDKeySetDeltaState tsd_key_set_delta_state(const ViewData& source) {
     TSDKeySetDeltaState state{};
 
-    auto* delta_root = static_cast<const Value*>(source.delta_data);
-    if (delta_root == nullptr || !delta_root->has_value()) {
-        return state;
-    }
-
-    std::optional<View> maybe_delta;
-    if (auto delta_path = ts_path_to_delta_path(source.meta, source.path.indices); delta_path.has_value()) {
-        if (delta_path->empty()) {
-            maybe_delta = delta_root->view();
-        } else {
-            maybe_delta = navigate_const(delta_root->view(), *delta_path);
-        }
-    }
+    auto maybe_delta = resolve_delta_slot_const(source);
     if (!maybe_delta.has_value() || !maybe_delta->valid() || !maybe_delta->is_tuple()) {
         return state;
     }

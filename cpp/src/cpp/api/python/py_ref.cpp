@@ -88,8 +88,8 @@ namespace
                         const TSMeta* root_elem = ts_meta_is_dict(root_meta) ? root_meta->element_ts() : nullptr;
                         std::fprintf(stderr,
                                      "[ref_output] path=%s idx_count=%zu root_kind=%d root_elem_kind=%d cur_kind=%d current=%lld\n",
-                                     bound->path.to_string().c_str(),
-                                     bound->path.indices.size(),
+                                     bound->to_short_path().to_string().c_str(),
+                                     bound->path_depth(),
                                      root_meta != nullptr ? static_cast<int>(root_meta->kind) : -1,
                                      root_elem != nullptr ? static_cast<int>(root_elem->kind) : -1,
                                      cur_meta != nullptr ? static_cast<int>(cur_meta->kind) : -1,

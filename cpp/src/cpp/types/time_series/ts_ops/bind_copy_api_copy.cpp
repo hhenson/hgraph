@@ -68,7 +68,7 @@ void op_copy_tsl(ViewData dst, const ViewData& src, engine_time_t current_time) 
 }
 
 void op_copy_tsb(ViewData dst, const ViewData& src, engine_time_t current_time) {
-    const TSMeta* dst_meta = meta_at_path(dst.meta, dst.path.indices);
+    const TSMeta* dst_meta = dst.meta;
     if (dst_meta == nullptr) {
         return;
     }
@@ -212,8 +212,7 @@ void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
         const auto removed_slot = map_slot_for_key(dst_map, key.view());
         bool removed_was_valid = false;
         if (removed_slot.has_value()) {
-            ViewData child_vd = dst;
-            child_vd.path.indices.push_back(*removed_slot);
+            ViewData child_vd = make_child_view_data(dst, *removed_slot);
             removed_was_valid = tsd_child_was_visible_before_removal(child_vd);
             record_tsd_removed_child_snapshot(dst, key.view(), child_vd, current_time);
         }
@@ -241,7 +240,7 @@ void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
     if (debug_copy_keys) {
         std::fprintf(stderr,
                      "[copy_tsd_keys] path=%s now=%lld src_keys=%zu dst_keys=%zu\n",
-                     dst.path.to_string().c_str(),
+                     dst.to_short_path().to_string().c_str(),
                      static_cast<long long>(current_time.time_since_epoch().count()),
                      source_keys.size(),
                      dst_map.size());
@@ -354,12 +353,21 @@ void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
                          src_child_value_repr.c_str());
         }
         if (!source_child_modified && source_child_valid && existed) {
+            // Python parity: copy_from_input always copies all items,
+            // stamping each destination child as modified. We must do the
+            // same so consumers observe the correct modified state after
+            // filter/gate re-enable.
+            stamp_time_paths(dst_child.view_data(), current_time);
             if (slots.changed_values_map.valid() && slots.changed_values_map.is_map()) {
-                slots.changed_values_map.as_map().remove(canonical_key);
+                View child_value = op_value(dst_child.view_data());
+                if (child_value.valid()) {
+                    slots.changed_values_map.as_map().set(canonical_key, child_value);
+                }
             }
             if (slots.removed_set.valid() && slots.removed_set.is_set()) {
                 slots.removed_set.as_set().remove(canonical_key);
             }
+            changed = true;
             continue;
         }
 
@@ -424,8 +432,8 @@ void copy_tsd(ViewData dst, const ViewData& src, engine_time_t current_time) {
 }
 
 void copy_view_data_value_impl(ViewData dst, const ViewData& src, engine_time_t current_time) {
-    const TSMeta* dst_meta = meta_at_path(dst.meta, dst.path.indices);
-    const TSMeta* src_meta = meta_at_path(src.meta, src.path.indices);
+    const TSMeta* dst_meta = dst.meta;
+    const TSMeta* src_meta = src.meta;
     if (dst_meta == nullptr || src_meta == nullptr) {
         return;
     }

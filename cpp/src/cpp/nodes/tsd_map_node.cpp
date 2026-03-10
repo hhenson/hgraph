@@ -733,6 +733,24 @@ namespace hgraph
             auto outer = tsd_output();
             auto node = nested->nodes()[output_node_id_];
             auto inner = node->output();
+
+            if (debug_tsd_map_copy) {
+                std::fprintf(stderr, "[tsd_map_copy] nested graph nodes: %zu, output_node_id=%d\n",
+                    nested->nodes().size(), output_node_id_);
+                for (size_t ni = 0; ni < nested->nodes().size(); ++ni) {
+                    auto& n = nested->nodes()[ni];
+                    auto o = n->output();
+                    std::string out_str = "<none>";
+                    if (o) {
+                        try { out_str = nb::cast<std::string>(nb::repr(o.to_python())); } catch (...) { out_str = "<err>"; }
+                    }
+                    std::fprintf(stderr, "[tsd_map_copy]   node[%zu] sig=%s has_output=%d output=%s lmt=%lld\n",
+                        ni, n->signature().name.c_str(),
+                        static_cast<bool>(o) ? 1 : 0,
+                        out_str.c_str(),
+                        o ? static_cast<long long>(o.as_ts_view().last_modified_time().time_since_epoch().count()) : -1LL);
+                }
+            }
             if (outer && inner) {
                 auto clear_pending_emit = [&]() {
                     if (auto pending_it = pending_keys_.find(key); pending_it != pending_keys_.end()) {
@@ -765,7 +783,24 @@ namespace hgraph
                     return next;
                 }
 
+                // Detect when the inner output is REF but the outer TSD element
+                // is non-REF. This happens when switch_ (which always wraps in
+                // REF) is inside a map_ whose output type is unwrapped.
+                const TSMeta* inner_raw_meta = inner_raw.ts_meta();
+                const bool inner_is_ref_unwrap =
+                    !ref_output &&
+                    inner_raw_meta != nullptr &&
+                    inner_raw_meta->kind == TSKind::REF;
+
                 if (debug_tsd_map_copy) {
+                    std::fprintf(stderr,
+                                 "[tsd_map_copy] key=%s ref_output=%d inner_is_ref_unwrap=%d inner_raw_meta_kind=%d outer_elem_kind=%d\n",
+                                 key_repr(key, key_type_meta_).c_str(),
+                                 ref_output ? 1 : 0,
+                                 inner_is_ref_unwrap ? 1 : 0,
+                                 inner_raw_meta != nullptr ? static_cast<int>(inner_raw_meta->kind) : -1,
+                                 (outer_meta != nullptr && outer_meta->element_ts() != nullptr)
+                                     ? static_cast<int>(outer_meta->element_ts()->kind) : -1);
                     std::string delta_s{"<none>"};
                     std::string value_s{"<none>"};
                     bool raw_valid = inner_raw.valid();
@@ -823,8 +858,56 @@ namespace hgraph
                         const bool outer_needs_init = !outer_was_valid || output_init_pending || force_emit;
                         if (inner_raw.modified() || outer_needs_init) {
                             ViewData dst_vd = outer_key.as_ts_view().view_data();
-                            apply_ref_payload(dst_vd, resolve_ref_payload_from_view(inner_raw.view_data()), node_time(*this));
+                            // Read the inner REF output as a Python object and
+                            // write to the outer TSD keyed slot via from_python.
+                            // This handles switch_ inside map_ correctly: the
+                            // to_python() for REF follows the full resolution
+                            // chain dynamically, bypassing stale time metadata
+                            // on intermediate views in nested graph boundaries.
+                            nb::object py_val = inner_raw.to_python();
+                            if (dst_vd.ops != nullptr && dst_vd.ops->from_python != nullptr) {
+                                dst_vd.ops->from_python(dst_vd, py_val, node_time(*this));
+                            }
                             clear_pending_emit();
+                        }
+                    }
+                } else if (inner_is_ref_unwrap) {
+                    // Inner output is REF but outer expects unwrapped value.
+                    // resolve_effective_view follows the REF to the target, but
+                    // the target's time metadata may not be stamped in the map's
+                    // clock domain (e.g. switch_ nested graphs). Use inner_raw's
+                    // modified/valid state and read the value via the REF.
+                    if (inner_raw.valid() && inner_raw.modified()) {
+                        // Read the REF payload to find the actual target
+                        value::View ref_payload = inner_raw.value();
+                        if (debug_tsd_map_copy) {
+                            std::fprintf(stderr,
+                                         "[tsd_map_copy] ref_unwrap key=%s ref_payload_valid=%d\n",
+                                         key_repr(key, key_type_meta_).c_str(),
+                                         ref_payload.valid() ? 1 : 0);
+                        }
+                        if (ref_payload.valid()) {
+                            const auto& ref = *static_cast<const TimeSeriesReference*>(ref_payload.data());
+                            const ViewData* bound = ref.bound_view();
+                            if (debug_tsd_map_copy) {
+                                std::fprintf(stderr,
+                                             "[tsd_map_copy] ref_unwrap bound=%p is_bound=%d has_output=%d\n",
+                                             (const void*)bound,
+                                             ref.is_bound() ? 1 : 0,
+                                             ref.has_output() ? 1 : 0);
+                            }
+                            if (bound != nullptr) {
+                                auto outer_key = outer.create(key);
+                                ViewData dst_vd = outer_key.as_ts_view().view_data();
+                                copy_view_data_value(dst_vd, *bound, node_time(*this));
+                                clear_pending_emit();
+                            } else if (has_outer_entry) {
+                                // REF is valid but target is not bound
+                                auto outer_key_view = outer.at_key(key);
+                                if (outer_key_view) {
+                                    outer_key_view.invalidate();
+                                }
+                            }
                         }
                     }
                 } else if (inner_effective.valid()) {

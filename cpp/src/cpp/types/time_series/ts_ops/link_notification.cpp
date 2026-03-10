@@ -135,20 +135,20 @@ bool signal_input_has_bind_impl(const ViewData& vd, const TSMeta* current_meta, 
         if (debug_signal_impl) {
             std::fprintf(stderr,
                          "[signal_impl] path=%s no_active_input\n",
-                         vd.path.to_string().c_str());
+                         vd.to_short_path().to_string().c_str());
         }
         return false;
     }
 
-    if (vd.path.indices.empty()) {
+    if (vd.path_depth() == 0) {
         return false;
     }
 
-    const bool has_impl = signal_input->signal_input_has_impl(vd.path.indices);
+    const bool has_impl = signal_input->signal_input_has_impl(vd.path_indices());
     if (debug_signal_impl) {
         std::fprintf(stderr,
                      "[signal_impl] path=%s has_impl=%d\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      has_impl ? 1 : 0);
     }
     return has_impl;
@@ -460,11 +460,13 @@ ObserverList* resolve_observer_list_for_path_mut(const ViewData& target_view,
     }
 
     if (materialize &&
-        !ensure_observer_path_materialized(observer_root->view(), target_view.meta, ts_path)) {
+        !ensure_observer_path_materialized(observer_root->view(),
+                                           target_view.root_meta != nullptr ? target_view.root_meta : target_view.meta,
+                                           ts_path)) {
         return nullptr;
     }
 
-    const auto observer_path = ts_path_to_observer_path(target_view.meta, ts_path);
+    const auto observer_path = ts_path_to_observer_path(target_view.root_meta, ts_path);
     std::optional<ValueView> maybe_node =
         observer_path.empty() ? std::optional<ValueView>{observer_root->view()}
                               : navigate_mut(observer_root->view(), observer_path);
@@ -478,7 +480,7 @@ void subscribe_target_observer(const ViewData& target_view, Notifiable* observer
     if (observer == nullptr || target_view.meta == nullptr || target_view.observer_data == nullptr) {
         return;
     }
-    if (ObserverList* list = resolve_observer_list_for_path_mut(target_view, target_view.path.indices, true);
+    if (ObserverList* list = resolve_observer_list_for_path_mut(target_view, target_view.path_indices(), true);
         list != nullptr) {
         list->subscribe(observer);
     }
@@ -488,7 +490,7 @@ void unsubscribe_target_observer(const ViewData& target_view, Notifiable* observ
     if (observer == nullptr || target_view.meta == nullptr || target_view.observer_data == nullptr) {
         return;
     }
-    if (ObserverList* list = resolve_observer_list_for_path_mut(target_view, target_view.path.indices, false);
+    if (ObserverList* list = resolve_observer_list_for_path_mut(target_view, target_view.path_indices(), false);
         list != nullptr) {
         list->unsubscribe(observer);
     }
@@ -569,16 +571,16 @@ void refresh_dynamic_ref_binding_for_link_target(LinkTarget* link_target, bool s
         resolve_read_view_data(source_view, nullptr, resolved_target) &&
         !same_view_identity(resolved_target, source_view);
     if (debug_keyset_bridge) {
-        const TSMeta* source_meta = meta_at_path(source_view.meta, source_view.path.indices);
+        const TSMeta* source_meta = source_view.meta;
         std::fprintf(stderr,
                      "[refresh_ref] source=%s source_kind=%d linked=%d prev=%d resolved=%d -> has_resolved=%d resolved_path=%s\n",
-                     source_view.path.to_string().c_str(),
+                     source_view.to_short_path().to_string().c_str(),
                      source_meta != nullptr ? static_cast<int>(source_meta->kind) : -1,
                      link_target->is_linked ? 1 : 0,
                      link_target->has_previous_target ? 1 : 0,
                      link_target->has_resolved_target ? 1 : 0,
                      has_resolved_target ? 1 : 0,
-                     has_resolved_target ? resolved_target.path.to_string().c_str() : "<none>");
+                     has_resolved_target ? resolved_target.to_short_path().to_string().c_str() : "<none>");
     }
 
     if (!has_resolved_target) {
@@ -666,7 +668,7 @@ void refresh_dynamic_ref_binding_for_link_target(LinkTarget* link_target, bool s
 }
 
 bool view_path_contains_tsd_ancestor(const ViewData& view) {
-    const TSMeta* current = view.meta;
+    const TSMeta* current = view.root_meta != nullptr ? view.root_meta : view.meta;
     if (current == nullptr) {
         return false;
     }
@@ -674,7 +676,7 @@ bool view_path_contains_tsd_ancestor(const ViewData& view) {
         return true;
     }
 
-    for (size_t index : view.path.indices) {
+    for (size_t index : view.path_indices()) {
         while (dispatch_meta_is_ref(current)) {
             current = current->element_ts();
         }

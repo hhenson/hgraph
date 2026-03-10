@@ -22,7 +22,7 @@ bool link_target_points_to_unbound_ref_composite(const ViewData& vd, const LinkT
     }
 
     ViewData target = payload->as_view_data(vd.sampled);
-    const TSMeta* target_meta = meta_at_path(target.meta, target.path.indices);
+    const TSMeta* target_meta = target.meta;
     if (!dispatch_meta_is_ref(target_meta)) {
         return false;
     }
@@ -45,7 +45,7 @@ bool is_unpeered_static_container_view(const ViewData& vd, const TSMeta* current
         return false;
     }
 
-    if (LinkTarget* payload = resolve_link_target(vd, vd.path.indices); payload != nullptr) {
+    if (LinkTarget* payload = resolve_link_target(vd); payload != nullptr) {
         return !payload->is_linked || link_target_points_to_unbound_ref_composite(vd, payload);
     }
     return false;

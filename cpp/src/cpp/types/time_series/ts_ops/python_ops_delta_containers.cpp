@@ -31,7 +31,7 @@ nb::object sampled_delta_or_python_for_child(const ViewData& child, engine_time_
 
 nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     ViewData resolved{};
     if (!resolve_read_view_data(vd, resolved)) {
         return nb::none();
@@ -39,7 +39,7 @@ nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time
     bind_view_data_ops(resolved);
     const ViewData* data = &resolved;
 
-    const TSMeta* current = meta_at_path(data->meta, data->path.indices);
+    const TSMeta* current = data->meta;
     if (current == nullptr) {
         return nb::none();
     }
@@ -49,8 +49,7 @@ nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time
         nb::dict delta_out;
         const size_t n = op_list_size(current_bridge);
         for (size_t i = 0; i < n; ++i) {
-            ViewData child = current_bridge;
-            child.path.indices.push_back(i);
+            ViewData child = make_child_view_data(current_bridge, i);
             if (!op_valid(child)) {
                 continue;
             }
@@ -75,13 +74,13 @@ nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time
         ViewData bound_dbg{};
         if (resolve_bound_target_view_data(vd, bound_dbg)) {
             has_bound = 1;
-            if (const TSMeta* bm = meta_at_path(bound_dbg.meta, bound_dbg.path.indices); bm != nullptr) {
+            if (const TSMeta* bm = bound_dbg.meta; bm != nullptr) {
                 bound_kind = static_cast<int>(bm->kind);
             }
         }
         std::fprintf(stderr,
                      "[tsl_delta] path=%s now=%lld wrapper_ticked=%d wrapper_time=%lld rebind=%lld has_bound=%d bound_kind=%d\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      static_cast<long long>(current_time.time_since_epoch().count()),
                      wrapper_ticked ? 1 : 0,
                      static_cast<long long>(wrapper_time.time_since_epoch().count()),
@@ -94,8 +93,7 @@ nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time
     if (sample_all) {
         const size_t n = op_list_size(*data);
         for (size_t i = 0; i < n; ++i) {
-            ViewData child = *data;
-            child.path.indices.push_back(i);
+            ViewData child = make_child_view_data(*data, i);
             if (op_modified(child, current_time)) {
                 sample_all = false;
                 break;
@@ -106,12 +104,11 @@ nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time
     if (sample_all) {
         const size_t n = op_list_size(*data);
         for (size_t i = 0; i < n; ++i) {
-            ViewData child = *data;
-            child.path.indices.push_back(i);
+            ViewData child = make_child_view_data(*data, i);
             if (debug_tsl_delta) {
                 std::fprintf(stderr,
                              "[tsl_delta]  sampled_child path=%s valid=%d modified=%d\n",
-                             child.path.to_string().c_str(),
+                             child.to_short_path().to_string().c_str(),
                              op_valid(child) ? 1 : 0,
                              op_modified(child, current_time) ? 1 : 0);
             }
@@ -129,12 +126,11 @@ nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time
 
     const size_t n = op_list_size(*data);
     for (size_t i = 0; i < n; ++i) {
-        ViewData child = *data;
-        child.path.indices.push_back(i);
+        ViewData child = make_child_view_data(*data, i);
         if (debug_tsl_delta) {
             std::fprintf(stderr,
                          "[tsl_delta]  child path=%s valid=%d modified=%d\n",
-                         child.path.to_string().c_str(),
+                         child.to_short_path().to_string().c_str(),
                          op_valid(child) ? 1 : 0,
                          op_modified(child, current_time) ? 1 : 0);
         }
@@ -151,7 +147,7 @@ nb::object op_delta_to_python_tsl(const ViewData& vd, engine_time_t current_time
 
 nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time) {
     refresh_dynamic_ref_binding(vd, current_time);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     ViewData resolved{};
     if (!resolve_read_view_data(vd, resolved)) {
         return nb::none();
@@ -159,7 +155,7 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
     bind_view_data_ops(resolved);
     const ViewData* data = &resolved;
 
-    const TSMeta* current = meta_at_path(data->meta, data->path.indices);
+    const TSMeta* current = data->meta;
     if (current == nullptr) {
         return nb::none();
     }
@@ -171,13 +167,12 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
 
     ViewData current_bridge{};
     if (resolve_rebind_current_bridge_view(vd, self_meta, current_time, current_bridge)) {
-        const TSMeta* bridge_meta = meta_at_path(current_bridge.meta, current_bridge.path.indices);
+        const TSMeta* bridge_meta = current_bridge.meta;
         if (bridge_meta != nullptr &&
             bridge_meta->fields() != nullptr &&
             dispatch_meta_is_tsb(bridge_meta)) {
             for_each_named_bundle_field(bridge_meta, [&](size_t i, const char* field_name) {
-                ViewData child = current_bridge;
-                child.path.indices.push_back(i);
+                ViewData child = make_child_view_data(current_bridge, i);
                 if (!op_valid(child)) {
                     return;
                 }
@@ -202,7 +197,7 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
     if (wrapper_ticked) {
         ViewData bound_target{};
         if (resolve_bound_target_view_data(vd, bound_target)) {
-            const TSMeta* bound_meta = meta_at_path(bound_target.meta, bound_target.path.indices);
+            const TSMeta* bound_meta = bound_target.meta;
             suppress_wrapper_sampling = dispatch_meta_is_ref(bound_meta);
         }
     }
@@ -211,15 +206,14 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
     if (wrapper_ticked && suppress_wrapper_sampling && current != nullptr) {
         ViewData bound_target{};
         if (resolve_bound_target_view_data(vd, bound_target)) {
-            const TSMeta* bound_meta = meta_at_path(bound_target.meta, bound_target.path.indices);
+            const TSMeta* bound_meta = bound_target.meta;
             if (dispatch_meta_is_ref(bound_meta)) {
                 const TSMeta* element_meta = bound_meta->element_ts();
                 if (dispatch_meta_is_tsb(element_meta)) {
                     ref_item_rebound.assign(current->field_count(), false);
                     const size_t n = std::min(current->field_count(), element_meta->field_count());
                     for (size_t i = 0; i < n; ++i) {
-                        ViewData item = bound_target;
-                        item.path.indices.push_back(i);
+                        ViewData item = make_child_view_data(bound_target, i);
                         ViewData resolved_item{};
                         const bool has_resolved_item = resolve_bound_target_view_data(item, resolved_item);
                         ViewData previous_item{};
@@ -266,9 +260,8 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
         bool scalar_child_changed = false;
         bool has_unmodified_non_scalar_sibling = false;
         for (size_t i = 0; i < current->field_count(); ++i) {
-            ViewData child = *data;
-            child.path.indices.push_back(i);
-            const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
+            ViewData child = make_child_view_data(*data, i);
+            const TSMeta* child_meta = child.meta;
             const bool scalar_like = dispatch_meta_is_scalar_like(child_meta);
             const bool child_changed = child_rebound_this_tick(i, child) || op_modified(child, current_time);
             if (child_changed) {
@@ -295,9 +288,8 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
         bool modified_non_scalar = false;
         bool has_unmodified_non_scalar_sibling = false;
         for (size_t i = 0; i < current->field_count(); ++i) {
-            ViewData child = *data;
-            child.path.indices.push_back(i);
-            const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
+            ViewData child = make_child_view_data(*data, i);
+            const TSMeta* child_meta = child.meta;
             const bool scalar_like = dispatch_meta_is_scalar_like(child_meta);
             const bool child_rebound = child_rebound_this_tick(i, child);
             const bool child_advanced =
@@ -322,8 +314,7 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
 
     if (sample_all) {
         for_each_named_bundle_field(current, [&](size_t i, const char* field_name) {
-            ViewData child = *data;
-            child.path.indices.push_back(i);
+            ViewData child = make_child_view_data(*data, i);
             if (!op_valid(child)) {
                 return;
             }
@@ -338,14 +329,13 @@ nb::object op_delta_to_python_tsb(const ViewData& vd, engine_time_t current_time
     }
 
     for_each_named_bundle_field(current, [&](size_t i, const char* field_name) {
-        ViewData child = *data;
-        child.path.indices.push_back(i);
+        ViewData child = make_child_view_data(*data, i);
         const bool child_rebound = child_rebound_this_tick(i, child);
         if ((!op_modified(child, current_time) && !child_rebound) || !op_valid(child)) {
             return;
         }
 
-        const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
+        const TSMeta* child_meta = child.meta;
         if (dispatch_meta_is_scalar_like(child_meta)) {
             nb::object child_delta_py = sampled_delta_or_value_for_child(child, current_time);
             if (!child_delta_py.is_none()) {

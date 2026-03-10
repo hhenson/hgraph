@@ -61,7 +61,7 @@ bool TimeSeriesReference::operator==(const TimeSeriesReference& other) const {
                 return true;
             }
             return _bound_view->meta == other._bound_view->meta &&
-                   _bound_view->path.indices == other._bound_view->path.indices;
+                   _bound_view->path_indices() == other._bound_view->path_indices();
         case Kind::UNBOUND:
             return _unbound_items == other._unbound_items;
     }

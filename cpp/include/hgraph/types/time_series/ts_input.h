@@ -75,7 +75,7 @@ public:
     [[nodiscard]] FQPath to_fq_path(const TSView& view) const {
         ShortPath fq_path = to_short_path(view);
         ViewData root = view.view_data();
-        root.path = endpoint_root_path();
+        root.path = path_handle_from_short_path(endpoint_root_path());
         return fq_path.to_fq(root);
     }
 

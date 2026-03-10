@@ -5,9 +5,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/traits.h>
 
-#include <cstdio>
 #include <cstdlib>
-#include <string_view>
 
 namespace hgraph
 {
@@ -23,7 +21,22 @@ namespace hgraph
 	            if (view.as_ts_view().try_as_indexed().has_value()) {
 	                return TSIndexedInputView(view).at(index);
 	            }
-	            return TSInputView(nullptr, view.as_ts_view().child_at(index));
+	            auto child = view.as_ts_view().child_at(index);
+	            if (!child) {
+	                // SIGNAL inputs create children on demand when bound item-wise
+	                const TSMeta* meta = view.as_ts_view().ts_meta();
+	                if (meta != nullptr && meta->kind == TSKind::SIGNAL) {
+	                    ViewData parent_vd = view.as_ts_view().view_data();
+	                    ViewData child_vd = parent_vd;
+	                    child_vd.path = PathHandle(PathNode::make_child(parent_vd.path.get(), index));
+	                    if (child_vd.level != nullptr) {
+	                        child_vd.level = child_vd.level->ensure_child(index);
+	                        child_vd.level_depth = parent_vd.level_depth + 1;
+	                    }
+	                    child = TSView(child_vd, parent_vd.engine_time_ptr);
+	                }
+	            }
+	            return TSInputView(nullptr, child);
 	        }
 
 	        constexpr int64_t ERROR_PATH = -1;
@@ -33,21 +46,10 @@ namespace hgraph
 
 	    bool _bind_ts_endpoint(node_ptr src_node, const std::vector<int64_t> &output_path,
 	                           node_ptr dst_node, const std::vector<int64_t> &input_path) {
-            const bool debug_bind = std::getenv("HGRAPH_DEBUG_BIND_ENDPOINT") != nullptr;
 	        TSInputView input_view = dst_node->input();
 	        if (!input_view) {
 	            return false;
 	        }
-            if (debug_bind) {
-                const TSMeta* root_in_meta = input_view.ts_meta();
-                std::fprintf(stderr,
-                             "[bind_endpoint] src=%s dst=%s in_path=[%s] out_path=[%s] in_root_kind=%d\n",
-                             src_node != nullptr ? src_node->signature().name.c_str() : "<null>",
-                             dst_node != nullptr ? dst_node->signature().name.c_str() : "<null>",
-                             fmt::format("{}", fmt::join(input_path, ",")).c_str(),
-                             fmt::format("{}", fmt::join(output_path, ",")).c_str(),
-                             root_in_meta != nullptr ? static_cast<int>(root_in_meta->kind) : -1);
-            }
 
 	        for (int64_t index : input_path) {
 	            if (index == KEY_SET_PATH_ID) {
@@ -65,13 +67,6 @@ namespace hgraph
 	                return false;
 	            }
 	        }
-            if (debug_bind) {
-                const TSMeta* in_meta = input_view.ts_meta();
-                std::fprintf(stderr,
-                             "[bind_endpoint] dst_view_path=%s in_kind=%d\n",
-                             input_view.as_ts_view().short_path().to_string().c_str(),
-                             in_meta != nullptr ? static_cast<int>(in_meta->kind) : -1);
-            }
 
 	        TSOutputView output_view;
 	        std::vector<int64_t> normalized_output_path = output_path;
@@ -87,12 +82,6 @@ namespace hgraph
 	        if (!output_view) {
 	            return false;
 	        }
-            if (debug_bind) {
-                const TSMeta* root_out_meta = output_view.ts_meta();
-                std::fprintf(stderr,
-                             "[bind_endpoint] src_root_kind=%d\n",
-                             root_out_meta != nullptr ? static_cast<int>(root_out_meta->kind) : -1);
-            }
 
 	        for (int64_t index : normalized_output_path) {
 	            if (index == KEY_SET_PATH_ID) {
@@ -110,17 +99,10 @@ namespace hgraph
 	                return false;
 	            }
 	        }
-            if (debug_bind) {
-                const TSMeta* out_meta_dbg = output_view.ts_meta();
-                std::fprintf(stderr,
-                             "[bind_endpoint] src_view_path=%s out_kind=%d\n",
-                             output_view.as_ts_view().short_path().to_string().c_str(),
-                             out_meta_dbg != nullptr ? static_cast<int>(out_meta_dbg->kind) : -1);
-            }
 
-            input_view.bind(output_view);
-        return true;
-    }
+	        input_view.bind(output_view);
+	        return true;
+	    }
 
     GraphBuilder::GraphBuilder(std::vector<node_builder_s_ptr> node_builders_, std::vector<Edge> edges_)
         : node_builders{std::move(node_builders_)}, edges{std::move(edges_)} {

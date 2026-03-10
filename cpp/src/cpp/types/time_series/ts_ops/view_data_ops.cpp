@@ -10,7 +10,7 @@ bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
            lhs.link_data == rhs.link_data &&
            lhs.link_observer_registry == rhs.link_observer_registry &&
            lhs.projection == rhs.projection &&
-           lhs.path.indices == rhs.path.indices &&
+           lhs.path_indices() == rhs.path_indices() &&
            lhs.meta == rhs.meta;
 }
 
@@ -22,64 +22,112 @@ bool is_same_view_data(const ViewData& lhs, const ViewData& rhs) {
            lhs.link_data == rhs.link_data &&
            lhs.python_value_cache_data == rhs.python_value_cache_data &&
            lhs.projection == rhs.projection &&
-           lhs.path.indices == rhs.path.indices;
+           lhs.path_indices() == rhs.path_indices();
+}
+
+// Navigate the level pointer from root to match the ViewData's path depth.
+// After link resolution, level points to the target TSValue's root but the
+// path may be deeper (e.g., TSL child at index 1). This walks the level tree
+// so that level points to the correct child entry.
+void navigate_level_to_path(ViewData& vd) {
+    if (vd.level == nullptr) {
+        return;
+    }
+    const auto indices = vd.path_indices();
+    // Only navigate indices beyond current level depth
+    for (size_t i = vd.level_depth; i < indices.size(); ++i) {
+        vd.level = vd.level->ensure_child(indices[i]);
+    }
+    vd.level_depth = static_cast<uint16_t>(indices.size());
 }
 
 // Resolve the view used for reads. For non-REF consumers, this transparently
 // dereferences REF bindings so TS adapters observe concrete target values.
 bool resolve_read_view_data(const ViewData& vd, ViewData& out) {
-    return resolve_read_view_data(vd, meta_at_path(vd.meta, vd.path.indices), out);
+    return resolve_read_view_data(vd, vd.meta, out);
 }
 
 bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewData& out) {
     const bool self_is_ref = dispatch_meta_is_ref(self_meta);
     const bool self_static_container = dispatch_meta_is_static_container(self_meta);
+    const bool debug_rrvd = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_RRVD");
     out = vd;
     out.sampled = out.sampled || vd.sampled;
     bind_view_data_ops(out);
+    if (debug_rrvd) {
+        std::fprintf(stderr, "[rrvd] START path=%s self_is_ref=%d self_static=%d meta_kind=%d\n",
+            vd.to_short_path().to_string().c_str(), self_is_ref?1:0, self_static_container?1:0,
+            self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1);
+    }
 
     for (size_t depth = 0; depth < 64; ++depth) {
         if (auto rebound = resolve_bound_view_data(out); rebound.has_value()) {
             const ViewData next = std::move(rebound.value());
             if (is_same_view_data(next, out)) {
+                if (debug_rrvd) std::fprintf(stderr, "[rrvd] depth=%zu bound_same -> false\n", depth);
                 return false;
             }
             out = next;
             out.sampled = out.sampled || vd.sampled;
             bind_view_data_ops(out);
+            if (debug_rrvd) {
+                std::fprintf(stderr, "[rrvd] depth=%zu BOUND -> %s meta_kind=%d\n", depth,
+                    out.to_short_path().to_string().c_str(),
+                    out.meta != nullptr ? static_cast<int>(out.meta->kind) : -1);
+            }
 
             // REF views expose the reference object itself. For REF consumers we
             // stop after resolving the direct bind chain.
             if (self_is_ref) {
+                navigate_level_to_path(out);
                 return true;
             }
             continue;
         }
 
         if (self_is_ref) {
+            navigate_level_to_path(out);
+            if (debug_rrvd) std::fprintf(stderr, "[rrvd] depth=%zu self_is_ref -> true at %s\n", depth, out.to_short_path().to_string().c_str());
             return true;
         }
 
-        const TSMeta* current = meta_at_path(out.meta, out.path.indices);
+        const TSMeta* current = out.meta;
         if (!dispatch_meta_is_ref(current)) {
             if (auto through_ref_ancestor = resolve_ref_ancestor_descendant_view_data(out);
                 through_ref_ancestor.has_value()) {
                 const ViewData next = std::move(*through_ref_ancestor);
                 if (is_same_view_data(next, out)) {
+                    if (debug_rrvd) std::fprintf(stderr, "[rrvd] depth=%zu ref_ancestor_same -> false\n", depth);
                     return false;
                 }
                 out = next;
                 out.sampled = out.sampled || vd.sampled;
                 bind_view_data_ops(out);
+                if (debug_rrvd) std::fprintf(stderr, "[rrvd] depth=%zu REF_ANCESTOR -> %s\n", depth, out.to_short_path().to_string().c_str());
                 continue;
             }
+            navigate_level_to_path(out);
+            if (debug_rrvd) std::fprintf(stderr, "[rrvd] depth=%zu non-ref DONE at %s\n", depth, out.to_short_path().to_string().c_str());
             return true;
         }
 
+        if (debug_rrvd) std::fprintf(stderr, "[rrvd] depth=%zu current_is_ref at %s, checking value slot\n", depth, out.to_short_path().to_string().c_str());
         if (auto ref_value = resolve_value_slot_const(out);
             ref_value.has_value() && ref_value->valid() && ref_value->schema() == ts_reference_meta()) {
             TimeSeriesReference ref = *static_cast<const TimeSeriesReference*>(ref_value->data());
+            if (debug_rrvd) {
+                std::fprintf(stderr, "[rrvd] depth=%zu ref is_empty=%d is_bound=%d is_unbound=%d has_bound=%d\n",
+                    depth, ref.is_empty()?1:0, ref.is_bound()?1:0, ref.is_unbound()?1:0,
+                    ref.bound_view()!=nullptr?1:0);
+            }
             if (const ViewData* target = ref.bound_view(); target != nullptr) {
+                if (debug_rrvd) {
+                    engine_time_t target_dlmt = direct_last_modified_time(*target);
+                    std::fprintf(stderr, "[rrvd] depth=%zu REF_TARGET -> %s meta_kind=%d target_dlmt=%lld\n",
+                        depth, target->to_short_path().to_string().c_str(),
+                        target->meta != nullptr ? static_cast<int>(target->meta->kind) : -1,
+                        static_cast<long long>(target_dlmt.time_since_epoch().count()));
+                }
                 if (HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_ANCESTOR")) {
                     std::string target_repr{"<none>"};
                     if (target->ops != nullptr && target->ops->to_python != nullptr) {
@@ -91,10 +139,10 @@ bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewDat
                     }
                     std::fprintf(stderr,
                                  "[resolve_read_ref] path=%s ref_value_data=%p target_value_data=%p target_path=%s target=%s\n",
-                                 out.path.to_string().c_str(),
+                                 out.to_short_path().to_string().c_str(),
                                  ref_value->data(),
                                  target->value_data,
-                                 target->path.to_string().c_str(),
+                                 target->to_short_path().to_string().c_str(),
                                  target_repr.c_str());
                 }
                 out = *target;
@@ -114,18 +162,37 @@ bool resolve_read_view_data(const ViewData& vd, const TSMeta* self_meta, ViewDat
                     // resolve through REF descendants.
                     out = vd;
                     out.sampled = out.sampled || vd.sampled;
+                    navigate_level_to_path(out);
                     return true;
                 }
                 return false;
             }
         }
+        if (debug_rrvd) std::fprintf(stderr, "[rrvd] depth=%zu -> false (no ref value or empty ref)\n", depth);
         return false;
     }
 
+    if (debug_rrvd) std::fprintf(stderr, "[rrvd] -> false (max depth)\n");
     return false;
 }
 
 void stamp_time_paths(ViewData& vd, engine_time_t current_time) {
+    // Update TSLevelEntry time for this level and all ancestors
+    if (vd.level != nullptr) {
+        vd.level->last_modified_time = current_time;
+        // Also stamp ancestor levels so parent containers appear modified
+        if (vd.root_level != nullptr && vd.root_level != vd.level) {
+            TSLevelEntry* ancestor = vd.root_level;
+            ancestor->last_modified_time = current_time;
+            const auto indices = vd.path_indices();
+            for (size_t i = 0; i + 1 < indices.size(); ++i) {
+                ancestor = ancestor->child_at(indices[i]);
+                if (ancestor == nullptr) break;
+                ancestor->last_modified_time = current_time;
+            }
+        }
+    }
+
     auto* time_root = static_cast<Value*>(vd.time_data);
     if (time_root == nullptr || time_root->schema() == nullptr) {
         return;
@@ -150,21 +217,22 @@ void stamp_time_paths(ViewData& vd, engine_time_t current_time) {
         }
     };
 
-    for (const auto& path : time_stamp_paths_for_ts_path(vd.meta, vd.path.indices)) {
+    for (const auto& path : time_stamp_paths_for_ts_path(vd.root_meta, vd.path_indices())) {
         stamp_one_time_path(path);
     }
 
     // For static containers (TSB, fixed-size TSL), writing a parent value should also
     // advance child timestamps so child.modified mirrors Python semantics.
-    const TSMeta* target_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* target_meta = vd.meta;
     if (dispatch_meta_is_static_container(target_meta)) {
         // TSD child writes can be partial (for example only one bundle field present in
         // a dict delta). In that case, stamping all descendants would incorrectly mark
         // absent fields as valid/modified.
         bool parent_is_tsd = false;
-        if (!vd.path.indices.empty()) {
-            std::vector<size_t> parent_path(vd.path.indices.begin(), vd.path.indices.end() - 1);
-            const TSMeta* parent_meta = meta_at_path(vd.meta, parent_path);
+        if (vd.path_depth() > 0) {
+            const auto _indices = vd.path_indices();
+            std::vector<size_t> parent_path(_indices.begin(), _indices.end() - 1);
+            const TSMeta* parent_meta = meta_at_path(vd.root_meta, parent_path);
             parent_is_tsd = dispatch_meta_is_tsd(parent_meta);
         }
         if (parent_is_tsd) {
@@ -172,10 +240,23 @@ void stamp_time_paths(ViewData& vd, engine_time_t current_time) {
         }
 
         std::vector<std::vector<size_t>> descendant_ts_paths;
-        std::vector<size_t>              current_ts_path = vd.path.indices;
+        std::vector<size_t>              current_ts_path = vd.path_indices();
         collect_static_descendant_ts_paths(target_meta, current_ts_path, descendant_ts_paths);
         for (const auto& descendant_ts_path : descendant_ts_paths) {
-            for (const auto& time_path : time_stamp_paths_for_ts_path(vd.meta, descendant_ts_path)) {
+            // Also stamp level entry for descendant
+            if (vd.level != nullptr) {
+                // Navigate from root level to descendant using the relative path
+                // (descendant_ts_path starts from root, but we need relative to vd)
+                const size_t base_depth = vd.path_depth();
+                TSLevelEntry* descendant_level = vd.level;
+                for (size_t i = base_depth; i < descendant_ts_path.size() && descendant_level != nullptr; ++i) {
+                    descendant_level = descendant_level->ensure_child(descendant_ts_path[i]);
+                }
+                if (descendant_level != nullptr) {
+                    descendant_level->last_modified_time = current_time;
+                }
+            }
+            for (const auto& time_path : time_stamp_paths_for_ts_path(vd.root_meta, descendant_ts_path)) {
                 stamp_one_time_path(time_path);
             }
         }
@@ -183,12 +264,17 @@ void stamp_time_paths(ViewData& vd, engine_time_t current_time) {
 }
 
 void set_leaf_time_path(ViewData& vd, engine_time_t time_value) {
+    // Update TSLevelEntry time
+    if (vd.level != nullptr) {
+        vd.level->last_modified_time = time_value;
+    }
+
     auto* time_root = static_cast<Value*>(vd.time_data);
     if (time_root == nullptr || time_root->schema() == nullptr || !time_root->has_value()) {
         return;
     }
 
-    const auto time_path = ts_path_to_time_path(vd.meta, vd.path.indices);
+    const auto time_path = ts_path_to_time_path(vd.root_meta, vd.path_indices());
     std::optional<ValueView> slot;
     if (time_path.empty()) {
         slot = time_root->view();
@@ -211,10 +297,10 @@ std::optional<ValueView> resolve_value_slot_mut(ViewData& vd) {
     if (!value_root->has_value()) {
         value_root->emplace();
     }
-    if (vd.path.indices.empty()) {
+    if (vd.path_depth() == 0) {
         return value_root->view();
     }
-    return navigate_mut(value_root->view(), vd.path.indices);
+    return navigate_mut(value_root->view(), vd.path_indices());
 }
 
 std::optional<View> resolve_value_slot_const(const ViewData& vd) {
@@ -222,10 +308,10 @@ std::optional<View> resolve_value_slot_const(const ViewData& vd) {
     if (value_root == nullptr || !value_root->has_value()) {
         return std::nullopt;
     }
-    if (vd.path.indices.empty()) {
+    if (vd.path_depth() == 0) {
         return value_root->view();
     }
-    return navigate_const(value_root->view(), vd.path.indices);
+    return navigate_const(value_root->view(), vd.path_indices());
 }
 
 namespace {
@@ -356,24 +442,24 @@ const PythonDeltaCacheEntry* resolve_python_delta_cache_slot_impl(const PythonVa
 
 nb::object* resolve_python_value_cache_slot(ViewData& vd, bool create) {
     auto* root = static_cast<PythonValueCacheNode*>(vd.python_value_cache_data);
-    auto* slot = resolve_python_value_cache_slot_impl(root, vd.path.indices, create);
+    auto* slot = resolve_python_value_cache_slot_impl(root, vd.path_indices(), create);
     vd.python_value_cache_slot = slot;
     return slot;
 }
 
 const nb::object* resolve_python_value_cache_slot(const ViewData& vd) {
     auto* root = static_cast<PythonValueCacheNode*>(vd.python_value_cache_data);
-    return resolve_python_value_cache_slot_impl(root, vd.path.indices);
+    return resolve_python_value_cache_slot_impl(root, vd.path_indices());
 }
 
 PythonDeltaCacheEntry* resolve_python_delta_cache_slot(ViewData& vd, bool create) {
     auto* root = static_cast<PythonValueCacheNode*>(vd.python_value_cache_data);
-    return resolve_python_delta_cache_slot_impl(root, vd.path.indices, create);
+    return resolve_python_delta_cache_slot_impl(root, vd.path_indices(), create);
 }
 
 const PythonDeltaCacheEntry* resolve_python_delta_cache_slot(const ViewData& vd) {
     auto* root = static_cast<PythonValueCacheNode*>(vd.python_value_cache_data);
-    return resolve_python_delta_cache_slot_impl(root, vd.path.indices);
+    return resolve_python_delta_cache_slot_impl(root, vd.path_indices());
 }
 
 void seed_python_value_cache_slot(ViewData& vd, const nb::object& value) {
@@ -412,7 +498,7 @@ void invalidate_python_value_cache(ViewData& vd) {
     }
 
     nb::gil_scoped_acquire gil;
-    if (vd.path.indices.empty()) {
+    if (vd.path_depth() == 0) {
         root->clear_subtree();
         vd.python_value_cache_slot = root->scalar_value();
         return;
@@ -423,8 +509,8 @@ void invalidate_python_value_cache(ViewData& vd) {
     root->delta_root_value()->clear();
 
     PythonValueCacheNode* node = root;
-    for (size_t depth = 0; depth < vd.path.indices.size(); ++depth) {
-        const size_t index = vd.path.indices[depth];
+    for (size_t depth = 0; depth < vd.path_depth(); ++depth) {
+        const size_t index = vd.path_indices()[depth];
         nb::object* slot = node->slot_value(index, false);
         if (slot == nullptr) {
             vd.python_value_cache_slot = nullptr;
@@ -435,7 +521,7 @@ void invalidate_python_value_cache(ViewData& vd) {
             delta_slot->clear();
         }
 
-        if (depth + 1 == vd.path.indices.size()) {
+        if (depth + 1 == vd.path_depth()) {
             if (PythonValueCacheNode* child = node->child_node(index, false); child != nullptr) {
                 child->clear_subtree();
             }
@@ -469,7 +555,7 @@ void invalidate_python_delta_cache(ViewData& vd) {
     }
 
     nb::gil_scoped_acquire gil;
-    if (vd.path.indices.empty()) {
+    if (vd.path_depth() == 0) {
         root->clear_delta_subtree();
         return;
     }
@@ -478,15 +564,15 @@ void invalidate_python_delta_cache(ViewData& vd) {
     root->delta_root_value()->clear();
 
     PythonValueCacheNode* node = root;
-    for (size_t depth = 0; depth < vd.path.indices.size(); ++depth) {
-        const size_t index = vd.path.indices[depth];
+    for (size_t depth = 0; depth < vd.path_depth(); ++depth) {
+        const size_t index = vd.path_indices()[depth];
         PythonDeltaCacheEntry* delta_slot = node->delta_slot_value(index, false);
         if (delta_slot == nullptr) {
             return;
         }
         delta_slot->clear();
 
-        if (depth + 1 == vd.path.indices.size()) {
+        if (depth + 1 == vd.path_depth()) {
             if (PythonValueCacheNode* child = node->child_node(index, false); child != nullptr) {
                 child->clear_delta_subtree();
             }
@@ -501,7 +587,7 @@ void invalidate_python_delta_cache(ViewData& vd) {
 }
 
 bool has_local_ref_wrapper_value(const ViewData& vd) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (!dispatch_meta_is_ref(current)) {
         return false;
     }
@@ -516,7 +602,7 @@ bool has_local_ref_wrapper_value(const ViewData& vd) {
 }
 
 bool has_bound_ref_static_children(const ViewData& vd) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (!dispatch_meta_is_ref(current)) {
         return false;
     }
@@ -528,7 +614,7 @@ bool has_bound_ref_static_children(const ViewData& vd) {
 
     if (dispatch_meta_is_tsb(element) && element->fields() != nullptr) {
         for (size_t i = 0; i < element->field_count(); ++i) {
-            std::vector<size_t> child_path = vd.path.indices;
+            std::vector<size_t> child_path = vd.path_indices();
             child_path.push_back(i);
             if (LinkTarget* child = resolve_link_target(vd, child_path); child != nullptr && child->is_linked) {
                 return true;
@@ -536,7 +622,7 @@ bool has_bound_ref_static_children(const ViewData& vd) {
         }
     } else if (dispatch_meta_is_fixed_tsl(element)) {
         for (size_t i = 0; i < element->fixed_size(); ++i) {
-            std::vector<size_t> child_path = vd.path.indices;
+            std::vector<size_t> child_path = vd.path_indices();
             child_path.push_back(i);
             if (LinkTarget* child = resolve_link_target(vd, child_path); child != nullptr && child->is_linked) {
                 return true;
@@ -548,7 +634,7 @@ bool has_bound_ref_static_children(const ViewData& vd) {
 }
 
 bool assign_ref_value_from_bound_static_children(ViewData& vd) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (!dispatch_meta_is_ref(current)) {
         return false;
     }
@@ -572,12 +658,11 @@ bool assign_ref_value_from_bound_static_children(ViewData& vd) {
     bool has_non_empty_child = false;
 
     for (size_t i = 0; i < child_count; ++i) {
-        ViewData child = vd;
-        child.path.indices.push_back(i);
+        ViewData child = make_child_view_data(vd, i);
 
         TimeSeriesReference child_ref = TimeSeriesReference::make();
         if (auto bound = resolve_bound_view_data(child); bound.has_value()) {
-            const TSMeta* bound_meta = meta_at_path(bound->meta, bound->path.indices);
+            const TSMeta* bound_meta = bound->meta;
             if (dispatch_meta_is_ref(bound_meta)) {
                 bool resolved_from_local = false;
                 if (auto local_ref_value = resolve_value_slot_const(*bound);
@@ -600,7 +685,7 @@ bool assign_ref_value_from_bound_static_children(ViewData& vd) {
                 child_ref = TimeSeriesReference::make(*bound);
             }
         } else {
-            const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
+            const TSMeta* child_meta = child.meta;
             bool resolved_from_local = false;
             if (dispatch_meta_is_ref(child_meta)) {
                 if (auto local_ref_value = resolve_value_slot_const(child);
@@ -655,14 +740,14 @@ void clear_ref_value(ViewData& vd) {
     if (HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_BIND_PATH")) {
         std::fprintf(stderr,
                      "[clear_ref_value] path=%s root_reset=%d\n",
-                     vd.path.to_string().c_str(),
-                     vd.path.indices.empty() ? 1 : 0);
+                     vd.to_short_path().to_string().c_str(),
+                     vd.path_depth() == 0 ? 1 : 0);
     }
     auto* value_root = static_cast<Value*>(vd.value_data);
     if (value_root == nullptr) {
         return;
     }
-    if (vd.path.indices.empty()) {
+    if (vd.path_depth() == 0) {
         value_root->reset();
         set_leaf_time_path(vd, MIN_DT);
         return;
@@ -676,14 +761,15 @@ void clear_ref_value(ViewData& vd) {
 }
 
 void clear_ref_container_ancestor_cache(ViewData& vd) {
-    if (vd.path.indices.empty()) {
+    if (vd.path_depth() == 0) {
         return;
     }
 
-    for (size_t depth = 0; depth < vd.path.indices.size(); ++depth) {
-        std::vector<size_t> ancestor_path(vd.path.indices.begin(),
-                                          vd.path.indices.begin() + static_cast<std::ptrdiff_t>(depth));
-        const TSMeta* ancestor_meta = meta_at_path(vd.meta, ancestor_path);
+    const auto indices = vd.path_indices();
+    for (size_t depth = 0; depth < indices.size(); ++depth) {
+        std::vector<size_t> ancestor_path(indices.begin(),
+                                          indices.begin() + static_cast<std::ptrdiff_t>(depth));
+        const TSMeta* ancestor_meta = meta_at_path(vd.root_meta, ancestor_path);
         if (!dispatch_meta_is_ref(ancestor_meta)) {
             continue;
         }
@@ -694,8 +780,19 @@ void clear_ref_container_ancestor_cache(ViewData& vd) {
             break;
         }
 
+        // Walk up the PathNode chain to reach the ancestor at `depth`
+        PathNode* ancestor_node = vd.path.get();
+        for (size_t i = indices.size(); i > depth && ancestor_node != nullptr; --i) {
+            ancestor_node = ancestor_node->parent;
+        }
         ViewData ancestor = vd;
-        ancestor.path.indices = std::move(ancestor_path);
+        if (ancestor_node != nullptr) {
+            ancestor_node->retain();
+            ancestor.path = PathHandle(ancestor_node);
+        } else {
+            ancestor.path = PathHandle{};
+        }
+        sync_level_to_path(ancestor);
         clear_ref_value(ancestor);
         break;
     }

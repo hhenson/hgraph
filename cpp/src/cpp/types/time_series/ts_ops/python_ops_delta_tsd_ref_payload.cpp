@@ -237,7 +237,7 @@ nb::object tsd_ref_view_payload_to_python(const ViewData& ref_child,
         if (debug_ref_payload) {
             std::fprintf(stderr,
                          "[tsd_ref_payload] path=%s now=%lld include=%d ref_valid=0\n",
-                         ref_child.path.to_string().c_str(),
+                         ref_child.to_short_path().to_string().c_str(),
                          static_cast<long long>(current_time.time_since_epoch().count()),
                          include_unmodified ? 1 : 0);
         }
@@ -254,7 +254,7 @@ nb::object tsd_ref_view_payload_to_python(const ViewData& ref_child,
         } catch (...) {}
         std::fprintf(stderr,
                      "[tsd_ref_payload] path=%s now=%lld include=%d ref_kind=%d elem_kind=%d payload=%s\n",
-                     ref_child.path.to_string().c_str(),
+                     ref_child.to_short_path().to_string().c_str(),
                      static_cast<long long>(current_time.time_since_epoch().count()),
                      include_unmodified ? 1 : 0,
                      static_cast<int>(ref.kind()),

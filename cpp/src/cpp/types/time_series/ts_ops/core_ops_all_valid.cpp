@@ -3,7 +3,7 @@
 namespace hgraph {
 
 bool op_all_valid_tsw_tick(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return op_all_valid(vd);
     }
@@ -22,7 +22,7 @@ bool op_all_valid_tsw_tick(const ViewData& vd) {
     if (!dispatch_valid(*data)) {
         return false;
     }
-    const TSMeta* current = meta_at_path(data->meta, data->path.indices);
+    const TSMeta* current = data->meta;
     if (current == nullptr) {
         return false;
     }
@@ -34,7 +34,7 @@ bool op_all_valid_tsw_tick(const ViewData& vd) {
 }
 
 bool op_all_valid_tsw_duration(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return op_all_valid(vd);
     }
@@ -58,7 +58,7 @@ bool op_all_valid_tsw_duration(const ViewData& vd) {
     if (time_root == nullptr || !time_root->has_value()) {
         return false;
     }
-    auto time_path = ts_path_to_time_path(data->meta, data->path.indices);
+    auto time_path = ts_path_to_time_path(data->root_meta, data->path_indices());
     if (time_path.empty()) {
         return false;
     }
@@ -89,15 +89,14 @@ bool op_all_valid_tsw(const ViewData& vd) {
 }
 
 bool op_all_valid_tsb(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return op_all_valid(vd);
     }
 
     const size_t n = static_container_child_count(self_meta);
     for (size_t i = 0; i < n; ++i) {
-        ViewData child = vd;
-        child.path.indices.push_back(i);
+        ViewData child = make_child_view_data(vd, i);
         if (!container_child_valid_for_aggregation(child)) {
             return false;
         }
@@ -106,15 +105,14 @@ bool op_all_valid_tsb(const ViewData& vd) {
 }
 
 bool op_all_valid_tsl(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr || self_meta->fixed_size() == 0) {
         return op_all_valid(vd);
     }
 
     const size_t n = static_container_child_count(self_meta);
     for (size_t i = 0; i < n; ++i) {
-        ViewData child = vd;
-        child.path.indices.push_back(i);
+        ViewData child = make_child_view_data(vd, i);
         if (!container_child_valid_for_aggregation(child)) {
             return false;
         }

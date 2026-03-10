@@ -81,17 +81,16 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
             if (!sampled_like && wrapper_modified && !resolved_modified && !has_changed_map) {
                 sampled_like = true;
             }
-            const bool include_unmodified_override =
-                vd.uses_link_target &&
-                !meta_is_ref_wrapper(element_meta) &&
-                wrapper_modified &&
-                resolved_modified &&
-                !has_changed_map &&
-                has_added_keys;
+            // Previously included all keys when link-target had structural
+            // changes without changed_values_map entries. This is no longer
+            // needed: copy_tsd now stamps destination children on copy,
+            // so op_modified correctly reports them and the normal delta
+            // path picks them up.
+            const bool include_unmodified_override = false;
             if (!sampled_like &&
                 vd.uses_link_target &&
                 rebind_time == current_time) {
-                if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices); link_target != nullptr) {
+                if (LinkTarget* link_target = resolve_link_target(vd); link_target != nullptr) {
                     // First bind should sample current visible values and avoid carrying
                     // stale remove markers from an unrelated previous binding.
                     sampled_like = !link_target->has_previous_target;
@@ -104,7 +103,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                 element_meta != nullptr &&
                 meta_is_ref_wrapper(element_meta) &&
                 vd.uses_link_target &&
-                vd.path.port_type == PortType::OUTPUT &&
+                vd.port_type() == PortType::OUTPUT &&
                 resolved_modified &&
                 !has_changed_map &&
                 !has_added_keys &&
@@ -133,9 +132,8 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                         return false;
                     }
 
-                    ViewData previous_child = previous;
-                    previous_child.path.indices.push_back(*previous_slot);
-                    const TSMeta* previous_child_meta = meta_at_path(previous_child.meta, previous_child.path.indices);
+                    ViewData previous_child = make_child_view_data(previous, *previous_slot);
+                    const TSMeta* previous_child_meta = previous_child.meta;
                     if (meta_is_ref_wrapper(previous_child_meta)) {
                         nb::object payload = tsd_ref_view_payload_to_python(
                             previous_child,
@@ -168,7 +166,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                         if (debug_tsd_delta && payload.is_none()) {
                             std::fprintf(stderr,
                                          "[tsd_delta_dbg] ref_prev_visibility path=%s key=%s ref_elem_kind=%d container=%d\n",
-                                         vd.path.to_string().c_str(),
+                                         vd.to_short_path().to_string().c_str(),
                                          key.to_string().c_str(),
                                          ref_element_meta != nullptr ? static_cast<int>(ref_element_meta->kind) : -1,
                                          ref_targets_container ? 1 : 0);
@@ -197,10 +195,8 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                     return true;
                 }
 
-                ViewData current_child = *data;
-                current_child.path.indices.push_back(*current_slot);
-                ViewData previous_child = previous;
-                previous_child.path.indices.push_back(*previous_slot);
+                ViewData current_child = make_child_view_data(*data, *current_slot);
+                ViewData previous_child = make_child_view_data(previous, *previous_slot);
 
                 ViewData current_target{};
                 ViewData previous_target{};
@@ -278,7 +274,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                 }
                 std::fprintf(stderr,
                              "[tsd_delta_dbg] path=%s kind=%d elem=%d modified=1 sampled=%d sampled_like=%d rebind=%lld wrapper=%lld changed=%zu added=%zu removed=%zu now=%lld\n",
-                             vd.path.to_string().c_str(),
+                             vd.to_short_path().to_string().c_str(),
                              static_cast<int>(current->kind),
                              element_meta != nullptr ? static_cast<int>(element_meta->kind) : -1,
                              data->sampled ? 1 : 0,
@@ -293,7 +289,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                     for (View dbg_key : added_keys.as_set()) {
                         std::fprintf(stderr,
                                      "[tsd_delta_dbg] added_key path=%s key=%s\n",
-                                     vd.path.to_string().c_str(),
+                                     vd.to_short_path().to_string().c_str(),
                                      dbg_key.to_string().c_str());
                     }
                 }
@@ -301,7 +297,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                     for (View dbg_key : removed_keys.as_set()) {
                         std::fprintf(stderr,
                                      "[tsd_delta_dbg] removed_key path=%s key=%s\n",
-                                     vd.path.to_string().c_str(),
+                                     vd.to_short_path().to_string().c_str(),
                                      dbg_key.to_string().c_str());
                     }
                 }
@@ -324,7 +320,7 @@ void tsd_emit_map_delta_impl(const ViewData& vd,
                         } catch (...) {}
                         std::fprintf(stderr,
                                      "[tsd_delta_dbg] changed_entry path=%s key=%s valid=%d is_map=%d map_size=%zu value=%s\n",
-                                     vd.path.to_string().c_str(),
+                                     vd.to_short_path().to_string().c_str(),
                                      key_s.c_str(),
                                      entry_valid ? 1 : 0,
                                      entry_is_map ? 1 : 0,

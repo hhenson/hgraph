@@ -11,7 +11,7 @@ namespace hgraph
 {
     namespace {
         bool view_data_equals(const ViewData& lhs, const ViewData& rhs) {
-            return lhs.path.indices == rhs.path.indices &&
+            return lhs.path_indices() == rhs.path_indices() &&
                    lhs.value_data == rhs.value_data &&
                    lhs.time_data == rhs.time_data &&
                    lhs.observer_data == rhs.observer_data &&
@@ -208,7 +208,7 @@ namespace hgraph
             case Kind::EMPTY: return "REF[<UnSet>]";
             case Kind::BOUND:
                 if (_bound_view.has_value()) {
-                    return fmt::format("REF[TSView:{}]", _bound_view->path.to_string());
+                    return fmt::format("REF[TSView:{}]", _bound_view->to_short_path().to_string());
                 }
                 return "REF[<UnSet>]";
             case Kind::UNBOUND:

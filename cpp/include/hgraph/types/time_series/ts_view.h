@@ -66,8 +66,8 @@ public:
     [[nodiscard]] DeltaSemantics delta_semantics() const noexcept { return view_data_.delta_semantics; }
     void set_delta_semantics(DeltaSemantics semantics) noexcept { view_data_.delta_semantics = semantics; }
 
-    [[nodiscard]] const ShortPath& short_path() const noexcept { return view_data_.path; }
-    [[nodiscard]] FQPath fq_path() const { return view_data_.path.to_fq(); }
+    [[nodiscard]] ShortPath short_path() const { return view_data_.to_short_path(); }
+    [[nodiscard]] FQPath fq_path() const { return view_data_.to_fq_path(); }
 
     [[nodiscard]] engine_time_t last_modified_time() const;
     [[nodiscard]] bool modified() const;

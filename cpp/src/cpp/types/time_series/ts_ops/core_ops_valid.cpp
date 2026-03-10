@@ -3,7 +3,7 @@
 namespace hgraph {
 
 bool op_valid_tsvalue(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return valid_fallback_no_dispatch(vd, false);
     }
@@ -15,7 +15,7 @@ bool op_valid_tsvalue(const ViewData& vd) {
     }
 
     if (vd.uses_link_target) {
-        if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices);
+        if (LinkTarget* link_target = resolve_link_target(vd);
             link_target != nullptr && !link_target->is_linked) {
             ViewData bound_target{};
             if (!resolve_bound_target_view_data(vd, bound_target)) {
@@ -58,7 +58,7 @@ bool use_ref_child_zero_dispatch_for_scenario(const TSMeta* element_meta) {
 
 template <bool DeclaredScalarLike, bool DeclaredStaticContainer, bool DeclaredDynamicContainer>
 bool op_valid_ref_impl(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return valid_fallback_no_dispatch(vd, false);
     }
@@ -83,7 +83,7 @@ bool op_valid_ref_impl(const ViewData& vd) {
         if (debug_ref_valid) {
             std::fprintf(stderr,
                          "[ref_valid] path=%s now=%lld uses_lt=%d local_valid=1 empty=%d unbound=%d payload_valid=%d lmt=%lld\n",
-                         vd.path.to_string().c_str(),
+                         vd.to_short_path().to_string().c_str(),
                          static_cast<long long>(current_time.time_since_epoch().count()),
                          vd.uses_link_target ? 1 : 0,
                          ref.is_empty() ? 1 : 0,
@@ -120,7 +120,7 @@ bool op_valid_ref_impl(const ViewData& vd) {
     }
 
     if (vd.uses_link_target) {
-        if (LinkTarget* link_target = resolve_link_target(vd, vd.path.indices);
+        if (LinkTarget* link_target = resolve_link_target(vd);
             link_target != nullptr && link_target->is_linked) {
             if (debug_ref_valid) {
                 std::fprintf(stderr, "[ref_valid]  -> true (linked wrapper)\n");
@@ -141,8 +141,7 @@ bool op_valid_ref_impl(const ViewData& vd) {
     if (static_ref_container && element_meta != nullptr) {
         const size_t n = static_container_child_count(element_meta);
         for (size_t i = 0; i < n; ++i) {
-            ViewData child = vd;
-            child.path.indices.push_back(i);
+            ViewData child = make_child_view_data(vd, i);
             if (dispatch_valid(child)) {
                 if (debug_ref_valid) {
                     std::fprintf(stderr, "[ref_valid]  -> true (static child valid idx=%zu)\n", i);
@@ -154,9 +153,8 @@ bool op_valid_ref_impl(const ViewData& vd) {
 
     // Type-erased REF wrappers can route concrete bindings through child[0].
     if (vd.uses_link_target && use_ref_child_zero_dispatch) {
-        ViewData child = vd;
-        child.path.indices.push_back(0);
-        if (LinkTarget* child_link = resolve_link_target(vd, child.path.indices);
+        ViewData child = make_child_view_data(vd, 0);
+        if (LinkTarget* child_link = resolve_link_target(vd, child.path_indices());
             child_link != nullptr && child_link->is_linked) {
             if (debug_ref_valid) {
                 std::fprintf(stderr, "[ref_valid]  -> delegate child0\n");
@@ -176,7 +174,7 @@ bool op_valid_ref_impl(const ViewData& vd) {
         auto local = resolve_value_slot_const(vd);
         std::fprintf(stderr,
                      "[ref_valid] path=%s now=%lld uses_lt=%d local_has=%d local_valid=%d lmt=%lld\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      static_cast<long long>(view_evaluation_time(vd).time_since_epoch().count()),
                      vd.uses_link_target ? 1 : 0,
                      local.has_value() ? 1 : 0,
@@ -185,7 +183,7 @@ bool op_valid_ref_impl(const ViewData& vd) {
     }
     if (ref_wrapper_valid(vd)) {
         if (debug_ref_valid) {
-            std::fprintf(stderr, "[ref_valid] path=%s source=local -> true\n", vd.path.to_string().c_str());
+            std::fprintf(stderr, "[ref_valid] path=%s source=local -> true\n", vd.to_short_path().to_string().c_str());
         }
         return true;
     }
@@ -201,8 +199,8 @@ bool op_valid_ref_impl(const ViewData& vd) {
             if (debug_ref_valid) {
                 std::fprintf(stderr,
                              "[ref_valid] path=%s source=direct_bound bound=%s -> true\n",
-                             vd.path.to_string().c_str(),
-                             direct_bound.path.to_string().c_str());
+                             vd.to_short_path().to_string().c_str(),
+                             direct_bound.to_short_path().to_string().c_str());
             }
             return true;
         }
@@ -216,10 +214,10 @@ bool op_valid_ref_impl(const ViewData& vd) {
     if (debug_ref_valid) {
         std::fprintf(stderr,
                      "[ref_valid] path=%s now=%lld uses_lt=%d -> false (no ref-valid path)\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      static_cast<long long>(current_time.time_since_epoch().count()),
                      vd.uses_link_target ? 1 : 0);
-        std::fprintf(stderr, "[ref_valid] path=%s source=ref_wrapper -> false\n", vd.path.to_string().c_str());
+        std::fprintf(stderr, "[ref_valid] path=%s source=ref_wrapper -> false\n", vd.to_short_path().to_string().c_str());
     }
     return valid_from_resolved_slot(vd, self_meta, true);
 }
@@ -243,7 +241,7 @@ bool op_valid_ref_dynamic_container(const ViewData& vd) {
 }
 
 bool op_valid_signal(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return valid_fallback_no_dispatch(vd, false);
     }
@@ -260,7 +258,7 @@ bool op_valid_signal(const ViewData& vd) {
     }
 
     if (vd.uses_link_target) {
-        if (LinkTarget* signal_link = resolve_link_target(vd, vd.path.indices); signal_link != nullptr) {
+        if (LinkTarget* signal_link = resolve_link_target(vd); signal_link != nullptr) {
             if (std::optional<bool> signal_valid = signal_valid_override(vd, *signal_link);
                 signal_valid.has_value()) {
                 return *signal_valid;
@@ -276,7 +274,7 @@ bool op_valid_tsw(const ViewData& vd) {
 }
 
 bool op_valid_tss(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return valid_fallback_no_dispatch(vd, false);
     }
@@ -293,7 +291,7 @@ bool op_valid_tss(const ViewData& vd) {
     }
 
     if (vd.uses_link_target) {
-        if (LinkTarget* lt = resolve_link_target(vd, vd.path.indices);
+        if (LinkTarget* lt = resolve_link_target(vd);
             lt != nullptr && lt->is_linked && lt->has_previous_target) {
             return true;
         }
@@ -310,13 +308,13 @@ bool op_valid_tss(const ViewData& vd) {
             }
             std::fprintf(stderr,
                          "[keyset_valid] fallback path=%s bound=%s local_ref_empty=%d\n",
-                         vd.path.to_string().c_str(),
-                         bound->path.to_string().c_str(),
+                         vd.to_short_path().to_string().c_str(),
+                         bound->to_short_path().to_string().c_str(),
                          is_empty_ref);
         } else {
             std::fprintf(stderr,
                          "[keyset_valid] fallback path=%s bound=<none>\n",
-                         vd.path.to_string().c_str());
+                         vd.to_short_path().to_string().c_str());
         }
     }
 
@@ -324,7 +322,7 @@ bool op_valid_tss(const ViewData& vd) {
 }
 
 bool op_valid_tsd(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return valid_fallback_no_dispatch(vd, false);
     }
@@ -349,7 +347,7 @@ bool op_valid_tsd(const ViewData& vd) {
 }
 
 bool op_valid_tsb(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return valid_fallback_no_dispatch(vd, false);
     }
@@ -361,8 +359,7 @@ bool op_valid_tsb(const ViewData& vd) {
 
     const size_t n = static_container_child_count(self_meta);
     for (size_t i = 0; i < n; ++i) {
-        ViewData child = vd;
-        child.path.indices.push_back(i);
+        ViewData child = make_child_view_data(vd, i);
         if (dispatch_valid(child)) {
             return true;
         }
@@ -371,7 +368,7 @@ bool op_valid_tsb(const ViewData& vd) {
 }
 
 bool op_valid_tsl(const ViewData& vd) {
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (self_meta == nullptr) {
         return valid_fallback_no_dispatch(vd, false);
     }
@@ -384,8 +381,7 @@ bool op_valid_tsl(const ViewData& vd) {
     if (self_meta->fixed_size() > 0) {
         const size_t n = static_container_child_count(self_meta);
         for (size_t i = 0; i < n; ++i) {
-            ViewData child = vd;
-            child.path.indices.push_back(i);
+            ViewData child = make_child_view_data(vd, i);
             if (dispatch_valid(child)) {
                 return true;
             }

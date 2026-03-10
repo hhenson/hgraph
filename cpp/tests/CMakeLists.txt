@@ -114,6 +114,7 @@ add_executable(hgraph_ts_schema_tests
     ../src/cpp/types/time_series/ts_type_registry.cpp
     ../src/cpp/types/time_series/link_target.cpp
     ../src/cpp/types/time_series/ref_link.cpp
+    ../src/cpp/types/time_series/view_data.cpp
 )
 
 target_include_directories(hgraph_ts_schema_tests PRIVATE

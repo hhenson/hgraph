@@ -4,15 +4,14 @@ namespace hgraph {
 
 TSView op_child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
     (void)current_time;
-    ViewData child = vd;
-    child.path.indices.push_back(index);
+    ViewData child = make_child_view_data(vd, index);
     bind_view_data_ops(child);
     child.engine_time_ptr = vd.engine_time_ptr;
     return TSView(child, child.engine_time_ptr);
 }
 
 TSView op_child_by_name(const ViewData& vd, std::string_view name, engine_time_t current_time) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (current == nullptr || !dispatch_meta_is_tsb(current) || current->fields() == nullptr) {
         return {};
     }
@@ -41,7 +40,7 @@ TSView op_child_by_key(const ViewData& vd, const View& key, engine_time_t curren
 }
 
 size_t op_list_size(const ViewData& vd) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (current == nullptr || !dispatch_meta_is_tsl(current)) {
         return 0;
     }
@@ -55,7 +54,7 @@ size_t op_list_size(const ViewData& vd) {
 }
 
 size_t op_bundle_size(const ViewData& vd) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (current == nullptr || !dispatch_meta_is_tsb(current)) {
         return 0;
     }
@@ -67,7 +66,7 @@ View op_observer(const ViewData& vd) {
         return {};
     }
 
-    const auto observer_path = ts_path_to_observer_path(vd.meta, vd.path.indices);
+    const auto observer_path = ts_path_to_observer_path(vd.root_meta, vd.path_indices());
     std::optional<View> maybe_observer;
     if (observer_path.empty()) {
         maybe_observer = observer_root->view();
@@ -98,7 +97,7 @@ void store_to_link_target(LinkTarget& target, const ViewData& source) {
 }
 
 void store_to_ref_link(REFLink& target, const ViewData& source) {
-    const TSMeta* source_meta = meta_at_path(source.meta, source.path.indices);
+    const TSMeta* source_meta = source.meta;
     if (dispatch_meta_is_ref(source_meta)) {
         target.bind_to_ref(source);
     } else {
@@ -148,7 +147,7 @@ bool resolve_previous_bound_target_view_data(const ViewData& source, ViewData& o
         return false;
     }
 
-    if (LinkTarget* target = resolve_link_target(source, source.path.indices);
+    if (LinkTarget* target = resolve_link_target(source, source.path_indices());
         target != nullptr && target->has_previous_target) {
         out = target->previous_view_data(source.sampled);
         out.projection = merge_projection(source.projection, out.projection);
@@ -156,11 +155,12 @@ bool resolve_previous_bound_target_view_data(const ViewData& source, ViewData& o
         return true;
     }
 
-    if (!source.path.indices.empty()) {
-        for (size_t depth = source.path.indices.size(); depth > 0; --depth) {
+    if (source.path_depth() > 0) {
+        for (size_t depth = source.path_depth(); depth > 0; --depth) {
+            auto all_indices = source.path_indices();
             const std::vector<size_t> parent_path(
-                source.path.indices.begin(),
-                source.path.indices.begin() + static_cast<std::ptrdiff_t>(depth - 1));
+                all_indices.begin(),
+                all_indices.begin() + static_cast<std::ptrdiff_t>(depth - 1));
             LinkTarget* parent = resolve_link_target(source, parent_path);
             if (parent == nullptr || !parent->has_previous_target) {
                 continue;
@@ -170,19 +170,26 @@ bool resolve_previous_bound_target_view_data(const ViewData& source, ViewData& o
             previous.projection = merge_projection(source.projection, previous.projection);
 
             const std::vector<size_t> residual(
-                source.path.indices.begin() + static_cast<std::ptrdiff_t>(parent_path.size()),
-                source.path.indices.end());
+                all_indices.begin() + static_cast<std::ptrdiff_t>(parent_path.size()),
+                all_indices.end());
             if (!residual.empty()) {
                 ViewData local_parent = source;
-                local_parent.path.indices = parent_path;
+                local_parent.path = path_handle_from_short_path(ShortPath{source.owner_node(), source.port_type(), parent_path});
                 if (auto mapped = remap_residual_indices_for_bound_view(local_parent, previous, residual); mapped.has_value()) {
-                    previous.path.indices.insert(previous.path.indices.end(), mapped->begin(), mapped->end());
+                    auto prev_indices = previous.path_indices();
+                    prev_indices.insert(prev_indices.end(), mapped->begin(), mapped->end());
+                    previous.path = path_handle_from_short_path(ShortPath{previous.owner_node(), previous.port_type(), std::move(prev_indices)});
                 } else {
-                    previous.path.indices.insert(previous.path.indices.end(), residual.begin(), residual.end());
+                    auto prev_indices = previous.path_indices();
+                    prev_indices.insert(prev_indices.end(), residual.begin(), residual.end());
+                    previous.path = path_handle_from_short_path(ShortPath{previous.owner_node(), previous.port_type(), std::move(prev_indices)});
                 }
             }
 
             out = std::move(previous);
+            if (out.root_meta != nullptr) {
+                out.meta = meta_at_path(out.root_meta, out.path_indices());
+            }
             bind_view_data_ops(out);
             return true;
         }
@@ -203,7 +210,7 @@ std::optional<TSView> resolve_tsd_removed_child_snapshot(const ViewData& parent_
     std::vector<ViewData> lookup_views;
     lookup_views.push_back(parent_view);
 
-    const TSMeta* expected_parent_meta = meta_at_path(parent_view.meta, parent_view.path.indices);
+    const TSMeta* expected_parent_meta = parent_view.meta;
     const TSMeta* expected_child_meta =
         dispatch_meta_is_tsd(expected_parent_meta)
             ? expected_parent_meta->element_ts()
@@ -248,7 +255,7 @@ std::optional<TSView> resolve_tsd_removed_child_snapshot(const ViewData& parent_
 
         for (const auto& record : records) {
             if (record.time != current_time ||
-                record.parent_path != lookup_view.path.indices ||
+                record.parent_path != lookup_view.path_indices() ||
                 !key_matches_relaxed(record.key.view(), key) ||
                 !record.snapshot) {
                 continue;
@@ -262,7 +269,7 @@ std::optional<TSView> resolve_tsd_removed_child_snapshot(const ViewData& parent_
                         ViewData resolved_snapshot{};
                         if (resolve_bound_target_view_data(view.view_data(), resolved_snapshot)) {
                             const TSMeta* resolved_meta =
-                                meta_at_path(resolved_snapshot.meta, resolved_snapshot.path.indices);
+                                resolved_snapshot.meta;
                             if (resolved_meta != nullptr && dispatch_meta_ops(resolved_meta) == dispatch_meta_ops(expected_child_meta)) {
                                 TSView resolved_view(resolved_snapshot, parent_view.engine_time_ptr);
                                 resolved_view.view_data().sampled = true;

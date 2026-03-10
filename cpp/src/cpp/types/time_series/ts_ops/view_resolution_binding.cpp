@@ -3,12 +3,12 @@
 namespace hgraph {
 
 LinkTarget* resolve_parent_link_target(const ViewData& vd) {
-    if (vd.path.indices.empty()) {
+    if (vd.path_depth() == 0) {
         return nullptr;
     }
 
-    LinkTarget* self = resolve_link_target(vd, vd.path.indices);
-    std::vector<size_t> parent_path = vd.path.indices;
+    LinkTarget* self = resolve_link_target(vd);
+    std::vector<size_t> parent_path = vd.path_indices();
     parent_path.pop_back();
     LinkTarget* parent = resolve_link_target(vd, parent_path);
     if (parent == nullptr || self == nullptr) {
@@ -35,14 +35,14 @@ LinkTarget* resolve_parent_link_target(const ViewData& vd) {
 
 const TSMeta* resolve_meta_or_ancestor(const ViewData& vd, bool& used_ancestor) {
     used_ancestor = false;
-    if (const TSMeta* current = meta_at_path(vd.meta, vd.path.indices); current != nullptr) {
+    if (const TSMeta* current = vd.meta; current != nullptr) {
         return current;
     }
 
-    std::vector<size_t> ancestor = vd.path.indices;
+    std::vector<size_t> ancestor = vd.path_indices();
     while (!ancestor.empty()) {
         ancestor.pop_back();
-        if (const TSMeta* current = meta_at_path(vd.meta, ancestor); current != nullptr) {
+        if (const TSMeta* current = meta_at_path(vd.root_meta, ancestor); current != nullptr) {
             used_ancestor = true;
             return current;
         }
@@ -98,7 +98,7 @@ std::vector<size_t> link_residual_ts_path(const TSMeta* root_meta, const std::ve
 engine_time_t rebind_time_for_view(const ViewData& vd) {
     if (vd.uses_link_target) {
         engine_time_t out = MIN_DT;
-        if (LinkTarget* target = resolve_link_target(vd, vd.path.indices); target != nullptr) {
+        if (LinkTarget* target = resolve_link_target(vd); target != nullptr) {
             // First empty->resolved binds must surface as modified time so
             // non-REF consumers (for example lag over switch stubs) sample the
             // newly bound value on the bind tick.
@@ -124,12 +124,13 @@ engine_time_t rebind_time_for_view(const ViewData& vd) {
         // container ancestry (TSB / fixed-size TSL). Propagating dynamic
         // container rebinds (for example TSD key-set churn) over-reports
         // unchanged children as modified.
-        if (!vd.path.indices.empty()) {
-            for (size_t depth = vd.path.indices.size(); depth > 0; --depth) {
+        if (vd.path_depth() > 0) {
+            for (size_t depth = vd.path_depth(); depth > 0; --depth) {
+                auto all_indices = vd.path_indices();
                 std::vector<size_t> parent_path(
-                    vd.path.indices.begin(),
-                    vd.path.indices.begin() + static_cast<std::ptrdiff_t>(depth - 1));
-                const TSMeta* parent_meta = meta_at_path(vd.meta, parent_path);
+                    all_indices.begin(),
+                    all_indices.begin() + static_cast<std::ptrdiff_t>(depth - 1));
+                const TSMeta* parent_meta = meta_at_path(vd.root_meta, parent_path);
                 if (!is_static_container_parent(parent_meta)) {
                     continue;
                 }
@@ -143,14 +144,15 @@ engine_time_t rebind_time_for_view(const ViewData& vd) {
     }
 
     engine_time_t out = MIN_DT;
-    if (REFLink* ref_link = resolve_ref_link(vd, vd.path.indices); ref_link != nullptr) {
+    if (REFLink* ref_link = resolve_ref_link(vd); ref_link != nullptr) {
         out = std::max(out, ref_link->last_rebind_time);
     }
-    if (!vd.path.indices.empty()) {
-        for (size_t depth = vd.path.indices.size(); depth > 0; --depth) {
+    if (vd.path_depth() > 0) {
+        for (size_t depth = vd.path_depth(); depth > 0; --depth) {
+            auto all_indices = vd.path_indices();
             std::vector<size_t> parent_path(
-                vd.path.indices.begin(),
-                vd.path.indices.begin() + static_cast<std::ptrdiff_t>(depth - 1));
+                all_indices.begin(),
+                all_indices.begin() + static_cast<std::ptrdiff_t>(depth - 1));
             if (REFLink* parent = resolve_ref_link(vd, parent_path); parent != nullptr) {
                 out = std::max(out, parent->last_rebind_time);
             }
@@ -168,7 +170,7 @@ bool same_or_descendant_view(const ViewData& base, const ViewData& candidate) {
            base.python_value_cache_data == candidate.python_value_cache_data &&
            base.link_observer_registry == candidate.link_observer_registry &&
            base.projection == candidate.projection &&
-           is_prefix_path(base.path.indices, candidate.path.indices);
+           is_prefix_path(base.path_indices(), candidate.path_indices());
 }
 
 bool ref_child_payload_valid(const ViewData& ref_child_vd) {
@@ -204,12 +206,17 @@ bool ref_child_rebound_this_tick(const ViewData& ref_child) {
 }
 
 engine_time_t direct_last_modified_time(const ViewData& vd) {
+    // Fast path: level is at correct depth for this ViewData
+    if (vd.level != nullptr && vd.level_depth == vd.path_depth()) {
+        return vd.level->last_modified_time;
+    }
+
     auto* time_root = static_cast<const Value*>(vd.time_data);
     if (time_root == nullptr || !time_root->has_value()) {
         return MIN_DT;
     }
 
-    const auto time_path = ts_path_to_time_path(vd.meta, vd.path.indices);
+    const auto time_path = ts_path_to_time_path(vd.root_meta, vd.path_indices());
     std::optional<View> maybe_time;
     if (time_path.empty()) {
         maybe_time = time_root->view();
@@ -232,7 +239,7 @@ engine_time_t ref_wrapper_last_modified_time_on_read_path(const ViewData& vd) {
     probe.sampled = probe.sampled || vd.sampled;
 
     for (size_t depth = 0; depth < 64; ++depth) {
-        const TSMeta* current = meta_at_path(probe.meta, probe.path.indices);
+        const TSMeta* current = probe.meta;
         const bool current_is_ref = dispatch_meta_is_ref(current);
 
         auto rebound = resolve_bound_view_data(probe);
@@ -248,7 +255,7 @@ engine_time_t ref_wrapper_last_modified_time_on_read_path(const ViewData& vd) {
             if (has_rebound_target) {
                 engine_time_t rebind_time = rebind_time_for_view(probe);
                 if (probe.uses_link_target) {
-                    if (LinkTarget* link_target = resolve_link_target(probe, probe.path.indices);
+                    if (LinkTarget* link_target = resolve_link_target(probe, probe.path_indices());
                         link_target != nullptr &&
                         link_target->is_linked &&
                         !link_target->has_previous_target) {
@@ -298,7 +305,7 @@ engine_time_t ref_wrapper_last_modified_time_on_read_path(const ViewData& vd) {
 
 bool resolve_ref_bound_target_view_data(const ViewData& ref_view, ViewData& out) {
     const bool debug_ref_ancestor = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_ANCESTOR");
-    const TSMeta* ref_meta = meta_at_path(ref_view.meta, ref_view.path.indices);
+    const TSMeta* ref_meta = ref_view.meta;
     if (!dispatch_meta_is_ref(ref_meta)) {
         return false;
     }
@@ -328,10 +335,10 @@ bool resolve_ref_bound_target_view_data(const ViewData& ref_view, ViewData& out)
         }
         std::fprintf(stderr,
                      "[ref_bound] ref_path=%s ref_value_data=%p bound_value_data=%p bound_path=%s bound=%s\n",
-                     ref_view.path.to_string().c_str(),
+                     ref_view.to_short_path().to_string().c_str(),
                      ref_value->data(),
                      bound->value_data,
-                     bound->path.to_string().c_str(),
+                     bound->to_short_path().to_string().c_str(),
                      bound_repr.c_str());
     }
     return true;
@@ -357,10 +364,17 @@ bool resolve_unbound_ref_item_view_data(const TimeSeriesReference& ref,
     const TimeSeriesReference& item_ref = items[index];
     if (const ViewData* bound = item_ref.bound_view(); bound != nullptr) {
         out = *bound;
-        out.path.indices.insert(
-            out.path.indices.end(),
-            residual_path.begin() + static_cast<std::ptrdiff_t>(residual_offset + 1),
-            residual_path.end());
+        {
+            auto out_indices = out.path_indices();
+            out_indices.insert(
+                out_indices.end(),
+                residual_path.begin() + static_cast<std::ptrdiff_t>(residual_offset + 1),
+                residual_path.end());
+            out.path = path_handle_from_short_path(ShortPath{out.owner_node(), out.port_type(), std::move(out_indices)});
+            if (out.root_meta != nullptr) {
+                out.meta = meta_at_path(out.root_meta, out.path_indices());
+            }
+        }
         return true;
     }
 
@@ -411,15 +425,22 @@ bool split_path_at_first_ref_ancestor(const TSMeta* root_meta,
 std::optional<ViewData> resolve_ref_ancestor_descendant_view_data(const ViewData& vd) {
     const bool debug_ref_ancestor = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_REF_ANCESTOR");
     size_t ref_depth = 0;
-    if (!split_path_at_first_ref_ancestor(vd.meta, vd.path.indices, ref_depth)) {
+    if (!split_path_at_first_ref_ancestor(vd.root_meta, vd.path_indices(), ref_depth)) {
         return std::nullopt;
     }
 
     ViewData ref_view = vd;
-    ref_view.path.indices.assign(vd.path.indices.begin(), vd.path.indices.begin() + static_cast<std::ptrdiff_t>(ref_depth));
+    auto all_indices = vd.path_indices();
+    {
+        std::vector<size_t> ref_indices(all_indices.begin(), all_indices.begin() + static_cast<std::ptrdiff_t>(ref_depth));
+        ref_view.path = path_handle_from_short_path(ShortPath{vd.owner_node(), vd.port_type(), std::move(ref_indices)});
+        if (ref_view.root_meta != nullptr) {
+            ref_view.meta = meta_at_path(ref_view.root_meta, ref_view.path_indices());
+        }
+    }
     std::vector<size_t> residual_path(
-        vd.path.indices.begin() + static_cast<std::ptrdiff_t>(ref_depth),
-        vd.path.indices.end());
+        all_indices.begin() + static_cast<std::ptrdiff_t>(ref_depth),
+        all_indices.end());
 
     ViewData resolved_ref{};
     if (!resolve_ref_bound_target_view_data(ref_view, resolved_ref)) {
@@ -433,10 +454,17 @@ std::optional<ViewData> resolve_ref_ancestor_descendant_view_data(const ViewData
             return std::nullopt;
         }
     } else {
-        resolved_ref.path.indices.insert(
-            resolved_ref.path.indices.end(),
-            residual_path.begin(),
-            residual_path.end());
+        {
+            auto resolved_indices = resolved_ref.path_indices();
+            resolved_indices.insert(
+                resolved_indices.end(),
+                residual_path.begin(),
+                residual_path.end());
+            resolved_ref.path = path_handle_from_short_path(ShortPath{resolved_ref.owner_node(), resolved_ref.port_type(), std::move(resolved_indices)});
+            if (resolved_ref.root_meta != nullptr) {
+                resolved_ref.meta = meta_at_path(resolved_ref.root_meta, resolved_ref.path_indices());
+            }
+        }
     }
 
     resolved_ref.sampled = resolved_ref.sampled || vd.sampled;
@@ -444,9 +472,9 @@ std::optional<ViewData> resolve_ref_ancestor_descendant_view_data(const ViewData
     if (debug_ref_ancestor) {
         std::fprintf(stderr,
                      "[ref_ancestor] in_path=%s ref_path=%s out_path=%s out_value_data=%p\n",
-                     vd.path.to_string().c_str(),
-                     ref_view.path.to_string().c_str(),
-                     resolved_ref.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
+                     ref_view.to_short_path().to_string().c_str(),
+                     resolved_ref.to_short_path().to_string().c_str(),
                      resolved_ref.value_data);
     }
     return resolved_ref;
@@ -457,7 +485,7 @@ void refresh_dynamic_ref_binding(const ViewData& vd, engine_time_t current_time)
         return;
     }
 
-    LinkTarget* link_target = resolve_link_target(vd, vd.path.indices);
+    LinkTarget* link_target = resolve_link_target(vd);
     if (link_target == nullptr || !link_target->is_linked) {
         return;
     }
@@ -473,7 +501,7 @@ bool resolve_rebind_bridge_views(const ViewData& vd,
         return false;
     }
 
-    LinkTarget* link_target = resolve_link_target(vd, vd.path.indices);
+    LinkTarget* link_target = resolve_link_target(vd);
     if (link_target == nullptr ||
         !link_target->has_previous_target ||
         link_target->last_rebind_time != current_time ||
@@ -492,7 +520,7 @@ bool resolve_rebind_bridge_views(const ViewData& vd,
 
         // Bridge transitions to/from empty REF wrappers should still be surfaced
         // to container adapters so they can emit removal/addition deltas.
-        const TSMeta* bridge_meta = meta_at_path(bridge_view.meta, bridge_view.path.indices);
+        const TSMeta* bridge_meta = bridge_view.meta;
         if (!dispatch_meta_is_ref(bridge_meta)) {
             return false;
         }

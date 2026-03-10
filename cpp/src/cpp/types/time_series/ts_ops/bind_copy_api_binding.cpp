@@ -40,25 +40,35 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
     const bool debug_op_bind = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_OP_BIND");
     bool used_ancestor_meta = false;
     const TSMeta* current = resolve_meta_or_ancestor(vd, used_ancestor_meta);
-    const TSMeta* target_meta = meta_at_path(target.meta, target.path.indices);
-    const bool signal_descendant_bind = used_ancestor_meta && dispatch_meta_is_signal(current);
+    const TSMeta* target_meta = target.meta;
+    // A SIGNAL descendant bind uses fan_in_targets to observe multiple sources.
+    // This applies when: (a) meta was resolved from an ancestor (original case), or
+    // (b) the SIGNAL child copied meta from parent and the link target is already
+    //     bound from a prior edge (non-peered TSB item-wise binding).
+    const bool signal_descendant_bind =
+        dispatch_meta_is_signal(current) &&
+        (used_ancestor_meta ||
+         (vd.uses_link_target && [&]() {
+             auto* lt = resolve_link_target(vd);
+             return lt != nullptr && lt->is_linked;
+         }()));
     const bool current_is_ref_value =
         current != nullptr &&
         dispatch_meta_is_tsvalue(current) &&
         current->value_type != nullptr &&
         current->value_type == ts_reference_meta();
     if (debug_op_bind) {
-        const char* node_name = (vd.path.node != nullptr) ? vd.path.node->signature().name.c_str() : "<none>";
+        const char* node_name = (vd.owner_node() != nullptr) ? vd.owner_node()->signature().name.c_str() : "<none>";
         std::fprintf(stderr,
                      "[op_bind] node=%s vd=%s kind=%d val_ref=%d val_type=%s target=%s target_kind=%d uses_lt=%d used_anc=%d sig_desc=%d now=%lld\n",
                      node_name,
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      current != nullptr ? static_cast<int>(current->kind) : -1,
                      current_is_ref_value ? 1 : 0,
                      (current != nullptr && current->value_type != nullptr && current->value_type->name != nullptr)
                          ? current->value_type->name
                          : "<none>",
-                     target.path.to_string().c_str(),
+                     target.to_short_path().to_string().c_str(),
                      target_meta != nullptr ? static_cast<int>(target_meta->kind) : -1,
                      vd.uses_link_target ? 1 : 0,
                      used_ancestor_meta ? 1 : 0,
@@ -67,7 +77,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
     }
 
     if (vd.uses_link_target) {
-        auto* link_target = resolve_link_target(vd, vd.path.indices);
+        auto* link_target = resolve_link_target(vd);
         if (link_target == nullptr) {
             return;
         }
@@ -92,8 +102,8 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
                 return false;
             }();
             const bool count_signal_binding =
-                vd.path.node != nullptr &&
-                vd.path.node->signature().name == "count_impl";
+                vd.owner_node() != nullptr &&
+                vd.owner_node()->signature().name == "count_impl";
             if (!signal_has_impl && key_set_capable_target && count_signal_binding) {
                 bind_target.projection = ViewProjection::TSD_KEY_SET;
             }
@@ -178,7 +188,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
 
         if (link_target->peered && current != nullptr && current->fields() != nullptr) {
             for (size_t i = 0; i < current->field_count(); ++i) {
-                std::vector<size_t> child_path = vd.path.indices;
+                std::vector<size_t> child_path = vd.path_indices();
                 child_path.push_back(i);
                 if (LinkTarget* child_link = resolve_link_target(vd, child_path); child_link != nullptr) {
                     unregister_link_target_observer(*child_link);
@@ -190,10 +200,10 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
 
         // When binding a child of a non-peered container (TSB or fixed-size TSL),
         // unbind the parent container link so scheduling is driven by children.
-        if (!vd.path.indices.empty()) {
-            std::vector<size_t> parent_path = vd.path.indices;
+        if (vd.path_depth() > 0) {
+            std::vector<size_t> parent_path = vd.path_indices();
             parent_path.pop_back();
-            const TSMeta* parent_meta = meta_at_path(vd.meta, parent_path);
+            const TSMeta* parent_meta = meta_at_path(vd.root_meta, parent_path);
             const bool non_peer_parent = dispatch_meta_is_static_container(parent_meta);
             if (non_peer_parent) {
                 if (LinkTarget* parent_link = resolve_link_target(vd, parent_path); parent_link != nullptr) {
@@ -210,11 +220,11 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
                             dispatch_meta_is_fixed_tsl(parent_meta);
 
                         if (static_container_parent) {
-                            const size_t child_index = vd.path.indices.back();
+                            const size_t child_index = vd.last_index();
                             const auto& parent_target_path = parent_link->target_path.indices;
-                            const auto& child_target_path = target.path.indices;
+                            const auto& child_target_path = target.path_indices();
                             const TSMeta* parent_target_meta =
-                                meta_at_path(target.meta, parent_target_path);
+                                meta_at_path(target.root_meta, parent_target_path);
 
                             keep_parent_bound =
                                 child_target_path.size() == parent_target_path.size() + 1 &&
@@ -248,7 +258,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
             }
         }
     } else {
-        auto* ref_link = resolve_ref_link(vd, vd.path.indices);
+        auto* ref_link = resolve_ref_link(vd);
         if (ref_link == nullptr) {
             return;
         }
@@ -263,7 +273,7 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
         register_ref_link_observer(*ref_link, &vd);
 
         if (dispatch_meta_is_ref(current)) {
-            const TSMeta* target_meta = meta_at_path(target.meta, target.path.indices);
+            const TSMeta* target_meta = target.meta;
             if (!dispatch_meta_is_ref(target_meta)) {
                 assign_ref_value_from_target(vd, target);
             } else {
@@ -279,10 +289,10 @@ void op_bind(ViewData& vd, const ViewData& target, engine_time_t current_time) {
 
 void op_unbind(ViewData& vd, engine_time_t current_time) {
     invalidate_python_value_cache(vd);
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
 
     if (vd.uses_link_target) {
-        auto* lt = resolve_link_target(vd, vd.path.indices);
+        auto* lt = resolve_link_target(vd);
         if (lt == nullptr) {
             return;
         }
@@ -291,7 +301,7 @@ void op_unbind(ViewData& vd, engine_time_t current_time) {
         lt->unbind(current_time);
         lt->peered = false;
     } else {
-        auto* ref_link = resolve_ref_link(vd, vd.path.indices);
+        auto* ref_link = resolve_ref_link(vd);
         if (ref_link == nullptr) {
             return;
         }
@@ -312,7 +322,7 @@ void op_unbind(ViewData& vd, engine_time_t current_time) {
 
 bool op_is_bound(const ViewData& vd) {
     if (vd.uses_link_target) {
-        if (LinkTarget* payload = resolve_link_target(vd, vd.path.indices); payload != nullptr && payload->is_linked) {
+        if (LinkTarget* payload = resolve_link_target(vd); payload != nullptr && payload->is_linked) {
             return true;
         }
 
@@ -321,11 +331,12 @@ bool op_is_bound(const ViewData& vd) {
             // Peered container links (for example TSB root binds) allow child
             // value reads via ancestor resolution, but child links are still
             // considered unbound.
-            if (!vd.path.indices.empty()) {
-                for (size_t depth = vd.path.indices.size(); depth > 0; --depth) {
+            if (vd.path_depth() > 0) {
+                for (size_t depth = vd.path_depth(); depth > 0; --depth) {
+                    auto all_indices = vd.path_indices();
                     const std::vector<size_t> parent_path(
-                        vd.path.indices.begin(),
-                        vd.path.indices.begin() + static_cast<std::ptrdiff_t>(depth - 1));
+                        all_indices.begin(),
+                        all_indices.begin() + static_cast<std::ptrdiff_t>(depth - 1));
                     if (LinkTarget* parent = resolve_link_target(vd, parent_path);
                         parent != nullptr && parent->is_linked) {
                         return !parent->peered;
@@ -336,7 +347,7 @@ bool op_is_bound(const ViewData& vd) {
         }
         return false;
     }
-    if (REFLink* payload = resolve_ref_link(vd, vd.path.indices); payload != nullptr) {
+    if (REFLink* payload = resolve_ref_link(vd); payload != nullptr) {
         return payload->is_linked;
     }
     return false;
@@ -387,7 +398,7 @@ bool active_flag_value(value::ValueView active_view) {
 void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* input) {
     const bool was_active = active_flag_value(active_view);
     set_active_flag(active_view, active);
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     const bool ref_local_wrapper = active &&
                                    dispatch_meta_is_ref(current) &&
                                    has_local_ref_wrapper_value(vd);
@@ -413,7 +424,7 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
     };
 
     if (vd.uses_link_target) {
-        if (LinkTarget* payload = resolve_link_target(vd, vd.path.indices); payload != nullptr) {
+        if (LinkTarget* payload = resolve_link_target(vd); payload != nullptr) {
             if (ref_local_wrapper && input != nullptr) {
                 const engine_time_t current_time = resolve_input_current_time(input);
                 if (current_time != MIN_DT) {
@@ -438,7 +449,7 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
                 }
 
                 for (size_t i = 0; i < child_count; ++i) {
-                    std::vector<size_t> child_path = vd.path.indices;
+                    std::vector<size_t> child_path = vd.path_indices();
                     child_path.push_back(i);
                     if (LinkTarget* child_link = resolve_link_target(vd, child_path); child_link != nullptr) {
                         set_link_target_active(child_link, active);
@@ -488,7 +499,7 @@ void op_set_active(ViewData& vd, ValueView active_view, bool active, TSInput* in
             }
         }
     } else {
-        if (REFLink* payload = resolve_ref_link(vd, vd.path.indices); payload != nullptr) {
+        if (REFLink* payload = resolve_ref_link(vd); payload != nullptr) {
             Notifiable* new_target = active ? static_cast<Notifiable*>(input) : nullptr;
             Notifiable* previous_target = payload->active_notifier.target();
             if (previous_target != new_target) {

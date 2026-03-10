@@ -6,8 +6,9 @@ namespace {
 
 template <bool DeclaredRefElement, bool HasDeclaredNestedElement, bool DeclaredNestedElement>
 nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, engine_time_t current_time) {
+    const bool debug_tsd_flow = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSD_FLOW");
     refresh_dynamic_ref_binding(vd, current_time);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     const bool debug_keyset_bridge = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_KEYSET_BRIDGE");
     const bool debug_delta_kind = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_DELTA_KIND");
     const bool key_set_projection = is_tsd_key_set_projection(vd);
@@ -19,6 +20,7 @@ nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, en
             key_set_projection,
             key_set_projection);
         key_set_delta.has_value()) {
+        if (debug_tsd_flow) std::fprintf(stderr, "[tsd_flow] path=%s RETURN key_set_delta\n", vd.to_short_path().to_string().c_str());
         return std::move(*key_set_delta);
     }
 
@@ -28,21 +30,23 @@ nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, en
         nb::object bridge_delta;
         if (try_tsd_bridge_delta_to_python(
                 vd, self_meta, current_time, true, false, bridge_delta)) {
+            if (debug_tsd_flow) std::fprintf(stderr, "[tsd_flow] path=%s RETURN bridge_delta_pre\n", vd.to_short_path().to_string().c_str());
             return bridge_delta;
         }
     }
 
     ViewData resolved{};
     if (!resolve_read_view_data(vd, resolved)) {
+        if (debug_tsd_flow) std::fprintf(stderr, "[tsd_flow] path=%s RETURN resolve_failed\n", vd.to_short_path().to_string().c_str());
         return nb::none();
     }
     const ViewData* data = &resolved;
 
-    const TSMeta* current = meta_at_path(data->meta, data->path.indices);
+    const TSMeta* current = data->meta;
     if (debug_delta_kind) {
         std::fprintf(stderr,
                      "[delta_kind] path=%s self_kind=%d resolved_kind=%d self_proj=%d resolved_proj=%d uses_lt=%d now=%lld\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      self_meta != nullptr ? static_cast<int>(self_meta->kind) : -1,
                      current != nullptr ? static_cast<int>(current->kind) : -1,
                      static_cast<int>(vd.projection),
@@ -54,6 +58,7 @@ nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, en
     nb::object bridge_delta;
     if (try_tsd_bridge_delta_to_python(
             vd, current, current_time, false, debug_tsd_bridge, bridge_delta)) {
+        if (debug_tsd_flow) std::fprintf(stderr, "[tsd_flow] path=%s RETURN bridge_delta_post\n", vd.to_short_path().to_string().c_str());
         // Python parity: when bindings change, container REF deltas are computed
         // from full previous/current snapshots (not current native delta only).
         return bridge_delta;
@@ -62,11 +67,14 @@ nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, en
     const bool debug_tsd_delta = HGRAPH_DEBUG_ENV_ENABLED("HGRAPH_DEBUG_TSD_DELTA");
     const bool wrapper_modified = op_modified(vd, current_time);
     const bool resolved_modified = op_modified(*data, current_time);
+    if (debug_tsd_flow) std::fprintf(stderr, "[tsd_flow] path=%s wrapper_mod=%d resolved_mod=%d uses_lt=%d\n",
+                                     vd.to_short_path().to_string().c_str(),
+                                     wrapper_modified ? 1 : 0, resolved_modified ? 1 : 0, vd.uses_link_target ? 1 : 0);
     if (!wrapper_modified && !resolved_modified) {
         if (debug_tsd_delta) {
             std::fprintf(stderr,
                          "[tsd_delta_dbg] path=%s wrapper_modified=0 resolved_modified=0 now=%lld\n",
-                         vd.path.to_string().c_str(),
+                         vd.to_short_path().to_string().c_str(),
                          static_cast<long long>(current_time.time_since_epoch().count()));
         }
         // Non-scalar delta contract: containers return empty payloads, not None.
@@ -78,8 +86,26 @@ nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, en
     View added_keys;
     View removed_keys;
     View native_delta = op_delta_value(*data);
+    if (debug_tsd_flow) {
+        std::fprintf(stderr, "[tsd_flow] path=%s native_delta valid=%d is_tuple=%d data_path=%s data_root_level=%p\n",
+                     vd.to_short_path().to_string().c_str(),
+                     native_delta.valid() ? 1 : 0,
+                     (native_delta.valid() && native_delta.is_tuple()) ? 1 : 0,
+                     data->to_short_path().to_string().c_str(),
+                     (void*)data->root_level);
+    }
     if (native_delta.valid() && native_delta.is_tuple()) {
         auto tuple = native_delta.as_tuple();
+        if (debug_tsd_flow) {
+            std::fprintf(stderr, "[tsd_flow] path=%s tuple_size=%zu", vd.to_short_path().to_string().c_str(), tuple.size());
+            for (size_t i = 0; i < tuple.size(); ++i) {
+                auto e = tuple.at(i);
+                std::fprintf(stderr, " [%zu]valid=%d", i, e.valid() ? 1 : 0);
+                if (e.valid() && e.is_map()) std::fprintf(stderr, "/map(%zu)", e.as_map().size());
+                if (e.valid() && e.is_set()) std::fprintf(stderr, "/set(%zu)", e.as_set().size());
+            }
+            std::fprintf(stderr, "\n");
+        }
         if (tuple.size() > 0) {
             changed_values = tuple.at(0);
         }
@@ -158,8 +184,16 @@ nb::object op_delta_to_python_tsd_impl_for_bound_scenario(const ViewData& vd, en
         } catch (...) {}
         std::fprintf(stderr,
                      "[tsd_delta_dbg] final_delta path=%s out=%s\n",
-                     vd.path.to_string().c_str(),
+                     vd.to_short_path().to_string().c_str(),
                      out_repr.c_str());
+    }
+    if (debug_tsd_flow) {
+        std::string out_repr2{"<repr_error>"};
+        try {
+            out_repr2 = nb::cast<std::string>(nb::repr(delta_out));
+        } catch (...) {}
+        std::fprintf(stderr, "[tsd_flow] path=%s delta_out_empty=%d out=%s\n",
+                     vd.to_short_path().to_string().c_str(), delta_out.empty() ? 1 : 0, out_repr2.c_str());
     }
     if (delta_out.empty()) {
         return get_empty_frozendict();

@@ -23,6 +23,7 @@ struct HGRAPH_EXPORT TSLinkObserverRegistry {
     static constexpr std::string_view kTsdRemovedChildSnapshotsKey{"tsd_removed_child_snapshots"};
     static constexpr std::string_view kTsdVisibleKeyHistoryKey{"tsd_visible_key_history"};
     static constexpr std::string_view kRefUnboundItemChangesKey{"ref_unbound_item_changes"};
+    static constexpr std::string_view kTsdDeltaTickStateKey{"tsd_delta_tick_state"};
 
     TSLinkObserverRegistry();
     TSLinkObserverRegistry(const TSLinkObserverRegistry&) = delete;
@@ -43,6 +44,7 @@ private:
     std::shared_ptr<void> tsd_removed_child_snapshots_state_{};
     std::shared_ptr<void> tsd_visible_key_history_state_{};
     std::shared_ptr<void> ref_unbound_item_changes_state_{};
+    std::shared_ptr<void> tsd_delta_tick_state_{};
     std::unique_ptr<std::unordered_map<std::string, std::shared_ptr<void>>> extra_feature_states_{};
 };
 

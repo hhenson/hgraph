@@ -73,7 +73,7 @@ void record_unbound_ref_item_changes(const ViewData& source,
         records.begin(),
         records.end(),
         [&source](const RefUnboundItemChangeRecord& record) {
-            return record.path == source.path.indices;
+            return record.path == source.path_indices();
         });
 
     if (existing != records.end()) {
@@ -83,14 +83,14 @@ void record_unbound_ref_item_changes(const ViewData& source,
     }
 
     RefUnboundItemChangeRecord record{};
-    record.path = source.path.indices;
+    record.path = source.path_indices();
     record.time = current_time;
     record.changed_indices = changed_indices;
     records.push_back(std::move(record));
 }
 
 bool unbound_ref_item_changed_this_tick(const ViewData& item_view, size_t item_index, engine_time_t current_time) {
-    if (item_view.path.indices.empty() ||
+    if (item_view.path_depth() == 0 ||
         item_view.link_observer_registry == nullptr ||
         item_view.value_data == nullptr ||
         current_time == MIN_DT) {
@@ -109,7 +109,7 @@ bool unbound_ref_item_changed_this_tick(const ViewData& item_view, size_t item_i
         return false;
     }
 
-    std::vector<size_t> parent_path = item_view.path.indices;
+    std::vector<size_t> parent_path = item_view.path_indices();
     parent_path.pop_back();
     const auto record = std::find_if(
         by_value->second.begin(),

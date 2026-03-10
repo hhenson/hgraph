@@ -181,12 +181,34 @@ namespace hgraph {
 
         auto key_view = hgraph::node_input_field(*this, "key");
         if (!key_view) {
+            if (debug_switch) {
+                std::fprintf(stderr, "[switch] eval ndx=%lld now=%lld -> no key input\n",
+                    static_cast<long long>(node_ndx()),
+                    static_cast<long long>(last_evaluation_time().time_since_epoch().count()));
+            }
             return; // No key input or invalid
         }
 
         TSView effective_key_view = key_view.as_ts_view();
 
         if (!effective_key_view.valid()) {
+            if (debug_switch) {
+                auto& vd = effective_key_view.view_data();
+                std::string py_val{"<none>"};
+                try { py_val = nb::cast<std::string>(nb::repr(effective_key_view.to_python())); } catch (...) { py_val = "<err>"; }
+
+                // Check if bound and what the bound target looks like
+                bool bound = effective_key_view.is_bound();
+                std::fprintf(stderr, "[switch] eval ndx=%lld now=%lld -> key not valid, key_kind=%d key_lmt=%lld py_val=%s uses_lt=%d bound=%d meta_kind=%d\n",
+                    static_cast<long long>(node_ndx()),
+                    static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
+                    static_cast<int>(effective_key_view.kind()),
+                    static_cast<long long>(effective_key_view.last_modified_time().time_since_epoch().count()),
+                    py_val.c_str(),
+                    vd.uses_link_target ? 1 : 0,
+                    bound ? 1 : 0,
+                    vd.meta != nullptr ? static_cast<int>(vd.meta->kind) : -1);
+            }
             return;
         }
 

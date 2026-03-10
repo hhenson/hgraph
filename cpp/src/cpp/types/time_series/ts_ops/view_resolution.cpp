@@ -8,7 +8,7 @@ std::optional<View> resolve_link_view(const ViewData& vd, const std::vector<size
         return std::nullopt;
     }
 
-    auto link_path = ts_path_to_link_path(vd.meta, ts_path);
+    auto link_path = ts_path_to_link_path(vd.root_meta, ts_path);
     auto link_view = navigate_const(link_root->view(), link_path);
     if (!link_view.has_value() || !link_view->valid()) {
         return std::nullopt;
@@ -62,7 +62,7 @@ engine_time_t* resolve_owner_time_ptr(ViewData& vd) {
         time_root->emplace();
     }
 
-    auto time_path = ts_path_to_time_path(vd.meta, vd.path.indices);
+    auto time_path = ts_path_to_time_path(vd.root_meta, vd.path_indices());
     std::optional<ValueView> time_slot;
     if (time_path.empty()) {
         time_slot = time_root->view();
@@ -77,6 +77,22 @@ engine_time_t* resolve_owner_time_ptr(ViewData& vd) {
     return extract_time_ptr(*time_slot);
 }
 
+void ensure_tsd_child_level_entry(ViewData& vd, size_t child_slot) {
+    if (vd.level == nullptr) {
+        return;
+    }
+    TSLevelEntry* child_level = vd.level->ensure_child(child_slot);
+    if (child_level->delta_kind == LevelDeltaKind::None) {
+        const TSMeta* self_meta = vd.meta;
+        if (self_meta != nullptr) {
+            const TSMeta* child_meta = self_meta->element_ts();
+            if (child_meta != nullptr) {
+                tag_level_delta_kinds(*child_level, child_meta);
+            }
+        }
+    }
+}
+
 void ensure_tsd_child_time_slot(ViewData& vd, size_t child_slot) {
     auto* time_root = static_cast<Value*>(vd.time_data);
     if (time_root == nullptr || time_root->schema() == nullptr) {
@@ -87,10 +103,10 @@ void ensure_tsd_child_time_slot(ViewData& vd, size_t child_slot) {
         time_root->emplace();
     }
 
-    auto parent_time_path = ts_path_to_time_path(vd.meta, vd.path.indices);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    auto parent_time_path = ts_path_to_time_path(vd.root_meta, vd.path_indices());
+    const TSMeta* self_meta = vd.meta;
     if (dispatch_meta_is_tsd(self_meta) &&
-        vd.path.indices.empty() &&
+        vd.path_depth() == 0 &&
         !parent_time_path.empty() && parent_time_path.back() == 0) {
         // Only root TSD views map directly to the container-time slot (0).
         // Child TSD paths like [slot=0] also end with 0, but that 0 is the
@@ -147,12 +163,12 @@ std::optional<ValueView> resolve_tsd_child_link_list(ViewData& vd) {
         link_root->emplace();
     }
 
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* self_meta = vd.meta;
     if (!dispatch_meta_is_tsd(self_meta)) {
         return std::nullopt;
     }
 
-    auto parent_link_path = ts_path_to_link_path(vd.meta, vd.path.indices);
+    auto parent_link_path = ts_path_to_link_path(vd.root_meta, vd.path_indices());
     if (parent_link_path.empty() || parent_link_path.back() != 0) {
         return std::nullopt;
     }
@@ -249,10 +265,10 @@ std::optional<ValueView> resolve_tsd_child_time_list(ViewData& vd) {
         time_root->emplace();
     }
 
-    auto parent_time_path = ts_path_to_time_path(vd.meta, vd.path.indices);
-    const TSMeta* self_meta = meta_at_path(vd.meta, vd.path.indices);
+    auto parent_time_path = ts_path_to_time_path(vd.root_meta, vd.path_indices());
+    const TSMeta* self_meta = vd.meta;
     if (dispatch_meta_is_tsd(self_meta) &&
-        vd.path.indices.empty() &&
+        vd.path_depth() == 0 &&
         !parent_time_path.empty() && parent_time_path.back() == 0) {
         parent_time_path.pop_back();
     }

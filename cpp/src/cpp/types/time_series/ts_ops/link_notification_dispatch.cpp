@@ -231,12 +231,13 @@ void collect_related_observers(
     LinkFn& on_link_observer,
     RefFn& on_ref_observer) {
     auto* observer_root = static_cast<const Value*>(root_view.observer_data);
-    if (observer_root == nullptr || !observer_root->has_value() || root_view.meta == nullptr) {
+    const TSMeta* nav_meta = root_view.root_meta != nullptr ? root_view.root_meta : root_view.meta;
+    if (observer_root == nullptr || !observer_root->has_value() || nav_meta == nullptr) {
         return;
     }
 
     const View root_node = observer_root->view();
-    const TSMeta* cursor_meta = root_view.meta;
+    const TSMeta* cursor_meta = nav_meta;
     View cursor_node = root_node;
     std::vector<size_t> cursor_path;
     cursor_path.reserve(target_path.size());
@@ -289,9 +290,13 @@ bool should_skip_projection_observer_notification(
     }
 
     ViewData projected = target_view;
-    projected.path.indices = observer_path;
+    projected.path = path_handle_from_short_path(ShortPath{projected.owner_node(), projected.port_type(), observer_path});
+    if (projected.root_meta != nullptr) {
+        projected.meta = meta_at_path(projected.root_meta, projected.path_indices());
+    }
     projected.projection = observer.projection;
     projected.sampled = false;
+    bind_view_data_ops(projected);
     if (projected.ops == nullptr || !projected.ops->modified(projected, current_time)) {
         if (debug_notify) {
             std::fprintf(stderr, "[notify_obs]   skip projection unmodified\n");
@@ -307,22 +312,26 @@ bool should_skip_ancestor_to_descendant_notification(
     engine_time_t current_time,
     bool debug_notify) {
     const bool ancestor_to_descendant =
-        is_prefix_path(target_view.path.indices, observer_path) &&
-        target_view.path.indices.size() < observer_path.size();
+        is_prefix_path(target_view.path_indices(), observer_path) &&
+        target_view.path_depth() < observer_path.size();
     if (!ancestor_to_descendant) {
         return false;
     }
 
     ViewData observed = target_view;
-    observed.path.indices = observer_path;
+    observed.path = path_handle_from_short_path(ShortPath{observed.owner_node(), observed.port_type(), observer_path});
+    if (observed.root_meta != nullptr) {
+        observed.meta = meta_at_path(observed.root_meta, observed.path_indices());
+    }
     observed.sampled = false;
+    bind_view_data_ops(observed);
     if (observed.ops == nullptr) {
         return true;
     }
 
-    const TSMeta* target_meta = meta_at_path(target_view.meta, target_view.path.indices);
+    const TSMeta* target_meta = target_view.meta;
     const bool target_is_ref = dispatch_meta_is_ref(target_meta);
-    const TSMeta* observed_meta = meta_at_path(observed.meta, observed.path.indices);
+    const TSMeta* observed_meta = observed.meta;
     const bool observed_is_ref = dispatch_meta_is_ref(observed_meta);
     const bool is_valid = observed.ops->valid(observed);
     const bool is_modified = observed.ops->modified(observed, current_time);
@@ -334,7 +343,7 @@ bool should_skip_ancestor_to_descendant_notification(
                          is_modified ? 1 : 0,
                          observed_is_ref ? 1 : 0,
                          target_is_ref ? 1 : 0,
-                         observed.path.to_string().c_str());
+                         observed.to_short_path().to_string().c_str());
         }
         return true;
     }
@@ -348,8 +357,8 @@ bool should_skip_descendant_to_ancestor_notification(
     engine_time_t current_time,
     bool debug_notify) {
     const bool descendant_to_ancestor =
-        is_prefix_path(observer_path, target_view.path.indices) &&
-        observer_path.size() < target_view.path.indices.size();
+        is_prefix_path(observer_path, target_view.path_indices()) &&
+        observer_path.size() < target_view.path_depth();
     if (!descendant_to_ancestor) {
         return false;
     }
@@ -362,15 +371,30 @@ bool should_skip_descendant_to_ancestor_notification(
             if (debug_notify) {
                 std::fprintf(stderr,
                              "[notify_obs]   skip descendant->ancestor observer-unmodified path=%s\n",
-                             observer_view.path.to_string().c_str());
+                             observer_view.to_short_path().to_string().c_str());
             }
             return true;
         }
     }
 
     ViewData observed = target_view;
-    observed.path.indices = observer_path;
+    observed.path = path_handle_from_short_path(ShortPath{observed.owner_node(), observed.port_type(), observer_path});
+    if (observed.root_meta != nullptr) {
+        observed.meta = meta_at_path(observed.root_meta, observed.path_indices());
+    }
+    // Fix level pointer: navigate from root_level to match the ancestor path depth
+    if (observed.root_level != nullptr) {
+        TSLevelEntry* lvl = observed.root_level;
+        const auto ancestor_indices = observed.path_indices();
+        for (size_t idx : ancestor_indices) {
+            if (lvl == nullptr) break;
+            lvl = lvl->child_at(idx);
+        }
+        observed.level = lvl;
+        observed.level_depth = static_cast<uint16_t>(ancestor_indices.size());
+    }
     observed.sampled = false;
+    bind_view_data_ops(observed);
 
     // Do not bubble descendant writes to ancestor observers when the ancestor
     // view itself is not modified on this tick.
@@ -398,11 +422,11 @@ void maybe_enqueue_link_observer(
     if (debug_notify) {
         std::fprintf(stderr,
                      "[notify_obs]  reg path=%s linked=%d obs=%p\n",
-                     ShortPath{target_view.path.node, target_view.path.port_type, observer_path}.to_string().c_str(),
+                     ShortPath{target_view.owner_node(), target_view.port_type(), observer_path}.to_string().c_str(),
                      observer->is_linked ? 1 : 0,
                      static_cast<void*>(observer));
     }
-    if (!paths_related(observer_path, target_view.path.indices)) {
+    if (!paths_related(observer_path, target_view.path_indices())) {
         if (debug_notify) {
             std::fprintf(stderr, "[notify_obs]   skip unrelated\n");
         }
@@ -436,20 +460,24 @@ void maybe_enqueue_ref_link_observer(
         return;
     }
 
-    if (!paths_related(observer_path, target_view.path.indices)) {
+    if (!paths_related(observer_path, target_view.path_indices())) {
         return;
     }
     const bool ancestor_to_descendant =
-        is_prefix_path(target_view.path.indices, observer_path) &&
-        target_view.path.indices.size() < observer_path.size();
+        is_prefix_path(target_view.path_indices(), observer_path) &&
+        target_view.path_depth() < observer_path.size();
     if (ancestor_to_descendant) {
         ViewData observed = target_view;
-        observed.path.indices = observer_path;
+        observed.path = path_handle_from_short_path(ShortPath{observed.owner_node(), observed.port_type(), observer_path});
+        if (observed.root_meta != nullptr) {
+            observed.meta = meta_at_path(observed.root_meta, observed.path_indices());
+        }
         observed.sampled = false;
+        bind_view_data_ops(observed);
         if (observed.ops == nullptr) {
             return;
         }
-        const TSMeta* target_meta = meta_at_path(target_view.meta, target_view.path.indices);
+        const TSMeta* target_meta = target_view.meta;
         const bool target_is_ref = dispatch_meta_is_ref(target_meta);
         const bool is_valid = observed.ops->valid(observed);
         const bool is_modified = observed.ops->modified(observed, current_time);
@@ -473,8 +501,12 @@ bool signal_ref_observer_modified_for_wrapper_write(
             std::vector<size_t> observer_path;
             if (find_link_target_path(input_root.view_data(), active_input->meta(), &observer, observer_path)) {
                 ViewData observer_input = input_root.view_data();
-                observer_input.path.indices = observer_path;
+                observer_input.path = path_handle_from_short_path(ShortPath{observer_input.owner_node(), observer_input.port_type(), observer_path});
+                if (observer_input.root_meta != nullptr) {
+                    observer_input.meta = meta_at_path(observer_input.root_meta, observer_input.path_indices());
+                }
                 observer_input.sampled = false;
+                bind_view_data_ops(observer_input);
                 if (observer_input.ops != nullptr) {
                     observer_modified = observer_input.ops->modified(observer_input, current_time);
                 }
@@ -505,15 +537,15 @@ bool should_skip_ref_to_nonref_dynamic_target_write(
         ViewData observer_view_dbg = observer.as_view_data(false);
         std::string resolved_path{"<none>"};
         if (observer.has_resolved_target) {
-            resolved_path = observer.resolved_target.path.to_string();
+            resolved_path = observer.resolved_target.to_short_path().to_string();
         }
         std::fprintf(stderr,
                      "[notify_obs]  skip ref->nonref target write obs=%p obs_path=%s has_resolved=%d resolved=%s target=%s\n",
                      static_cast<const void*>(&observer),
-                     observer_view_dbg.path.to_string().c_str(),
+                     observer_view_dbg.to_short_path().to_string().c_str(),
                      observer.has_resolved_target ? 1 : 0,
                      resolved_path.c_str(),
-                     target_view.path.to_string().c_str());
+                     target_view.to_short_path().to_string().c_str());
     }
     return true;
 }
@@ -698,7 +730,7 @@ void prime_static_ref_child_rebind_time(
 void debug_log_pre_notify_observer(
     const LinkTarget& observer,
     const ViewData& observer_view) {
-    const TSMeta* observer_meta = meta_at_path(observer_view.meta, observer_view.path.indices);
+    const TSMeta* observer_meta = observer_view.meta;
     const auto* active_input = notifier_as_live_input(observer.active_notifier.target());
     std::string active_path{"<none>"};
     int active_kind = -1;
@@ -709,7 +741,7 @@ void debug_log_pre_notify_observer(
     std::fprintf(stderr,
                  "[notify_obs]  pre-notify obs=%p obs_path=%s obs_kind=%d active_notifier=%p active_path=%s active_kind=%d parent=%p owner_time_ptr=%p notify_on_ref_wrapper_write=%d has_resolved=%d rebind=%lld\n",
                  static_cast<const void*>(&observer),
-                 observer_view.path.to_string().c_str(),
+                 observer_view.to_short_path().to_string().c_str(),
                  observer_meta != nullptr ? static_cast<int>(observer_meta->kind) : -1,
                  static_cast<void*>(observer.active_notifier.target()),
                  active_path.c_str(),
@@ -741,7 +773,7 @@ void invalidate_observer_wrapper_delta_cache(LinkTarget& observer, bool debug_no
         std::fprintf(stderr,
                      "[notify_obs]  invalidate wrapper delta-cache obs=%p path=%s\n",
                      static_cast<void*>(&observer),
-                     wrapper_view.path.to_string().c_str());
+                     wrapper_view.to_short_path().to_string().c_str());
     }
 }
 
@@ -751,7 +783,7 @@ void dispatch_link_observers(
     bool debug_notify,
     const std::vector<LinkTarget*>& observers) {
     const bool target_is_ref_wrapper =
-        dispatch_meta_is_ref(meta_at_path(target_view.meta, target_view.path.indices));
+        dispatch_meta_is_ref(target_view.meta);
 
     for (LinkTarget* observer : observers) {
         if (observer == nullptr || !is_live_link_target(observer)) {
@@ -835,7 +867,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
     if (debug_notify) {
         std::fprintf(stderr,
                      "[notify_obs] target=%s value_data=%p now=%lld\n",
-                     target_view.path.to_string().c_str(),
+                     target_view.to_short_path().to_string().c_str(),
                      target_view.value_data,
                      static_cast<long long>(current_time.time_since_epoch().count()));
     }
@@ -864,7 +896,7 @@ void notify_link_target_observers(const ViewData& target_view, engine_time_t cur
             ref_dedupe,
             ref_observers);
     };
-    collect_related_observers(target_view, target_view.path.indices, on_link_observer, on_ref_observer);
+    collect_related_observers(target_view, target_view.path_indices(), on_link_observer, on_ref_observer);
 
     dispatch_link_observers(target_view, current_time, debug_notify, observers);
 

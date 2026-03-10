@@ -62,7 +62,7 @@ nb::object op_to_python_tsw_tick(const ViewData& vd) {
         return nb::none();
     }
     bind_view_data_ops(resolved);
-    const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
+    const TSMeta* resolved_meta = resolved.meta;
     if (resolved_meta == nullptr) {
         return nb::none();
     }
@@ -91,7 +91,7 @@ nb::object op_to_python_tsw_duration(const ViewData& vd) {
         return nb::none();
     }
     bind_view_data_ops(resolved);
-    const TSMeta* resolved_meta = meta_at_path(resolved.meta, resolved.path.indices);
+    const TSMeta* resolved_meta = resolved.meta;
     if (resolved_meta == nullptr) {
         return nb::none();
     }
@@ -109,7 +109,7 @@ nb::object op_to_python_tsw_duration(const ViewData& vd) {
     if (time_root == nullptr || !time_root->has_value()) {
         return nb::none();
     }
-    auto time_path = ts_path_to_time_path(resolved.meta, resolved.path.indices);
+    auto time_path = ts_path_to_time_path(resolved.root_meta, resolved.path_indices());
     if (time_path.empty()) {
         return nb::none();
     }
@@ -142,8 +142,7 @@ nb::object op_to_python_tsl(const ViewData& vd) {
     const size_t n = op_list_size(vd);
     nb::list out;
     for (size_t i = 0; i < n; ++i) {
-        ViewData child = vd;
-        child.path.indices.push_back(i);
+        ViewData child = make_child_view_data(vd, i);
         nb::object child_py = op_valid(child) ? op_to_python_uncached_impl(child) : nb::none();
         if (!child_py.is_none()) {
             try {
@@ -163,15 +162,14 @@ nb::object op_to_python_tsl(const ViewData& vd) {
 }
 
 nb::object op_to_python_tsb(const ViewData& vd) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     nb::dict out;
     if (current == nullptr || current->fields() == nullptr) {
         return out;
     }
 
     for_each_named_bundle_field(current, [&](size_t i, const char* field_name) {
-        ViewData child = vd;
-        child.path.indices.push_back(i);
+        ViewData child = make_child_view_data(vd, i);
         if (!op_valid(child)) {
             return;
         }
@@ -250,9 +248,8 @@ nb::object op_to_python_tsd(const ViewData& vd) {
     View v = op_value(vd);
     if (v.valid() && v.is_map()) {
         for_each_map_key_slot(v.as_map(), [&](View key, size_t slot) {
-            ViewData child = vd;
-            child.path.indices.push_back(slot);
-            const TSMeta* child_meta = meta_at_path(child.meta, child.path.indices);
+            ViewData child = make_child_view_data(vd, slot);
+            const TSMeta* child_meta = child.meta;
             if (child_meta == nullptr) {
                 if (!op_valid(child)) {
                     return;
@@ -311,7 +308,7 @@ nb::object op_to_python(const ViewData& vd) {
     // intentionally uncached because wrapper semantics can differ from source.
     nb::object* cache_slot = nullptr;
     if (dispatch_view.uses_link_target) {
-        const TSMeta* self_meta = meta_at_path(dispatch_view.meta, dispatch_view.path.indices);
+        const TSMeta* self_meta = dispatch_view.meta;
         if (allow_link_target_cache_for_meta(self_meta)) {
             ViewData cache_view{};
             if (resolve_read_view_data(dispatch_view, self_meta, cache_view)) {

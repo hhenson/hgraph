@@ -8,7 +8,7 @@ bool resolve_tsw_read(const ViewData& vd, ViewData& resolved, const TSMeta*& cur
     if (!resolve_read_view_data(vd, resolved)) {
         return false;
     }
-    current = meta_at_path(resolved.meta, resolved.path.indices);
+    current = resolved.meta;
     return dispatch_meta_is_tsw(current);
 }
 
@@ -18,7 +18,7 @@ std::optional<View> resolve_tsw_time_tuple(const ViewData& resolved) {
         return std::nullopt;
     }
 
-    auto time_path = ts_path_to_time_path(resolved.meta, resolved.path.indices);
+    auto time_path = ts_path_to_time_path(resolved.root_meta, resolved.path_indices());
     if (time_path.empty()) {
         return std::nullopt;
     }
@@ -305,7 +305,7 @@ size_t op_window_removed_value_count_duration(const ViewData& vd) {
 }
 
 size_t op_window_size_tick(const ViewData& vd) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (!dispatch_meta_is_tsw(current) || current == nullptr) {
         return 0;
     }
@@ -313,7 +313,7 @@ size_t op_window_size_tick(const ViewData& vd) {
 }
 
 size_t op_window_size_duration(const ViewData& vd) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (!dispatch_meta_is_tsw(current) || current == nullptr) {
         return 0;
     }
@@ -321,7 +321,7 @@ size_t op_window_size_duration(const ViewData& vd) {
 }
 
 size_t op_window_min_size_tick(const ViewData& vd) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (!dispatch_meta_is_tsw(current) || current == nullptr) {
         return 0;
     }
@@ -329,7 +329,7 @@ size_t op_window_min_size_tick(const ViewData& vd) {
 }
 
 size_t op_window_min_size_duration(const ViewData& vd) {
-    const TSMeta* current = meta_at_path(vd.meta, vd.path.indices);
+    const TSMeta* current = vd.meta;
     if (!dispatch_meta_is_tsw(current) || current == nullptr) {
         return 0;
     }
