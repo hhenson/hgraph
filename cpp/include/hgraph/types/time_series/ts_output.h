@@ -30,10 +30,12 @@ struct HGRAPH_EXPORT TSOutput : TSValue {
     /**
      * Construct an output endpoint.
      *
-     * Future constructors are expected to establish the runtime identity and
-     * storage owned by this output.
+     * Outputs are schema-bound. The supplied schema defines the published
+     * time-series value shape owned by this endpoint.
      */
-    TSOutput() = default;
+    explicit TSOutput(const TSMeta *schema) :
+        TSValue(schema)
+    {}
 
     [[nodiscard]] TSOutputView view();
 
