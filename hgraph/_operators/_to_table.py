@@ -5,6 +5,7 @@ from operator import le
 from typing import TypeVar, Callable, Any
 
 from hgraph._operators._operators import operator
+from hgraph._runtime._constants import utc_now
 from hgraph._runtime._global_state import GlobalState
 from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._types import TIME_SERIES_TYPE, CompoundScalar, TS, OUT, DEFAULT
@@ -51,7 +52,7 @@ def get_as_of(clock: EvaluationClock | None = None) -> datetime:
     if dt := GlobalState.instance().get(AS_OF_VALUE, None):
         return dt
     else:
-        return clock.now if clock else datetime.utcnow()
+        return clock.now if clock else utc_now()
 
 
 @dataclass(frozen=True)
