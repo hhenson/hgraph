@@ -16,21 +16,14 @@ namespace hgraph {
  */
 struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
     /**
-     * Construct an input view.
-     *
-     * Future constructors are expected to bind this view to a concrete input
-     * endpoint and navigation position.
-     */
-    TSInputView() = default;
-
-    /**
      * Construct an input view from the path-local active-state payload.
      *
      * The supplied active-state view is expected to represent the activation
      * flag for this exact input position. The supplied state pointer is a
      * non-owning reference to the time-series state node represented by this
-     * view. The supplied scheduling notifier is the registration identity to
-     * use when this view requests node scheduling from a bound output.
+     * view. The supplied scheduling notifier is the non-null registration
+     * identity to use when this view requests node scheduling from a bound
+     * output.
      *
      * From the input root down to the first target link, this is intended to
      * be the owning node itself. For views below a target link, this is
@@ -38,7 +31,7 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
      * each linked branch schedules independently.
      */
     explicit TSInputView(value::ValueView active_state, TimeSeriesStatePtr state,
-                         Notifiable *scheduling_notifier) noexcept;
+                         Notifiable &scheduling_notifier) noexcept;
 
     virtual ~TSInputView() = default;
 
@@ -67,6 +60,9 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
     [[nodiscard]] virtual bool active() const noexcept;
 
 protected:
+    void subscribe_scheduling_notifier() noexcept;
+    void unsubscribe_scheduling_notifier() noexcept;
+
     value::ValueView   m_active_state;
     /**
      * Non-owning reference to the represented time-series state node.
@@ -76,7 +72,7 @@ protected:
      * Non-owning notifier used only for scheduling the owning node when this
      * input view becomes active against a bound output.
      */
-    Notifiable *       m_scheduling_notifier{nullptr};
+    Notifiable &       m_scheduling_notifier;
 };
 
 /**
@@ -88,7 +84,7 @@ protected:
  */
 struct HGRAPH_EXPORT TSInputCollectionView : TSInputView {
     explicit TSInputCollectionView(value::ValueView active_state, TimeSeriesStatePtr state,
-                                   Notifiable *scheduling_notifier) noexcept;
+                                   Notifiable &scheduling_notifier) noexcept;
 
     void make_active() noexcept override;
     void make_passive() noexcept override;
