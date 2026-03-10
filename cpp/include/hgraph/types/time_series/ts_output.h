@@ -37,6 +37,7 @@ struct HGRAPH_EXPORT TSOutput : TSValue {
 
     [[nodiscard]] TSOutputView view();
 
+protected:
     /**
      * Return the registered alternative representations for this output.
      */

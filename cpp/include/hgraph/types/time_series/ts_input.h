@@ -49,6 +49,7 @@ struct HGRAPH_EXPORT TSInput : TSValue {
      */
     TSInput() = default;
 
+protected:
     /**
      * Return the hierarchical active-state payload as a read-only value view.
      *
