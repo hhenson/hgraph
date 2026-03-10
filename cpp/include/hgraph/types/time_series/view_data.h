@@ -160,6 +160,32 @@ struct PathNode {
         return n;
     }
 
+    /// Compare two path chains for index equality without allocating vectors.
+    [[nodiscard]] static bool paths_equal(const PathNode* a, const PathNode* b) noexcept {
+        if (a == b) return true;
+        if (a == nullptr || b == nullptr) return a == b;
+        if (a->depth() != b->depth()) return false;
+        // Walk both chains in parallel from leaf to root.
+        while (a && b) {
+            if (a->index != b->index) return false;
+            a = a->parent;
+            b = b->parent;
+        }
+        return true;
+    }
+
+    /// Get the index at a given depth (0-based from root) without allocating.
+    /// Requires depth < this->depth().
+    [[nodiscard]] size_t index_at(size_t target_depth) const noexcept {
+        const uint16_t d = depth();
+        // Walk from leaf toward root, stopping at the right level.
+        const PathNode* n = this;
+        for (size_t i = d; i > target_depth + 1 && n; --i) {
+            n = n->parent;
+        }
+        return n ? n->index : 0;
+    }
+
     [[nodiscard]] node_ptr owner_node() const noexcept { return root()->root_data.node; }
     [[nodiscard]] PortType port_type() const noexcept { return root()->root_data.port_type; }
 
@@ -284,6 +310,25 @@ struct ViewData {
     [[nodiscard]] size_t last_index() const noexcept { return path ? path->index : 0; }
     [[nodiscard]] node_ptr owner_node() const noexcept { return path ? path->owner_node() : nullptr; }
     [[nodiscard]] PortType port_type() const noexcept { return path ? path->port_type() : PortType::OUTPUT; }
+
+    /// Get path index at a given depth without allocating a vector.
+    [[nodiscard]] size_t path_index_at(size_t depth) const noexcept {
+        return path ? path->index_at(depth) : 0;
+    }
+
+    /// Compare paths of two ViewData without allocating vectors.
+    [[nodiscard]] bool paths_equal_to(const ViewData& other) const noexcept {
+        return PathNode::paths_equal(path.get(), other.path.get());
+    }
+
+    /// Identity check: do two ViewData refer to the same backing storage and path?
+    /// Sufficient for determining if two views are the same instance,
+    /// since all storage pointers originate from the same TSValue.
+    [[nodiscard]] bool same_identity(const ViewData& other) const noexcept {
+        return value_data == other.value_data &&
+               projection == other.projection &&
+               paths_equal_to(other);
+    }
 };
 
 /**

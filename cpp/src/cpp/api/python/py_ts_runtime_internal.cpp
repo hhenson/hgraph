@@ -696,18 +696,7 @@ std::optional<value::Value> value_from_python(const value::TypeMeta* schema, con
 }
 
 bool view_data_identity_equals(const ViewData& lhs, const ViewData& rhs) {
-    //TODO: Here is another example of being overly dillegent, it is not likely
-    //      that we get a partial match since each of these items are created for
-    //      the instance and they are pointer (data, etc.) so just one or two checks would be
-    //      sufficient
-    return lhs.value_data == rhs.value_data &&
-           lhs.time_data == rhs.time_data &&
-           lhs.observer_data == rhs.observer_data &&
-           lhs.delta_data == rhs.delta_data &&
-           lhs.link_data == rhs.link_data &&
-           lhs.projection == rhs.projection &&
-           lhs.ops == rhs.ops &&
-           lhs.meta == rhs.meta;
+    return lhs.same_identity(rhs);
 }
 
 struct TSDRefOutputState {

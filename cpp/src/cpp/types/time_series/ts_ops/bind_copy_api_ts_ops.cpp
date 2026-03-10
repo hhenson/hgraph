@@ -422,10 +422,11 @@ const ts_ops* get_ts_ops(const TSMeta* meta) {
 const ts_ops* get_ts_ops(const ViewData& view) {
     const TSMeta* meta = view.meta;
     // Detect unresolved meta — should have been resolved at construction
-    if (meta != nullptr && !view.path_indices().empty()) {
+    if (meta != nullptr && view.path_depth() > 0) {
+        const auto indices = view.path_indices();
         const TSMeta* expected = meta_at_path(
             view.root_meta != nullptr ? view.root_meta : meta,
-            view.path_indices());
+            indices);
         if (expected != meta) {
             std::fprintf(stderr,
                 "[get_ts_ops] UNRESOLVED meta: path=%s meta_kind=%d expected_kind=%d root_meta=%p\n",

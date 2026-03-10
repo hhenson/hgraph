@@ -3,26 +3,11 @@
 namespace hgraph {
 
 bool same_view_identity(const ViewData& lhs, const ViewData& rhs) {
-    return lhs.value_data == rhs.value_data &&
-           lhs.time_data == rhs.time_data &&
-           lhs.observer_data == rhs.observer_data &&
-           lhs.delta_data == rhs.delta_data &&
-           lhs.link_data == rhs.link_data &&
-           lhs.link_observer_registry == rhs.link_observer_registry &&
-           lhs.projection == rhs.projection &&
-           lhs.path_indices() == rhs.path_indices() &&
-           lhs.meta == rhs.meta;
+    return lhs.same_identity(rhs);
 }
 
 bool is_same_view_data(const ViewData& lhs, const ViewData& rhs) {
-    return lhs.value_data == rhs.value_data &&
-           lhs.time_data == rhs.time_data &&
-           lhs.observer_data == rhs.observer_data &&
-           lhs.delta_data == rhs.delta_data &&
-           lhs.link_data == rhs.link_data &&
-           lhs.python_value_cache_data == rhs.python_value_cache_data &&
-           lhs.projection == rhs.projection &&
-           lhs.path_indices() == rhs.path_indices();
+    return lhs.same_identity(rhs);
 }
 
 // Navigate the level pointer from root to match the ViewData's path depth.
@@ -509,8 +494,10 @@ void invalidate_python_value_cache(ViewData& vd) {
     root->delta_root_value()->clear();
 
     PythonValueCacheNode* node = root;
-    for (size_t depth = 0; depth < vd.path_depth(); ++depth) {
-        const size_t index = vd.path_indices()[depth];
+    const auto indices = vd.path_indices();
+    const size_t total_depth = indices.size();
+    for (size_t depth = 0; depth < total_depth; ++depth) {
+        const size_t index = indices[depth];
         nb::object* slot = node->slot_value(index, false);
         if (slot == nullptr) {
             vd.python_value_cache_slot = nullptr;
@@ -521,7 +508,7 @@ void invalidate_python_value_cache(ViewData& vd) {
             delta_slot->clear();
         }
 
-        if (depth + 1 == vd.path_depth()) {
+        if (depth + 1 == total_depth) {
             if (PythonValueCacheNode* child = node->child_node(index, false); child != nullptr) {
                 child->clear_subtree();
             }
@@ -564,15 +551,17 @@ void invalidate_python_delta_cache(ViewData& vd) {
     root->delta_root_value()->clear();
 
     PythonValueCacheNode* node = root;
-    for (size_t depth = 0; depth < vd.path_depth(); ++depth) {
-        const size_t index = vd.path_indices()[depth];
+    const auto indices = vd.path_indices();
+    const size_t total_depth = indices.size();
+    for (size_t depth = 0; depth < total_depth; ++depth) {
+        const size_t index = indices[depth];
         PythonDeltaCacheEntry* delta_slot = node->delta_slot_value(index, false);
         if (delta_slot == nullptr) {
             return;
         }
         delta_slot->clear();
 
-        if (depth + 1 == vd.path_depth()) {
+        if (depth + 1 == total_depth) {
             if (PythonValueCacheNode* child = node->child_node(index, false); child != nullptr) {
                 child->clear_delta_subtree();
             }
