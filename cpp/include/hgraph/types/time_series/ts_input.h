@@ -44,10 +44,13 @@ struct HGRAPH_EXPORT TSInput : TSValue {
     /**
      * Construct an input endpoint.
      *
-     * Future constructors are expected to establish the runtime identity and
-     * storage owned by this input.
+     * Inputs are schema-bound. The supplied schema defines both the published
+     * time-series value shape and the parallel activation-control shape held
+     * by this endpoint.
      */
-    TSInput() = default;
+    explicit TSInput(const TSMeta *schema) :
+        TSValue(schema), m_active_state(active_schema_from(schema))
+    {}
 
 protected:
     /**

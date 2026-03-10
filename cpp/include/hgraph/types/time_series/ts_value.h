@@ -40,10 +40,13 @@ struct HGRAPH_EXPORT TSValue {
     /**
      * Construct time-series value storage.
      *
-     * Future constructors are expected to establish the time-series schema and
-     * initialize the stored payload and root state tree.
+     * Time-series value storage is schema-bound. The supplied time-series
+     * schema defines the logical shape of the endpoint value and the value
+     * schema used by the stored payload.
      */
-    TSValue() = default;
+    explicit TSValue(const TSMeta *schema) noexcept :
+        m_value(schema != nullptr ? schema->value_type : nullptr), m_schema(schema)
+    {}
 
 protected:
     /**
