@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/ts_value.h>
 
 namespace hgraph {
 
@@ -22,7 +23,7 @@ namespace hgraph {
  * truth for peered leaf values, while the input tracks binding and activation
  * state for its local view of that structure.
  */
-struct HGRAPH_EXPORT TSInput {
+struct HGRAPH_EXPORT TSInput : TSValue {
     /**
      * Construct an input endpoint.
      *
@@ -30,6 +31,22 @@ struct HGRAPH_EXPORT TSInput {
      * storage owned by this input.
      */
     TSInput() = default;
+
+    /**
+     * Return the hierarchical active-state payload as a read-only value view.
+     */
+    [[nodiscard]] value::View active_state() const { return m_active_state.view(); }
+
+    /**
+     * Return the hierarchical active-state payload as a mutable value view.
+     */
+    [[nodiscard]] value::ValueView active_state_mut() { return m_active_state.view(); }
+
+private:
+    /**
+     * Hierarchical active-state payload for the input tree.
+     */
+    value::Value m_active_state;
 };
 
 }  // namespace hgraph

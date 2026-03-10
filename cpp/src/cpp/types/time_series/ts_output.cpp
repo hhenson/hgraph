@@ -8,13 +8,4 @@ namespace hgraph
         return TSOutputView{};
     }
 
-    TimeSeriesStatePtr TSOutput::state_ptr() noexcept
-    {
-        return std::visit(
-            [](auto &state_value) -> TimeSeriesStatePtr {
-                return TimeSeriesStatePtr{&state_value};
-            },
-            state);
-    }
-
 }  // namespace hgraph
