@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/notifiable.h>
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/value/value_view.h>
 
@@ -28,9 +29,16 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
      * The supplied active-state view is expected to represent the activation
      * flag for this exact input position. The supplied state pointer is a
      * non-owning reference to the time-series state node represented by this
-     * view.
+     * view. The supplied scheduling notifier is the registration identity to
+     * use when this view requests node scheduling from a bound output.
+     *
+     * From the input root down to the first target link, this is intended to
+     * be the owning node itself. For views below a target link, this is
+     * intended to switch to the target link state's `scheduling_notifier` so
+     * each linked branch schedules independently.
      */
-    explicit TSInputView(value::ValueView active_state, TimeSeriesStatePtr state) noexcept;
+    explicit TSInputView(value::ValueView active_state, TimeSeriesStatePtr state,
+                         Notifiable *scheduling_notifier) noexcept;
 
     virtual ~TSInputView() = default;
 
@@ -64,6 +72,11 @@ protected:
      * Non-owning reference to the represented time-series state node.
      */
     TimeSeriesStatePtr m_state;
+    /**
+     * Non-owning notifier used only for scheduling the owning node when this
+     * input view becomes active against a bound output.
+     */
+    Notifiable *       m_scheduling_notifier{nullptr};
 };
 
 /**
@@ -74,11 +87,13 @@ protected:
  * flag in the remaining collection-specific slots.
  */
 struct HGRAPH_EXPORT TSInputCollectionView : TSInputView {
-    using TSInputView::TSInputView;
+    explicit TSInputCollectionView(value::ValueView active_state, TimeSeriesStatePtr state,
+                                   Notifiable *scheduling_notifier) noexcept;
 
     void make_active() noexcept override;
     void make_passive() noexcept override;
     [[nodiscard]] bool active() const noexcept override;
+
 };
 
 }  // namespace hgraph

@@ -69,6 +69,10 @@ namespace hgraph
         if (self != nullptr) { self->mark_modified(modified_time); }
     }
 
+    void TargetLinkState::SchedulingNotifier::notify(engine_time_t modified_time) {
+        if (target != nullptr) { target->notify(modified_time); }
+    }
+
     TargetLinkState::TargetLinkState() noexcept : target_notifiable(this) {}
 
     void TargetLinkState::set_target(TimeSeriesLeafStatePtr target_state) noexcept {

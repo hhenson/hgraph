@@ -180,6 +180,14 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT TargetLinkState : BaseState
     {
+        /**
+         * Notification path used by the target link state itself.
+         *
+         * This notifier is registered against the bound output-side state so
+         * changes flowing through the target link mark this state modified and
+         * continue propagation through the non-peered collections above it via
+         * `child_modified()`.
+         */
         struct TargetLinkStateNotifiable : Notifiable
         {
             explicit TargetLinkStateNotifiable(TargetLinkState *self) noexcept;
@@ -187,6 +195,27 @@ namespace hgraph
             void notify(engine_time_t modified_time) override;
 
             TargetLinkState *self;
+        };
+
+        /**
+         * Notification path used only for scheduling the owning node.
+         *
+         * This notifier does not mark the target link state modified. It is
+         * intended to forward scheduling notifications to the node-side
+         * notifier associated to the input branch that crosses this target
+         * link.
+         */
+        struct SchedulingNotifier : Notifiable
+        {
+            SchedulingNotifier() = default;
+
+            void set_target(Notifiable *target_) noexcept { target = target_; }
+            [[nodiscard]] Notifiable *get_target() const noexcept { return target; }
+
+            void notify(engine_time_t modified_time) override;
+
+          private:
+            Notifiable *target{nullptr};
         };
 
         TargetLinkState() noexcept;
@@ -203,8 +232,17 @@ namespace hgraph
          */
         void reset_target() noexcept;
 
-        TimeSeriesLeafStatePtr    target;
+        TimeSeriesLeafStatePtr target;
+        /**
+         * Notification identity used to keep the target link state and the
+         * non-peered collections above it up to date.
+         */
         TargetLinkStateNotifiable target_notifiable;
+        /**
+         * Notification identity used only to schedule the owning node for
+         * input branches below this target link.
+         */
+        SchedulingNotifier       scheduling_notifier;
 
         [[nodiscard]] bool is_bound() const noexcept;
 
