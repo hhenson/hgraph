@@ -11,8 +11,20 @@ namespace hgraph {
  * Owning output-side time-series endpoint.
  *
  * `TSOutput` is intended to represent the producer-facing endpoint on a node.
- * It will own the value published by that output together with any output-local
- * runtime state.
+ * It is the authoritative owner of the output-side `TSValue` payload and the
+ * source of truth for leaf values published by that output, together with any
+ * output-local runtime state exposed through the Python time-series output
+ * API.
+ *
+ * `TSOutput` is intended to own the bulk of the time-series data. Leaf values
+ * are stored here, and reference-oriented representations of the same logical
+ * output are also owned here so they can be surfaced through the public API
+ * without changing the underlying endpoint identity.
+ *
+ * Collection outputs are intended to hold their native structure directly. Any
+ * peered input observing that structure is expected to do so through
+ * `TargetLinkState`, rather than by taking ownership of duplicated output leaf
+ * storage.
  */
 struct HGRAPH_EXPORT TSOutput {
     /**
