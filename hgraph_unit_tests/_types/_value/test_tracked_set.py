@@ -4,7 +4,7 @@ import pytest
 
 import pytest
 from hgraph._feature_switch import is_feature_enabled
-if is_feature_enabled("use_cpp"):
+if not is_feature_enabled("use_cpp"):
     pytest.skip("requires C++ engine", allow_module_level=True)
 
 
