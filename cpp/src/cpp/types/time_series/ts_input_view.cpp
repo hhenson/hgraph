@@ -4,7 +4,9 @@
 
 namespace hgraph
 {
-    TSInputView::TSInputView(value::ValueView active_state) noexcept : m_active_state(active_state) {}
+    TSInputView::TSInputView(value::ValueView active_state, TimeSeriesStatePtr state) noexcept :
+        m_active_state(active_state), m_state(state)
+    {}
 
     void TSInputView::make_active() noexcept
     {
