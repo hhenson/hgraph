@@ -6,12 +6,12 @@
 namespace hgraph {
 
 /**
- * Non-owning view over an output endpoint.
+ * Output-specialized instantiation of the generic time-series view surface.
  *
  * `TSOutputView` is intended to expose output-facing operations without
  * transferring ownership of the underlying `TSOutput` state.
  */
-struct HGRAPH_EXPORT TSOutputView {
+struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
     /**
      * Construct an output view.
      *
@@ -19,24 +19,6 @@ struct HGRAPH_EXPORT TSOutputView {
      * endpoint and navigation position.
      */
     TSOutputView() = default;
-
-    /**
-     * Construct an output view from the generic time-series view state.
-     */
-    explicit TSOutputView(TSView *view) noexcept;
-
-    /**
-     * Return the underlying generic time-series view.
-     */
-    [[nodiscard]] TSView *ts_view() noexcept { return m_view; }
-
-    /**
-     * Return the underlying generic time-series view.
-     */
-    [[nodiscard]] const TSView *ts_view() const noexcept { return m_view; }
-
-private:
-    TSView *m_view{nullptr};
 };
 
 }  // namespace hgraph

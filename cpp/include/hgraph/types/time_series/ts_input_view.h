@@ -6,13 +6,13 @@
 namespace hgraph {
 
 /**
- * Non-owning input-specialized wrapper around `TSView`.
+ * Input-specialized instantiation of the generic time-series view surface.
  *
  * `TSInputView` is intended to expose input-only behavior, especially binding
- * and activation control, while reusing the generic navigation surface of
- * `TSView`.
+ * and activation control, while reusing the shared time-series navigation
+ * contract.
  */
-struct HGRAPH_EXPORT TSInputView {
+struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
     /**
      * Construct an input view.
      *
@@ -46,7 +46,6 @@ struct HGRAPH_EXPORT TSInputView {
     [[nodiscard]] bool active() const noexcept;
 
 private:
-    TSView *m_view{nullptr};
     bool m_active{false};
 };
 

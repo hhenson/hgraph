@@ -3,9 +3,6 @@
 
 namespace hgraph
 {
-
-    TSOutputView::TSOutputView(TSView *view) noexcept : m_view(view) {}
-
     TSOutputView TSOutput::view()
     {
         return TSOutputView{};
