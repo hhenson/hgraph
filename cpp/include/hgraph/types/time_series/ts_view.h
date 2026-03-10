@@ -4,25 +4,40 @@
 #include <hgraph/types/time_series/time_series_state.h>
 #include <hgraph/types/value/value_view.h>
 
-#include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 namespace hgraph {
 
 struct TSInput;
 struct TSOutput;
+
+template <typename TView>
 struct TSView;
+
+template <typename TView>
+struct BaseCollectionView;
+
+template <typename TView>
 struct TSBView;
+
+template <typename TView>
 struct TSDView;
+
+template <typename TView>
 struct TSLView;
+
+template <typename TView>
 struct TSSView;
+
+template <typename TView>
 struct TSWView;
+
+template <typename TView>
 struct SignalView;
 
 /**
- * Identifies the endpoint object that owns or produced a `TSView`.
+ * Identifies the endpoint object that owns or produced a time-series view.
  *
  * A time-series view is intended to be rooted at either an input endpoint or
  * an output endpoint.
@@ -36,7 +51,7 @@ using ParentValue = std::variant<TSInput *, TSOutput *>;
  * container of results.
  */
 template <typename T>
-struct HGRAPH_EXPORT Range
+struct Range
 {
     struct iterator
     {
@@ -56,7 +71,7 @@ struct HGRAPH_EXPORT Range
  * with a value, such as `items()` on collection views.
  */
 template <typename K, typename V>
-struct HGRAPH_EXPORT KeyValueRange
+struct KeyValueRange
 {
     struct iterator
     {
@@ -72,126 +87,120 @@ struct HGRAPH_EXPORT KeyValueRange
 /**
  * Lightweight type-erased view over a logical time-series position.
  *
- * `TSView` defines the common inspection surface shared by scalar,
- * collection, and signal time-series values. Reference time-series are
- * intended to be exposed through this same interface because `REF[...]` is
- * logically equivalent to `TS[TimeSeriesReference]`, rather than through a
- * dedicated reference-view type. Concrete derived view types will refine this
- * wrapper with kind-specific operations.
+ * This is the common view surface shared by input and output endpoint views.
+ * `REF[...]` is intended to be treated as `TS[TimeSeriesReference]`, so
+ * reference semantics remain on this generic time-series view contract rather
+ * than on a dedicated reference view type.
  */
-struct HGRAPH_EXPORT TSView
+template <typename TView>
+struct TSView
 {
-    /**
-     * Destroy the view interface.
-     */
-    virtual ~TSView() = default;
-
     /**
      * Return the engine time at which this view is being evaluated.
      */
-    [[nodiscard]] virtual engine_time_t evaluation_time() const noexcept;
+    [[nodiscard]] engine_time_t evaluation_time() const noexcept;
 
     /**
      * Return the current point-in-time value for this view.
      */
-    [[nodiscard]] virtual value::View value() const noexcept;
+    [[nodiscard]] value::View value() const noexcept;
 
     /**
      * Return the current delta value for this view.
      */
-    [[nodiscard]] virtual value::View delta_value() const noexcept;
+    [[nodiscard]] value::View delta_value() const noexcept;
 
     /**
      * Return whether this view was modified in the current engine cycle.
      */
-    [[nodiscard]] virtual bool modified() const noexcept;
+    [[nodiscard]] bool modified() const noexcept;
 
     /**
      * Return whether this view currently holds a valid value.
      */
-    [[nodiscard]] virtual bool valid() const noexcept;
+    [[nodiscard]] bool valid() const noexcept;
 
     /**
      * Return whether this view and all required descendants are valid.
      */
-    [[nodiscard]] virtual bool all_valid() const noexcept;
+    [[nodiscard]] bool all_valid() const noexcept;
 
     /**
      * Return the last modification time associated to this view.
      */
-    [[nodiscard]] virtual engine_time_t last_modified_time() const noexcept;
+    [[nodiscard]] engine_time_t last_modified_time() const noexcept;
 
     /**
      * Interpret this view as a bundle view when the runtime kind matches.
      */
-    [[nodiscard]] virtual TSBView as_bundle() noexcept;
+    [[nodiscard]] TSBView<TView> as_bundle() noexcept;
 
     /**
      * Interpret this view as a bundle view when the runtime kind matches.
      */
-    [[nodiscard]] virtual TSBView as_bundle() const noexcept;
+    [[nodiscard]] TSBView<TView> as_bundle() const noexcept;
 
     /**
      * Interpret this view as a list view when the runtime kind matches.
      */
-    [[nodiscard]] virtual TSLView as_list() noexcept;
+    [[nodiscard]] TSLView<TView> as_list() noexcept;
 
     /**
      * Interpret this view as a list view when the runtime kind matches.
      */
-    [[nodiscard]] virtual TSLView as_list() const noexcept;
+    [[nodiscard]] TSLView<TView> as_list() const noexcept;
 
     /**
      * Interpret this view as a dictionary view when the runtime kind matches.
      */
-    [[nodiscard]] virtual TSDView as_dict() noexcept;
+    [[nodiscard]] TSDView<TView> as_dict() noexcept;
 
     /**
      * Interpret this view as a dictionary view when the runtime kind matches.
      */
-    [[nodiscard]] virtual TSDView as_dict() const noexcept;
+    [[nodiscard]] TSDView<TView> as_dict() const noexcept;
 
     /**
      * Interpret this view as a set view when the runtime kind matches.
      */
-    [[nodiscard]] virtual TSSView as_set() noexcept;
+    [[nodiscard]] TSSView<TView> as_set() noexcept;
 
     /**
      * Interpret this view as a set view when the runtime kind matches.
      */
-    [[nodiscard]] virtual TSSView as_set() const noexcept;
+    [[nodiscard]] TSSView<TView> as_set() const noexcept;
 
     /**
      * Interpret this view as a window view when the runtime kind matches.
      */
-    [[nodiscard]] virtual TSWView as_window() noexcept;
+    [[nodiscard]] TSWView<TView> as_window() noexcept;
 
     /**
      * Interpret this view as a window view when the runtime kind matches.
      */
-    [[nodiscard]] virtual TSWView as_window() const noexcept;
+    [[nodiscard]] TSWView<TView> as_window() const noexcept;
 
     /**
      * Interpret this view as a signal view when the runtime kind matches.
      */
-    [[nodiscard]] virtual SignalView as_signal() noexcept;
+    [[nodiscard]] SignalView<TView> as_signal() noexcept;
 
     /**
      * Interpret this view as a signal view when the runtime kind matches.
      */
-    [[nodiscard]] virtual SignalView as_signal() const noexcept;
+    [[nodiscard]] SignalView<TView> as_signal() const noexcept;
 
 protected:
     /**
      * Return the endpoint that owns the root of this view.
      */
-    [[nodiscard]] virtual ParentValue parent() const noexcept;
+    [[nodiscard]] ParentValue parent() const noexcept;
 
     /**
      * Return the state node associated to the represented time-series
      * position.
      */
-    [[nodiscard]] virtual TimeSeriesStatePtr state() const noexcept;
+    [[nodiscard]] TimeSeriesStatePtr state() const noexcept;
 };
 
 /**
@@ -200,298 +209,270 @@ protected:
  * Collection views extend `TSView` with navigation over child positions and
  * collection-level size queries.
  */
-struct HGRAPH_EXPORT BaseCollectionView : TSView
+template <typename TView>
+struct BaseCollectionView : TSView<TView>
 {
-    /**
-     * Destroy the collection view interface.
-     */
-    ~BaseCollectionView() override = default;
-
     /**
      * Return the number of logical child positions in this collection.
      */
-    [[nodiscard]] virtual size_t size() const noexcept;
+    [[nodiscard]] size_t size() const noexcept;
 
     /**
      * Return the child view at the supplied collection index.
      */
-    [[nodiscard]] virtual TSView at(size_t index) const noexcept;
+    [[nodiscard]] TView at(size_t index) const noexcept;
 
     /**
      * Return the child view at the supplied collection index.
      */
-    [[nodiscard]] virtual TSView operator[](size_t index) const noexcept;
+    [[nodiscard]] TView operator[](size_t index) const noexcept;
 };
 
 /**
  * View over a time-series list position.
  */
-struct HGRAPH_EXPORT TSLView : BaseCollectionView
+template <typename TView>
+struct TSLView : BaseCollectionView<TView>
 {
-    /**
-     * Destroy the list view interface.
-     */
-    ~TSLView() override = default;
-
     /**
      * Return all child views in index order.
      */
-    [[nodiscard]] virtual Range<TSView> values() const noexcept;
+    [[nodiscard]] Range<TView> values() const noexcept;
 
     /**
      * Return the child views that are currently valid.
      */
-    [[nodiscard]] virtual Range<TSView> valid_values() const noexcept;
+    [[nodiscard]] Range<TView> valid_values() const noexcept;
 
     /**
      * Return the child views modified in the current engine cycle.
      */
-    [[nodiscard]] virtual Range<TSView> modified_values() const noexcept;
+    [[nodiscard]] Range<TView> modified_values() const noexcept;
 
     /**
      * Return all indexed items in this list.
      */
-    [[nodiscard]] virtual KeyValueRange<size_t, TSView> items() const noexcept;
+    [[nodiscard]] KeyValueRange<size_t, TView> items() const noexcept;
 
     /**
      * Return all valid indexed items in this list.
      */
-    [[nodiscard]] virtual KeyValueRange<size_t, TSView> valid_items() const noexcept;
+    [[nodiscard]] KeyValueRange<size_t, TView> valid_items() const noexcept;
 
     /**
      * Return all modified indexed items in this list.
      */
-    [[nodiscard]] virtual KeyValueRange<size_t, TSView> modified_items() const noexcept;
+    [[nodiscard]] KeyValueRange<size_t, TView> modified_items() const noexcept;
 };
 
 /**
  * View over a time-series bundle position.
  */
-struct HGRAPH_EXPORT TSBView : BaseCollectionView
+template <typename TView>
+struct TSBView : BaseCollectionView<TView>
 {
-    /**
-     * Destroy the bundle view interface.
-     */
-    ~TSBView() override = default;
-
     /**
      * Return the child view for the supplied field name.
      */
-    [[nodiscard]] virtual TSView field(std::string_view name) const noexcept;
+    [[nodiscard]] TView field(std::string_view name) const noexcept;
 
     /**
      * Return the bundle field names in schema order.
      */
-    [[nodiscard]] virtual Range<std::string_view> keys() const noexcept;
+    [[nodiscard]] Range<std::string_view> keys() const noexcept;
 
     /**
      * Return the child views in schema order.
      */
-    [[nodiscard]] virtual Range<TSView> values() const noexcept;
+    [[nodiscard]] Range<TView> values() const noexcept;
 
     /**
      * Return the bundle items in schema order.
      */
-    [[nodiscard]] virtual KeyValueRange<std::string_view, TSView> items() const noexcept;
+    [[nodiscard]] KeyValueRange<std::string_view, TView> items() const noexcept;
 
     /**
      * Return the valid bundle items.
      */
-    [[nodiscard]] virtual KeyValueRange<std::string_view, TSView> valid_items() const noexcept;
+    [[nodiscard]] KeyValueRange<std::string_view, TView> valid_items() const noexcept;
 
     /**
      * Return the modified bundle items.
      */
-    [[nodiscard]] virtual KeyValueRange<std::string_view, TSView> modified_items() const noexcept;
+    [[nodiscard]] KeyValueRange<std::string_view, TView> modified_items() const noexcept;
 };
 
 /**
  * View over a time-series dictionary position.
  */
-struct HGRAPH_EXPORT TSDView : BaseCollectionView
+template <typename TView>
+struct TSDView : BaseCollectionView<TView>
 {
-    /**
-     * Destroy the dictionary view interface.
-     */
-    ~TSDView() override = default;
-
-    using BaseCollectionView::at;
-    using BaseCollectionView::operator[];
+    using BaseCollectionView<TView>::at;
+    using BaseCollectionView<TView>::operator[];
 
     /**
      * Return the child view for the supplied key.
      */
-    [[nodiscard]] virtual TSView at(const value::View &key) const noexcept;
+    [[nodiscard]] TView at(const value::View &key) const noexcept;
 
     /**
      * Return the child view for the supplied key.
      */
-    [[nodiscard]] virtual TSView operator[](const value::View &key) const noexcept;
+    [[nodiscard]] TView operator[](const value::View &key) const noexcept;
 
     /**
      * Return whether the supplied key is currently present.
      */
-    [[nodiscard]] virtual bool contains(const value::View &key) const noexcept;
+    [[nodiscard]] bool contains(const value::View &key) const noexcept;
 
     /**
      * Return the current key set as a set view.
      */
-    [[nodiscard]] virtual TSSView key_set() const noexcept;
+    [[nodiscard]] TSSView<TView> key_set() const noexcept;
 
     /**
      * Return the currently present keys.
      */
-    [[nodiscard]] virtual Range<value::View> keys() const noexcept;
+    [[nodiscard]] Range<value::View> keys() const noexcept;
 
     /**
      * Return the currently present child views.
      */
-    [[nodiscard]] virtual Range<TSView> values() const noexcept;
+    [[nodiscard]] Range<TView> values() const noexcept;
 
     /**
      * Return the currently present key/value pairs.
      */
-    [[nodiscard]] virtual KeyValueRange<value::View, TSView> items() const noexcept;
+    [[nodiscard]] KeyValueRange<value::View, TView> items() const noexcept;
 
     /**
      * Return the valid key/value pairs.
      */
-    [[nodiscard]] virtual KeyValueRange<value::View, TSView> valid_items() const noexcept;
+    [[nodiscard]] KeyValueRange<value::View, TView> valid_items() const noexcept;
 
     /**
      * Return the modified key/value pairs.
      */
-    [[nodiscard]] virtual KeyValueRange<value::View, TSView> modified_items() const noexcept;
+    [[nodiscard]] KeyValueRange<value::View, TView> modified_items() const noexcept;
 
     /**
      * Return the keys added in the current engine cycle.
      */
-    [[nodiscard]] virtual Range<value::View> added_keys() const noexcept;
+    [[nodiscard]] Range<value::View> added_keys() const noexcept;
 
     /**
      * Return the keys removed in the current engine cycle.
      */
-    [[nodiscard]] virtual Range<value::View> removed_keys() const noexcept;
+    [[nodiscard]] Range<value::View> removed_keys() const noexcept;
 
     /**
      * Return the items added in the current engine cycle.
      */
-    [[nodiscard]] virtual KeyValueRange<value::View, TSView> added_items() const noexcept;
+    [[nodiscard]] KeyValueRange<value::View, TView> added_items() const noexcept;
 
     /**
      * Return the existing items updated in the current engine cycle.
      */
-    [[nodiscard]] virtual KeyValueRange<value::View, TSView> updated_items() const noexcept;
+    [[nodiscard]] KeyValueRange<value::View, TView> updated_items() const noexcept;
 
     /**
      * Return the items removed in the current engine cycle.
      */
-    [[nodiscard]] virtual KeyValueRange<value::View, TSView> removed_items() const noexcept;
+    [[nodiscard]] KeyValueRange<value::View, TView> removed_items() const noexcept;
 };
 
 /**
  * View over a time-series set position.
  */
-struct HGRAPH_EXPORT TSSView : TSView
+template <typename TView>
+struct TSSView : TSView<TView>
 {
-    /**
-     * Destroy the set view interface.
-     */
-    ~TSSView() override = default;
-
     /**
      * Return the number of values currently present in the set.
      */
-    [[nodiscard]] virtual size_t size() const noexcept;
+    [[nodiscard]] size_t size() const noexcept;
 
     /**
      * Return whether the supplied element is currently present.
      */
-    [[nodiscard]] virtual bool contains(const value::View &element) const noexcept;
+    [[nodiscard]] bool contains(const value::View &element) const noexcept;
 
     /**
      * Return the current set values.
      */
-    [[nodiscard]] virtual Range<value::View> values() const noexcept;
+    [[nodiscard]] Range<value::View> values() const noexcept;
 
     /**
      * Return the values added in the current engine cycle.
      */
-    [[nodiscard]] virtual Range<value::View> added() const noexcept;
+    [[nodiscard]] Range<value::View> added() const noexcept;
 
     /**
      * Return whether the supplied element was added in the current engine
      * cycle.
      */
-    [[nodiscard]] virtual bool was_added(const value::View &element) const noexcept;
+    [[nodiscard]] bool was_added(const value::View &element) const noexcept;
 
     /**
      * Return the values removed in the current engine cycle.
      */
-    [[nodiscard]] virtual Range<value::View> removed() const noexcept;
+    [[nodiscard]] Range<value::View> removed() const noexcept;
 
     /**
      * Return whether the supplied element was removed in the current engine
      * cycle.
      */
-    [[nodiscard]] virtual bool was_removed(const value::View &element) const noexcept;
+    [[nodiscard]] bool was_removed(const value::View &element) const noexcept;
 
     /**
      * Return the nested time-series view that tracks empty-state semantics.
      */
-    [[nodiscard]] virtual TSView is_empty() const noexcept;
+    [[nodiscard]] TView is_empty() const noexcept;
 };
 
 /**
  * View over a time-series window position.
  */
-struct HGRAPH_EXPORT TSWView : TSView
+template <typename TView>
+struct TSWView : TSView<TView>
 {
-    /**
-     * Destroy the window view interface.
-     */
-    ~TSWView() override = default;
-
     /**
      * Return the current number of buffered values.
      */
-    [[nodiscard]] virtual size_t size() const noexcept;
+    [[nodiscard]] size_t size() const noexcept;
 
     /**
      * Return the minimum size or readiness threshold for the window.
      */
-    [[nodiscard]] virtual size_t min_size() const noexcept;
+    [[nodiscard]] size_t min_size() const noexcept;
 
     /**
      * Return the modification times associated with buffered values.
      */
-    [[nodiscard]] virtual Range<engine_time_t> value_times() const noexcept;
+    [[nodiscard]] Range<engine_time_t> value_times() const noexcept;
 
     /**
      * Return the modification time of the oldest buffered value.
      */
-    [[nodiscard]] virtual engine_time_t first_modified_time() const noexcept;
+    [[nodiscard]] engine_time_t first_modified_time() const noexcept;
 
     /**
      * Return whether an evicted value is available for this engine cycle.
      */
-    [[nodiscard]] virtual bool has_removed_value() const noexcept;
+    [[nodiscard]] bool has_removed_value() const noexcept;
 
     /**
      * Return the value evicted from the window in the current engine cycle.
      */
-    [[nodiscard]] virtual value::View removed_value() const noexcept;
+    [[nodiscard]] value::View removed_value() const noexcept;
 };
 
 /**
  * View over a signal time-series position.
  */
-struct HGRAPH_EXPORT SignalView : TSView
-{
-    /**
-     * Destroy the signal view interface.
-     */
-    ~SignalView() override = default;
-};
+template <typename TView>
+struct SignalView : TSView<TView>
+{};
 
 }  // namespace hgraph
