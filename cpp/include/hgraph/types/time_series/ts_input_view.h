@@ -26,9 +26,11 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
      * Construct an input view from the path-local active-state payload.
      *
      * The supplied active-state view is expected to represent the activation
-     * flag for this exact input position.
+     * flag for this exact input position. The supplied state pointer is a
+     * non-owning reference to the time-series state node represented by this
+     * view.
      */
-    explicit TSInputView(value::ValueView active_state) noexcept;
+    explicit TSInputView(value::ValueView active_state, TimeSeriesStatePtr state) noexcept;
 
     virtual ~TSInputView() = default;
 
@@ -57,7 +59,11 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
     [[nodiscard]] virtual bool active() const noexcept;
 
 protected:
-    value::ValueView m_active_state;
+    value::ValueView   m_active_state;
+    /**
+     * Non-owning reference to the represented time-series state node.
+     */
+    TimeSeriesStatePtr m_state;
 };
 
 /**
