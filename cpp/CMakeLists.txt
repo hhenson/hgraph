@@ -320,7 +320,6 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/time_series/time_series_value_state.h
         include/hgraph/types/time_series/value/atomic.h
         include/hgraph/types/time_series/value/state.h
-        include/hgraph/types/time_series/value/storage.h
         include/hgraph/types/time_series/value/value.h
         include/hgraph/types/time_series/value/view.h
         include/hgraph/types/time_series/ts_input.h
