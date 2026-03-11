@@ -104,6 +104,8 @@ target_compile_features(hgraph_visitor_tests PRIVATE cxx_std_23)
 
 add_executable(hgraph_time_series_value_tests
     test_time_series_atomic_value.cpp
+    test_time_series_list_value.cpp
+    ../src/cpp/types/time_series/value/list.cpp
     ../src/cpp/types/time_series/value/state.cpp
     ../src/cpp/types/time_series/value/value.cpp
     ../src/cpp/types/value/type_meta_bindings.cpp

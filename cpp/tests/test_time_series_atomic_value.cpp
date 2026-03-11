@@ -102,6 +102,23 @@ TEST_CASE("Builder lookup is singleton per atomic schema", "[time_series][value]
     CHECK(&first == &second);
 }
 
+TEST_CASE("Atomic builders cache lifecycle traits for the resolved state", "[time_series][value][atomic]")
+{
+    const auto &integer_builder = ValueBuilderFactory::checked_builder_for(value::scalar_type_meta<int32_t>());
+    const auto &string_builder  = ValueBuilderFactory::checked_builder_for(value::scalar_type_meta<std::string>());
+
+    // Under the current erased-state design, even trivially destructible atomic
+    // payloads sit inside a full state object with virtual dispatch.
+    CHECK(integer_builder.requires_destroy());
+    CHECK(string_builder.requires_destroy());
+
+    // The current `Value` handle model still stores all supported atomic
+    // states in separately allocated storage, even when the payload itself is
+    // inline within the atomic state.
+    CHECK(integer_builder.requires_deallocate());
+    CHECK(string_builder.requires_deallocate());
+}
+
 TEST_CASE("Atomic view type checks remain persistent", "[time_series][value][atomic]")
 {
     Value value = value_for(int32_t{5});

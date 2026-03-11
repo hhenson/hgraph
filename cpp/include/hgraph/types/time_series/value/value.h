@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/value/atomic.h>
+#include <hgraph/types/time_series/value/list.h>
 
 #include <functional>
 #include <type_traits>
@@ -9,7 +10,7 @@
 
 namespace hgraph {
 
-class ValueBuilder;
+struct ValueBuilder;
 
 /**
  * Owning schema-bound value shell.

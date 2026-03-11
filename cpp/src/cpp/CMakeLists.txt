@@ -107,6 +107,7 @@ set(HGRAPH_SOURCES
         types/tsw.cpp
         types/value/type_registry.cpp
         types/value/type_meta_bindings.cpp
+        types/time_series/value/list.cpp
         types/time_series/value/state.cpp
         types/time_series/value/value.cpp
         types/time_series/ts_input.cpp

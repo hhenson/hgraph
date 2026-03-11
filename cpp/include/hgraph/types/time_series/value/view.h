@@ -16,6 +16,8 @@ namespace hgraph
 {
 
     struct AtomicView;
+    struct ListStateBase;
+    struct ListView;
 
     namespace detail
     {
@@ -129,6 +131,9 @@ namespace hgraph
      */
     struct View
     {
+        friend struct ListStateBase;
+        friend struct ListView;
+
         /**
          * Construct an invalid view.
          *
@@ -182,6 +187,24 @@ namespace hgraph
          * `AtomicView` can rely on its cast safety thereafter.
          */
         [[nodiscard]] AtomicView as_atomic() const;
+
+        /**
+         * Interpret this view as a list view.
+         *
+         * This conversion requires the schema kind to be list. Type
+         * mismatches are enforced at runtime so a successfully created
+         * `ListView` can rely on its cast safety thereafter.
+         */
+        [[nodiscard]] ListView as_list();
+
+        /**
+         * Interpret this view as a list view.
+         *
+         * This conversion requires the schema kind to be list. Type
+         * mismatches are enforced at runtime so a successfully created
+         * `ListView` can rely on its cast safety thereafter.
+         */
+        [[nodiscard]] ListView as_list() const;
 
         /**
          * Return the hash of the currently represented value.

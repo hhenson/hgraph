@@ -116,8 +116,12 @@ void Value::allocate_and_construct()
 void Value::reset() noexcept
 {
     if (m_dispatch != nullptr) {
-        m_builder.get().destroy(m_dispatch);
-        m_builder.get().deallocate(m_dispatch);
+        if (m_builder.get().requires_destroy()) {
+            m_builder.get().destroy(m_dispatch);
+        }
+        if (m_builder.get().requires_deallocate()) {
+            m_builder.get().deallocate(m_dispatch);
+        }
         m_dispatch = nullptr;
     }
 }
