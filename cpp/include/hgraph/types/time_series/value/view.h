@@ -9,6 +9,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 namespace hgraph
 {
@@ -92,6 +94,16 @@ namespace hgraph
              * schema-selected dispatch implementation.
              */
             virtual void assign_from(const ViewDispatch &other) = 0;
+            /**
+             * Replace this stored value from a copied C++ object identified by
+             * the supplied source schema.
+             */
+            virtual void set_from_cpp(const void *src, const value::TypeMeta *src_schema) = 0;
+            /**
+             * Replace this stored value from a moved C++ object identified by
+             * the supplied source schema.
+             */
+            virtual void move_from_cpp(void *src, const value::TypeMeta *src_schema) = 0;
         };
 
     }  // namespace detail
@@ -220,6 +232,16 @@ namespace hgraph
             if (!valid()) { throw std::runtime_error("View::from_python() on invalid view"); }
             m_dispatch->from_python(src, schema());
         }
+
+        /**
+         * Replace the represented value from a C++ object using the schema-bound
+         * value-layer construction rules for this view.
+         *
+         * The generic entry point currently supports atomic schemas and is
+         * intended to grow to collection schemas as their native set/build
+         * surfaces are added.
+         */
+        template <typename T> void set(T &&value);
 
         /**
          * Compare this view with another erased view using partial ordering.

@@ -16,20 +16,6 @@
 namespace hgraph
 {
 
-    /**
-     * Erased storage slot used by the owning `Value`.
-     *
-     * The slot stores either an inline state object when the resolved state fits in
-     * pointer-sized storage, or a pointer to heap-allocated state otherwise.
-     */
-    union ValueStateUnion {
-        ValueStateUnion() noexcept : pointer(nullptr) {}
-        ~ValueStateUnion() = default;
-
-        alignas(void *) std::byte inline_state[sizeof(void *)];
-        void *pointer;
-    };
-
     template <typename T> struct AtomicState;
     struct AtomicView;
 
@@ -277,6 +263,30 @@ namespace hgraph
         void assign_from(const detail::ViewDispatch &other) override
         {
             get() = static_cast<const AtomicState<T> &>(other).get();
+        }
+
+        /**
+         * Replace the stored value from a copied C++ object whose schema has
+         * already been identified by the caller.
+         */
+        void set_from_cpp(const void *src, const value::TypeMeta *src_schema) override
+        {
+            if (src_schema != value::scalar_type_meta<T>()) {
+                throw std::invalid_argument("AtomicState::set_from_cpp requires matching source schema");
+            }
+            get() = *static_cast<const T *>(src);
+        }
+
+        /**
+         * Replace the stored value from a moved C++ object whose schema has
+         * already been identified by the caller.
+         */
+        void move_from_cpp(void *src, const value::TypeMeta *src_schema) override
+        {
+            if (src_schema != value::scalar_type_meta<T>()) {
+                throw std::invalid_argument("AtomicState::move_from_cpp requires matching source schema");
+            }
+            get() = std::move(*static_cast<T *>(src));
         }
 
         /**

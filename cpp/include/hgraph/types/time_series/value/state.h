@@ -4,7 +4,12 @@
 #include <hgraph/types/time_series/value/storage.h>
 #include <hgraph/types/time_series/value/value.h>
 
+#include <new>
+#include <variant>
+
 namespace hgraph {
+
+class ValueBuilder;
 
 /**
  * Value-state for linked data positions.
@@ -78,268 +83,192 @@ using TimeSeriesValueStateV =
     std::variant<Value, IndexedTimeSeriesValueStorage, TimeSeriesMapStorage, value::SetStorage, TimeSeriesWindowStorage,
                  LinkedValueState, SignalValueState>;
 
+namespace detail
+{
+
+    /**
+     * Abstract lifecycle and view dispatcher for schema-resolved state storage.
+     *
+     * This mirrors the role of `ViewDispatch`, but for storage lifecycle rather
+     * than value behavior. Concrete implementations know the resolved state type
+     * and are responsible for constructing, destroying, copying, moving, and
+     * operating on that state once memory has already been allocated for it.
+     *
+     * Allocation is intentionally excluded from this interface. That
+     * responsibility belongs to `ValueBuilder`, which asks the resolved state
+     * ops to expand the builder with the layout required by the selected
+     * schema and then caches that result.
+     */
+    struct HGRAPH_EXPORT StateOps
+    {
+        virtual ~StateOps() = default;
+
+        virtual void expand_builder(ValueBuilder &builder, const value::TypeMeta &schema) const noexcept = 0;
+        virtual void construct(void *memory) const                                 = 0;
+        virtual void destroy(void *memory) const noexcept                          = 0;
+        virtual void copy_construct(void *dst, const void *src) const              = 0;
+        virtual void move_construct(void *dst, void *src) const                    = 0;
+    };
+
+}  // namespace detail
+
 /**
- * Factory for schema-resolved value-state operations.
+ * Cached schema-bound builder for value storage.
  *
- * The current implementation resolves atomic schemas to the typed atomic state
- * needed to construct, destroy, copy, move, and view the stored payload. The
- * factory lives with the value-state definitions because it is responsible for
- * materializing the concrete state objects held by `Value`.
+ * `ValueBuilder` owns the layout facts derived from a schema and a reference to
+ * the corresponding state-ops dispatcher. The builder is responsible for
+ * allocating appropriately aligned memory for the schema subtree and then
+ * delegating lifecycle operations into the resolved state ops.
  *
- * This is a state factory rather than an atomic-specific factory because the
- * responsibility here is construction of the concrete stored state selected by
- * the schema.
+ * Builders are intended to be cached singletons per schema. Builder identity
+ * is therefore the runtime compatibility check for copying and moving storage
+ * between values in this layer.
+ *
+ * This split keeps the memory-layout decision at the schema level while the
+ * state ops remain focused on operating on already-allocated memory.
  */
-class ValueStateFactory
+class HGRAPH_EXPORT ValueBuilder
+{
+  public:
+    ValueBuilder(const value::TypeMeta &schema, const detail::StateOps &state_ops) noexcept;
+
+    [[nodiscard]] const value::TypeMeta &schema() const noexcept { return m_schema.get(); }
+    [[nodiscard]] size_t                 size() const noexcept { return m_size; }
+    [[nodiscard]] size_t                 alignment() const noexcept { return m_alignment; }
+
+    /**
+     * Cache the concrete layout chosen during state-op driven builder
+     * expansion.
+     *
+     * This is intended only for use by `StateOps::expand_builder(...)` while a
+     * builder is being assembled.
+     */
+    void cache_layout(size_t size, size_t alignment) noexcept
+    {
+        m_size      = size;
+        m_alignment = alignment;
+    }
+
+    /**
+     * Allocate raw memory suitable for the schema-selected state.
+     */
+    [[nodiscard]] void *allocate() const;
+
+    /**
+     * Release raw memory previously allocated by this builder.
+     */
+    void deallocate(void *memory) const noexcept;
+
+    /**
+     * Default-construct the schema-selected state into the supplied memory.
+     */
+    void construct(void *memory) const;
+
+    /**
+     * Destroy the schema-selected state from the supplied memory.
+     */
+    void destroy(void *memory) const noexcept;
+
+    /**
+     * Copy-construct the schema-selected state into the supplied destination
+     * memory from an existing source memory block.
+     */
+    void copy_construct(void *dst, const void *src, const ValueBuilder &src_builder) const;
+
+    /**
+     * Move-construct the schema-selected state into the supplied destination
+     * memory from an existing source memory block.
+     */
+    void move_construct(void *dst, void *src, const ValueBuilder &src_builder) const;
+
+  private:
+    std::reference_wrapper<const value::TypeMeta> m_schema;
+    size_t                                        m_size;
+    size_t                                        m_alignment;
+    std::reference_wrapper<const detail::StateOps> m_state_ops;
+};
+
+/**
+ * Factory for schema-bound value builders.
+ *
+ * The current implementation resolves atomic schemas to singleton
+ * `ValueBuilder` instances backed by typed atomic state ops. This gives the
+ * first pass of the intended builder model without yet introducing the dynamic
+ * schema cache needed for composite nested builders. Callers are expected to
+ * treat the returned builder address as the identity of the schema-selected
+ * storage plan.
+ */
+class HGRAPH_EXPORT ValueBuilderFactory
 {
   public:
     /**
-     * Schema-resolved operations for the concrete state object selected by a
-     * `value::TypeMeta`.
-     */
-    struct StateOps
-    {
-        size_t size;
-        size_t alignment;
-        bool   stores_inline;
-        void (*construct)(ValueStateUnion &storage);
-        void (*destroy)(ValueStateUnion &storage) noexcept;
-        void (*copy_construct)(ValueStateUnion &dst, const ValueStateUnion &src);
-        void (*move_construct)(ValueStateUnion &dst, ValueStateUnion &src) noexcept;
-        View (*view_of)(ValueStateUnion &storage) noexcept;
-        View (*view_of_const)(const ValueStateUnion &storage) noexcept;
-    };
-
-    /**
-     * Return the operations table for the supplied schema, or `nullptr` when the
+     * Return the cached builder for the supplied schema, or `nullptr` when the
      * schema is not currently supported by this experimental value layer.
      */
-    [[nodiscard]] static const StateOps *ops_for(const value::TypeMeta *schema) noexcept
-    {
-        if (schema == nullptr || schema->kind != value::TypeKind::Atomic) {
-            return nullptr;
-        }
-
-#define HGRAPH_VALUE_STATE_FACTORY_CASE(type_)                                                                                   \
-    if (schema == value::scalar_type_meta<type_>()) {                                                                           \
-        return &state_ops<type_>();                                                                                             \
-    }
-
-        HGRAPH_VALUE_STATE_FACTORY_CASE(bool)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(int8_t)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(int16_t)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(int32_t)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(int64_t)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(uint8_t)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(uint16_t)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(uint32_t)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(uint64_t)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(size_t)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(float)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(double)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(std::string)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(engine_date_t)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(engine_time_t)
-        HGRAPH_VALUE_STATE_FACTORY_CASE(engine_time_delta_t)
-
-#undef HGRAPH_VALUE_STATE_FACTORY_CASE
-
-        return nullptr;
-    }
+    [[nodiscard]] static const ValueBuilder *builder_for(const value::TypeMeta *schema) noexcept;
 
     /**
-     * Construct the concrete state selected by the supplied schema into the
-     * provided erased storage slot.
+     * Return the cached builder for the supplied schema, throwing when the
+     * schema is not currently supported.
      */
-    static void construct(ValueStateUnion &storage, const value::TypeMeta *schema)
-    {
-        checked_ops(schema)->construct(storage);
-    }
-
-    /**
-     * Destroy the concrete state currently stored for the supplied schema.
-     */
-    static void destroy(ValueStateUnion &storage, const value::TypeMeta *schema) noexcept
-    {
-        if (const StateOps *ops = ops_for(schema); ops != nullptr) {
-            ops->destroy(storage);
-        }
-    }
-
-    /**
-     * Copy-construct the concrete state selected by the supplied schema.
-     */
-    static void copy_construct(ValueStateUnion &dst, const ValueStateUnion &src, const value::TypeMeta *schema)
-    {
-        checked_ops(schema)->copy_construct(dst, src);
-    }
-
-    /**
-     * Move-construct the concrete state selected by the supplied schema.
-     */
-    static void move_construct(ValueStateUnion &dst, ValueStateUnion &src, const value::TypeMeta *schema) noexcept
-    {
-        checked_ops(schema)->move_construct(dst, src);
-    }
-
-    /**
-     * Return a mutable erased view over the concrete state selected by the
-     * supplied schema.
-     */
-    [[nodiscard]] static View view_of(ValueStateUnion &storage, const value::TypeMeta *schema) noexcept
-    {
-        if (const StateOps *ops = ops_for(schema); ops != nullptr) {
-            return ops->view_of(storage);
-        }
-        return View{};
-    }
-
-    /**
-     * Return a const erased view over the concrete state selected by the
-     * supplied schema.
-     */
-    [[nodiscard]] static View view_of(const ValueStateUnion &storage, const value::TypeMeta *schema) noexcept
-    {
-        if (const StateOps *ops = ops_for(schema); ops != nullptr) {
-            return ops->view_of_const(storage);
-        }
-        return View{};
-    }
+    [[nodiscard]] static const ValueBuilder &checked_builder_for(const value::TypeMeta *schema);
 
   private:
-    template <typename T>
-    static constexpr bool stores_state_inline =
-        sizeof(AtomicState<T>) <= sizeof(void *) && alignof(AtomicState<T>) <= alignof(void *);
-
-    template <typename T>
-    /**
-     * Reinterpret the inline erased storage slot as the resolved atomic state.
-     */
-    [[nodiscard]] static AtomicState<T> *inline_state(ValueStateUnion &storage) noexcept
+    template <typename T> struct AtomicStateOps final : detail::StateOps
     {
-        return std::launder(reinterpret_cast<AtomicState<T> *>(storage.inline_state));
-    }
-
-    template <typename T>
-    /**
-     * Reinterpret the inline erased storage slot as the resolved atomic state.
-     */
-    [[nodiscard]] static const AtomicState<T> *inline_state(const ValueStateUnion &storage) noexcept
-    {
-        return std::launder(reinterpret_cast<const AtomicState<T> *>(storage.inline_state));
-    }
-
-    template <typename T>
-    /**
-     * Default-construct the resolved atomic state into inline or heap storage.
-     */
-    static void construct_state(ValueStateUnion &storage)
-    {
-        if constexpr (stores_state_inline<T>) {
-            std::construct_at(inline_state<T>(storage));
-        } else {
-            storage.pointer = new AtomicState<T>{};
+        void expand_builder(ValueBuilder &builder, const value::TypeMeta &schema) const noexcept override
+        {
+            static_cast<void>(schema);
+            builder.cache_layout(sizeof(AtomicState<T>), alignof(AtomicState<T>));
         }
-    }
 
-    template <typename T>
-    /**
-     * Destroy the resolved atomic state from inline or heap storage.
-     */
-    static void destroy_state(ValueStateUnion &storage) noexcept
-    {
-        if constexpr (stores_state_inline<T>) {
-            std::destroy_at(inline_state<T>(storage));
-        } else {
-            delete static_cast<AtomicState<T> *>(storage.pointer);
-            storage.pointer = nullptr;
+        void construct(void *memory) const override
+        {
+            std::construct_at(state(memory));
         }
-    }
 
-    template <typename T>
-    /**
-     * Copy-construct the resolved atomic state into inline or heap storage.
-     */
-    static void copy_construct_state(ValueStateUnion &dst, const ValueStateUnion &src)
-    {
-        if constexpr (stores_state_inline<T>) {
-            std::construct_at(inline_state<T>(dst), *inline_state<T>(src));
-        } else {
-            dst.pointer = new AtomicState<T>(*static_cast<const AtomicState<T> *>(src.pointer));
+        void destroy(void *memory) const noexcept override
+        {
+            std::destroy_at(state(memory));
         }
-    }
 
-    template <typename T>
-    /**
-     * Move-construct the resolved atomic state into inline or heap storage.
-     */
-    static void move_construct_state(ValueStateUnion &dst, ValueStateUnion &src) noexcept
-    {
-        if constexpr (stores_state_inline<T>) {
-            std::construct_at(inline_state<T>(dst), std::move(*inline_state<T>(src)));
-            std::destroy_at(inline_state<T>(src));
-        } else {
-            dst.pointer = src.pointer;
-            src.pointer = nullptr;
+        void copy_construct(void *dst, const void *src) const override
+        {
+            std::construct_at(state(dst), *state(src));
         }
-    }
 
-    template <typename T>
-    /**
-     * Return a mutable erased view for the resolved atomic state.
-     */
-    [[nodiscard]] static View view_of_state(ValueStateUnion &storage) noexcept
-    {
-        if constexpr (stores_state_inline<T>) {
-            return inline_state<T>(storage)->view();
-        } else {
-            return static_cast<AtomicState<T> *>(storage.pointer)->view();
+        void move_construct(void *dst, void *src) const override
+        {
+            std::construct_at(state(dst), std::move(*state(src)));
         }
-    }
 
-    template <typename T>
-    /**
-     * Return a const erased view for the resolved atomic state.
-     */
-    [[nodiscard]] static View view_of_state_const(const ValueStateUnion &storage) noexcept
-    {
-        if constexpr (stores_state_inline<T>) {
-            return inline_state<T>(storage)->view();
-        } else {
-            return static_cast<const AtomicState<T> *>(storage.pointer)->view();
+      private:
+        [[nodiscard]] static AtomicState<T> *state(void *memory) noexcept
+        {
+            return std::launder(reinterpret_cast<AtomicState<T> *>(memory));
         }
-    }
+
+        [[nodiscard]] static const AtomicState<T> *state(const void *memory) noexcept
+        {
+            return std::launder(reinterpret_cast<const AtomicState<T> *>(memory));
+        }
+    };
 
     template <typename T>
-    /**
-     * Return the operations table for the resolved atomic state `T`.
-     */
-    [[nodiscard]] static const StateOps &state_ops() noexcept
+    [[nodiscard]] static const detail::StateOps &atomic_state_ops() noexcept
     {
-        static const StateOps ops{
-            .size           = sizeof(AtomicState<T>),
-            .alignment      = alignof(AtomicState<T>),
-            .stores_inline  = stores_state_inline<T>,
-            .construct      = &construct_state<T>,
-            .destroy        = &destroy_state<T>,
-            .copy_construct = &copy_construct_state<T>,
-            .move_construct = &move_construct_state<T>,
-            .view_of        = &view_of_state<T>,
-            .view_of_const  = &view_of_state_const<T>,
-        };
+        static const AtomicStateOps<T> ops{};
         return ops;
     }
 
-    /**
-     * Return the operations table for the supplied schema, throwing when the
-     * schema is not supported by this experimental value layer.
-     */
-    [[nodiscard]] static const StateOps *checked_ops(const value::TypeMeta *schema)
+    template <typename T>
+    [[nodiscard]] static const ValueBuilder &atomic_builder() noexcept
     {
-        if (const StateOps *ops = ops_for(schema); ops != nullptr) {
-            return ops;
-        }
-        throw std::runtime_error("ValueStateFactory: unsupported atomic schema");
+        static const ValueBuilder builder{
+            *value::scalar_type_meta<T>(),
+            atomic_state_ops<T>(),
+        };
+        return builder;
     }
 };
 
