@@ -3,7 +3,7 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/python/chrono.h>
 #include <hgraph/types/time_series/value/view.h>
-#include <hgraph/types/value/type_meta.h>
+#include <hgraph/types/value/type_registry.h>
 
 #include <cstddef>
 #include <cstdint>
