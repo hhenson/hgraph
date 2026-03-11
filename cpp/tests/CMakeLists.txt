@@ -1,9 +1,43 @@
 cmake_minimum_required(VERSION 3.25)
-project(hgraph_tests CXX)
 
-set(CMAKE_CXX_STANDARD 23)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
+set(HGRAPH_ROOT_BUILD_DIR "${CMAKE_BINARY_DIR}")
+
+if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    project(hgraph_tests CXX)
+
+    set(CMAKE_CXX_STANDARD 23)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    set(CMAKE_CXX_EXTENSIONS OFF)
+
+    find_package(Python 3.12 COMPONENTS Interpreter Development Development.Module REQUIRED)
+    include_directories(${Python_INCLUDE_DIRS})
+
+    execute_process(
+        COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
+        OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_ROOT
+    )
+    if (nanobind_ROOT)
+        set(nanobind_DIR "${nanobind_ROOT}" CACHE PATH "nanobind CMake package dir" FORCE)
+        if (DEFINED CMAKE_PREFIX_PATH)
+            list(PREPEND CMAKE_PREFIX_PATH "${nanobind_ROOT}")
+        else ()
+            set(CMAKE_PREFIX_PATH "${nanobind_ROOT}")
+        endif ()
+    endif ()
+    find_package(nanobind CONFIG REQUIRED)
+    include_directories(${NB_DIR}/include)
+
+    get_filename_component(HGRAPH_ROOT_BUILD_DIR "${CMAKE_CURRENT_LIST_DIR}/../../cmake-build-debug" ABSOLUTE)
+    if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/conan/build/Debug/generators")
+        list(PREPEND CMAKE_PREFIX_PATH "${HGRAPH_ROOT_BUILD_DIR}/conan/build/Debug/generators")
+    endif ()
+    if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/_deps/tpack-build")
+        list(PREPEND CMAKE_PREFIX_PATH "${HGRAPH_ROOT_BUILD_DIR}/_deps/tpack-build")
+    endif ()
+    if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/_deps/catch2-src")
+        set(FETCHCONTENT_SOURCE_DIR_CATCH2 "${HGRAPH_ROOT_BUILD_DIR}/_deps/catch2-src")
+    endif ()
+endif ()
 
 # Find Catch2
 find_package(Catch2 3 QUIET)
@@ -32,6 +66,29 @@ if (TARGET fmt::fmt-header-only)
     set(HGRAPH_TEST_FMT_TARGET fmt::fmt-header-only)
 endif ()
 
+if (DEFINED HGRAPH_FMT_TARGET)
+    set(HGRAPH_TEST_FMT_TARGET ${HGRAPH_FMT_TARGET})
+endif ()
+
+find_package(tpack CONFIG QUIET)
+
+if (NOT TARGET Python::Python AND DEFINED Python_EXECUTABLE)
+    execute_process(
+        COMMAND "${Python_EXECUTABLE}" -c
+                "import os, sysconfig; print(os.path.join(sysconfig.get_config_var('LIBDIR') or '', sysconfig.get_config_var('LDLIBRARY') or ''))"
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        OUTPUT_VARIABLE HGRAPH_TEST_PYTHON_LIBRARY
+    )
+
+    if (EXISTS "${HGRAPH_TEST_PYTHON_LIBRARY}")
+        add_library(Python::Python UNKNOWN IMPORTED)
+        set_target_properties(Python::Python PROPERTIES
+            IMPORTED_LOCATION "${HGRAPH_TEST_PYTHON_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${Python_INCLUDE_DIRS}"
+        )
+    endif ()
+endif ()
+
 # Create test executable
 add_executable(hgraph_visitor_tests
     test_visitor_standalone.cpp
@@ -45,13 +102,88 @@ target_link_libraries(hgraph_visitor_tests PRIVATE
 # Set C++ standard
 target_compile_features(hgraph_visitor_tests PRIVATE cxx_std_23)
 
-# Enable testing
-enable_testing()
+add_executable(hgraph_time_series_value_tests
+    test_time_series_atomic_value.cpp
+    ../src/cpp/types/time_series/value/state.cpp
+    ../src/cpp/types/time_series/value/value.cpp
+    ../src/cpp/types/value/type_registry.cpp
+)
+
+target_include_directories(hgraph_time_series_value_tests PRIVATE
+    ../include
+    ${CMAKE_BINARY_DIR}/generated
+)
+
+if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/_deps/ddvisitor-src/include")
+    target_include_directories(hgraph_time_series_value_tests PRIVATE
+        "${HGRAPH_ROOT_BUILD_DIR}/_deps/ddvisitor-src/include"
+    )
+endif ()
+
+if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/_deps/tpack-src/include")
+    target_include_directories(hgraph_time_series_value_tests PRIVATE
+        "${HGRAPH_ROOT_BUILD_DIR}/_deps/tpack-src/include"
+    )
+endif ()
+
+if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/_deps/dynamic_bitset-src/include")
+    target_include_directories(hgraph_time_series_value_tests PRIVATE
+        "${HGRAPH_ROOT_BUILD_DIR}/_deps/dynamic_bitset-src/include"
+    )
+endif ()
+
+if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/_deps/nanoarrow-src/src")
+    target_include_directories(hgraph_time_series_value_tests PRIVATE
+        "${HGRAPH_ROOT_BUILD_DIR}/_deps/nanoarrow-src/src"
+    )
+endif ()
+
+if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/_deps/nanoarrow-build/src")
+    target_include_directories(hgraph_time_series_value_tests PRIVATE
+        "${HGRAPH_ROOT_BUILD_DIR}/_deps/nanoarrow-build/src"
+    )
+endif ()
+
+target_link_libraries(hgraph_time_series_value_tests PRIVATE
+    Catch2::Catch2WithMain
+    ${HGRAPH_TEST_FMT_TARGET}
+)
+
+if (TARGET Python::Python)
+    target_link_libraries(hgraph_time_series_value_tests PRIVATE Python::Python)
+elseif (TARGET Python::Module)
+    target_link_libraries(hgraph_time_series_value_tests PRIVATE Python::Module)
+endif ()
+
+if (TARGET nanobind::headers)
+    target_link_libraries(hgraph_time_series_value_tests PRIVATE nanobind::headers)
+endif ()
+
+if (TARGET Threads::Threads)
+    target_link_libraries(hgraph_time_series_value_tests PRIVATE Threads::Threads)
+endif ()
+
+if (COMMAND nanobind_build_library)
+    nanobind_build_library(nanobind-static)
+endif ()
+
+if (TARGET nanobind-static)
+    target_link_libraries(hgraph_time_series_value_tests PRIVATE nanobind-static)
+endif ()
+
+if (TARGET tpack)
+    target_link_libraries(hgraph_time_series_value_tests PRIVATE tpack)
+elseif (TARGET tpack::tpack)
+    target_link_libraries(hgraph_time_series_value_tests PRIVATE tpack::tpack)
+endif ()
+
+target_compile_features(hgraph_time_series_value_tests PRIVATE cxx_std_23)
 
 # Register tests with CTest
 include(CTest)
 include(Catch)
 catch_discover_tests(hgraph_visitor_tests)
+catch_discover_tests(hgraph_time_series_value_tests)
 
 # Optional: Add custom target to run tests
 add_custom_target(run_visitor_tests
@@ -59,4 +191,11 @@ add_custom_target(run_visitor_tests
     DEPENDS hgraph_visitor_tests
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Running visitor pattern tests"
+)
+
+add_custom_target(run_time_series_value_tests
+    COMMAND hgraph_time_series_value_tests
+    DEPENDS hgraph_time_series_value_tests
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMENT "Running time-series value tests"
 )

@@ -4,4 +4,6 @@ cmake_minimum_required(VERSION 3.25)
 # without altering the existing Python packaging yet.
 project(hgraph_cpp_root NONE)
 
+include(CTest)
+
 add_subdirectory(cpp)

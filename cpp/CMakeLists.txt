@@ -362,10 +362,10 @@ set(HGRAPH_INCLUDES ${HGRAPH_INCLUDES} PARENT_SCOPE)
 
 add_subdirectory(src/cpp)
 
-# Optional: Build tests if enabled
-# Tests are independent and don't require Python bindings
-option(HGRAPH_BUILD_TESTS "Build hgraph C++ unit tests" OFF)
-if (HGRAPH_BUILD_TESTS AND NOT CMAKE_CROSSCOMPILING)
+# Build C++ tests whenever standard CMake testing is enabled.
+# This keeps the test subtree aligned with the normal `ctest` workflow
+# and avoids a second cache toggle that can silently hide the targets.
+if (BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     message(STATUS "Building hgraph C++ tests")
     add_subdirectory(tests)
 endif()
