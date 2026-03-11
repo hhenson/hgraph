@@ -203,6 +203,10 @@ namespace hgraph
          */
         [[nodiscard]] size_t hash() const override { return std::hash<T>{}(get()); }
 
+        [[nodiscard]] bool eq(const detail::ViewDispatch &other) const override {
+            return get() == static_cast<const AtomicState<T> &>(other).get();
+        }
+
         /**
          * Return the string representation of the resolved stored value.
          */

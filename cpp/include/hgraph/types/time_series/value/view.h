@@ -249,6 +249,8 @@ namespace hgraph
          * Ordering is only defined when both views describe the same schema. Two
          * invalid same-schema views compare as equivalent.
          */
+        [[nodiscard]] bool operator==(const View &other) const { return eq(other); }
+
         [[nodiscard]] std::partial_ordering operator<=>(const View &other) const {
             if (schema() != other.schema()) { return std::partial_ordering::unordered; }
             if (!valid() || !other.valid()) {
