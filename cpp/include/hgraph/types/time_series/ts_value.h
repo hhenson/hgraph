@@ -3,50 +3,44 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/time_series_state.h>
 #include <hgraph/types/time_series/ts_meta.h>
-#include <hgraph/types/value/value.h>
-
-#include <unordered_map>
+#include <hgraph/types/time_series/value/value.h>
 
 namespace hgraph {
 
 /**
  * Shared owning storage for a logical time-series value.
  *
- * `TSValue` is intended to hold the endpoint-local value payload and the root
- * time-series state tree that describes that payload.
+ * `TSValue` is intended to hold the endpoint-local value together with the
+ * root time-series state tree that describes modification and subscription
+ * behavior for that value.
  *
  * This is the shared storage contract used by both `TSInput` and `TSOutput`.
  * Endpoint-specific concerns such as input active-state tracking and output
  * alternative representations build on top of this base storage.
  *
- * The stored `value::Value` is expected to mirror the logical structure
- * described by `TSMeta`:
- * - `TSKind::TSValue`, `TSKind::TSS`, `TSKind::TSW`, `TSKind::REF`, and
- *   `TSKind::SIGNAL` store a single value compatible with
- *   `schema()->value_type`
- * - `TSKind::TSL` stores a value-level list whose items correspond positionally
- *   to `schema()->element_ts()`
- * - `TSKind::TSB` stores a value-level tuple/bundle whose fields correspond
- *   positionally to `schema()->fields()[i].ts_type`
- * - `TSKind::TSD` stores a value-level map whose values correspond to
- *   `schema()->element_ts()` and whose keys correspond to `schema()->key_type()`
+ * The stored `Value` is schema-bound to `TSMeta::value_type`. Time-series
+ * specific owned-versus-linked behavior is expected to be expressed within the
+ * `Value` / `View` layer through the concrete state implementations selected
+ * by that value schema, rather than by adding a second top-level value-state
+ * wrapper here.
  *
- * The state variant stored alongside the value is expected to describe the
- * same logical node as the root of that value shape. Child state held under
- * collection states is expected to follow the same positional or keyed layout
- * as the child values visible through the stored payload.
+ * The time-series state stored alongside that value is responsible for
+ * modification, subscription, rebinding, and other time-series-specific
+ * runtime behavior.
  */
 struct HGRAPH_EXPORT TSValue {
     /**
      * Construct time-series value storage.
      *
      * Time-series value storage is schema-bound. The supplied time-series
-     * schema defines the logical shape of the endpoint value and the value
-     * schema used by the stored payload.
+     * schema defines both the time-series behavior and the underlying value
+     * schema used by the owned `Value`.
      */
-    explicit TSValue(const TSMeta *schema) noexcept :
-        m_value(schema != nullptr ? schema->value_type : nullptr), m_schema(schema)
-    {}
+    explicit TSValue(const TSMeta *schema) noexcept
+        : m_value(*schema->value_type)
+        , m_schema(schema)
+    {
+    }
 
 protected:
     /**
@@ -55,14 +49,14 @@ protected:
     [[nodiscard]] const TSMeta *schema() const noexcept { return m_schema; }
 
     /**
-     * Return the stored payload as a read-only value view.
+     * Return the stored endpoint value as a read-only erased view.
      */
-    [[nodiscard]] value::View value() const { return m_value.view(); }
+    [[nodiscard]] View value() const noexcept { return m_value.view(); }
 
     /**
-     * Return the stored payload as a mutable value view.
+     * Return the stored endpoint value as a mutable erased view.
      */
-    [[nodiscard]] value::ValueView value_mut() { return m_value.view(); }
+    [[nodiscard]] View value() noexcept { return m_value.view(); }
 
     /**
      * Return the root time-series state for this stored value.
@@ -77,18 +71,15 @@ protected:
     }
 
 private:
-    /**
-     * Owning value payload whose shape is governed by `m_schema`.
-     */
-    value::Value     m_value;
+    Value               m_value;
     /**
      * Root time-series state associated to `m_value`.
      */
-    TimeSeriesStateV m_state;
+    TimeSeriesStateV      m_state;
     /**
      * Logical time-series schema describing `m_value` and `m_state`.
      */
-    const TSMeta *   m_schema{nullptr};
+    const TSMeta *        m_schema{nullptr};
 };
 
 }  // namespace hgraph

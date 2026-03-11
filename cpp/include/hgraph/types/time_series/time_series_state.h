@@ -204,6 +204,11 @@ namespace hgraph
          * intended to forward scheduling notifications to the node-side
          * notifier associated to the input branch that crosses this target
          * link.
+         *
+         * The split between this notifier and `target_notifiable` is
+         * intentional. One path is responsible for marking the target link
+         * modified and propagating through non-peered parents, while this path
+         * is responsible only for scheduling the owning node.
          */
         struct SchedulingNotifier : Notifiable
         {

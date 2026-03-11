@@ -2,8 +2,8 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/value/atomic.h>
 #include <hgraph/types/time_series/ts_view.h>
-#include <hgraph/types/value/value_view.h>
 
 namespace hgraph {
 
@@ -13,6 +13,11 @@ namespace hgraph {
  * `TSInputView` is intended to expose input-only behavior, especially binding
  * and activation control, while reusing the shared time-series navigation
  * contract.
+ *
+ * Activation is path-local by design. A parent input may remain passive while
+ * one of its descendants is active, so this view works against the exact
+ * active-state payload for the represented path rather than inferring activity
+ * from the surrounding subtree.
  */
 struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
     /**
@@ -30,7 +35,7 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
      * intended to switch to the target link state's `scheduling_notifier` so
      * each linked branch schedules independently.
      */
-    explicit TSInputView(value::ValueView active_state, TimeSeriesStatePtr state,
+    explicit TSInputView(View active_state, TimeSeriesStatePtr state,
                          Notifiable &scheduling_notifier) noexcept;
 
     virtual ~TSInputView() = default;
@@ -40,8 +45,9 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
      *
      * This is intended to enable active observation for the represented input
      * position so upstream notifications reach the owning input endpoint.
+     * Activity is local to this path and does not imply parent activation.
      */
-    virtual void make_active() noexcept;
+    virtual void make_active();
 
     /**
      * Mark the input view as passive.
@@ -49,7 +55,7 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
      * This is intended to disable active observation for the represented input
      * position so upstream notifications are no longer requested.
      */
-    virtual void make_passive() noexcept;
+    virtual void make_passive();
 
     /**
      * Return whether the input view is currently active.
@@ -57,13 +63,13 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
      * This is intended to report whether the represented input position is
      * currently participating in active observation.
      */
-    [[nodiscard]] virtual bool active() const noexcept;
+    [[nodiscard]] virtual bool active() const;
 
 protected:
     void subscribe_scheduling_notifier() noexcept;
     void unsubscribe_scheduling_notifier() noexcept;
 
-    value::ValueView   m_active_state;
+    View               m_active_state;
     /**
      * Non-owning reference to the represented time-series state node.
      */
@@ -83,12 +89,12 @@ protected:
  * flag in the remaining collection-specific slots.
  */
 struct HGRAPH_EXPORT TSInputCollectionView : TSInputView {
-    explicit TSInputCollectionView(value::ValueView active_state, TimeSeriesStatePtr state,
+    explicit TSInputCollectionView(View active_state, TimeSeriesStatePtr state,
                                    Notifiable &scheduling_notifier) noexcept;
 
-    void make_active() noexcept override;
-    void make_passive() noexcept override;
-    [[nodiscard]] bool active() const noexcept override;
+    void make_active() override;
+    void make_passive() override;
+    [[nodiscard]] bool active() const override;
 
 };
 

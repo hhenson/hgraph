@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/ts_value.h>
+#include <hgraph/types/time_series/value/value.h>
 
 namespace hgraph {
 
@@ -14,7 +15,7 @@ namespace hgraph {
  * API.
  *
  * In addition to the inherited `TSValue` payload, `TSInput` owns a parallel
- * active-state value. This active payload is not the published time-series
+ * active-state `Value`. This active payload is not the published time-series
  * value; it is a control structure used to answer `TSInputView::active()` and
  * to support `make_active()` / `make_passive()` at a specific input path.
  *
@@ -49,7 +50,7 @@ struct HGRAPH_EXPORT TSInput : TSValue {
      * by this endpoint.
      */
     explicit TSInput(const TSMeta *schema) :
-        TSValue(schema), m_active_state(active_schema_from(schema))
+        TSValue(schema), m_active_state(*active_schema_from(schema))
     {}
 
 protected:
@@ -59,7 +60,7 @@ protected:
      * This view is intended to expose the parallel activation schema
      * associated to the input tree, not the published time-series value.
      */
-    [[nodiscard]] value::View active_state() const { return m_active_state.view(); }
+    [[nodiscard]] View active_state() const { return m_active_state.view(); }
 
     /**
      * Return the hierarchical active-state payload as a mutable value view.
@@ -67,7 +68,7 @@ protected:
      * This is intended for view construction and activation control against
      * the input-local parallel active-state schema.
      */
-    [[nodiscard]] value::ValueView active_state_mut() { return m_active_state.view(); }
+    [[nodiscard]] View active_state() { return m_active_state.view(); }
 
 private:
     /**
@@ -82,7 +83,7 @@ private:
     /**
      * Parallel activation payload aligned to the logical input structure.
      */
-    value::Value m_active_state;
+    Value m_active_state;
 };
 
 }  // namespace hgraph
