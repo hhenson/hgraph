@@ -273,7 +273,7 @@ def get_shared_reference_output_start(path: str, node: NODE = None, _state: STAT
 
 
 @get_shared_reference_output.stop
-def get_shared_reference_output_start(path: str, node: NODE = None):
+def get_shared_reference_output_stop(path: str, node: NODE = None):
     subscriber = GlobalState.instance().get(f"{path}_subscriber")
     if subscriber:
         subscriber.unsubscribe(node)

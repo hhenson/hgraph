@@ -68,7 +68,7 @@ def find_data_catalogue_entry(
             else:
                 scope_checks[dce.dataset] = checks
 
-    raise ValueError(f"Given options ({[o for o in opts]}) do not match any of the {len(dces)} "
+    raise ValueError(f"Given options ({[o for o in opts.items()]}) do not match any of the {len(dces)} "
                      f"data catalogue entries for {tp.__name__}, dataset '{dataset}'")
 
 

@@ -205,6 +205,14 @@ def test_lag_timedelta():
     assert eval_node(g, [1, 2, 3, 4, 5], MIN_TD * 2) == [None, None, 1, 2, 3, 4, 5]
 
 
+def test_lag_timedelta_ts():
+    @graph
+    def g(ts: TS[int], delay: TS[timedelta]) -> TS[int]:
+        return lag(ts, delay)
+
+    assert eval_node(g, [1, 2, 3, 4, 5], [MIN_TD * 2]) == [None, None, 1, 2, 3, 4, 5]
+
+
 def test_schedule():
     @graph
     def g(delay: timedelta, initial_delay: bool = True, max_ticks: int = 1) -> TS[bool]:

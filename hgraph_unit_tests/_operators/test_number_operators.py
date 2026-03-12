@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from hgraph import add_, sub_, div_, exception_time_series, TS, graph, mod_, divmod_, pow_, eq_, const, DivideByZero, ln
+from hgraph import add_, sub_, div_, exception_time_series, TS, graph, mod_, divmod_, pow_, eq_, const, DivideByZero, ln, sign
 from hgraph._impl._operators._number_operators import div_numbers
 from hgraph.test import eval_node
 
@@ -130,3 +130,14 @@ def test_eq_floats(lhs, rhs, expected, epsilon):
 def test_ln():
 
     assert eval_node(ln, [math.e]) == [1.0]
+
+
+@pytest.mark.parametrize(
+    "values,expected",
+    [
+        ([-10, 0, 3], [-1, 1, 1]),
+        ([-10.0, 0.0, 3.1], [-1.0, 1.0, 1.0]),
+    ],
+)
+def test_sign(values, expected):
+    assert eval_node(sign, values) == expected

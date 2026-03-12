@@ -936,6 +936,7 @@ namespace hgraph
                     _add_key_value(pv_key.view(), value);
                 } else {
                     to_keep.emplace(pv_key.view().clone(), std::make_pair(value, was_valid));
+                    value->make_passive();
                 }
             }
             std::swap(_removed_items, to_keep);

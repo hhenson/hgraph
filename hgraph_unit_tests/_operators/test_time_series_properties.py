@@ -12,6 +12,7 @@ from hgraph import (
     MIN_TD,
     valid,
     last_modified_time,
+    last_modified_wall_clock_time,
     modified,
     TimeSeriesReference,
     evaluation_time_in_range,
@@ -78,6 +79,17 @@ def test_last_modified_time():
         return last_modified_time(a)
 
     assert eval_node(g, [1, None, 2]) == [MIN_ST, None, MIN_ST + 2 * MIN_TD]
+
+
+def test_last_modified_wall_clock_time():
+    @graph
+    def g(a: TS[int]) -> TS[datetime]:
+        return last_modified_wall_clock_time(a)
+
+    result = eval_node(g, [1, None, 2])
+    assert isinstance(result[0], datetime)
+    assert result[1] is None
+    assert isinstance(result[2], datetime)
 
 
 def test_engine_time_in_range():
