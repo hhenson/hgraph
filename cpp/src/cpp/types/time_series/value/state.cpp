@@ -59,8 +59,17 @@ namespace hgraph
         switch (schema->kind) {
         case value::TypeKind::Atomic:
             return detail::atomic_builder_for(schema);
+        case value::TypeKind::Tuple:
+        case value::TypeKind::Bundle:
+            return detail::record_builder_for(schema);
         case value::TypeKind::List:
             return detail::list_builder_for(schema);
+        case value::TypeKind::Set:
+        case value::TypeKind::Map:
+            return detail::associative_builder_for(schema);
+        case value::TypeKind::CyclicBuffer:
+        case value::TypeKind::Queue:
+            return detail::sequence_builder_for(schema);
         default:
             return nullptr;
         }

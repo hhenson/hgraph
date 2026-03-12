@@ -16,7 +16,13 @@ namespace hgraph
 {
 
     struct AtomicView;
+    struct TupleView;
+    struct BundleView;
     struct ListView;
+    struct SetView;
+    struct MapView;
+    struct CyclicBufferView;
+    struct QueueView;
 
     namespace detail
     {
@@ -141,8 +147,20 @@ namespace hgraph
 
         [[nodiscard]] AtomicView as_atomic();
         [[nodiscard]] AtomicView as_atomic() const;
+        [[nodiscard]] TupleView as_tuple();
+        [[nodiscard]] TupleView as_tuple() const;
+        [[nodiscard]] BundleView as_bundle();
+        [[nodiscard]] BundleView as_bundle() const;
         [[nodiscard]] ListView   as_list();
         [[nodiscard]] ListView   as_list() const;
+        [[nodiscard]] SetView    as_set();
+        [[nodiscard]] SetView    as_set() const;
+        [[nodiscard]] MapView    as_map();
+        [[nodiscard]] MapView    as_map() const;
+        [[nodiscard]] CyclicBufferView as_cyclic_buffer();
+        [[nodiscard]] CyclicBufferView as_cyclic_buffer() const;
+        [[nodiscard]] QueueView  as_queue();
+        [[nodiscard]] QueueView  as_queue() const;
 
         /**
          * Return the hash of the represented value.

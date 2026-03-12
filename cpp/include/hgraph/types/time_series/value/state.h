@@ -1,8 +1,11 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/value/associative.h>
 #include <hgraph/types/time_series/value/atomic.h>
 #include <hgraph/types/time_series/value/list.h>
+#include <hgraph/types/time_series/value/record.h>
+#include <hgraph/types/time_series/value/sequence.h>
 
 #include <functional>
 #include <new>

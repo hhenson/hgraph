@@ -24,7 +24,7 @@ TEST_CASE("Atomic values default construct through the bound schema", "[time_ser
     REQUIRE(value.valid());
     REQUIRE(value.schema() == &schema);
 
-    auto view = value.view().as_atomic();
+    auto view = value.atomic_view();
     REQUIRE(view.valid());
     CHECK(view.as<int32_t>() == 0);
     CHECK(value.view().to_string() == "0");
@@ -35,11 +35,11 @@ TEST_CASE("Atomic values support inline and heap-backed payloads", "[time_series
     auto integer_value = value_for(int32_t{42});
     auto string_value  = value_for(std::string{"alpha"});
 
-    CHECK(integer_value.view().as_atomic().as<int32_t>() == 42);
-    CHECK(string_value.view().as_atomic().as<std::string>() == "alpha");
+    CHECK(integer_value.atomic_view().as<int32_t>() == 42);
+    CHECK(string_value.atomic_view().as<std::string>() == "alpha");
 
-    string_value.view().as_atomic().set(std::string{"beta"});
-    CHECK(string_value.view().as_atomic().as<std::string>() == "beta");
+    string_value.atomic_view().set(std::string{"beta"});
+    CHECK(string_value.atomic_view().as<std::string>() == "beta");
 }
 
 TEST_CASE("Atomic views support typed and view-based assignment", "[time_series][value][atomic]")

@@ -1,9 +1,11 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/value/associative.h>
 #include <hgraph/types/time_series/value/atomic.h>
 #include <hgraph/types/time_series/value/list.h>
-
+#include <hgraph/types/time_series/value/record.h>
+#include <hgraph/types/time_series/value/sequence.h>
 #include <array>
 #include <cstddef>
 #include <type_traits>
@@ -89,6 +91,73 @@ namespace hgraph
          * Return a const erased view over the stored payload.
          */
         [[nodiscard]] View view() const noexcept;
+        /**
+         * Return a mutable atomic view over the stored payload.
+         *
+         * This is shorthand for `view().as_atomic()` when the caller already
+         * owns a `Value` and wants the typed view directly.
+         */
+        [[nodiscard]] AtomicView atomic_view() noexcept;
+        /**
+         * Return a const atomic view over the stored payload.
+         */
+        [[nodiscard]] AtomicView atomic_view() const noexcept;
+        /**
+         * Return a mutable tuple-compatible view over the stored payload.
+         */
+        [[nodiscard]] TupleView tuple_view() noexcept;
+        /**
+         * Return a const tuple-compatible view over the stored payload.
+         */
+        [[nodiscard]] TupleView tuple_view() const noexcept;
+        /**
+         * Return a mutable bundle view over the stored payload.
+         */
+        [[nodiscard]] BundleView bundle_view() noexcept;
+        /**
+         * Return a const bundle view over the stored payload.
+         */
+        [[nodiscard]] BundleView bundle_view() const noexcept;
+        /**
+         * Return a mutable list view over the stored payload.
+         */
+        [[nodiscard]] ListView list_view() noexcept;
+        /**
+         * Return a const list view over the stored payload.
+         */
+        [[nodiscard]] ListView list_view() const noexcept;
+        /**
+         * Return a mutable set view over the stored payload.
+         */
+        [[nodiscard]] SetView set_view() noexcept;
+        /**
+         * Return a const set view over the stored payload.
+         */
+        [[nodiscard]] SetView set_view() const noexcept;
+        /**
+         * Return a mutable map view over the stored payload.
+         */
+        [[nodiscard]] MapView map_view() noexcept;
+        /**
+         * Return a const map view over the stored payload.
+         */
+        [[nodiscard]] MapView map_view() const noexcept;
+        /**
+         * Return a mutable cyclic buffer view over the stored payload.
+         */
+        [[nodiscard]] CyclicBufferView cyclic_buffer_view() noexcept;
+        /**
+         * Return a const cyclic buffer view over the stored payload.
+         */
+        [[nodiscard]] CyclicBufferView cyclic_buffer_view() const noexcept;
+        /**
+         * Return a mutable queue view over the stored payload.
+         */
+        [[nodiscard]] QueueView queue_view() noexcept;
+        /**
+         * Return a const queue view over the stored payload.
+         */
+        [[nodiscard]] QueueView queue_view() const noexcept;
 
       private:
         union Storage

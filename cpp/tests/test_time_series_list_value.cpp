@@ -19,7 +19,7 @@ TEST_CASE("Fixed lists default construct inline atomic elements", "[time_series]
     const value::TypeMeta *schema = value::TypeRegistry::instance().fixed_list(value::scalar_type_meta<int32_t>(), 3).build();
 
     Value value{*schema};
-    auto  list = value.view().as_list();
+    auto  list = value.list_view();
 
     REQUIRE(list.valid());
     CHECK(list.is_fixed());
@@ -34,7 +34,7 @@ TEST_CASE("Dynamic lists support resize and push_back", "[time_series][value][li
     const value::TypeMeta *schema = value::TypeRegistry::instance().list(value::scalar_type_meta<int32_t>()).build();
 
     Value value{*schema};
-    auto  list = value.view().as_list();
+    auto  list = value.list_view();
 
     CHECK_FALSE(list.is_fixed());
     CHECK(list.empty());

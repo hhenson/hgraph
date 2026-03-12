@@ -125,6 +125,86 @@ namespace hgraph
         return View{&builder().dispatch(), valid() ? const_cast<void *>(storage_memory()) : nullptr, schema()};
     }
 
+    AtomicView Value::atomic_view() noexcept
+    {
+        return view().as_atomic();
+    }
+
+    AtomicView Value::atomic_view() const noexcept
+    {
+        return view().as_atomic();
+    }
+
+    TupleView Value::tuple_view() noexcept
+    {
+        return view().as_tuple();
+    }
+
+    TupleView Value::tuple_view() const noexcept
+    {
+        return view().as_tuple();
+    }
+
+    BundleView Value::bundle_view() noexcept
+    {
+        return view().as_bundle();
+    }
+
+    BundleView Value::bundle_view() const noexcept
+    {
+        return view().as_bundle();
+    }
+
+    ListView Value::list_view() noexcept
+    {
+        return view().as_list();
+    }
+
+    ListView Value::list_view() const noexcept
+    {
+        return view().as_list();
+    }
+
+    SetView Value::set_view() noexcept
+    {
+        return view().as_set();
+    }
+
+    SetView Value::set_view() const noexcept
+    {
+        return view().as_set();
+    }
+
+    MapView Value::map_view() noexcept
+    {
+        return view().as_map();
+    }
+
+    MapView Value::map_view() const noexcept
+    {
+        return view().as_map();
+    }
+
+    CyclicBufferView Value::cyclic_buffer_view() noexcept
+    {
+        return view().as_cyclic_buffer();
+    }
+
+    CyclicBufferView Value::cyclic_buffer_view() const noexcept
+    {
+        return view().as_cyclic_buffer();
+    }
+
+    QueueView Value::queue_view() noexcept
+    {
+        return view().as_queue();
+    }
+
+    QueueView Value::queue_view() const noexcept
+    {
+        return view().as_queue();
+    }
+
     void Value::allocate_and_construct()
     {
         if (builder().stores_inline_in_value_handle()) {
