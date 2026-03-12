@@ -97,6 +97,15 @@ namespace hgraph
              * Contiguous raw element storage indexed by slot.
              */
             std::byte *elements{nullptr};
+            /**
+             * Active mutation-scope depth for this container.
+             *
+             * Nested mutation scopes are allowed so helper functions can open a
+             * local scope while participating in a larger mutation operation.
+             * Removed payloads are released only when the outermost scope
+             * begins.
+             */
+            size_t mutation_depth{0};
         };
 
         struct MapState
@@ -114,6 +123,15 @@ namespace hgraph
              * constructed value.
              */
             std::byte *values{nullptr};
+            /**
+             * Active mutation-scope depth for this container.
+             *
+             * Nested mutation scopes are allowed so helper functions can open a
+             * local scope while participating in a larger mutation operation.
+             * Removed key/value payloads are released only when the outermost
+             * scope begins.
+             */
+            size_t mutation_depth{0};
         };
 
         inline uint64_t SetKeyIndexHash::operator()(size_t slot) const
@@ -297,8 +315,18 @@ namespace hgraph
                 state.index->erase(slot);
                 state.alive.reset(slot);
                 state.removed.set(slot);
-                state.free_list.push_back(slot);
                 --state.size;
+            }
+
+            void release_removed(SetState &state) const noexcept
+            {
+                for (size_t slot = 0; slot < state.capacity; ++slot) {
+                    if (!state.removed.test(slot)) { continue; }
+                    destroy_payload(slot_data(state, slot));
+                    state.occupied.reset(slot);
+                    state.removed.reset(slot);
+                    state.free_list.push_back(slot);
+                }
             }
 
             void clear(SetState &state) const noexcept
@@ -362,6 +390,21 @@ namespace hgraph
             [[nodiscard]] size_t slot_capacity(const void *data) const noexcept override { return state(data)->capacity; }
             [[nodiscard]] const value::TypeMeta &element_schema() const noexcept override { return *m_schema.get().element_type; }
             [[nodiscard]] const ViewDispatch &element_dispatch() const noexcept override { return m_keys.dispatch(); }
+
+            void begin_mutation(void *data) const override
+            {
+                SetState *set = state(data);
+                if (set->mutation_depth++ == 0) { m_keys.release_removed(*set); }
+            }
+
+            void end_mutation(void *data) const override
+            {
+                SetState *set = state(data);
+                if (set->mutation_depth == 0) {
+                    throw std::runtime_error("Set mutation depth underflow");
+                }
+                --set->mutation_depth;
+            }
 
             [[nodiscard]] void *element_data(void *data, size_t index) const override
             {
@@ -571,6 +614,7 @@ namespace hgraph
                 state(src)->occupied.clear();
                 state(src)->removed.clear();
                 state(src)->free_list.clear();
+                state(src)->mutation_depth = 0;
                 state(src)->index.reset();
             }
 
@@ -611,6 +655,29 @@ namespace hgraph
             [[nodiscard]] const value::TypeMeta &value_schema() const noexcept override { return *m_schema.get().element_type; }
             [[nodiscard]] const ViewDispatch &key_dispatch() const noexcept override { return m_keys.dispatch(); }
             [[nodiscard]] const ViewDispatch &value_dispatch() const noexcept override { return m_value_builder.get().dispatch(); }
+
+            void begin_mutation(void *data) const override
+            {
+                MapState *map = state(data);
+                if (map->mutation_depth++ != 0) { return; }
+                for (size_t slot = 0; slot < map->keys.capacity; ++slot) {
+                    if (!map->keys.removed.test(slot)) { continue; }
+                    m_keys.destroy_payload(m_keys.slot_data(map->keys, slot));
+                    destroy_value(map->values + slot * m_value_stride);
+                    map->keys.occupied.reset(slot);
+                    map->keys.removed.reset(slot);
+                    map->keys.free_list.push_back(slot);
+                }
+            }
+
+            void end_mutation(void *data) const override
+            {
+                MapState *map = state(data);
+                if (map->mutation_depth == 0) {
+                    throw std::runtime_error("Map mutation depth underflow");
+                }
+                --map->mutation_depth;
+            }
 
             [[nodiscard]] size_t find(const void *data, const void *key) const override
             {
@@ -874,8 +941,10 @@ namespace hgraph
                 state(src)->keys.occupied.clear();
                 state(src)->keys.removed.clear();
                 state(src)->keys.free_list.clear();
+                state(src)->keys.mutation_depth = 0;
                 state(src)->keys.index.reset();
                 state(src)->values = nullptr;
+                state(src)->mutation_depth = 0;
             }
 
           private:
@@ -1090,6 +1159,25 @@ namespace hgraph
         }
     }
 
+    SetMutationView SetView::begin_mutation()
+    {
+        return SetMutationView{*this};
+    }
+
+    void SetView::begin_mutation_scope()
+    {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetView::begin_mutation on invalid view"); }
+        dispatch->begin_mutation(data());
+    }
+
+    void SetView::end_mutation_scope() noexcept
+    {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { return; }
+        dispatch->end_mutation(data());
+    }
+
     size_t SetView::size() const
     {
         const auto *dispatch = set_dispatch();
@@ -1165,31 +1253,71 @@ namespace hgraph
         return dispatch->contains(data(), data_of(value));
     }
 
-    bool SetView::add(const View &value)
+    SetMutationView::SetMutationView(SetView &view)
+        : SetView(view)
+    {
+        begin_mutation_scope();
+    }
+
+    SetMutationView::SetMutationView(SetMutationView &&other) noexcept
+        : SetView(other)
+    {
+        m_owns_scope = other.m_owns_scope;
+        other.m_owns_scope = false;
+    }
+
+    SetMutationView::~SetMutationView()
+    {
+        if (!m_owns_scope) { return; }
+        try {
+            end_mutation_scope();
+        } catch (...) {
+        }
+    }
+
+    bool SetMutationView::add(const View &value)
     {
         const auto *dispatch = set_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("SetView::add on invalid view"); }
+        if (dispatch == nullptr) { throw std::runtime_error("SetMutationView::add on invalid view"); }
         if (!value.valid() || value.schema() != &dispatch->element_schema()) {
-            throw std::invalid_argument("SetView::add requires a valid matching-schema element");
+            throw std::invalid_argument("SetMutationView::add requires a valid matching-schema element");
         }
         return dispatch->add(data(), data_of(value));
     }
 
-    bool SetView::remove(const View &value)
+    SetMutationView &SetMutationView::adding(const View &value)
+    {
+        static_cast<void>(add(value));
+        return *this;
+    }
+
+    bool SetMutationView::remove(const View &value)
     {
         const auto *dispatch = set_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("SetView::remove on invalid view"); }
+        if (dispatch == nullptr) { throw std::runtime_error("SetMutationView::remove on invalid view"); }
         if (!value.valid() || value.schema() != &dispatch->element_schema()) {
-            throw std::invalid_argument("SetView::remove requires a valid matching-schema element");
+            throw std::invalid_argument("SetMutationView::remove requires a valid matching-schema element");
         }
         return dispatch->remove(data(), data_of(value));
     }
 
-    void SetView::clear()
+    SetMutationView &SetMutationView::removing(const View &value)
+    {
+        static_cast<void>(remove(value));
+        return *this;
+    }
+
+    void SetMutationView::clear()
     {
         const auto *dispatch = set_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("SetView::clear on invalid view"); }
+        if (dispatch == nullptr) { throw std::runtime_error("SetMutationView::clear on invalid view"); }
         dispatch->clear(data());
+    }
+
+    SetMutationView &SetMutationView::clearing()
+    {
+        clear();
+        return *this;
     }
 
     const detail::SetViewDispatch *SetView::set_dispatch() const noexcept
@@ -1204,6 +1332,25 @@ namespace hgraph
         if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Map) {
             throw std::runtime_error("MapView requires a map schema");
         }
+    }
+
+    MapMutationView MapView::begin_mutation()
+    {
+        return MapMutationView{*this};
+    }
+
+    void MapView::begin_mutation_scope()
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::begin_mutation on invalid view"); }
+        dispatch->begin_mutation(data());
+    }
+
+    void MapView::end_mutation_scope() noexcept
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { return; }
+        dispatch->end_mutation(data());
     }
 
     size_t MapView::size() const
@@ -1314,37 +1461,77 @@ namespace hgraph
                     &dispatch->value_schema()};
     }
 
-    void MapView::set(const View &key, const View &value)
+    MapMutationView::MapMutationView(MapView &view)
+        : MapView(view)
+    {
+        begin_mutation_scope();
+    }
+
+    MapMutationView::MapMutationView(MapMutationView &&other) noexcept
+        : MapView(other)
+    {
+        m_owns_scope = other.m_owns_scope;
+        other.m_owns_scope = false;
+    }
+
+    MapMutationView::~MapMutationView()
+    {
+        if (!m_owns_scope) { return; }
+        try {
+            end_mutation_scope();
+        } catch (...) {
+        }
+    }
+
+    void MapMutationView::set(const View &key, const View &value)
     {
         const auto *dispatch = map_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("MapView::set on invalid view"); }
+        if (dispatch == nullptr) { throw std::runtime_error("MapMutationView::set on invalid view"); }
         if (!key.valid() || key.schema() != &dispatch->key_schema()) {
-            throw std::invalid_argument("MapView::set requires a valid matching-schema key");
+            throw std::invalid_argument("MapMutationView::set requires a valid matching-schema key");
         }
         if (!value.valid()) {
-            throw std::invalid_argument("MapView::set requires a valid value");
+            throw std::invalid_argument("MapMutationView::set requires a valid value");
         }
         if (value.schema() != nullptr && value.schema() != &dispatch->value_schema()) {
-            throw std::invalid_argument("MapView::set requires a matching value schema");
+            throw std::invalid_argument("MapMutationView::set requires a matching value schema");
         }
         dispatch->set_item(data(), data_of(key), data_of(value));
     }
 
-    bool MapView::remove(const View &key)
+    MapMutationView &MapMutationView::setting(const View &key, const View &value)
+    {
+        set(key, value);
+        return *this;
+    }
+
+    bool MapMutationView::remove(const View &key)
     {
         const auto *dispatch = map_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("MapView::remove on invalid view"); }
+        if (dispatch == nullptr) { throw std::runtime_error("MapMutationView::remove on invalid view"); }
         if (!key.valid() || key.schema() != &dispatch->key_schema()) {
-            throw std::invalid_argument("MapView::remove requires a valid matching-schema key");
+            throw std::invalid_argument("MapMutationView::remove requires a valid matching-schema key");
         }
         return dispatch->remove(data(), data_of(key));
     }
 
-    void MapView::clear()
+    MapMutationView &MapMutationView::removing(const View &key)
+    {
+        static_cast<void>(remove(key));
+        return *this;
+    }
+
+    void MapMutationView::clear()
     {
         const auto *dispatch = map_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("MapView::clear on invalid view"); }
+        if (dispatch == nullptr) { throw std::runtime_error("MapMutationView::clear on invalid view"); }
         dispatch->clear(data());
+    }
+
+    MapMutationView &MapMutationView::clearing()
+    {
+        clear();
+        return *this;
     }
 
     const detail::MapViewDispatch *MapView::map_dispatch() const noexcept
