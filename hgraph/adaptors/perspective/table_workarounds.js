@@ -336,7 +336,8 @@ export async function installTableWorkarounds(mode, lockCallback) {
                 row_selection: viewSettings(view_config.title, "row_selection") || true,
                 group_selection: viewSettings(view_config.title, "group_selection") || false,
                 split_selection: viewSettings(view_config.title, "split_selection") || false,
-                block_selection: viewSettings(view_config.title, "block_selection") || false
+                block_selection: viewSettings(view_config.title, "block_selection") || false,
+                multiple_selection: viewSettings(view_config.title, "multiple_selection") || false,
             };
             table.addEventListener("mousedown", async (event) => {
                     await trackSelection(event, table, viewer, table_config, model, options);
@@ -840,7 +841,7 @@ async function maintainAddButtonOnFilter(event, table, viewer, config) {
 }
 
 
-function highlightSelection(table, viewer, model) {    
+function highlightSelection(table, viewer, model) {
     for (const t of table.querySelectorAll('.highlight')){
         t.classList.remove("highlight");
     }
@@ -848,20 +849,24 @@ function highlightSelection(table, viewer, model) {
     const selection_type = table.dataset.selection_type;
     if (!selection_type) return;
 
-    const selection_meta = table.dataset.selection_meta ? JSON.parse(table.dataset.selection_meta) : null;
+    const raw_meta = table.dataset.selection_meta ? JSON.parse(table.dataset.selection_meta) : null;
+    if (!raw_meta) return;
+
+    const selection_metas = Array.isArray(raw_meta) ? raw_meta : [raw_meta];
 
     const tbody = table.children[0].children[1];
     for (const tr of tbody.children){
         const meta = table.getMeta(tr.children[tr.children.length-1]);
         const id = model._ids[meta.y - meta.y0];
-        if (id && selection_meta.row_header.length <= id.length && selection_meta.row_header.every((v, i) => v == id[i])) {
-            for (const td of tr.children){
-                const meta = table.getMeta(td);
-                const id = model._ids[meta.y - meta.y0];
-
-                if (meta.column_header && selection_meta.column_header.every((x, i) => x == meta.column_header[i])) {
-                    td.classList.add("highlight");
+        for (const selection_meta of selection_metas) {
+            if (id && selection_meta.row_header.length <= id.length && selection_meta.row_header.every((v, i) => v == id[i])) {
+                for (const td of tr.children){
+                    const meta = table.getMeta(td);
+                    if (meta.column_header && selection_meta.column_header.every((x, i) => x == meta.column_header[i])) {
+                        td.classList.add("highlight");
+                    }
                 }
+                break;
             }
         }
     }
@@ -952,26 +957,75 @@ async function trackSelection(event, table, viewer, config, model, options) {
         }
         if (metadata){
             const selected = table.querySelector(".highlight");
+            const single_selection = options.multiple_selection === false
             if (!td.classList.contains("highlight")){
                 const {selection_type, selection_meta, selection_names, selection_values} = await metadataToSelection(table, viewer, model, metadata, options);
 
-                if (selection_type){
-                    table.dataset.selection_type = selection_type;
-                    table.dataset.selection_names = JSON.stringify(selection_names);
-                    table.dataset.selection_meta = JSON.stringify(selection_meta);
-                    table.dataset.selection_values = JSON.stringify(selection_values);
-
-                    if ('y' in metadata)
-                        table.dataset.selected_row = metadata.y;
-                    if ('x' in metadata)
-                        table.dataset.selected_col = metadata.x;
-                } else {
+                if (!selection_type) {
                     delete table.dataset.selected_row;
                     delete table.dataset.selected_col;
                     delete table.dataset.selection_type;
                     delete table.dataset.selection_values;
                     delete table.dataset.selection_names;
                     delete table.dataset.selection_meta;
+                } else {
+                    const existing_metas  = !single_selection && table.dataset.selection_meta   ? JSON.parse(table.dataset.selection_meta)   : [];
+                    const existing_values = !single_selection && table.dataset.selection_values ? JSON.parse(table.dataset.selection_values) : [];
+                    const existing_names  = !single_selection && table.dataset.selection_names  ? JSON.parse(table.dataset.selection_names)  : [];
+                    const existing_rows   = !single_selection && table.dataset.selected_row     ? JSON.parse(table.dataset.selected_row)     : [];
+                    const existing_cols   = !single_selection && table.dataset.selected_col     ? JSON.parse(table.dataset.selected_col)     : [];
+                    const existing_types  = !single_selection && table.dataset.selection_type   ? JSON.parse(table.dataset.selection_type)   : [];
+
+                    existing_metas.push(selection_meta);
+                    existing_values.push(selection_values);
+                    existing_names.push(selection_names);
+                    existing_rows.push('y' in metadata ? metadata.y : null);
+                    existing_cols.push('x' in metadata ? metadata.x : null);
+                    existing_types.push(selection_type);
+
+                    table.dataset.selection_type   = JSON.stringify(existing_types);
+                    table.dataset.selection_names  = JSON.stringify(existing_names);
+                    table.dataset.selection_meta   = JSON.stringify(existing_metas);
+                    table.dataset.selection_values = JSON.stringify(existing_values);
+                    table.dataset.selected_row     = JSON.stringify(existing_rows);
+                    table.dataset.selected_col     = JSON.stringify(existing_cols);
+                }
+            } else if (!single_selection) {
+                const {selection_values: clicked_values} = await metadataToSelection(table, viewer, model, metadata, options);
+
+                const existing_metas  = table.dataset.selection_meta   ? JSON.parse(table.dataset.selection_meta)   : [];
+                const existing_values = table.dataset.selection_values ? JSON.parse(table.dataset.selection_values) : [];
+                const existing_names  = table.dataset.selection_names  ? JSON.parse(table.dataset.selection_names)  : [];
+                const existing_rows   = table.dataset.selected_row     ? JSON.parse(table.dataset.selected_row)     : [];
+                const existing_cols   = table.dataset.selected_col     ? JSON.parse(table.dataset.selected_col)     : [];
+                const existing_types  = table.dataset.selection_type   ? JSON.parse(table.dataset.selection_type)   : [];
+
+                const clicked_str = JSON.stringify(clicked_values);
+                const remove_idx = existing_values.findIndex(v => JSON.stringify(v) === clicked_str);
+
+                if (remove_idx !== -1) {
+                    existing_metas.splice(remove_idx, 1);
+                    existing_values.splice(remove_idx, 1);
+                    existing_names.splice(remove_idx, 1);
+                    existing_rows.splice(remove_idx, 1);
+                    existing_cols.splice(remove_idx, 1);
+                    existing_types.splice(remove_idx, 1);
+                }
+
+                if (existing_metas.length === 0) {
+                    delete table.dataset.selected_row;
+                    delete table.dataset.selected_col;
+                    delete table.dataset.selection_type;
+                    delete table.dataset.selection_values;
+                    delete table.dataset.selection_names;
+                    delete table.dataset.selection_meta;
+                } else {
+                    table.dataset.selection_meta   = JSON.stringify(existing_metas);
+                    table.dataset.selection_values = JSON.stringify(existing_values);
+                    table.dataset.selection_names  = JSON.stringify(existing_names);
+                    table.dataset.selected_row     = JSON.stringify(existing_rows);
+                    table.dataset.selected_col     = JSON.stringify(existing_cols);
+                    table.dataset.selection_type   = JSON.stringify(existing_types);
                 }
             } else if (selected) {
                 delete table.dataset.selected_row;
@@ -990,11 +1044,10 @@ async function trackSelection(event, table, viewer, config, model, options) {
 }
 
 async function trackSelectionChange(table, viewer, config, model) {
-    const selection_type = table.dataset.selection_type;
-    const selection_names = table.dataset.selection_names;
-    const selection_values = table.dataset.selection_values;
-    if (selection_values !== undefined) {
-        const values = JSON.parse(selection_values);
+    const selection_values_raw = table.dataset.selection_values;
+    if (selection_values_raw !== undefined) {
+        const all_values = JSON.parse(selection_values_raw);
+        const all_names  = table.dataset.selection_names ? JSON.parse(table.dataset.selection_names) : [];
         const tbl = await viewer.getTable();
         const index = await tbl.get_index();
         const view_config = await viewer.save();
@@ -1002,30 +1055,37 @@ async function trackSelectionChange(table, viewer, config, model) {
         if (required_cols.length === 0)
             return;
 
-        let rows = [];
-        if (required_cols.every((col) => selection_names.includes(col))) {
-            rows = [values];
-            if (required_vals.length > 0) {
-                const { view, get_rows } = await createViewAndGetRows(tbl, view_config, values, required_vals, index, false);
-                const val_rows = await get_rows();
+        const rows = [];
+        for (let i = 0; i < all_values.length; i++) {
+            const values = all_values[i];
+            const selection_names = all_names[i] ?? [];
+            if (required_cols.every((col) => selection_names.includes(col))) {
+                let entry_rows = [values];
+                if (required_vals.length > 0) {
+                    const { view, get_rows } = await createViewAndGetRows(tbl, view_config, values, required_vals, index, false);
+                    const val_rows = await get_rows();
+                    await view.delete();
+                    if (val_rows.length === 1) {
+                        entry_rows[0] = {...entry_rows[0], ...val_rows[0]};
+                    } else if (val_rows.length > 1) {
+                        entry_rows = val_rows.map((r) => ({...entry_rows[0], ...r}));
+                    }
+                }
+                rows.push(...entry_rows);
+            } else {
+                const { view, get_rows } = await createViewAndGetRows(tbl, view_config, values, [...required_cols, ...required_vals], index, false);
+                const entry_rows = await get_rows();
                 await view.delete();
-                if (val_rows.length === 1){
-                    rows[0] = {...rows[0], ...val_rows[0]};
-                } else if (val_rows.length > 1){
-                    rows = val_rows.map((r) => ({...rows[0], ...r}));
-                }            
+                rows.push(...entry_rows);
             }
-        } else {
-            const { view, get_rows } = await createViewAndGetRows(tbl, view_config, values, [...required_cols, ...required_vals], index, false);
-            rows = await get_rows();
-            await view.delete();
         }
-        if (rows.length > 1){
+
+        if (rows.length > 1) {
             const row_reduce = Object.fromEntries(
                 [...required_cols, ...required_vals]
                     .map((col) => [col, new Set(rows.map((r) => r[col]))])
                     .map(([c, s]) => s.size == 1 ? [c, s.values().next().value] : [c, [...s]])
-                );
+            );
             await fireContextActions(viewer.slot, row_reduce);
         } else if (rows && rows.length == 1){
             await fireContextActions(viewer.slot, rows[0]);
