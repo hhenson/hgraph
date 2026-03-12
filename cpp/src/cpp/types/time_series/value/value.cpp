@@ -1,129 +1,177 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/value/state.h>
+#include <hgraph/types/time_series/value/value.h>
 
-namespace hgraph {
+#include <cstring>
+#include <stdexcept>
 
-Value::Value(const value::TypeMeta &schema)
-    : m_builder(ValueBuilderFactory::checked_builder_for(&schema))
+namespace hgraph
 {
-    allocate_and_construct();
-}
-
-Value::Value(const Value &other)
-    : m_builder(other.m_builder)
-{
-    if (other.m_dispatch == nullptr) { return; }
-
-    void *memory = m_builder.get().allocate();
-    try {
-        m_builder.get().copy_construct(memory, other.m_dispatch, other.m_builder);
-        m_dispatch = reinterpret_cast<detail::ViewDispatch *>(memory);
-    } catch (...) {
-        m_builder.get().deallocate(memory);
-        throw;
+    Value::Value(const value::TypeMeta &schema)
+        : m_builder(&ValueBuilderFactory::checked_builder_for(&schema))
+    {
+        allocate_and_construct();
     }
-}
 
-Value::Value(Value &&other)
-    : m_builder(other.m_builder)
-{
-    m_dispatch       = other.m_dispatch;
-    other.m_dispatch = nullptr;
-}
+    Value::Value(const Value &other)
+        : m_builder(other.m_builder)
+    {
+        if (!other.valid()) { return; }
 
-Value &Value::operator=(const Value &other)
-{
-    if (this != &other) {
-        if (&m_builder.get() != &other.m_builder.get()) {
+        if (builder().stores_inline_in_value_handle()) {
+            builder().copy_construct(storage_memory(), other.storage_memory(), other.builder());
+        } else {
+            m_storage.heap_memory = builder().allocate();
+            try {
+                builder().copy_construct(m_storage.heap_memory, other.storage_memory(), other.builder());
+            } catch (...) {
+                builder().deallocate(m_storage.heap_memory);
+                m_storage.heap_memory = nullptr;
+                throw;
+            }
+        }
+    }
+
+    Value::Value(Value &&other) noexcept
+        : m_builder(other.m_builder)
+    {
+        if (!other.valid()) { return; }
+
+        if (builder().stores_inline_in_value_handle()) {
+            builder().move_construct(storage_memory(), other.storage_memory(), other.builder());
+        } else {
+            m_storage.heap_memory = other.m_storage.heap_memory;
+            other.m_storage.heap_memory = nullptr;
+        }
+    }
+
+    Value &Value::operator=(const Value &other)
+    {
+        if (this == &other) { return *this; }
+        if (&builder() != &other.builder()) {
             throw std::invalid_argument("Value copy assignment requires matching builder");
         }
 
-        if (other.m_dispatch == nullptr) {
+        if (!other.valid()) {
             reset();
             return *this;
         }
 
-        void *replacement = m_builder.get().allocate();
+        if (builder().stores_inline_in_value_handle()) {
+            if (valid()) { reset(); }
+            builder().copy_construct(storage_memory(), other.storage_memory(), other.builder());
+            return *this;
+        }
+
+        void *replacement = builder().allocate();
         try {
-            m_builder.get().copy_construct(replacement, other.m_dispatch, other.m_builder);
+            builder().copy_construct(replacement, other.storage_memory(), other.builder());
         } catch (...) {
-            m_builder.get().deallocate(replacement);
+            builder().deallocate(replacement);
             throw;
         }
 
         reset();
-        m_dispatch = reinterpret_cast<detail::ViewDispatch *>(replacement);
+        m_storage.heap_memory = replacement;
+        return *this;
     }
-    return *this;
-}
 
-Value &Value::operator=(Value &&other)
-{
-    if (this != &other) {
-        if (&m_builder.get() != &other.m_builder.get()) {
+    Value &Value::operator=(Value &&other)
+    {
+        if (this == &other) { return *this; }
+        if (&builder() != &other.builder()) {
             throw std::invalid_argument("Value move assignment requires matching builder");
         }
 
         reset();
-        m_dispatch       = other.m_dispatch;
-        other.m_dispatch = nullptr;
-    }
-    return *this;
-}
+        if (!other.valid()) { return *this; }
 
-Value::~Value()
-{
-    reset();
-}
-
-bool Value::valid() const noexcept
-{
-    return m_dispatch != nullptr;
-}
-
-Value::operator bool() const noexcept
-{
-    return valid();
-}
-
-const value::TypeMeta *Value::schema() const noexcept
-{
-    return &m_builder.get().schema();
-}
-
-View Value::view() noexcept
-{
-    return View{m_dispatch, schema()};
-}
-
-View Value::view() const noexcept
-{
-    return View{m_dispatch, schema()};
-}
-
-void Value::allocate_and_construct()
-{
-    void *memory = m_builder.get().allocate();
-    try {
-        m_builder.get().construct(memory);
-        m_dispatch = reinterpret_cast<detail::ViewDispatch *>(memory);
-    } catch (...) {
-        m_builder.get().deallocate(memory);
-        throw;
-    }
-}
-
-void Value::reset() noexcept
-{
-    if (m_dispatch != nullptr) {
-        if (m_builder.get().requires_destroy()) {
-            m_builder.get().destroy(m_dispatch);
+        if (builder().stores_inline_in_value_handle()) {
+            builder().move_construct(storage_memory(), other.storage_memory(), other.builder());
+        } else {
+            m_storage.heap_memory = other.m_storage.heap_memory;
+            other.m_storage.heap_memory = nullptr;
         }
-        if (m_builder.get().requires_deallocate()) {
-            m_builder.get().deallocate(m_dispatch);
-        }
-        m_dispatch = nullptr;
+        return *this;
     }
-}
+
+    Value::~Value()
+    {
+        reset();
+    }
+
+    bool Value::valid() const noexcept
+    {
+        return builder().stores_inline_in_value_handle() || m_storage.heap_memory != nullptr;
+    }
+
+    Value::operator bool() const noexcept
+    {
+        return valid();
+    }
+
+    const value::TypeMeta *Value::schema() const noexcept
+    {
+        return &builder().schema();
+    }
+
+    View Value::view() noexcept
+    {
+        return View{&builder().dispatch(), valid() ? storage_memory() : nullptr, schema()};
+    }
+
+    View Value::view() const noexcept
+    {
+        return View{&builder().dispatch(), valid() ? const_cast<void *>(storage_memory()) : nullptr, schema()};
+    }
+
+    void Value::allocate_and_construct()
+    {
+        if (builder().stores_inline_in_value_handle()) {
+            builder().construct(storage_memory());
+            return;
+        }
+
+        m_storage.heap_memory = builder().allocate();
+        try {
+            builder().construct(m_storage.heap_memory);
+        } catch (...) {
+            builder().deallocate(m_storage.heap_memory);
+            m_storage.heap_memory = nullptr;
+            throw;
+        }
+    }
+
+    void Value::reset() noexcept
+    {
+        if (!valid()) { return; }
+
+        if (builder().requires_destroy()) {
+            builder().destroy(storage_memory());
+        }
+        if (builder().requires_deallocate() && !builder().stores_inline_in_value_handle()) {
+            builder().deallocate(m_storage.heap_memory);
+            m_storage.heap_memory = nullptr;
+        }
+    }
+
+    void *Value::storage_memory() noexcept
+    {
+        return builder().stores_inline_in_value_handle()
+                   ? static_cast<void *>(m_storage.inline_storage.data())
+                   : m_storage.heap_memory;
+    }
+
+    const void *Value::storage_memory() const noexcept
+    {
+        return builder().stores_inline_in_value_handle()
+                   ? static_cast<const void *>(m_storage.inline_storage.data())
+                   : m_storage.heap_memory;
+    }
+
+    const ValueBuilder &Value::builder() const noexcept
+    {
+        return *m_builder;
+    }
 
 }  // namespace hgraph

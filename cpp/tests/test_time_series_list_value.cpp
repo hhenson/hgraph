@@ -6,6 +6,7 @@
 
 #include <compare>
 #include <cstdint>
+#include <string>
 
 namespace {
 
@@ -61,13 +62,57 @@ TEST_CASE("Lists preserve invalid element slots", "[time_series][value][list]")
     Value value{*schema};
     auto  list = value.view().as_list();
 
-    list.set(1, hgraph::View{nullptr, value::scalar_type_meta<int32_t>()});
+    list.set(1, hgraph::View::invalid_for(value::scalar_type_meta<int32_t>()));
 
     CHECK(list[0].valid());
     CHECK_FALSE(list[1].valid());
     CHECK(list[1].schema() == value::scalar_type_meta<int32_t>());
     CHECK(list[2].valid());
     CHECK(value.view().to_string() == "[0, None, 0]");
+}
+
+TEST_CASE("Fixed lists clear by invalidating each slot", "[time_series][value][list]")
+{
+    const value::TypeMeta *schema = value::TypeRegistry::instance().fixed_list(value::scalar_type_meta<int32_t>(), 3).build();
+
+    Value value{*schema};
+    auto  list = value.view().as_list();
+
+    list.set(0, int32_t{1});
+    list.set(1, int32_t{2});
+    list.set(2, int32_t{3});
+
+    list.clear();
+
+    REQUIRE(list.size() == 3);
+    CHECK_FALSE(list[0].valid());
+    CHECK_FALSE(list[1].valid());
+    CHECK_FALSE(list[2].valid());
+    CHECK(value.view().to_string() == "[None, None, None]");
+}
+
+TEST_CASE("Fixed lists clear releases non-trivial payloads and keeps slots writable", "[time_series][value][list]")
+{
+    const value::TypeMeta *schema = value::TypeRegistry::instance().fixed_list(value::scalar_type_meta<std::string>(), 2).build();
+
+    Value value{*schema};
+    auto  list = value.view().as_list();
+
+    list.set(0, std::string{"alpha"});
+    list.set(1, std::string{"beta"});
+
+    list.clear();
+
+    REQUIRE(list.size() == 2);
+    CHECK_FALSE(list[0].valid());
+    CHECK_FALSE(list[1].valid());
+
+    list.set(0, std::string{"gamma"});
+    list.set(1, std::string{"delta"});
+
+    CHECK(list[0].as_atomic().as<std::string>() == "gamma");
+    CHECK(list[1].as_atomic().as<std::string>() == "delta");
+    CHECK(value.view().to_string() == "[gamma, delta]");
 }
 
 TEST_CASE("List comparison is lexicographic within a schema", "[time_series][value][list]")

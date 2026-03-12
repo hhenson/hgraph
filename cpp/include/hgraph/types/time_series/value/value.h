@@ -4,166 +4,165 @@
 #include <hgraph/types/time_series/value/atomic.h>
 #include <hgraph/types/time_series/value/list.h>
 
-#include <functional>
+#include <array>
+#include <cstddef>
 #include <type_traits>
 #include <utility>
 
-namespace hgraph {
-
-struct ValueBuilder;
-
-/**
- * Owning schema-bound value shell.
- *
- * `Value` owns a memory block selected by a schema-bound `ValueBuilder`. The
- * builder captures the resolved storage requirements for the schema, including
- * total size, alignment, and the state-ops dispatcher used to construct,
- * destroy, copy, move, and view the stored state.
- *
- * Keeping allocation on the builder side makes the ownership model line up
- * with the intended future design for nested schemas: the builder decides the
- * cumulative memory requirement for the represented schema subtree, while the
- * concrete state ops are only responsible for constructing into the supplied
- * memory.
- */
-struct Value
+namespace hgraph
 {
+
+    struct ValueBuilder;
+
     /**
-     * Construct storage for the supplied schema.
+     * Owning schema-bound value.
      *
-     * `Value` is schema-bound at construction time and keeps that schema for its
-     * lifetime.
-     */
-    explicit Value(const value::TypeMeta &schema);
-
-    /**
-     * Copy the stored value while preserving the bound schema.
-     */
-    Value(const Value &other);
-
-    /**
-     * Move the stored value while preserving the bound schema.
+     * `Value` owns storage and delegates behavior to the schema-resolved
+     * dispatch cached on its builder. The storage itself is plain data.
      *
-     * The moved-from value retains its schema binding but releases ownership of
-     * its stored payload. It remains assignable and destructible, but no longer
-     * reports a live payload until storage is assigned again.
-     */
-    Value(Value &&other);
-
-    /**
-     * Assignment is allowed only when both values already describe the same
-     * schema.
+     * Validity follows the storage model rather than being tracked separately:
+     * - values stored inline in the handle are always live
+     * - heap-backed values are live when the owned heap pointer is non-null
      *
-     * This preserves the invariant that a `Value` does not rebind its schema
-     * after construction. Rebinding would require a different semantic choice
-     * for destruction and reconstruction, so it is intentionally rejected.
+     * This keeps the representation simple and matches the intended meaning of
+     * invalidity in this layer: only storage-owning heap representations become
+     * empty after ownership transfer. Inline representations remain valid after
+     * move, with the usual moved-from payload semantics of C++ objects.
      */
-    Value &operator=(const Value &other);
+    struct Value
+    {
+        /**
+         * Bind this value to the supplied schema and default-construct storage
+         * for that schema.
+         */
+        explicit Value(const value::TypeMeta &schema);
+        /**
+         * Copy the stored payload while preserving the schema selected by the
+         * builder.
+         */
+        Value(const Value &other);
+        /**
+         * Move the stored payload while preserving the schema selected by the
+         * builder.
+         *
+         * Inline-storage values remain live after move. Heap-backed values
+         * transfer their owned storage and leave the source storage-empty.
+         */
+        Value(Value &&other) noexcept;
+        /**
+         * Replace the payload from another value with the same builder.
+         *
+         * Assignment does not permit schema rebinding. Matching builder identity
+         * is the contract that guarantees the same layout and behavior.
+         */
+        Value &operator=(const Value &other);
+        /**
+         * Replace the payload by moving from another value with the same
+         * builder.
+         */
+        Value &operator=(Value &&other);
+        /**
+         * Destroy any live payload owned by this value.
+         */
+        ~Value();
 
-    /**
-     * Move assignment follows the same matching-schema rule as copy
-     * assignment.
-     *
-     * The moved-from value retains its schema binding but releases ownership of
-     * its stored payload.
-     */
-    Value &operator=(Value &&other);
+        /**
+         * Return whether this value currently owns live storage.
+         *
+         * Inline-storage values are always live. Heap-backed values are live
+         * when their owned pointer is non-null.
+         */
+        [[nodiscard]] bool valid() const noexcept;
+        explicit operator bool() const noexcept;
+        /**
+         * Return the schema bound to this value.
+         *
+         * The schema remains available even when a heap-backed value is storage
+         * empty because the builder reference is always retained.
+         */
+        [[nodiscard]] const value::TypeMeta *schema() const noexcept;
+        /**
+         * Return a mutable erased view over the stored payload.
+         */
+        [[nodiscard]] View view() noexcept;
+        /**
+         * Return a const erased view over the stored payload.
+         */
+        [[nodiscard]] View view() const noexcept;
 
-    /**
-     * Destroy the currently stored payload and release its allocated memory.
-     */
-    ~Value();
+      private:
+        union Storage
+        {
+            void                                     *heap_memory;
+            alignas(void *) std::array<std::byte, sizeof(void *)> inline_storage;
 
-    /**
-     * Return `true` when this value currently owns live storage for its bound
-     * schema.
-     *
-     * Moved-from values retain their schema binding but report `false` here
-     * until storage is assigned again.
-     */
-    [[nodiscard]] bool valid() const noexcept;
+            Storage() noexcept : heap_memory(nullptr) {}
+        };
 
-    /**
-     * Return `true` when this value currently owns live storage for its bound
-     * schema.
-     */
-    explicit operator bool() const noexcept;
+        /**
+         * Allocate storage when required and default-construct the schema-bound
+         * payload into that storage.
+         */
+        void allocate_and_construct();
+        /**
+         * Destroy any live payload and release owned heap storage.
+         *
+         * This leaves heap-backed values storage-empty. Inline-storage values
+         * do not have an externally observable invalid state.
+         */
+        void reset() noexcept;
+        /**
+         * Return the raw memory block that holds the payload.
+         *
+         * Depending on the builder, this may be the inline handle storage or a
+         * separately allocated block.
+         */
+        [[nodiscard]] void *storage_memory() noexcept;
+        /**
+         * Return the raw memory block that holds the payload.
+         */
+        [[nodiscard]] const void *storage_memory() const noexcept;
+        /**
+         * Return the schema-bound builder.
+         */
+        [[nodiscard]] const ValueBuilder &builder() const noexcept;
 
-    /**
-     * Return the schema bound to this value.
-     */
-    [[nodiscard]] const value::TypeMeta *schema() const noexcept;
+        /**
+         * Schema-bound builder describing storage layout and behavior dispatch.
+         */
+        const ValueBuilder *m_builder{nullptr};
+        Storage             m_storage;
+    };
 
-    /**
-     * Return a mutable erased view over the stored payload.
-     */
-    [[nodiscard]] View view() noexcept;
+    template <typename T> inline void View::set(T &&value)
+    {
+        if (!valid()) { throw std::runtime_error("View::set(T) on invalid view"); }
 
-    /**
-     * Return a const erased view over the stored payload.
-     */
-    [[nodiscard]] View view() const noexcept;
-
-  private:
-    /**
-     * Allocate memory and default-construct the schema-selected state into it.
-     */
-    void allocate_and_construct();
-
-    /**
-     * Destroy the current payload and release its allocated memory.
-     */
-    void reset() noexcept;
-
-    std::reference_wrapper<const ValueBuilder> m_builder;
-    detail::ViewDispatch                      *m_dispatch{nullptr};
-};
-
-template <typename T> inline void View::set(T &&value)
-{
-    if (!valid()) { throw std::runtime_error("View::set(T) on invalid view"); }
-
-    using TValue = std::remove_cvref_t<T>;
-    if constexpr (std::is_lvalue_reference_v<T &&>) {
-        dispatch()->set_from_cpp(std::addressof(value), value::scalar_type_meta<TValue>());
-    } else {
-        dispatch()->move_from_cpp(std::addressof(value), value::scalar_type_meta<TValue>());
+        using TValue = std::remove_cvref_t<T>;
+        if constexpr (std::is_lvalue_reference_v<T &&>) {
+            dispatch()->set_from_cpp(data(), std::addressof(value), value::scalar_type_meta<TValue>());
+        } else {
+            TValue moved_value = std::forward<T>(value);
+            dispatch()->move_from_cpp(data(), std::addressof(moved_value), value::scalar_type_meta<TValue>());
+        }
     }
-}
 
-/**
- * Construct a transient schema-bound value from a raw atomic payload.
- *
- * This is intended for short-lived values that need to participate in the new
- * erased value layer without manually constructing a default `Value` and then
- * mutating it through `view().as_atomic()`.
- */
-template <typename T>
-[[nodiscard]] Value value_for(T &&value)
-{
-    using TValue = std::remove_cvref_t<T>;
+    template <typename T>
+    [[nodiscard]] Value value_for(T &&value)
+    {
+        using TValue = std::remove_cvref_t<T>;
 
-    Value out{*value::scalar_type_meta<TValue>()};
-    out.view().as_atomic().set(std::forward<T>(value));
-    return out;
-}
+        Value out{*value::scalar_type_meta<TValue>()};
+        out.view().as_atomic().set(std::forward<T>(value));
+        return out;
+    }
 
-/**
- * Construct a transient schema-bound value from a raw C++ object using an
- * explicit target schema.
- *
- * This is intended for short-lived values where the source C++ type is simple
- * but the target schema may later describe richer structures. The actual
- * construction is delegated to `View::set(T)`, which currently supports atomic
- * schemas and is expected to grow native collection construction surfaces over
- * time.
- */
-template <typename T>
-[[nodiscard]] Value value_for(const value::TypeMeta &schema, T &&value)
-{
-    Value out{schema};
-    out.view().set(std::forward<T>(value));
-    return out;
-}
+    template <typename T>
+    [[nodiscard]] Value value_for(const value::TypeMeta &schema, T &&value)
+    {
+        Value out{schema};
+        out.view().set(std::forward<T>(value));
+        return out;
+    }
 
 }  // namespace hgraph

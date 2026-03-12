@@ -78,11 +78,19 @@ TEST_CASE("Atomic value copy and move preserve payload semantics", "[time_series
     Value moved{std::move(source)};
     CHECK(moved.view().as_atomic().as<int32_t>() == 42);
 
-    CHECK_FALSE(source.valid());
+    CHECK(source.valid());
     CHECK(source.view().schema() == value::scalar_type_meta<int32_t>());
-    CHECK_FALSE(source.view().valid());
-    CHECK(source.view().eq(source.view()));
-    CHECK((source.view() <=> source.view()) == std::partial_ordering::equivalent);
+    CHECK(source.view().valid());
+
+    Value string_source = value_for(std::string{"moved"});
+    Value string_moved{std::move(string_source)};
+
+    CHECK(string_moved.view().as_atomic().as<std::string>() == "moved");
+    CHECK_FALSE(string_source.valid());
+    CHECK(string_source.view().schema() == value::scalar_type_meta<std::string>());
+    CHECK_FALSE(string_source.view().valid());
+    CHECK(string_source.view().eq(string_source.view()));
+    CHECK((string_source.view() <=> string_source.view()) == std::partial_ordering::equivalent);
 }
 
 TEST_CASE("Atomic value assignment requires matching builder identity", "[time_series][value][atomic]")
@@ -107,15 +115,12 @@ TEST_CASE("Atomic builders cache lifecycle traits for the resolved state", "[tim
     const auto &integer_builder = ValueBuilderFactory::checked_builder_for(value::scalar_type_meta<int32_t>());
     const auto &string_builder  = ValueBuilderFactory::checked_builder_for(value::scalar_type_meta<std::string>());
 
-    // Under the current erased-state design, even trivially destructible atomic
-    // payloads sit inside a full state object with virtual dispatch.
-    CHECK(integer_builder.requires_destroy());
+    // Pointer-sized trivial atomics are stored directly in the `Value` handle,
+    // so they require neither destruction nor separate allocation.
+    CHECK_FALSE(integer_builder.requires_destroy());
     CHECK(string_builder.requires_destroy());
 
-    // The current `Value` handle model still stores all supported atomic
-    // states in separately allocated storage, even when the payload itself is
-    // inline within the atomic state.
-    CHECK(integer_builder.requires_deallocate());
+    CHECK_FALSE(integer_builder.requires_deallocate());
     CHECK(string_builder.requires_deallocate());
 }
 
