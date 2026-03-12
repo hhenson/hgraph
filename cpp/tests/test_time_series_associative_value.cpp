@@ -287,3 +287,23 @@ TEST_CASE("Associative mutation scopes support fluent command-style chaining")
     CHECK(map.contains(key_b.view()));
     CHECK(map.at(key_b.view()).as_atomic().as<int32_t>() == 200);
 }
+
+TEST_CASE("Associative mutation scopes accept native C++ values directly")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+    const auto *set_schema = registry.set(hgraph::value::scalar_type_meta<int32_t>()).build();
+    const auto *map_schema =
+        registry.map(hgraph::value::scalar_type_meta<int32_t>(), hgraph::value::scalar_type_meta<std::string>()).build();
+
+    hgraph::Value set_value{*set_schema};
+    auto set = set_value.set_view();
+    set.begin_mutation().adding(int32_t{1}).adding(int32_t{2}).removing(int32_t{1});
+    CHECK_FALSE(set.contains(hgraph::value_for(int32_t{1}).view()));
+    CHECK(set.contains(hgraph::value_for(int32_t{2}).view()));
+
+    hgraph::Value map_value{*map_schema};
+    auto map = map_value.map_view();
+    map.begin_mutation().setting(int32_t{7}, std::string{"seven"}).setting(int32_t{8}, std::string{"eight"}).removing(int32_t{7});
+    CHECK_FALSE(map.contains(hgraph::value_for(int32_t{7}).view()));
+    CHECK(map.at(hgraph::value_for(int32_t{8}).view()).as_atomic().as<std::string>() == "eight");
+}

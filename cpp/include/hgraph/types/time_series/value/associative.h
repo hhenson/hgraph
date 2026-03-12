@@ -4,6 +4,8 @@
 #include <hgraph/types/time_series/value/view.h>
 
 #include <cstddef>
+#include <type_traits>
+#include <utility>
 
 namespace hgraph
 {
@@ -171,6 +173,24 @@ namespace hgraph
          * Insert a new live element into the set.
          */
         [[nodiscard]] bool add(const View &value);
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        [[nodiscard]] bool add(T &&value)
+        {
+            auto *dispatch = set_dispatch();
+            if (dispatch == nullptr) { throw std::runtime_error("SetMutationView::add on invalid view"); }
+            using TValue = std::remove_cvref_t<T>;
+            if (&dispatch->element_schema() != value::scalar_type_meta<TValue>()) {
+                throw std::invalid_argument("SetMutationView::add requires a matching atomic element schema");
+            }
+            if constexpr (std::is_lvalue_reference_v<T &&>) {
+                return dispatch->add(data(), std::addressof(value));
+            } else {
+                TValue moved_value = std::forward<T>(value);
+                return dispatch->add(data(), std::addressof(moved_value));
+            }
+        }
         /**
          * Insert a new live element into the set and return this mutation scope.
          *
@@ -178,10 +198,36 @@ namespace hgraph
          * the boolean "was inserted" result from `add(...)`.
          */
         SetMutationView &adding(const View &value);
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        SetMutationView &adding(T &&value)
+        {
+            add(std::forward<T>(value));
+            return *this;
+        }
         /**
          * Remove a live element from the set.
          */
         [[nodiscard]] bool remove(const View &value);
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        [[nodiscard]] bool remove(T &&value)
+        {
+            auto *dispatch = set_dispatch();
+            if (dispatch == nullptr) { throw std::runtime_error("SetMutationView::remove on invalid view"); }
+            using TValue = std::remove_cvref_t<T>;
+            if (&dispatch->element_schema() != value::scalar_type_meta<TValue>()) {
+                throw std::invalid_argument("SetMutationView::remove requires a matching atomic element schema");
+            }
+            if constexpr (std::is_lvalue_reference_v<T &&>) {
+                return dispatch->remove(data(), std::addressof(value));
+            } else {
+                TValue moved_value = std::forward<T>(value);
+                return dispatch->remove(data(), std::addressof(moved_value));
+            }
+        }
         /**
          * Remove a live element from the set and return this mutation scope.
          *
@@ -189,6 +235,14 @@ namespace hgraph
          * the boolean "was removed" result from `remove(...)`.
          */
         SetMutationView &removing(const View &value);
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        SetMutationView &removing(T &&value)
+        {
+            remove(std::forward<T>(value));
+            return *this;
+        }
         /**
          * Remove every live element from the set.
          */
@@ -286,15 +340,73 @@ namespace hgraph
          * Insert or replace the value for a key.
          */
         void set(const View &key, const View &value);
+
+        template <typename TKey, typename TValue>
+            requires(!std::derived_from<std::remove_cvref_t<TKey>, View> &&
+                     !std::derived_from<std::remove_cvref_t<TValue>, View>)
+        void set(TKey &&key, TValue &&value)
+        {
+            auto *dispatch = map_dispatch();
+            if (dispatch == nullptr) { throw std::runtime_error("MapMutationView::set on invalid view"); }
+            using TKeyValue = std::remove_cvref_t<TKey>;
+            using TMappedValue = std::remove_cvref_t<TValue>;
+            if (&dispatch->key_schema() != value::scalar_type_meta<TKeyValue>()) {
+                throw std::invalid_argument("MapMutationView::set requires a matching atomic key schema");
+            }
+            if (&dispatch->value_schema() != value::scalar_type_meta<TMappedValue>()) {
+                throw std::invalid_argument("MapMutationView::set requires a matching atomic value schema");
+            }
+
+            if constexpr (std::is_lvalue_reference_v<TKey &&> && std::is_lvalue_reference_v<TValue &&>) {
+                dispatch->set_item(data(), std::addressof(key), std::addressof(value));
+            } else if constexpr (std::is_lvalue_reference_v<TKey &&>) {
+                TMappedValue mapped_value = std::forward<TValue>(value);
+                dispatch->set_item(data(), std::addressof(key), std::addressof(mapped_value));
+            } else if constexpr (std::is_lvalue_reference_v<TValue &&>) {
+                TKeyValue key_value = std::forward<TKey>(key);
+                dispatch->set_item(data(), std::addressof(key_value), std::addressof(value));
+            } else {
+                TKeyValue key_value = std::forward<TKey>(key);
+                TMappedValue mapped_value = std::forward<TValue>(value);
+                dispatch->set_item(data(), std::addressof(key_value), std::addressof(mapped_value));
+            }
+        }
         /**
          * Insert or replace the value for a key and return this mutation
          * scope.
          */
         MapMutationView &setting(const View &key, const View &value);
+
+        template <typename TKey, typename TValue>
+            requires(!std::derived_from<std::remove_cvref_t<TKey>, View> &&
+                     !std::derived_from<std::remove_cvref_t<TValue>, View>)
+        MapMutationView &setting(TKey &&key, TValue &&value)
+        {
+            set(std::forward<TKey>(key), std::forward<TValue>(value));
+            return *this;
+        }
         /**
          * Remove a live key and its value from the map.
          */
         [[nodiscard]] bool remove(const View &key);
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        [[nodiscard]] bool remove(T &&key)
+        {
+            auto *dispatch = map_dispatch();
+            if (dispatch == nullptr) { throw std::runtime_error("MapMutationView::remove on invalid view"); }
+            using TKeyValue = std::remove_cvref_t<T>;
+            if (&dispatch->key_schema() != value::scalar_type_meta<TKeyValue>()) {
+                throw std::invalid_argument("MapMutationView::remove requires a matching atomic key schema");
+            }
+            if constexpr (std::is_lvalue_reference_v<T &&>) {
+                return dispatch->remove(data(), std::addressof(key));
+            } else {
+                TKeyValue key_value = std::forward<T>(key);
+                return dispatch->remove(data(), std::addressof(key_value));
+            }
+        }
         /**
          * Remove a live key and its value from the map and return this mutation
          * scope.
@@ -303,6 +415,14 @@ namespace hgraph
          * the boolean "was removed" result from `remove(...)`.
          */
         MapMutationView &removing(const View &key);
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        MapMutationView &removing(T &&key)
+        {
+            remove(std::forward<T>(key));
+            return *this;
+        }
         /**
          * Remove every live key/value pair from the map.
          */

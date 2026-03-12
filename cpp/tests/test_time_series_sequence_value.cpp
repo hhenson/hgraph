@@ -85,3 +85,22 @@ TEST_CASE("Buffer mutation views retain only the last removed payload in a scope
     CHECK(queue.has_removed());
     CHECK(queue.removed().as_atomic().as<int32_t>() == 20);
 }
+
+TEST_CASE("Buffer mutation views accept native C++ values directly")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+    const auto *cyclic_schema = registry.cyclic_buffer(hgraph::value::scalar_type_meta<int32_t>(), 2).build();
+    const auto *queue_schema = registry.queue(hgraph::value::scalar_type_meta<int32_t>()).max_capacity(2).build();
+
+    hgraph::Value cyclic_value{*cyclic_schema};
+    auto cyclic = cyclic_value.cyclic_buffer_view();
+    cyclic.begin_mutation().pushing(int32_t{1}).pushing(int32_t{2}).setting(0, int32_t{3});
+    CHECK(cyclic[0].as_atomic().as<int32_t>() == 3);
+    CHECK(cyclic[1].as_atomic().as<int32_t>() == 2);
+
+    hgraph::Value queue_value{*queue_schema};
+    auto queue = queue_value.queue_view();
+    queue.begin_mutation().pushing(int32_t{10}).pushing(int32_t{20}).pushing(int32_t{30});
+    CHECK(queue.front().as_atomic().as<int32_t>() == 20);
+    CHECK(queue.back().as_atomic().as<int32_t>() == 30);
+}

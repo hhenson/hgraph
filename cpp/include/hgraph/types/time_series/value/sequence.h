@@ -167,12 +167,38 @@ namespace hgraph
          */
         void push(const View &value);
 
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        void push(T &&value)
+        {
+            auto *dispatch = buffer_dispatch();
+            if (dispatch == nullptr) { throw std::runtime_error("BufferMutationView::push on invalid view"); }
+            using TValue = std::remove_cvref_t<T>;
+            if (&dispatch->element_schema() != value::scalar_type_meta<TValue>()) {
+                throw std::invalid_argument("BufferMutationView::push requires a matching atomic element schema");
+            }
+            if constexpr (std::is_lvalue_reference_v<T &&>) {
+                dispatch->push(data(), std::addressof(value));
+            } else {
+                TValue moved_value = std::forward<T>(value);
+                dispatch->push(data(), std::addressof(moved_value));
+            }
+        }
+
         /**
          * Push a value and return this mutation view for fluent chains.
          */
         BufferMutationView &pushing(const View &value)
         {
             push(value);
+            return *this;
+        }
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        BufferMutationView &pushing(T &&value)
+        {
+            push(std::forward<T>(value));
             return *this;
         }
 
@@ -226,12 +252,38 @@ namespace hgraph
          */
         void push(const View &value);
 
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        void push(T &&value)
+        {
+            auto *dispatch = buffer_dispatch();
+            if (dispatch == nullptr) { throw std::runtime_error("CyclicBufferMutationView::push on invalid view"); }
+            using TValue = std::remove_cvref_t<T>;
+            if (&dispatch->element_schema() != value::scalar_type_meta<TValue>()) {
+                throw std::invalid_argument("CyclicBufferMutationView::push requires a matching atomic element schema");
+            }
+            if constexpr (std::is_lvalue_reference_v<T &&>) {
+                dispatch->push(data(), std::addressof(value));
+            } else {
+                TValue moved_value = std::forward<T>(value);
+                dispatch->push(data(), std::addressof(moved_value));
+            }
+        }
+
         /**
          * Push a value and return this mutation view for fluent chains.
          */
         CyclicBufferMutationView &pushing(const View &value)
         {
             push(value);
+            return *this;
+        }
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        CyclicBufferMutationView &pushing(T &&value)
+        {
+            push(std::forward<T>(value));
             return *this;
         }
 
@@ -270,6 +322,24 @@ namespace hgraph
          */
         void set(size_t index, const View &value);
 
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        void set(size_t index, T &&value)
+        {
+            auto *dispatch = cyclic_dispatch();
+            if (dispatch == nullptr) { throw std::runtime_error("CyclicBufferMutationView::set on invalid view"); }
+            using TValue = std::remove_cvref_t<T>;
+            if (&dispatch->element_schema() != value::scalar_type_meta<TValue>()) {
+                throw std::invalid_argument("CyclicBufferMutationView::set requires a matching atomic element schema");
+            }
+            if constexpr (std::is_lvalue_reference_v<T &&>) {
+                dispatch->set_at(data(), index, std::addressof(value));
+            } else {
+                TValue moved_value = std::forward<T>(value);
+                dispatch->set_at(data(), index, std::addressof(moved_value));
+            }
+        }
+
         /**
          * Replace the value at the supplied logical index and return this
          * mutation view for fluent chains.
@@ -277,6 +347,14 @@ namespace hgraph
         CyclicBufferMutationView &setting(size_t index, const View &value)
         {
             set(index, value);
+            return *this;
+        }
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        CyclicBufferMutationView &setting(size_t index, T &&value)
+        {
+            set(index, std::forward<T>(value));
             return *this;
         }
 
@@ -301,12 +379,38 @@ namespace hgraph
          */
         void push(const View &value);
 
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        void push(T &&value)
+        {
+            auto *dispatch = buffer_dispatch();
+            if (dispatch == nullptr) { throw std::runtime_error("QueueMutationView::push on invalid view"); }
+            using TValue = std::remove_cvref_t<T>;
+            if (&dispatch->element_schema() != value::scalar_type_meta<TValue>()) {
+                throw std::invalid_argument("QueueMutationView::push requires a matching atomic element schema");
+            }
+            if constexpr (std::is_lvalue_reference_v<T &&>) {
+                dispatch->push(data(), std::addressof(value));
+            } else {
+                TValue moved_value = std::forward<T>(value);
+                dispatch->push(data(), std::addressof(moved_value));
+            }
+        }
+
         /**
          * Push a value and return this mutation view for fluent chains.
          */
         QueueMutationView &pushing(const View &value)
         {
             push(value);
+            return *this;
+        }
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        QueueMutationView &pushing(T &&value)
+        {
+            push(std::forward<T>(value));
             return *this;
         }
 
