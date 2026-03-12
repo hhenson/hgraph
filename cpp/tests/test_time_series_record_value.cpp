@@ -3,6 +3,18 @@
 #include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/value/type_registry.h>
 
+#include <type_traits>
+
+static_assert(!std::is_copy_constructible_v<hgraph::TupleMutationView>);
+static_assert(!std::is_copy_assignable_v<hgraph::TupleMutationView>);
+static_assert(std::is_move_constructible_v<hgraph::TupleMutationView>);
+static_assert(!std::is_move_assignable_v<hgraph::TupleMutationView>);
+
+static_assert(!std::is_copy_constructible_v<hgraph::BundleMutationView>);
+static_assert(!std::is_copy_assignable_v<hgraph::BundleMutationView>);
+static_assert(std::is_move_constructible_v<hgraph::BundleMutationView>);
+static_assert(!std::is_move_assignable_v<hgraph::BundleMutationView>);
+
 TEST_CASE("Tuple values support positional heterogeneous access")
 {
     auto &registry = hgraph::value::TypeRegistry::instance();

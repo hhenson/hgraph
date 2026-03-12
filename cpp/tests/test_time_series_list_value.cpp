@@ -7,12 +7,18 @@
 #include <compare>
 #include <cstdint>
 #include <string>
+#include <type_traits>
 
 namespace {
 
 using hgraph::Value;
 using hgraph::ValueBuilderFactory;
 namespace value = hgraph::value;
+
+static_assert(!std::is_copy_constructible_v<hgraph::ListMutationView>);
+static_assert(!std::is_copy_assignable_v<hgraph::ListMutationView>);
+static_assert(std::is_move_constructible_v<hgraph::ListMutationView>);
+static_assert(!std::is_move_assignable_v<hgraph::ListMutationView>);
 
 TEST_CASE("Fixed lists default construct inline atomic elements", "[time_series][value][list]")
 {

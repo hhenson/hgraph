@@ -12,6 +12,8 @@ namespace hgraph
 
     struct SetMutationView;
     struct MapMutationView;
+    struct SetDeltaView;
+    struct MapDeltaView;
 
     struct ValueBuilder;
 
@@ -47,6 +49,8 @@ namespace hgraph
             [[nodiscard]] virtual void *element_data(void *data, size_t index) const = 0;
             [[nodiscard]] virtual const void *element_data(const void *data, size_t index) const = 0;
             [[nodiscard]] virtual bool slot_occupied(const void *data, size_t slot) const noexcept = 0;
+            [[nodiscard]] virtual bool slot_added(const void *data, size_t slot) const noexcept = 0;
+            [[nodiscard]] virtual bool slot_removed(const void *data, size_t slot) const noexcept = 0;
             [[nodiscard]] virtual void *slot_data(void *data, size_t slot) const = 0;
             [[nodiscard]] virtual const void *slot_data(const void *data, size_t slot) const = 0;
             [[nodiscard]] virtual bool contains(const void *data, const void *element) const = 0;
@@ -84,6 +88,9 @@ namespace hgraph
             [[nodiscard]] virtual const ViewDispatch &value_dispatch() const noexcept = 0;
             [[nodiscard]] virtual size_t find(const void *data, const void *key) const = 0;
             [[nodiscard]] virtual bool slot_occupied(const void *data, size_t slot) const noexcept = 0;
+            [[nodiscard]] virtual bool slot_added(const void *data, size_t slot) const noexcept = 0;
+            [[nodiscard]] virtual bool slot_removed(const void *data, size_t slot) const noexcept = 0;
+            [[nodiscard]] virtual bool slot_updated(const void *data, size_t slot) const noexcept = 0;
             [[nodiscard]] virtual void *key_data(void *data, size_t index) const = 0;
             [[nodiscard]] virtual const void *key_data(const void *data, size_t index) const = 0;
             [[nodiscard]] virtual void *value_data(void *data, size_t index) const = 0;
@@ -113,15 +120,16 @@ namespace hgraph
          * smaller helpers without prematurely releasing removed slots.
          */
         SetMutationView begin_mutation();
+        /**
+         * Return the delta-inspection surface for the current mutation epoch.
+         */
+        [[nodiscard]] SetDeltaView delta();
+        [[nodiscard]] SetDeltaView delta() const;
         [[nodiscard]] size_t size() const;
         [[nodiscard]] bool empty() const;
-        [[nodiscard]] size_t slot_capacity() const;
         [[nodiscard]] const value::TypeMeta *element_schema() const;
         [[nodiscard]] View at(size_t index);
         [[nodiscard]] View at(size_t index) const;
-        [[nodiscard]] bool slot_occupied(size_t slot) const;
-        [[nodiscard]] View at_slot(size_t slot);
-        [[nodiscard]] View at_slot(size_t slot) const;
         [[nodiscard]] bool contains(const View &value) const;
 
       protected:
@@ -140,6 +148,34 @@ namespace hgraph
          * read-only view surface.
          */
         void end_mutation_scope() noexcept;
+        [[nodiscard]] const detail::SetViewDispatch *set_dispatch() const noexcept;
+    };
+
+    /**
+     * Slot-oriented delta surface for a set value.
+     *
+     * Delta inspection is separated from the normal set API for the same
+     * reason mutation is separated: slot retention and added/removed flags are
+     * time-series-oriented concerns rather than ordinary value-navigation
+     * concerns.
+     */
+    struct HGRAPH_EXPORT SetDeltaView : View
+    {
+        explicit SetDeltaView(const View &view);
+
+        [[nodiscard]] Range<View> added() const;
+        [[nodiscard]] Range<View> removed() const;
+        [[nodiscard]] size_t slot_capacity() const;
+        [[nodiscard]] bool slot_occupied(size_t slot) const;
+        [[nodiscard]] bool slot_added(size_t slot) const;
+        [[nodiscard]] bool slot_removed(size_t slot) const;
+        [[nodiscard]] View at_slot(size_t slot);
+        [[nodiscard]] View at_slot(size_t slot) const;
+
+      private:
+        [[nodiscard]] static bool slot_is_added(const void *context, size_t slot);
+        [[nodiscard]] static bool slot_is_removed(const void *context, size_t slot);
+        [[nodiscard]] static View project_slot(const void *context, size_t slot);
         [[nodiscard]] const detail::SetViewDispatch *set_dispatch() const noexcept;
     };
 
@@ -203,7 +239,7 @@ namespace hgraph
             requires(!std::derived_from<std::remove_cvref_t<T>, View>)
         SetMutationView &adding(T &&value)
         {
-            add(std::forward<T>(value));
+            static_cast<void>(add(std::forward<T>(value)));
             return *this;
         }
         /**
@@ -240,7 +276,7 @@ namespace hgraph
             requires(!std::derived_from<std::remove_cvref_t<T>, View>)
         SetMutationView &removing(T &&value)
         {
-            remove(std::forward<T>(value));
+            static_cast<void>(remove(std::forward<T>(value)));
             return *this;
         }
         /**
@@ -277,16 +313,15 @@ namespace hgraph
          * smaller helpers without prematurely releasing removed slots.
          */
         MapMutationView begin_mutation();
+        /**
+         * Return the delta-inspection surface for the current mutation epoch.
+         */
+        [[nodiscard]] MapDeltaView delta();
+        [[nodiscard]] MapDeltaView delta() const;
         [[nodiscard]] size_t size() const;
         [[nodiscard]] bool empty() const;
-        [[nodiscard]] size_t slot_capacity() const;
         [[nodiscard]] const value::TypeMeta *key_schema() const;
         [[nodiscard]] const value::TypeMeta *value_schema() const;
-        [[nodiscard]] bool slot_occupied(size_t slot) const;
-        [[nodiscard]] View key_at_slot(size_t slot);
-        [[nodiscard]] View key_at_slot(size_t slot) const;
-        [[nodiscard]] View value_at_slot(size_t slot);
-        [[nodiscard]] View value_at_slot(size_t slot) const;
         [[nodiscard]] bool contains(const View &key) const;
         [[nodiscard]] View at(const View &key);
         [[nodiscard]] View at(const View &key) const;
@@ -307,6 +342,45 @@ namespace hgraph
          * read-only view surface.
          */
         void end_mutation_scope() noexcept;
+        [[nodiscard]] const detail::MapViewDispatch *map_dispatch() const noexcept;
+    };
+
+    /**
+     * Slot-oriented delta surface for a map value.
+     *
+     * This view exposes retained removed payloads and the per-slot added /
+     * removed flags for the current mutation epoch without widening the normal
+     * live-map API.
+     */
+    struct HGRAPH_EXPORT MapDeltaView : View
+    {
+        explicit MapDeltaView(const View &view);
+
+        [[nodiscard]] Range<View> added_keys() const;
+        [[nodiscard]] Range<View> removed_keys() const;
+        [[nodiscard]] Range<View> updated_keys() const;
+        [[nodiscard]] Range<View> added_values() const;
+        [[nodiscard]] Range<View> removed_values() const;
+        [[nodiscard]] Range<View> updated_values() const;
+        [[nodiscard]] Range<std::pair<View, View>> added_items() const;
+        [[nodiscard]] Range<std::pair<View, View>> removed_items() const;
+        [[nodiscard]] Range<std::pair<View, View>> updated_items() const;
+        [[nodiscard]] size_t slot_capacity() const;
+        [[nodiscard]] bool slot_occupied(size_t slot) const;
+        [[nodiscard]] bool slot_added(size_t slot) const;
+        [[nodiscard]] bool slot_removed(size_t slot) const;
+        [[nodiscard]] View key_at_slot(size_t slot);
+        [[nodiscard]] View key_at_slot(size_t slot) const;
+        [[nodiscard]] View value_at_slot(size_t slot);
+        [[nodiscard]] View value_at_slot(size_t slot) const;
+
+      private:
+        [[nodiscard]] static bool slot_is_added(const void *context, size_t slot);
+        [[nodiscard]] static bool slot_is_removed(const void *context, size_t slot);
+        [[nodiscard]] static bool slot_is_updated(const void *context, size_t slot);
+        [[nodiscard]] static View project_key(const void *context, size_t slot);
+        [[nodiscard]] static View project_value(const void *context, size_t slot);
+        [[nodiscard]] static std::pair<View, View> project_item(const void *context, size_t slot);
         [[nodiscard]] const detail::MapViewDispatch *map_dispatch() const noexcept;
     };
 
@@ -420,7 +494,7 @@ namespace hgraph
             requires(!std::derived_from<std::remove_cvref_t<T>, View>)
         MapMutationView &removing(T &&key)
         {
-            remove(std::forward<T>(key));
+            static_cast<void>(remove(std::forward<T>(key)));
             return *this;
         }
         /**

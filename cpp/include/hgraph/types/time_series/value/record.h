@@ -111,7 +111,23 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT TupleMutationView : TupleView
     {
+        /**
+         * Open a mutable tuple surface over the supplied tuple view.
+         */
         explicit TupleMutationView(TupleView &view);
+        TupleMutationView(const TupleMutationView &) = delete;
+        TupleMutationView &operator=(const TupleMutationView &) = delete;
+        /**
+         * Transfer the mutation surface to a new wrapper.
+         *
+         * Tuple mutation does not currently open a storage-side mutation
+         * epoch, but it still uses a move-only wrapper so mutation remains an
+         * explicit opt-in API and the ownership model stays aligned with the
+         * other mutation view types.
+         */
+        TupleMutationView(TupleMutationView &&other) noexcept = default;
+        TupleMutationView &operator=(TupleMutationView &&other) = delete;
+        ~TupleMutationView() = default;
 
         /**
          * Assign the supplied value to the tuple field at the given index.
@@ -161,7 +177,22 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT BundleMutationView : BundleView
     {
+        /**
+         * Open a mutable bundle surface over the supplied bundle view.
+         */
         explicit BundleMutationView(BundleView &view);
+        BundleMutationView(const BundleMutationView &) = delete;
+        BundleMutationView &operator=(const BundleMutationView &) = delete;
+        /**
+         * Transfer the mutation surface to a new wrapper.
+         *
+         * The wrapper is move-only for the same reason as
+         * `TupleMutationView`: mutation is an explicit capability even before
+         * record storage needs epoch-style bookkeeping.
+         */
+        BundleMutationView(BundleMutationView &&other) noexcept = default;
+        BundleMutationView &operator=(BundleMutationView &&other) = delete;
+        ~BundleMutationView() = default;
 
         /**
          * Assign the supplied value to the bundle field at the given index.

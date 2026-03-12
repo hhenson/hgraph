@@ -114,7 +114,23 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT ListMutationView : ListView
     {
+        /**
+         * Open a mutable list surface over the supplied list view.
+         */
         explicit ListMutationView(ListView &view);
+        ListMutationView(const ListMutationView &) = delete;
+        ListMutationView &operator=(const ListMutationView &) = delete;
+        /**
+         * Transfer the mutation surface to a new wrapper.
+         *
+         * The list mutation view currently has no storage-side mutation epoch
+         * to close, but it is still kept move-only so the mutation-only API is
+         * presented consistently across value view kinds and can later grow
+         * bookkeeping without changing the public ownership model.
+         */
+        ListMutationView(ListMutationView &&other) noexcept = default;
+        ListMutationView &operator=(ListMutationView &&other) = delete;
+        ~ListMutationView() = default;
 
         /**
          * Assign the supplied value to an existing list slot.
