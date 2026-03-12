@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <string>
 #include <type_traits>
+#include <vector>
 
 namespace {
 
@@ -181,6 +182,79 @@ TEST_CASE("List mutation views support fluent command-style chaining", "[time_se
     REQUIRE(list.size() == 2);
     CHECK(list[0].as_atomic().as<int32_t>() == 3);
     CHECK(list[1].as_atomic().as<int32_t>() == 2);
+}
+
+TEST_CASE("Fixed lists expose updated delta slots for the current mutation epoch", "[time_series][value][list]")
+{
+    const value::TypeMeta *schema = value::TypeRegistry::instance().fixed_list(value::scalar_type_meta<int32_t>(), 3).build();
+
+    Value value{*schema};
+    auto  list = value.list_view();
+
+    list.begin_mutation().setting(0, int32_t{1}).setting(1, int32_t{2}).setting(2, int32_t{3});
+    list.begin_mutation().setting(1, int32_t{7}).setting(2, hgraph::View::invalid_for(value::scalar_type_meta<int32_t>()));
+
+    auto delta = list.delta();
+
+    std::vector<size_t> updated_indices;
+    for (size_t index : delta.updated_indices()) {
+        updated_indices.push_back(index);
+    }
+
+    std::vector<hgraph::View> updated_values;
+    for (hgraph::View slot : delta.updated_values()) {
+        updated_values.push_back(slot);
+    }
+
+    std::vector<size_t> added_indices;
+    for (size_t index : delta.added_indices()) {
+        added_indices.push_back(index);
+    }
+
+    CHECK(updated_indices == std::vector<size_t>{1, 2});
+    REQUIRE(updated_values.size() == 2);
+    CHECK(updated_values[0].as_atomic().as<int32_t>() == 7);
+    CHECK_FALSE(updated_values[1].valid());
+    CHECK(updated_values[1].schema() == value::scalar_type_meta<int32_t>());
+    CHECK(added_indices.empty());
+}
+
+TEST_CASE("Dynamic lists expose updated and added delta slots for the current mutation epoch", "[time_series][value][list]")
+{
+    const value::TypeMeta *schema = value::TypeRegistry::instance().list(value::scalar_type_meta<int32_t>()).build();
+
+    Value value{*schema};
+    auto  list = value.list_view();
+
+    list.begin_mutation().pushing_back(int32_t{10}).pushing_back(int32_t{20});
+    list.begin_mutation().setting(0, int32_t{30}).pushing_back(int32_t{40});
+
+    auto delta = list.delta();
+
+    std::vector<size_t> updated_indices;
+    for (size_t index : delta.updated_indices()) {
+        updated_indices.push_back(index);
+    }
+
+    std::vector<int32_t> updated_values;
+    for (hgraph::View slot : delta.updated_values()) {
+        updated_values.push_back(slot.as_atomic().as<int32_t>());
+    }
+
+    std::vector<size_t> added_indices;
+    for (size_t index : delta.added_indices()) {
+        added_indices.push_back(index);
+    }
+
+    std::vector<int32_t> added_values;
+    for (hgraph::View slot : delta.added_values()) {
+        added_values.push_back(slot.as_atomic().as<int32_t>());
+    }
+
+    CHECK(updated_indices == std::vector<size_t>{0});
+    CHECK(updated_values == std::vector<int32_t>{30});
+    CHECK(added_indices == std::vector<size_t>{2});
+    CHECK(added_values == std::vector<int32_t>{40});
 }
 
 }  // namespace

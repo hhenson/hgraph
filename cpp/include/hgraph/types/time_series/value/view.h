@@ -23,8 +23,8 @@ namespace hgraph
      * predicate. This keeps delta-style APIs lazy and allocation-free while
      * still returning ordinary value-layer view objects.
      */
-    template <typename T>
-    struct Range
+template <typename T>
+struct Range
     {
         using Predicate = bool (*)(const void *context, size_t index);
         using Projector = T (*)(const void *context, size_t index);
@@ -104,6 +104,96 @@ namespace hgraph
         }
 
         Range() noexcept = default;
+    };
+
+    /**
+     * Lightweight type-erased range over storage-backed key/value results.
+     *
+     * This mirrors `Range<T>` but projects a logical key together with a
+     * logical value. The range remains lazy and allocation-free.
+     */
+    template <typename K, typename V>
+    struct KeyValueRange
+    {
+        using Value = std::pair<K, V>;
+        using Predicate = bool (*)(const void *context, size_t index);
+        using Projector = Value (*)(const void *context, size_t index);
+
+        struct iterator
+        {
+            [[nodiscard]] Value operator*() const { return range->project(context, index); }
+
+            iterator &operator++()
+            {
+                ++index;
+                advance_to_match();
+                return *this;
+            }
+
+            [[nodiscard]] bool operator!=(const iterator &other) const
+            {
+                return context != other.context || index != other.index || range != other.range;
+            }
+
+          private:
+            friend struct KeyValueRange<K, V>;
+
+            void advance_to_match()
+            {
+                while (index < range->m_limit && !range->includes(context, index)) {
+                    ++index;
+                }
+            }
+
+            const KeyValueRange<K, V> *range{nullptr};
+            const void                *context{nullptr};
+            size_t                     index{0};
+        };
+
+        [[nodiscard]] iterator begin() const
+        {
+            iterator it;
+            it.range = this;
+            it.context = m_context;
+            it.index = 0;
+            it.advance_to_match();
+            return it;
+        }
+
+        [[nodiscard]] iterator end() const
+        {
+            iterator it;
+            it.range = this;
+            it.context = m_context;
+            it.index = m_limit;
+            return it;
+        }
+
+      private:
+        friend struct iterator;
+
+        [[nodiscard]] bool includes(const void *context, size_t index) const
+        {
+            return m_predicate == nullptr ? true : m_predicate(context, index);
+        }
+
+        [[nodiscard]] Value project(const void *context, size_t index) const
+        {
+            return m_projector(context, index);
+        }
+
+        const void *m_context{nullptr};
+        size_t      m_limit{0};
+        Predicate   m_predicate{nullptr};
+        Projector   m_projector{nullptr};
+
+      public:
+        KeyValueRange(const void *context, size_t limit, Predicate predicate, Projector projector) noexcept
+            : m_context(context), m_limit(limit), m_predicate(predicate), m_projector(projector)
+        {
+        }
+
+        KeyValueRange() noexcept = default;
     };
 
     struct AtomicView;

@@ -11,6 +11,7 @@ namespace hgraph
 {
 
     struct ListMutationView;
+    struct ListDeltaView;
 
     struct ValueBuilder;
 
@@ -36,6 +37,19 @@ namespace hgraph
          */
         struct ListViewDispatch : ViewDispatch
         {
+            /**
+             * Start a new mutation epoch for this list.
+             *
+             * Delta tracking for lists is scoped to the outermost active
+             * mutation. Entering a new outermost mutation clears the previous
+             * updated/added markers so the delta surface always describes the
+             * current logical batch of list edits.
+             */
+            virtual void begin_mutation(void *data) const = 0;
+            /**
+             * End the current mutation epoch for this list.
+             */
+            virtual void end_mutation(void *data) const = 0;
             [[nodiscard]] virtual size_t size(const void *data) const noexcept = 0;
             [[nodiscard]] virtual bool is_fixed() const noexcept = 0;
             [[nodiscard]] virtual const value::TypeMeta &element_schema() const noexcept = 0;
@@ -43,6 +57,8 @@ namespace hgraph
             [[nodiscard]] virtual void *element_data(void *data, size_t index) const = 0;
             [[nodiscard]] virtual const void *element_data(const void *data, size_t index) const = 0;
             [[nodiscard]] virtual bool element_valid(const void *data, size_t index) const = 0;
+            [[nodiscard]] virtual bool slot_updated(const void *data, size_t index) const noexcept = 0;
+            [[nodiscard]] virtual bool slot_added(const void *data, size_t index) const noexcept = 0;
             virtual void set_element_valid(void *data, size_t index, bool valid) const = 0;
             virtual void resize(void *data, size_t new_size) const = 0;
             virtual void clear(void *data) const = 0;
@@ -63,14 +79,18 @@ namespace hgraph
      * Dynamic list runtime data.
      *
      * Dynamic lists need runtime capacity management, so they keep their
-     * backing storage and validity bitmap in this plain data struct.
+     * backing storage, validity bitmap, and mutation-epoch delta bitmaps in
+     * this plain data struct.
      */
     struct DynamicListState
     {
         std::byte *data{nullptr};
         std::byte *validity{nullptr};
+        std::byte *updated{nullptr};
+        std::byte *added{nullptr};
         size_t     size{0};
         size_t     capacity{0};
+        size_t     mutation_depth{0};
     };
 
     /**
@@ -83,11 +103,17 @@ namespace hgraph
         /**
          * Return the mutable surface for this list view.
          *
-         * Lists do not currently need mutation-epoch bookkeeping in their
-         * storage, so this is a type-level gate into the mutating API rather
-         * than an operation that changes underlying list state.
+         * The returned mutation view owns the matching `end_mutation()` call.
+         * Nested scopes are allowed and are tracked with a depth count in the
+         * underlying storage so helper routines can safely compose list
+         * mutations without losing the current delta information.
          */
         ListMutationView begin_mutation();
+        /**
+         * Return the delta-inspection surface for the current mutation epoch.
+         */
+        [[nodiscard]] ListDeltaView delta();
+        [[nodiscard]] ListDeltaView delta() const;
         [[nodiscard]] size_t size() const;
         [[nodiscard]] bool empty() const;
         [[nodiscard]] bool is_fixed() const;
@@ -102,6 +128,39 @@ namespace hgraph
         [[nodiscard]] View back() const;
 
       protected:
+        /**
+         * Enter the underlying list mutation epoch.
+         */
+        void begin_mutation_scope();
+        /**
+         * Leave the underlying list mutation epoch.
+         */
+        void end_mutation_scope() noexcept;
+        [[nodiscard]] const detail::ListViewDispatch *list_dispatch() const noexcept;
+    };
+
+    /**
+     * Delta surface for list mutation epochs.
+     *
+     * Lists report the slots that were touched in the current mutation epoch.
+     * Fixed-size lists only expose updated slots. Dynamic lists additionally
+     * expose slots that were appended or introduced by growth during the same
+     * epoch.
+     */
+    struct HGRAPH_EXPORT ListDeltaView : View
+    {
+        explicit ListDeltaView(const View &view);
+
+        [[nodiscard]] Range<size_t> updated_indices() const;
+        [[nodiscard]] Range<View>   updated_values() const;
+        [[nodiscard]] Range<size_t> added_indices() const;
+        [[nodiscard]] Range<View>   added_values() const;
+
+      private:
+        [[nodiscard]] static bool slot_is_updated(const void *context, size_t index);
+        [[nodiscard]] static bool slot_is_added(const void *context, size_t index);
+        [[nodiscard]] static size_t project_index(const void *context, size_t index);
+        [[nodiscard]] static View project_value(const void *context, size_t index);
         [[nodiscard]] const detail::ListViewDispatch *list_dispatch() const noexcept;
     };
 
@@ -109,8 +168,8 @@ namespace hgraph
      * Mutable list surface.
      *
      * Mutation is split from `ListView` so callers must opt into the mutating
-     * API explicitly. This keeps the read-only surface compact while making
-     * mutating code easy to identify.
+     * API explicitly. The wrapper is RAII-managed and owns the matching
+     * `end_mutation()` call for the mutation depth it opens.
      */
     struct HGRAPH_EXPORT ListMutationView : ListView
     {
@@ -121,16 +180,14 @@ namespace hgraph
         ListMutationView(const ListMutationView &) = delete;
         ListMutationView &operator=(const ListMutationView &) = delete;
         /**
-         * Transfer the mutation surface to a new wrapper.
-         *
-         * The list mutation view currently has no storage-side mutation epoch
-         * to close, but it is still kept move-only so the mutation-only API is
-         * presented consistently across value view kinds and can later grow
-         * bookkeeping without changing the public ownership model.
+         * Transfer responsibility for closing the mutation scope.
          */
-        ListMutationView(ListMutationView &&other) noexcept = default;
+        ListMutationView(ListMutationView &&other) noexcept;
         ListMutationView &operator=(ListMutationView &&other) = delete;
-        ~ListMutationView() = default;
+        /**
+         * Close the owned mutation scope, if any.
+         */
+        ~ListMutationView();
 
         /**
          * Assign the supplied value to an existing list slot.
@@ -232,6 +289,9 @@ namespace hgraph
             push_back(std::forward<T>(value));
             return *this;
         }
+
+      private:
+        bool m_owns_scope{true};
     };
 
     inline ListView View::as_list()

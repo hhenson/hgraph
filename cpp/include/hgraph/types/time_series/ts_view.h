@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/time_series_state.h>
+#include <hgraph/types/time_series/value/view.h>
 #include <hgraph/types/value/value_view.h>
 
 #include <string_view>
@@ -43,46 +44,6 @@ struct SignalView;
  * an output endpoint.
  */
 using ParentValue = std::variant<TSInput *, TSOutput *>;
-
-/**
- * Type-erased single-value range.
- *
- * This is intended to provide iterator-based access without materializing a
- * container of results.
- */
-template <typename T>
-struct Range
-{
-    struct iterator
-    {
-        [[nodiscard]] T operator*() const;
-        iterator &operator++();
-        [[nodiscard]] bool operator!=(const iterator &other) const;
-    };
-
-    [[nodiscard]] iterator begin() const;
-    [[nodiscard]] iterator end() const;
-};
-
-/**
- * Type-erased key/value range.
- *
- * This is intended for iteration surfaces that yield a logical key together
- * with a value, such as `items()` on collection views.
- */
-template <typename K, typename V>
-struct KeyValueRange
-{
-    struct iterator
-    {
-        [[nodiscard]] std::pair<K, V> operator*() const;
-        iterator &operator++();
-        [[nodiscard]] bool operator!=(const iterator &other) const;
-    };
-
-    [[nodiscard]] iterator begin() const;
-    [[nodiscard]] iterator end() const;
-};
 
 /**
  * Lightweight type-erased view over a logical time-series position.

@@ -19,6 +19,11 @@ namespace hgraph
     namespace detail
     {
 
+        struct RecordStateHeader
+        {
+            size_t mutation_depth{0};
+        };
+
         struct RecordFieldLayout
         {
             std::string_view name;
@@ -38,7 +43,7 @@ namespace hgraph
                 }
 
                 size_t offset = 0;
-                size_t max_alignment = 1;
+                size_t max_alignment = alignof(RecordStateHeader);
                 m_fields.reserve(schema.field_count);
                 for (size_t i = 0; i < schema.field_count; ++i) {
                     const value::BundleFieldInfo &field = schema.fields[i];
@@ -60,11 +65,32 @@ namespace hgraph
                 }
 
                 m_payload_size = align_up(offset, max_alignment);
+                m_header_size = align_up(sizeof(RecordStateHeader), max_alignment);
                 m_alignment = max_alignment;
-                m_allocation_size = align_up(m_payload_size + value::validity_mask_bytes(m_fields.size()), max_alignment);
+                m_allocation_size =
+                    align_up(m_header_size + m_payload_size + value::validity_mask_bytes(m_fields.size()) +
+                                 value::validity_mask_bytes(m_fields.size()),
+                             max_alignment);
                 m_requires_destroy = std::ranges::any_of(m_fields, [](const RecordFieldLayout &field) {
                     return field.requires_destroy;
                 });
+            }
+
+            void begin_mutation(void *data) const override
+            {
+                RecordStateHeader *header = state(data);
+                if (header->mutation_depth++ == 0) {
+                    value::validity_set_all(updated_memory(data), m_fields.size(), false);
+                }
+            }
+
+            void end_mutation(void *data) const override
+            {
+                RecordStateHeader *header = state(data);
+                if (header->mutation_depth == 0) {
+                    throw std::runtime_error("Record mutation depth underflow");
+                }
+                --header->mutation_depth;
             }
 
             [[nodiscard]] size_t size() const noexcept override
@@ -89,17 +115,23 @@ namespace hgraph
 
             [[nodiscard]] void *field_data(void *data, size_t index) const override
             {
-                return static_cast<std::byte *>(data) + field(index).offset;
+                return static_cast<std::byte *>(payload_memory(data)) + field(index).offset;
             }
 
             [[nodiscard]] const void *field_data(const void *data, size_t index) const override
             {
-                return static_cast<const std::byte *>(data) + field(index).offset;
+                return static_cast<const std::byte *>(payload_memory(data)) + field(index).offset;
             }
 
             [[nodiscard]] bool field_valid(const void *data, size_t index) const override
             {
                 return value::validity_bit_get(validity_memory(data), checked_index(index));
+            }
+
+            [[nodiscard]] bool field_updated(const void *data, size_t index) const noexcept override
+            {
+                const size_t checked = index;
+                return checked < m_fields.size() && value::validity_bit_get(updated_memory(data), checked);
             }
 
             void set_field_valid(void *data, size_t index, bool valid) const override
@@ -109,6 +141,9 @@ namespace hgraph
                     reset_field(data, checked);
                 }
                 value::validity_bit_set(validity_memory(data), checked, valid);
+                if (state(data)->mutation_depth > 0) {
+                    value::validity_bit_set(updated_memory(data), checked, true);
+                }
             }
 
             [[nodiscard]] size_t allocation_size() const noexcept
@@ -128,10 +163,12 @@ namespace hgraph
 
             void construct(void *memory) const
             {
+                std::construct_at(state(memory));
                 for (size_t i = 0; i < m_fields.size(); ++i) {
                     field(i).builder.get().construct(field_data(memory, i));
                 }
                 value::validity_set_all(validity_memory(memory), m_fields.size(), true);
+                value::validity_set_all(updated_memory(memory), m_fields.size(), false);
             }
 
             void destroy(void *memory) const noexcept
@@ -142,22 +179,28 @@ namespace hgraph
                         field(i).builder.get().destroy(field_data(memory, i));
                     }
                 }
+                std::destroy_at(state(memory));
             }
 
             void copy_construct(void *dst, const void *src) const
             {
+                std::construct_at(state(dst));
                 for (size_t i = 0; i < m_fields.size(); ++i) {
                     field(i).builder.get().copy_construct(field_data(dst, i), field_data(src, i), field(i).builder);
                 }
                 copy_validity(dst, src);
+                value::validity_set_all(updated_memory(dst), m_fields.size(), false);
             }
 
             void move_construct(void *dst, void *src) const
             {
+                std::construct_at(state(dst));
                 for (size_t i = 0; i < m_fields.size(); ++i) {
                     field(i).builder.get().move_construct(field_data(dst, i), field_data(src, i), field(i).builder);
                 }
                 copy_validity(dst, src);
+                value::validity_set_all(updated_memory(dst), m_fields.size(), false);
+                state(src)->mutation_depth = 0;
             }
 
             [[nodiscard]] size_t hash(const void *data) const override
@@ -232,12 +275,42 @@ namespace hgraph
 
             [[nodiscard]] std::byte *validity_memory(void *data) const noexcept
             {
-                return static_cast<std::byte *>(data) + m_payload_size;
+                return static_cast<std::byte *>(payload_memory(data)) + m_payload_size;
             }
 
             [[nodiscard]] const std::byte *validity_memory(const void *data) const noexcept
             {
-                return static_cast<const std::byte *>(data) + m_payload_size;
+                return static_cast<const std::byte *>(payload_memory(data)) + m_payload_size;
+            }
+
+            [[nodiscard]] std::byte *updated_memory(void *data) const noexcept
+            {
+                return validity_memory(data) + value::validity_mask_bytes(m_fields.size());
+            }
+
+            [[nodiscard]] const std::byte *updated_memory(const void *data) const noexcept
+            {
+                return validity_memory(data) + value::validity_mask_bytes(m_fields.size());
+            }
+
+            [[nodiscard]] RecordStateHeader *state(void *data) const noexcept
+            {
+                return std::launder(reinterpret_cast<RecordStateHeader *>(data));
+            }
+
+            [[nodiscard]] const RecordStateHeader *state(const void *data) const noexcept
+            {
+                return std::launder(reinterpret_cast<const RecordStateHeader *>(data));
+            }
+
+            [[nodiscard]] void *payload_memory(void *data) const noexcept
+            {
+                return static_cast<std::byte *>(data) + m_header_size;
+            }
+
+            [[nodiscard]] const void *payload_memory(const void *data) const noexcept
+            {
+                return static_cast<const std::byte *>(data) + m_header_size;
             }
 
             void copy_validity(void *dst, const void *src) const
@@ -267,6 +340,7 @@ namespace hgraph
             std::reference_wrapper<const value::TypeMeta> m_schema;
             std::vector<RecordFieldLayout>                m_fields;
             size_t                                        m_payload_size{0};
+            size_t                                        m_header_size{0};
             size_t                                        m_alignment{alignof(std::max_align_t)};
             size_t                                        m_allocation_size{0};
             bool                                          m_requires_destroy{true};
@@ -529,6 +603,30 @@ namespace hgraph
         return TupleMutationView{*this};
     }
 
+    TupleDeltaView TupleView::delta()
+    {
+        return TupleDeltaView{*this};
+    }
+
+    TupleDeltaView TupleView::delta() const
+    {
+        return TupleDeltaView{*this};
+    }
+
+    void TupleView::begin_mutation_scope()
+    {
+        const auto *dispatch = record_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("TupleView::begin_mutation on invalid view"); }
+        dispatch->begin_mutation(data());
+    }
+
+    void TupleView::end_mutation_scope() noexcept
+    {
+        const auto *dispatch = record_dispatch();
+        if (dispatch == nullptr) { return; }
+        dispatch->end_mutation(data());
+    }
+
     size_t TupleView::size() const
     {
         const auto *dispatch = record_dispatch();
@@ -573,9 +671,70 @@ namespace hgraph
         return at(index);
     }
 
+    TupleDeltaView::TupleDeltaView(const View &view)
+        : View(view)
+    {
+        if (!view.valid()) { return; }
+        if (view.schema() == nullptr ||
+            (view.schema()->kind != value::TypeKind::Tuple && view.schema()->kind != value::TypeKind::Bundle)) {
+            throw std::runtime_error("TupleDeltaView requires a tuple-compatible record schema");
+        }
+    }
+
+    Range<size_t> TupleDeltaView::updated_indices() const
+    {
+        const auto *dispatch = record_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("TupleDeltaView::updated_indices on invalid view"); }
+        return Range<size_t>{this, dispatch->size(), &TupleDeltaView::slot_is_updated, &TupleDeltaView::project_index};
+    }
+
+    Range<View> TupleDeltaView::updated_values() const
+    {
+        const auto *dispatch = record_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("TupleDeltaView::updated_values on invalid view"); }
+        return Range<View>{this, dispatch->size(), &TupleDeltaView::slot_is_updated, &TupleDeltaView::project_value};
+    }
+
+    bool TupleDeltaView::slot_is_updated(const void *context, size_t index)
+    {
+        const auto &delta = *static_cast<const TupleDeltaView *>(context);
+        const auto *dispatch = delta.record_dispatch();
+        return dispatch != nullptr && dispatch->field_updated(delta.data(), index);
+    }
+
+    size_t TupleDeltaView::project_index(const void *context, size_t index)
+    {
+        static_cast<void>(context);
+        return index;
+    }
+
+    View TupleDeltaView::project_value(const void *context, size_t index)
+    {
+        return static_cast<const TupleDeltaView *>(context)->as_tuple().at(index);
+    }
+
+    const detail::RecordViewDispatch *TupleDeltaView::record_dispatch() const noexcept
+    {
+        return valid() ? static_cast<const detail::RecordViewDispatch *>(dispatch()) : nullptr;
+    }
+
     TupleMutationView::TupleMutationView(TupleView &view)
         : TupleView(view)
     {
+        begin_mutation_scope();
+    }
+
+    TupleMutationView::TupleMutationView(TupleMutationView &&other) noexcept
+        : TupleView(other), m_owns_scope(other.m_owns_scope)
+    {
+        other.m_owns_scope = false;
+    }
+
+    TupleMutationView::~TupleMutationView()
+    {
+        if (m_owns_scope) {
+            end_mutation_scope();
+        }
     }
 
     void TupleMutationView::set(size_t index, const View &value)
@@ -612,6 +771,16 @@ namespace hgraph
         return BundleMutationView{*this};
     }
 
+    BundleDeltaView BundleView::delta()
+    {
+        return BundleDeltaView{*this};
+    }
+
+    BundleDeltaView BundleView::delta() const
+    {
+        return BundleDeltaView{*this};
+    }
+
     bool BundleView::has_field(std::string_view name) const noexcept
     {
         if (!valid()) { return false; }
@@ -633,9 +802,45 @@ namespace hgraph
         return at(field_index(name));
     }
 
+    BundleDeltaView::BundleDeltaView(const View &view)
+        : TupleDeltaView(view)
+    {
+        if (!view.valid()) { return; }
+        if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Bundle) {
+            throw std::runtime_error("BundleDeltaView requires a bundle schema");
+        }
+    }
+
+    Range<std::string_view> BundleDeltaView::updated_keys() const
+    {
+        const auto *dispatch = record_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("BundleDeltaView::updated_keys on invalid view"); }
+        return Range<std::string_view>{this, dispatch->size(), &TupleDeltaView::slot_is_updated, &BundleDeltaView::project_key};
+    }
+
+    std::string_view BundleDeltaView::project_key(const void *context, size_t index)
+    {
+        const auto *dispatch = static_cast<const BundleDeltaView *>(context)->record_dispatch();
+        return dispatch->field_name(index);
+    }
+
     BundleMutationView::BundleMutationView(BundleView &view)
         : BundleView(view)
     {
+        begin_mutation_scope();
+    }
+
+    BundleMutationView::BundleMutationView(BundleMutationView &&other) noexcept
+        : BundleView(other), m_owns_scope(other.m_owns_scope)
+    {
+        other.m_owns_scope = false;
+    }
+
+    BundleMutationView::~BundleMutationView()
+    {
+        if (m_owns_scope) {
+            end_mutation_scope();
+        }
     }
 
     void BundleMutationView::set(size_t index, const View &value)

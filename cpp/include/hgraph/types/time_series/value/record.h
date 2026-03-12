@@ -13,6 +13,8 @@ namespace hgraph
 
     struct TupleMutationView;
     struct BundleMutationView;
+    struct TupleDeltaView;
+    struct BundleDeltaView;
 
     struct ValueBuilder;
 
@@ -28,6 +30,18 @@ namespace hgraph
          */
         struct RecordViewDispatch : ViewDispatch
         {
+            /**
+             * Start a new mutation epoch for this record.
+             *
+             * Record deltas are defined over the current logical batch of field
+             * edits. Entering a new outermost mutation clears the previous
+             * updated markers.
+             */
+            virtual void begin_mutation(void *data) const = 0;
+            /**
+             * End the current mutation epoch for this record.
+             */
+            virtual void end_mutation(void *data) const = 0;
             [[nodiscard]] virtual size_t size() const noexcept = 0;
             [[nodiscard]] virtual const value::TypeMeta &field_schema(size_t index) const = 0;
             [[nodiscard]] virtual const ViewDispatch &field_dispatch(size_t index) const = 0;
@@ -35,6 +49,7 @@ namespace hgraph
             [[nodiscard]] virtual void *field_data(void *data, size_t index) const = 0;
             [[nodiscard]] virtual const void *field_data(const void *data, size_t index) const = 0;
             [[nodiscard]] virtual bool field_valid(const void *data, size_t index) const = 0;
+            [[nodiscard]] virtual bool field_updated(const void *data, size_t index) const noexcept = 0;
             virtual void set_field_valid(void *data, size_t index, bool valid) const = 0;
         };
 
@@ -65,11 +80,17 @@ namespace hgraph
         /**
          * Return the mutable surface for this tuple-like view.
          *
-         * Record-like values do not currently need mutation-epoch bookkeeping
-         * in their storage, so this is a type-level gate into the mutating API
-         * rather than an operation that changes underlying record state.
+         * The returned mutation view owns the matching `end_mutation()` call.
+         * Nested scopes are allowed and are tracked with a depth count in the
+         * underlying storage so helper routines can compose record mutation
+         * without losing the current delta.
          */
         TupleMutationView begin_mutation();
+        /**
+         * Return the delta-inspection surface for the current mutation epoch.
+         */
+        [[nodiscard]] TupleDeltaView delta();
+        [[nodiscard]] TupleDeltaView delta() const;
         [[nodiscard]] size_t size() const;
         [[nodiscard]] bool empty() const;
         [[nodiscard]] View at(size_t index);
@@ -79,8 +100,36 @@ namespace hgraph
 
       protected:
         /**
+         * Enter the underlying record mutation epoch.
+         */
+        void begin_mutation_scope();
+        /**
+         * Leave the underlying record mutation epoch.
+         */
+        void end_mutation_scope() noexcept;
+        /**
          * Return the shared record dispatch surface for this tuple-like view.
          */
+        [[nodiscard]] const detail::RecordViewDispatch *record_dispatch() const noexcept;
+    };
+
+    /**
+     * Delta surface for tuple-compatible records.
+     *
+     * Tuples report the field positions updated during the current mutation
+     * epoch together with the current value now stored in those positions.
+     */
+    struct HGRAPH_EXPORT TupleDeltaView : View
+    {
+        explicit TupleDeltaView(const View &view);
+
+        [[nodiscard]] Range<size_t> updated_indices() const;
+        [[nodiscard]] Range<View>   updated_values() const;
+
+      protected:
+        [[nodiscard]] static bool slot_is_updated(const void *context, size_t index);
+        [[nodiscard]] static size_t project_index(const void *context, size_t index);
+        [[nodiscard]] static View project_value(const void *context, size_t index);
         [[nodiscard]] const detail::RecordViewDispatch *record_dispatch() const noexcept;
     };
 
@@ -98,12 +147,34 @@ namespace hgraph
          * Return the mutable surface for this bundle view.
          */
         BundleMutationView begin_mutation();
+        /**
+         * Return the delta-inspection surface for the current mutation epoch.
+         */
+        [[nodiscard]] BundleDeltaView delta();
+        [[nodiscard]] BundleDeltaView delta() const;
         [[nodiscard]] bool has_field(std::string_view name) const noexcept;
         [[nodiscard]] View field(std::string_view name);
         [[nodiscard]] View field(std::string_view name) const;
 
       protected:
         [[nodiscard]] size_t field_index(std::string_view name) const;
+    };
+
+    /**
+     * Delta surface for bundle mutation epochs.
+     *
+     * Bundles expose updated field names as keys and the current values stored
+     * at those fields. The positional tuple-style delta remains available via
+     * the inherited `updated_indices()` and `updated_values()` methods.
+     */
+    struct HGRAPH_EXPORT BundleDeltaView : TupleDeltaView
+    {
+        explicit BundleDeltaView(const View &view);
+
+        [[nodiscard]] Range<std::string_view> updated_keys() const;
+
+      private:
+        [[nodiscard]] static std::string_view project_key(const void *context, size_t index);
     };
 
     /**
@@ -120,14 +191,14 @@ namespace hgraph
         /**
          * Transfer the mutation surface to a new wrapper.
          *
-         * Tuple mutation does not currently open a storage-side mutation
-         * epoch, but it still uses a move-only wrapper so mutation remains an
-         * explicit opt-in API and the ownership model stays aligned with the
-         * other mutation view types.
+         * Transfer responsibility for closing the mutation scope.
          */
-        TupleMutationView(TupleMutationView &&other) noexcept = default;
+        TupleMutationView(TupleMutationView &&other) noexcept;
         TupleMutationView &operator=(TupleMutationView &&other) = delete;
-        ~TupleMutationView() = default;
+        /**
+         * Close the owned mutation scope, if any.
+         */
+        ~TupleMutationView();
 
         /**
          * Assign the supplied value to the tuple field at the given index.
@@ -170,6 +241,9 @@ namespace hgraph
             set(index, std::forward<T>(value));
             return *this;
         }
+
+      private:
+        bool m_owns_scope{true};
     };
 
     /**
@@ -186,13 +260,14 @@ namespace hgraph
         /**
          * Transfer the mutation surface to a new wrapper.
          *
-         * The wrapper is move-only for the same reason as
-         * `TupleMutationView`: mutation is an explicit capability even before
-         * record storage needs epoch-style bookkeeping.
+         * Transfer responsibility for closing the mutation scope.
          */
-        BundleMutationView(BundleMutationView &&other) noexcept = default;
+        BundleMutationView(BundleMutationView &&other) noexcept;
         BundleMutationView &operator=(BundleMutationView &&other) = delete;
-        ~BundleMutationView() = default;
+        /**
+         * Close the owned mutation scope, if any.
+         */
+        ~BundleMutationView();
 
         /**
          * Assign the supplied value to the bundle field at the given index.
@@ -255,6 +330,9 @@ namespace hgraph
             set_field(name, std::forward<T>(value));
             return *this;
         }
+
+      private:
+        bool m_owns_scope{true};
     };
 
     inline TupleView View::as_tuple()
