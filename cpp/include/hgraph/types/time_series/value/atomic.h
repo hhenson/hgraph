@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/python/chrono.h>
+#include <hgraph/types/time_series/value/tracking.h>
 #include <hgraph/types/time_series/value/view.h>
 #include <hgraph/types/value/type_registry.h>
 
@@ -129,7 +130,8 @@ namespace hgraph
          * atomic implementation, so the generic builder factory delegates atomic
          * schema resolution to `atomic.cpp`.
          */
-        [[nodiscard]] HGRAPH_EXPORT const ValueBuilder *atomic_builder_for(const value::TypeMeta *schema);
+        [[nodiscard]] HGRAPH_EXPORT const ValueBuilder *atomic_builder_for(
+            const value::TypeMeta *schema, MutationTracking tracking);
 
     }  // namespace detail
 

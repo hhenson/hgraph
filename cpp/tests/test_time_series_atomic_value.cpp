@@ -110,6 +110,24 @@ TEST_CASE("Builder lookup is singleton per atomic schema", "[time_series][value]
     CHECK(&first == &second);
 }
 
+TEST_CASE("Atomic builders are cached separately for plain and delta tracking", "[time_series][value][atomic]")
+{
+    const auto &plain_builder =
+        ValueBuilderFactory::checked_builder_for(value::scalar_type_meta<int32_t>(), hgraph::MutationTracking::Plain);
+    const auto &delta_builder =
+        ValueBuilderFactory::checked_builder_for(value::scalar_type_meta<int32_t>(), hgraph::MutationTracking::Delta);
+
+    CHECK(&plain_builder != &delta_builder);
+    CHECK(plain_builder.tracking() == hgraph::MutationTracking::Plain);
+    CHECK(delta_builder.tracking() == hgraph::MutationTracking::Delta);
+
+    Value plain_value{*value::scalar_type_meta<int32_t>(), hgraph::MutationTracking::Plain};
+    Value delta_value{*value::scalar_type_meta<int32_t>(), hgraph::MutationTracking::Delta};
+
+    CHECK(plain_value.tracking() == hgraph::MutationTracking::Plain);
+    CHECK(delta_value.tracking() == hgraph::MutationTracking::Delta);
+}
+
 TEST_CASE("Atomic builders cache lifecycle traits for the resolved state", "[time_series][value][atomic]")
 {
     const auto &integer_builder = ValueBuilderFactory::checked_builder_for(value::scalar_type_meta<int32_t>());

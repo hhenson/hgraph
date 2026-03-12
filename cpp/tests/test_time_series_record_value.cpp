@@ -150,3 +150,29 @@ TEST_CASE("Bundle values expose updated keys and values for the current mutation
     CHECK(updated_keys == std::vector<std::string_view>{"label"});
     CHECK(updated_values == std::vector<std::string>{"updated"});
 }
+
+TEST_CASE("Plain records do not retain delta markers")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+    const auto *schema = registry.bundle()
+                             .add_field("count", hgraph::value::scalar_type_meta<int32_t>())
+                             .add_field("label", hgraph::value::scalar_type_meta<std::string>())
+                             .build();
+
+    hgraph::Value value{*schema, hgraph::MutationTracking::Plain};
+    auto bundle = value.bundle_view();
+
+    bundle.begin_mutation().setting_field("count", int32_t{1}).setting_field("label", std::string{"one"});
+
+    auto delta = bundle.delta();
+    std::vector<std::string_view> updated_keys;
+    for (std::string_view key : delta.updated_keys()) {
+        updated_keys.push_back(key);
+    }
+    std::vector<std::string> updated_values;
+    for (hgraph::View field : delta.updated_values()) {
+        updated_values.push_back(field.to_string());
+    }
+    CHECK(updated_keys.empty());
+    CHECK(updated_values.empty());
+}

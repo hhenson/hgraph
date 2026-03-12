@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/value/tracking.h>
 #include <hgraph/types/time_series/value/view.h>
 
 #include <cstddef>
@@ -57,7 +58,8 @@ namespace hgraph
             [[nodiscard]] virtual size_t max_capacity() const noexcept = 0;
         };
 
-        [[nodiscard]] HGRAPH_EXPORT const ValueBuilder *sequence_builder_for(const value::TypeMeta *schema);
+        [[nodiscard]] HGRAPH_EXPORT const ValueBuilder *sequence_builder_for(
+            const value::TypeMeta *schema, MutationTracking tracking);
 
     }  // namespace detail
 
@@ -147,11 +149,11 @@ namespace hgraph
      *
      * The mutation scope is RAII-managed so retained removed payloads are
      * released when the outermost scope begins again, matching the
-     * single-delta semantics expected by the time-series layer. Buffer
-     * implementations keep one extra internal element slot beyond the
+     * single-delta semantics expected by the time-series layer. Delta-tracking
+     * buffer implementations keep one extra internal element slot beyond the
      * user-visible logical capacity so the most recently removed payload can
      * remain inspectable for the current delta without disturbing the live
-     * contents.
+     * contents. Plain builders omit that retained-removed behavior.
      */
     struct HGRAPH_EXPORT BufferMutationView : BufferView
     {

@@ -6,6 +6,7 @@
 #include <sul/dynamic_bitset.hpp>
 
 #include <algorithm>
+#include <concepts>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -25,7 +26,7 @@ namespace hgraph
             using is_transparent = void;
             using is_avalanching = void;
 
-            const struct SetState *state{nullptr};
+            const struct SetStorageBase *state{nullptr};
             const ViewDispatch    *dispatch{nullptr};
             size_t                 stride{0};
 
@@ -37,7 +38,7 @@ namespace hgraph
         {
             using is_transparent = void;
 
-            const struct SetState *state{nullptr};
+            const struct SetStorageBase *state{nullptr};
             const ViewDispatch    *dispatch{nullptr};
             size_t                 stride{0};
 
@@ -46,7 +47,7 @@ namespace hgraph
             [[nodiscard]] bool operator()(const void *key, size_t slot) const;
         };
 
-        struct SetState
+        struct SetStorageBase
         {
             using IndexSet = ankerl::unordered_dense::set<size_t, SetKeyIndexHash, SetKeyIndexEqual>;
             /**
@@ -76,6 +77,29 @@ namespace hgraph
              */
             sul::dynamic_bitset<> occupied{};
             /**
+             * Slots available for reuse.
+             */
+            std::vector<size_t> free_list{};
+            /**
+             * Live-slot bitset used for membership and public iteration.
+             *
+             * This sits directly above the element storage because those two
+             * structures are read together whenever live entries are scanned.
+             */
+            sul::dynamic_bitset<> alive{};
+            /**
+             * Contiguous raw element storage indexed by slot.
+             */
+            std::byte *elements{nullptr};
+        };
+
+        struct PlainSetState : SetStorageBase
+        {
+        };
+
+        struct DeltaSetState : SetStorageBase
+        {
+            /**
              * Slots introduced in the current mutation epoch.
              *
              * This records the net added delta only. If a key is added and
@@ -92,21 +116,6 @@ namespace hgraph
              */
             sul::dynamic_bitset<> removed{};
             /**
-             * Slots available for reuse.
-             */
-            std::vector<size_t> free_list{};
-            /**
-             * Live-slot bitset used for membership and public iteration.
-             *
-             * This sits directly above the element storage because those two
-             * structures are read together whenever live entries are scanned.
-             */
-            sul::dynamic_bitset<> alive{};
-            /**
-             * Contiguous raw element storage indexed by slot.
-             */
-            std::byte *elements{nullptr};
-            /**
              * Active mutation-scope depth for this container.
              *
              * Nested mutation scopes are allowed so helper functions can open a
@@ -117,21 +126,16 @@ namespace hgraph
             size_t mutation_depth{0};
         };
 
-        struct MapState
+        struct PlainMapState
         {
-            /**
-             * Stable key-slot storage.
-             */
-            SetState keys{};
-            /**
-             * Parallel value storage indexed by key slot.
-             *
-             * Value construction follows key-slot occupancy exactly: if a key
-             * slot is occupied then the matching value slot is constructed as
-             * well. There is no separate notion of a constructed key without a
-             * constructed value.
-             */
-            std::byte *values{nullptr};
+            PlainSetState keys{};
+            std::byte    *values{nullptr};
+        };
+
+        struct DeltaMapState
+        {
+            DeltaSetState keys{};
+            std::byte    *values{nullptr};
             /**
              * Slots whose values were updated in the current mutation epoch
              * without the key being newly added in that same epoch.
@@ -203,15 +207,15 @@ namespace hgraph
             [[nodiscard]] const ValueBuilder &builder() const noexcept { return m_builder.get(); }
             [[nodiscard]] size_t stride() const noexcept { return m_stride; }
 
-            void initialise(SetState &state) const
+            template <typename TState> void initialise(TState &state) const
             {
-                state.index = std::make_unique<SetState::IndexSet>(
+                state.index = std::make_unique<SetStorageBase::IndexSet>(
                     0,
                     SetKeyIndexHash{.state = &state, .dispatch = &dispatch(), .stride = stride()},
                     SetKeyIndexEqual{.state = &state, .dispatch = &dispatch(), .stride = stride()});
             }
 
-            void rebind_index(SetState &state) const
+            template <typename TState> void rebind_index(TState &state) const
             {
                 initialise(state);
                 for (size_t slot = 0; slot < state.capacity; ++slot) {
@@ -219,17 +223,17 @@ namespace hgraph
                 }
             }
 
-            [[nodiscard]] void *slot_data(SetState &state, size_t slot) const noexcept
+            template <typename TState> [[nodiscard]] void *slot_data(TState &state, size_t slot) const noexcept
             {
                 return state.elements + slot * stride();
             }
 
-            [[nodiscard]] const void *slot_data(const SetState &state, size_t slot) const noexcept
+            template <typename TState> [[nodiscard]] const void *slot_data(const TState &state, size_t slot) const noexcept
             {
                 return state.elements + slot * stride();
             }
 
-            [[nodiscard]] size_t live_slot_at(const SetState &state, size_t live_index) const
+            template <typename TState> [[nodiscard]] size_t live_slot_at(const TState &state, size_t live_index) const
             {
                 size_t seen = 0;
                 for (size_t slot = 0; slot < state.capacity; ++slot) {
@@ -240,19 +244,19 @@ namespace hgraph
                 throw std::out_of_range("Associative slot index out of range");
             }
 
-            [[nodiscard]] size_t find_slot(const SetState &state, const void *key) const
+            template <typename TState> [[nodiscard]] size_t find_slot(const TState &state, const void *key) const
             {
                 if (state.index == nullptr) { return npos; }
                 const auto it = state.index->find(key);
                 return it == state.index->end() ? npos : *it;
             }
 
-            [[nodiscard]] bool contains(const SetState &state, const void *key) const
+            template <typename TState> [[nodiscard]] bool contains(const TState &state, const void *key) const
             {
                 return find_live_slot(state, key) != npos;
             }
 
-            void reserve(SetState &state, size_t min_capacity) const
+            template <typename TState> void reserve(TState &state, size_t min_capacity) const
             {
                 if (min_capacity <= state.capacity) { return; }
 
@@ -286,20 +290,48 @@ namespace hgraph
                 state.capacity = new_capacity;
                 state.alive.resize(new_capacity);
                 state.occupied.resize(new_capacity);
-                state.added.resize(new_capacity);
-                state.removed.resize(new_capacity);
+                if constexpr (std::is_same_v<TState, DeltaSetState>) {
+                    state.added.resize(new_capacity);
+                    state.removed.resize(new_capacity);
+                }
                 for (size_t slot = new_capacity; slot > old_capacity; --slot) {
                     state.free_list.push_back(slot - 1);
                 }
             }
 
-            [[nodiscard]] size_t find_live_slot(const SetState &state, const void *key) const
+            template <typename TState> [[nodiscard]] size_t find_live_slot(const TState &state, const void *key) const
             {
                 const size_t slot = find_slot(state, key);
                 return slot != npos && state.alive.test(slot) ? slot : npos;
             }
 
-            [[nodiscard]] InsertResult insert(SetState &state, const void *key) const
+            [[nodiscard]] InsertResult insert(PlainSetState &state, const void *key) const
+            {
+                if (const size_t existing = find_slot(state, key); existing != npos) {
+                    return state.alive.test(existing) ? InsertResult{.slot = existing, .inserted = false}
+                                                      : InsertResult{.slot = existing, .inserted = false};
+                }
+
+                if (state.free_list.empty()) { reserve(state, state.size + 1); }
+                const size_t slot = state.free_list.back();
+                state.free_list.pop_back();
+
+                void *dst = slot_data(state, slot);
+                if (state.occupied.test(slot)) {
+                    dispatch().assign(dst, key);
+                } else {
+                    builder().construct(dst);
+                    dispatch().assign(dst, key);
+                    state.occupied.set(slot);
+                }
+
+                state.alive.set(slot);
+                ++state.size;
+                state.index->insert(slot);
+                return {.slot = slot, .inserted = true};
+            }
+
+            [[nodiscard]] InsertResult insert(DeltaSetState &state, const void *key) const
             {
                 if (const size_t existing = find_slot(state, key); existing != npos) {
                     if (state.alive.test(existing)) { return {.slot = existing, .inserted = false}; }
@@ -330,7 +362,7 @@ namespace hgraph
                 return {.slot = slot, .inserted = true};
             }
 
-            [[nodiscard]] bool remove(SetState &state, const void *key) const
+            template <typename TState> [[nodiscard]] bool remove(TState &state, const void *key) const
             {
                 const size_t slot = find_live_slot(state, key);
                 if (slot == npos) { return false; }
@@ -338,7 +370,21 @@ namespace hgraph
                 return true;
             }
 
-            void remove_slot(SetState &state, size_t slot) const
+            void remove_slot(PlainSetState &state, size_t slot) const
+            {
+                if (slot >= state.capacity || !state.alive.test(slot)) {
+                    throw std::out_of_range("Associative remove_slot on non-live slot");
+                }
+
+                state.alive.reset(slot);
+                state.index->erase(slot);
+                destroy_payload(slot_data(state, slot));
+                state.occupied.reset(slot);
+                state.free_list.push_back(slot);
+                --state.size;
+            }
+
+            void remove_slot(DeltaSetState &state, size_t slot) const
             {
                 if (slot >= state.capacity || !state.alive.test(slot)) {
                     throw std::out_of_range("Associative remove_slot on non-live slot");
@@ -361,7 +407,7 @@ namespace hgraph
                 --state.size;
             }
 
-            void release_removed(SetState &state) const noexcept
+            void release_removed(DeltaSetState &state) const noexcept
             {
                 for (size_t slot = 0; slot < state.capacity; ++slot) {
                     if (!state.removed.test(slot)) { continue; }
@@ -374,22 +420,24 @@ namespace hgraph
                 state.added.reset();
             }
 
-            void clear(SetState &state) const noexcept
+            template <typename TState> void clear(TState &state) const noexcept
             {
                 destroy_occupied_payloads(state);
                 if (state.index != nullptr) { state.index->clear(); }
                 state.size = 0;
                 state.alive.reset();
                 state.occupied.reset();
-                state.added.reset();
-                state.removed.reset();
+                if constexpr (std::is_same_v<TState, DeltaSetState>) {
+                    state.added.reset();
+                    state.removed.reset();
+                }
                 state.free_list.clear();
                 for (size_t slot = state.capacity; slot > 0; --slot) {
                     state.free_list.push_back(slot - 1);
                 }
             }
 
-            void destroy_occupied_payloads(SetState &state) const noexcept
+            template <typename TState> void destroy_occupied_payloads(TState &state) const noexcept
             {
                 if (!m_requires_destroy) { return; }
                 for (size_t slot = 0; slot < state.capacity; ++slot) {
@@ -420,17 +468,23 @@ namespace hgraph
             bool                                       m_requires_destroy;
         };
 
-        struct SetDispatch final : SetViewDispatch
+        template <MutationTracking TTracking> struct SetDispatch final : SetViewDispatch
         {
+            static constexpr MutationTracking tracking_mode = TTracking;
+            static constexpr bool tracks_deltas_v = TTracking == MutationTracking::Delta;
+            using SetState = std::conditional_t<tracks_deltas_v, DeltaSetState, PlainSetState>;
+
             explicit SetDispatch(const value::TypeMeta &schema)
                 : m_schema(schema),
-                  m_element_builder(ValueBuilderFactory::checked_builder_for(schema.element_type)),
+                  m_element_builder(ValueBuilderFactory::checked_builder_for(schema.element_type, TTracking)),
                   m_keys(m_element_builder.get().dispatch(), m_element_builder.get())
             {
                 if (schema.element_type == nullptr) {
                     throw std::runtime_error("Set schema requires an element schema");
                 }
             }
+
+            [[nodiscard]] bool tracks_deltas() const noexcept { return tracks_deltas_v; }
 
             [[nodiscard]] size_t size(const void *data) const noexcept override { return state(data)->size; }
             [[nodiscard]] size_t slot_capacity(const void *data) const noexcept override { return state(data)->capacity; }
@@ -439,52 +493,66 @@ namespace hgraph
 
             void begin_mutation(void *data) const override
             {
-                SetState *set = state(data);
-                if (set->mutation_depth++ == 0) { m_keys.release_removed(*set); }
+                if constexpr (tracks_deltas_v) {
+                    SetState *set = state(data);
+                    if (set->mutation_depth++ == 0) { m_keys.release_removed(*set); }
+                }
             }
 
             void end_mutation(void *data) const override
             {
-                SetState *set = state(data);
-                if (set->mutation_depth == 0) {
-                    throw std::runtime_error("Set mutation depth underflow");
+                if constexpr (tracks_deltas_v) {
+                    SetState *set = state(data);
+                    if (set->mutation_depth == 0) {
+                        throw std::runtime_error("Set mutation depth underflow");
+                    }
+                    --set->mutation_depth;
                 }
-                --set->mutation_depth;
             }
 
             [[nodiscard]] void *element_data(void *data, size_t index) const override
             {
-                SetState *set = state(data);
+                auto *set = state(data);
                 return m_keys.slot_data(*set, m_keys.live_slot_at(*set, index));
             }
 
             [[nodiscard]] const void *element_data(const void *data, size_t index) const override
             {
-                const SetState *set = state(data);
+                const auto *set = state(data);
                 return m_keys.slot_data(*set, m_keys.live_slot_at(*set, index));
             }
 
             [[nodiscard]] bool slot_occupied(const void *data, size_t slot) const noexcept override
             {
-                const SetState *set = state(data);
+                const auto *set = state(data);
                 return slot < set->capacity && set->occupied.test(slot);
             }
 
             [[nodiscard]] bool slot_added(const void *data, size_t slot) const noexcept override
             {
-                const SetState *set = state(data);
-                return slot < set->capacity && set->added.test(slot);
+                if constexpr (tracks_deltas_v) {
+                    return slot < state(data)->capacity && state(data)->added.test(slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return false;
+                }
             }
 
             [[nodiscard]] bool slot_removed(const void *data, size_t slot) const noexcept override
             {
-                const SetState *set = state(data);
-                return slot < set->capacity && set->removed.test(slot);
+                if constexpr (tracks_deltas_v) {
+                    return slot < state(data)->capacity && state(data)->removed.test(slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return false;
+                }
             }
 
             [[nodiscard]] void *slot_data(void *data, size_t slot) const override
             {
-                SetState *set = state(data);
+                auto *set = state(data);
                 if (slot >= set->capacity || !set->occupied.test(slot)) {
                     throw std::out_of_range("Set slot out of range");
                 }
@@ -493,7 +561,7 @@ namespace hgraph
 
             [[nodiscard]] const void *slot_data(const void *data, size_t slot) const override
             {
-                const SetState *set = state(data);
+                const auto *set = state(data);
                 if (slot >= set->capacity || !set->occupied.test(slot)) {
                     throw std::out_of_range("Set slot out of range");
                 }
@@ -507,8 +575,7 @@ namespace hgraph
 
             [[nodiscard]] bool add(void *data, const void *element) const override
             {
-                SetState *set = state(data);
-                return m_keys.insert(*set, element).inserted;
+                return m_keys.insert(*state(data), element).inserted;
             }
 
             [[nodiscard]] bool remove(void *data, const void *element) const override
@@ -518,15 +585,15 @@ namespace hgraph
 
             void clear(void *data) const override
             {
-                SetState *set = state(data);
-                while (set->size > 0) {
-                    m_keys.remove_slot(*set, m_keys.live_slot_at(*set, 0));
+                while (state(data)->size > 0) {
+                    const size_t slot = m_keys.live_slot_at(*state(data), 0);
+                    m_keys.remove_slot(*state(data), slot);
                 }
             }
 
             [[nodiscard]] size_t hash(const void *data) const override
             {
-                const SetState *set = state(data);
+                const auto *set = state(data);
                 size_t result = 0;
                 for (size_t slot = 0; slot < set->capacity; ++slot) {
                     if (!set->alive.test(slot)) { continue; }
@@ -537,7 +604,7 @@ namespace hgraph
 
             [[nodiscard]] std::string to_string(const void *data) const override
             {
-                const SetState *set = state(data);
+                const auto *set = state(data);
                 std::string result = "{";
                 bool first = true;
                 for (size_t slot = 0; slot < set->capacity; ++slot) {
@@ -552,8 +619,8 @@ namespace hgraph
 
             [[nodiscard]] std::partial_ordering compare(const void *lhs, const void *rhs) const override
             {
-                const SetState *a = state(lhs);
-                const SetState *b = state(rhs);
+                const auto *a = state(lhs);
+                const auto *b = state(rhs);
                 if (a->size != b->size) { return std::partial_ordering::unordered; }
                 for (size_t slot = 0; slot < a->capacity; ++slot) {
                     if (!a->alive.test(slot)) { continue; }
@@ -568,7 +635,7 @@ namespace hgraph
             {
                 static_cast<void>(schema);
                 nb::set result;
-                const SetState *set = state(data);
+                const auto *set = state(data);
                 for (size_t slot = 0; slot < set->capacity; ++slot) {
                     if (!set->alive.test(slot)) { continue; }
                     result.add(element_dispatch().to_python(m_keys.slot_data(*set, slot), &element_schema()));
@@ -584,7 +651,7 @@ namespace hgraph
                     throw std::runtime_error("Set value expects a set, frozenset, list, or tuple");
                 }
 
-                hard_clear(*state(dst));
+                hard_clear(dst);
                 nb::iterator it = nb::iter(src);
                 while (it != nb::iterator::sentinel()) {
                     nb::handle item = *it;
@@ -615,8 +682,8 @@ namespace hgraph
 
             void assign(void *dst, const void *src) const override
             {
-                hard_clear(*state(dst));
-                const SetState *set = state(src);
+                hard_clear(dst);
+                const auto *set = state(src);
                 for (size_t slot = 0; slot < set->capacity; ++slot) {
                     if (!set->alive.test(slot)) { continue; }
                     static_cast<void>(add(dst, m_keys.slot_data(*set, slot)));
@@ -647,18 +714,17 @@ namespace hgraph
 
             void destroy(void *memory) const noexcept
             {
-                SetState *set = state(memory);
+                auto *set = state(memory);
                 hard_clear(*set);
                 if (set->elements != nullptr) {
                     ::operator delete(set->elements, std::align_val_t{m_element_builder.get().alignment()});
                 }
-                std::destroy_at(set);
+                std::destroy_at(state(memory));
             }
 
             void copy_construct(void *dst, const void *src) const
             {
-                std::construct_at(state(dst));
-                m_keys.initialise(*state(dst));
+                construct(dst);
                 assign(dst, src);
             }
 
@@ -671,25 +737,32 @@ namespace hgraph
                 state(src)->capacity = 0;
                 state(src)->alive.clear();
                 state(src)->occupied.clear();
-                state(src)->added.clear();
-                state(src)->removed.clear();
                 state(src)->free_list.clear();
-                state(src)->mutation_depth = 0;
                 state(src)->index.reset();
+                if constexpr (tracks_deltas_v) {
+                    state(src)->added.clear();
+                    state(src)->removed.clear();
+                    state(src)->mutation_depth = 0;
+                }
             }
 
           private:
-            void hard_clear(SetState &state) const noexcept
+            void hard_clear(void *memory) const noexcept
+            {
+                hard_clear(*state(memory));
+            }
+
+            template <typename TState> void hard_clear(TState &state) const noexcept
             {
                 m_keys.clear(state);
             }
 
-            [[nodiscard]] static SetState *state(void *memory) noexcept
+            [[nodiscard]] SetState *state(void *memory) const noexcept
             {
                 return std::launder(reinterpret_cast<SetState *>(memory));
             }
 
-            [[nodiscard]] static const SetState *state(const void *memory) noexcept
+            [[nodiscard]] const SetState *state(const void *memory) const noexcept
             {
                 return std::launder(reinterpret_cast<const SetState *>(memory));
             }
@@ -699,12 +772,17 @@ namespace hgraph
             KeySlotStorage                                m_keys;
         };
 
-        struct MapDispatch final : MapViewDispatch
+        template <MutationTracking TTracking> struct MapDispatch final : MapViewDispatch
         {
+            static constexpr MutationTracking tracking_mode = TTracking;
+            static constexpr bool tracks_deltas_v = TTracking == MutationTracking::Delta;
+            using MapState = std::conditional_t<tracks_deltas_v, DeltaMapState, PlainMapState>;
+            using KeyState = std::conditional_t<tracks_deltas_v, DeltaSetState, PlainSetState>;
+
             explicit MapDispatch(const value::TypeMeta &schema)
                 : m_schema(schema),
-                  m_key_builder(ValueBuilderFactory::checked_builder_for(schema.key_type)),
-                  m_value_builder(ValueBuilderFactory::checked_builder_for(schema.element_type)),
+                  m_key_builder(ValueBuilderFactory::checked_builder_for(schema.key_type, TTracking)),
+                  m_value_builder(ValueBuilderFactory::checked_builder_for(schema.element_type, TTracking)),
                   m_keys(m_key_builder.get().dispatch(), m_key_builder.get()),
                   m_value_stride(stride_for(m_value_builder.get())),
                   m_value_requires_destroy(m_value_builder.get().requires_destroy())
@@ -714,8 +792,10 @@ namespace hgraph
                 }
             }
 
-            [[nodiscard]] size_t size(const void *data) const noexcept override { return state(data)->keys.size; }
-            [[nodiscard]] size_t slot_capacity(const void *data) const noexcept override { return state(data)->keys.capacity; }
+            [[nodiscard]] bool tracks_deltas() const noexcept { return tracks_deltas_v; }
+
+            [[nodiscard]] size_t size(const void *data) const noexcept override { return keys(data).size; }
+            [[nodiscard]] size_t slot_capacity(const void *data) const noexcept override { return keys(data).capacity; }
             [[nodiscard]] const value::TypeMeta &key_schema() const noexcept override { return *m_schema.get().key_type; }
             [[nodiscard]] const value::TypeMeta &value_schema() const noexcept override { return *m_schema.get().element_type; }
             [[nodiscard]] const ViewDispatch &key_dispatch() const noexcept override { return m_keys.dispatch(); }
@@ -723,82 +803,101 @@ namespace hgraph
 
             void begin_mutation(void *data) const override
             {
-                MapState *map = state(data);
-                if (map->mutation_depth++ == 0) { release_removed(*map); }
+                if constexpr (tracks_deltas_v) {
+                    MapState *map = state(data);
+                    if (map->mutation_depth++ == 0) { release_removed(*map); }
+                }
             }
 
             void end_mutation(void *data) const override
             {
-                MapState *map = state(data);
-                if (map->mutation_depth == 0) {
-                    throw std::runtime_error("Map mutation depth underflow");
+                if constexpr (tracks_deltas_v) {
+                    MapState *map = state(data);
+                    if (map->mutation_depth == 0) {
+                        throw std::runtime_error("Map mutation depth underflow");
+                    }
+                    --map->mutation_depth;
                 }
-                --map->mutation_depth;
             }
 
             [[nodiscard]] size_t find(const void *data, const void *key) const override
             {
-                return m_keys.find_live_slot(state(data)->keys, key);
+                return m_keys.find_live_slot(keys(data), key);
             }
 
             [[nodiscard]] bool slot_occupied(const void *data, size_t slot) const noexcept override
             {
-                const MapState *map = state(data);
-                return slot < map->keys.capacity && map->keys.occupied.test(slot);
+                const auto &key_state = keys(data);
+                return slot < key_state.capacity && key_state.occupied.test(slot);
             }
 
             [[nodiscard]] bool slot_added(const void *data, size_t slot) const noexcept override
             {
-                const MapState *map = state(data);
-                return slot < map->keys.capacity && map->keys.added.test(slot);
+                if constexpr (tracks_deltas_v) {
+                    return slot < state(data)->keys.capacity && state(data)->keys.added.test(slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return false;
+                }
             }
 
             [[nodiscard]] bool slot_removed(const void *data, size_t slot) const noexcept override
             {
-                const MapState *map = state(data);
-                return slot < map->keys.capacity && map->keys.removed.test(slot);
+                if constexpr (tracks_deltas_v) {
+                    return slot < state(data)->keys.capacity && state(data)->keys.removed.test(slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return false;
+                }
             }
 
             [[nodiscard]] bool slot_updated(const void *data, size_t slot) const noexcept override
             {
-                const MapState *map = state(data);
-                return slot < map->keys.capacity && map->updated.test(slot);
+                if constexpr (tracks_deltas_v) {
+                    return slot < state(data)->keys.capacity && state(data)->updated.test(slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return false;
+                }
             }
 
             [[nodiscard]] void *key_data(void *data, size_t index) const override
             {
-                MapState *map = state(data);
-                if (index >= map->keys.capacity || !map->keys.occupied.test(index)) {
+                auto &key_state = keys(data);
+                if (index >= key_state.capacity || !key_state.occupied.test(index)) {
                     throw std::out_of_range("Map key index out of range");
                 }
-                return m_keys.slot_data(map->keys, index);
+                return m_keys.slot_data(key_state, index);
             }
 
             [[nodiscard]] const void *key_data(const void *data, size_t index) const override
             {
-                const MapState *map = state(data);
-                if (index >= map->keys.capacity || !map->keys.occupied.test(index)) {
+                const auto &key_state = keys(data);
+                if (index >= key_state.capacity || !key_state.occupied.test(index)) {
                     throw std::out_of_range("Map key index out of range");
                 }
-                return m_keys.slot_data(map->keys, index);
+                return m_keys.slot_data(key_state, index);
             }
 
             [[nodiscard]] void *value_data(void *data, size_t index) const override
             {
-                MapState *map = state(data);
-                if (index >= map->keys.capacity || !map->keys.occupied.test(index)) {
+                const auto &key_state = keys(data);
+                if (index >= key_state.capacity || !key_state.occupied.test(index)) {
                     throw std::out_of_range("Map value index out of range");
                 }
-                return map->values + index * m_value_stride;
+                return values_memory(data) + index * m_value_stride;
             }
 
             [[nodiscard]] const void *value_data(const void *data, size_t index) const override
             {
-                const MapState *map = state(data);
-                if (index >= map->keys.capacity || !map->keys.occupied.test(index)) {
+                const auto &key_state = keys(data);
+                if (index >= key_state.capacity || !key_state.occupied.test(index)) {
                     throw std::out_of_range("Map value index out of range");
                 }
-                return map->values + index * m_value_stride;
+                return values_memory(data) + index * m_value_stride;
             }
 
             [[nodiscard]] bool set_item(void *data, const void *key, const void *value) const override
@@ -806,62 +905,65 @@ namespace hgraph
                 if (value == nullptr) {
                     throw std::invalid_argument("Map value requires a live value for every present key");
                 }
-                MapState *map = state(data);
-                if (const size_t slot = m_keys.find_slot(map->keys, key); slot != npos) {
-                    const bool was_live = map->keys.alive.test(slot);
+                auto &key_state = keys(data);
+                if (const size_t slot = m_keys.find_slot(key_state, key); slot != npos) {
+                    const bool was_live = key_state.alive.test(slot);
                     if (!was_live) {
-                        map->keys.alive.set(slot);
-                        map->keys.removed.reset(slot);
-                        ++map->keys.size;
-                        map->updated.set(slot);
-                    } else if (!map->keys.added.test(slot)) {
-                        map->updated.set(slot);
+                        key_state.alive.set(slot);
+                        if constexpr (tracks_deltas_v) { state(data)->keys.removed.reset(slot); }
+                        ++key_state.size;
+                        if constexpr (tracks_deltas_v) { state(data)->updated.set(slot); }
+                    } else if constexpr (tracks_deltas_v) {
+                        if (!state(data)->keys.added.test(slot)) { state(data)->updated.set(slot); }
                     }
-                    key_dispatch().assign(key_data(map, slot), key);
-                    value_dispatch().assign(value_data(map, slot), value);
+                    key_dispatch().assign(key_data(data, slot), key);
+                    value_dispatch().assign(value_data(data, slot), value);
                     return !was_live;
                 }
 
-                reserve(*map, map->keys.size + 1);
-                const auto insertion = m_keys.insert(map->keys, key);
+                reserve(*state(data), key_state.size + 1);
+                const auto insertion = m_keys.insert(state(data)->keys, key);
                 const size_t slot = insertion.slot;
-                prepare_value_slot(*map, slot);
-                value_dispatch().assign(value_data(map, slot), value);
+                prepare_value_slot(*state(data), slot);
+                value_dispatch().assign(value_data(data, slot), value);
                 return insertion.inserted;
             }
 
             [[nodiscard]] bool remove(void *data, const void *key) const override
             {
-                MapState *map = state(data);
                 const size_t slot = find(data, key);
                 if (slot == npos) { return false; }
-                if (map->keys.added.test(slot)) {
-                    destroy_value(map->values + slot * m_value_stride);
+                if constexpr (tracks_deltas_v) {
+                    if (state(data)->keys.added.test(slot)) {
+                        destroy_value(values_memory(data) + slot * m_value_stride);
+                    }
+                    state(data)->updated.reset(slot);
+                } else {
+                    destroy_value(values_memory(data) + slot * m_value_stride);
                 }
-                map->updated.reset(slot);
-                m_keys.remove_slot(map->keys, slot);
+                m_keys.remove_slot(state(data)->keys, slot);
                 return true;
             }
 
             void clear(void *data) const override
             {
-                MapState *map = state(data);
-                while (map->keys.size > 0) {
-                    const size_t slot = m_keys.live_slot_at(map->keys, 0);
-                    if (map->keys.added.test(slot)) {
-                        destroy_value(map->values + slot * m_value_stride);
+                while (keys(data).size > 0) {
+                    const size_t slot = m_keys.live_slot_at(keys(data), 0);
+                    if constexpr (tracks_deltas_v) {
+                        if (state(data)->keys.added.test(slot)) {
+                            destroy_value(values_memory(data) + slot * m_value_stride);
+                        }
+                        state(data)->updated.reset(slot);
                     }
-                    map->updated.reset(slot);
-                    m_keys.remove_slot(map->keys, slot);
+                    m_keys.remove_slot(state(data)->keys, slot);
                 }
             }
 
             [[nodiscard]] size_t hash(const void *data) const override
             {
-                const MapState *map = state(data);
                 size_t result = 0;
-                for (size_t slot = 0; slot < map->keys.capacity; ++slot) {
-                    if (!map->keys.alive.test(slot)) { continue; }
+                for (size_t slot = 0; slot < keys(data).capacity; ++slot) {
+                    if (!keys(data).alive.test(slot)) { continue; }
                     size_t pair_hash = key_dispatch().hash(key_data(data, slot));
                     pair_hash ^= value_dispatch().hash(value_data(data, slot)) << 1;
                     result ^= pair_hash;
@@ -871,11 +973,10 @@ namespace hgraph
 
             [[nodiscard]] std::string to_string(const void *data) const override
             {
-                const MapState *map = state(data);
                 std::string result = "{";
                 bool first = true;
-                for (size_t slot = 0; slot < map->keys.capacity; ++slot) {
-                    if (!map->keys.alive.test(slot)) { continue; }
+                for (size_t slot = 0; slot < keys(data).capacity; ++slot) {
+                    if (!keys(data).alive.test(slot)) { continue; }
                     if (!first) { result += ", "; }
                     first = false;
                     result += key_dispatch().to_string(key_data(data, slot));
@@ -888,12 +989,10 @@ namespace hgraph
 
             [[nodiscard]] std::partial_ordering compare(const void *lhs, const void *rhs) const override
             {
-                const MapState *a = state(lhs);
-                const MapState *b = state(rhs);
-                if (a->keys.size != b->keys.size) { return std::partial_ordering::unordered; }
+                if (keys(lhs).size != keys(rhs).size) { return std::partial_ordering::unordered; }
 
-                for (size_t slot = 0; slot < a->keys.capacity; ++slot) {
-                    if (!a->keys.alive.test(slot)) { continue; }
+                for (size_t slot = 0; slot < keys(lhs).capacity; ++slot) {
+                    if (!keys(lhs).alive.test(slot)) { continue; }
                     const size_t rhs_slot = find(rhs, key_data(lhs, slot));
                     if (rhs_slot == npos) { return std::partial_ordering::unordered; }
                     if (value_dispatch().compare(value_data(lhs, slot), value_data(rhs, rhs_slot)) !=
@@ -908,9 +1007,8 @@ namespace hgraph
             {
                 static_cast<void>(schema);
                 nb::dict result;
-                const MapState *map = state(data);
-                for (size_t slot = 0; slot < map->keys.capacity; ++slot) {
-                    if (!map->keys.alive.test(slot)) { continue; }
+                for (size_t slot = 0; slot < keys(data).capacity; ++slot) {
+                    if (!keys(data).alive.test(slot)) { continue; }
                     nb::object py_key = key_dispatch().to_python(key_data(data, slot), &key_schema());
                     nb::object py_value = value_dispatch().to_python(value_data(data, slot), &value_schema());
                     result[py_key] = py_value;
@@ -925,7 +1023,7 @@ namespace hgraph
                     throw std::runtime_error("Map value expects a dict or dict-like object");
                 }
 
-                hard_clear(*state(dst));
+                hard_clear(dst);
                 const nb::object items = nb::hasattr(src, "items") ? src.attr("items")() : src;
                 nb::iterator it = nb::iter(items);
                 while (it != nb::iterator::sentinel()) {
@@ -976,10 +1074,9 @@ namespace hgraph
 
             void assign(void *dst, const void *src) const override
             {
-                hard_clear(*state(dst));
-                const MapState *map = state(src);
-                for (size_t slot = 0; slot < map->keys.capacity; ++slot) {
-                    if (!map->keys.alive.test(slot)) { continue; }
+                hard_clear(dst);
+                for (size_t slot = 0; slot < keys(src).capacity; ++slot) {
+                    if (!keys(src).alive.test(slot)) { continue; }
                     static_cast<void>(set_item(dst, key_data(src, slot), value_data(src, slot)));
                 }
             }
@@ -1008,21 +1105,19 @@ namespace hgraph
 
             void destroy(void *memory) const noexcept
             {
-                MapState *map = state(memory);
-                hard_clear(*map);
-                if (map->keys.elements != nullptr) {
-                    ::operator delete(map->keys.elements, std::align_val_t{m_key_builder.get().alignment()});
+                hard_clear(memory);
+                if (keys(memory).elements != nullptr) {
+                    ::operator delete(keys(memory).elements, std::align_val_t{m_key_builder.get().alignment()});
                 }
-                if (map->values != nullptr) {
-                    ::operator delete(map->values, std::align_val_t{m_value_builder.get().alignment()});
+                if (values_memory(memory) != nullptr) {
+                    ::operator delete(values_memory(memory), std::align_val_t{m_value_builder.get().alignment()});
                 }
-                std::destroy_at(map);
+                std::destroy_at(state(memory));
             }
 
             void copy_construct(void *dst, const void *src) const
             {
-                std::construct_at(state(dst));
-                m_keys.initialise(state(dst)->keys);
+                construct(dst);
                 assign(dst, src);
             }
 
@@ -1035,14 +1130,16 @@ namespace hgraph
                 state(src)->keys.capacity = 0;
                 state(src)->keys.alive.clear();
                 state(src)->keys.occupied.clear();
-                state(src)->keys.added.clear();
-                state(src)->keys.removed.clear();
                 state(src)->keys.free_list.clear();
-                state(src)->keys.mutation_depth = 0;
                 state(src)->keys.index.reset();
                 state(src)->values = nullptr;
-                state(src)->updated.clear();
-                state(src)->mutation_depth = 0;
+                if constexpr (tracks_deltas_v) {
+                    state(src)->keys.added.clear();
+                    state(src)->keys.removed.clear();
+                    state(src)->keys.mutation_depth = 0;
+                    state(src)->updated.clear();
+                    state(src)->mutation_depth = 0;
+                }
             }
 
           private:
@@ -1055,7 +1152,7 @@ namespace hgraph
                 return ((size + alignment - 1) / alignment) * alignment;
             }
 
-            void reserve(MapState &map, size_t min_capacity) const
+            template <typename TMapState> void reserve(TMapState &map, size_t min_capacity) const
             {
                 if (min_capacity <= map.keys.capacity) { return; }
 
@@ -1097,10 +1194,10 @@ namespace hgraph
                 }
 
                 map.values = new_values;
-                map.updated.resize(new_capacity);
+                if constexpr (std::is_same_v<TMapState, DeltaMapState>) { map.updated.resize(new_capacity); }
             }
 
-            void release_removed(MapState &map) const noexcept
+            void release_removed(DeltaMapState &map) const noexcept
             {
                 for (size_t slot = 0; slot < map.keys.capacity; ++slot) {
                     if (!map.keys.removed.test(slot)) { continue; }
@@ -1116,14 +1213,19 @@ namespace hgraph
                 map.updated.reset();
             }
 
-            void hard_clear(MapState &map) const noexcept
+            void hard_clear(void *memory) const noexcept
+            {
+                hard_clear_impl(*state(memory));
+            }
+
+            template <typename TMapState> void hard_clear_impl(TMapState &map) const noexcept
             {
                 destroy_constructed_values(map);
                 m_keys.clear(map.keys);
-                map.updated.reset();
+                if constexpr (std::is_same_v<TMapState, DeltaMapState>) { map.updated.reset(); }
             }
 
-            void prepare_value_slot(MapState &map, size_t slot) const
+            template <typename TMapState> void prepare_value_slot(TMapState &map, size_t slot) const
             {
                 if (slot >= map.keys.capacity) {
                     throw std::out_of_range("Map value slot out of range");
@@ -1137,7 +1239,7 @@ namespace hgraph
                 m_value_builder.get().construct(map.values + slot * m_value_stride);
             }
 
-            void destroy_constructed_values(MapState &map) const noexcept
+            template <typename TMapState> void destroy_constructed_values(TMapState &map) const noexcept
             {
                 if (!m_value_requires_destroy) { return; }
                 for (size_t slot = 0; slot < map.keys.capacity; ++slot) {
@@ -1154,21 +1256,29 @@ namespace hgraph
                 }
             }
 
-            void reset_value(MapState &map, size_t slot) const
+            template <typename TMapState> void reset_value(TMapState &map, size_t slot) const
             {
                 destroy_value(map.values + slot * m_value_stride);
                 m_value_builder.get().construct(map.values + slot * m_value_stride);
             }
 
-            [[nodiscard]] static MapState *state(void *memory) noexcept
+            [[nodiscard]] MapState *state(void *memory) const noexcept
             {
                 return std::launder(reinterpret_cast<MapState *>(memory));
             }
 
-            [[nodiscard]] static const MapState *state(const void *memory) noexcept
+            [[nodiscard]] const MapState *state(const void *memory) const noexcept
             {
                 return std::launder(reinterpret_cast<const MapState *>(memory));
             }
+
+            [[nodiscard]] KeyState &keys(void *memory) const noexcept { return state(memory)->keys; }
+
+            [[nodiscard]] const KeyState &keys(const void *memory) const noexcept { return state(memory)->keys; }
+
+            [[nodiscard]] std::byte *values_memory(void *memory) const noexcept { return state(memory)->values; }
+
+            [[nodiscard]] const std::byte *values_memory(const void *memory) const noexcept { return state(memory)->values; }
 
             std::reference_wrapper<const value::TypeMeta> m_schema;
             std::reference_wrapper<const ValueBuilder>    m_key_builder;
@@ -1188,10 +1298,19 @@ namespace hgraph
             void expand_builder(ValueBuilder &builder, const value::TypeMeta &schema) const noexcept override
             {
                 static_cast<void>(schema);
-                if constexpr (std::is_same_v<TDispatch, SetDispatch>) {
-                    builder.cache_layout(sizeof(SetState), alignof(SetState));
+                if constexpr (std::same_as<TDispatch, SetDispatch<MutationTracking::Delta>> ||
+                              std::same_as<TDispatch, SetDispatch<MutationTracking::Plain>>) {
+                    if constexpr (TDispatch::tracking_mode == MutationTracking::Delta) {
+                        builder.cache_layout(sizeof(DeltaSetState), alignof(DeltaSetState));
+                    } else {
+                        builder.cache_layout(sizeof(PlainSetState), alignof(PlainSetState));
+                    }
                 } else {
-                    builder.cache_layout(sizeof(MapState), alignof(MapState));
+                    if constexpr (TDispatch::tracking_mode == MutationTracking::Delta) {
+                        builder.cache_layout(sizeof(DeltaMapState), alignof(DeltaMapState));
+                    } else {
+                        builder.cache_layout(sizeof(PlainMapState), alignof(PlainMapState));
+                    }
                 }
                 builder.cache_lifecycle(true, true, false);
             }
@@ -1235,37 +1354,80 @@ namespace hgraph
             std::shared_ptr<const ValueBuilder> builder;
         };
 
-        const ValueBuilder *associative_builder_for(const value::TypeMeta *schema)
+        struct AssociativeBuilderKey
+        {
+            const value::TypeMeta *schema{nullptr};
+            MutationTracking       tracking{MutationTracking::Delta};
+
+            [[nodiscard]] bool operator==(const AssociativeBuilderKey &other) const noexcept
+            {
+                return schema == other.schema && tracking == other.tracking;
+            }
+        };
+
+        struct AssociativeBuilderKeyHash
+        {
+            [[nodiscard]] size_t operator()(const AssociativeBuilderKey &key) const noexcept
+            {
+                return std::hash<const value::TypeMeta *>{}(key.schema) ^
+                       (static_cast<size_t>(key.tracking) << 1U);
+            }
+        };
+
+        const ValueBuilder *associative_builder_for(const value::TypeMeta *schema, MutationTracking tracking)
         {
             if (schema == nullptr) { return nullptr; }
             if (schema->kind != value::TypeKind::Set && schema->kind != value::TypeKind::Map) { return nullptr; }
 
             static std::mutex cache_mutex;
-            static std::unordered_map<const value::TypeMeta *, CachedBuilderEntry> cache;
+            static std::unordered_map<AssociativeBuilderKey, CachedBuilderEntry, AssociativeBuilderKeyHash> cache;
 
             std::lock_guard lock(cache_mutex);
-            if (auto it = cache.find(schema); it != cache.end()) {
+            const AssociativeBuilderKey key{schema, tracking};
+            if (auto it = cache.find(key); it != cache.end()) {
                 return it->second.builder.get();
             }
 
             CachedBuilderEntry entry;
             if (schema->kind == value::TypeKind::Set) {
-                auto dispatch = std::make_shared<SetDispatch>(*schema);
-                auto state_ops = std::make_shared<AssociativeStateOps<SetDispatch>>(*dispatch);
-                auto builder = std::make_shared<ValueBuilder>(*schema, *state_ops);
-                entry.dispatch = std::move(dispatch);
-                entry.state_ops = std::move(state_ops);
-                entry.builder = std::move(builder);
+                if (tracking == MutationTracking::Delta) {
+                    auto dispatch = std::make_shared<SetDispatch<MutationTracking::Delta>>(*schema);
+                    auto state_ops =
+                        std::make_shared<AssociativeStateOps<SetDispatch<MutationTracking::Delta>>>(*dispatch);
+                    auto builder = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder = std::move(builder);
+                } else {
+                    auto dispatch = std::make_shared<SetDispatch<MutationTracking::Plain>>(*schema);
+                    auto state_ops =
+                        std::make_shared<AssociativeStateOps<SetDispatch<MutationTracking::Plain>>>(*dispatch);
+                    auto builder = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder = std::move(builder);
+                }
             } else {
-                auto dispatch = std::make_shared<MapDispatch>(*schema);
-                auto state_ops = std::make_shared<AssociativeStateOps<MapDispatch>>(*dispatch);
-                auto builder = std::make_shared<ValueBuilder>(*schema, *state_ops);
-                entry.dispatch = std::move(dispatch);
-                entry.state_ops = std::move(state_ops);
-                entry.builder = std::move(builder);
+                if (tracking == MutationTracking::Delta) {
+                    auto dispatch = std::make_shared<MapDispatch<MutationTracking::Delta>>(*schema);
+                    auto state_ops =
+                        std::make_shared<AssociativeStateOps<MapDispatch<MutationTracking::Delta>>>(*dispatch);
+                    auto builder = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder = std::move(builder);
+                } else {
+                    auto dispatch = std::make_shared<MapDispatch<MutationTracking::Plain>>(*schema);
+                    auto state_ops =
+                        std::make_shared<AssociativeStateOps<MapDispatch<MutationTracking::Plain>>>(*dispatch);
+                    auto builder = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder = std::move(builder);
+                }
             }
 
-            auto [it, inserted] = cache.emplace(schema, std::move(entry));
+            auto [it, inserted] = cache.emplace(key, std::move(entry));
             static_cast<void>(inserted);
             return it->second.builder.get();
         }

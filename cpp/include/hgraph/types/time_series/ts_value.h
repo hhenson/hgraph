@@ -37,7 +37,7 @@ struct HGRAPH_EXPORT TSValue {
      * schema used by the owned `Value`.
      */
     explicit TSValue(const TSMeta *schema) noexcept
-        : m_value(*schema->value_type)
+        : m_value(*schema->value_type, MutationTracking::Delta)
         , m_schema(schema)
     {
     }

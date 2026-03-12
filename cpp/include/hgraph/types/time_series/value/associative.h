@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/value/tracking.h>
 #include <hgraph/types/time_series/value/view.h>
 
 #include <cstddef>
@@ -28,6 +29,11 @@ namespace hgraph
          * retained internally until reuse or clear, but only live elements are
          * visible through the public set API. Iteration order is storage order
          * and is not part of the public semantic contract.
+         *
+         * Plain builders omit the added/removed mutation journal and destroy
+         * removed payloads immediately. Delta builders keep the extra state
+         * needed to expose removed payloads and net added/removed ranges for
+         * the current mutation epoch.
          */
         struct SetViewDispatch : ViewDispatch
         {
@@ -35,7 +41,9 @@ namespace hgraph
              * Start a new mutation epoch.
              *
              * Removed slots are released here so their payloads remain
-             * inspectable by slot id until the next mutation begins.
+             * inspectable by slot id until the next mutation begins. Plain
+             * builders do not retain removed payloads, so this is a no-op for
+             * them.
              */
             virtual void begin_mutation(void *data) const = 0;
             /**
@@ -66,6 +74,11 @@ namespace hgraph
          * values are stored in parallel by slot. A present key always has a
          * present value; there is no separate logical-invalid state for map
          * values in this layer.
+         *
+         * Plain builders omit the added/removed/updated mutation journal and
+         * destroy removed payloads immediately. Delta builders retain removed
+         * key/value payloads and track the net added/removed/updated slots for
+         * the current mutation epoch.
          */
         struct MapViewDispatch : ViewDispatch
         {
@@ -73,7 +86,9 @@ namespace hgraph
              * Start a new mutation epoch.
              *
              * Removed slots are released here so erased key/value payloads stay
-             * inspectable by slot id until the next mutation begins.
+             * inspectable by slot id until the next mutation begins. Plain
+             * builders do not retain removed payloads, so this is a no-op for
+             * them.
              */
             virtual void begin_mutation(void *data) const = 0;
             /**
@@ -100,7 +115,8 @@ namespace hgraph
             virtual void clear(void *data) const = 0;
         };
 
-        [[nodiscard]] HGRAPH_EXPORT const ValueBuilder *associative_builder_for(const value::TypeMeta *schema);
+        [[nodiscard]] HGRAPH_EXPORT const ValueBuilder *associative_builder_for(
+            const value::TypeMeta *schema, MutationTracking tracking);
 
     }  // namespace detail
 

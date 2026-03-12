@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/value/tracking.h>
 #include <hgraph/types/time_series/value/associative.h>
 #include <hgraph/types/time_series/value/atomic.h>
 #include <hgraph/types/time_series/value/list.h>
@@ -12,7 +13,6 @@
 
 namespace hgraph
 {
-
     namespace detail
     {
 
@@ -49,9 +49,10 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT ValueBuilder
     {
-        ValueBuilder(const value::TypeMeta &schema, const detail::StateOps &state_ops) noexcept;
+        ValueBuilder(const value::TypeMeta &schema, MutationTracking tracking, const detail::StateOps &state_ops) noexcept;
 
         [[nodiscard]] const value::TypeMeta &schema() const noexcept { return m_schema.get(); }
+        [[nodiscard]] MutationTracking tracking() const noexcept { return m_tracking; }
         [[nodiscard]] size_t size() const noexcept { return m_size; }
         [[nodiscard]] size_t alignment() const noexcept { return m_alignment; }
         [[nodiscard]] bool requires_destroy() const noexcept { return m_requires_destroy; }
@@ -81,6 +82,7 @@ namespace hgraph
 
       private:
         std::reference_wrapper<const value::TypeMeta>  m_schema;
+        MutationTracking                               m_tracking{MutationTracking::Delta};
         size_t                                         m_size{0};
         size_t                                         m_alignment{alignof(std::max_align_t)};
         bool                                           m_requires_destroy{true};
@@ -93,13 +95,16 @@ namespace hgraph
     /**
      * Schema-to-builder lookup.
      *
-     * Builders are cached singletons per schema pointer. Builder identity is the
-     * compatibility contract for copy and move in this value layer.
+     * Builders are cached singletons per `(schema pointer, tracking mode)`.
+     * Builder identity is the compatibility contract for copy and move in this
+     * value layer.
      */
     struct HGRAPH_EXPORT ValueBuilderFactory
     {
-        [[nodiscard]] static const ValueBuilder *builder_for(const value::TypeMeta *schema);
-        [[nodiscard]] static const ValueBuilder &checked_builder_for(const value::TypeMeta *schema);
+        [[nodiscard]] static const ValueBuilder *builder_for(
+            const value::TypeMeta *schema, MutationTracking tracking = MutationTracking::Delta);
+        [[nodiscard]] static const ValueBuilder &checked_builder_for(
+            const value::TypeMeta *schema, MutationTracking tracking = MutationTracking::Delta);
     };
 
 }  // namespace hgraph

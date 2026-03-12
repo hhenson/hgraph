@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/value/tracking.h>
 #include <hgraph/types/time_series/value/associative.h>
 #include <hgraph/types/time_series/value/atomic.h>
 #include <hgraph/types/time_series/value/list.h>
@@ -36,8 +37,12 @@ namespace hgraph
         /**
          * Bind this value to the supplied schema and default-construct storage
          * for that schema.
+         *
+         * The tracking mode selects whether this value retains mutation deltas.
+         * Ordinary value storage can use `Plain`, while time-series-facing
+         * storage uses `Delta`.
          */
-        explicit Value(const value::TypeMeta &schema);
+        explicit Value(const value::TypeMeta &schema, MutationTracking tracking = MutationTracking::Delta);
         /**
          * Copy the stored payload while preserving the schema selected by the
          * builder.
@@ -83,6 +88,11 @@ namespace hgraph
          * empty because the builder reference is always retained.
          */
         [[nodiscard]] const value::TypeMeta *schema() const noexcept;
+        /**
+         * Return whether this value was built with plain or delta-aware
+         * storage.
+         */
+        [[nodiscard]] MutationTracking tracking() const noexcept;
         /**
          * Return a mutable erased view over the stored payload.
          */

@@ -7,8 +7,8 @@
 
 namespace hgraph
 {
-    Value::Value(const value::TypeMeta &schema)
-        : m_builder(&ValueBuilderFactory::checked_builder_for(&schema))
+    Value::Value(const value::TypeMeta &schema, MutationTracking tracking)
+        : m_builder(&ValueBuilderFactory::checked_builder_for(&schema, tracking))
     {
         allocate_and_construct();
     }
@@ -113,6 +113,11 @@ namespace hgraph
     const value::TypeMeta *Value::schema() const noexcept
     {
         return &builder().schema();
+    }
+
+    MutationTracking Value::tracking() const noexcept
+    {
+        return builder().tracking();
     }
 
     View Value::view() noexcept

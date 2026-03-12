@@ -254,8 +254,11 @@ namespace hgraph
             bool                                          m_element_requires_destroy{true};
         };
 
-        struct FixedListDispatch final : ListDispatchBase
+        template <MutationTracking TTracking> struct FixedListDispatch final : ListDispatchBase
         {
+            static constexpr MutationTracking tracking_mode = TTracking;
+            static constexpr bool tracks_deltas_v = TTracking == MutationTracking::Delta;
+
             FixedListDispatch(const value::TypeMeta &schema, const ValueBuilder &element_builder) noexcept
                 : ListDispatchBase(schema, element_builder),
                   m_fixed_size(schema.fixed_size)
@@ -275,31 +278,35 @@ namespace hgraph
 
             void begin_mutation(void *data) const override
             {
-                FixedListState *list = state(data);
-                if (list->mutation_depth++ == 0) {
-                    value::validity_set_all(updated_memory(data), m_fixed_size, false);
+                if constexpr (tracks_deltas_v) {
+                    FixedListState *list = state(data);
+                    if (list->mutation_depth++ == 0) {
+                        value::validity_set_all(updated_memory(data), m_fixed_size, false);
+                    }
                 }
             }
 
             void end_mutation(void *data) const override
             {
-                FixedListState *list = state(data);
-                if (list->mutation_depth == 0) {
-                    throw std::runtime_error("Fixed list mutation depth underflow");
+                if constexpr (tracks_deltas_v) {
+                    FixedListState *list = state(data);
+                    if (list->mutation_depth == 0) {
+                        throw std::runtime_error("Fixed list mutation depth underflow");
+                    }
+                    --list->mutation_depth;
                 }
-                --list->mutation_depth;
             }
 
             [[nodiscard]] void *element_data(void *data, size_t index) const override
             {
                 if (index >= m_fixed_size) { throw std::out_of_range("Fixed list index out of range"); }
-                return static_cast<std::byte *>(elements_memory(data)) + element_stride() * index;
+                return static_cast<std::byte *>(elements_memory(data)) + this->element_stride() * index;
             }
 
             [[nodiscard]] const void *element_data(const void *data, size_t index) const override
             {
                 if (index >= m_fixed_size) { throw std::out_of_range("Fixed list index out of range"); }
-                return static_cast<const std::byte *>(elements_memory(data)) + element_stride() * index;
+                return static_cast<const std::byte *>(elements_memory(data)) + this->element_stride() * index;
             }
 
             [[nodiscard]] bool element_valid(const void *data, size_t index) const override
@@ -310,7 +317,13 @@ namespace hgraph
 
             [[nodiscard]] bool slot_updated(const void *data, size_t index) const noexcept override
             {
-                return index < m_fixed_size && value::validity_bit_get(updated_memory(data), index);
+                if constexpr (tracks_deltas_v) {
+                    return index < m_fixed_size && value::validity_bit_get(updated_memory(data), index);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(index);
+                    return false;
+                }
             }
 
             [[nodiscard]] bool slot_added(const void *data, size_t index) const noexcept override
@@ -324,11 +337,13 @@ namespace hgraph
             {
                 if (index >= m_fixed_size) { throw std::out_of_range("Fixed list index out of range"); }
                 if (!valid && value::validity_bit_get(validity_memory(data), index)) {
-                    invalidate_element(static_cast<std::byte *>(elements_memory(data)), index);
+                    this->invalidate_element(static_cast<std::byte *>(elements_memory(data)), index);
                 }
                 value::validity_bit_set(validity_memory(data), index, valid);
-                if (state(data)->mutation_depth > 0) {
-                    value::validity_bit_set(updated_memory(data), index, true);
+                if constexpr (tracks_deltas_v) {
+                    if (state(data)->mutation_depth > 0) {
+                        value::validity_bit_set(updated_memory(data), index, true);
+                    }
                 }
             }
 
@@ -349,54 +364,57 @@ namespace hgraph
 
             [[nodiscard]] size_t allocation_size() const noexcept
             {
-                return header_size() + element_stride() * m_fixed_size + value::validity_mask_bytes(m_fixed_size) +
-                       value::validity_mask_bytes(m_fixed_size);
+                return header_size() + this->element_stride() * m_fixed_size + value::validity_mask_bytes(m_fixed_size) +
+                       (tracks_deltas_v ? value::validity_mask_bytes(m_fixed_size) : 0);
             }
 
             [[nodiscard]] size_t allocation_alignment() const noexcept
             {
-                return std::max(element_builder().alignment(), alignof(FixedListState));
+                return tracks_deltas_v ? std::max(this->element_builder().alignment(), alignof(FixedListState))
+                                       : this->element_builder().alignment();
             }
 
             void construct(void *memory) const
             {
-                std::construct_at(state(memory));
-                construct_elements(static_cast<std::byte *>(elements_memory(memory)), m_fixed_size);
+                if constexpr (tracks_deltas_v) { std::construct_at(state(memory)); }
+                this->construct_elements(static_cast<std::byte *>(elements_memory(memory)), m_fixed_size);
                 value::validity_set_all(validity_memory(memory), m_fixed_size, true);
-                value::validity_set_all(updated_memory(memory), m_fixed_size, false);
+                if constexpr (tracks_deltas_v) { value::validity_set_all(updated_memory(memory), m_fixed_size, false); }
             }
 
             void destroy(void *memory) const noexcept
             {
-                destroy_elements(static_cast<std::byte *>(elements_memory(memory)), m_fixed_size);
-                std::destroy_at(state(memory));
+                this->destroy_elements(static_cast<std::byte *>(elements_memory(memory)), m_fixed_size);
+                if constexpr (tracks_deltas_v) { std::destroy_at(state(memory)); }
             }
 
             void copy_construct(void *dst, const void *src) const
             {
-                std::construct_at(state(dst));
-                copy_elements(static_cast<std::byte *>(elements_memory(dst)),
-                              static_cast<const std::byte *>(elements_memory(src)),
-                              m_fixed_size);
+                if constexpr (tracks_deltas_v) { std::construct_at(state(dst)); }
+                this->copy_elements(static_cast<std::byte *>(elements_memory(dst)),
+                                    static_cast<const std::byte *>(elements_memory(src)),
+                                    m_fixed_size);
                 std::memcpy(validity_memory(dst), validity_memory(src), value::validity_mask_bytes(m_fixed_size));
-                value::validity_set_all(updated_memory(dst), m_fixed_size, false);
+                if constexpr (tracks_deltas_v) { value::validity_set_all(updated_memory(dst), m_fixed_size, false); }
             }
 
             void move_construct(void *dst, void *src) const
             {
-                std::construct_at(state(dst));
-                move_elements(static_cast<std::byte *>(elements_memory(dst)),
-                              static_cast<std::byte *>(elements_memory(src)),
-                              m_fixed_size);
+                if constexpr (tracks_deltas_v) { std::construct_at(state(dst)); }
+                this->move_elements(static_cast<std::byte *>(elements_memory(dst)),
+                                    static_cast<std::byte *>(elements_memory(src)),
+                                    m_fixed_size);
                 std::memcpy(validity_memory(dst), validity_memory(src), value::validity_mask_bytes(m_fixed_size));
-                value::validity_set_all(updated_memory(dst), m_fixed_size, false);
-                state(src)->mutation_depth = 0;
+                if constexpr (tracks_deltas_v) {
+                    value::validity_set_all(updated_memory(dst), m_fixed_size, false);
+                    state(src)->mutation_depth = 0;
+                }
             }
 
           private:
             [[nodiscard]] size_t header_size() const noexcept
             {
-                return align_up(sizeof(FixedListState), element_builder().alignment());
+                return tracks_deltas_v ? align_up(sizeof(FixedListState), this->element_builder().alignment()) : 0;
             }
 
             [[nodiscard]] FixedListState *state(void *data) const noexcept
@@ -421,12 +439,12 @@ namespace hgraph
 
             [[nodiscard]] std::byte *validity_memory(void *data) const noexcept
             {
-                return static_cast<std::byte *>(elements_memory(data)) + element_stride() * m_fixed_size;
+                return static_cast<std::byte *>(elements_memory(data)) + this->element_stride() * m_fixed_size;
             }
 
             [[nodiscard]] const std::byte *validity_memory(const void *data) const noexcept
             {
-                return static_cast<const std::byte *>(elements_memory(data)) + element_stride() * m_fixed_size;
+                return static_cast<const std::byte *>(elements_memory(data)) + this->element_stride() * m_fixed_size;
             }
 
             [[nodiscard]] std::byte *updated_memory(void *data) const noexcept
@@ -442,8 +460,31 @@ namespace hgraph
             size_t m_fixed_size{0};
         };
 
-        struct DynamicListDispatch final : ListDispatchBase
+        struct PlainDynamicListState
         {
+            std::byte *data{nullptr};
+            std::byte *validity{nullptr};
+            size_t     size{0};
+            size_t     capacity{0};
+        };
+
+        struct DeltaDynamicListState
+        {
+            std::byte *data{nullptr};
+            std::byte *validity{nullptr};
+            std::byte *updated{nullptr};
+            std::byte *added{nullptr};
+            size_t     size{0};
+            size_t     capacity{0};
+            size_t     mutation_depth{0};
+        };
+
+        template <MutationTracking TTracking> struct DynamicListDispatch final : ListDispatchBase
+        {
+            static constexpr MutationTracking tracking_mode = TTracking;
+            static constexpr bool tracks_deltas_v = TTracking == MutationTracking::Delta;
+            using DynamicListState = std::conditional_t<tracks_deltas_v, DeltaDynamicListState, PlainDynamicListState>;
+
             DynamicListDispatch(const value::TypeMeta &schema, const ValueBuilder &element_builder) noexcept
                 : ListDispatchBase(schema, element_builder)
             {
@@ -459,91 +500,118 @@ namespace hgraph
                 return false;
             }
 
+            [[nodiscard]] bool tracks_deltas() const noexcept { return tracks_deltas_v; }
+
             void begin_mutation(void *data) const override
             {
-                DynamicListState *list = state(data);
-                if (list->mutation_depth++ == 0) {
-                    if (list->updated != nullptr) { value::validity_set_all(list->updated, list->capacity, false); }
-                    if (list->added != nullptr) { value::validity_set_all(list->added, list->capacity, false); }
+                if constexpr (tracks_deltas_v) {
+                    DynamicListState *list = state(data);
+                    if (list->mutation_depth++ == 0) {
+                        if (list->updated != nullptr) { value::validity_set_all(list->updated, list->capacity, false); }
+                        if (list->added != nullptr) { value::validity_set_all(list->added, list->capacity, false); }
+                    }
                 }
             }
 
             void end_mutation(void *data) const override
             {
-                DynamicListState *list = state(data);
-                if (list->mutation_depth == 0) {
-                    throw std::runtime_error("Dynamic list mutation depth underflow");
+                if constexpr (tracks_deltas_v) {
+                    DynamicListState *list = state(data);
+                    if (list->mutation_depth == 0) {
+                        throw std::runtime_error("Dynamic list mutation depth underflow");
+                    }
+                    --list->mutation_depth;
                 }
-                --list->mutation_depth;
             }
 
             [[nodiscard]] void *element_data(void *data, size_t index) const override
             {
-                if (index >= state(data)->size) { throw std::out_of_range("Dynamic list index out of range"); }
-                return state(data)->data + element_stride() * index;
+                const size_t list_size = size(data);
+                if (index >= list_size) { throw std::out_of_range("Dynamic list index out of range"); }
+                return data_memory(data) + this->element_stride() * index;
             }
 
             [[nodiscard]] const void *element_data(const void *data, size_t index) const override
             {
-                if (index >= state(data)->size) { throw std::out_of_range("Dynamic list index out of range"); }
-                return state(data)->data + element_stride() * index;
+                const size_t list_size = size(data);
+                if (index >= list_size) { throw std::out_of_range("Dynamic list index out of range"); }
+                return data_memory(data) + this->element_stride() * index;
             }
 
             [[nodiscard]] bool element_valid(const void *data, size_t index) const override
             {
-                if (index >= state(data)->size) { throw std::out_of_range("Dynamic list index out of range"); }
-                return value::validity_bit_get(state(data)->validity, index);
+                const size_t list_size = size(data);
+                if (index >= list_size) { throw std::out_of_range("Dynamic list index out of range"); }
+                return value::validity_bit_get(validity_memory(data), index);
             }
 
             [[nodiscard]] bool slot_updated(const void *data, size_t index) const noexcept override
             {
-                const DynamicListState *list = state(data);
-                return index < list->size && list->updated != nullptr && value::validity_bit_get(list->updated, index) &&
-                       !(list->added != nullptr && value::validity_bit_get(list->added, index));
+                if constexpr (tracks_deltas_v) {
+                    const DynamicListState *list = state(data);
+                    return index < list->size && list->updated != nullptr &&
+                           value::validity_bit_get(list->updated, index) &&
+                           !(list->added != nullptr && value::validity_bit_get(list->added, index));
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(index);
+                    return false;
+                }
             }
 
             [[nodiscard]] bool slot_added(const void *data, size_t index) const noexcept override
             {
-                const DynamicListState *list = state(data);
-                return index < list->size && list->added != nullptr && value::validity_bit_get(list->added, index);
+                if constexpr (tracks_deltas_v) {
+                    const DynamicListState *list = state(data);
+                    return index < list->size && list->added != nullptr && value::validity_bit_get(list->added, index);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(index);
+                    return false;
+                }
             }
 
             void set_element_valid(void *data, size_t index, bool valid) const override
             {
-                DynamicListState *list = state(data);
-                if (index >= list->size) { throw std::out_of_range("Dynamic list index out of range"); }
-                if (!valid && value::validity_bit_get(list->validity, index)) {
-                    invalidate_element(list->data, index);
+                if (index >= size(data)) { throw std::out_of_range("Dynamic list index out of range"); }
+                if (!valid && value::validity_bit_get(validity_memory(data), index)) {
+                    this->invalidate_element(data_memory(data), index);
                 }
-                value::validity_bit_set(list->validity, index, valid);
-                if (list->mutation_depth > 0 &&
-                    (list->added == nullptr || !value::validity_bit_get(list->added, index))) {
-                    value::validity_bit_set(list->updated, index, true);
+                value::validity_bit_set(validity_memory(data), index, valid);
+                if constexpr (tracks_deltas_v) {
+                    if (state(data)->mutation_depth > 0 &&
+                        (state(data)->added == nullptr || !value::validity_bit_get(state(data)->added, index))) {
+                        value::validity_bit_set(state(data)->updated, index, true);
+                    }
                 }
             }
 
             void resize(void *data, size_t new_size) const override
             {
-                DynamicListState *list = state(data);
-                if (new_size > list->capacity) {
-                    reserve(list, new_size);
+                if (new_size > capacity(data)) {
+                    reserve(data, new_size);
                 }
-                if (new_size > list->size) {
-                    construct_elements(list->data + element_stride() * list->size, new_size - list->size);
-                    value::validity_set_range(list->validity, list->size, new_size - list->size, true);
-                    value::validity_set_range(list->updated, list->size, new_size - list->size, false);
-                    if (list->mutation_depth > 0) {
-                        value::validity_set_range(list->added, list->size, new_size - list->size, true);
-                    } else {
-                        value::validity_set_range(list->added, list->size, new_size - list->size, false);
+                const size_t current_size = size(data);
+                if (new_size > current_size) {
+                    this->construct_elements(data_memory(data) + this->element_stride() * current_size, new_size - current_size);
+                    value::validity_set_range(validity_memory(data), current_size, new_size - current_size, true);
+                    if constexpr (tracks_deltas_v) {
+                        value::validity_set_range(state(data)->updated, current_size, new_size - current_size, false);
+                        if (state(data)->mutation_depth > 0) {
+                            value::validity_set_range(state(data)->added, current_size, new_size - current_size, true);
+                        } else {
+                            value::validity_set_range(state(data)->added, current_size, new_size - current_size, false);
+                        }
                     }
-                } else if (new_size < list->size) {
-                    destroy_elements(list->data + element_stride() * new_size, list->size - new_size);
-                    value::validity_set_range(list->validity, new_size, list->size - new_size, false);
-                    value::validity_set_range(list->updated, new_size, list->size - new_size, false);
-                    value::validity_set_range(list->added, new_size, list->size - new_size, false);
+                } else if (new_size < current_size) {
+                    this->destroy_elements(data_memory(data) + this->element_stride() * new_size, current_size - new_size);
+                    value::validity_set_range(validity_memory(data), new_size, current_size - new_size, false);
+                    if constexpr (tracks_deltas_v) {
+                        value::validity_set_range(state(data)->updated, new_size, current_size - new_size, false);
+                        value::validity_set_range(state(data)->added, new_size, current_size - new_size, false);
+                    }
                 }
-                list->size = new_size;
+                set_size(data, new_size);
             }
 
             void clear(void *data) const override
@@ -558,36 +626,37 @@ namespace hgraph
 
             void destroy(void *memory) const noexcept
             {
-                DynamicListState *list = state(memory);
-                destroy_elements(list->data, list->size);
-                if (list->data != nullptr) {
-                    ::operator delete(list->data, std::align_val_t{m_element_builder.get().alignment()});
+                this->destroy_elements(data_memory(memory), size(memory));
+                if (data_memory(memory) != nullptr) {
+                    ::operator delete(data_memory(memory), std::align_val_t{this->m_element_builder.get().alignment()});
                 }
-                if (list->validity != nullptr) {
-                    ::operator delete(list->validity);
+                if (validity_memory(memory) != nullptr) {
+                    ::operator delete(validity_memory(memory));
                 }
-                if (list->updated != nullptr) {
-                    ::operator delete(list->updated);
+                if constexpr (tracks_deltas_v) {
+                    if (state(memory)->updated != nullptr) {
+                        ::operator delete(state(memory)->updated);
+                    }
+                    if (state(memory)->added != nullptr) {
+                        ::operator delete(state(memory)->added);
+                    }
                 }
-                if (list->added != nullptr) {
-                    ::operator delete(list->added);
-                }
-                std::destroy_at(list);
+                std::destroy_at(state(memory));
             }
 
             void copy_construct(void *dst, const void *src) const
             {
-                std::construct_at(state(dst));
-                DynamicListState *out = state(dst);
-                const DynamicListState *in = state(src);
-                reserve(out, in->size);
-                copy_elements(out->data, in->data, in->size);
-                std::memcpy(out->validity, in->validity, value::validity_mask_bytes(in->size));
-                if (out->capacity > 0) {
-                    value::validity_set_all(out->updated, out->capacity, false);
-                    value::validity_set_all(out->added, out->capacity, false);
+                construct(dst);
+                reserve(dst, size(src));
+                this->copy_elements(data_memory(dst), data_memory(src), size(src));
+                std::memcpy(validity_memory(dst), validity_memory(src), value::validity_mask_bytes(size(src)));
+                if constexpr (tracks_deltas_v) {
+                    if (capacity(dst) > 0) {
+                        value::validity_set_all(state(dst)->updated, capacity(dst), false);
+                        value::validity_set_all(state(dst)->added, capacity(dst), false);
+                    }
                 }
-                out->size = in->size;
+                set_size(dst, size(src));
             }
 
             void move_construct(void *dst, void *src) const
@@ -595,90 +664,135 @@ namespace hgraph
                 std::construct_at(state(dst), std::move(*state(src)));
                 state(src)->data = nullptr;
                 state(src)->validity = nullptr;
-                state(src)->updated = nullptr;
-                state(src)->added = nullptr;
                 state(src)->size = 0;
                 state(src)->capacity = 0;
-                state(src)->mutation_depth = 0;
+                if constexpr (tracks_deltas_v) {
+                    state(src)->updated = nullptr;
+                    state(src)->added = nullptr;
+                    state(src)->mutation_depth = 0;
+                }
             }
 
           private:
-            static DynamicListState *state(void *data) noexcept
+            [[nodiscard]] DynamicListState *state(void *data) const noexcept
             {
                 return std::launder(reinterpret_cast<DynamicListState *>(data));
             }
 
-            static const DynamicListState *state(const void *data) noexcept
+            [[nodiscard]] const DynamicListState *state(const void *data) const noexcept
             {
                 return std::launder(reinterpret_cast<const DynamicListState *>(data));
             }
 
-            void reserve(DynamicListState *list, size_t new_capacity) const
+            [[nodiscard]] std::byte *data_memory(void *data) const noexcept
             {
-                if (new_capacity <= list->capacity) { return; }
+                return state(data)->data;
+            }
+
+            [[nodiscard]] const std::byte *data_memory(const void *data) const noexcept
+            {
+                return state(data)->data;
+            }
+
+            [[nodiscard]] std::byte *validity_memory(void *data) const noexcept
+            {
+                return state(data)->validity;
+            }
+
+            [[nodiscard]] const std::byte *validity_memory(const void *data) const noexcept
+            {
+                return state(data)->validity;
+            }
+
+            [[nodiscard]] size_t capacity(const void *data) const noexcept
+            {
+                return state(data)->capacity;
+            }
+
+            void set_size(void *data, size_t new_size) const noexcept
+            {
+                state(data)->size = new_size;
+            }
+
+            void reserve(void *data, size_t new_capacity) const
+            {
+                const size_t current_capacity = capacity(data);
+                if (new_capacity <= current_capacity) { return; }
 
                 std::byte *new_data = static_cast<std::byte *>(
-                    ::operator new(element_stride() * new_capacity, std::align_val_t{m_element_builder.get().alignment()}));
+                    ::operator new(this->element_stride() * new_capacity,
+                                   std::align_val_t{this->m_element_builder.get().alignment()}));
                 std::byte *new_validity = static_cast<std::byte *>(::operator new(value::validity_mask_bytes(new_capacity)));
-                std::byte *new_updated = static_cast<std::byte *>(::operator new(value::validity_mask_bytes(new_capacity)));
-                std::byte *new_added = static_cast<std::byte *>(::operator new(value::validity_mask_bytes(new_capacity)));
+                std::byte *new_updated = nullptr;
+                std::byte *new_added = nullptr;
+                if constexpr (tracks_deltas_v) {
+                    new_updated = static_cast<std::byte *>(::operator new(value::validity_mask_bytes(new_capacity)));
+                    new_added = static_cast<std::byte *>(::operator new(value::validity_mask_bytes(new_capacity)));
+                }
 
+                const size_t current_size = size(data);
                 size_t i = 0;
                 try {
-                    for (; i < list->size; ++i) {
-                        m_element_builder.get().move_construct(new_data + element_stride() * i,
-                                                               list->data + element_stride() * i,
-                                                               m_element_builder);
+                    for (; i < current_size; ++i) {
+                        this->m_element_builder.get().move_construct(new_data + this->element_stride() * i,
+                                                                     data_memory(data) + this->element_stride() * i,
+                                                                     this->m_element_builder);
                     }
                 } catch (...) {
-                    destroy_elements(new_data, i);
-                    ::operator delete(new_data, std::align_val_t{m_element_builder.get().alignment()});
+                    this->destroy_elements(new_data, i);
+                    ::operator delete(new_data, std::align_val_t{this->m_element_builder.get().alignment()});
                     ::operator delete(new_validity);
-                    ::operator delete(new_updated);
-                    ::operator delete(new_added);
+                    if (new_updated != nullptr) { ::operator delete(new_updated); }
+                    if (new_added != nullptr) { ::operator delete(new_added); }
                     throw;
                 }
 
-                if (list->data != nullptr) {
-                    destroy_elements(list->data, list->size);
-                    ::operator delete(list->data, std::align_val_t{m_element_builder.get().alignment()});
+                if (data_memory(data) != nullptr) {
+                    this->destroy_elements(data_memory(data), current_size);
+                    ::operator delete(data_memory(data), std::align_val_t{this->m_element_builder.get().alignment()});
                 }
 
-                const size_t old_bytes = value::validity_mask_bytes(list->size);
-                if (old_bytes > 0 && list->validity != nullptr) {
-                    std::memcpy(new_validity, list->validity, old_bytes);
+                const size_t old_bytes = value::validity_mask_bytes(current_size);
+                if (old_bytes > 0 && validity_memory(data) != nullptr) {
+                    std::memcpy(new_validity, validity_memory(data), old_bytes);
                 }
-                value::validity_set_range(new_validity, list->size, new_capacity - list->size, false);
-                const size_t delta_bytes = value::validity_mask_bytes(list->capacity);
-                if (delta_bytes > 0 && list->updated != nullptr) {
-                    std::memcpy(new_updated, list->updated, delta_bytes);
+                value::validity_set_range(new_validity, current_size, new_capacity - current_size, false);
+                if constexpr (tracks_deltas_v) {
+                    const size_t delta_bytes = value::validity_mask_bytes(current_capacity);
+                    if (delta_bytes > 0 && state(data)->updated != nullptr) {
+                        std::memcpy(new_updated, state(data)->updated, delta_bytes);
+                    }
+                    value::validity_set_range(new_updated, current_capacity, new_capacity - current_capacity, false);
+                    if (delta_bytes > 0 && state(data)->added != nullptr) {
+                        std::memcpy(new_added, state(data)->added, delta_bytes);
+                    }
+                    value::validity_set_range(new_added, current_capacity, new_capacity - current_capacity, false);
                 }
-                value::validity_set_range(new_updated, list->capacity, new_capacity - list->capacity, false);
-                if (delta_bytes > 0 && list->added != nullptr) {
-                    std::memcpy(new_added, list->added, delta_bytes);
+                if (validity_memory(data) != nullptr) {
+                    ::operator delete(validity_memory(data));
                 }
-                value::validity_set_range(new_added, list->capacity, new_capacity - list->capacity, false);
-                if (list->validity != nullptr) {
-                    ::operator delete(list->validity);
-                }
-                if (list->updated != nullptr) {
-                    ::operator delete(list->updated);
-                }
-                if (list->added != nullptr) {
-                    ::operator delete(list->added);
+                if constexpr (tracks_deltas_v) {
+                    if (state(data)->updated != nullptr) {
+                        ::operator delete(state(data)->updated);
+                    }
+                    if (state(data)->added != nullptr) {
+                        ::operator delete(state(data)->added);
+                    }
                 }
 
-                list->data = new_data;
-                list->validity = new_validity;
-                list->updated = new_updated;
-                list->added = new_added;
-                list->capacity = new_capacity;
+                state(data)->data = new_data;
+                state(data)->validity = new_validity;
+                state(data)->capacity = new_capacity;
+                if constexpr (tracks_deltas_v) {
+                    state(data)->updated = new_updated;
+                    state(data)->added = new_added;
+                }
             }
         };
 
-        struct FixedListStateOps final : StateOps
+        template <typename TDispatch> struct FixedListStateOps final : StateOps
         {
-            explicit FixedListStateOps(const FixedListDispatch &dispatch) noexcept
+            explicit FixedListStateOps(const TDispatch &dispatch) noexcept
                 : m_dispatch(dispatch)
             {
             }
@@ -693,7 +807,7 @@ namespace hgraph
             [[nodiscard]] const ViewDispatch &view_dispatch(const value::TypeMeta &schema) const noexcept override
             {
                 static_cast<void>(schema);
-                return m_dispatch;
+                return m_dispatch.get();
             }
 
             [[nodiscard]] bool requires_destroy(const value::TypeMeta &schema) const noexcept override
@@ -719,12 +833,12 @@ namespace hgraph
             void copy_construct(void *dst, const void *src) const override { m_dispatch.get().copy_construct(dst, src); }
             void move_construct(void *dst, void *src) const override { m_dispatch.get().move_construct(dst, src); }
 
-            std::reference_wrapper<const FixedListDispatch> m_dispatch;
+            std::reference_wrapper<const TDispatch> m_dispatch;
         };
 
-        struct DynamicListStateOps final : StateOps
+        template <typename TDispatch> struct DynamicListStateOps final : StateOps
         {
-            explicit DynamicListStateOps(const DynamicListDispatch &dispatch) noexcept
+            explicit DynamicListStateOps(const TDispatch &dispatch) noexcept
                 : m_dispatch(dispatch)
             {
             }
@@ -732,14 +846,18 @@ namespace hgraph
             void expand_builder(ValueBuilder &builder, const value::TypeMeta &schema) const noexcept override
             {
                 static_cast<void>(schema);
-                builder.cache_layout(sizeof(DynamicListState), alignof(DynamicListState));
+                if constexpr (TDispatch::tracking_mode == MutationTracking::Delta) {
+                    builder.cache_layout(sizeof(DeltaDynamicListState), alignof(DeltaDynamicListState));
+                } else {
+                    builder.cache_layout(sizeof(PlainDynamicListState), alignof(PlainDynamicListState));
+                }
                 builder.cache_lifecycle(true, true, false);
             }
 
             [[nodiscard]] const ViewDispatch &view_dispatch(const value::TypeMeta &schema) const noexcept override
             {
                 static_cast<void>(schema);
-                return m_dispatch;
+                return m_dispatch.get();
             }
 
             [[nodiscard]] bool requires_destroy(const value::TypeMeta &schema) const noexcept override
@@ -765,7 +883,7 @@ namespace hgraph
             void copy_construct(void *dst, const void *src) const override { m_dispatch.get().copy_construct(dst, src); }
             void move_construct(void *dst, void *src) const override { m_dispatch.get().move_construct(dst, src); }
 
-            std::reference_wrapper<const DynamicListDispatch> m_dispatch;
+            std::reference_wrapper<const TDispatch> m_dispatch;
         };
 
         struct CachedBuilderEntry
@@ -775,15 +893,36 @@ namespace hgraph
             std::shared_ptr<const ValueBuilder> builder;
         };
 
-        const ValueBuilder *list_builder_for(const value::TypeMeta *schema)
+        struct ListBuilderKey
+        {
+            const value::TypeMeta *schema{nullptr};
+            MutationTracking       tracking{MutationTracking::Delta};
+
+            [[nodiscard]] bool operator==(const ListBuilderKey &other) const noexcept
+            {
+                return schema == other.schema && tracking == other.tracking;
+            }
+        };
+
+        struct ListBuilderKeyHash
+        {
+            [[nodiscard]] size_t operator()(const ListBuilderKey &key) const noexcept
+            {
+                return std::hash<const value::TypeMeta *>{}(key.schema) ^
+                       (static_cast<size_t>(key.tracking) << 1U);
+            }
+        };
+
+        const ValueBuilder *list_builder_for(const value::TypeMeta *schema, MutationTracking tracking)
         {
             if (schema == nullptr || schema->kind != value::TypeKind::List) { return nullptr; }
 
             static std::mutex cache_mutex;
-            static std::unordered_map<const value::TypeMeta *, CachedBuilderEntry> cache;
+            static std::unordered_map<ListBuilderKey, CachedBuilderEntry, ListBuilderKeyHash> cache;
 
             std::lock_guard lock(cache_mutex);
-            if (auto it = cache.find(schema); it != cache.end()) {
+            const ListBuilderKey key{schema, tracking};
+            if (auto it = cache.find(key); it != cache.end()) {
                 return it->second.builder.get();
             }
 
@@ -791,26 +930,50 @@ namespace hgraph
                 throw std::runtime_error("List schema requires an element schema");
             }
 
-            const ValueBuilder &element_builder = ValueBuilderFactory::checked_builder_for(schema->element_type);
+            const ValueBuilder &element_builder = ValueBuilderFactory::checked_builder_for(schema->element_type, tracking);
             CachedBuilderEntry entry;
 
             if (schema->is_fixed_size()) {
-                auto dispatch = std::make_shared<FixedListDispatch>(*schema, element_builder);
-                auto state_ops = std::make_shared<FixedListStateOps>(*dispatch);
-                auto builder = std::make_shared<ValueBuilder>(*schema, *state_ops);
-                entry.dispatch = std::move(dispatch);
-                entry.state_ops = std::move(state_ops);
-                entry.builder = std::move(builder);
+                if (tracking == MutationTracking::Delta) {
+                    auto dispatch = std::make_shared<FixedListDispatch<MutationTracking::Delta>>(*schema, element_builder);
+                    auto state_ops =
+                        std::make_shared<FixedListStateOps<FixedListDispatch<MutationTracking::Delta>>>(*dispatch);
+                    auto builder = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder = std::move(builder);
+                } else {
+                    auto dispatch = std::make_shared<FixedListDispatch<MutationTracking::Plain>>(*schema, element_builder);
+                    auto state_ops =
+                        std::make_shared<FixedListStateOps<FixedListDispatch<MutationTracking::Plain>>>(*dispatch);
+                    auto builder = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder = std::move(builder);
+                }
             } else {
-                auto dispatch = std::make_shared<DynamicListDispatch>(*schema, element_builder);
-                auto state_ops = std::make_shared<DynamicListStateOps>(*dispatch);
-                auto builder = std::make_shared<ValueBuilder>(*schema, *state_ops);
-                entry.dispatch = std::move(dispatch);
-                entry.state_ops = std::move(state_ops);
-                entry.builder = std::move(builder);
+                if (tracking == MutationTracking::Delta) {
+                    auto dispatch =
+                        std::make_shared<DynamicListDispatch<MutationTracking::Delta>>(*schema, element_builder);
+                    auto state_ops =
+                        std::make_shared<DynamicListStateOps<DynamicListDispatch<MutationTracking::Delta>>>(*dispatch);
+                    auto builder = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder = std::move(builder);
+                } else {
+                    auto dispatch =
+                        std::make_shared<DynamicListDispatch<MutationTracking::Plain>>(*schema, element_builder);
+                    auto state_ops =
+                        std::make_shared<DynamicListStateOps<DynamicListDispatch<MutationTracking::Plain>>>(*dispatch);
+                    auto builder = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder = std::move(builder);
+                }
             }
 
-            auto [it, inserted] = cache.emplace(schema, std::move(entry));
+            auto [it, inserted] = cache.emplace(key, std::move(entry));
             static_cast<void>(inserted);
             return it->second.builder.get();
         }

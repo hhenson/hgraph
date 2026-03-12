@@ -4,6 +4,7 @@
 #include <hgraph/types/value/validity_bitmap.h>
 
 #include <algorithm>
+#include <concepts>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -33,8 +34,11 @@ namespace hgraph
             bool                                          requires_destroy{true};
         };
 
-        struct RecordDispatchBase : RecordViewDispatch
+        template <MutationTracking TTracking> struct RecordDispatchBase : RecordViewDispatch
         {
+            static constexpr MutationTracking tracking_mode = TTracking;
+            static constexpr bool tracks_deltas_v = TTracking == MutationTracking::Delta;
+
             explicit RecordDispatchBase(const value::TypeMeta &schema)
                 : m_schema(schema)
             {
@@ -43,13 +47,13 @@ namespace hgraph
                 }
 
                 size_t offset = 0;
-                size_t max_alignment = alignof(RecordStateHeader);
+                size_t max_alignment = tracks_deltas_v ? alignof(RecordStateHeader) : 1;
                 m_fields.reserve(schema.field_count);
                 for (size_t i = 0; i < schema.field_count; ++i) {
                     const value::BundleFieldInfo &field = schema.fields[i];
                     if (field.type == nullptr) { throw std::runtime_error("Record schema requires field schemas"); }
 
-                    const ValueBuilder &field_builder = ValueBuilderFactory::checked_builder_for(field.type);
+                    const ValueBuilder &field_builder = ValueBuilderFactory::checked_builder_for(field.type, TTracking);
                     const size_t field_alignment = field_builder.alignment();
                     offset = align_up(offset, field_alignment);
 
@@ -65,11 +69,11 @@ namespace hgraph
                 }
 
                 m_payload_size = align_up(offset, max_alignment);
-                m_header_size = align_up(sizeof(RecordStateHeader), max_alignment);
+                m_header_size = tracks_deltas_v ? align_up(sizeof(RecordStateHeader), max_alignment) : 0;
                 m_alignment = max_alignment;
                 m_allocation_size =
                     align_up(m_header_size + m_payload_size + value::validity_mask_bytes(m_fields.size()) +
-                                 value::validity_mask_bytes(m_fields.size()),
+                                 (tracks_deltas_v ? value::validity_mask_bytes(m_fields.size()) : 0),
                              max_alignment);
                 m_requires_destroy = std::ranges::any_of(m_fields, [](const RecordFieldLayout &field) {
                     return field.requires_destroy;
@@ -78,19 +82,23 @@ namespace hgraph
 
             void begin_mutation(void *data) const override
             {
-                RecordStateHeader *header = state(data);
-                if (header->mutation_depth++ == 0) {
-                    value::validity_set_all(updated_memory(data), m_fields.size(), false);
+                if constexpr (tracks_deltas_v) {
+                    RecordStateHeader *header = state(data);
+                    if (header->mutation_depth++ == 0) {
+                        value::validity_set_all(updated_memory(data), m_fields.size(), false);
+                    }
                 }
             }
 
             void end_mutation(void *data) const override
             {
-                RecordStateHeader *header = state(data);
-                if (header->mutation_depth == 0) {
-                    throw std::runtime_error("Record mutation depth underflow");
+                if constexpr (tracks_deltas_v) {
+                    RecordStateHeader *header = state(data);
+                    if (header->mutation_depth == 0) {
+                        throw std::runtime_error("Record mutation depth underflow");
+                    }
+                    --header->mutation_depth;
                 }
-                --header->mutation_depth;
             }
 
             [[nodiscard]] size_t size() const noexcept override
@@ -131,7 +139,13 @@ namespace hgraph
             [[nodiscard]] bool field_updated(const void *data, size_t index) const noexcept override
             {
                 const size_t checked = index;
-                return checked < m_fields.size() && value::validity_bit_get(updated_memory(data), checked);
+                if constexpr (tracks_deltas_v) {
+                    return checked < m_fields.size() && value::validity_bit_get(updated_memory(data), checked);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(checked);
+                    return false;
+                }
             }
 
             void set_field_valid(void *data, size_t index, bool valid) const override
@@ -141,8 +155,10 @@ namespace hgraph
                     reset_field(data, checked);
                 }
                 value::validity_bit_set(validity_memory(data), checked, valid);
-                if (state(data)->mutation_depth > 0) {
-                    value::validity_bit_set(updated_memory(data), checked, true);
+                if constexpr (tracks_deltas_v) {
+                    if (state(data)->mutation_depth > 0) {
+                        value::validity_bit_set(updated_memory(data), checked, true);
+                    }
                 }
             }
 
@@ -163,12 +179,12 @@ namespace hgraph
 
             void construct(void *memory) const
             {
-                std::construct_at(state(memory));
+                if constexpr (tracks_deltas_v) { std::construct_at(state(memory)); }
                 for (size_t i = 0; i < m_fields.size(); ++i) {
                     field(i).builder.get().construct(field_data(memory, i));
                 }
                 value::validity_set_all(validity_memory(memory), m_fields.size(), true);
-                value::validity_set_all(updated_memory(memory), m_fields.size(), false);
+                if constexpr (tracks_deltas_v) { value::validity_set_all(updated_memory(memory), m_fields.size(), false); }
             }
 
             void destroy(void *memory) const noexcept
@@ -179,28 +195,30 @@ namespace hgraph
                         field(i).builder.get().destroy(field_data(memory, i));
                     }
                 }
-                std::destroy_at(state(memory));
+                if constexpr (tracks_deltas_v) { std::destroy_at(state(memory)); }
             }
 
             void copy_construct(void *dst, const void *src) const
             {
-                std::construct_at(state(dst));
+                if constexpr (tracks_deltas_v) { std::construct_at(state(dst)); }
                 for (size_t i = 0; i < m_fields.size(); ++i) {
                     field(i).builder.get().copy_construct(field_data(dst, i), field_data(src, i), field(i).builder);
                 }
                 copy_validity(dst, src);
-                value::validity_set_all(updated_memory(dst), m_fields.size(), false);
+                if constexpr (tracks_deltas_v) { value::validity_set_all(updated_memory(dst), m_fields.size(), false); }
             }
 
             void move_construct(void *dst, void *src) const
             {
-                std::construct_at(state(dst));
+                if constexpr (tracks_deltas_v) { std::construct_at(state(dst)); }
                 for (size_t i = 0; i < m_fields.size(); ++i) {
                     field(i).builder.get().move_construct(field_data(dst, i), field_data(src, i), field(i).builder);
                 }
                 copy_validity(dst, src);
-                value::validity_set_all(updated_memory(dst), m_fields.size(), false);
-                state(src)->mutation_depth = 0;
+                if constexpr (tracks_deltas_v) {
+                    value::validity_set_all(updated_memory(dst), m_fields.size(), false);
+                    state(src)->mutation_depth = 0;
+                }
             }
 
             [[nodiscard]] size_t hash(const void *data) const override
@@ -346,19 +364,21 @@ namespace hgraph
             bool                                          m_requires_destroy{true};
         };
 
-        struct TupleDispatch final : RecordDispatchBase
+        template <MutationTracking TTracking> struct TupleDispatch final : RecordDispatchBase<TTracking>
         {
+            static constexpr MutationTracking tracking_mode = TTracking;
+
             explicit TupleDispatch(const value::TypeMeta &schema)
-                : RecordDispatchBase(schema)
+                : RecordDispatchBase<TTracking>(schema)
             {
             }
 
             [[nodiscard]] std::string to_string(const void *data) const override
             {
                 std::string result = "(";
-                for (size_t i = 0; i < size(); ++i) {
+                for (size_t i = 0; i < this->size(); ++i) {
                     if (i > 0) { result += ", "; }
-                    result += field_valid(data, i) ? field_dispatch(i).to_string(field_data(data, i)) : "None";
+                    result += this->field_valid(data, i) ? this->field_dispatch(i).to_string(this->field_data(data, i)) : "None";
                 }
                 result += ")";
                 return result;
@@ -368,11 +388,11 @@ namespace hgraph
             {
                 static_cast<void>(schema);
                 nb::list result;
-                for (size_t i = 0; i < size(); ++i) {
-                    if (!field_valid(data, i)) {
+                for (size_t i = 0; i < this->size(); ++i) {
+                    if (!this->field_valid(data, i)) {
                         result.append(nb::none());
                     } else {
-                        result.append(field_dispatch(i).to_python(field_data(data, i), &field_schema(i)));
+                        result.append(this->field_dispatch(i).to_python(this->field_data(data, i), &this->field_schema(i)));
                     }
                 }
                 return nb::tuple(result);
@@ -386,38 +406,40 @@ namespace hgraph
                 }
 
                 nb::sequence sequence = nb::cast<nb::sequence>(src);
-                const size_t count = std::min<size_t>(nb::len(sequence), size());
-                for (size_t i = 0; i < size(); ++i) {
+                const size_t count = std::min<size_t>(nb::len(sequence), this->size());
+                for (size_t i = 0; i < this->size(); ++i) {
                     if (i >= count) {
-                        set_field_valid(dst, i, false);
+                        this->set_field_valid(dst, i, false);
                         continue;
                     }
                     nb::object element = sequence[i];
                     if (element.is_none()) {
-                        set_field_valid(dst, i, false);
+                        this->set_field_valid(dst, i, false);
                     } else {
-                        field_dispatch(i).from_python(field_data(dst, i), element, &field_schema(i));
-                        set_field_valid(dst, i, true);
+                        this->field_dispatch(i).from_python(this->field_data(dst, i), element, &this->field_schema(i));
+                        this->set_field_valid(dst, i, true);
                     }
                 }
             }
         };
 
-        struct BundleDispatch final : RecordDispatchBase
+        template <MutationTracking TTracking> struct BundleDispatch final : RecordDispatchBase<TTracking>
         {
+            static constexpr MutationTracking tracking_mode = TTracking;
+
             explicit BundleDispatch(const value::TypeMeta &schema)
-                : RecordDispatchBase(schema)
+                : RecordDispatchBase<TTracking>(schema)
             {
             }
 
             [[nodiscard]] std::string to_string(const void *data) const override
             {
                 std::string result = "{";
-                for (size_t i = 0; i < size(); ++i) {
+                for (size_t i = 0; i < this->size(); ++i) {
                     if (i > 0) { result += ", "; }
-                    result += std::string(field_name(i));
+                    result += std::string(this->field_name(i));
                     result += ": ";
-                    result += field_valid(data, i) ? field_dispatch(i).to_string(field_data(data, i)) : "None";
+                    result += this->field_valid(data, i) ? this->field_dispatch(i).to_string(this->field_data(data, i)) : "None";
                 }
                 result += "}";
                 return result;
@@ -427,14 +449,14 @@ namespace hgraph
             {
                 static_cast<void>(schema);
                 nb::dict result;
-                for (size_t i = 0; i < size(); ++i) {
-                    const std::string_view name = field_name(i);
+                for (size_t i = 0; i < this->size(); ++i) {
+                    const std::string_view name = this->field_name(i);
                     if (name.empty()) { continue; }
-                    if (!field_valid(data, i)) {
+                    if (!this->field_valid(data, i)) {
                         result[nb::str(name.data(), name.size())] = nb::none();
                     } else {
                         result[nb::str(name.data(), name.size())] =
-                            field_dispatch(i).to_python(field_data(data, i), &field_schema(i));
+                            this->field_dispatch(i).to_python(this->field_data(data, i), &this->field_schema(i));
                     }
                 }
                 return result;
@@ -445,18 +467,18 @@ namespace hgraph
                 static_cast<void>(schema);
                 if (nb::isinstance<nb::dict>(src)) {
                     const nb::dict map = nb::cast<nb::dict>(src);
-                    for (size_t i = 0; i < size(); ++i) {
-                        const std::string_view name = field_name(i);
+                    for (size_t i = 0; i < this->size(); ++i) {
+                        const std::string_view name = this->field_name(i);
                         if (name.empty() || !map.contains(nb::str(name.data(), name.size()))) {
-                            set_field_valid(dst, i, false);
+                            this->set_field_valid(dst, i, false);
                             continue;
                         }
                         nb::object value = map[nb::str(name.data(), name.size())];
                         if (value.is_none()) {
-                            set_field_valid(dst, i, false);
+                            this->set_field_valid(dst, i, false);
                         } else {
-                            field_dispatch(i).from_python(field_data(dst, i), value, &field_schema(i));
-                            set_field_valid(dst, i, true);
+                            this->field_dispatch(i).from_python(this->field_data(dst, i), value, &this->field_schema(i));
+                            this->set_field_valid(dst, i, true);
                         }
                     }
                     return;
@@ -464,35 +486,35 @@ namespace hgraph
 
                 if (nb::isinstance<nb::tuple>(src) || nb::isinstance<nb::list>(src)) {
                     const nb::sequence sequence = nb::cast<nb::sequence>(src);
-                    const size_t count = std::min<size_t>(nb::len(sequence), size());
-                    for (size_t i = 0; i < size(); ++i) {
+                    const size_t count = std::min<size_t>(nb::len(sequence), this->size());
+                    for (size_t i = 0; i < this->size(); ++i) {
                         if (i >= count) {
-                            set_field_valid(dst, i, false);
+                            this->set_field_valid(dst, i, false);
                             continue;
                         }
                         nb::object value = sequence[i];
                         if (value.is_none()) {
-                            set_field_valid(dst, i, false);
+                            this->set_field_valid(dst, i, false);
                         } else {
-                            field_dispatch(i).from_python(field_data(dst, i), value, &field_schema(i));
-                            set_field_valid(dst, i, true);
+                            this->field_dispatch(i).from_python(this->field_data(dst, i), value, &this->field_schema(i));
+                            this->set_field_valid(dst, i, true);
                         }
                     }
                     return;
                 }
 
-                for (size_t i = 0; i < size(); ++i) {
-                    const std::string_view name = field_name(i);
+                for (size_t i = 0; i < this->size(); ++i) {
+                    const std::string_view name = this->field_name(i);
                     if (name.empty() || !nb::hasattr(src, name.data())) {
-                        set_field_valid(dst, i, false);
+                        this->set_field_valid(dst, i, false);
                         continue;
                     }
                     nb::object value = nb::getattr(src, name.data());
                     if (value.is_none()) {
-                        set_field_valid(dst, i, false);
+                        this->set_field_valid(dst, i, false);
                     } else {
-                        field_dispatch(i).from_python(field_data(dst, i), value, &field_schema(i));
-                        set_field_valid(dst, i, true);
+                        this->field_dispatch(i).from_python(this->field_data(dst, i), value, &this->field_schema(i));
+                        this->set_field_valid(dst, i, true);
                     }
                 }
             }
@@ -515,7 +537,7 @@ namespace hgraph
             [[nodiscard]] const ViewDispatch &view_dispatch(const value::TypeMeta &schema) const noexcept override
             {
                 static_cast<void>(schema);
-                return m_dispatch;
+                return m_dispatch.get();
             }
 
             [[nodiscard]] bool requires_destroy(const value::TypeMeta &schema) const noexcept override
@@ -551,37 +573,80 @@ namespace hgraph
             std::shared_ptr<const ValueBuilder> builder;
         };
 
-        const ValueBuilder *record_builder_for(const value::TypeMeta *schema)
+        struct RecordBuilderKey
+        {
+            const value::TypeMeta *schema{nullptr};
+            MutationTracking       tracking{MutationTracking::Delta};
+
+            [[nodiscard]] bool operator==(const RecordBuilderKey &other) const noexcept
+            {
+                return schema == other.schema && tracking == other.tracking;
+            }
+        };
+
+        struct RecordBuilderKeyHash
+        {
+            [[nodiscard]] size_t operator()(const RecordBuilderKey &key) const noexcept
+            {
+                return std::hash<const value::TypeMeta *>{}(key.schema) ^
+                       (static_cast<size_t>(key.tracking) << 1U);
+            }
+        };
+
+        const ValueBuilder *record_builder_for(const value::TypeMeta *schema, MutationTracking tracking)
         {
             if (schema == nullptr) { return nullptr; }
             if (schema->kind != value::TypeKind::Tuple && schema->kind != value::TypeKind::Bundle) { return nullptr; }
 
             static std::mutex cache_mutex;
-            static std::unordered_map<const value::TypeMeta *, CachedBuilderEntry> cache;
+            static std::unordered_map<RecordBuilderKey, CachedBuilderEntry, RecordBuilderKeyHash> cache;
 
             std::lock_guard lock(cache_mutex);
-            if (auto it = cache.find(schema); it != cache.end()) {
+            const RecordBuilderKey key{schema, tracking};
+            if (auto it = cache.find(key); it != cache.end()) {
                 return it->second.builder.get();
             }
 
             CachedBuilderEntry entry;
             if (schema->kind == value::TypeKind::Tuple) {
-                auto dispatch = std::make_shared<TupleDispatch>(*schema);
-                auto state_ops = std::make_shared<RecordStateOps<TupleDispatch>>(*dispatch);
-                auto builder = std::make_shared<ValueBuilder>(*schema, *state_ops);
-                entry.dispatch = std::move(dispatch);
-                entry.state_ops = std::move(state_ops);
-                entry.builder = std::move(builder);
+                if (tracking == MutationTracking::Delta) {
+                    auto dispatch = std::make_shared<TupleDispatch<MutationTracking::Delta>>(*schema);
+                    auto state_ops =
+                        std::make_shared<RecordStateOps<TupleDispatch<MutationTracking::Delta>>>(*dispatch);
+                    auto builder = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder = std::move(builder);
+                } else {
+                    auto dispatch = std::make_shared<TupleDispatch<MutationTracking::Plain>>(*schema);
+                    auto state_ops =
+                        std::make_shared<RecordStateOps<TupleDispatch<MutationTracking::Plain>>>(*dispatch);
+                    auto builder = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder = std::move(builder);
+                }
             } else {
-                auto dispatch = std::make_shared<BundleDispatch>(*schema);
-                auto state_ops = std::make_shared<RecordStateOps<BundleDispatch>>(*dispatch);
-                auto builder = std::make_shared<ValueBuilder>(*schema, *state_ops);
-                entry.dispatch = std::move(dispatch);
-                entry.state_ops = std::move(state_ops);
-                entry.builder = std::move(builder);
+                if (tracking == MutationTracking::Delta) {
+                    auto dispatch = std::make_shared<BundleDispatch<MutationTracking::Delta>>(*schema);
+                    auto state_ops =
+                        std::make_shared<RecordStateOps<BundleDispatch<MutationTracking::Delta>>>(*dispatch);
+                    auto builder = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder = std::move(builder);
+                } else {
+                    auto dispatch = std::make_shared<BundleDispatch<MutationTracking::Plain>>(*schema);
+                    auto state_ops =
+                        std::make_shared<RecordStateOps<BundleDispatch<MutationTracking::Plain>>>(*dispatch);
+                    auto builder = std::make_shared<ValueBuilder>(*schema, tracking, *state_ops);
+                    entry.dispatch = std::move(dispatch);
+                    entry.state_ops = std::move(state_ops);
+                    entry.builder = std::move(builder);
+                }
             }
 
-            auto [it, inserted] = cache.emplace(schema, std::move(entry));
+            auto [it, inserted] = cache.emplace(key, std::move(entry));
             static_cast<void>(inserted);
             return it->second.builder.get();
         }

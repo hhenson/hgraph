@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <hgraph/types/time_series/value/state.h>
 #include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/value/type_registry.h>
 
@@ -297,6 +298,19 @@ TEST_CASE("Associative mutation scopes support nesting with depth tracking")
     }
 }
 
+TEST_CASE("Associative builders keep plain storage smaller than delta storage")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+    const auto *set_schema = registry.set(hgraph::value::scalar_type_meta<int32_t>()).build();
+    const auto *map_schema =
+        registry.map(hgraph::value::scalar_type_meta<int32_t>(), hgraph::value::scalar_type_meta<int32_t>()).build();
+
+    CHECK(hgraph::ValueBuilderFactory::checked_builder_for(set_schema, hgraph::MutationTracking::Plain).size() <
+          hgraph::ValueBuilderFactory::checked_builder_for(set_schema, hgraph::MutationTracking::Delta).size());
+    CHECK(hgraph::ValueBuilderFactory::checked_builder_for(map_schema, hgraph::MutationTracking::Plain).size() <
+          hgraph::ValueBuilderFactory::checked_builder_for(map_schema, hgraph::MutationTracking::Delta).size());
+}
+
 TEST_CASE("Associative delta views expose net added and removed slots")
 {
     auto &registry = hgraph::value::TypeRegistry::instance();
@@ -401,4 +415,66 @@ TEST_CASE("Associative mutation scopes accept native C++ values directly")
     map.begin_mutation().setting(int32_t{7}, std::string{"seven"}).setting(int32_t{8}, std::string{"eight"}).removing(int32_t{7});
     CHECK_FALSE(map.contains(hgraph::value_for(int32_t{7}).view()));
     CHECK(map.at(hgraph::value_for(int32_t{8}).view()).as_atomic().as<std::string>() == "eight");
+}
+
+TEST_CASE("Plain associative values do not retain delta markers or removed payloads")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+    const auto *set_schema = registry.set(hgraph::value::scalar_type_meta<int32_t>()).build();
+    const auto *map_schema =
+        registry.map(hgraph::value::scalar_type_meta<int32_t>(), hgraph::value::scalar_type_meta<int32_t>()).build();
+
+    hgraph::Value set_value{*set_schema, hgraph::MutationTracking::Plain};
+    auto set = set_value.set_view();
+    set.begin_mutation().adding(int32_t{1}).adding(int32_t{2}).removing(int32_t{1});
+
+    auto set_delta = set.delta();
+    std::vector<int32_t> set_added;
+    for (auto entry : set_delta.added()) {
+        set_added.push_back(entry.as_atomic().as<int32_t>());
+    }
+    std::vector<int32_t> set_removed;
+    for (auto entry : set_delta.removed()) {
+        set_removed.push_back(entry.as_atomic().as<int32_t>());
+    }
+    CHECK(set_added.empty());
+    CHECK(set_removed.empty());
+    CHECK_FALSE(set.contains(hgraph::value_for(int32_t{1}).view()));
+
+    hgraph::Value map_value{*map_schema, hgraph::MutationTracking::Plain};
+    auto map = map_value.map_view();
+    map.begin_mutation().setting(int32_t{7}, int32_t{70}).setting(int32_t{8}, int32_t{80}).removing(int32_t{7});
+
+    auto map_delta = map.delta();
+    std::vector<int32_t> added_keys;
+    for (auto key : map_delta.added_keys()) {
+        added_keys.push_back(key.as_atomic().as<int32_t>());
+    }
+    std::vector<int32_t> removed_keys;
+    for (auto key : map_delta.removed_keys()) {
+        removed_keys.push_back(key.as_atomic().as<int32_t>());
+    }
+    std::vector<int32_t> updated_keys;
+    for (auto key : map_delta.updated_keys()) {
+        updated_keys.push_back(key.as_atomic().as<int32_t>());
+    }
+    std::vector<std::pair<int32_t, int32_t>> added_items;
+    for (auto [key, value] : map_delta.added_items()) {
+        added_items.emplace_back(key.as_atomic().as<int32_t>(), value.as_atomic().as<int32_t>());
+    }
+    std::vector<std::pair<int32_t, int32_t>> removed_items;
+    for (auto [key, value] : map_delta.removed_items()) {
+        removed_items.emplace_back(key.as_atomic().as<int32_t>(), value.as_atomic().as<int32_t>());
+    }
+    std::vector<std::pair<int32_t, int32_t>> updated_items;
+    for (auto [key, value] : map_delta.updated_items()) {
+        updated_items.emplace_back(key.as_atomic().as<int32_t>(), value.as_atomic().as<int32_t>());
+    }
+    CHECK(added_keys.empty());
+    CHECK(removed_keys.empty());
+    CHECK(updated_keys.empty());
+    CHECK(added_items.empty());
+    CHECK(removed_items.empty());
+    CHECK(updated_items.empty());
+    CHECK_FALSE(map.contains(hgraph::value_for(int32_t{7}).view()));
 }

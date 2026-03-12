@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/value/tracking.h>
 #include <hgraph/types/time_series/value/view.h>
 #include <hgraph/types/value/validity_bitmap.h>
 
@@ -44,6 +45,10 @@ namespace hgraph
              * mutation. Entering a new outermost mutation clears the previous
              * updated/added markers so the delta surface always describes the
              * current logical batch of list edits.
+             *
+             * Plain-tracking builders do not carry mutation-epoch storage. For
+             * those builders this method is a no-op and the delta surface stays
+             * empty.
              */
             virtual void begin_mutation(void *data) const = 0;
             /**
@@ -71,27 +76,10 @@ namespace hgraph
          * so the generic builder factory delegates list-schema resolution to
          * `list.cpp`.
          */
-        [[nodiscard]] HGRAPH_EXPORT const ValueBuilder *list_builder_for(const value::TypeMeta *schema);
+        [[nodiscard]] HGRAPH_EXPORT const ValueBuilder *list_builder_for(
+            const value::TypeMeta *schema, MutationTracking tracking);
 
     }  // namespace detail
-
-    /**
-     * Dynamic list runtime data.
-     *
-     * Dynamic lists need runtime capacity management, so they keep their
-     * backing storage, validity bitmap, and mutation-epoch delta bitmaps in
-     * this plain data struct.
-     */
-    struct DynamicListState
-    {
-        std::byte *data{nullptr};
-        std::byte *validity{nullptr};
-        std::byte *updated{nullptr};
-        std::byte *added{nullptr};
-        size_t     size{0};
-        size_t     capacity{0};
-        size_t     mutation_depth{0};
-    };
 
     /**
      * Non-owning erased list view.

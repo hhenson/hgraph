@@ -257,4 +257,48 @@ TEST_CASE("Dynamic lists expose updated and added delta slots for the current mu
     CHECK(added_values == std::vector<int32_t>{40});
 }
 
+TEST_CASE("Plain lists do not retain delta markers", "[time_series][value][list]")
+{
+    const value::TypeMeta *schema = value::TypeRegistry::instance().list(value::scalar_type_meta<int32_t>()).build();
+
+    Value value{*schema, hgraph::MutationTracking::Plain};
+    auto  list = value.list_view();
+
+    list.begin_mutation().pushing_back(int32_t{10}).pushing_back(int32_t{20}).setting(0, int32_t{30});
+
+    CHECK(value.tracking() == hgraph::MutationTracking::Plain);
+
+    auto delta = list.delta();
+    std::vector<size_t> updated_indices;
+    for (size_t index : delta.updated_indices()) {
+        updated_indices.push_back(index);
+    }
+    std::vector<int32_t> updated_values;
+    for (hgraph::View slot : delta.updated_values()) {
+        updated_values.push_back(slot.as_atomic().as<int32_t>());
+    }
+    std::vector<size_t> added_indices;
+    for (size_t index : delta.added_indices()) {
+        added_indices.push_back(index);
+    }
+    std::vector<int32_t> added_values;
+    for (hgraph::View slot : delta.added_values()) {
+        added_values.push_back(slot.as_atomic().as<int32_t>());
+    }
+    CHECK(updated_indices.empty());
+    CHECK(updated_values.empty());
+    CHECK(added_indices.empty());
+    CHECK(added_values.empty());
+}
+
+TEST_CASE("Dynamic list builders keep plain storage smaller than delta storage", "[time_series][value][list]")
+{
+    const value::TypeMeta *schema = value::TypeRegistry::instance().list(value::scalar_type_meta<int32_t>()).build();
+
+    const auto &plain_builder = ValueBuilderFactory::checked_builder_for(schema, hgraph::MutationTracking::Plain);
+    const auto &delta_builder = ValueBuilderFactory::checked_builder_for(schema, hgraph::MutationTracking::Delta);
+
+    CHECK(plain_builder.size() < delta_builder.size());
+}
+
 }  // namespace

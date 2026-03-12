@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <hgraph/types/time_series/value/state.h>
 #include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/value/type_registry.h>
 
@@ -103,4 +104,33 @@ TEST_CASE("Buffer mutation views accept native C++ values directly")
     queue.begin_mutation().pushing(int32_t{10}).pushing(int32_t{20}).pushing(int32_t{30});
     CHECK(queue.front().as_atomic().as<int32_t>() == 20);
     CHECK(queue.back().as_atomic().as<int32_t>() == 30);
+}
+
+TEST_CASE("Plain buffer values do not retain removed payloads")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+    const auto *cyclic_schema = registry.cyclic_buffer(hgraph::value::scalar_type_meta<int32_t>(), 2).build();
+    const auto *queue_schema = registry.queue(hgraph::value::scalar_type_meta<int32_t>()).max_capacity(2).build();
+
+    hgraph::Value cyclic_value{*cyclic_schema, hgraph::MutationTracking::Plain};
+    auto cyclic = cyclic_value.cyclic_buffer_view();
+    cyclic.begin_mutation().pushing(int32_t{1}).pushing(int32_t{2}).pushing(int32_t{3}).popping();
+    CHECK_FALSE(cyclic.has_removed());
+
+    hgraph::Value queue_value{*queue_schema, hgraph::MutationTracking::Plain};
+    auto queue = queue_value.queue_view();
+    queue.begin_mutation().pushing(int32_t{10}).pushing(int32_t{20}).pushing(int32_t{30}).popping();
+    CHECK_FALSE(queue.has_removed());
+}
+
+TEST_CASE("Buffer builders keep plain storage smaller than delta storage")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+    const auto *cyclic_schema = registry.cyclic_buffer(hgraph::value::scalar_type_meta<int32_t>(), 2).build();
+    const auto *queue_schema = registry.queue(hgraph::value::scalar_type_meta<int32_t>()).max_capacity(2).build();
+
+    CHECK(hgraph::ValueBuilderFactory::checked_builder_for(cyclic_schema, hgraph::MutationTracking::Plain).size() <
+          hgraph::ValueBuilderFactory::checked_builder_for(cyclic_schema, hgraph::MutationTracking::Delta).size());
+    CHECK(hgraph::ValueBuilderFactory::checked_builder_for(queue_schema, hgraph::MutationTracking::Plain).size() <
+          hgraph::ValueBuilderFactory::checked_builder_for(queue_schema, hgraph::MutationTracking::Delta).size());
 }

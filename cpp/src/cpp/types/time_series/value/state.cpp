@@ -6,8 +6,9 @@
 namespace hgraph
 {
 
-    ValueBuilder::ValueBuilder(const value::TypeMeta &schema, const detail::StateOps &state_ops) noexcept
+    ValueBuilder::ValueBuilder(const value::TypeMeta &schema, MutationTracking tracking, const detail::StateOps &state_ops) noexcept
         : m_schema(schema),
+          m_tracking(tracking),
           m_state_ops(state_ops),
           m_view_dispatch(state_ops.view_dispatch(schema))
     {
@@ -52,32 +53,32 @@ namespace hgraph
         m_state_ops.get().move_construct(dst, src);
     }
 
-    const ValueBuilder *ValueBuilderFactory::builder_for(const value::TypeMeta *schema)
+    const ValueBuilder *ValueBuilderFactory::builder_for(const value::TypeMeta *schema, MutationTracking tracking)
     {
         if (schema == nullptr) { return nullptr; }
 
         switch (schema->kind) {
         case value::TypeKind::Atomic:
-            return detail::atomic_builder_for(schema);
+            return detail::atomic_builder_for(schema, tracking);
         case value::TypeKind::Tuple:
         case value::TypeKind::Bundle:
-            return detail::record_builder_for(schema);
+            return detail::record_builder_for(schema, tracking);
         case value::TypeKind::List:
-            return detail::list_builder_for(schema);
+            return detail::list_builder_for(schema, tracking);
         case value::TypeKind::Set:
         case value::TypeKind::Map:
-            return detail::associative_builder_for(schema);
+            return detail::associative_builder_for(schema, tracking);
         case value::TypeKind::CyclicBuffer:
         case value::TypeKind::Queue:
-            return detail::sequence_builder_for(schema);
+            return detail::sequence_builder_for(schema, tracking);
         default:
             return nullptr;
         }
     }
 
-    const ValueBuilder &ValueBuilderFactory::checked_builder_for(const value::TypeMeta *schema)
+    const ValueBuilder &ValueBuilderFactory::checked_builder_for(const value::TypeMeta *schema, MutationTracking tracking)
     {
-        if (const ValueBuilder *builder = builder_for(schema); builder != nullptr) {
+        if (const ValueBuilder *builder = builder_for(schema, tracking); builder != nullptr) {
             return *builder;
         }
         throw std::runtime_error("ValueBuilderFactory: unsupported schema");

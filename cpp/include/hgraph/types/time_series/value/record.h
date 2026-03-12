@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/value/tracking.h>
 #include <hgraph/types/time_series/value/view.h>
 
 #include <cstddef>
@@ -59,7 +60,8 @@ namespace hgraph
          * Tuple and bundle layout is schema-specific because it depends on the
          * ordered child builders and the offsets chosen for their storage.
          */
-        [[nodiscard]] HGRAPH_EXPORT const ValueBuilder *record_builder_for(const value::TypeMeta *schema);
+        [[nodiscard]] HGRAPH_EXPORT const ValueBuilder *record_builder_for(
+            const value::TypeMeta *schema, MutationTracking tracking);
 
     }  // namespace detail
 

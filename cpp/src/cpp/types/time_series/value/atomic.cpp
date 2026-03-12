@@ -60,16 +60,17 @@ namespace hgraph
             return ops;
         }
 
-        template <typename T> [[nodiscard]] const ValueBuilder &atomic_builder() noexcept {
-            static const ValueBuilder builder{*value::scalar_type_meta<T>(), atomic_state_ops<T>()};
-            return builder;
+        template <typename T> [[nodiscard]] const ValueBuilder &atomic_builder(MutationTracking tracking) noexcept {
+            static const ValueBuilder plain_builder{*value::scalar_type_meta<T>(), MutationTracking::Plain, atomic_state_ops<T>()};
+            static const ValueBuilder delta_builder{*value::scalar_type_meta<T>(), MutationTracking::Delta, atomic_state_ops<T>()};
+            return tracking == MutationTracking::Delta ? delta_builder : plain_builder;
         }
 
-        const ValueBuilder *atomic_builder_for(const value::TypeMeta *schema) {
+        const ValueBuilder *atomic_builder_for(const value::TypeMeta *schema, MutationTracking tracking) {
             if (schema == nullptr || schema->kind != value::TypeKind::Atomic) { return nullptr; }
 
 #define HGRAPH_ATOMIC_BUILDER_CASE(type_)                                                                                          \
-    if (schema == value::scalar_type_meta<type_>()) { return &atomic_builder<type_>(); }
+    if (schema == value::scalar_type_meta<type_>()) { return &atomic_builder<type_>(tracking); }
 
             HGRAPH_ATOMIC_BUILDER_CASE(bool)
             HGRAPH_ATOMIC_BUILDER_CASE(int8_t)
