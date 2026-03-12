@@ -11,17 +11,24 @@ TEST_CASE("Cyclic buffer values overwrite the oldest element when full")
     hgraph::Value value{*schema};
     auto buffer = value.view().as_cyclic_buffer();
 
-    buffer.push(hgraph::value_for(int32_t{1}).view());
-    buffer.push(hgraph::value_for(int32_t{2}).view());
-    buffer.push(hgraph::value_for(int32_t{3}).view());
-    buffer.push(hgraph::value_for(int32_t{4}).view());
+    {
+        auto mutation = buffer.begin_mutation();
+        mutation.push(hgraph::value_for(int32_t{1}).view());
+        mutation.push(hgraph::value_for(int32_t{2}).view());
+        mutation.push(hgraph::value_for(int32_t{3}).view());
+        mutation.push(hgraph::value_for(int32_t{4}).view());
+    }
 
     CHECK(buffer.size() == 3);
     CHECK(buffer.front().as_atomic().as<int32_t>() == 2);
     CHECK(buffer.back().as_atomic().as<int32_t>() == 4);
+    CHECK(buffer.has_removed());
+    CHECK(buffer.removed().as_atomic().as<int32_t>() == 1);
 
-    buffer.clear();
+    buffer.begin_mutation().clear();
     CHECK(buffer.empty());
+    CHECK(buffer.has_removed());
+    CHECK(buffer.removed().as_atomic().as<int32_t>() == 4);
 }
 
 TEST_CASE("Bounded queue values evict from the front when full")
@@ -32,15 +39,49 @@ TEST_CASE("Bounded queue values evict from the front when full")
     hgraph::Value value{*schema};
     auto queue = value.view().as_queue();
 
-    queue.push(hgraph::value_for(int32_t{10}).view());
-    queue.push(hgraph::value_for(int32_t{20}).view());
-    queue.push(hgraph::value_for(int32_t{30}).view());
+    {
+        auto mutation = queue.begin_mutation();
+        mutation.push(hgraph::value_for(int32_t{10}).view());
+        mutation.push(hgraph::value_for(int32_t{20}).view());
+        mutation.push(hgraph::value_for(int32_t{30}).view());
+    }
 
     CHECK(queue.size() == 2);
     CHECK(queue.front().as_atomic().as<int32_t>() == 20);
     CHECK(queue.back().as_atomic().as<int32_t>() == 30);
+    CHECK(queue.has_removed());
+    CHECK(queue.removed().as_atomic().as<int32_t>() == 10);
 
-    queue.pop();
+    queue.begin_mutation().pop();
     CHECK(queue.size() == 1);
     CHECK(queue.front().as_atomic().as<int32_t>() == 30);
+    CHECK(queue.has_removed());
+    CHECK(queue.removed().as_atomic().as<int32_t>() == 20);
+}
+
+TEST_CASE("Buffer mutation views retain only the last removed payload in a scope")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+    const auto *cyclic_schema = registry.cyclic_buffer(hgraph::value::scalar_type_meta<int32_t>(), 2).build();
+    const auto *queue_schema = registry.queue(hgraph::value::scalar_type_meta<int32_t>()).max_capacity(2).build();
+
+    hgraph::Value cyclic_value{*cyclic_schema};
+    auto cyclic = cyclic_value.cyclic_buffer_view();
+    cyclic.begin_mutation()
+        .pushing(hgraph::value_for(int32_t{1}).view())
+        .pushing(hgraph::value_for(int32_t{2}).view())
+        .pushing(hgraph::value_for(int32_t{3}).view())
+        .popping();
+    CHECK(cyclic.has_removed());
+    CHECK(cyclic.removed().as_atomic().as<int32_t>() == 2);
+
+    hgraph::Value queue_value{*queue_schema};
+    auto queue = queue_value.queue_view();
+    queue.begin_mutation()
+        .pushing(hgraph::value_for(int32_t{10}).view())
+        .pushing(hgraph::value_for(int32_t{20}).view())
+        .pushing(hgraph::value_for(int32_t{30}).view())
+        .popping();
+    CHECK(queue.has_removed());
+    CHECK(queue.removed().as_atomic().as<int32_t>() == 20);
 }

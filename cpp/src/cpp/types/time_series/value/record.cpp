@@ -524,6 +524,11 @@ namespace hgraph
         }
     }
 
+    TupleMutationView TupleView::begin_mutation()
+    {
+        return TupleMutationView{*this};
+    }
+
     size_t TupleView::size() const
     {
         const auto *dispatch = record_dispatch();
@@ -568,12 +573,17 @@ namespace hgraph
         return at(index);
     }
 
-    void TupleView::set(size_t index, const View &value)
+    TupleMutationView::TupleMutationView(TupleView &view)
+        : TupleView(view)
+    {
+    }
+
+    void TupleMutationView::set(size_t index, const View &value)
     {
         const auto *dispatch = record_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("TupleView::set on invalid view"); }
+        if (dispatch == nullptr) { throw std::runtime_error("TupleMutationView::set on invalid view"); }
         if (value.schema() != nullptr && value.schema() != &dispatch->field_schema(index)) {
-            throw std::invalid_argument("TupleView::set requires matching field schema");
+            throw std::invalid_argument("TupleMutationView::set requires matching field schema");
         }
         if (!value.valid()) {
             dispatch->set_field_valid(data(), index, false);
@@ -597,6 +607,11 @@ namespace hgraph
         }
     }
 
+    BundleMutationView BundleView::begin_mutation()
+    {
+        return BundleMutationView{*this};
+    }
+
     bool BundleView::has_field(std::string_view name) const noexcept
     {
         if (!valid()) { return false; }
@@ -618,7 +633,27 @@ namespace hgraph
         return at(field_index(name));
     }
 
-    void BundleView::set_field(std::string_view name, const View &value)
+    BundleMutationView::BundleMutationView(BundleView &view)
+        : BundleView(view)
+    {
+    }
+
+    void BundleMutationView::set(size_t index, const View &value)
+    {
+        const auto *dispatch = record_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("BundleMutationView::set on invalid view"); }
+        if (value.schema() != nullptr && value.schema() != &dispatch->field_schema(index)) {
+            throw std::invalid_argument("BundleMutationView::set requires matching field schema");
+        }
+        if (!value.valid()) {
+            dispatch->set_field_valid(data(), index, false);
+            return;
+        }
+        dispatch->field_dispatch(index).assign(dispatch->field_data(data(), index), data_of(value));
+        dispatch->set_field_valid(data(), index, true);
+    }
+
+    void BundleMutationView::set_field(std::string_view name, const View &value)
     {
         set(field_index(name), value);
     }

@@ -10,6 +10,8 @@
 namespace hgraph
 {
 
+    struct ListMutationView;
+
     struct ValueBuilder;
 
     namespace detail
@@ -78,6 +80,14 @@ namespace hgraph
     {
         explicit ListView(const View &view);
 
+        /**
+         * Return the mutable surface for this list view.
+         *
+         * Lists do not currently need mutation-epoch bookkeeping in their
+         * storage, so this is a type-level gate into the mutating API rather
+         * than an operation that changes underlying list state.
+         */
+        ListMutationView begin_mutation();
         [[nodiscard]] size_t size() const;
         [[nodiscard]] bool empty() const;
         [[nodiscard]] bool is_fixed() const;
@@ -91,15 +101,43 @@ namespace hgraph
         [[nodiscard]] View back();
         [[nodiscard]] View back() const;
 
+      protected:
+        [[nodiscard]] const detail::ListViewDispatch *list_dispatch() const noexcept;
+    };
+
+    /**
+     * Mutable list surface.
+     *
+     * Mutation is split from `ListView` so callers must opt into the mutating
+     * API explicitly. This keeps the read-only surface compact while making
+     * mutating code easy to identify.
+     */
+    struct HGRAPH_EXPORT ListMutationView : ListView
+    {
+        explicit ListMutationView(ListView &view);
+
+        /**
+         * Assign the supplied value to an existing list slot.
+         */
         void set(size_t index, const View &value);
+
+        /**
+         * Assign the supplied value and return this mutation view for fluent
+         * mutation chains when the per-operation result is not needed.
+         */
+        ListMutationView &setting(size_t index, const View &value)
+        {
+            set(index, value);
+            return *this;
+        }
 
         template <typename T>
             requires(!std::derived_from<std::remove_cvref_t<T>, View>)
         void set(size_t index, T &&value)
         {
             auto *dispatch = list_dispatch();
-            if (dispatch == nullptr) { throw std::runtime_error("ListView::set on invalid view"); }
-            if (index >= size()) { throw std::out_of_range("ListView::set index out of range"); }
+            if (dispatch == nullptr) { throw std::runtime_error("ListMutationView::set on invalid view"); }
+            if (index >= size()) { throw std::out_of_range("ListMutationView::set index out of range"); }
 
             using TValue = std::remove_cvref_t<T>;
             void *slot = dispatch->element_data(data(), index);
@@ -112,9 +150,55 @@ namespace hgraph
             dispatch->set_element_valid(data(), index, true);
         }
 
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        ListMutationView &setting(size_t index, T &&value)
+        {
+            set(index, std::forward<T>(value));
+            return *this;
+        }
+
+        /**
+         * Resize the list to the supplied logical length.
+         */
         void resize(size_t new_size);
+
+        /**
+         * Resize the list and return this mutation view for fluent chains.
+         */
+        ListMutationView &resizing(size_t new_size)
+        {
+            resize(new_size);
+            return *this;
+        }
+
+        /**
+         * Clear the list contents.
+         */
         void clear();
+
+        /**
+         * Clear the list and return this mutation view for fluent chains.
+         */
+        ListMutationView &clearing()
+        {
+            clear();
+            return *this;
+        }
+
+        /**
+         * Append a value to the end of a dynamic list.
+         */
         void push_back(const View &value);
+
+        /**
+         * Append a value and return this mutation view for fluent chains.
+         */
+        ListMutationView &pushing_back(const View &value)
+        {
+            push_back(value);
+            return *this;
+        }
 
         template <typename T>
             requires(!std::derived_from<std::remove_cvref_t<T>, View>)
@@ -125,8 +209,13 @@ namespace hgraph
             set(index, std::forward<T>(value));
         }
 
-      private:
-        [[nodiscard]] const detail::ListViewDispatch *list_dispatch() const noexcept;
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        ListMutationView &pushing_back(T &&value)
+        {
+            push_back(std::forward<T>(value));
+            return *this;
+        }
     };
 
     inline ListView View::as_list()

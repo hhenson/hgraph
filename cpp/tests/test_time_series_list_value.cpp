@@ -39,19 +39,22 @@ TEST_CASE("Dynamic lists support resize and push_back", "[time_series][value][li
     CHECK_FALSE(list.is_fixed());
     CHECK(list.empty());
 
-    list.push_back(int32_t{4});
-    list.push_back(int32_t{7});
+    {
+        auto mutation = list.begin_mutation();
+        mutation.push_back(int32_t{4});
+        mutation.push_back(int32_t{7});
+    }
 
     REQUIRE(list.size() == 2);
     CHECK(list.front().as_atomic().as<int32_t>() == 4);
     CHECK(list.back().as_atomic().as<int32_t>() == 7);
 
-    list.resize(4);
+    list.begin_mutation().resize(4);
     REQUIRE(list.size() == 4);
     CHECK(list[2].as_atomic().as<int32_t>() == 0);
     CHECK(list[3].as_atomic().as<int32_t>() == 0);
 
-    list.clear();
+    list.begin_mutation().clear();
     CHECK(list.empty());
 }
 
@@ -62,7 +65,7 @@ TEST_CASE("Lists preserve invalid element slots", "[time_series][value][list]")
     Value value{*schema};
     auto  list = value.view().as_list();
 
-    list.set(1, hgraph::View::invalid_for(value::scalar_type_meta<int32_t>()));
+    list.begin_mutation().set(1, hgraph::View::invalid_for(value::scalar_type_meta<int32_t>()));
 
     CHECK(list[0].valid());
     CHECK_FALSE(list[1].valid());
@@ -78,11 +81,14 @@ TEST_CASE("Fixed lists clear by invalidating each slot", "[time_series][value][l
     Value value{*schema};
     auto  list = value.view().as_list();
 
-    list.set(0, int32_t{1});
-    list.set(1, int32_t{2});
-    list.set(2, int32_t{3});
+    {
+        auto mutation = list.begin_mutation();
+        mutation.set(0, int32_t{1});
+        mutation.set(1, int32_t{2});
+        mutation.set(2, int32_t{3});
+    }
 
-    list.clear();
+    list.begin_mutation().clear();
 
     REQUIRE(list.size() == 3);
     CHECK_FALSE(list[0].valid());
@@ -98,17 +104,23 @@ TEST_CASE("Fixed lists clear releases non-trivial payloads and keeps slots writa
     Value value{*schema};
     auto  list = value.view().as_list();
 
-    list.set(0, std::string{"alpha"});
-    list.set(1, std::string{"beta"});
+    {
+        auto mutation = list.begin_mutation();
+        mutation.set(0, std::string{"alpha"});
+        mutation.set(1, std::string{"beta"});
+    }
 
-    list.clear();
+    list.begin_mutation().clear();
 
     REQUIRE(list.size() == 2);
     CHECK_FALSE(list[0].valid());
     CHECK_FALSE(list[1].valid());
 
-    list.set(0, std::string{"gamma"});
-    list.set(1, std::string{"delta"});
+    {
+        auto mutation = list.begin_mutation();
+        mutation.set(0, std::string{"gamma"});
+        mutation.set(1, std::string{"delta"});
+    }
 
     CHECK(list[0].as_atomic().as<std::string>() == "gamma");
     CHECK(list[1].as_atomic().as<std::string>() == "delta");
@@ -125,10 +137,16 @@ TEST_CASE("List comparison is lexicographic within a schema", "[time_series][val
     auto lower_list = lower.view().as_list();
     auto upper_list = upper.view().as_list();
 
-    lower_list.set(0, int32_t{1});
-    lower_list.set(1, int32_t{2});
-    upper_list.set(0, int32_t{1});
-    upper_list.set(1, int32_t{3});
+    {
+        auto mutation = lower_list.begin_mutation();
+        mutation.set(0, int32_t{1});
+        mutation.set(1, int32_t{2});
+    }
+    {
+        auto mutation = upper_list.begin_mutation();
+        mutation.set(0, int32_t{1});
+        mutation.set(1, int32_t{3});
+    }
 
     CHECK(std::is_lt(lower.view() <=> upper.view()));
     CHECK(std::is_gt(upper.view() <=> lower.view()));
@@ -143,6 +161,20 @@ TEST_CASE("Builder lookup is singleton per list schema", "[time_series][value][l
     const auto &second = ValueBuilderFactory::checked_builder_for(schema);
 
     CHECK(&first == &second);
+}
+
+TEST_CASE("List mutation views support fluent command-style chaining", "[time_series][value][list]")
+{
+    const value::TypeMeta *schema = value::TypeRegistry::instance().list(value::scalar_type_meta<int32_t>()).build();
+
+    Value value{*schema};
+    auto  list = value.list_view();
+
+    list.begin_mutation().pushing_back(int32_t{1}).pushing_back(int32_t{2}).setting(0, int32_t{3});
+
+    REQUIRE(list.size() == 2);
+    CHECK(list[0].as_atomic().as<int32_t>() == 3);
+    CHECK(list[1].as_atomic().as<int32_t>() == 2);
 }
 
 }  // namespace

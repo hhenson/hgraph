@@ -110,7 +110,7 @@ namespace hgraph
          * underlying storage so callers can build larger operations from
          * smaller helpers without prematurely releasing removed slots.
          */
-        [[nodiscard]] SetMutationView begin_mutation();
+        SetMutationView begin_mutation();
         [[nodiscard]] size_t size() const;
         [[nodiscard]] bool empty() const;
         [[nodiscard]] size_t slot_capacity() const;
@@ -177,7 +177,7 @@ namespace hgraph
          * This supports fluent mutation chains when the caller does not need
          * the boolean "was inserted" result from `add(...)`.
          */
-        [[nodiscard]] SetMutationView &adding(const View &value);
+        SetMutationView &adding(const View &value);
         /**
          * Remove a live element from the set.
          */
@@ -188,7 +188,7 @@ namespace hgraph
          * This supports fluent mutation chains when the caller does not need
          * the boolean "was removed" result from `remove(...)`.
          */
-        [[nodiscard]] SetMutationView &removing(const View &value);
+        SetMutationView &removing(const View &value);
         /**
          * Remove every live element from the set.
          */
@@ -197,7 +197,7 @@ namespace hgraph
          * Remove every live element from the set and return this mutation
          * scope.
          */
-        [[nodiscard]] SetMutationView &clearing();
+        SetMutationView &clearing();
 
       private:
         /**
@@ -222,7 +222,7 @@ namespace hgraph
          * underlying storage so callers can build larger operations from
          * smaller helpers without prematurely releasing removed slots.
          */
-        [[nodiscard]] MapMutationView begin_mutation();
+        MapMutationView begin_mutation();
         [[nodiscard]] size_t size() const;
         [[nodiscard]] bool empty() const;
         [[nodiscard]] size_t slot_capacity() const;
@@ -290,7 +290,7 @@ namespace hgraph
          * Insert or replace the value for a key and return this mutation
          * scope.
          */
-        [[nodiscard]] MapMutationView &setting(const View &key, const View &value);
+        MapMutationView &setting(const View &key, const View &value);
         /**
          * Remove a live key and its value from the map.
          */
@@ -302,7 +302,7 @@ namespace hgraph
          * This supports fluent mutation chains when the caller does not need
          * the boolean "was removed" result from `remove(...)`.
          */
-        [[nodiscard]] MapMutationView &removing(const View &key);
+        MapMutationView &removing(const View &key);
         /**
          * Remove every live key/value pair from the map.
          */
@@ -311,7 +311,7 @@ namespace hgraph
          * Remove every live key/value pair from the map and return this
          * mutation scope.
          */
-        [[nodiscard]] MapMutationView &clearing();
+        MapMutationView &clearing();
 
       private:
         /**

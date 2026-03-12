@@ -20,6 +20,8 @@ namespace hgraph
             std::byte *elements{nullptr};
             size_t     size{0};
             size_t     head{0};
+            bool       has_removed{false};
+            size_t     mutation_depth{0};
         };
 
         struct QueueState
@@ -28,6 +30,8 @@ namespace hgraph
             size_t     size{0};
             size_t     capacity{0};
             size_t     head{0};
+            bool       has_removed{false};
+            size_t     mutation_depth{0};
         };
 
         struct SequenceDispatchBase
@@ -71,6 +75,20 @@ namespace hgraph
                 m_element_builder.get().construct(slot);
             }
 
+            void retain_removed_slot(void *removed_slot, bool &has_removed, const void *value) const
+            {
+                if (has_removed) { reset_slot(removed_slot); }
+                assign_slot(removed_slot, value);
+                has_removed = true;
+            }
+
+            void clear_removed_slot(void *removed_slot, bool &has_removed) const
+            {
+                if (!has_removed) { return; }
+                reset_slot(removed_slot);
+                has_removed = false;
+            }
+
             void construct_slots(std::byte *base, size_t count) const
             {
                 for (size_t i = 0; i < count; ++i) {
@@ -111,6 +129,23 @@ namespace hgraph
             [[nodiscard]] const value::TypeMeta &element_schema() const noexcept override { return SequenceDispatchBase::element_schema(); }
             [[nodiscard]] const ViewDispatch &element_dispatch() const noexcept override { return SequenceDispatchBase::element_dispatch(); }
 
+            void begin_mutation(void *data) const override
+            {
+                CyclicBufferState *buffer = state(data);
+                if (buffer->mutation_depth++ == 0 && buffer->elements != nullptr) {
+                    clear_removed_slot(removed_slot_memory(*buffer), buffer->has_removed);
+                }
+            }
+
+            void end_mutation(void *data) const override
+            {
+                CyclicBufferState *buffer = state(data);
+                if (buffer->mutation_depth == 0) {
+                    throw std::runtime_error("Cyclic buffer mutation depth underflow");
+                }
+                --buffer->mutation_depth;
+            }
+
             [[nodiscard]] void *element_data(void *data, size_t index) const override
             {
                 const CyclicBufferState *buffer = state(data);
@@ -123,6 +158,25 @@ namespace hgraph
                 const CyclicBufferState *buffer = state(data);
                 if (index >= buffer->size) { throw std::out_of_range("CyclicBuffer index out of range"); }
                 return buffer->elements + physical_index(*buffer, index) * element_stride();
+            }
+
+            [[nodiscard]] bool has_removed(const void *data) const noexcept override
+            {
+                return state(data)->has_removed;
+            }
+
+            [[nodiscard]] void *removed_data(void *data) const override
+            {
+                CyclicBufferState *buffer = state(data);
+                if (!buffer->has_removed) { throw std::out_of_range("CyclicBuffer has no removed value"); }
+                return removed_slot_memory(*buffer);
+            }
+
+            [[nodiscard]] const void *removed_data(const void *data) const override
+            {
+                const CyclicBufferState *buffer = state(data);
+                if (!buffer->has_removed) { throw std::out_of_range("CyclicBuffer has no removed value"); }
+                return removed_slot_memory(*buffer);
             }
 
             void set_at(void *data, size_t index, const void *value) const override
@@ -143,6 +197,7 @@ namespace hgraph
                 }
 
                 const size_t overwrite = buffer->head;
+                retain_removed_slot(removed_slot_memory(*buffer), buffer->has_removed, buffer->elements + overwrite * element_stride());
                 reset_slot(buffer->elements + overwrite * element_stride());
                 assign_slot(buffer->elements + overwrite * element_stride(), value);
                 buffer->head = (buffer->head + 1) % capacity();
@@ -152,6 +207,7 @@ namespace hgraph
             {
                 CyclicBufferState *buffer = state(data);
                 if (buffer->size == 0) { throw std::out_of_range("pop_front on empty cyclic buffer"); }
+                retain_removed_slot(removed_slot_memory(*buffer), buffer->has_removed, buffer->elements + buffer->head * element_stride());
                 reset_slot(buffer->elements + buffer->head * element_stride());
                 buffer->head = capacity() == 0 ? 0 : (buffer->head + 1) % capacity();
                 --buffer->size;
@@ -162,7 +218,9 @@ namespace hgraph
             {
                 CyclicBufferState *buffer = state(data);
                 for (size_t i = 0; i < buffer->size; ++i) {
-                    reset_slot(buffer->elements + physical_index(*buffer, i) * element_stride());
+                    const size_t physical = physical_index(*buffer, i);
+                    retain_removed_slot(removed_slot_memory(*buffer), buffer->has_removed, buffer->elements + physical * element_stride());
+                    reset_slot(buffer->elements + physical * element_stride());
                 }
                 buffer->size = 0;
                 buffer->head = 0;
@@ -275,17 +333,17 @@ namespace hgraph
             {
                 CyclicBufferState *buffer = state(memory);
                 std::construct_at(buffer);
-                if (capacity() == 0) { return; }
+                if (storage_slots() == 0) { return; }
                 buffer->elements = static_cast<std::byte *>(
-                    ::operator new(capacity() * element_stride(), std::align_val_t{m_element_builder.get().alignment()}));
-                construct_slots(buffer->elements, capacity());
+                    ::operator new(storage_slots() * element_stride(), std::align_val_t{m_element_builder.get().alignment()}));
+                construct_slots(buffer->elements, storage_slots());
             }
 
             void destroy(void *memory) const noexcept
             {
                 CyclicBufferState *buffer = state(memory);
                 if (buffer->elements != nullptr) {
-                    destroy_slots(buffer->elements, capacity());
+                    destroy_slots(buffer->elements, storage_slots());
                     ::operator delete(buffer->elements, std::align_val_t{m_element_builder.get().alignment()});
                 }
                 std::destroy_at(buffer);
@@ -303,9 +361,31 @@ namespace hgraph
                 state(src)->elements = nullptr;
                 state(src)->size = 0;
                 state(src)->head = 0;
+                state(src)->has_removed = false;
+                state(src)->mutation_depth = 0;
             }
 
           private:
+            [[nodiscard]] size_t storage_slots() const noexcept
+            {
+                return capacity() + 1;
+            }
+
+            [[nodiscard]] size_t removed_slot_index() const noexcept
+            {
+                return capacity();
+            }
+
+            [[nodiscard]] void *removed_slot_memory(CyclicBufferState &buffer) const noexcept
+            {
+                return buffer.elements + removed_slot_index() * element_stride();
+            }
+
+            [[nodiscard]] const void *removed_slot_memory(const CyclicBufferState &buffer) const noexcept
+            {
+                return buffer.elements + removed_slot_index() * element_stride();
+            }
+
             [[nodiscard]] size_t physical_index(const CyclicBufferState &buffer, size_t logical_index) const noexcept
             {
                 return capacity() == 0 ? 0 : (buffer.head + logical_index) % capacity();
@@ -334,6 +414,23 @@ namespace hgraph
             [[nodiscard]] const value::TypeMeta &element_schema() const noexcept override { return SequenceDispatchBase::element_schema(); }
             [[nodiscard]] const ViewDispatch &element_dispatch() const noexcept override { return SequenceDispatchBase::element_dispatch(); }
 
+            void begin_mutation(void *data) const override
+            {
+                QueueState *queue = state(data);
+                if (queue->mutation_depth++ == 0 && queue->elements != nullptr && queue->capacity > 0) {
+                    clear_removed_slot(removed_slot_memory(*queue), queue->has_removed);
+                }
+            }
+
+            void end_mutation(void *data) const override
+            {
+                QueueState *queue = state(data);
+                if (queue->mutation_depth == 0) {
+                    throw std::runtime_error("Queue mutation depth underflow");
+                }
+                --queue->mutation_depth;
+            }
+
             [[nodiscard]] void *element_data(void *data, size_t index) const override
             {
                 QueueState *queue = state(data);
@@ -346,6 +443,29 @@ namespace hgraph
                 const QueueState *queue = state(data);
                 if (index >= queue->size) { throw std::out_of_range("Queue index out of range"); }
                 return queue->elements + physical_index(*queue, index) * element_stride();
+            }
+
+            [[nodiscard]] bool has_removed(const void *data) const noexcept override
+            {
+                return state(data)->has_removed;
+            }
+
+            [[nodiscard]] void *removed_data(void *data) const override
+            {
+                QueueState *queue = state(data);
+                if (!queue->has_removed || queue->elements == nullptr || queue->capacity == 0) {
+                    throw std::out_of_range("Queue has no removed value");
+                }
+                return removed_slot_memory(*queue);
+            }
+
+            [[nodiscard]] const void *removed_data(const void *data) const override
+            {
+                const QueueState *queue = state(data);
+                if (!queue->has_removed || queue->elements == nullptr || queue->capacity == 0) {
+                    throw std::out_of_range("Queue has no removed value");
+                }
+                return removed_slot_memory(*queue);
             }
 
             void push(void *data, const void *value) const override
@@ -369,6 +489,7 @@ namespace hgraph
             {
                 QueueState *queue = state(data);
                 if (queue->size == 0) { throw std::out_of_range("pop_front on empty queue"); }
+                retain_removed_slot(removed_slot_memory(*queue), queue->has_removed, queue->elements + queue->head * element_stride());
                 reset_slot(queue->elements + queue->head * element_stride());
                 queue->head = queue->capacity == 0 ? 0 : (queue->head + 1) % queue->capacity;
                 --queue->size;
@@ -379,7 +500,9 @@ namespace hgraph
             {
                 QueueState *queue = state(data);
                 for (size_t i = 0; i < queue->size; ++i) {
-                    reset_slot(queue->elements + physical_index(*queue, i) * element_stride());
+                    const size_t physical = physical_index(*queue, i);
+                    retain_removed_slot(removed_slot_memory(*queue), queue->has_removed, queue->elements + physical * element_stride());
+                    reset_slot(queue->elements + physical * element_stride());
                 }
                 queue->size = 0;
                 queue->head = 0;
@@ -498,7 +621,7 @@ namespace hgraph
                 QueueState *queue = state(memory);
                 if (queue->elements != nullptr) {
                     if (queue->capacity > 0) {
-                        destroy_slots(queue->elements, queue->capacity);
+                        destroy_slots(queue->elements, storage_slots(queue->capacity));
                     }
                     ::operator delete(queue->elements, std::align_val_t{m_element_builder.get().alignment()});
                 }
@@ -518,6 +641,8 @@ namespace hgraph
                 state(src)->size = 0;
                 state(src)->capacity = 0;
                 state(src)->head = 0;
+                state(src)->has_removed = false;
+                state(src)->mutation_depth = 0;
             }
 
           private:
@@ -535,21 +660,40 @@ namespace hgraph
                 if (min_capacity <= queue->capacity) { return; }
 
                 std::byte *new_elements = static_cast<std::byte *>(
-                    ::operator new(min_capacity * element_stride(), std::align_val_t{m_element_builder.get().alignment()}));
-                construct_slots(new_elements, min_capacity);
+                    ::operator new(storage_slots(min_capacity) * element_stride(),
+                                   std::align_val_t{m_element_builder.get().alignment()}));
+                construct_slots(new_elements, storage_slots(min_capacity));
 
                 for (size_t i = 0; i < queue->size; ++i) {
                     assign_slot(new_elements + i * element_stride(), element_data(queue, i));
                 }
+                if (queue->elements != nullptr && queue->has_removed && queue->capacity > 0) {
+                    assign_slot(new_elements + min_capacity * element_stride(), removed_slot_memory(*queue));
+                }
 
                 if (queue->elements != nullptr) {
-                    destroy_slots(queue->elements, queue->capacity);
+                    destroy_slots(queue->elements, storage_slots(queue->capacity));
                     ::operator delete(queue->elements, std::align_val_t{m_element_builder.get().alignment()});
                 }
 
                 queue->elements = new_elements;
                 queue->capacity = min_capacity;
                 queue->head = 0;
+            }
+
+            [[nodiscard]] static size_t storage_slots(size_t logical_capacity) noexcept
+            {
+                return logical_capacity == 0 ? 1 : logical_capacity + 1;
+            }
+
+            [[nodiscard]] void *removed_slot_memory(QueueState &queue) const noexcept
+            {
+                return queue.elements + queue.capacity * element_stride();
+            }
+
+            [[nodiscard]] const void *removed_slot_memory(const QueueState &queue) const noexcept
+            {
+                return queue.elements + queue.capacity * element_stride();
             }
 
             [[nodiscard]] static QueueState *state(void *memory) noexcept
@@ -667,6 +811,25 @@ namespace hgraph
         }
     }
 
+    BufferMutationView BufferView::begin_mutation()
+    {
+        return BufferMutationView{*this};
+    }
+
+    void BufferView::begin_mutation_scope()
+    {
+        const auto *dispatch = buffer_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("BufferView::begin_mutation on invalid view"); }
+        dispatch->begin_mutation(data());
+    }
+
+    void BufferView::end_mutation_scope() noexcept
+    {
+        const auto *dispatch = buffer_dispatch();
+        if (dispatch == nullptr) { return; }
+        dispatch->end_mutation(data());
+    }
+
     size_t BufferView::size() const
     {
         const auto *dispatch = buffer_dispatch();
@@ -680,6 +843,24 @@ namespace hgraph
         const auto *dispatch = buffer_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("BufferView::element_schema on invalid view"); }
         return &dispatch->element_schema();
+    }
+    bool BufferView::has_removed() const
+    {
+        const auto *dispatch = buffer_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("BufferView::has_removed on invalid view"); }
+        return dispatch->has_removed(data());
+    }
+    View BufferView::removed()
+    {
+        const auto *dispatch = buffer_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("BufferView::removed on invalid view"); }
+        return View{&dispatch->element_dispatch(), dispatch->removed_data(data()), &dispatch->element_schema()};
+    }
+    View BufferView::removed() const
+    {
+        const auto *dispatch = buffer_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("BufferView::removed on invalid view"); }
+        return View{&dispatch->element_dispatch(), const_cast<void *>(dispatch->removed_data(data())), &dispatch->element_schema()};
     }
     View BufferView::element_at(size_t index)
     {
@@ -697,25 +878,48 @@ namespace hgraph
     View BufferView::front() const { return element_at(0); }
     View BufferView::back() { return element_at(size() - 1); }
     View BufferView::back() const { return element_at(size() - 1); }
-    void BufferView::push(const View &value)
+
+    BufferMutationView::BufferMutationView(BufferView &view)
+        : BufferView(view)
+    {
+        begin_mutation_scope();
+    }
+
+    BufferMutationView::BufferMutationView(BufferMutationView &&other) noexcept
+        : BufferView(other)
+    {
+        m_owns_scope = other.m_owns_scope;
+        other.m_owns_scope = false;
+    }
+
+    BufferMutationView::~BufferMutationView()
+    {
+        if (!m_owns_scope) { return; }
+        try {
+            end_mutation_scope();
+        } catch (...) {
+        }
+    }
+
+    void BufferMutationView::push(const View &value)
     {
         const auto *dispatch = buffer_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("BufferView::push on invalid view"); }
+        if (dispatch == nullptr) { throw std::runtime_error("BufferMutationView::push on invalid view"); }
         if (!value.valid() || value.schema() != &dispatch->element_schema()) {
-            throw std::invalid_argument("BufferView::push requires a valid matching-schema value");
+            throw std::invalid_argument("BufferMutationView::push requires a valid matching-schema value");
         }
         dispatch->push(data(), data_of(value));
     }
-    void BufferView::pop()
+    void BufferMutationView::pop()
     {
         const auto *dispatch = buffer_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("BufferView::pop on invalid view"); }
+        if (dispatch == nullptr) { throw std::runtime_error("BufferMutationView::pop on invalid view"); }
         dispatch->pop(data());
     }
-    void BufferView::clear()
+    void BufferMutationView::clear()
     {
         const auto *dispatch = buffer_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("BufferView::clear on invalid view"); }
+        if (dispatch == nullptr) { throw std::runtime_error("BufferMutationView::clear on invalid view"); }
         dispatch->clear(data());
     }
     const detail::BufferViewDispatch *BufferView::buffer_dispatch() const noexcept
@@ -732,6 +936,11 @@ namespace hgraph
         }
     }
 
+    CyclicBufferMutationView CyclicBufferView::begin_mutation()
+    {
+        return CyclicBufferMutationView{*this};
+    }
+
     size_t CyclicBufferView::capacity() const
     {
         const auto *dispatch = cyclic_dispatch();
@@ -743,12 +952,59 @@ namespace hgraph
     View CyclicBufferView::at(size_t index) const { return element_at(index); }
     View CyclicBufferView::operator[](size_t index) { return at(index); }
     View CyclicBufferView::operator[](size_t index) const { return at(index); }
-    void CyclicBufferView::set(size_t index, const View &value)
+
+    CyclicBufferMutationView::CyclicBufferMutationView(CyclicBufferView &view)
+        : CyclicBufferView(view)
+    {
+        begin_mutation_scope();
+    }
+
+    CyclicBufferMutationView::CyclicBufferMutationView(CyclicBufferMutationView &&other) noexcept
+        : CyclicBufferView(other)
+    {
+        m_owns_scope = other.m_owns_scope;
+        other.m_owns_scope = false;
+    }
+
+    CyclicBufferMutationView::~CyclicBufferMutationView()
+    {
+        if (!m_owns_scope) { return; }
+        try {
+            end_mutation_scope();
+        } catch (...) {
+        }
+    }
+
+    void CyclicBufferMutationView::push(const View &value)
+    {
+        const auto *dispatch = buffer_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("CyclicBufferMutationView::push on invalid view"); }
+        if (!value.valid() || value.schema() != &dispatch->element_schema()) {
+            throw std::invalid_argument("CyclicBufferMutationView::push requires a valid matching-schema value");
+        }
+        dispatch->push(data(), data_of(value));
+    }
+
+    void CyclicBufferMutationView::pop()
+    {
+        const auto *dispatch = buffer_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("CyclicBufferMutationView::pop on invalid view"); }
+        dispatch->pop(data());
+    }
+
+    void CyclicBufferMutationView::clear()
+    {
+        const auto *dispatch = buffer_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("CyclicBufferMutationView::clear on invalid view"); }
+        dispatch->clear(data());
+    }
+
+    void CyclicBufferMutationView::set(size_t index, const View &value)
     {
         const auto *dispatch = cyclic_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("CyclicBufferView::set on invalid view"); }
+        if (dispatch == nullptr) { throw std::runtime_error("CyclicBufferMutationView::set on invalid view"); }
         if (!value.valid() || value.schema() != &dispatch->element_schema()) {
-            throw std::invalid_argument("CyclicBufferView::set requires a valid matching-schema value");
+            throw std::invalid_argument("CyclicBufferMutationView::set requires a valid matching-schema value");
         }
         dispatch->set_at(data(), index, data_of(value));
     }
@@ -766,6 +1022,11 @@ namespace hgraph
         }
     }
 
+    QueueMutationView QueueView::begin_mutation()
+    {
+        return QueueMutationView{*this};
+    }
+
     size_t QueueView::max_capacity() const
     {
         const auto *dispatch = queue_dispatch();
@@ -773,6 +1034,53 @@ namespace hgraph
         return dispatch->max_capacity();
     }
     bool QueueView::has_max_capacity() const noexcept { return valid() && max_capacity() > 0; }
+
+    QueueMutationView::QueueMutationView(QueueView &view)
+        : QueueView(view)
+    {
+        begin_mutation_scope();
+    }
+
+    QueueMutationView::QueueMutationView(QueueMutationView &&other) noexcept
+        : QueueView(other)
+    {
+        m_owns_scope = other.m_owns_scope;
+        other.m_owns_scope = false;
+    }
+
+    QueueMutationView::~QueueMutationView()
+    {
+        if (!m_owns_scope) { return; }
+        try {
+            end_mutation_scope();
+        } catch (...) {
+        }
+    }
+
+    void QueueMutationView::push(const View &value)
+    {
+        const auto *dispatch = buffer_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("QueueMutationView::push on invalid view"); }
+        if (!value.valid() || value.schema() != &dispatch->element_schema()) {
+            throw std::invalid_argument("QueueMutationView::push requires a valid matching-schema value");
+        }
+        dispatch->push(data(), data_of(value));
+    }
+
+    void QueueMutationView::pop()
+    {
+        const auto *dispatch = buffer_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("QueueMutationView::pop on invalid view"); }
+        dispatch->pop(data());
+    }
+
+    void QueueMutationView::clear()
+    {
+        const auto *dispatch = buffer_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("QueueMutationView::clear on invalid view"); }
+        dispatch->clear(data());
+    }
+
     const detail::QueueViewDispatch *QueueView::queue_dispatch() const noexcept
     {
         return valid() ? static_cast<const detail::QueueViewDispatch *>(dispatch()) : nullptr;

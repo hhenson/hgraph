@@ -652,6 +652,11 @@ namespace hgraph
         }
     }
 
+    ListMutationView ListView::begin_mutation()
+    {
+        return ListMutationView{*this};
+    }
+
     size_t ListView::size() const
     {
         const auto *dispatch = list_dispatch();
@@ -732,13 +737,18 @@ namespace hgraph
         return at(size() - 1);
     }
 
-    void ListView::set(size_t index, const View &value)
+    ListMutationView::ListMutationView(ListView &view)
+        : ListView(view)
+    {
+    }
+
+    void ListMutationView::set(size_t index, const View &value)
     {
         const auto *dispatch = list_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("ListView::set on invalid view"); }
-        if (index >= dispatch->size(data())) { throw std::out_of_range("ListView::set index out of range"); }
+        if (dispatch == nullptr) { throw std::runtime_error("ListMutationView::set on invalid view"); }
+        if (index >= dispatch->size(data())) { throw std::out_of_range("ListMutationView::set index out of range"); }
         if (value.schema() != nullptr && value.schema() != &dispatch->element_schema()) {
-            throw std::invalid_argument("ListView::set requires matching element schema");
+            throw std::invalid_argument("ListMutationView::set requires matching element schema");
         }
 
         if (!value.valid()) {
@@ -750,21 +760,21 @@ namespace hgraph
         dispatch->set_element_valid(data(), index, true);
     }
 
-    void ListView::resize(size_t new_size)
+    void ListMutationView::resize(size_t new_size)
     {
         const auto *dispatch = list_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("ListView::resize on invalid view"); }
+        if (dispatch == nullptr) { throw std::runtime_error("ListMutationView::resize on invalid view"); }
         dispatch->resize(data(), new_size);
     }
 
-    void ListView::clear()
+    void ListMutationView::clear()
     {
         const auto *dispatch = list_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("ListView::clear on invalid view"); }
+        if (dispatch == nullptr) { throw std::runtime_error("ListMutationView::clear on invalid view"); }
         dispatch->clear(data());
     }
 
-    void ListView::push_back(const View &value)
+    void ListMutationView::push_back(const View &value)
     {
         const size_t index = size();
         resize(index + 1);

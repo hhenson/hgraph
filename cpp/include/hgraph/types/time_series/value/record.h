@@ -11,6 +11,9 @@
 namespace hgraph
 {
 
+    struct TupleMutationView;
+    struct BundleMutationView;
+
     struct ValueBuilder;
 
     namespace detail
@@ -59,33 +62,20 @@ namespace hgraph
     {
         explicit TupleView(const View &view);
 
+        /**
+         * Return the mutable surface for this tuple-like view.
+         *
+         * Record-like values do not currently need mutation-epoch bookkeeping
+         * in their storage, so this is a type-level gate into the mutating API
+         * rather than an operation that changes underlying record state.
+         */
+        TupleMutationView begin_mutation();
         [[nodiscard]] size_t size() const;
         [[nodiscard]] bool empty() const;
         [[nodiscard]] View at(size_t index);
         [[nodiscard]] View at(size_t index) const;
         [[nodiscard]] View operator[](size_t index);
         [[nodiscard]] View operator[](size_t index) const;
-
-        void set(size_t index, const View &value);
-
-        template <typename T>
-            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
-        void set(size_t index, T &&value)
-        {
-            auto *dispatch = record_dispatch();
-            if (dispatch == nullptr) { throw std::runtime_error("TupleView::set on invalid view"); }
-            if (index >= dispatch->size()) { throw std::out_of_range("TupleView::set index out of range"); }
-
-            using TValue = std::remove_cvref_t<T>;
-            void *slot = dispatch->field_data(data(), index);
-            if constexpr (std::is_lvalue_reference_v<T &&>) {
-                dispatch->field_dispatch(index).set_from_cpp(slot, std::addressof(value), value::scalar_type_meta<TValue>());
-            } else {
-                TValue moved_value = std::forward<T>(value);
-                dispatch->field_dispatch(index).move_from_cpp(slot, std::addressof(moved_value), value::scalar_type_meta<TValue>());
-            }
-            dispatch->set_field_valid(data(), index, true);
-        }
 
       protected:
         /**
@@ -104,10 +94,120 @@ namespace hgraph
     {
         explicit BundleView(const View &view);
 
+        /**
+         * Return the mutable surface for this bundle view.
+         */
+        BundleMutationView begin_mutation();
         [[nodiscard]] bool has_field(std::string_view name) const noexcept;
         [[nodiscard]] View field(std::string_view name);
         [[nodiscard]] View field(std::string_view name) const;
+
+      protected:
+        [[nodiscard]] size_t field_index(std::string_view name) const;
+    };
+
+    /**
+     * Mutable tuple surface.
+     */
+    struct HGRAPH_EXPORT TupleMutationView : TupleView
+    {
+        explicit TupleMutationView(TupleView &view);
+
+        /**
+         * Assign the supplied value to the tuple field at the given index.
+         */
+        void set(size_t index, const View &value);
+
+        /**
+         * Assign the supplied value and return this mutation view for fluent
+         * tuple mutation chains.
+         */
+        TupleMutationView &setting(size_t index, const View &value)
+        {
+            set(index, value);
+            return *this;
+        }
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        void set(size_t index, T &&value)
+        {
+            auto *dispatch = record_dispatch();
+            if (dispatch == nullptr) { throw std::runtime_error("TupleMutationView::set on invalid view"); }
+            if (index >= dispatch->size()) { throw std::out_of_range("TupleMutationView::set index out of range"); }
+
+            using TValue = std::remove_cvref_t<T>;
+            void *slot = dispatch->field_data(data(), index);
+            if constexpr (std::is_lvalue_reference_v<T &&>) {
+                dispatch->field_dispatch(index).set_from_cpp(slot, std::addressof(value), value::scalar_type_meta<TValue>());
+            } else {
+                TValue moved_value = std::forward<T>(value);
+                dispatch->field_dispatch(index).move_from_cpp(slot, std::addressof(moved_value), value::scalar_type_meta<TValue>());
+            }
+            dispatch->set_field_valid(data(), index, true);
+        }
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        TupleMutationView &setting(size_t index, T &&value)
+        {
+            set(index, std::forward<T>(value));
+            return *this;
+        }
+    };
+
+    /**
+     * Mutable bundle surface.
+     */
+    struct HGRAPH_EXPORT BundleMutationView : BundleView
+    {
+        explicit BundleMutationView(BundleView &view);
+
+        /**
+         * Assign the supplied value to the bundle field at the given index.
+         */
+        void set(size_t index, const View &value);
+
+        /**
+         * Assign the supplied value and return this mutation view for fluent
+         * bundle mutation chains.
+         */
+        BundleMutationView &setting(size_t index, const View &value)
+        {
+            set(index, value);
+            return *this;
+        }
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        void set(size_t index, T &&value)
+        {
+            auto tuple_mutation = TupleMutationView{*this};
+            tuple_mutation.set(index, std::forward<T>(value));
+        }
+
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        BundleMutationView &setting(size_t index, T &&value)
+        {
+            set(index, std::forward<T>(value));
+            return *this;
+        }
+
+        /**
+         * Assign the supplied value to the named bundle field.
+         */
         void set_field(std::string_view name, const View &value);
+
+        /**
+         * Assign the supplied value to the named bundle field and return this
+         * mutation view for fluent bundle mutation chains.
+         */
+        BundleMutationView &setting_field(std::string_view name, const View &value)
+        {
+            set_field(name, value);
+            return *this;
+        }
 
         template <typename T>
             requires(!std::derived_from<std::remove_cvref_t<T>, View>)
@@ -117,8 +217,13 @@ namespace hgraph
             set(index, std::forward<T>(value));
         }
 
-      private:
-        [[nodiscard]] size_t field_index(std::string_view name) const;
+        template <typename T>
+            requires(!std::derived_from<std::remove_cvref_t<T>, View>)
+        BundleMutationView &setting_field(std::string_view name, T &&value)
+        {
+            set_field(name, std::forward<T>(value));
+            return *this;
+        }
     };
 
     inline TupleView View::as_tuple()
