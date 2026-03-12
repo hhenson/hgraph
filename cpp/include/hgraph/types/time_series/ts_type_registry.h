@@ -202,6 +202,7 @@ private:
 
     const char* intern_string(const std::string& s);
     TSMeta* create_schema();
+    void populate_parallel_schemas(TSMeta* meta);
 };
 
 // ============================================================================

@@ -7,6 +7,8 @@ option(HGRAPH_WITH_BACKWARD "Enable backward-cpp stack traces" ON)
 option(HGRAPH_ENABLE_ASAN "Enable AddressSanitizer (address + leaks)" OFF)
 option(HGRAPH_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(HGRAPH_ENABLE_TSAN "Enable ThreadSanitizer (mutually exclusive with ASAN/UBSAN)" OFF)
+option(HGRAPH_ENABLE_PY_CACHE_STATS "Enable Python value-cache performance counters" OFF)
+option(HGRAPH_STRICT_WARNINGS "Enable strict compiler warnings for hgraph targets" OFF)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -276,10 +278,15 @@ set(HGRAPH_INCLUDES
         include/hgraph/hgraph_forward_declarations.h
         include/hgraph/builders/builder.h
         include/hgraph/builders/graph_builder.h
-        include/hgraph/builders/input_builder.h
         include/hgraph/builders/node_builder.h
-        include/hgraph/builders/output_builder.h
+        include/hgraph/builders/nodes/cpp_node_builder.h
         include/hgraph/nodes/base_python_node.h
+        include/hgraph/nodes/cpp_node_spec.h
+        include/hgraph/nodes/ops/const_default_node.h
+        include/hgraph/nodes/ops/number_operator_nodes.h
+        include/hgraph/nodes/ops/nothing_node.h
+        include/hgraph/nodes/ops/null_sink_node.h
+        include/hgraph/nodes/ops/node_bindings.h
         include/hgraph/nodes/component_node.h
         include/hgraph/nodes/last_value_pull_node.h
         include/hgraph/nodes/mesh_node.h
@@ -301,7 +308,6 @@ set(HGRAPH_INCLUDES
         include/hgraph/runtime/observers/evaluation_profiler.h
         include/hgraph/runtime/observers/evaluation_trace.h
         include/hgraph/runtime/observers/inspection_observer.h
-        include/hgraph/types/base_time_series.h
         include/hgraph/types/constants.h
         include/hgraph/types/error_type.h
         include/hgraph/types/feature_extension.h
@@ -311,22 +317,27 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/ref.h
         include/hgraph/types/scalar_types.h
         include/hgraph/types/schema_type.h
-        include/hgraph/types/time_series_type.h
         include/hgraph/types/traits.h
-        include/hgraph/types/ts.h
-        include/hgraph/types/ts_signal.h
-        include/hgraph/types/tsd.h
-        include/hgraph/types/tss.h
-        include/hgraph/types/ts_indexed.h
-        include/hgraph/types/tsb.h
-        include/hgraph/types/tsl.h
-        include/hgraph/types/tsw.h
+        include/hgraph/types/time_series/observer_list.h
+        include/hgraph/types/time_series/python_value_cache_stats.h
+        include/hgraph/types/time_series/link_target.h
+        include/hgraph/types/time_series/ref_link.h
+        include/hgraph/types/time_series/ts_input.h
+        include/hgraph/types/time_series/ts_meta.h
+        include/hgraph/types/time_series/ts_meta_schema_cache.h
+        include/hgraph/types/time_series/ts_ops.h
+        include/hgraph/types/time_series/ts_output.h
+        include/hgraph/types/time_series/ts_type_registry.h
+        include/hgraph/types/time_series/ts_value.h
+        include/hgraph/types/time_series/ts_view.h
+        include/hgraph/types/time_series/view_data.h
         include/hgraph/python/chrono.h
         include/hgraph/python/format.h
         include/hgraph/python/global_state.h
         include/hgraph/python/global_keys.h
         include/hgraph/python/hashable.h
         include/hgraph/python/nb_types_ext.h
+        include/hgraph/python/cpp_node_builder_binding.h
         include/hgraph/python/reference_wrapper.h
         include/hgraph/util/date_time.h
         include/hgraph/util/lifecycle.h

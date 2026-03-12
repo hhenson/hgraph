@@ -1,0 +1,1435 @@
+from datetime import timedelta
+
+from hgraph import MIN_DT, MIN_TD
+
+import pytest
+
+_hgraph = pytest.importorskip("hgraph._hgraph", reason="C++ extension not available")
+
+if not hasattr(_hgraph, "_ts_runtime"):
+    pytest.skip("TS runtime scaffolding bindings not exposed", allow_module_level=True)
+
+runtime = _hgraph._ts_runtime
+value = _hgraph.value
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime_test_time():
+    runtime.set_test_current_time(MIN_DT)
+    yield
+    runtime.set_test_current_time(MIN_DT)
+
+
+def _registry():
+    return _hgraph.TSTypeRegistry.instance()
+
+
+def _ts_int_meta():
+    return _registry().ts(value.scalar_type_meta_int64())
+
+
+def _tsb_meta(name: str, fields):
+    return _registry().tsb(fields, name)
+
+
+def _tsd_meta(key_type, value_ts):
+    return _registry().tsd(key_type, value_ts)
+
+
+def _int_value(v: int):
+    return value.Value(value.scalar_type_meta_int64(), v)
+
+
+def _str_value(v: str):
+    return value.Value(value.scalar_type_meta_string(), v)
+
+
+@pytest.mark.parametrize(
+    "meta_factory",
+    [
+        lambda: _ts_int_meta(),
+        lambda: _registry().tss(value.scalar_type_meta_int64()),
+        lambda: _tsd_meta(value.scalar_type_meta_string(), _ts_int_meta()),
+        lambda: _registry().tsl(_ts_int_meta(), 0),
+        lambda: _registry().tsw(value.scalar_type_meta_double(), 8, 3),
+        lambda: _registry().tsw_duration(
+            value.scalar_type_meta_double(),
+            timedelta(minutes=5),
+            timedelta(minutes=1),
+        ),
+        lambda: _registry().ref(_ts_int_meta()),
+        lambda: _registry().signal(),
+        lambda: _tsb_meta("RootBindBundle", [("a", _ts_int_meta()), ("b", _ts_int_meta())]),
+    ],
+    ids=[
+        "TS",
+        "TSS",
+        "TSD",
+        "TSL_dynamic",
+        "TSW_tick",
+        "TSW_duration",
+        "REF",
+        "SIGNAL",
+        "TSB",
+    ],
+)
+def test_root_bind_unbind_roundtrip_for_root_link_kinds(meta_factory):
+    meta = meta_factory()
+
+    ts_input = runtime.TSInput(meta)
+    ts_output = runtime.TSOutput(meta, 0)
+    root = ts_input.input_view()
+
+    assert not root.is_bound()
+    ts_input.bind(ts_output)
+    assert root.is_bound()
+    ts_input.unbind()
+    assert not root.is_bound()
+
+
+def test_input_tsb_switches_between_peered_and_unpeered_bind():
+    ts_int = _ts_int_meta()
+    pair_meta = _tsb_meta("PairBindMode", [("x", ts_int), ("y", ts_int)])
+
+    ts_input = runtime.TSInput(pair_meta)
+    ts_output = runtime.TSOutput(pair_meta, 0)
+
+    in_root = ts_input.input_view()
+    out_root = ts_output.output_view()
+    in_x = in_root.as_bundle().field("x")
+    out_x = out_root.as_bundle().field("x")
+
+    ts_input.bind(ts_output)
+    assert in_root.is_bound()
+    assert not in_x.is_bound()
+    assert in_root.linked_target_indices() == []
+    assert in_x.linked_target_indices() == []
+
+    in_x.bind(out_x)
+    assert not in_root.is_bound()
+    assert in_x.is_bound()
+    assert in_x.linked_target_indices() == [0]
+
+    in_x.unbind()
+    assert not in_x.is_bound()
+    assert not in_root.is_bound()
+
+
+def test_tsl_fixed_bind_unbind_binds_each_index():
+    ts_int = _ts_int_meta()
+    fixed_meta = _registry().tsl(ts_int, 3)
+
+    ts_input = runtime.TSInput(fixed_meta)
+    ts_output = runtime.TSOutput(fixed_meta, 0)
+    root = ts_input.input_view()
+    list_root = root.as_list()
+
+    ts_input.bind(ts_output)
+    assert not root.is_bound()
+    assert list_root.at(0).is_bound()
+    assert list_root.at(1).is_bound()
+    assert list_root.at(2).is_bound()
+    assert list_root.at(0).linked_target_indices() == [0]
+    assert list_root.at(1).linked_target_indices() == [1]
+    assert list_root.at(2).linked_target_indices() == [2]
+
+    ts_input.unbind()
+    assert not root.is_bound()
+    assert not list_root.at(0).is_bound()
+    assert not list_root.at(1).is_bound()
+    assert not list_root.at(2).is_bound()
+
+
+@pytest.mark.parametrize(
+    "meta_factory",
+    [
+        lambda: _registry().tsl(_ts_int_meta(), 0),
+        lambda: _tsd_meta(value.scalar_type_meta_string(), _ts_int_meta()),
+    ],
+    ids=["TSL_dynamic", "TSD"],
+)
+def test_collection_level_links_for_dynamic_structures(meta_factory):
+    meta = meta_factory()
+    ts_input = runtime.TSInput(meta)
+    ts_output = runtime.TSOutput(meta, 0)
+    root = ts_input.input_view()
+
+    ts_input.bind(ts_output)
+    assert root.is_bound()
+    if root.is_list():
+        first = root.as_list().at(0)
+    else:
+        alpha = _str_value("alpha")
+        ts_output.output_view().as_dict().set(alpha.view(), _int_value(1).view())
+        first = root.as_dict().at_key(alpha.view())
+    assert first.is_bound()
+    assert first.linked_target_indices() == []
+
+
+def test_output_short_and_fq_path_include_port_index():
+    ts_int = _ts_int_meta()
+    pair_meta = _tsb_meta("PairPath", [("x", ts_int), ("y", ts_int)])
+
+    output = runtime.TSOutput(pair_meta, 3)
+    root = output.output_view()
+    field_x = root.as_bundle().field("x")
+
+    assert root.short_indices() == [3]
+    assert field_x.short_indices() == [3, 0]
+    assert root.fq_path_str().endswith(":out/3")
+    assert field_x.fq_path_str().endswith(":out/3/x")
+
+
+def test_output_fq_path_nested_tsb_uses_field_names():
+    ts_int = _ts_int_meta()
+    inner_meta = _tsb_meta("InnerPath", [("u", ts_int), ("v", ts_int)])
+    outer_meta = _tsb_meta("OuterPath", [("left", ts_int), ("inner", inner_meta)])
+
+    output = runtime.TSOutput(outer_meta, 5)
+    nested = output.output_view().as_bundle().field("inner").as_bundle().field("v")
+    assert nested.fq_path_str().endswith(":out/5/inner/v")
+
+
+def test_output_fq_path_tsd_uses_key_when_value_present():
+    ts_int = _ts_int_meta()
+    key_type = value.scalar_type_meta_string()
+    tsd_meta = _tsd_meta(key_type, ts_int)
+
+    output = runtime.TSOutput(tsd_meta, 1)
+    root = output.output_view()
+
+    map_value = value.Value(tsd_meta.value_type, {"alpha": 7})
+    root.set_value(map_value.view())
+    dict_view = root.as_dict()
+
+    alpha_key = next(k for k in map_value.as_map().keys() if k.as_string() == "alpha")
+    first_child = dict_view.at_key(alpha_key)
+    assert first_child.fq_path_str().endswith(":out/1/alpha")
+    assert first_child.fq_path_elements() == [1, "alpha"]
+
+
+def test_output_fq_path_tsd_preserves_typed_non_string_key():
+    ts_int = _ts_int_meta()
+    key_type = value.scalar_type_meta_int64()
+    tsd_meta = _tsd_meta(key_type, ts_int)
+
+    output = runtime.TSOutput(tsd_meta, 8)
+    root = output.output_view()
+
+    map_value = value.Value(tsd_meta.value_type, {42: 7})
+    root.set_value(map_value.view())
+    dict_view = root.as_dict()
+
+    int_key = next(k for k in map_value.as_map().keys() if k.as_int() == 42)
+    child = dict_view.at_key(int_key)
+    elements = child.fq_path_elements()
+
+    assert child.fq_path_str().endswith(":out/8/42")
+    assert elements == [8, 42]
+    assert isinstance(elements[-1], int)
+    assert not isinstance(elements[-1], str)
+
+
+def test_output_fq_path_tsd_create_uses_key_path():
+    ts_int = _ts_int_meta()
+    key_type = value.scalar_type_meta_string()
+    tsd_meta = _tsd_meta(key_type, ts_int)
+
+    output = runtime.TSOutput(tsd_meta, 2)
+    root = output.output_view().as_dict()
+    beta = _str_value("beta")
+    created = root.create(beta.view())
+    assert created.fq_path_str().endswith(":out/2/beta")
+
+
+def test_output_child_by_key_navigates_to_keyed_entry():
+    ts_int = _ts_int_meta()
+    tsd_meta = _tsd_meta(value.scalar_type_meta_string(), ts_int)
+
+    output = runtime.TSOutput(tsd_meta, 4)
+    root = output.output_view().as_dict()
+    map_value = value.Value(tsd_meta.value_type, {"alpha": 11, "beta": 22})
+    output.output_view().set_value(map_value.view())
+
+    beta_key = next(k for k in map_value.as_map().keys() if k.as_string() == "beta")
+    keyed_child = root.at_key(beta_key)
+    assert keyed_child.fq_path_str().endswith(":out/4/beta")
+
+
+def test_output_view_navigation_uses_typed_container_navigation():
+    ts_int = _ts_int_meta()
+    pair_meta = _tsb_meta("PairAtAlias", [("x", ts_int), ("y", ts_int)])
+    root = runtime.TSOutput(pair_meta, 6).output_view()
+    bundle_root = root.as_bundle()
+
+    field_x = bundle_root.field("x")
+    idx_0 = bundle_root.at(0)
+    assert field_x.fq_path_str().endswith(":out/6/x")
+    assert idx_0.fq_path_str().endswith(":out/6/x")
+    assert bundle_root.count() == bundle_root.size() == 2
+
+    tsd_meta = _tsd_meta(value.scalar_type_meta_string(), ts_int)
+    dict_root = runtime.TSOutput(tsd_meta, 7).output_view()
+    typed_dict = dict_root.as_dict()
+    map_value = value.Value(tsd_meta.value_type, {"alpha": 11, "beta": 22})
+    dict_root.set_value(map_value.view())
+    beta_key = next(k for k in map_value.as_map().keys() if k.as_string() == "beta")
+
+    at_key_child = typed_dict.at_key(beta_key)
+    assert at_key_child.fq_path_str().endswith(":out/7/beta")
+    assert typed_dict.count() == typed_dict.size() == 2
+
+
+@pytest.mark.parametrize(
+    "meta_factory",
+    [
+        lambda: _ts_int_meta(),
+        lambda: _registry().tss(value.scalar_type_meta_int64()),
+        lambda: _registry().tsw(value.scalar_type_meta_double(), 6, 2),
+        lambda: _registry().ref(_ts_int_meta()),
+        lambda: _registry().signal(),
+    ],
+    ids=["TS", "TSS", "TSW", "REF", "SIGNAL"],
+)
+def test_leaf_kinds_active_toggle(meta_factory):
+    meta = meta_factory()
+    ts_input = runtime.TSInput(meta)
+    root = ts_input.input_view()
+
+    assert not root.active
+    root.make_active()
+    assert root.active
+    root.make_passive()
+    assert not root.active
+
+
+def test_input_short_and_fq_path_include_port_index_when_non_zero():
+    ts_int = _ts_int_meta()
+    inner_meta = _tsb_meta("InnerInputPath", [("x", ts_int), ("y", ts_int)])
+    outer_meta = _tsb_meta("OuterInputPath", [("left", ts_int), ("inner", inner_meta)])
+
+    ts_input = runtime.TSInput(outer_meta, 2)
+    root = ts_input.input_view()
+    inner_x = root.as_bundle().field("inner").as_bundle().field("x")
+
+    assert root.short_indices() == [2]
+    assert inner_x.short_indices() == [2, 1, 0]
+    assert root.fq_path_str().endswith(":in/2")
+    assert inner_x.fq_path_str().endswith(":in/2/inner/x")
+
+
+def test_input_view_scoped_active_state_is_recursive():
+    ts_int = _ts_int_meta()
+    inner_meta = _tsb_meta("InnerActive", [("x", ts_int), ("y", ts_int)])
+    outer_meta = _tsb_meta("OuterActive", [("left", ts_int), ("inner", inner_meta)])
+
+    ts_input = runtime.TSInput(outer_meta)
+    root = ts_input.input_view()
+    root_bundle = root.as_bundle()
+    left = root_bundle.field("left")
+    inner = root_bundle.field("inner")
+    inner_bundle = inner.as_bundle()
+    inner_x = inner_bundle.field("x")
+    inner_y = inner_bundle.field("y")
+
+    assert not ts_input.active()
+    assert not root.active
+    assert root.fq_path_str().endswith(":in")
+    assert inner_x.fq_path_str().endswith(":in/inner/x")
+
+    inner_x.make_active()
+    assert ts_input.active()
+    assert root.active
+    assert inner_x.active
+    assert not left.active
+
+    inner_x.make_passive()
+    assert not inner_x.active
+    assert not ts_input.active()
+
+    inner.make_active()
+    assert ts_input.active()
+    assert inner.active
+    assert inner_x.active
+    assert inner_y.active
+
+    inner.make_passive()
+    assert not inner.active
+    assert not inner_x.active
+    assert not inner_y.active
+    assert not ts_input.active()
+
+
+def test_input_active_root_tracks_any_active_branch():
+    ts_int = _ts_int_meta()
+    pair_meta = _tsb_meta("PairAnyActive", [("left", ts_int), ("right", ts_int)])
+
+    ts_input = runtime.TSInput(pair_meta)
+    root = ts_input.input_view()
+    left = root.as_bundle().field("left")
+    right = root.as_bundle().field("right")
+
+    left.make_active()
+    right.make_active()
+    assert ts_input.active()
+    assert root.active
+
+    left.make_passive()
+    assert ts_input.active()
+    assert right.active
+
+    right.make_passive()
+    assert not ts_input.active()
+    assert not root.active
+
+
+def test_tsl_fixed_child_scoped_active_updates_root_state():
+    ts_int = _ts_int_meta()
+    fixed_meta = _registry().tsl(ts_int, 3)
+
+    ts_input = runtime.TSInput(fixed_meta)
+    root = ts_input.input_view()
+    list_root = root.as_list()
+    mid = list_root.at(1)
+
+    mid.make_active()
+    assert ts_input.active()
+    assert root.active
+    assert not list_root.at(0).active
+    assert list_root.at(1).active
+    assert not list_root.at(2).active
+
+    mid.make_passive()
+    assert not ts_input.active()
+    assert not root.active
+
+
+def test_alternative_binding_recurses_by_tsb_field_name():
+    ts_int = _ts_int_meta()
+    native_meta = _tsb_meta("NativeAB", [("a", ts_int), ("b", ts_int)])
+    alt_meta = _tsb_meta("AltBA", [("b", ts_int), ("a", ts_int)])
+
+    output = runtime.TSOutput(native_meta, 0)
+    alt_input = runtime.TSInput(alt_meta)
+    alt_view = output.output_view_for_input(alt_input)
+    alt_bundle = alt_view.as_bundle()
+    alt_b = alt_bundle.field("b")
+    alt_a = alt_bundle.field("a")
+
+    assert alt_view.is_bound()
+    assert alt_b.is_bound()
+    assert alt_a.is_bound()
+    assert alt_b.linked_source_indices() == [1]
+    assert alt_a.linked_source_indices() == [0]
+
+
+def test_alternative_tsb_falls_back_to_index_when_names_do_not_match():
+    ts_int = _ts_int_meta()
+    native_meta = _tsb_meta("NativeIdx", [("a", ts_int), ("b", ts_int)])
+    alt_meta = _tsb_meta("AltIdx", [("x", ts_int), ("y", ts_int)])
+
+    output = runtime.TSOutput(native_meta, 0)
+    alt_input = runtime.TSInput(alt_meta)
+    alt_view = output.output_view_for_input(alt_input)
+    alt_bundle = alt_view.as_bundle()
+
+    assert alt_bundle.field("x").linked_source_indices() == [0]
+    assert alt_bundle.field("y").linked_source_indices() == [1]
+
+
+def test_alternative_tsl_fixed_recurses_into_nested_elements():
+    ts_int = _ts_int_meta()
+    native_elem = _tsb_meta("NativeElem", [("a", ts_int), ("b", ts_int)])
+    alt_elem = _tsb_meta("AltElem", [("b", ts_int), ("a", ts_int)])
+
+    native_meta = _registry().tsl(native_elem, 2)
+    alt_meta = _registry().tsl(alt_elem, 2)
+
+    output = runtime.TSOutput(native_meta, 0)
+    alt_input = runtime.TSInput(alt_meta)
+    alt_view = output.output_view_for_input(alt_input)
+    alt_list = alt_view.as_list()
+    first = alt_list.at(0)
+    second = alt_list.at(1)
+
+    assert not alt_view.is_bound()
+    assert first.is_bound()
+    assert second.is_bound()
+    assert first.as_bundle().field("b").linked_source_indices() == [0, 1]
+    assert second.as_bundle().field("a").linked_source_indices() == [1, 0]
+
+
+def test_ref_alternative_binds_dereferenced_schema_at_root():
+    ts_int = _ts_int_meta()
+    ref_meta = _registry().ref(ts_int)
+    deref_meta = _registry().dereference(ref_meta)
+
+    output = runtime.TSOutput(ref_meta, 0)
+    alt_input = runtime.TSInput(deref_meta)
+    alt_view = output.output_view_for_input(alt_input)
+
+    assert alt_view.is_bound()
+    assert alt_view.linked_source_indices() == []
+
+
+def test_input_unbind_clears_tsb_unpeered_child_links():
+    ts_int = _ts_int_meta()
+    pair_meta = _tsb_meta("PairUnbindCascade", [("x", ts_int), ("y", ts_int)])
+
+    ts_input = runtime.TSInput(pair_meta)
+    ts_output = runtime.TSOutput(pair_meta, 0)
+
+    in_root = ts_input.input_view()
+    in_x = in_root.as_bundle().field("x")
+    out_x = ts_output.output_view().as_bundle().field("x")
+
+    ts_input.bind(ts_output)
+    in_x.bind(out_x)
+    assert not in_root.is_bound()
+    assert in_x.is_bound()
+
+    ts_input.unbind()
+    assert not in_root.is_bound()
+    assert not in_x.is_bound()
+
+
+def test_sampled_flag_propagates_to_child_views():
+    ts_int = _ts_int_meta()
+    pair_meta = _tsb_meta("PairSampledChild", [("x", ts_int), ("y", ts_int)])
+
+    root = runtime.TSOutput(pair_meta, 0).output_view()
+    root.set_sampled(True)
+    child = root.as_bundle().field("x")
+
+    assert root.sampled()
+    assert child.sampled()
+    assert child.modified
+
+
+def test_get_ts_ops_dispatch_for_tsw_kind_and_meta_variants():
+    tsw_tick_meta = _registry().tsw(value.scalar_type_meta_double(), 6, 2)
+    tsw_duration_meta = _registry().tsw_duration(
+        value.scalar_type_meta_double(),
+        timedelta(minutes=2),
+        timedelta(minutes=1),
+    )
+
+    tick_ptr = runtime.ops_ptr_for_meta(tsw_tick_meta)
+    duration_ptr = runtime.ops_ptr_for_meta(tsw_duration_meta)
+    tsw_kind_ptr = runtime.ops_ptr_for_kind(_hgraph.TSKind.TSW)
+    assert tick_ptr != 0
+    assert duration_ptr != 0
+    assert tick_ptr != duration_ptr
+    assert tsw_kind_ptr in {tick_ptr, duration_ptr}
+
+
+def test_get_ts_ops_by_kind_compaction_exposes_only_relevant_extensions():
+    assert runtime.ops_kind_for_kind(_hgraph.TSKind.TSValue) == _hgraph.TSKind.TSValue
+    assert not runtime.ops_has_window_for_kind(_hgraph.TSKind.TSValue)
+    assert not runtime.ops_has_set_for_kind(_hgraph.TSKind.TSValue)
+    assert not runtime.ops_has_dict_for_kind(_hgraph.TSKind.TSValue)
+    assert not runtime.ops_has_list_for_kind(_hgraph.TSKind.TSValue)
+    assert not runtime.ops_has_bundle_for_kind(_hgraph.TSKind.TSValue)
+
+    assert runtime.ops_kind_for_kind(_hgraph.TSKind.TSW) == _hgraph.TSKind.TSW
+    assert runtime.ops_has_window_for_kind(_hgraph.TSKind.TSW)
+    assert not runtime.ops_has_set_for_kind(_hgraph.TSKind.TSW)
+    assert not runtime.ops_has_dict_for_kind(_hgraph.TSKind.TSW)
+    assert not runtime.ops_has_list_for_kind(_hgraph.TSKind.TSW)
+    assert not runtime.ops_has_bundle_for_kind(_hgraph.TSKind.TSW)
+
+    assert runtime.ops_kind_for_kind(_hgraph.TSKind.TSS) == _hgraph.TSKind.TSS
+    assert not runtime.ops_has_window_for_kind(_hgraph.TSKind.TSS)
+    assert runtime.ops_has_set_for_kind(_hgraph.TSKind.TSS)
+    assert not runtime.ops_has_dict_for_kind(_hgraph.TSKind.TSS)
+    assert not runtime.ops_has_list_for_kind(_hgraph.TSKind.TSS)
+    assert not runtime.ops_has_bundle_for_kind(_hgraph.TSKind.TSS)
+
+    assert runtime.ops_kind_for_kind(_hgraph.TSKind.TSD) == _hgraph.TSKind.TSD
+    assert not runtime.ops_has_window_for_kind(_hgraph.TSKind.TSD)
+    assert not runtime.ops_has_set_for_kind(_hgraph.TSKind.TSD)
+    assert runtime.ops_has_dict_for_kind(_hgraph.TSKind.TSD)
+    assert not runtime.ops_has_list_for_kind(_hgraph.TSKind.TSD)
+    assert not runtime.ops_has_bundle_for_kind(_hgraph.TSKind.TSD)
+
+    assert runtime.ops_kind_for_kind(_hgraph.TSKind.TSL) == _hgraph.TSKind.TSL
+    assert not runtime.ops_has_window_for_kind(_hgraph.TSKind.TSL)
+    assert not runtime.ops_has_set_for_kind(_hgraph.TSKind.TSL)
+    assert not runtime.ops_has_dict_for_kind(_hgraph.TSKind.TSL)
+    assert runtime.ops_has_list_for_kind(_hgraph.TSKind.TSL)
+    assert not runtime.ops_has_bundle_for_kind(_hgraph.TSKind.TSL)
+
+    assert runtime.ops_kind_for_kind(_hgraph.TSKind.TSB) == _hgraph.TSKind.TSB
+    assert not runtime.ops_has_window_for_kind(_hgraph.TSKind.TSB)
+    assert not runtime.ops_has_set_for_kind(_hgraph.TSKind.TSB)
+    assert not runtime.ops_has_dict_for_kind(_hgraph.TSKind.TSB)
+    assert not runtime.ops_has_list_for_kind(_hgraph.TSKind.TSB)
+    assert runtime.ops_has_bundle_for_kind(_hgraph.TSKind.TSB)
+
+    assert runtime.ops_kind_for_kind(_hgraph.TSKind.REF) == _hgraph.TSKind.REF
+    assert not runtime.ops_has_window_for_kind(_hgraph.TSKind.REF)
+    assert not runtime.ops_has_set_for_kind(_hgraph.TSKind.REF)
+    assert not runtime.ops_has_dict_for_kind(_hgraph.TSKind.REF)
+    assert not runtime.ops_has_list_for_kind(_hgraph.TSKind.REF)
+    assert not runtime.ops_has_bundle_for_kind(_hgraph.TSKind.REF)
+
+    assert runtime.ops_kind_for_kind(_hgraph.TSKind.SIGNAL) == _hgraph.TSKind.SIGNAL
+    assert not runtime.ops_has_window_for_kind(_hgraph.TSKind.SIGNAL)
+    assert not runtime.ops_has_set_for_kind(_hgraph.TSKind.SIGNAL)
+    assert not runtime.ops_has_dict_for_kind(_hgraph.TSKind.SIGNAL)
+    assert not runtime.ops_has_list_for_kind(_hgraph.TSKind.SIGNAL)
+    assert not runtime.ops_has_bundle_for_kind(_hgraph.TSKind.SIGNAL)
+
+
+def test_get_ts_ops_meta_dispatch_resolves_kind_for_non_tsw():
+    ts_int = _ts_int_meta()
+
+    cases = [
+        (_hgraph.TSKind.TSValue, ts_int),
+        (_hgraph.TSKind.TSS, _registry().tss(value.scalar_type_meta_int64())),
+        (_hgraph.TSKind.TSD, _tsd_meta(value.scalar_type_meta_string(), ts_int)),
+        (_hgraph.TSKind.TSL, _registry().tsl(ts_int, 4)),
+        (_hgraph.TSKind.TSB, _tsb_meta("OpsDispatchBundle", [("x", ts_int), ("y", ts_int)])),
+        (_hgraph.TSKind.REF, _registry().ref(ts_int)),
+        (_hgraph.TSKind.SIGNAL, _registry().signal()),
+    ]
+
+    for kind, meta in cases:
+        assert runtime.ops_kind_for_meta(meta) == kind
+
+
+def test_get_ts_ops_meta_dispatch_matches_kind_dispatch_for_non_variant_kinds():
+    ts_int = _ts_int_meta()
+
+    cases = [
+        (_hgraph.TSKind.TSValue, ts_int),
+        (_hgraph.TSKind.TSS, _registry().tss(value.scalar_type_meta_int64())),
+        (_hgraph.TSKind.TSL, _registry().tsl(ts_int, 4)),
+        (_hgraph.TSKind.TSB, _tsb_meta("OpsDispatchBundleStable", [("x", ts_int), ("y", ts_int)])),
+        (_hgraph.TSKind.SIGNAL, _registry().signal()),
+    ]
+
+    for kind, meta in cases:
+        assert runtime.ops_ptr_for_meta(meta) == runtime.ops_ptr_for_kind(kind)
+
+
+def test_get_ts_ops_meta_dispatch_selects_tsd_and_ref_scenario_variants():
+    ts_int = _ts_int_meta()
+
+    tsd_scalar = _tsd_meta(value.scalar_type_meta_string(), ts_int)
+    tsd_nested = _tsd_meta(
+        value.scalar_type_meta_string(),
+        _tsb_meta("OpsDispatchNested", [("x", ts_int), ("y", ts_int)]),
+    )
+    tsd_ref = _tsd_meta(value.scalar_type_meta_string(), _registry().ref(ts_int))
+
+    tsd_scalar_ptr = runtime.ops_ptr_for_meta(tsd_scalar)
+    tsd_nested_ptr = runtime.ops_ptr_for_meta(tsd_nested)
+    tsd_ref_ptr = runtime.ops_ptr_for_meta(tsd_ref)
+    assert tsd_scalar_ptr != 0
+    assert tsd_nested_ptr != 0
+    assert tsd_ref_ptr != 0
+    assert tsd_scalar_ptr != tsd_nested_ptr
+    assert tsd_scalar_ptr != tsd_ref_ptr
+    assert tsd_nested_ptr != tsd_ref_ptr
+    assert runtime.ops_kind_for_meta(tsd_scalar) == _hgraph.TSKind.TSD
+    assert runtime.ops_kind_for_meta(tsd_nested) == _hgraph.TSKind.TSD
+    assert runtime.ops_kind_for_meta(tsd_ref) == _hgraph.TSKind.TSD
+
+    ref_scalar = _registry().ref(ts_int)
+    ref_static = _registry().ref(_tsb_meta("OpsDispatchStaticRef", [("x", ts_int), ("y", ts_int)]))
+    ref_dynamic = _registry().ref(_tsd_meta(value.scalar_type_meta_string(), ts_int))
+
+    ref_scalar_ptr = runtime.ops_ptr_for_meta(ref_scalar)
+    ref_static_ptr = runtime.ops_ptr_for_meta(ref_static)
+    ref_dynamic_ptr = runtime.ops_ptr_for_meta(ref_dynamic)
+    assert ref_scalar_ptr != 0
+    assert ref_static_ptr != 0
+    assert ref_dynamic_ptr != 0
+    assert ref_scalar_ptr != ref_static_ptr
+    assert ref_scalar_ptr != ref_dynamic_ptr
+    assert ref_static_ptr != ref_dynamic_ptr
+    assert runtime.ops_kind_for_meta(ref_scalar) == _hgraph.TSKind.REF
+    assert runtime.ops_kind_for_meta(ref_static) == _hgraph.TSKind.REF
+    assert runtime.ops_kind_for_meta(ref_dynamic) == _hgraph.TSKind.REF
+
+
+def test_schema_cache_scalar_contract_surfaces_all_parallel_schemas():
+    ts_meta = _ts_int_meta()
+
+    value_meta = runtime.schema_value_meta(ts_meta)
+    time_meta = runtime.schema_time_meta(ts_meta)
+    observer_meta = runtime.schema_observer_meta(ts_meta)
+    delta_meta = runtime.schema_delta_meta(ts_meta)
+    link_meta = runtime.schema_link_meta(ts_meta)
+    input_link_meta = runtime.schema_input_link_meta(ts_meta)
+    active_meta = runtime.schema_active_meta(ts_meta)
+
+    assert value_meta is ts_meta.value_type
+    assert time_meta is value.scalar_type_meta_datetime()
+    assert observer_meta is value.TypeMeta.get("ObserverList")
+    assert delta_meta is None
+    assert link_meta is value.TypeMeta.get("REFLink")
+    assert input_link_meta is value.TypeMeta.get("LinkTarget")
+    assert active_meta is value.scalar_type_meta_bool()
+
+
+def test_schema_cache_tsb_link_and_active_shapes_include_container_slot():
+    ts_int = _ts_int_meta()
+    bundle_meta = _tsb_meta("SchemaBundle", [("x", ts_int), ("y", ts_int)])
+
+    output_link = runtime.schema_link_meta(bundle_meta)
+    input_link = runtime.schema_input_link_meta(bundle_meta)
+    active = runtime.schema_active_meta(bundle_meta)
+
+    ref_link_meta = value.TypeMeta.get("REFLink")
+    link_target_meta = value.TypeMeta.get("LinkTarget")
+    bool_meta = value.scalar_type_meta_bool()
+
+    assert output_link.field_count == 3
+    assert output_link.fields[0].type is ref_link_meta
+    assert output_link.fields[1].type is ref_link_meta
+    assert output_link.fields[2].type is ref_link_meta
+
+    assert input_link.field_count == 3
+    assert input_link.fields[0].type is link_target_meta
+    assert input_link.fields[1].type is link_target_meta
+    assert input_link.fields[2].type is link_target_meta
+
+    assert active.field_count == 3
+    assert active.fields[0].type is bool_meta
+    assert active.fields[1].type is bool_meta
+    assert active.fields[2].type is bool_meta
+
+
+def test_schema_cache_tsl_link_shape_differs_for_fixed_and_dynamic_modes():
+    ts_int = _ts_int_meta()
+    fixed_meta = _registry().tsl(ts_int, 3)
+    dynamic_meta = _registry().tsl(ts_int, 0)
+
+    fixed_output_link = runtime.schema_link_meta(fixed_meta)
+    fixed_input_link = runtime.schema_input_link_meta(fixed_meta)
+    dynamic_output_link = runtime.schema_link_meta(dynamic_meta)
+    dynamic_input_link = runtime.schema_input_link_meta(dynamic_meta)
+
+    assert fixed_output_link.kind == value.TypeKind.Tuple
+    assert fixed_output_link.field_count == 2
+    assert fixed_output_link.fields[0].type is value.TypeMeta.get("REFLink")
+    assert fixed_output_link.fields[1].type.kind == value.TypeKind.List
+    assert fixed_output_link.fields[1].type.fixed_size == 3
+    assert fixed_output_link.fields[1].type.element_type is value.TypeMeta.get("REFLink")
+
+    assert fixed_input_link.kind == value.TypeKind.Tuple
+    assert fixed_input_link.field_count == 2
+    assert fixed_input_link.fields[0].type is value.TypeMeta.get("LinkTarget")
+    assert fixed_input_link.fields[1].type.kind == value.TypeKind.List
+    assert fixed_input_link.fields[1].type.fixed_size == 3
+    assert fixed_input_link.fields[1].type.element_type is value.TypeMeta.get("LinkTarget")
+
+    assert dynamic_output_link is value.TypeMeta.get("REFLink")
+    assert dynamic_input_link is value.TypeMeta.get("LinkTarget")
+
+
+def test_schema_cache_tsd_link_is_leaf_and_active_is_recursive():
+    tsd_meta = _tsd_meta(value.scalar_type_meta_string(), _ts_int_meta())
+
+    assert runtime.schema_link_meta(tsd_meta) is value.TypeMeta.get("REFLink")
+    assert runtime.schema_input_link_meta(tsd_meta) is value.TypeMeta.get("LinkTarget")
+
+    active = runtime.schema_active_meta(tsd_meta)
+    assert active.field_count == 2
+    assert active.fields[0].type is value.scalar_type_meta_bool()
+
+    child_collection = active.fields[1].type
+    assert child_collection.kind == value.TypeKind.List
+    assert child_collection.fixed_size == 0
+    assert child_collection.element_type is value.scalar_type_meta_bool()
+
+
+def test_schema_cache_ref_link_and_active_shapes_include_nested_slot():
+    ts_int = _ts_int_meta()
+    ref_meta = _registry().ref(ts_int)
+
+    output_link = runtime.schema_link_meta(ref_meta)
+    input_link = runtime.schema_input_link_meta(ref_meta)
+    active = runtime.schema_active_meta(ref_meta)
+
+    assert output_link.kind == value.TypeKind.Tuple
+    assert output_link.field_count == 2
+    assert output_link.fields[0].type is value.TypeMeta.get("REFLink")
+    assert output_link.fields[1].type is value.TypeMeta.get("REFLink")
+
+    assert input_link.kind == value.TypeKind.Tuple
+    assert input_link.field_count == 2
+    assert input_link.fields[0].type is value.TypeMeta.get("LinkTarget")
+    assert input_link.fields[1].type is value.TypeMeta.get("LinkTarget")
+
+    assert active is value.scalar_type_meta_bool()
+
+
+def test_schema_cache_tsw_tick_contract_uses_cyclic_buffer_and_leaf_links():
+    tsw_meta = _registry().tsw(value.scalar_type_meta_double(), 6, 2)
+
+    value_meta = runtime.schema_value_meta(tsw_meta)
+    time_meta = runtime.schema_time_meta(tsw_meta)
+    delta_meta = runtime.schema_delta_meta(tsw_meta)
+    output_link = runtime.schema_link_meta(tsw_meta)
+    input_link = runtime.schema_input_link_meta(tsw_meta)
+    active = runtime.schema_active_meta(tsw_meta)
+
+    assert value_meta.kind == value.TypeKind.CyclicBuffer
+    assert value_meta.element_type is value.scalar_type_meta_double()
+    assert value_meta.fixed_size == 6
+
+    assert time_meta.kind == value.TypeKind.Tuple
+    assert time_meta.field_count == 2
+    assert time_meta.fields[0].type is value.scalar_type_meta_datetime()
+    assert time_meta.fields[1].type.kind == value.TypeKind.CyclicBuffer
+    assert time_meta.fields[1].type.element_type is value.scalar_type_meta_datetime()
+    assert time_meta.fields[1].type.fixed_size == 6
+
+    assert delta_meta.kind == value.TypeKind.Tuple
+    assert delta_meta.field_count == 2
+    assert delta_meta.fields[0].type is value.scalar_type_meta_double()
+    assert delta_meta.fields[1].type is value.scalar_type_meta_bool()
+
+    assert output_link is value.TypeMeta.get("REFLink")
+    assert input_link is value.TypeMeta.get("LinkTarget")
+    assert active is value.scalar_type_meta_bool()
+
+
+def test_schema_cache_tsw_duration_contract_uses_queue_and_duration_time_tuple():
+    tsw_meta = _registry().tsw_duration(
+        value.scalar_type_meta_double(),
+        timedelta(minutes=5),
+        timedelta(minutes=1),
+    )
+
+    value_meta = runtime.schema_value_meta(tsw_meta)
+    time_meta = runtime.schema_time_meta(tsw_meta)
+    delta_meta = runtime.schema_delta_meta(tsw_meta)
+    output_link = runtime.schema_link_meta(tsw_meta)
+    input_link = runtime.schema_input_link_meta(tsw_meta)
+    active = runtime.schema_active_meta(tsw_meta)
+
+    assert value_meta.kind == value.TypeKind.Queue
+    assert value_meta.element_type is value.scalar_type_meta_double()
+
+    assert time_meta.kind == value.TypeKind.Tuple
+    assert time_meta.field_count == 4
+    assert time_meta.fields[0].type is value.scalar_type_meta_datetime()
+    assert time_meta.fields[1].type.kind == value.TypeKind.Queue
+    assert time_meta.fields[1].type.element_type is value.scalar_type_meta_datetime()
+    assert time_meta.fields[2].type is value.scalar_type_meta_datetime()
+    assert time_meta.fields[3].type is value.scalar_type_meta_bool()
+
+    assert delta_meta.kind == value.TypeKind.Tuple
+    assert delta_meta.field_count == 2
+    assert delta_meta.fields[0].type is value.scalar_type_meta_bool()
+    assert delta_meta.fields[1].type.kind == value.TypeKind.Queue
+    assert delta_meta.fields[1].type.element_type is value.scalar_type_meta_double()
+
+    assert output_link is value.TypeMeta.get("REFLink")
+    assert input_link is value.TypeMeta.get("LinkTarget")
+    assert active is value.scalar_type_meta_bool()
+
+
+def test_schema_cache_delta_contract_for_tss_tsd_and_tsb_nested_shapes():
+    ts_int = _ts_int_meta()
+    key_type = value.scalar_type_meta_string()
+
+    tss_meta = _registry().tss(value.scalar_type_meta_int64())
+    tss_delta = runtime.schema_delta_meta(tss_meta)
+    assert tss_delta is not None
+    assert tss_delta.field_count == 2
+    assert tss_delta.fields[0].type is tss_meta.value_type
+    assert tss_delta.fields[1].type is tss_meta.value_type
+
+    tsd_scalar_meta = _tsd_meta(key_type, ts_int)
+    tsd_scalar_delta = runtime.schema_delta_meta(tsd_scalar_meta)
+    assert tsd_scalar_delta is not None
+    assert tsd_scalar_delta.field_count == 3
+    assert tsd_scalar_delta.fields[0].type.kind == value.TypeKind.Map
+    assert tsd_scalar_delta.fields[0].type.key_type is key_type
+    assert tsd_scalar_delta.fields[0].type.element_type is ts_int.value_type
+    assert tsd_scalar_delta.fields[1].type.kind == value.TypeKind.Set
+    assert tsd_scalar_delta.fields[1].type.element_type is key_type
+    assert tsd_scalar_delta.fields[2].type.kind == value.TypeKind.Set
+    assert tsd_scalar_delta.fields[2].type.element_type is key_type
+
+    tsd_nested_meta = _tsd_meta(key_type, tss_meta)
+    tsd_nested_delta = runtime.schema_delta_meta(tsd_nested_meta)
+    assert tsd_nested_delta is not None
+    assert tsd_nested_delta.field_count == 4
+    nested_children = tsd_nested_delta.fields[3].type
+    assert nested_children.kind == value.TypeKind.List
+    nested_child_delta = nested_children.element_type
+    assert nested_child_delta is not None
+    assert nested_child_delta.kind == tss_delta.kind
+    assert nested_child_delta.field_count == tss_delta.field_count
+    assert nested_child_delta.fields[0].type is tss_delta.fields[0].type
+    assert nested_child_delta.fields[1].type is tss_delta.fields[1].type
+
+    bundle_meta = _tsb_meta("DeltaBundle", [("scalar", ts_int), ("set_value", tss_meta)])
+    bundle_delta = runtime.schema_delta_meta(bundle_meta)
+    assert bundle_delta is not None
+    assert bundle_delta.field_count == 2
+    assert bundle_delta.fields[0].type is value.TypeMeta.get("object")
+    assert bundle_delta.fields[1].type.kind == tss_delta.kind
+    assert bundle_delta.fields[1].type.field_count == tss_delta.field_count
+    assert bundle_delta.fields[1].type.fields[0].type is tss_delta.fields[0].type
+    assert bundle_delta.fields[1].type.fields[1].type is tss_delta.fields[1].type
+
+
+def test_schema_cache_tsl_fixed_time_and_observer_shapes_are_recursive():
+    ts_int = _ts_int_meta()
+    fixed_meta = _registry().tsl(ts_int, 2)
+
+    time_meta = runtime.schema_time_meta(fixed_meta)
+    observer_meta = runtime.schema_observer_meta(fixed_meta)
+
+    dt_meta = value.scalar_type_meta_datetime()
+    observer_leaf_meta = value.TypeMeta.get("ObserverList")
+
+    assert time_meta.kind == value.TypeKind.Tuple
+    assert time_meta.field_count == 2
+    assert time_meta.fields[0].type is dt_meta
+    assert time_meta.fields[1].type.kind == value.TypeKind.List
+    assert time_meta.fields[1].type.fixed_size == 2
+    assert time_meta.fields[1].type.element_type is dt_meta
+
+    assert observer_meta.kind == value.TypeKind.Tuple
+    assert observer_meta.field_count == 2
+    assert observer_meta.fields[0].type is observer_leaf_meta
+    assert observer_meta.fields[1].type.kind == value.TypeKind.List
+    assert observer_meta.fields[1].type.fixed_size == 2
+    assert observer_meta.fields[1].type.element_type is observer_leaf_meta
+
+
+def test_schema_cache_nested_tsb_parallel_shapes_recurse_per_field():
+    ts_int = _ts_int_meta()
+    inner_meta = _tsb_meta("InnerSchema", [("a", ts_int)])
+    outer_meta = _tsb_meta("OuterSchema", [("left", ts_int), ("inner", inner_meta)])
+
+    time_meta = runtime.schema_time_meta(outer_meta)
+    active_meta = runtime.schema_active_meta(outer_meta)
+    output_link_meta = runtime.schema_link_meta(outer_meta)
+
+    dt_meta = value.scalar_type_meta_datetime()
+    bool_meta = value.scalar_type_meta_bool()
+    ref_link_meta = value.TypeMeta.get("REFLink")
+
+    assert time_meta.field_count == 3
+    assert time_meta.fields[0].type is dt_meta
+    assert time_meta.fields[1].type is dt_meta
+    assert time_meta.fields[2].type.kind == value.TypeKind.Tuple
+    assert time_meta.fields[2].type.field_count == 2
+    assert time_meta.fields[2].type.fields[0].type is dt_meta
+    assert time_meta.fields[2].type.fields[1].type is dt_meta
+
+    assert active_meta.field_count == 3
+    assert active_meta.fields[0].type is bool_meta
+    assert active_meta.fields[1].type is bool_meta
+    assert active_meta.fields[2].type.kind == value.TypeKind.Tuple
+    assert active_meta.fields[2].type.field_count == 2
+    assert active_meta.fields[2].type.fields[0].type is bool_meta
+    assert active_meta.fields[2].type.fields[1].type is bool_meta
+
+    assert output_link_meta.field_count == 3
+    assert output_link_meta.fields[0].type is ref_link_meta
+    assert output_link_meta.fields[1].type is ref_link_meta
+    assert output_link_meta.fields[2].type.kind == value.TypeKind.Tuple
+    assert output_link_meta.fields[2].type.field_count == 2
+    assert output_link_meta.fields[2].type.fields[0].type is ref_link_meta
+    assert output_link_meta.fields[2].type.fields[1].type is ref_link_meta
+
+
+def test_input_tsb_peered_bind_allows_child_value_reads_without_child_links():
+    ts_int = _ts_int_meta()
+    pair_meta = _tsb_meta("PairPeeredRead", [("x", ts_int), ("y", ts_int)])
+
+    ts_output = runtime.TSOutput(pair_meta, 0)
+    out_root = ts_output.output_view()
+    out_bundle = out_root.as_bundle()
+    out_bundle.field("x").from_python(10)
+    out_bundle.field("y").from_python(20)
+
+    ts_input = runtime.TSInput(pair_meta)
+    ts_input.bind(ts_output)
+    in_root = ts_input.input_view()
+    in_bundle = in_root.as_bundle()
+
+    assert in_root.is_bound()
+    assert not in_bundle.field("x").is_bound()
+    assert not in_bundle.field("y").is_bound()
+    assert in_bundle.field("x").to_python() == 10
+    assert in_bundle.field("y").to_python() == 20
+
+
+@pytest.mark.parametrize(
+    "meta_factory, kind",
+    [
+        (lambda: _ts_int_meta(), _hgraph.TSKind.TSValue),
+        (lambda: _registry().tsw(value.scalar_type_meta_double(), 6, 2), _hgraph.TSKind.TSW),
+        (lambda: _registry().tss(value.scalar_type_meta_int64()), _hgraph.TSKind.TSS),
+        (lambda: _tsd_meta(value.scalar_type_meta_string(), _ts_int_meta()), _hgraph.TSKind.TSD),
+        (lambda: _registry().tsl(_ts_int_meta(), 0), _hgraph.TSKind.TSL),
+        (lambda: _tsb_meta("KindPredBundle", [("x", _ts_int_meta())]), _hgraph.TSKind.TSB),
+    ],
+)
+def test_output_view_kind_predicates(meta_factory, kind):
+    root = runtime.TSOutput(meta_factory(), 0).output_view()
+
+    assert root.kind() == kind
+    assert root.is_window() == (kind == _hgraph.TSKind.TSW)
+    assert root.is_set() == (kind == _hgraph.TSKind.TSS)
+    assert root.is_dict() == (kind == _hgraph.TSKind.TSD)
+    assert root.is_list() == (kind == _hgraph.TSKind.TSL)
+    assert root.is_bundle() == (kind == _hgraph.TSKind.TSB)
+
+
+def test_tsw_window_ops_surface_default_shape():
+    tsw_meta = _registry().tsw(value.scalar_type_meta_double(), 6, 2)
+    root = runtime.TSOutput(tsw_meta, 0).output_view()
+
+    assert root.has_window_ops()
+    assert not root.has_set_ops()
+    assert not root.has_dict_ops()
+    assert root.window_size() == 6
+    assert root.window_min_size() == 2
+    assert root.window_length() == 0
+    assert root.window_value_times_count() == 0
+    assert root.window_value_times() == []
+    assert root.window_first_modified_time() == MIN_DT
+    assert not root.window_has_removed_value()
+    assert root.window_removed_value_count() == 0
+
+
+def test_tss_set_ops_roundtrip():
+    tss_meta = _registry().tss(value.scalar_type_meta_int64())
+    root = runtime.TSOutput(tss_meta, 0).output_view()
+
+    assert root.has_set_ops()
+    assert not root.has_window_ops()
+    assert not root.has_dict_ops()
+
+    elem_1 = _int_value(1)
+    elem_2 = _int_value(2)
+    assert root.set_add(elem_1.view())
+    assert root.set_add(elem_2.view())
+    assert not root.set_add(elem_2.view())
+    assert root.to_python() == {1, 2}
+
+    assert root.set_remove(elem_1.view())
+    assert not root.set_remove(elem_1.view())
+    assert root.to_python() == {2}
+
+    root.set_clear()
+    assert root.to_python() == set()
+
+
+def test_tsd_dict_ops_roundtrip():
+    tsd_meta = _tsd_meta(value.scalar_type_meta_string(), _ts_int_meta())
+    root = runtime.TSOutput(tsd_meta, 0).output_view()
+
+    assert root.has_dict_ops()
+    assert not root.has_window_ops()
+    assert not root.has_set_ops()
+
+    alpha = _str_value("alpha")
+    beta = _str_value("beta")
+    val_7 = _int_value(7)
+
+    set_child = root.dict_set(alpha.view(), val_7.view())
+    assert set_child
+    assert set_child.to_python() == 7
+    assert root.to_python() == {"alpha": 7}
+
+    created = root.dict_create(beta.view())
+    assert created
+    assert created.to_python() == 0
+    created.from_python(3)
+    assert root.to_python() == {"alpha": 7, "beta": 3}
+
+    assert root.dict_remove(alpha.view())
+    assert not root.dict_remove(alpha.view())
+    assert root.to_python() == {"beta": 3}
+
+
+def test_output_view_python_conversion_roundtrip_for_scalar_ts():
+    meta = _ts_int_meta()
+    output = runtime.TSOutput(meta, 0)
+    output_view = output.output_view()
+
+    output_view.from_python(42)
+    assert output_view.to_python() == 42
+    assert output_view.delta_to_python() == 42
+
+    runtime.set_test_current_time(MIN_DT + MIN_TD)
+    next_tick_view = output.output_view()
+    assert next_tick_view.to_python() == 42
+    assert next_tick_view.delta_to_python() is None
+
+
+def test_direct_ts_view_delta_paths_refresh_on_dynamic_ref_rebind_tick():
+    ts_int = _ts_int_meta()
+    ref_meta = _registry().ref(ts_int)
+
+    source_left = runtime.TSOutput(ts_int, 1)
+    source_right = runtime.TSOutput(ts_int, 2)
+    left_view = source_left.output_view()
+    right_view = source_right.output_view()
+
+    ref_output = runtime.TSOutput(ref_meta, 0).output_view()
+    consumer = runtime.TSInput(ts_int)
+    consumer_view = consumer.input_view()
+    consumer_view.bind(ref_output)
+
+    def make_ref(target_output):
+        ref_input = runtime.TSInput(ref_meta)
+        ref_input.bind(target_output)
+        return ref_input.input_view().to_python()
+
+    left_view.from_python(10)
+    ref_output.from_python(make_ref(source_left))
+
+    assert consumer_view.to_python() == 10
+    assert consumer_view.delta_to_python() == 10
+    assert consumer_view.delta_value_direct_to_python() == 10
+    assert consumer_view.delta_payload_to_python() == 10
+
+    runtime.set_test_current_time(MIN_DT + MIN_TD)
+    right_view.from_python(20)
+    ref_output.from_python(make_ref(source_right))
+
+    assert consumer_view.to_python() == 20
+    assert consumer_view.delta_to_python() == 20
+    assert consumer_view.delta_value_direct_to_python() == 20
+    assert consumer_view.delta_payload_to_python() == 20
+
+
+@pytest.mark.parametrize(
+    "meta_factory, mutate",
+    [
+        (
+            lambda: _registry().tsl(_ts_int_meta(), 2),
+            lambda root: root.as_list().at(0).from_python(10),
+        ),
+        (
+            lambda: _tsb_meta("DeltaContractBundle", [("x", _ts_int_meta())]),
+            lambda root: root.as_bundle().field("x").from_python(11),
+        ),
+        (
+            lambda: _tsd_meta(value.scalar_type_meta_string(), _ts_int_meta()),
+            lambda root: root.dict_set(_str_value("alpha").view(), _int_value(7).view()),
+        ),
+    ],
+    ids=["TSL", "TSB", "TSD"],
+)
+def test_non_scalar_delta_no_tick_is_not_scalar_none_contract(meta_factory, mutate):
+    output = runtime.TSOutput(meta_factory(), 0)
+    tick0 = output.output_view()
+    mutate(tick0)
+
+    runtime.set_test_current_time(MIN_DT + MIN_TD)
+    tick1 = output.output_view()
+    assert tick1.delta_to_python() is not None
+
+
+def test_tss_feature_outputs_are_endpoint_local():
+    tss_meta = _registry().tss(value.scalar_type_meta_int64())
+
+    out1 = runtime.TSOutput(tss_meta, 0).output_view()
+    out2 = runtime.TSOutput(tss_meta, 1).output_view()
+
+    req1 = object()
+    req2 = object()
+
+    contains1 = out1.get_contains_output(1, req1)
+    contains2 = out2.get_contains_output(1, req2)
+    assert contains1.to_python() is False
+    assert contains2.to_python() is False
+
+    out1.from_python({1})
+    assert contains1.to_python() is True
+    assert contains2.to_python() is False
+
+    out2.from_python({1})
+    assert contains1.to_python() is True
+    assert contains2.to_python() is True
+
+    out1.release_contains_output(1, req1)
+    out2.release_contains_output(1, req2)
+
+
+def test_tss_is_empty_feature_output_tracks_source_state():
+    tss_meta = _registry().tss(value.scalar_type_meta_int64())
+    source = runtime.TSOutput(tss_meta, 0).output_view()
+    empty_ref = source.is_empty_output()
+
+    assert empty_ref.to_python() is True
+    source.from_python({1})
+    assert empty_ref.to_python() is False
+    source.clear()
+    assert empty_ref.to_python() is True
+
+
+@pytest.mark.parametrize(
+    "meta_factory, expected_try, expected_cls",
+    [
+        (lambda: _registry().tsw(value.scalar_type_meta_double(), 6, 2), "try_as_window", "TSWOutputView"),
+        (lambda: _registry().tss(value.scalar_type_meta_int64()), "try_as_set", "TSSOutputView"),
+        (lambda: _tsd_meta(value.scalar_type_meta_string(), _ts_int_meta()), "try_as_dict", "TSDOutputView"),
+        (lambda: _registry().tsl(_ts_int_meta(), 0), "try_as_list", "TSLOutputView"),
+        (lambda: _tsb_meta("TypedBundle", [("x", _ts_int_meta())]), "try_as_bundle", "TSBOutputView"),
+    ],
+)
+def test_output_view_try_as_and_as_expose_typed_views(meta_factory, expected_try, expected_cls):
+    root = runtime.TSOutput(meta_factory(), 0).output_view()
+
+    typed_try = getattr(root, expected_try)()
+    assert typed_try is not None
+    assert isinstance(typed_try, getattr(runtime, expected_cls))
+    assert isinstance(typed_try, runtime.TSOutputView)
+
+    as_name = expected_try.replace("try_", "")
+    typed_as = getattr(root, as_name)()
+    assert isinstance(typed_as, getattr(runtime, expected_cls))
+    assert isinstance(typed_as, runtime.TSOutputView)
+
+    for other in ("try_as_window", "try_as_set", "try_as_dict", "try_as_list", "try_as_bundle"):
+        if other != expected_try:
+            assert getattr(root, other)() is None
+
+
+def test_output_view_as_raises_for_wrong_kind():
+    root = runtime.TSOutput(_ts_int_meta(), 0).output_view()
+    assert root.try_as_window() is None
+    with pytest.raises(RuntimeError):
+        root.as_window()
+
+
+def test_typed_window_view_surface():
+    root = runtime.TSOutput(_registry().tsw(value.scalar_type_meta_double(), 6, 2), 0).output_view()
+    window_view = root.as_window()
+
+    assert window_view.value_times_count() == 0
+    assert window_view.value_times() == []
+    assert window_view.size() == 6
+    assert window_view.min_size() == 2
+    assert window_view.length() == 0
+    assert not window_view.has_removed_value()
+    assert not window_view.removed_value().valid()
+
+
+def test_typed_set_view_surface():
+    root = runtime.TSOutput(_registry().tss(value.scalar_type_meta_int64()), 0).output_view()
+    set_view = root.as_set()
+
+    assert set_view.size() == 0
+    assert not set_view.contains(_int_value(1).view())
+    assert set_view.values() == set()
+    assert set_view.added() == set()
+    assert set_view.removed() == set()
+
+    assert set_view.add(_int_value(1).view())
+    assert set_view.add(_int_value(2).view())
+    assert not set_view.add(_int_value(2).view())
+    assert set_view.contains(_int_value(1).view())
+    assert set_view.contains(_int_value(2).view())
+    assert set_view.size() == 2
+    assert set_view.values() == {1, 2}
+    assert set_view.added() == {1, 2}
+    assert set_view.removed() == set()
+    assert set_view.to_python() == {1, 2}
+
+    assert set_view.remove(_int_value(1).view())
+    assert not set_view.remove(_int_value(1).view())
+    assert not set_view.contains(_int_value(1).view())
+    assert set_view.size() == 1
+    assert set_view.values() == {2}
+    assert set_view.added() == {2}
+    assert set_view.removed() == set()
+    assert set_view.to_python() == {2}
+
+    set_view.clear()
+    assert set_view.to_python() == set()
+
+
+def test_typed_dict_view_surface():
+    root = runtime.TSOutput(_tsd_meta(value.scalar_type_meta_string(), _ts_int_meta()), 0).output_view()
+    dict_view = root.as_dict()
+
+    alpha = _str_value("alpha")
+    beta = _str_value("beta")
+    seven = _int_value(7)
+
+    set_child = dict_view.set(alpha.view(), seven.view())
+    assert set_child
+    assert isinstance(set_child, runtime.TSOutputView)
+    assert set_child.to_python() == 7
+    assert dict_view.to_python() == {"alpha": 7}
+
+    created = dict_view.create(beta.view())
+    assert created
+    created.from_python(3)
+    assert dict_view.to_python() == {"alpha": 7, "beta": 3}
+
+    beta_child = dict_view.at_key(beta.view())
+    assert beta_child.to_python() == 3
+
+    assert dict_view.remove(alpha.view())
+    assert not dict_view.remove(alpha.view())
+    assert dict_view.to_python() == {"beta": 3}
+
+    key_set_view = dict_view.key_set
+    assert isinstance(key_set_view, runtime.TSSOutputView)
+    assert key_set_view.values() == {"beta"}
+
+    assert dict_view.get(beta.view()).to_python() == 3
+    assert not dict_view.get(_str_value("missing").view())
+
+    fallback_output = runtime.TSOutput(_ts_int_meta(), 0).output_view()
+    fallback_output.from_python(99)
+    assert dict_view.get(_str_value("missing").view(), fallback_output).to_python() == 99
+
+    gamma = _str_value("gamma")
+    gamma_child = dict_view.get_or_create(gamma.view())
+    assert isinstance(gamma_child, runtime.TSOutputView)
+    gamma_child.from_python(5)
+    assert dict_view.to_python() == {"beta": 3, "gamma": 5}
+
+
+def test_typed_list_view_surface():
+    list_meta = _registry().tsl(_ts_int_meta(), 2)
+    root = runtime.TSOutput(list_meta, 0).output_view()
+    root.as_list().at(0).from_python(10)
+    root.as_list().at(1).from_python(20)
+
+    list_view = root.as_list()
+    assert list_view.count() == 2
+    assert list_view.size() == 2
+
+    second = list_view.at(1)
+    assert isinstance(second, runtime.TSOutputView)
+    assert second.to_python() == 20
+    assert list_view.keys() == [0, 1]
+    assert [v.to_python() for v in list_view.values()] == [10, 20]
+    assert [(k, v.to_python()) for k, v in list_view.items()] == [(0, 10), (1, 20)]
+    assert isinstance(list_view.valid_keys(), list)
+    assert isinstance(list_view.modified_keys(), list)
+
+
+def test_typed_bundle_view_surface():
+    pair_meta = _tsb_meta("TypedBundleOps", [("x", _ts_int_meta()), ("y", _ts_int_meta())])
+    root = runtime.TSOutput(pair_meta, 0).output_view()
+    root.as_bundle().field("x").from_python(11)
+    root.as_bundle().field("y").from_python(22)
+
+    bundle_view = root.as_bundle()
+    assert bundle_view.count() == 2
+    assert bundle_view.size() == 2
+    assert bundle_view.at(0).to_python() == 11
+    assert bundle_view.field("y").to_python() == 22
+
+
+@pytest.mark.parametrize(
+    "meta_factory, expected_try, expected_cls",
+    [
+        (lambda: _registry().tsw(value.scalar_type_meta_double(), 6, 2), "try_as_window", "TSWInputView"),
+        (lambda: _registry().tss(value.scalar_type_meta_int64()), "try_as_set", "TSSInputView"),
+        (lambda: _tsd_meta(value.scalar_type_meta_string(), _ts_int_meta()), "try_as_dict", "TSDInputView"),
+        (lambda: _registry().tsl(_ts_int_meta(), 0), "try_as_list", "TSLInputView"),
+        (lambda: _tsb_meta("TypedBundleIn", [("x", _ts_int_meta())]), "try_as_bundle", "TSBInputView"),
+    ],
+)
+def test_input_view_try_as_and_as_expose_typed_views(meta_factory, expected_try, expected_cls):
+    root = runtime.TSInput(meta_factory()).input_view()
+
+    typed_try = getattr(root, expected_try)()
+    assert typed_try is not None
+    assert isinstance(typed_try, getattr(runtime, expected_cls))
+    assert isinstance(typed_try, runtime.TSInputView)
+
+    as_name = expected_try.replace("try_", "")
+    typed_as = getattr(root, as_name)()
+    assert isinstance(typed_as, getattr(runtime, expected_cls))
+    assert isinstance(typed_as, runtime.TSInputView)
+
+    for other in ("try_as_window", "try_as_set", "try_as_dict", "try_as_list", "try_as_bundle"):
+        if other != expected_try:
+            assert getattr(root, other)() is None
+
+
+def test_input_view_as_raises_for_wrong_kind():
+    root = runtime.TSInput(_ts_int_meta()).input_view()
+    assert root.try_as_window() is None
+    with pytest.raises(RuntimeError):
+        root.as_window()
+
+
+def test_typed_input_window_view_surface():
+    root = runtime.TSInput(_registry().tsw(value.scalar_type_meta_double(), 6, 2)).input_view()
+    window_view = root.as_window()
+
+    assert window_view.value_times_count() == 0
+    assert window_view.size() == 6
+    assert window_view.min_size() == 2
+    assert window_view.length() == 0
+    assert not window_view.has_removed_value()
+    assert not window_view.removed_value().valid()
+
+
+def test_typed_input_set_view_surface():
+    tss_meta = _registry().tss(value.scalar_type_meta_int64())
+    set_view = runtime.TSInput(tss_meta).input_view().as_set()
+    assert isinstance(set_view, runtime.TSSInputView)
+    assert isinstance(set_view, runtime.TSInputView)
+    assert set_view.size() == 0
+    assert not set_view.contains(_int_value(1).view())
+    assert set_view.values() == set()
+    assert set_view.added() == set()
+    assert set_view.removed() == set()
+
+
+def test_typed_input_dict_view_surface():
+    tsd_meta = _tsd_meta(value.scalar_type_meta_string(), _ts_int_meta())
+    dict_view = runtime.TSInput(tsd_meta).input_view().as_dict()
+    assert dict_view.count() == 0
+    assert dict_view.size() == 0
+
+    beta_child = dict_view.at_key(_str_value("beta").view())
+    assert isinstance(beta_child, runtime.TSInputView)
+
+    key_set_view = dict_view.key_set
+    assert isinstance(key_set_view, runtime.TSSInputView)
+    assert key_set_view.values() == set()
+
+    assert not dict_view.get(_str_value("missing").view())
+    fallback_input = runtime.TSInput(_ts_int_meta()).input_view()
+    assert isinstance(dict_view.get(_str_value("missing").view(), fallback_input), runtime.TSInputView)
+    assert isinstance(dict_view.get_or_create(_str_value("beta").view()), runtime.TSInputView)
+
+
+def test_typed_input_list_view_surface():
+    list_meta = _registry().tsl(_ts_int_meta(), 2)
+    list_view = runtime.TSInput(list_meta).input_view().as_list()
+    assert list_view.count() == 2
+    assert list_view.size() == 2
+
+    second = list_view.at(1)
+    assert isinstance(second, runtime.TSInputView)
+    assert list_view.keys() == [0, 1]
+    assert len(list_view.values()) == 2
+    assert [k for k, _ in list_view.items()] == [0, 1]
+    assert list_view.valid_keys() == []
+    assert list_view.modified_keys() == []
+
+
+def test_typed_input_bundle_view_surface():
+    pair_meta = _tsb_meta("TypedBundleInOps", [("x", _ts_int_meta()), ("y", _ts_int_meta())])
+    bundle_view = runtime.TSInput(pair_meta).input_view().as_bundle()
+    assert bundle_view.count() == 2
+    assert bundle_view.size() == 2
+    assert isinstance(bundle_view.at(0), runtime.TSInputView)
+    assert isinstance(bundle_view.field("y"), runtime.TSInputView)

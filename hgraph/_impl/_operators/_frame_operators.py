@@ -16,7 +16,7 @@ __all__ = tuple()
     overloads=getitem_,
     resolvers={SCALAR: lambda mapping, key: Series[mapping[SCHEMA].meta_data_schema[key].py_type]},
 )
-def get_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
+def getitem_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
     return ts.value[key]
 
 
@@ -24,7 +24,7 @@ def get_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
     overloads=getattr_,
     resolvers={SCALAR: lambda mapping, key: Series[mapping[SCHEMA].meta_data_schema[key].py_type]},
 )
-def get_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
+def getattr_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
     return ts.value[key]
 
 

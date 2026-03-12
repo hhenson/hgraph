@@ -37,10 +37,6 @@ namespace hgraph {
         using output_node_ids_map_ptr = std::shared_ptr<output_node_ids_map>;
 
         SwitchNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
-                          std::optional<input_builder_s_ptr> input_builder_ = std::nullopt,
-                          std::optional<output_builder_s_ptr> output_builder_ = std::nullopt,
-                          std::optional<output_builder_s_ptr> error_builder_ = std::nullopt,
-                          std::optional<output_builder_s_ptr> recordable_state_builder_ = std::nullopt,
                           const value::TypeMeta* key_type = nullptr,
                           graph_builders_map_ptr nested_graph_builders = nullptr,
                           input_node_ids_map_ptr input_node_ids = nullptr,

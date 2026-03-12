@@ -331,6 +331,39 @@ public:
     const char* store_name(std::string name);
 
 private:
+    struct CompositeCacheKey {
+        TypeKind kind{TypeKind::Atomic};
+        const TypeMeta* element_type{nullptr};
+        const TypeMeta* key_type{nullptr};
+        size_t fixed_size{0};
+        bool variadic_tuple{false};
+
+        bool operator==(const CompositeCacheKey& other) const = default;
+    };
+
+    struct CompositeCacheKeyHash {
+        [[nodiscard]] size_t operator()(const CompositeCacheKey& key) const noexcept;
+    };
+
+    [[nodiscard]] const TypeMeta* lookup_composite_cache(TypeKind kind,
+                                                         const TypeMeta* element_type,
+                                                         const TypeMeta* key_type,
+                                                         size_t fixed_size,
+                                                         bool variadic_tuple) const;
+
+    void store_composite_cache(TypeKind kind,
+                               const TypeMeta* element_type,
+                               const TypeMeta* key_type,
+                               size_t fixed_size,
+                               bool variadic_tuple,
+                               const TypeMeta* meta);
+
+    friend class ListBuilder;
+    friend class SetBuilder;
+    friend class MapBuilder;
+    friend class CyclicBufferBuilder;
+    friend class QueueBuilder;
+
     TypeRegistry() = default;
     ~TypeRegistry() = default;
 
@@ -357,6 +390,9 @@ private:
     /// Python type lookup cache (PyObject* -> TypeMeta*)
     /// Note: Uses raw PyObject* pointers; GIL must be held during access
     std::unordered_map<PyObject*, const TypeMeta*> _python_type_cache;
+
+    /// Interned composite schemas keyed by kind + element/key/fixed-size (+ list mode).
+    std::unordered_map<CompositeCacheKey, const TypeMeta*, CompositeCacheKeyHash> _composite_cache;
 
     /// Internal helper: store a name in the string pool with deduplication
     const char* store_name_interned(const std::string& name);

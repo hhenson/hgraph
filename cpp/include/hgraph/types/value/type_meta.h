@@ -144,6 +144,7 @@ struct list_ops_t {
 /// Operations specific to Set types (unique unordered elements)
 struct set_ops_t {
     size_t (*size)(const void* obj, const TypeMeta* schema);
+    // Slot-based access (stable slot identity), not ordinal n-th element access.
     const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
     size_t (*next)(const void* obj, size_t prev, const TypeMeta* schema);
     bool (*contains)(const void* obj, const void* element, const TypeMeta* schema);
@@ -535,20 +536,77 @@ struct ScalarOps {
     }
 
     static bool equals(const void* a, const void* b, const TypeMeta*) {
-        return *static_cast<const T*>(a) == *static_cast<const T*>(b);
+        if constexpr (std::is_same_v<T, nb::object>) {
+            const auto& obj_a = *static_cast<const nb::object*>(a);
+            const auto& obj_b = *static_cast<const nb::object*>(b);
+            if (!obj_a.is_valid() && !obj_b.is_valid()) return true;
+            if (!obj_a.is_valid() || !obj_b.is_valid()) return false;
+            if (obj_a.ptr() == obj_b.ptr()) return true;
+
+            PyObject* eq_result = PyObject_RichCompare(obj_a.ptr(), obj_b.ptr(), Py_EQ);
+            if (eq_result == nullptr) {
+                PyErr_Clear();
+                return false;
+            }
+
+            const int truth = PyObject_IsTrue(eq_result);
+            Py_DECREF(eq_result);
+            if (truth < 0) {
+                PyErr_Clear();
+                return false;
+            }
+            return truth == 1;
+        } else {
+            return *static_cast<const T*>(a) == *static_cast<const T*>(b);
+        }
     }
 
     static size_t hash(const void* obj, const TypeMeta*) {
-        return std::hash<T>{}(*static_cast<const T*>(obj)) * UINT64_C(0x9ddfea08eb382d69);
+        if constexpr (std::is_same_v<T, nb::object>) {
+            const auto& py_obj = *static_cast<const nb::object*>(obj);
+            if (!py_obj.is_valid()) return 0;
+            try {
+                return nb::hash(py_obj) * UINT64_C(0x9ddfea08eb382d69);
+            } catch (...) {
+                return 0;
+            }
+        } else if constexpr (std::is_enum_v<T>) {
+            return std::hash<std::underlying_type_t<T>>{}(
+                static_cast<std::underlying_type_t<T>>(*static_cast<const T*>(obj))) * UINT64_C(0x9ddfea08eb382d69);
+        } else {
+            return std::hash<T>{}(*static_cast<const T*>(obj)) * UINT64_C(0x9ddfea08eb382d69);
+        }
     }
 
     static bool less_than(const void* a, const void* b, const TypeMeta*) {
-        return *static_cast<const T*>(a) < *static_cast<const T*>(b);
+        if constexpr (std::is_same_v<T, nb::object>) {
+            const auto& obj_a = *static_cast<const nb::object*>(a);
+            const auto& obj_b = *static_cast<const nb::object*>(b);
+            if (!obj_a.is_valid() || !obj_b.is_valid()) return false;
+            try {
+                return obj_a < obj_b;
+            } catch (...) {
+                return false;
+            }
+        } else if constexpr (std::is_enum_v<T>) {
+            return static_cast<std::underlying_type_t<T>>(*static_cast<const T*>(a)) <
+                   static_cast<std::underlying_type_t<T>>(*static_cast<const T*>(b));
+        } else {
+            return *static_cast<const T*>(a) < *static_cast<const T*>(b);
+        }
     }
 
     static std::string to_string(const void* obj, const TypeMeta*) {
         if constexpr (std::is_same_v<T, std::string>) {
             return *static_cast<const T*>(obj);
+        } else if constexpr (std::is_same_v<T, nb::object>) {
+            const auto& py_obj = *static_cast<const nb::object*>(obj);
+            if (!py_obj.is_valid()) return "None";
+            try {
+                return nb::str(py_obj).c_str();
+            } catch (...) {
+                return "<object>";
+            }
         } else if constexpr (std::is_same_v<T, bool>) {
             return *static_cast<const T*>(obj) ? "true" : "false";
         } else if constexpr (std::is_arithmetic_v<T>) {
@@ -561,11 +619,20 @@ struct ScalarOps {
 
     // Python interop - to be specialized per type
     static nb::object to_python(const void* obj, const TypeMeta*) {
-        return nb::cast(*static_cast<const T*>(obj));
+        if constexpr (std::is_same_v<T, nb::object>) {
+            const auto& py_obj = *static_cast<const nb::object*>(obj);
+            return py_obj.is_valid() ? nb::object(py_obj) : nb::none();
+        } else {
+            return nb::cast(*static_cast<const T*>(obj));
+        }
     }
 
     static void from_python(void* dst, const nb::object& src, const TypeMeta*) {
-        *static_cast<T*>(dst) = nb::cast<T>(src);
+        if constexpr (std::is_same_v<T, nb::object>) {
+            *static_cast<nb::object*>(dst) = src;
+        } else {
+            *static_cast<T*>(dst) = nb::cast<T>(src);
+        }
     }
 
     /// Build the type_ops for this scalar type

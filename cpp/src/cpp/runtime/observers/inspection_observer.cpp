@@ -1,7 +1,6 @@
 #include <hgraph/runtime/observers/inspection_observer.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/time_series_type.h>
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/runtime/evaluation_context.h>
 #include <algorithm>
@@ -179,7 +178,7 @@ namespace hgraph {
         return sizeof(*node);
     }
 
-    size_t InspectionObserver::_estimate_value_size(node_ptr node) const {
+    size_t InspectionObserver::_estimate_value_size(node_ptr /*node*/) const {
         if (!_compute_sizes) {
             return 0;
         }
@@ -268,7 +267,7 @@ namespace hgraph {
         }
     }
 
-    void InspectionObserver::on_after_start_graph(graph_ptr graph) {
+    void InspectionObserver::on_after_start_graph(graph_ptr /*graph*/) {
         if (_current_graph->parent_graph) {
             _current_graph = _graphs[_current_graph->parent_graph];
         } else {
@@ -400,7 +399,8 @@ namespace hgraph {
         
         for (int64_t i = 0; i < graph->push_source_nodes_end(); ++i) {
             auto node = graph->nodes()[i];
-            if (node->output()->modified()) {
+            if (node->has_output() &&
+                node->output().modified()) {
                 _process_node_after_eval(node.get());
             }
         }
@@ -576,4 +576,3 @@ namespace hgraph {
     }
 
 } // namespace hgraph
-

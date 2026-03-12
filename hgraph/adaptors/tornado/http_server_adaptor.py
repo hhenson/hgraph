@@ -516,7 +516,31 @@ def http_server_adaptor_impl(path: str, port: int):
 
     @to_web.stop
     def to_web_stop(path: str, _state: STATE):
+        import time
+
         try:
+            # Allow the Tornado IOLoop to process any pending complete_request
+            # callbacks before cancelling futures.  Without this, a response
+            # scheduled via add_callback in the same evaluation tick (e.g. the
+            # /stop handler's response) would be cancelled before the HTTP
+            # client receives it, causing a ReadTimeout on the client side.
+            loop = TornadoWeb.get_loop()
+            if loop is not None:
+                drain_done = False
+
+                def _mark_drained():
+                    nonlocal drain_done
+                    drain_done = True
+
+                try:
+                    loop.add_callback(_mark_drained)
+                    waited = 0.0
+                    while not drain_done and waited < 0.5:
+                        time.sleep(0.01)
+                        waited += 0.01
+                except Exception:
+                    pass
+
             _state.mgr.shutdown(path)
         finally:
             # Stop the server instance; TornadoWeb handles ref counts per port

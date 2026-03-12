@@ -3,8 +3,10 @@
 
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/tsd_map_node.h>
+#include <cstdint>
 #include <map>
 #include <set>
+#include <unordered_map>
 
 namespace hgraph
 {
@@ -45,8 +47,12 @@ namespace hgraph
                                                     ValueHash, ValueEqual>;
         using key_set_map_type = std::unordered_map<value::Value, std::unordered_set<value::Value, ValueHash, ValueEqual>,
                                                     ValueHash, ValueEqual>;
+        using key_sequence_map_type = std::unordered_map<value::Value, uint64_t,
+                                                         ValueHash, ValueEqual>;
 
         MeshNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature, nb::dict scalars,
+                 const TSMeta* input_meta, const TSMeta* output_meta,
+                 const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
                  graph_builder_s_ptr nested_graph_builder, const std::unordered_map<std::string, int64_t> &input_node_ids,
                  int64_t output_node_id, const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg,
                  const std::string &context_path);
@@ -68,7 +74,7 @@ namespace hgraph
 
         void eval() override;
 
-        TimeSeriesDictOutputImpl &tsd_output() override;
+        TSDOutputView tsd_output() override;
 
         void create_new_graph(const value::View &key, int rank = -1);
 
@@ -82,20 +88,30 @@ namespace hgraph
 
         bool request_re_rank(const value::View &key, const value::View &depends_on);
 
-        void re_rank(const value::View &key, const value::View &depends_on,
-                     std::vector<value::Value> re_rank_stack = {});
+        void re_rank(const value::View &key, const value::View &depends_on);
 
       private:
+        void re_rank_impl(const value::View &key, const value::View &depends_on,
+                          std::vector<value::View>& re_rank_stack);
+        void rebuild_re_rank_request_index();
+        void erase_re_rank_request(const value::View &key);
+
         std::string                              full_context_path_;
         std::map<int, engine_time_t>             scheduled_ranks_;
         std::map<int, key_time_map_type>         scheduled_keys_by_rank_;
         key_int_map_type                         active_graphs_rank_;
+        std::unordered_map<int, size_t>          active_rank_counts_;
+        key_sequence_map_type                    active_graphs_sequence_;
         key_set_map_type                         active_graphs_dependencies_;
+        key_set_type                             external_keys_;
         std::vector<std::pair<value::Value, value::Value>> re_rank_requests_;
+        std::unordered_map<value::Value, size_t, ValueHash, ValueEqual> re_rank_request_index_;
         key_set_type                             graphs_to_remove_;
         std::optional<int>                       current_eval_rank_;
         std::optional<value::Value>         current_eval_graph_;
+        key_set_type                            refresh_before_eval_keys_;
         int                                      max_rank_{0};
+        uint64_t                                 next_graph_sequence_{0};
 
         friend MeshNestedEngineEvaluationClock;
     };

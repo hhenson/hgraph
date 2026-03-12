@@ -13,6 +13,9 @@
 #elif defined(__APPLE__)
 #include <mach/mach.h>
 #elif defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <psapi.h>
 #endif
@@ -160,7 +163,7 @@ namespace hgraph {
         }
     }
 
-    void EvaluationProfiler::on_before_node_evaluation(node_ptr node) {
+    void EvaluationProfiler::on_before_node_evaluation(node_ptr /*node*/) {
         if (_eval && _node && _has_process_info) {
             _mem = _get_memory_usage() / (1024 * 1024); // Convert to MB
         }
@@ -186,7 +189,7 @@ namespace hgraph {
         }
     }
 
-    void EvaluationProfiler::on_before_stop_node(node_ptr node) {
+    void EvaluationProfiler::on_before_stop_node(node_ptr /*node*/) {
         // No-op as in Python implementation
     }
 
@@ -209,4 +212,3 @@ namespace hgraph {
     }
 
 } // namespace hgraph
-

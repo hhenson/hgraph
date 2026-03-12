@@ -125,6 +125,7 @@ public:
     KeySet(KeySet&& other) noexcept
         : keys_(std::move(other.keys_))
         , alive_(std::move(other.alive_))
+        , constructed_(std::move(other.constructed_))
         , free_list_(std::move(other.free_list_))
         , key_type_(other.key_type_)
         , size_(other.size_)
@@ -138,7 +139,13 @@ public:
                 }
             }
         }
+        other.keys_.clear();
+        other.alive_.clear();
+        other.constructed_.clear();
+        other.free_list_.clear();
+        other.key_type_ = nullptr;
         other.size_ = 0;
+        other.observers_ = ObserverDispatcher{};
         other.index_set_.reset();
     }
 
@@ -146,6 +153,7 @@ public:
         if (this != &other) {
             keys_ = std::move(other.keys_);
             alive_ = std::move(other.alive_);
+            constructed_ = std::move(other.constructed_);
             free_list_ = std::move(other.free_list_);
             key_type_ = other.key_type_;
             size_ = other.size_;
@@ -161,7 +169,13 @@ public:
             } else {
                 index_set_.reset();
             }
+            other.keys_.clear();
+            other.alive_.clear();
+            other.constructed_.clear();
+            other.free_list_.clear();
+            other.key_type_ = nullptr;
             other.size_ = 0;
+            other.observers_ = ObserverDispatcher{};
             other.index_set_.reset();
         }
         return *this;
@@ -169,8 +183,8 @@ public:
 
     ~KeySet() {
         if (key_type_ && key_type_->ops().destroy) {
-            for (size_t i = 0; i < alive_.size(); ++i) {
-                if (alive_[i]) {
+            for (size_t i = 0; i < constructed_.size(); ++i) {
+                if (constructed_[i]) {
                     key_type_->ops().destroy(key_at_slot(i), key_type_);
                 }
             }
@@ -212,6 +226,10 @@ public:
         return slot < alive_.size() && alive_[slot];
     }
 
+    [[nodiscard]] bool has_slot_value(size_t slot) const {
+        return slot < constructed_.size() && constructed_[slot];
+    }
+
     [[nodiscard]] const TypeMeta* key_type() const { return key_type_; }
 
     // ========== Operations ==========
@@ -245,8 +263,9 @@ public:
 
         // Construct and copy key
         void* key_ptr = key_at_slot(slot);
-        if (key_type_->ops().construct) {
+        if (!constructed_[slot] && key_type_->ops().construct) {
             key_type_->ops().construct(key_ptr, key_type_);
+            constructed_.set(slot);
         }
         if (key_type_->ops().copy) {
             key_type_->ops().copy(key_ptr, key, key_type_);
@@ -280,12 +299,6 @@ public:
         // Remove from index set
         index_set_->erase(slot);
 
-        // Destruct the key
-        void* key_ptr = key_at_slot(slot);
-        if (key_type_ && key_type_->ops().destroy) {
-            key_type_->ops().destroy(key_ptr, key_type_);
-        }
-
         // Mark slot as dead
         alive_.reset(slot);
         size_--;
@@ -297,13 +310,21 @@ public:
     }
 
     void clear() {
+        if (!index_set_) {
+            alive_.clear();
+            constructed_.clear();
+            free_list_.clear();
+            size_ = 0;
+            return;
+        }
+
         // Notify observers
         observers_.notify_clear();
 
-        // Destruct all live keys
+        // Destruct all constructed keys (live and dead tombstones)
         if (key_type_ && key_type_->ops().destroy) {
-            for (size_t i = 0; i < alive_.size(); ++i) {
-                if (alive_[i]) {
+            for (size_t i = 0; i < constructed_.size(); ++i) {
+                if (constructed_[i]) {
                     key_type_->ops().destroy(key_at_slot(i), key_type_);
                 }
             }
@@ -312,6 +333,7 @@ public:
         // Reset state
         index_set_->clear();
         alive_.reset();  // Clear all bits
+        constructed_.reset();
         free_list_.clear();
         // Populate free list with all slots (in reverse for LIFO reuse)
         for (size_t i = alive_.size(); i > 0; --i) {
@@ -399,9 +421,9 @@ private:
         if (!key_type_->is_trivially_copyable() && current_cap > 0) {
             std::vector<std::byte> new_keys(new_byte_size);
 
-            // Move existing keys
+            // Move existing constructed keys (live and dead tombstones)
             for (size_t i = 0; i < current_cap; ++i) {
-                if (alive_[i]) {
+                if (constructed_[i]) {
                     void* old_ptr = keys_.data() + i * key_type_->size;
                     void* new_ptr = new_keys.data() + i * key_type_->size;
                     if (key_type_->ops().move_construct) {
@@ -420,6 +442,7 @@ private:
         // Expand alive bitset
         size_t old_alive_size = alive_.size();
         alive_.resize(new_cap);  // New bits are initialized to 0 (dead)
+        constructed_.resize(new_cap);  // New bits are initialized to 0 (no value yet)
 
         // Add new slots to free list (in reverse for LIFO)
         for (size_t i = new_cap; i > old_alive_size; --i) {
@@ -429,6 +452,7 @@ private:
 
     std::vector<std::byte> keys_;          // Contiguous key storage
     sul::dynamic_bitset<> alive_;          // Bit i = 1 if slot i is alive
+    sul::dynamic_bitset<> constructed_;    // Bit i = 1 if slot has a value object (alive or dead)
     std::vector<size_t> free_list_;        // Available slots for reuse
     std::unique_ptr<IndexSet> index_set_;  // Hash index for O(1) lookup
     const TypeMeta* key_type_{nullptr};

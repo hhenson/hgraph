@@ -6,7 +6,8 @@
 namespace hgraph {
     struct NestedGraphNode : NestedNode {
         NestedGraphNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                        nb::dict scalars,
+                        nb::dict scalars, const TSMeta* input_meta, const TSMeta* output_meta,
+                        const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
                         graph_builder_s_ptr nested_graph_builder,
                         const std::unordered_map<std::string, int> &input_node_ids,
                         int output_node_id);
@@ -38,6 +39,7 @@ namespace hgraph {
         std::unordered_map<std::string, int> m_input_node_ids_;
         int m_output_node_id_;
         graph_s_ptr m_active_graph_;
+        node_ptr m_wired_output_node_{nullptr};
     };
 } // namespace hgraph
 

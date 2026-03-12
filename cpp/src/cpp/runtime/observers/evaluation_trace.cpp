@@ -5,8 +5,6 @@
 #include <fmt/format.h>
 #include <iostream>
 
-#include "hgraph/types/tsb.h"
-
 namespace hgraph {
 
     // Static member initialization
@@ -88,8 +86,13 @@ namespace hgraph {
         if (add_input &&
             node->signature().time_series_inputs.has_value() &&
             node->signature().time_series_inputs.value().size() > 0) {
-            auto delta = node->input()->py_delta_value();
-            node_signature += nb::str(delta).c_str();
+            auto input = node->input();
+            if (input) {
+                auto delta = input.delta_to_python();
+                node_signature += nb::str(delta).c_str();
+            } else {
+                node_signature += "...";
+            }
         } else {
             node_signature += "...";
         }
@@ -97,11 +100,12 @@ namespace hgraph {
         node_signature += ")";
         
         // TODO: Add output value when available
-        if (add_output && node->output()) {
-            if (node->output()->modified()) {
+        if (add_output && node->has_output()) {
+            auto out = node->output();
+            if (out.modified()) {
                 node_signature += " *->* ";
-                node_signature += nb::str(node->output()->py_delta_value()).c_str();
-            } else if (node->output()->valid()) {
+                node_signature += nb::str(out.delta_to_python()).c_str();
+            } else if (out.valid()) {
 
             } else {
                 node_signature += "<UnSet>";
@@ -198,7 +202,7 @@ namespace hgraph {
         }
     }
 
-    void EvaluationTrace::on_after_graph_push_nodes_evaluation(graph_ptr graph) {
+    void EvaluationTrace::on_after_graph_push_nodes_evaluation(graph_ptr /*graph*/) {
         // No-op for now - this would log after push nodes complete
     }
 
@@ -213,7 +217,7 @@ namespace hgraph {
         }
     }
 
-    void EvaluationTrace::on_before_stop_node(node_ptr node) {
+    void EvaluationTrace::on_before_stop_node(node_ptr /*node*/) {
         // No-op as in Python implementation
     }
 
@@ -236,4 +240,3 @@ namespace hgraph {
     }
 
 } // namespace hgraph
-

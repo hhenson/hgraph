@@ -6,6 +6,7 @@
 #define SENDER_RECEIVER_STATE_H
 
 #include <hgraph/hgraph_base.h>
+#include <atomic>
 #include <deque>
 #include <mutex>
 
@@ -33,6 +34,7 @@ namespace hgraph {
         [[nodiscard]] bool stopped() const;
 
         void mark_stopped();
+        void mark_running();
 
         /**
          * This can replace with ``with ...`` clause just graph the guard and in an appropriate
@@ -44,7 +46,7 @@ namespace hgraph {
         mutable LockType lock;
         std::deque<value_type> queue;
         engine_evaluation_clock_ptr evaluation_clock{};
-        bool _stopped{false};
+        std::atomic<bool> _stopped{false};
     };
 } // namespace hgraph
 

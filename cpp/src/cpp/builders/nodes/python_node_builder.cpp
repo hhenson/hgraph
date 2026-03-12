@@ -2,7 +2,6 @@
 #include <hgraph/types/node.h>
 
 #include <algorithm>
-#include <hgraph/types/tsb.h>
 #include <hgraph/nodes/python_node.h>
 #include <hgraph/nodes/push_queue_node.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
@@ -14,16 +13,9 @@ namespace hgraph {
         return std::max(sizeof(PythonNode), sizeof(PushQueueNode));
     }
 
-    PythonNodeBuilder::PythonNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
-                                         std::optional<input_builder_s_ptr> input_builder_,
-                                         std::optional<output_builder_s_ptr> output_builder_,
-                                         std::optional<output_builder_s_ptr> error_builder_,
-                                         std::optional<output_builder_s_ptr> recordable_state_builder_,
-                                         nb::callable eval_fn,
+    PythonNodeBuilder::PythonNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_, nb::callable eval_fn,
                                          nb::callable start_fn, nb::callable stop_fn)
-        : BaseNodeBuilder(std::move(signature_), std::move(scalars_), std::move(input_builder_),
-                          std::move(output_builder_),
-                          std::move(error_builder_), std::move(recordable_state_builder_)),
+        : BaseNodeBuilder(std::move(signature_), std::move(scalars_)),
           eval_fn{std::move(eval_fn)}, start_fn{std::move(start_fn)}, stop_fn{std::move(stop_fn)} {
     }
 
@@ -44,16 +36,21 @@ namespace hgraph {
 
         // If this is a push-queue node, build a PushQueueNode so the runtime can receive external messages
         if (signature->is_push_source_node()) {
-            auto node = arena_make_shared_as<PushQueueNode, Node>(node_ndx, owning_graph_id, signature, scalars);
-            _build_inputs_and_outputs(node.get());
+            auto node = arena_make_shared_as<PushQueueNode, Node>(
+                node_ndx, owning_graph_id, signature, scalars,
+                input_meta(), output_meta(), error_output_meta(), recordable_state_meta());
             // Provide the eval function so the node can expose a sender in start()
             node->set_eval_fn(eval_fn_to_use);
+            configure_node_instance(node);
             return node;
         }
 
-        auto node = arena_make_shared_as<PythonNode, Node>(node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use, start_fn, stop_fn);
+        auto node = arena_make_shared_as<PythonNode, Node>(
+            node_ndx, owning_graph_id, signature, scalars,
+            input_meta(), output_meta(), error_output_meta(), recordable_state_meta(),
+            eval_fn_to_use, start_fn, stop_fn);
 
-        _build_inputs_and_outputs(node.get());
+        configure_node_instance(node);
         return node;
     }
 
@@ -63,23 +60,6 @@ namespace hgraph {
                      [](PythonNodeBuilder *self, const nb::kwargs &kwargs) {
                          auto signature_ = nb::cast<node_signature_s_ptr>(kwargs["signature"]);
                          auto scalars_ = nb::cast<nb::dict>(kwargs["scalars"]);
-
-                         std::optional<input_builder_s_ptr> input_builder_ =
-                                 kwargs.contains("input_builder")
-                                     ? nb::cast<std::optional<input_builder_s_ptr> >(kwargs["input_builder"])
-                                     : std::nullopt;
-                         std::optional<output_builder_s_ptr> output_builder_ =
-                                 kwargs.contains("output_builder")
-                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["output_builder"])
-                                     : std::nullopt;
-                         std::optional<output_builder_s_ptr> error_builder_ =
-                                 kwargs.contains("error_builder")
-                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["error_builder"])
-                                     : std::nullopt;
-                         std::optional<output_builder_s_ptr> recordable_state_builder_ =
-                                 kwargs.contains("recordable_state_builder")
-                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["recordable_state_builder"])
-                                     : std::nullopt;
                          nb::handle eval_fn_ = kwargs.contains("eval_fn")
                                                    ? nb::cast<nb::handle>(kwargs["eval_fn"])
                                                    : nb::handle{};
@@ -103,12 +83,8 @@ namespace hgraph {
                                      ? nb::cast<nb::callable>(stop_fn_)
                                      : nb::callable{};
 
-                         new(self) PythonNodeBuilder(std::move(signature_), std::move(scalars_),
-                                                     std::move(input_builder_),
-                                                     std::move(output_builder_), std::move(error_builder_),
-                                                     std::move(recordable_state_builder_), std::move(eval_fn),
-                                                     std::move(start_fn),
-                                                     std::move(stop_fn));
+                         new(self) PythonNodeBuilder(std::move(signature_), std::move(scalars_), std::move(eval_fn),
+                                                     std::move(start_fn), std::move(stop_fn));
                      })
                 .def_ro("eval_fn", &PythonNodeBuilder::eval_fn)
                 .def_ro("start_fn", &PythonNodeBuilder::start_fn)

@@ -1,0 +1,329 @@
+#include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/ts_ops.h>
+
+#include <utility>
+#include <unordered_set>
+
+namespace hgraph {
+namespace {
+
+std::unordered_set<const LinkTarget*>& live_link_targets() {
+    static std::unordered_set<const LinkTarget*> pointers;
+    return pointers;
+}
+
+void track_live_link_target(const LinkTarget* link_target, bool live) {
+    if (live) {
+        live_link_targets().insert(link_target);
+    } else {
+        live_link_targets().erase(link_target);
+    }
+}
+
+}  // namespace
+
+bool is_live_link_target(const LinkTarget* link_target) noexcept {
+    if (link_target == nullptr) {
+        return false;
+    }
+    return live_link_targets().contains(link_target);
+}
+
+LinkTarget::LinkTarget() {
+    track_live_link_target(this, true);
+}
+
+LinkTarget::~LinkTarget() {
+    track_live_link_target(this, false);
+    unregister_ts_link_observer(*this);
+}
+
+LinkTarget::LinkTarget(const LinkTarget& other) {
+    track_live_link_target(this, true);
+    copy_target_data_from(other);
+    // Structural fields remain owner-local by contract.
+    observer_view = other.observer_view;
+    last_rebind_time = other.last_rebind_time;
+    has_previous_target = other.has_previous_target;
+    previous_target = other.previous_target;
+    has_resolved_target = other.has_resolved_target;
+    resolved_target = other.resolved_target;
+    if (is_linked) {
+        register_ts_link_observer(*this);
+    }
+}
+
+LinkTarget& LinkTarget::operator=(const LinkTarget& other) {
+    if (this != &other) {
+        unregister_ts_link_observer(*this);
+        copy_target_data_from(other);
+        // Preserve owner-local structural fields.
+        observer_view = other.observer_view;
+        last_rebind_time = other.last_rebind_time;
+        has_previous_target = other.has_previous_target;
+        previous_target = other.previous_target;
+        has_resolved_target = other.has_resolved_target;
+        resolved_target = other.resolved_target;
+        if (is_linked) {
+            register_ts_link_observer(*this);
+        }
+    }
+    return *this;
+}
+
+LinkTarget::LinkTarget(LinkTarget&& other) noexcept {
+    track_live_link_target(this, true);
+    move_target_data_from(std::move(other));
+    observer_view = other.observer_view;
+    last_rebind_time = other.last_rebind_time;
+    has_previous_target = other.has_previous_target;
+    previous_target = other.previous_target;
+    has_resolved_target = other.has_resolved_target;
+    resolved_target = other.resolved_target;
+    other.observer_view = {};
+    other.last_rebind_time = MIN_DT;
+    other.has_previous_target = false;
+    other.previous_target = {};
+    other.has_resolved_target = false;
+    other.resolved_target = {};
+}
+
+LinkTarget& LinkTarget::operator=(LinkTarget&& other) noexcept {
+    if (this != &other) {
+        unregister_ts_link_observer(*this);
+        move_target_data_from(std::move(other));
+        observer_view = other.observer_view;
+        last_rebind_time = other.last_rebind_time;
+        has_previous_target = other.has_previous_target;
+        previous_target = other.previous_target;
+        has_resolved_target = other.has_resolved_target;
+        resolved_target = other.resolved_target;
+        other.observer_view = {};
+        other.last_rebind_time = MIN_DT;
+        other.has_previous_target = false;
+        other.previous_target = {};
+        other.has_resolved_target = false;
+        other.resolved_target = {};
+    }
+    return *this;
+}
+
+void LinkTarget::copy_target_data_from(const LinkTarget& other) {
+    is_linked = other.is_linked;
+    target_path = other.target_path;
+    value_data = other.value_data;
+    time_data = other.time_data;
+    observer_data = other.observer_data;
+    delta_data = other.delta_data;
+    link_data = other.link_data;
+    level = other.level;
+    root_level = other.root_level;
+    level_depth = other.level_depth;
+    python_value_cache_data = other.python_value_cache_data;
+    engine_time_ptr = other.engine_time_ptr;
+    link_observer_registry = other.link_observer_registry;
+    projection = other.projection;
+    ops = other.ops;
+    meta = other.meta;
+    root_meta = other.root_meta;
+    fan_in_targets = other.fan_in_targets;
+    notify_on_ref_wrapper_write = other.notify_on_ref_wrapper_write;
+    observer_is_signal = other.observer_is_signal;
+    observer_ref_to_nonref_target = other.observer_ref_to_nonref_target;
+    notify_policy = other.notify_policy;
+}
+
+void LinkTarget::move_target_data_from(LinkTarget&& other) noexcept {
+    if (other.is_linked) {
+        unregister_ts_link_observer(other);
+    }
+
+    copy_target_data_from(other);
+    observer_view = other.observer_view;
+
+    if (is_linked) {
+        register_ts_link_observer(*this);
+    }
+
+    other.clear_target_data();
+}
+
+void LinkTarget::clear_target_data() {
+    is_linked = false;
+    target_path = {};
+    value_data = nullptr;
+    time_data = nullptr;
+    observer_data = nullptr;
+    delta_data = nullptr;
+    link_data = nullptr;
+    level = nullptr;
+    root_level = nullptr;
+    level_depth = 0;
+    python_value_cache_data = nullptr;
+    engine_time_ptr = nullptr;
+    link_observer_registry = nullptr;
+    projection = ViewProjection::NONE;
+    ops = nullptr;
+    meta = nullptr;
+    root_meta = nullptr;
+    fan_in_targets.clear();
+    notify_on_ref_wrapper_write = true;
+    observer_is_signal = false;
+    observer_ref_to_nonref_target = false;
+    notify_policy = 0;
+}
+
+void LinkTarget::bind(const ViewData& target, engine_time_t current_time) {
+    const engine_time_t* bind_engine_time_ptr =
+        owner_time_ptr != nullptr ? owner_time_ptr : target.engine_time_ptr;
+    const bool was_linked = is_linked;
+    const bool same_binding =
+        was_linked &&
+        target_path.indices == target.path_indices() &&
+        value_data == target.value_data &&
+        time_data == target.time_data &&
+        observer_data == target.observer_data &&
+        delta_data == target.delta_data &&
+        link_data == target.link_data &&
+        level == target.level &&
+        root_level == target.root_level &&
+        level_depth == target.level_depth &&
+        python_value_cache_data == target.python_value_cache_data &&
+        engine_time_ptr == bind_engine_time_ptr &&
+        link_observer_registry == target.link_observer_registry &&
+        projection == target.projection &&
+        ops == target.ops &&
+        meta == target.meta;
+
+    // Python parity: rebinding to the exact same endpoint is a no-op and
+    // must not tick wrapper modified/rebind state.
+    if (same_binding) {
+        return;
+    }
+
+    if (is_linked) {
+        has_previous_target = true;
+        previous_target = as_view_data(false);
+    } else if (!has_previous_target) {
+        has_previous_target = false;
+        previous_target = {};
+    }
+
+    is_linked = true;
+    target_path = target.to_short_path();
+    value_data = target.value_data;
+    time_data = target.time_data;
+    observer_data = target.observer_data;
+    delta_data = target.delta_data;
+    link_data = target.link_data;
+    level = target.level;
+    root_level = target.root_level;
+    level_depth = target.level_depth;
+    python_value_cache_data = target.python_value_cache_data;
+    engine_time_ptr = bind_engine_time_ptr;
+    link_observer_registry = target.link_observer_registry;
+    projection = target.projection;
+    ops = target.ops;
+    meta = target.meta;
+    root_meta = target.root_meta;
+    fan_in_targets.clear();
+
+    if (current_time != MIN_DT) {
+        last_rebind_time = current_time;
+        if (owner_time_ptr != nullptr && *owner_time_ptr < current_time) {
+            *owner_time_ptr = current_time;
+        }
+    }
+
+    has_resolved_target = false;
+    resolved_target = {};
+}
+
+void LinkTarget::unbind(engine_time_t current_time) {
+    if (is_linked) {
+        has_previous_target = true;
+        previous_target = as_view_data(false);
+    } else if (!has_previous_target) {
+        has_previous_target = false;
+        previous_target = {};
+    }
+
+    clear_target_data();
+
+    if (current_time != MIN_DT) {
+        last_rebind_time = current_time;
+        if (owner_time_ptr != nullptr && *owner_time_ptr < current_time) {
+            *owner_time_ptr = current_time;
+        }
+    } else {
+        last_rebind_time = MIN_DT;
+    }
+
+    has_resolved_target = false;
+    resolved_target = {};
+}
+
+bool LinkTarget::modified(engine_time_t current_time) const {
+    if (last_rebind_time == current_time) {
+        return true;
+    }
+    if (!is_linked || owner_time_ptr == nullptr) {
+        return false;
+    }
+    return *owner_time_ptr == current_time;
+}
+
+ViewData LinkTarget::as_view_data(bool sampled) const {
+    ViewData vd;
+    vd.path = path_handle_from_short_path(target_path);
+    vd.engine_time_ptr = engine_time_ptr != nullptr ? engine_time_ptr : owner_time_ptr;
+    vd.value_data = value_data;
+    vd.time_data = time_data;
+    vd.observer_data = observer_data;
+    vd.delta_data = delta_data;
+    vd.link_data = link_data;
+    vd.level = level;
+    vd.root_level = root_level;
+    vd.level_depth = level_depth;
+    vd.python_value_cache_data = python_value_cache_data;
+    vd.python_value_cache_slot = nullptr;
+    vd.link_observer_registry = link_observer_registry;
+    vd.sampled = sampled;
+    vd.uses_link_target = false;
+    vd.projection = projection;
+    vd.ops = ops;
+    vd.meta = meta;
+    vd.root_meta = root_meta;
+    return vd;
+}
+
+ViewData LinkTarget::previous_view_data(bool sampled) const {
+    ViewData vd = previous_target;
+    if (vd.engine_time_ptr == nullptr) {
+        vd.engine_time_ptr = engine_time_ptr != nullptr ? engine_time_ptr : owner_time_ptr;
+    }
+    vd.sampled = sampled;
+    return vd;
+}
+
+void LinkTarget::notify_time(engine_time_t et) {
+    if (owner_time_ptr != nullptr && *owner_time_ptr < et) {
+        *owner_time_ptr = et;
+    }
+    // Parent propagation is only valid for linked parent chains.
+    if (parent_link != nullptr && parent_link->is_linked) {
+        parent_link->notify_time(et);
+    }
+}
+
+void LinkTarget::notify_active(engine_time_t et) {
+    if (active_notifier.active()) {
+        active_notifier.notify(et);
+    }
+}
+
+void LinkTarget::notify(engine_time_t et) {
+    notify_time(et);
+}
+
+}  // namespace hgraph

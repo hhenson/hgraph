@@ -162,3 +162,4 @@ def test_substr():
     assert eval_node(substr, ["abcdef"], [0], [3]) == ["abc"]
     assert eval_node(substr, ["abcdef"], [2], [4]) == ["cd"]
     assert eval_node(substr, ["abcdef"], [1], [5]) == ["bcde"]
+    assert eval_node(substr, ["abcdef"], [2]) == ["cdef"]

@@ -119,6 +119,18 @@ def test_tsd_get_item():
     ) == [None, 3, 4, None, -2]
 
 
+def test_tsd_get_item_refs():
+    @graph
+    def g(ts: TSD[int, TS[int]], key: TS[int]) -> TS[int]:
+        return getitem_(map_(lambda x: x, ts), key)
+
+    assert eval_node(
+        g,
+        [{1: 2, 2: -2}, {1: 3}, {1: 4}, {1: REMOVE}],
+        [None, 1, None, None, 2],
+    ) == [None, 3, 4, None, -2]
+
+
 def test_tsd_get_items():
     assert eval_node(
         getitem_,

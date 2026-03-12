@@ -472,4 +472,4 @@ def websocket_server_adaptor_impl(path: str, port: int):
                 )
                 websocket_server_adaptor[STR_OR_BYTES:msg_type].wire_impl_out_stub(handler_path, requests_by_url[url])
 
-            to_web(merge(*responses.values(), disjoint=True), port, path=path)
+            to_web(merge(*responses.values()), port, path=path)

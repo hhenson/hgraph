@@ -39,6 +39,13 @@ namespace hgraph {
         return FROZENDICT;
     }
 
+    static nb::object EMPTY_FROZENDICT;
+
+    nb::object get_empty_frozendict() {
+        if (!EMPTY_FROZENDICT.is_valid()) { EMPTY_FROZENDICT = get_frozendict()(nb::dict{}); }
+        return EMPTY_FROZENDICT;
+    }
+
     static nb::object KEY_SET_ID;
 
     nb::object get_key_set_id() {

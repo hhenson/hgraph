@@ -1,7 +1,6 @@
-#include <hgraph/types/tss.h>
-#include <hgraph/types/value/value.h>
-
+#include <fmt/format.h>
 #include <hgraph/builders/graph_builder.h>
+#include <hgraph/nodes/node_binding_utils.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/python_node.h>
 #include <hgraph/nodes/tsd_map_node.h>
@@ -10,16 +9,124 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
-#include <hgraph/types/traits.h>
-#include <hgraph/types/tsb.h>
-#include <hgraph/types/tsd.h>
+#include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/util/lifecycle.h>
-#include <hgraph/util/string_utils.h>
-
 #include <hgraph/util/scope.h>
+
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <vector>
+#include <cstdlib>
+#include <cstdio>
+#include <cstring>
 
 namespace hgraph
 {
+    namespace {
+        bool debug_tsd_map_bind_enabled() {
+            static const bool enabled = std::getenv("HGRAPH_DEBUG_TSD_MAP_BIND") != nullptr;
+            return enabled;
+        }
+
+        bool debug_tsd_map_clock_enabled() {
+            static const bool enabled = std::getenv("HGRAPH_DEBUG_TSD_MAP_CLOCK") != nullptr;
+            return enabled;
+        }
+
+        bool debug_tsd_map_enabled() {
+            static const bool enabled = std::getenv("HGRAPH_DEBUG_TSD_MAP") != nullptr;
+            return enabled;
+        }
+
+        bool debug_tsd_map_copy_enabled() {
+            static const bool enabled = std::getenv("HGRAPH_DEBUG_TSD_MAP_COPY") != nullptr;
+            return enabled;
+        }
+
+        TSView resolve_outer_key_view(TSView outer_ts, const value::View &key) {
+            if (!outer_ts || !key.valid()) {
+                return {};
+            }
+            const bool debug_bind = debug_tsd_map_bind_enabled();
+
+            TSView child = outer_ts.child_by_key(key);
+            TSView effective_child = hgraph::resolve_effective_view(child);
+            if (debug_bind) {
+                std::string child_value{"<none>"};
+                std::string effective_child_value{"<none>"};
+                try {
+                    child_value = nb::cast<std::string>(nb::repr(child.to_python()));
+                } catch (...) {}
+                try {
+                    effective_child_value = nb::cast<std::string>(nb::repr(effective_child.to_python()));
+                } catch (...) {}
+                std::fprintf(stderr,
+                             "[tsd_map_bind] direct key=%s child_exists=%d child_valid=%d child_mod=%d child_value=%s effective_valid=%d effective_mod=%d effective_value=%s kind=%d\n",
+                             key.valid() ? key.to_string().c_str() : "<invalid>",
+                             child ? 1 : 0,
+                             child.valid() ? 1 : 0,
+                             child.modified() ? 1 : 0,
+                             child_value.c_str(),
+                             effective_child.valid() ? 1 : 0,
+                             effective_child.modified() ? 1 : 0,
+                             effective_child_value.c_str(),
+                             static_cast<int>(outer_ts.kind()));
+            }
+            if (effective_child && effective_child.valid()) {
+                return effective_child;
+            }
+            if (child && child.valid()) {
+                return child;
+            }
+
+            // For link-target backed container inputs, the local child can exist as
+            // an empty placeholder while the bound source has the concrete keyed
+            // value. Fall back to the bound source child in that case.
+            ViewData bound_target{};
+            if (resolve_bound_target_view_data(outer_ts.view_data(), bound_target)) {
+                TSView bound_child = TSView(bound_target, outer_ts.view_data().engine_time_ptr).child_by_key(key);
+                TSView effective_bound_child = hgraph::resolve_effective_view(bound_child);
+                if (debug_bind) {
+                    std::string bound_child_value{"<none>"};
+                    std::string effective_bound_child_value{"<none>"};
+                    try {
+                        bound_child_value = nb::cast<std::string>(nb::repr(bound_child.to_python()));
+                    } catch (...) {}
+                    try {
+                        effective_bound_child_value = nb::cast<std::string>(nb::repr(effective_bound_child.to_python()));
+                    } catch (...) {}
+                    std::fprintf(stderr,
+                                 "[tsd_map_bind] bound key=%s bound_child_exists=%d bound_child_valid=%d bound_child_mod=%d bound_child_value=%s effective_valid=%d effective_mod=%d effective_value=%s\n",
+                                 key.valid() ? key.to_string().c_str() : "<invalid>",
+                                 bound_child ? 1 : 0,
+                                 bound_child.valid() ? 1 : 0,
+                                 bound_child.modified() ? 1 : 0,
+                                 bound_child_value.c_str(),
+                                 effective_bound_child.valid() ? 1 : 0,
+                                 effective_bound_child.modified() ? 1 : 0,
+                                 effective_bound_child_value.c_str());
+                }
+                if (effective_bound_child && effective_bound_child.valid()) {
+                    return effective_bound_child;
+                }
+                if (bound_child) {
+                    return bound_child;
+                }
+            } else if (debug_bind) {
+                std::fprintf(stderr,
+                             "[tsd_map_bind] bound key=%s resolve_bound_target=0\n",
+                             key.valid() ? key.to_string().c_str() : "<invalid>");
+            }
+
+            if (child) {
+                return child;
+            }
+            return {};
+        }
+
+    }  // namespace
+
     MapNestedEngineEvaluationClock::MapNestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock,
                                                                    value::Value key,
                                                                    tsd_map_node_ptr nested_node)
@@ -28,8 +135,22 @@ namespace hgraph
 
     void MapNestedEngineEvaluationClock::update_next_scheduled_evaluation_time(engine_time_t next_time) {
         auto &node_{*static_cast<TsdMapNode *>(node())};
-        auto  let{node_.last_evaluation_time()};
-        if ((let != MIN_DT && let >= next_time) || node_.is_stopping()) { return; }
+        auto let = node_.last_evaluation_time();
+        const bool debug_clock = debug_tsd_map_clock_enabled();
+        if (debug_clock) {
+            std::fprintf(stderr,
+                         "[tsd_map_clock] node=%s ptr=%p ndx=%lld key=%s let=%lld next=%lld stop=%d\n",
+                         node_.signature().name.c_str(),
+                         static_cast<void*>(&node_),
+                         static_cast<long long>(node_.node_ndx()),
+                         key_repr(_key.view(), node_.key_type_meta()).c_str(),
+                         static_cast<long long>(let.time_since_epoch().count()),
+                         static_cast<long long>(next_time.time_since_epoch().count()),
+                         node_.is_stopping() ? 1 : 0);
+        }
+        if ((let != MIN_DT && let >= next_time) || node_.is_stopping()) {
+            return;
+        }
 
         auto it{node_.scheduled_keys_.find(_key.view())};
         if (it == node_.scheduled_keys_.end() || it->second > next_time) {
@@ -40,52 +161,115 @@ namespace hgraph
     }
 
     nb::object MapNestedEngineEvaluationClock::py_key() const {
-        auto* node_ = static_cast<TsdMapNode*>(node());
-        const auto* key_schema = node_->key_type_meta();
-        return key_schema->ops().to_python(_key.data(), key_schema);
+        auto *node_ = static_cast<TsdMapNode *>(node());
+        if (const auto *key_schema = node_->key_type_meta(); key_schema != nullptr) {
+            return key_schema->ops().to_python(_key.data(), key_schema);
+        }
+        return nb::none();
     }
 
     TsdMapNode::TsdMapNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                           nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
+                           nb::dict scalars, const TSMeta *input_meta, const TSMeta *output_meta,
+                           const TSMeta *error_output_meta, const TSMeta *recordable_state_meta,
+                           graph_builder_s_ptr nested_graph_builder,
                            const std::unordered_map<std::string, int64_t> &input_node_ids, int64_t output_node_id,
                            const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg)
-        : NestedNode(node_ndx, owning_graph_id, signature, scalars), nested_graph_builder_(nested_graph_builder),
-          input_node_ids_(input_node_ids), output_node_id_(output_node_id), multiplexed_args_(multiplexed_args), key_arg_(key_arg) {
-    }
+        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
+                     input_meta, output_meta, error_output_meta, recordable_state_meta),
+          nested_graph_builder_(std::move(nested_graph_builder)),
+          input_node_ids_(input_node_ids), output_node_id_(output_node_id), multiplexed_args_(multiplexed_args), key_arg_(key_arg) {}
 
     nb::dict TsdMapNode::py_nested_graphs() const {
         nb::dict result;
         for (const auto &[key, graph] : active_graphs_) {
+            if (key_type_meta_ == nullptr) {
+                continue;
+            }
             nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
             result[py_key] = nb::cast(graph);
         }
         return result;
     }
 
-    void TsdMapNode::enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)> &callback) const {
-        for (const auto &[key, graph] : active_graphs_) {
-            if (graph) { callback(graph); }
+    void TsdMapNode::enumerate_nested_graphs(const std::function<void(const graph_s_ptr &)> &callback) const {
+        for (const auto &[_, graph] : active_graphs_) {
+            if (graph) {
+                callback(graph);
+            }
         }
     }
 
     void TsdMapNode::initialise() {
-        // Get key type metadata from the keys input (TimeSeriesSetInput)
-        auto &keys = dynamic_cast<TimeSeriesSetInput &>(*(*input())[KEYS_ARG]);
-        key_type_meta_ = keys.element_type();
+        auto keys_view = hgraph::node_input_field(*this, KEYS_ARG);
+        const TSMeta *keys_meta = keys_view ? keys_view.ts_meta() : nullptr;
+        if (keys_meta == nullptr) {
+            key_type_meta_ = nullptr;
+            return;
+        }
+
+        if (keys_meta->kind != TSKind::TSS) {
+            throw std::runtime_error("TsdMapNode expected __keys__ input to be TSS");
+        }
+        key_type_meta_ = keys_meta->value_type != nullptr ? keys_meta->value_type->element_type : nullptr;
     }
 
     void TsdMapNode::do_start() {
-        // Note: In Python, super().do_start() is called here, but in C++ the base Node class
-        // do_start() is pure virtual and has no implementation to call.
+        const bool debug_tsd_map = debug_tsd_map_enabled();
+        if (debug_tsd_map) {
+            std::string multiplexed;
+            bool first = true;
+            for (const auto& arg : multiplexed_args_) {
+                if (!first) {
+                    multiplexed += ",";
+                }
+                multiplexed += arg;
+                first = false;
+            }
+            std::string inputs;
+            first = true;
+            for (const auto& [arg, ndx] : input_node_ids_) {
+                if (!first) {
+                    inputs += ",";
+                }
+                inputs += arg + ":" + std::to_string(ndx);
+                first = false;
+            }
+            std::fprintf(stderr,
+                         "[tsd_map] start node=%s ptr=%p ndx=%lld key_arg=%s multiplexed={%s} inputs={%s}\n",
+                         signature().name.c_str(),
+                         static_cast<void*>(this),
+                         static_cast<long long>(node_ndx()),
+                         key_arg_.c_str(),
+                         multiplexed.c_str(),
+                         inputs.c_str());
+        }
+
         auto trait{graph()->traits().get_trait_or(RECORDABLE_ID_TRAIT, nb::none())};
         if (!trait.is_none()) {
             auto recordable_id{signature().record_replay_id};
             recordable_id_ = get_fq_recordable_id(graph()->traits(), recordable_id.has_value() ? recordable_id.value() : "map_");
         }
+
+        // Multiplexed and shared args must be active on the outer map node so
+        // value-only updates (with stable key sets) can reschedule keyed graphs.
+        auto outer_root = input();
+        auto outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
+        if (!outer_bundle.has_value()) {
+            return;
+        }
+
+        for (const auto& [arg, _] : input_node_ids_) {
+            if (arg == key_arg_) {
+                continue;
+            }
+            auto outer_arg = outer_bundle->field(arg);
+            if (outer_arg) {
+                outer_arg.make_active();
+            }
+        }
     }
 
     void TsdMapNode::do_stop() {
-        // Collect all keys first (can't erase while iterating)
         std::vector<value::Value> keys;
         keys.reserve(active_graphs_.size());
         for (const auto &[k, _] : active_graphs_) {
@@ -97,121 +281,364 @@ namespace hgraph
         active_graphs_.clear();
         scheduled_keys_.clear();
         pending_keys_.clear();
+        local_input_values_.clear();
+        force_emit_keys_.clear();
+        mux_delta_hints_.clear();
     }
 
     void TsdMapNode::dispose() {}
 
     void TsdMapNode::eval() {
         mark_evaluated();
+        mux_delta_hints_.clear();
+        const bool debug_tsd_map = debug_tsd_map_enabled();
+        if (debug_tsd_map) {
+            std::fprintf(stderr,
+                         "[tsd_map] eval node=%s ptr=%p ndx=%lld now=%lld active=%zu scheduled=%zu\n",
+                         signature().name.c_str(),
+                         static_cast<void*>(this),
+                         static_cast<long long>(node_ndx()),
+                         static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
+                         active_graphs_.size(),
+                         scheduled_keys_.size());
+        }
 
-        auto &keys = dynamic_cast<TimeSeriesSetInput &>(*(*input())[KEYS_ARG]);
-        if (keys.modified()) {
-            // Use INPUT's collect_added() which handles sampled() case (returns all values when first bound)
-            // Process added keys using Value-based iteration
-            auto added_keys = keys.collect_added();
-            for (size_t i = 0; i < added_keys.size(); ++i) {
-                const auto& key = added_keys[i];
-                // There seems to be a case where a set can show a value as added even though it is not.
-                // This protects from accidentally creating duplicate graphs
-                if (active_graphs_.find(key) == active_graphs_.end()) {
-                    create_new_graph(key);
+        auto keys_view = hgraph::node_input_field(*this, KEYS_ARG);
+        if (keys_view && keys_view.modified()) {
+            const auto add_key = [&](const value::View& key_view) {
+                if (debug_tsd_map) {
+                    std::fprintf(stderr, "[tsd_map]  key_add=%s\n", key_repr(key_view, key_type_meta_).c_str());
                 }
-                // If key already exists, skip it (can happen during startup before reset_prev() is called)
+                if (active_graphs_.find(key_view) == active_graphs_.end()) {
+                    create_new_graph(key_view);
+                }
+            };
+
+            const auto remove_key = [&](const value::View& key_view) {
+                if (debug_tsd_map) {
+                    std::fprintf(stderr, "[tsd_map]  key_remove=%s\n", key_repr(key_view, key_type_meta_).c_str());
+                }
+                remove_graph(key_view);
+            };
+
+            // Delta key iteration can surface invalid transient key views for
+            // projected key sets; full snapshot diff is slower but stable.
+            bool use_full_diff = true;
+            bool has_key_delta = false;
+            std::vector<value::View> delta_added_keys;
+            std::vector<value::View> delta_removed_keys;
+            if (!use_full_diff) {
+                has_key_delta = hgraph::for_each_tsd_key_delta(
+                    keys_view,
+                    key_type_meta_,
+                    [&](value::View key_view) {
+                        if (active_graphs_.find(key_view) != active_graphs_.end()) {
+                            use_full_diff = true;
+                            return;
+                        }
+                        delta_added_keys.push_back(key_view);
+                    },
+                    [&](value::View key_view) {
+                        if (active_graphs_.find(key_view) == active_graphs_.end()) {
+                            use_full_diff = true;
+                            return;
+                        }
+                        delta_removed_keys.push_back(key_view);
+                    });
             }
-            // Use INPUT's collect_removed() which handles sampled() case (returns empty when first bound)
-            for (const auto& key : keys.collect_removed()) {
-                if (auto it = active_graphs_.find(key); it != active_graphs_.end()) {
-                    remove_graph(key);
-                    // Use iterator-based erase (heterogeneous erase not available until C++23)
-                    if (auto sched_it = scheduled_keys_.find(key); sched_it != scheduled_keys_.end()) {
-                        scheduled_keys_.erase(sched_it);
+            if (!has_key_delta) {
+                use_full_diff = true;
+            }
+
+            // When starting from an empty active set, key deltas alone are
+            // insufficient (delta may only include incremental additions).
+            // Bootstrap from the full current key snapshot in that case.
+            if (use_full_diff) {
+                key_set_type current_keys;
+                if (!hgraph::collect_tsd_key_set(keys_view, current_keys)) {
+                    throw std::runtime_error("TsdMapNode expected set/map value for __keys__");
+                }
+
+                for (const auto& key : current_keys) {
+                    if (active_graphs_.find(key.view()) == active_graphs_.end()) {
+                        add_key(key.view());
                     }
-                } else {
-                    nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
-                    throw std::runtime_error(
-                        fmt::format("[{}] Key {} does not exist in active graphs", signature().wiring_path_name,
-                                    nb::repr(py_key).c_str()));
+                }
+
+                for (auto it = active_graphs_.begin(); it != active_graphs_.end();) {
+                    if (current_keys.find(it->first.view()) != current_keys.end()) {
+                        ++it;
+                        continue;
+                    }
+                    value::Value removed_key = it->first.view().clone();
+                    ++it;
+                    remove_key(removed_key.view());
+                }
+            } else {
+                for (value::View key_view : delta_added_keys) {
+                    if (debug_tsd_map) {
+                        std::fprintf(stderr, "[tsd_map]  key_add=%s\n", key_repr(key_view, key_type_meta_).c_str());
+                    }
+                    create_new_graph(key_view);
+                }
+                for (value::View key_view : delta_removed_keys) {
+                    if (debug_tsd_map) {
+                        std::fprintf(stderr, "[tsd_map]  key_remove=%s\n", key_repr(key_view, key_type_meta_).c_str());
+                    }
+                    remove_graph(key_view);
+                }
+            }
+        } else if (keys_view && active_graphs_.empty()) {
+            key_set_type current_keys;
+            if (hgraph::collect_tsd_key_set(keys_view, current_keys)) {
+                for (const auto &key : current_keys) {
+                    create_new_graph(key.view());
                 }
             }
         }
 
-        key_time_map_type scheduled_keys;
-        std::swap(scheduled_keys, scheduled_keys_);
+        auto schedule_key_now = [&](const value::View& key_view, engine_time_t now) {
+            if (!key_view.valid()) {
+                return;
+            }
+            auto active_it = active_graphs_.find(key_view);
+            if (active_it == active_graphs_.end()) {
+                return;
+            }
+            auto scheduled_it = scheduled_keys_.find(active_it->first.view());
+            if (scheduled_it == scheduled_keys_.end()) {
+                scheduled_keys_.emplace(active_it->first.view().clone(), now);
+            } else if (scheduled_it->second > now) {
+                scheduled_it->second = now;
+            }
+        };
 
-        for (const auto &[k, dt] : scheduled_keys) {
-            if (dt < last_evaluation_time()) {
-                nb::object py_key = key_type_meta_->ops().to_python(k.view().data(), key_type_meta_);
+        auto schedule_all_active_now = [&](engine_time_t now) {
+            for (const auto& [key, _] : active_graphs_) {
+                auto scheduled_it = scheduled_keys_.find(key.view());
+                if (scheduled_it == scheduled_keys_.end()) {
+                    scheduled_keys_.emplace(key.view().clone(), now);
+                } else if (scheduled_it->second > now) {
+                    scheduled_it->second = now;
+                }
+            }
+        };
+
+        auto outer_root = input();
+        std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
+        if (outer_bundle.has_value()) {
+            const engine_time_t now = last_evaluation_time();
+            bool scheduled_all_for_tick = false;
+            const bool conservative_outer_reschedule = false;
+            for (const auto& [arg, _] : input_node_ids_) {
+                if (arg == key_arg_) {
+                    continue;
+                }
+
+                auto outer_arg = outer_bundle->field(arg);
+                if (!outer_arg || !outer_arg.modified()) {
+                    continue;
+                }
+                if (debug_tsd_map) {
+                    std::string outer_value{"<none>"};
+                    std::string outer_delta{"<none>"};
+                    try {
+                        outer_value = nb::cast<std::string>(nb::repr(outer_arg.to_python()));
+                    } catch (...) {}
+                    try {
+                        outer_delta = nb::cast<std::string>(nb::repr(outer_arg.delta_to_python()));
+                    } catch (...) {}
+                    std::fprintf(stderr,
+                                 "[tsd_map]  outer arg=%s modified=1 value=%s delta=%s\n",
+                                 arg.c_str(),
+                                 outer_value.c_str(),
+                                 outer_delta.c_str());
+                }
+
+                if (conservative_outer_reschedule) {
+                    // Python-object key deltas can expose transient views.
+                    if (!scheduled_all_for_tick) {
+                        schedule_all_active_now(now);
+                        scheduled_all_for_tick = true;
+                    }
+                    continue;
+                }
+
+                bool scheduled_from_delta = false;
+                auto schedule_changed_keys = [&](const auto& dict_view) {
+                    bool any = false;
+                    for (const auto& [key, _] : active_graphs_) {
+                        const value::View key_view = key.view();
+                        if (!key_view.valid()) {
+                            continue;
+                        }
+                        if (!dict_view.was_modified(key_view)) {
+                            continue;
+                        }
+                        schedule_key_now(key_view, now);
+                        any = true;
+                    }
+                    if (any) {
+                        scheduled_from_delta = true;
+                    }
+                };
+
+                if (auto outer_dict = outer_arg.try_as_dict(); outer_dict.has_value()) {
+                    schedule_changed_keys(*outer_dict);
+                } else {
+                    TSView effective_arg = hgraph::resolve_effective_view(outer_arg.as_ts_view());
+                    if (auto effective_dict = effective_arg.try_as_dict(); effective_dict.has_value()) {
+                        schedule_changed_keys(*effective_dict);
+                    }
+                }
+
+                // Rebinding an outer input can produce modified() with an empty key delta.
+                // In that case, key-local diffing misses removals and leaves stale keyed outputs.
+                if (!scheduled_from_delta && !scheduled_all_for_tick) {
+                    schedule_all_active_now(now);
+                    scheduled_all_for_tick = true;
+                }
+            }
+        }
+
+        const engine_time_t now = last_evaluation_time();
+        engine_time_t next_time = MAX_DT;
+        std::vector<std::pair<value::Value, engine_time_t>> due_keys;
+        for (auto it = scheduled_keys_.begin(); it != scheduled_keys_.end();) {
+            const engine_time_t dt = it->second;
+            if (dt < now) {
                 throw std::runtime_error(
                     fmt::format("Scheduled time is in the past; last evaluation time: {}, scheduled time: {}, evaluation time: {}",
-                                last_evaluation_time(), dt, graph()->evaluation_time()));
+                                now, dt, graph()->evaluation_time()));
             }
-            engine_time_t next_dt;
-            if (dt == last_evaluation_time()) {
-                next_dt = evaluate_graph(k.view());
-            } else {
-                next_dt = dt;
+
+            if (dt == now) {
+                auto node = scheduled_keys_.extract(it++);
+                due_keys.emplace_back(std::move(node.key()), dt);
+                continue;
             }
-            if (next_dt != MAX_DT && next_dt > last_evaluation_time()) {
-                scheduled_keys_.insert_or_assign(k.view().clone(), next_dt);
-                graph()->schedule_node(node_ndx(), next_dt);
+
+            if (dt != MAX_DT && dt > now) {
+                next_time = std::min(next_time, dt);
             }
+            ++it;
+        }
+
+        for (auto& [owned_key, due_dt] : due_keys) {
+            const value::View key_view = owned_key.view();
+            if (debug_tsd_map) {
+                std::fprintf(stderr,
+                             "[tsd_map]  run key=%s due=%lld now=%lld\n",
+                             key_repr(key_view, key_type_meta_).c_str(),
+                             static_cast<long long>(due_dt.time_since_epoch().count()),
+                             static_cast<long long>(now.time_since_epoch().count()));
+            }
+            const engine_time_t next_dt = evaluate_graph(key_view);
+            if (next_dt != MAX_DT && next_dt > now) {
+                auto scheduled_it = scheduled_keys_.find(key_view);
+                if (scheduled_it == scheduled_keys_.end()) {
+                    scheduled_keys_.emplace(std::move(owned_key), next_dt);
+                } else if (scheduled_it->second > next_dt) {
+                    scheduled_it->second = next_dt;
+                }
+                next_time = std::min(next_time, next_dt);
+            }
+        }
+        if (next_time < MAX_DT) {
+            graph()->schedule_node(node_ndx(), next_time);
         }
     }
 
-    TimeSeriesDictOutputImpl &TsdMapNode::tsd_output() {
-        return dynamic_cast<TimeSeriesDictOutputImpl &>(*output());
+    TSDOutputView TsdMapNode::tsd_output() {
+        auto out = output();
+        if (!out) {
+            return {};
+        }
+
+        auto dict_opt = out.try_as_dict();
+        if (!dict_opt.has_value()) {
+            return {};
+        }
+        return *dict_opt;
     }
 
     void TsdMapNode::create_new_graph(const value::View &key) {
-        // Convert key to string for graph label
-        nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
-        std::string key_str = nb::repr(py_key).c_str();
+        if (key_type_meta_ == nullptr) {
+            throw std::runtime_error("TsdMapNode key type meta is not initialised");
+        }
 
-        // Extend parent's node_id with the new instance counter
+        nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
+        std::string key_str = nb::cast<std::string>(nb::repr(py_key));
+
         auto child_owning_graph_id = node_id();
         child_owning_graph_id.push_back(-static_cast<int64_t>(count_++));
-        auto graph_{
-            nested_graph_builder_->make_instance(child_owning_graph_id, this, key_str)
-        };
 
+        auto graph_ = nested_graph_builder_->make_instance(child_owning_graph_id, this, key_str);
         active_graphs_.emplace(key.clone(), graph_);
 
         graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
             graph()->evaluation_engine(),
-            std::make_shared<MapNestedEngineEvaluationClock>(graph()->evaluation_engine()->engine_evaluation_clock().get(),
-                                                            key.clone(), this)));
+            std::make_shared<MapNestedEngineEvaluationClock>(graph()->evaluation_engine_clock().get(), key.clone(), this)));
 
         initialise_component(*graph_);
 
         if (!recordable_id_.empty()) {
-            auto nested_recordable_id = fmt::format("{}[{}]", recordable_id_, key_str);
-            set_parent_recordable_id(*graph_, nested_recordable_id);
+            set_parent_recordable_id(*graph_, fmt::format("{}[{}]", recordable_id_, key_str));
         }
 
         wire_graph(key, graph_);
         start_component(*graph_);
-        scheduled_keys_.emplace(key.clone(), last_evaluation_time());
+
+        scheduled_keys_.insert_or_assign(key.clone(), last_evaluation_time());
+        pending_keys_.insert(key.clone());
     }
 
     void TsdMapNode::remove_graph(const value::View &key) {
-        if (signature().capture_exception) {
-            // Remove the error output associated to the graph if there is one
-            auto &error_output_ = dynamic_cast<TimeSeriesDictOutputImpl &>(*error_output());
-            error_output_.erase(key);
+        if (signature().capture_exception && has_error_output()) {
+            auto err_out = error_output();
+            if (err_out) {
+                if (auto err_dict = err_out.try_as_dict(); err_dict.has_value()) {
+                    err_dict->remove(key);
+                }
+            }
         }
 
-        auto it = active_graphs_.find(key);
-        if (it == active_graphs_.end()) { return; }
-        auto graph = it->second;
-        active_graphs_.erase(it);
+        if (auto it = active_graphs_.find(key); it != active_graphs_.end()) {
+            auto nested_graph = it->second;
+            active_graphs_.erase(it);
+            if (auto scheduled_it = scheduled_keys_.find(key); scheduled_it != scheduled_keys_.end()) {
+                scheduled_keys_.erase(scheduled_it);
+            }
+            if (auto pending_it = pending_keys_.find(key); pending_it != pending_keys_.end()) {
+                pending_keys_.erase(pending_it);
+            }
+            if (auto emit_it = force_emit_keys_.find(key); emit_it != force_emit_keys_.end()) {
+                force_emit_keys_.erase(emit_it);
+            }
+            for (auto& [_, values] : local_input_values_) {
+                if (auto value_it = values.find(key); value_it != values.end()) {
+                    values.erase(value_it);
+                }
+            }
 
-        un_wire_graph(key, graph);
+            un_wire_graph(key, nested_graph);
 
-        graph->evaluation_engine_api()->add_before_evaluation_notification([builder = nested_graph_builder_, graph]() {
-            builder->release_instance(graph);
-        });
-
-        stop_component(*graph);
+            auto builder = nested_graph_builder_;
+            auto engine = graph()->evaluation_engine();
+            auto cleanup = make_scope_exit([builder, engine, nested_graph]() mutable {
+                if (builder == nullptr) {
+                    return;
+                }
+                if (engine != nullptr) {
+                    engine->add_before_evaluation_notification([builder, nested_graph]() mutable {
+                        builder->release_instance(nested_graph);
+                    });
+                } else {
+                    builder->release_instance(nested_graph);
+                }
+            });
+            stop_component(*nested_graph);
+        }
     }
 
     engine_time_t TsdMapNode::evaluate_graph(const value::View &key) {
@@ -219,119 +646,659 @@ namespace hgraph
         if (it == active_graphs_.end()) {
             return MAX_DT;
         }
-        auto &graph = it->second;
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(graph->evaluation_engine_clock().get())) {
+        const bool force_emit = force_emit_keys_.find(key) != force_emit_keys_.end();
+        const bool debug_tsd_map_copy = debug_tsd_map_copy_enabled();
+
+        auto &nested = it->second;
+
+        auto outer_root = input();
+        std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
+        for (const auto &[arg, node_ndx] : input_node_ids_) {
+            if (arg == key_arg_ || multiplexed_args_.find(arg) != multiplexed_args_.end()) {
+                continue;
+            }
+
+            auto node = nested->nodes()[node_ndx];
+            auto inner_ts = hgraph::node_inner_ts_input(*node, false);
+            if (!inner_ts) {
+                continue;
+            }
+
+            if (!outer_bundle.has_value()) {
+                if (inner_ts.is_bound()) {
+                    inner_ts.unbind();
+                    node->notify();
+                }
+                continue;
+            }
+
+            auto outer_arg = outer_bundle->field(arg);
+            if (!outer_arg) {
+                if (inner_ts.is_bound()) {
+                    inner_ts.unbind();
+                    node->notify();
+                }
+                continue;
+            }
+
+            hgraph::BindingTargetComparison binding_targets = hgraph::compare_binding_targets(inner_ts, outer_arg.as_ts_view());
+
+            if (!inner_ts.is_bound() || binding_targets.binding_changed) {
+                hgraph::bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts, RefBindOrder::BoundTargetThenRefValue);
+            }
+            if (outer_arg.modified() || binding_targets.binding_changed) {
+                node->notify();
+            }
+        }
+
+        bool all_mux_inputs_valid = true;
+        refresh_multiplexed_bindings(key, nested, &all_mux_inputs_valid);
+        if (auto *nec = dynamic_cast<NestedEngineEvaluationClock *>(nested->evaluation_engine_clock().get())) {
             nec->reset_next_scheduled_evaluation_time();
         }
 
-        if (signature().capture_exception) {
-            try {
-                graph->evaluate_graph();
-            } catch (const std::exception &e) {
-                auto &error_tsd  = dynamic_cast<TimeSeriesDictOutputImpl &>(*error_output());
-                nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
-                auto  msg        = std::string("key: ") + nb::repr(py_key).c_str();
-                auto  node_error = NodeError::capture_error(e, *this, msg);
-                auto  error_ts   = error_tsd.get_or_create(key);
-                // Create a heap-allocated copy managed by nanobind
+        if (signature().capture_exception && has_error_output()) {
+            auto capture_nested_error = [&](const NodeError &node_error) {
+                auto err_out = error_output();
+                if (!err_out) {
+                    return;
+                }
+                auto err_dict = err_out.try_as_dict();
+                if (!err_dict.has_value()) {
+                    return;
+                }
+
+                auto error_ts = err_dict->create(key);
                 auto error_ptr = nb::ref<NodeError>(new NodeError(node_error));
-                error_ts->py_set_value(nb::cast(error_ptr));
+                error_ts.from_python(nb::cast(error_ptr));
+            };
+
+            try {
+                nested->evaluate_graph();
+            } catch (const std::exception &e) {
+                auto msg = std::string("key: ") + key_repr(key, key_type_meta_);
+                capture_nested_error(NodeError::capture_error(e, *this, msg));
+            } catch (...) {
+                auto msg = std::string("key: ") + key_repr(key, key_type_meta_);
+                capture_nested_error(NodeError::capture_error(std::current_exception(), *this, msg));
             }
         } else {
-            graph->evaluate_graph();
+            nested->evaluate_graph();
         }
 
-        auto next = graph->evaluation_engine_clock()->next_scheduled_evaluation_time();
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(graph->evaluation_engine_clock().get())) {
+        // Mirror Python map-node behavior: each nested graph writes to its own
+        // key slot in the outer TSD output. We apply the nested output delta
+        // to the keyed outer output view after each nested evaluation.
+        if (output_node_id_ >= 0) {
+            auto outer = tsd_output();
+            auto node = nested->nodes()[output_node_id_];
+            auto inner = node->output();
+
+            if (debug_tsd_map_copy) {
+                std::fprintf(stderr, "[tsd_map_copy] nested graph nodes: %zu, output_node_id=%d\n",
+                    nested->nodes().size(), output_node_id_);
+                for (size_t ni = 0; ni < nested->nodes().size(); ++ni) {
+                    auto& n = nested->nodes()[ni];
+                    auto o = n->output();
+                    std::string out_str = "<none>";
+                    if (o) {
+                        try { out_str = nb::cast<std::string>(nb::repr(o.to_python())); } catch (...) { out_str = "<err>"; }
+                    }
+                    std::fprintf(stderr, "[tsd_map_copy]   node[%zu] sig=%s has_output=%d output=%s lmt=%lld\n",
+                        ni, n->signature().name.c_str(),
+                        static_cast<bool>(o) ? 1 : 0,
+                        out_str.c_str(),
+                        o ? static_cast<long long>(o.as_ts_view().last_modified_time().time_since_epoch().count()) : -1LL);
+                }
+            }
+            if (outer && inner) {
+                auto clear_pending_emit = [&]() {
+                    if (auto pending_it = pending_keys_.find(key); pending_it != pending_keys_.end()) {
+                        pending_keys_.erase(pending_it);
+                    }
+                    if (auto emit_it = force_emit_keys_.find(key); emit_it != force_emit_keys_.end()) {
+                        force_emit_keys_.erase(emit_it);
+                    }
+                };
+
+                TSView inner_raw = inner.as_ts_view();
+                TSView inner_effective = hgraph::resolve_effective_view(inner_raw);
+                TSView outer_existing = outer.as_ts_view().as_dict().at_key(key);
+                const bool has_outer_entry = static_cast<bool>(outer_existing);
+                const bool output_init_pending = pending_keys_.find(key) != pending_keys_.end();
+
+                const TSMeta* outer_meta = outer.as_ts_view().ts_meta();
+                const bool ref_output =
+                    outer_meta != nullptr &&
+                    outer_meta->kind == TSKind::TSD &&
+                    outer_meta->element_ts() != nullptr &&
+                    outer_meta->element_ts()->kind == TSKind::REF;
+
+                if (!ref_output && !all_mux_inputs_valid) {
+                    outer.remove(key);
+                    auto next = nested->evaluation_engine_clock()->next_scheduled_evaluation_time();
+                    if (auto *nec = dynamic_cast<NestedEngineEvaluationClock *>(nested->evaluation_engine_clock().get())) {
+                        nec->reset_next_scheduled_evaluation_time();
+                    }
+                    return next;
+                }
+
+                // Detect when the inner output is REF but the outer TSD element
+                // is non-REF. This happens when switch_ (which always wraps in
+                // REF) is inside a map_ whose output type is unwrapped.
+                const TSMeta* inner_raw_meta = inner_raw.ts_meta();
+                const bool inner_is_ref_unwrap =
+                    !ref_output &&
+                    inner_raw_meta != nullptr &&
+                    inner_raw_meta->kind == TSKind::REF;
+
+                if (debug_tsd_map_copy) {
+                    std::fprintf(stderr,
+                                 "[tsd_map_copy] key=%s ref_output=%d inner_is_ref_unwrap=%d inner_raw_meta_kind=%d outer_elem_kind=%d\n",
+                                 key_repr(key, key_type_meta_).c_str(),
+                                 ref_output ? 1 : 0,
+                                 inner_is_ref_unwrap ? 1 : 0,
+                                 inner_raw_meta != nullptr ? static_cast<int>(inner_raw_meta->kind) : -1,
+                                 (outer_meta != nullptr && outer_meta->element_ts() != nullptr)
+                                     ? static_cast<int>(outer_meta->element_ts()->kind) : -1);
+                    std::string delta_s{"<none>"};
+                    std::string value_s{"<none>"};
+                    bool raw_valid = inner_raw.valid();
+                    bool raw_modified = inner_raw.modified();
+                    engine_time_t inner_lmt = MIN_DT;
+                    engine_time_t raw_lmt = MIN_DT;
+                    if (inner_effective) {
+                        inner_lmt = inner_effective.last_modified_time();
+                    }
+                    if (inner_raw) {
+                        raw_lmt = inner_raw.last_modified_time();
+                    }
+                    std::string inner_path = inner_effective ? inner_effective.short_path().to_string() : "<none>";
+                    std::string raw_path = inner_raw ? inner_raw.short_path().to_string() : "<none>";
+                    std::string raw_value_s{"<none>"};
+                    std::string raw_delta_s{"<none>"};
+                    try {
+                        delta_s = nb::cast<std::string>(nb::repr(inner_effective.delta_to_python()));
+                    } catch (...) {}
+                    try {
+                        value_s = nb::cast<std::string>(nb::repr(inner_effective.to_python()));
+                    } catch (...) {}
+                    try {
+                        raw_value_s = nb::cast<std::string>(nb::repr(inner_raw.to_python()));
+                    } catch (...) {}
+                    try {
+                        raw_delta_s = nb::cast<std::string>(nb::repr(inner_raw.delta_to_python()));
+                    } catch (...) {}
+                    std::fprintf(stderr,
+                                 "[tsd_map_copy] key=%s now=%lld inner_path=%s inner_lmt=%lld inner_valid=%d inner_modified=%d raw_path=%s raw_lmt=%lld raw_valid=%d raw_modified=%d outer_has=%d inner_delta=%s inner_value=%s raw_delta=%s raw_value=%s\n",
+                                 key_repr(key, key_type_meta_).c_str(),
+                                 static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
+                                 inner_path.c_str(),
+                                 static_cast<long long>(inner_lmt.time_since_epoch().count()),
+                                 inner_effective.valid() ? 1 : 0,
+                                 inner_effective.modified() ? 1 : 0,
+                                 raw_path.c_str(),
+                                 static_cast<long long>(raw_lmt.time_since_epoch().count()),
+                                 raw_valid ? 1 : 0,
+                                 raw_modified ? 1 : 0,
+                                 has_outer_entry ? 1 : 0,
+                                 delta_s.c_str(),
+                                 value_s.c_str(),
+                                 raw_delta_s.c_str(),
+                                 raw_value_s.c_str());
+                }
+
+                if (ref_output) {
+                    // Python map-node semantics for REF outputs: keyed entries carry
+                    // the inner REF payload itself (including empty/sentinel refs),
+                    // not a reference to the inner node's REF output wrapper.
+                    if (inner_raw.valid()) {
+                        auto outer_key = outer.create(key);
+                        const bool outer_was_valid = outer_key.valid();
+                        const bool outer_needs_init = !outer_was_valid || output_init_pending || force_emit;
+                        if (inner_raw.modified() || outer_needs_init) {
+                            ViewData dst_vd = outer_key.as_ts_view().view_data();
+                            // Read the inner REF output as a Python object and
+                            // write to the outer TSD keyed slot via from_python.
+                            // This handles switch_ inside map_ correctly: the
+                            // to_python() for REF follows the full resolution
+                            // chain dynamically, bypassing stale time metadata
+                            // on intermediate views in nested graph boundaries.
+                            nb::object py_val = inner_raw.to_python();
+                            if (dst_vd.ops != nullptr && dst_vd.ops->from_python != nullptr) {
+                                dst_vd.ops->from_python(dst_vd, py_val, node_time(*this));
+                            }
+                            clear_pending_emit();
+                        }
+                    }
+                } else if (inner_is_ref_unwrap) {
+                    // Inner output is REF but outer expects unwrapped value.
+                    // resolve_effective_view follows the REF to the target, but
+                    // the target's time metadata may not be stamped in the map's
+                    // clock domain (e.g. switch_ nested graphs). Use inner_raw's
+                    // modified/valid state and read the value via the REF.
+                    if (inner_raw.valid() && inner_raw.modified()) {
+                        // Read the REF payload to find the actual target
+                        value::View ref_payload = inner_raw.value();
+                        if (debug_tsd_map_copy) {
+                            std::fprintf(stderr,
+                                         "[tsd_map_copy] ref_unwrap key=%s ref_payload_valid=%d\n",
+                                         key_repr(key, key_type_meta_).c_str(),
+                                         ref_payload.valid() ? 1 : 0);
+                        }
+                        if (ref_payload.valid()) {
+                            const auto& ref = *static_cast<const TimeSeriesReference*>(ref_payload.data());
+                            const ViewData* bound = ref.bound_view();
+                            if (debug_tsd_map_copy) {
+                                std::fprintf(stderr,
+                                             "[tsd_map_copy] ref_unwrap bound=%p is_bound=%d has_output=%d\n",
+                                             (const void*)bound,
+                                             ref.is_bound() ? 1 : 0,
+                                             ref.has_output() ? 1 : 0);
+                            }
+                            if (bound != nullptr) {
+                                auto outer_key = outer.create(key);
+                                ViewData dst_vd = outer_key.as_ts_view().view_data();
+                                copy_view_data_value(dst_vd, *bound, node_time(*this));
+                                clear_pending_emit();
+                            } else if (has_outer_entry) {
+                                // REF is valid but target is not bound
+                                auto outer_key_view = outer.at_key(key);
+                                if (outer_key_view) {
+                                    outer_key_view.invalidate();
+                                }
+                            }
+                        }
+                    }
+                } else if (inner_effective.valid()) {
+                    auto outer_key = outer.create(key);
+                    const bool outer_was_valid = outer_key.valid();
+                    const bool outer_needs_init = !outer_was_valid || output_init_pending || force_emit;
+                    if (inner_effective.modified()) {
+                        // Python parity: keyed map outputs copy full nested output
+                        // state for evaluated keys, which preserves removals when
+                        // branch outputs switch shape (for example switch_ resets).
+                        ViewData dst_vd = outer_key.as_ts_view().view_data();
+                        ViewData src_vd = inner_effective.view_data();
+                        copy_view_data_value(dst_vd, src_vd, node_time(*this));
+                        clear_pending_emit();
+                    } else if (outer_needs_init) {
+                        ViewData dst_vd = outer_key.as_ts_view().view_data();
+                        ViewData src_vd = inner_effective.view_data();
+                        copy_view_data_value(dst_vd, src_vd, node_time(*this));
+                        clear_pending_emit();
+                    }
+                } else if (has_outer_entry && inner_effective.modified()) {
+                    // Python parity: keyed map outputs keep key membership stable for
+                    // active graphs and only invalidate the keyed child when the nested
+                    // output becomes invalid.
+                    auto outer_key = outer.at_key(key);
+                    if (outer_key) {
+                        outer_key.invalidate();
+                    }
+                }
+
+                if (debug_tsd_map_copy) {
+                    std::string out_delta{"<none>"};
+                    std::string out_value{"<none>"};
+                    try {
+                        out_delta = nb::cast<std::string>(nb::repr(outer.delta_to_python()));
+                    } catch (...) {}
+                    try {
+                        out_value = nb::cast<std::string>(nb::repr(outer.to_python()));
+                    } catch (...) {}
+                    std::fprintf(stderr,
+                                 "[tsd_map_copy] key=%s post now=%lld outer_delta=%s outer_value=%s\n",
+                                 key_repr(key, key_type_meta_).c_str(),
+                                 static_cast<long long>(last_evaluation_time().time_since_epoch().count()),
+                                 out_delta.c_str(),
+                                 out_value.c_str());
+                }
+            }
+        }
+
+        auto next = nested->evaluation_engine_clock()->next_scheduled_evaluation_time();
+        if (auto *nec = dynamic_cast<NestedEngineEvaluationClock *>(nested->evaluation_engine_clock().get())) {
             nec->reset_next_scheduled_evaluation_time();
         }
         return next;
     }
 
-    void TsdMapNode::un_wire_graph(const value::View &key, graph_s_ptr &graph) {
-        for (const auto &[arg, node_ndx] : input_node_ids_) {
+    void TsdMapNode::notify_graph_input_nodes(graph_s_ptr &graph, engine_time_t modified_time) {
+        if (!graph) {
+            return;
+        }
+        for (const auto &[_, node_ndx] : input_node_ids_) {
             auto node = graph->nodes()[node_ndx];
-            if (arg != key_arg_) {
-                if (multiplexed_args_.find(arg) != multiplexed_args_.end()) {
-                    auto  ts{static_cast<TimeSeriesInput *>((*input())[arg].get())};
-                    auto &tsd = dynamic_cast<TimeSeriesDictInputImpl &>(*ts);
-
-                    // Make the per-key input passive to unsubscribe from output before re-parenting
-                    // CRITICAL: must do this before re-parenting to prevent dangling subscriber pointers
-                    auto per_key_input = (*node->input())["ts"];
-                    per_key_input->make_passive();
-
-                    // Re-parent the per-key input back to the TSD to detach it from the nested graph
-                    per_key_input->re_parent(static_cast<time_series_input_ptr>(ts));
-
-                    // Create a new empty reference input to replace the old one in the node's input bundle
-                    // This ensures the per-key input is fully detached before the nested graph is torn down
-                    auto empty_ref_owner = std::dynamic_pointer_cast<TimeSeriesReferenceInput>(node->input()->get_input(0));
-                    auto empty_ref = empty_ref_owner->clone_blank_ref_instance();
-                    node->reset_input(node->input()->copy_with(node.get(), {empty_ref}));
-                    dynamic_cast<TimeSeriesReferenceInput *>(empty_ref.get())->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
-
-                    // Align with Python: only clear upstream per-key state when the key is truly absent
-                    // from the upstream key set (and that key set is valid). Do NOT clear during startup
-                    // when the key set may be invalid, as this breaks re-add semantics.
-                    auto &key_set = dynamic_cast<TimeSeriesSetInput &>(tsd.key_set());
-                    if (key_set.valid() && !key_set.contains(key)) { tsd.on_key_removed(key); }
-                }
+            if (node) {
+                node->notify(modified_time);
             }
+        }
+    }
+
+    void TsdMapNode::un_wire_graph(const value::View &key, graph_s_ptr &graph) {
+        const bool debug_tsd_map = debug_tsd_map_enabled();
+        for (const auto &[arg, node_ndx] : input_node_ids_) {
+            if (arg == key_arg_) {
+                continue;
+            }
+
+            auto node = graph->nodes()[node_ndx];
+            auto inner_ts = hgraph::node_inner_ts_input(*node, false);
+            if (!inner_ts) {
+                continue;
+            }
+
+            if (inner_ts.active()) {
+                inner_ts.make_passive();
+            }
+            inner_ts.unbind();
         }
 
         if (output_node_id_ >= 0) {
-            tsd_output().erase(key);
+            auto out = tsd_output();
+            if (out) {
+                const bool removed = out.remove(key);
+                if (debug_tsd_map) {
+                    std::fprintf(stderr,
+                                 "[tsd_map]  un_wire remove key=%s removed=%d out_size=%zu out_valid=%d\n",
+                                 key_repr(key, key_type_meta_).c_str(),
+                                 removed ? 1 : 0,
+                                 out.count(),
+                                 out.valid() ? 1 : 0);
+                }
+            }
         }
+    }
+
+    TSView TsdMapNode::resolve_multiplexed_outer_value(const std::string& arg,
+                                                       const value::View& key,
+                                                       const TSInputView& outer_arg,
+                                                       const TSInputView& inner_ts,
+                                                       bool* used_local_fallback,
+                                                       bool* has_outer_key,
+                                                       bool* outer_key_valid,
+                                                       int* stage_id) {
+        if (has_outer_key != nullptr) {
+            *has_outer_key = false;
+        }
+        if (outer_key_valid != nullptr) {
+            *outer_key_valid = false;
+        }
+        if (used_local_fallback != nullptr) {
+            *used_local_fallback = false;
+        }
+        if (stage_id != nullptr) {
+            *stage_id = 1;
+        }
+
+        TSView direct = resolve_outer_key_view(outer_arg.as_ts_view(), key);
+        const bool has_direct = static_cast<bool>(direct);
+        const bool direct_valid = has_direct && direct.valid();
+        if (has_outer_key != nullptr) {
+            *has_outer_key = has_direct;
+        }
+        if (outer_key_valid != nullptr) {
+            *outer_key_valid = direct_valid;
+        }
+        if (direct_valid) {
+            return direct;
+        }
+
+        // Python parity: map_ over multiplexed TSD inputs uses get_or_create(key)
+        // and returns an existing-but-invalid keyed child when the source map does
+        // not currently carry that key.
+        if (!has_direct) {
+            const TSMeta* inner_meta = inner_ts.ts_meta();
+            const TSMeta* staged_meta =
+                (inner_meta != nullptr && inner_meta->kind == TSKind::REF) ? inner_meta->element_ts() : inner_meta;
+            if (staged_meta != nullptr) {
+                if (stage_id != nullptr) {
+                    *stage_id = 2;
+                }
+                auto& local_values = local_input_values_[arg];
+                auto it = local_values.find(key);
+                if (it == local_values.end()) {
+                    auto [inserted_it, _] = local_values.emplace(key.clone(), std::make_unique<TSValue>(staged_meta));
+                    it = inserted_it;
+                }
+                TSView staged = it->second->ts_view(inner_ts.as_ts_view().view_data().engine_time_ptr);
+                if (has_outer_key != nullptr) {
+                    *has_outer_key = true;
+                }
+                if (outer_key_valid != nullptr) {
+                    *outer_key_valid = staged.valid();
+                }
+                return staged;
+            }
+            return {};
+        }
+
+        return direct;
     }
 
     void TsdMapNode::wire_graph(const value::View &key, graph_s_ptr &graph) {
+        const bool debug_tsd_map = debug_tsd_map_enabled();
+        auto outer_root = input();
+        std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
+
         for (const auto &[arg, node_ndx] : input_node_ids_) {
-            auto node{graph->nodes()[node_ndx]};
+            auto node = graph->nodes()[node_ndx];
             node->notify();
 
+            if (debug_tsd_map) {
+                auto node_root_dbg = node->input();
+                std::string root_path_dbg = node_root_dbg ? node_root_dbg.short_path().to_string() : "<none>";
+                std::fprintf(stderr,
+                             "[tsd_map]  wire arg=%s node_ndx=%lld node_name=%s root=%s\n",
+                             arg.c_str(),
+                             static_cast<long long>(node->node_ndx()),
+                             node->signature().name.c_str(),
+                             root_path_dbg.c_str());
+            }
+
             if (arg == key_arg_) {
-                auto key_node{dynamic_cast<PythonNode &>(*node)};
-                // This relies on the current stub binding mechanism with a stub python class to hold the key.
-                nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
+                auto &key_node = dynamic_cast<PythonNode &>(*node);
+                nb::object py_key = key_type_meta_ != nullptr
+                                        ? key_type_meta_->ops().to_python(key.data(), key_type_meta_)
+                                        : nb::none();
                 nb::setattr(key_node.eval_fn(), "key", py_key);
-            } else {
-                if (multiplexed_args_.find(arg) != multiplexed_args_.end()) {
-                    auto  ts       = static_cast<TimeSeriesInput *>((*input())[arg].get());
-                    auto &tsd      = dynamic_cast<TimeSeriesDictInputImpl &>(*ts);
-                    auto  ts_value = tsd.get_or_create(key);
+                continue;
+            }
 
-                    node->reset_input(node->input()->copy_with(node.get(), {ts_value->shared_from_this()}));
-                    ts_value->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
-                } else {
-                    auto ts          = dynamic_cast<TimeSeriesReferenceInput *>((*input())[arg].get());
-                    auto inner_input = dynamic_cast<TimeSeriesReferenceInput *>((*node->input())["ts"].get());
+            auto inner_ts = hgraph::node_inner_ts_input(*node, false);
+            if (!inner_ts) {
+                continue;
+            }
 
-                    if (ts != nullptr && inner_input != nullptr) { inner_input->clone_binding(ts); }
+            if (!outer_bundle.has_value()) {
+                inner_ts.unbind();
+                continue;
+            }
+
+            auto outer_arg = outer_bundle->field(arg);
+            if (!outer_arg) {
+                inner_ts.unbind();
+                continue;
+            }
+
+            if (multiplexed_args_.find(arg) != multiplexed_args_.end()) {
+                bool used_local_fallback = false;
+                TSView outer_key_value = resolve_multiplexed_outer_value(arg, key, outer_arg, inner_ts, &used_local_fallback);
+                if (debug_tsd_map) {
+                    std::string outer_key_value_py{"<none>"};
+                    try {
+                        outer_key_value_py = nb::cast<std::string>(nb::repr(outer_key_value.to_python()));
+                    } catch (...) {}
+                    std::fprintf(stderr,
+                                 "[tsd_map]  bind mux arg=%s key=%s outer_valid=%d outer_mod=%d inner_kind=%d key_view_valid=%d key_view_mod=%d fallback=%d key_view_value=%s\n",
+                                 arg.c_str(),
+                                 key_repr(key, key_type_meta_).c_str(),
+                                 outer_arg.valid() ? 1 : 0,
+                                 outer_arg.modified() ? 1 : 0,
+                                 static_cast<int>(inner_ts.as_ts_view().kind()),
+                                 outer_key_value.valid() ? 1 : 0,
+                                 outer_key_value.modified() ? 1 : 0,
+                                 used_local_fallback ? 1 : 0,
+                                 outer_key_value_py.c_str());
                 }
+                hgraph::bind_inner_from_outer(outer_key_value, inner_ts, RefBindOrder::BoundTargetThenRefValue);
+            } else {
+                hgraph::bind_inner_from_outer(outer_arg.as_ts_view(), inner_ts, RefBindOrder::BoundTargetThenRefValue);
             }
         }
 
         if (output_node_id_ >= 0) {
-            auto  node       = graph->nodes()[output_node_id_];
-            auto &output_tsd = tsd_output();
-            auto  output_ts  = output_tsd.get_or_create(key);
-            node->set_output(output_ts->shared_from_this());
+            // Python map/mesh semantics materialize keyed output slots at wire time.
+            // This ensures subsequent key removals tick the outer TSD even when the
+            // nested graph never published a valid value for that key.
+            auto out = tsd_output();
+            if (out) {
+                (void)out.create(key);
+            }
         }
     }
 
+    bool TsdMapNode::refresh_multiplexed_bindings(const value::View &key, graph_s_ptr &graph, bool* all_mux_inputs_valid) {
+        auto outer_root = input();
+        std::optional<TSBInputView> outer_bundle = outer_root ? outer_root.try_as_bundle() : std::nullopt;
+
+        bool mux_all_valid = true;
+        bool refreshed = false;
+        for (const auto &[arg, node_ndx] : input_node_ids_) {
+            if (arg == key_arg_) {
+                continue;
+            }
+            if (multiplexed_args_.find(arg) == multiplexed_args_.end()) {
+                continue;
+            }
+
+            auto node = graph->nodes()[node_ndx];
+            auto inner_ts = hgraph::node_inner_ts_input(*node, false);
+            if (!inner_ts) {
+                continue;
+            }
+
+            if (!outer_bundle.has_value()) {
+                inner_ts.unbind();
+                mux_all_valid = false;
+                refreshed = true;
+                continue;
+            }
+
+            auto outer_arg = outer_bundle->field(arg);
+            if (!outer_arg) {
+                inner_ts.unbind();
+                mux_all_valid = false;
+                refreshed = true;
+                continue;
+            }
+
+            int stage_id = 1;
+            try {
+                bool has_outer_key = false;
+                bool outer_key_valid = false;
+                TSView outer_key_value =
+                    resolve_multiplexed_outer_value(arg, key, outer_arg, inner_ts, nullptr, &has_outer_key,
+                                                    &outer_key_valid, &stage_id);
+                const bool key_removed_this_tick = !has_outer_key && inner_ts.is_bound();
+                if (key_removed_this_tick) {
+                    inner_ts.unbind();
+                    node->notify();
+                    mux_all_valid = false;
+                    refreshed = true;
+                    continue;
+                }
+
+                mux_all_valid = mux_all_valid && outer_key_value.valid();
+                hgraph::BindingTargetComparison binding_targets = hgraph::compare_binding_targets(inner_ts, outer_key_value);
+                const bool conservative_outer_reschedule = false;
+                bool key_specific_modified = false;
+                if (has_outer_key && outer_arg.modified()) {
+                    if (conservative_outer_reschedule) {
+                        key_specific_modified = true;
+                    } else if (auto outer_dict = outer_arg.try_as_dict(); outer_dict.has_value()) {
+                        key_specific_modified = outer_dict->was_modified(key);
+                    } else {
+                        TSView effective_arg = hgraph::resolve_effective_view(outer_arg.as_ts_view());
+                        if (auto effective_dict = effective_arg.try_as_dict(); effective_dict.has_value()) {
+                            key_specific_modified = effective_dict->was_modified(key);
+                        } else {
+                            key_specific_modified = false;
+                        }
+                    }
+                }
+                const bool key_value_modified = has_outer_key && (!outer_key_valid || key_specific_modified);
+                if (debug_tsd_map_bind_enabled()) {
+                    std::fprintf(stderr,
+                                 "[tsd_map_bind] refresh arg=%s key=%s inner_path=%s inner_bound=%d inner_valid=%d inner_mod=%d inner_lmt=%lld outer_valid=%d outer_mod=%d has_key=%d key_valid=%d current_target=%d desired_target=%d binding_changed=%d key_value_modified=%d removed=%d\n",
+                                 arg.c_str(),
+                                 key_repr(key, key_type_meta_).c_str(),
+                                 inner_ts.as_ts_view().short_path().to_string().c_str(),
+                                 inner_ts.is_bound() ? 1 : 0,
+                                 inner_ts.as_ts_view().valid() ? 1 : 0,
+                                 inner_ts.as_ts_view().modified() ? 1 : 0,
+                                 static_cast<long long>(inner_ts.as_ts_view().last_modified_time().time_since_epoch().count()),
+                                 outer_key_value.valid() ? 1 : 0,
+                                 outer_key_value.modified() ? 1 : 0,
+                                 has_outer_key ? 1 : 0,
+                                 outer_key_valid ? 1 : 0,
+                                 binding_targets.current_inner_target.has_value() ? 1 : 0,
+                                 binding_targets.desired_outer_target.has_value() ? 1 : 0,
+                                 binding_targets.binding_changed ? 1 : 0,
+                                 key_value_modified ? 1 : 0,
+                                 key_removed_this_tick ? 1 : 0);
+                }
+                stage_id = 5;
+                if (!inner_ts.is_bound() || key_value_modified || binding_targets.binding_changed) {
+                    hgraph::bind_inner_from_outer(outer_key_value, inner_ts, RefBindOrder::BoundTargetThenRefValue);
+                }
+                if (debug_tsd_map_bind_enabled()) {
+                    std::fprintf(stderr,
+                                 "[tsd_map_bind] refresh_post arg=%s key=%s inner_path=%s inner_bound=%d inner_valid=%d inner_mod=%d inner_lmt=%lld\n",
+                                 arg.c_str(),
+                                 key_repr(key, key_type_meta_).c_str(),
+                                 inner_ts.as_ts_view().short_path().to_string().c_str(),
+                                 inner_ts.is_bound() ? 1 : 0,
+                                 inner_ts.as_ts_view().valid() ? 1 : 0,
+                                 inner_ts.as_ts_view().modified() ? 1 : 0,
+                                 static_cast<long long>(inner_ts.as_ts_view().last_modified_time().time_since_epoch().count()));
+                }
+                stage_id = 6;
+                if (key_value_modified || binding_targets.binding_changed) {
+                    node->notify();
+                }
+            } catch (const std::exception& e) {
+                if (debug_tsd_map_bind_enabled()) {
+                    std::fprintf(stderr,
+                                 "[tsd_map_bind] refresh exception arg=%s key=%s stage_id=%d what=%s\n",
+                                 arg.c_str(),
+                                 key_repr(key, key_type_meta_).c_str(),
+                                 stage_id,
+                                 e.what());
+                }
+                throw;
+            }
+            refreshed = true;
+        }
+        if (all_mux_inputs_valid != nullptr) {
+            *all_mux_inputs_valid = mux_all_valid;
+        }
+        return refreshed;
+    }
+
     void register_tsd_map_with_nanobind(nb::module_ &m) {
-        // Register single non-templated MapNestedEngineEvaluationClock
         nb::class_<MapNestedEngineEvaluationClock, NestedEngineEvaluationClock>(m, "MapNestedEngineEvaluationClock")
             .def_prop_ro("key", &MapNestedEngineEvaluationClock::py_key);
 
-        // Register single non-templated TsdMapNode
         nb::class_<TsdMapNode, NestedNode>(m, "TsdMapNode")
-            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::s_ptr, nb::dict, graph_builder_s_ptr,
-                          const std::unordered_map<std::string, int64_t> &, int64_t, const std::unordered_set<std::string> &,
-                          const std::string &>(),
-                 "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "nested_graph_builder"_a, "input_node_ids"_a,
-                 "output_node_id"_a, "multiplexed_args"_a, "key_arg"_a)
+            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::s_ptr, nb::dict,
+                          const TSMeta *, const TSMeta *, const TSMeta *, const TSMeta *,
+                          graph_builder_s_ptr, const std::unordered_map<std::string, int64_t> &, int64_t,
+                          const std::unordered_set<std::string> &, const std::string &>(),
+                 "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a,
+                 "input_meta"_a, "output_meta"_a, "error_output_meta"_a, "recordable_state_meta"_a,
+                 "nested_graph_builder"_a, "input_node_ids"_a, "output_node_id"_a, "multiplexed_args"_a, "key_arg"_a)
             .def_prop_ro("nested_graphs", &TsdMapNode::py_nested_graphs);
     }
 }  // namespace hgraph

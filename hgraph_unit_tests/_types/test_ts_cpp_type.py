@@ -24,6 +24,16 @@ def _skip_if_no_cpp():
         pytest.skip("C++ module not available")
 
 
+def _ops_ptr_for_meta(meta):
+    import hgraph._hgraph as _hgraph
+    return _hgraph._ts_runtime.ops_ptr_for_meta(meta.cpp_type)
+
+
+def _ops_kind_for_meta(meta):
+    import hgraph._hgraph as _hgraph
+    return _hgraph._ts_runtime.ops_kind_for_meta(meta.cpp_type)
+
+
 # ============================================================================
 # TS[T] - Scalar time-series
 # ============================================================================
@@ -129,6 +139,8 @@ def test_signal_cpp_type():
     result = meta.cpp_type
     assert result is not None
     assert result.kind == _hgraph.TSKind.SIGNAL
+    assert result.value_type is not None
+    assert result.value_type is _hgraph.value.scalar_type_meta_bool()
 
 
 def test_signal_singleton():
@@ -227,6 +239,7 @@ def test_tsw_tick_based_cpp_type():
     result = meta.cpp_type
     assert result is not None
     assert result.kind == _hgraph.TSKind.TSW
+    assert result.value_type is not None
     assert not result.is_duration_based
     assert result.period == 10
     assert result.min_period == 5
@@ -246,6 +259,7 @@ def test_tsw_duration_based_cpp_type():
     result = meta.cpp_type
     assert result is not None
     assert result.kind == _hgraph.TSKind.TSW
+    assert result.value_type is not None
     assert result.is_duration_based
 
 
@@ -388,6 +402,82 @@ def test_ref_nested_tsd_cpp_type():
     assert result.element_ts is tsd.cpp_type
     assert result.value_type is not None
     assert result.value_type.name == "TimeSeriesReference"
+
+
+def test_tsd_ops_selection_by_element_shape():
+    _skip_if_no_cpp()
+    import hgraph._hgraph as _hgraph
+    from hgraph._types._ref_meta_data import HgREFTypeMetaData
+    from hgraph._types._scalar_type_meta_data import HgAtomicType
+    from hgraph._types._scalar_types import Size
+    from hgraph._types._ts_meta_data import HgTSTypeMetaData
+    from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
+    from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
+
+    ts_int = HgTSTypeMetaData(HgAtomicType(int))
+    ref_ts_int = HgREFTypeMetaData(ts_int)
+    tsl_nested = HgTSLTypeMetaData(ts_int, HgAtomicType(Size[2]))
+
+    tsd_scalar = HgTSDTypeMetaData(HgAtomicType(int), ts_int)
+    tsd_ref = HgTSDTypeMetaData(HgAtomicType(int), ref_ts_int)
+    tsd_nested = HgTSDTypeMetaData(HgAtomicType(int), tsl_nested)
+
+    ptr_scalar = _ops_ptr_for_meta(tsd_scalar)
+    ptr_ref = _ops_ptr_for_meta(tsd_ref)
+    ptr_nested = _ops_ptr_for_meta(tsd_nested)
+
+    assert _ops_kind_for_meta(tsd_scalar) == _hgraph.TSKind.TSD
+    assert _ops_kind_for_meta(tsd_ref) == _hgraph.TSKind.TSD
+    assert _ops_kind_for_meta(tsd_nested) == _hgraph.TSKind.TSD
+    assert len({ptr_scalar, ptr_ref, ptr_nested}) == 3
+
+
+def test_ref_ops_selection_by_element_shape():
+    _skip_if_no_cpp()
+    import hgraph._hgraph as _hgraph
+    from hgraph import TimeSeriesSchema, TS
+    from hgraph._types._ref_meta_data import HgREFTypeMetaData
+    from hgraph._types._scalar_type_meta_data import HgAtomicType
+    from hgraph._types._scalar_types import Size
+    from hgraph._types._ts_meta_data import HgTSTypeMetaData
+    from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
+    from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
+    from hgraph._types._tss_meta_data import HgTSSTypeMetaData
+
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[int]
+
+    ts_int = HgTSTypeMetaData(HgAtomicType(int))
+    tsd_int = HgTSDTypeMetaData(HgAtomicType(int), ts_int)
+    tss_int = HgTSSTypeMetaData(HgAtomicType(int))
+    tsl_fixed = HgTSLTypeMetaData(ts_int, HgAtomicType(Size[2]))
+    tsl_dynamic = HgTSLTypeMetaData(ts_int, HgAtomicType(Size))
+
+    ref_scalar = HgREFTypeMetaData(ts_int)
+    ref_bundle = HgREFTypeMetaData(HgTypeMetaData.parse_type(AB))
+    ref_list_fixed = HgREFTypeMetaData(tsl_fixed)
+    ref_dynamic_tsd = HgREFTypeMetaData(tsd_int)
+    ref_dynamic_tss = HgREFTypeMetaData(tss_int)
+    ref_list_dynamic = HgREFTypeMetaData(tsl_dynamic)
+
+    ptr_scalar = _ops_ptr_for_meta(ref_scalar)
+    ptr_bundle = _ops_ptr_for_meta(ref_bundle)
+    ptr_list_fixed = _ops_ptr_for_meta(ref_list_fixed)
+    ptr_dynamic_tsd = _ops_ptr_for_meta(ref_dynamic_tsd)
+    ptr_dynamic_tss = _ops_ptr_for_meta(ref_dynamic_tss)
+    ptr_list_dynamic = _ops_ptr_for_meta(ref_list_dynamic)
+
+    assert _ops_kind_for_meta(ref_scalar) == _hgraph.TSKind.REF
+    assert _ops_kind_for_meta(ref_bundle) == _hgraph.TSKind.REF
+    assert _ops_kind_for_meta(ref_list_fixed) == _hgraph.TSKind.REF
+    assert _ops_kind_for_meta(ref_dynamic_tsd) == _hgraph.TSKind.REF
+    assert _ops_kind_for_meta(ref_dynamic_tss) == _hgraph.TSKind.REF
+    assert _ops_kind_for_meta(ref_list_dynamic) == _hgraph.TSKind.REF
+
+    assert ptr_dynamic_tsd == ptr_dynamic_tss
+    assert ptr_list_fixed != ptr_list_dynamic
+    assert len({ptr_scalar, ptr_bundle, ptr_list_fixed, ptr_dynamic_tsd}) == 4
 
 
 # ============================================================================

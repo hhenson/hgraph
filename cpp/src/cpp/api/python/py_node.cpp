@@ -5,11 +5,11 @@
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/ref.h>
-#include <hgraph/types/tsb.h>
 
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node.h>
+#include <cstdio>
+#include <cstdlib>
 
 namespace hgraph
 {
@@ -111,7 +111,23 @@ namespace hgraph
 
     const NodeSignature &PyNode::signature() const { return _impl->signature(); }
 
-    const nb::dict &PyNode::scalars() const { return _impl->scalars(); }
+    const nb::dict &PyNode::scalars() const {
+        const nb::dict& scalars = _impl->scalars();
+        if (std::getenv("HGRAPH_DEBUG_NODE_SCALARS") != nullptr) {
+            std::size_t scalar_count = 0;
+            try {
+                scalar_count = static_cast<std::size_t>(nb::len(scalars));
+            } catch (...) {
+                scalar_count = 0;
+            }
+            std::fprintf(stderr,
+                         "[node_scalars] node=%lld name=%s count=%zu\n",
+                         static_cast<long long>(_impl->node_ndx()),
+                         _impl->signature().name.c_str(),
+                         scalar_count);
+        }
+        return scalars;
+    }
 
     PyGraph PyNode::graph() const {
         auto graph{_impl->graph()};
@@ -119,26 +135,51 @@ namespace hgraph
     }
 
     nb::object PyNode::input() const {
-        auto inp = _impl->input();
-        return inp ? wrap_input(inp) : nb::none();
+        auto view = _impl->input();
+        if (std::getenv("HGRAPH_DEBUG_NODE_INPUTS") != nullptr) {
+            const TSMeta* meta = view.ts_meta();
+            std::size_t sig_input_count = 0;
+            if (_impl->signature().time_series_inputs.has_value()) {
+                sig_input_count = _impl->signature().time_series_inputs->size();
+            }
+            std::fprintf(stderr,
+                         "[node_input] node=%lld name=%s has_input=%d view=%d sig_inputs=%zu meta_kind=%d\n",
+                         static_cast<long long>(_impl->node_ndx()),
+                         _impl->signature().name.c_str(),
+                         _impl->has_input() ? 1 : 0,
+                         static_cast<bool>(view) ? 1 : 0,
+                         sig_input_count,
+                         meta != nullptr ? static_cast<int>(meta->kind) : -1);
+        }
+        return view ? wrap_input_view(view) : nb::none();
     }
 
     nb::dict PyNode::inputs() const {
         nb::dict d;
-        auto inp_ = _impl->input();
-        if (!inp_) { return d; }
-        for (const auto &key : inp_->schema().keys()) { d[key.c_str()] = wrap_input((*inp_)[key]); }
+        auto view = _impl->input();
+        if (!view) { return d; }
+        const TSMeta* meta = view.ts_meta();
+        if (!meta || meta->kind != TSKind::TSB || meta->fields() == nullptr) { return d; }
+
+        auto bundle = view.as_bundle();
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            auto field_view = bundle.at(i);
+            d[meta->fields()[i].name] = wrap_input_view(field_view);
+        }
         return d;
     }
 
-    nb::tuple PyNode::start_inputs() const { return nb::tuple(nb::cast(_impl->start_inputs())); }
+    nb::tuple PyNode::start_inputs() const { return nb::tuple(); }
 
     nb::object PyNode::output() {
-        auto out = _impl->output();
-        return out ? wrap_output(out) : nb::none();
+        auto view = _impl->output();
+        return view ? wrap_output_view(view) : nb::none();
     }
 
-    nb::object PyNode::recordable_state() { return wrap_time_series(_impl->recordable_state()); }
+    nb::object PyNode::recordable_state() {
+        auto view = _impl->recordable_state();
+        return view ? wrap_output_view(view) : nb::none();
+    }
 
     nb::bool_ PyNode::has_recordable_state() const { return nb::bool_(_impl->has_recordable_state()); }
 
@@ -146,7 +187,10 @@ namespace hgraph
 
     nb::bool_ PyNode::has_scheduler() const { return nb::bool_(_impl->has_scheduler()); }
 
-    nb::object PyNode::error_output() { return wrap_output(_impl->error_output()); }
+    nb::object PyNode::error_output() {
+        auto view = _impl->error_output();
+        return view ? wrap_output_view(view) : nb::none();
+    }
 
     nb::bool_ PyNode::has_input() const { return nb::bool_(_impl->has_input()); }
 

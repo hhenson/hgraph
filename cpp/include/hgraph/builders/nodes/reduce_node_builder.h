@@ -16,10 +16,6 @@ namespace hgraph {
      */
     struct ReduceNodeBuilder : BaseNodeBuilder {
         ReduceNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
-                          std::optional<input_builder_s_ptr> input_builder_ = std::nullopt,
-                          std::optional<output_builder_s_ptr> output_builder_ = std::nullopt,
-                          std::optional<output_builder_s_ptr> error_builder_ = std::nullopt,
-                          std::optional<output_builder_s_ptr> recordable_state_builder_ = std::nullopt,
                           graph_builder_s_ptr nested_graph_builder = {},
                           const std::tuple<int64_t, int64_t> &input_node_ids = {}, int64_t output_node_id = -1);
 
