@@ -50,7 +50,7 @@ struct HGRAPH_EXPORT TSInput : TSValue {
      * by this endpoint.
      */
     explicit TSInput(const TSMeta *schema) :
-        TSValue(schema), m_active_state(*active_schema_from(schema))
+        TSValue(*schema), m_active_state(*active_schema_from(schema))
     {}
 
 protected:

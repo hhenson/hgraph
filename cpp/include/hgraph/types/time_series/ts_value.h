@@ -1,32 +1,34 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
-#include <hgraph/types/time_series/time_series_state.h>
 #include <hgraph/types/time_series/ts_meta.h>
-#include <hgraph/types/time_series/value/value.h>
+#include <hgraph/types/time_series/ts_value_builder.h>
+
+#include <functional>
 
 namespace hgraph {
 
 /**
  * Shared owning storage for a logical time-series value.
  *
- * `TSValue` is intended to hold the endpoint-local value together with the
- * root time-series state tree that describes modification and subscription
- * behavior for that value.
+ * `TSValue` is intended to hold endpoint-local time-series storage in the
+ * same broad shape as the new `Value` layer:
+ * - one cached schema-bound builder
+ * - one owned storage block
+ * - non-owning views built over that storage
+ *
+ * The owned storage block is divided into two aligned regions:
+ * - a value region described by the value-layer `ValueBuilder`
+ * - a time-series extension region described by `TSStateOps`
+ *
+ * The value region is laid out first so fixed shapes preserve their
+ * data-first representation and remain suitable for vectorised access. The TS
+ * region follows that at the required alignment boundary and carries the
+ * additional modification/subscription/link state for the same logical value.
  *
  * This is the shared storage contract used by both `TSInput` and `TSOutput`.
  * Endpoint-specific concerns such as input active-state tracking and output
  * alternative representations build on top of this base storage.
- *
- * The stored `Value` is schema-bound to `TSMeta::value_type`. Time-series
- * specific owned-versus-linked behavior is expected to be expressed within the
- * `Value` / `View` layer through the concrete state implementations selected
- * by that value schema, rather than by adding a second top-level value-state
- * wrapper here.
- *
- * The time-series state stored alongside that value is responsible for
- * modification, subscription, rebinding, and other time-series-specific
- * runtime behavior.
  */
 struct HGRAPH_EXPORT TSValue {
     /**
@@ -36,23 +38,28 @@ struct HGRAPH_EXPORT TSValue {
      * schema defines both the time-series behavior and the underlying value
      * schema used by the owned `Value`.
      */
-    explicit TSValue(const TSMeta *schema);
+    explicit TSValue(const TSMeta &schema);
+    TSValue(const TSValue &other);
+    TSValue(TSValue &&other) noexcept;
+    TSValue &operator=(const TSValue &other);
+    TSValue &operator=(TSValue &&other) noexcept;
+    ~TSValue();
 
 protected:
     /**
      * Return the logical time-series schema satisfied by this storage.
      */
-    [[nodiscard]] const TSMeta *schema() const noexcept { return m_schema; }
+    [[nodiscard]] const TSMeta &schema() const noexcept { return m_schema.get(); }
 
     /**
      * Return the stored endpoint value as a read-only erased view.
      */
-    [[nodiscard]] View value() const noexcept { return m_value.view(); }
+    [[nodiscard]] View value() const noexcept;
 
     /**
      * Return the stored endpoint value as a mutable erased view.
      */
-    [[nodiscard]] View value() noexcept { return m_value.view(); }
+    [[nodiscard]] View value() noexcept;
 
     /**
      * Return the scalar-like value surface for this time-series.
@@ -140,25 +147,33 @@ protected:
      */
     [[nodiscard]] TimeSeriesStatePtr state_ptr() noexcept
     {
-        return std::visit(
-            [](auto &state_value) -> TimeSeriesStatePtr {
-                return TimeSeriesStatePtr{&state_value};
-            },
-            m_state);
+        return std::visit([](auto &state_value) -> TimeSeriesStatePtr { return TimeSeriesStatePtr{&state_value}; }, state_variant());
     }
 
 private:
-    [[nodiscard]] static TimeSeriesStateV make_root_state(const TSMeta *schema);
+    [[nodiscard]] const TSValueBuilder &builder() const noexcept { return *m_builder; }
+    [[nodiscard]] void *storage_memory() noexcept { return m_storage; }
+    [[nodiscard]] const void *storage_memory() const noexcept { return m_storage; }
+    [[nodiscard]] void *value_memory() noexcept { return builder().value_memory(storage_memory()); }
+    [[nodiscard]] const void *value_memory() const noexcept { return builder().value_memory(storage_memory()); }
+    [[nodiscard]] void *ts_memory() noexcept { return builder().ts_memory(storage_memory()); }
+    [[nodiscard]] const void *ts_memory() const noexcept { return builder().ts_memory(storage_memory()); }
+    [[nodiscard]] TimeSeriesStateV &state_variant() noexcept { return *static_cast<TimeSeriesStateV *>(ts_memory()); }
+    [[nodiscard]] const TimeSeriesStateV &state_variant() const noexcept { return *static_cast<const TimeSeriesStateV *>(ts_memory()); }
 
-    Value               m_value;
+    void allocate_and_construct();
+    void clear_storage() noexcept;
+
+    const TSValueBuilder *m_builder{nullptr};
     /**
-     * Root time-series state associated to `m_value`.
+     * One combined allocation containing the value region followed by the TS
+     * extension region.
      */
-    TimeSeriesStateV      m_state;
+    void *                m_storage{nullptr};
     /**
-     * Logical time-series schema describing `m_value` and `m_state`.
+     * Logical time-series schema describing the combined value and TS state.
      */
-    const TSMeta *        m_schema{nullptr};
+    std::reference_wrapper<const TSMeta> m_schema;
 };
 
 }  // namespace hgraph

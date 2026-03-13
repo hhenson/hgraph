@@ -117,6 +117,7 @@ set(HGRAPH_SOURCES
         types/time_series/ts_input.cpp
         types/time_series/ts_input_view.cpp
         types/time_series/ts_output.cpp
+        types/time_series/ts_value_builder.cpp
         types/time_series/ts_value.cpp
         types/time_series/time_series_state.cpp
         types/time_series/ts_type_registry.cpp

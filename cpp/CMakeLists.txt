@@ -333,6 +333,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/time_series/ts_output.h
         include/hgraph/types/time_series/ts_output_view.h
         include/hgraph/types/time_series/ts_type_registry.h
+        include/hgraph/types/time_series/ts_value_builder.h
         include/hgraph/types/time_series/ts_value.h
         include/hgraph/types/time_series/ts_view.h
         include/hgraph/types/time_series_type.h

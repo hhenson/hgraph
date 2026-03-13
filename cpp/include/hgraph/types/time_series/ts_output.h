@@ -34,7 +34,7 @@ struct HGRAPH_EXPORT TSOutput : TSValue {
      * time-series value shape owned by this endpoint.
      */
     explicit TSOutput(const TSMeta *schema) :
-        TSValue(schema)
+        TSValue(*schema)
     {}
 
     [[nodiscard]] TSOutputView view();
