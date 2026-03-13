@@ -25,20 +25,14 @@ namespace hgraph
             using TSValue::list_value;
             using TSValue::set_delta_value;
             using TSValue::set_value;
-            using TSValue::state_ptr;
             using TSValue::value;
+            using TSValue::view_context;
             using TSValue::window_value;
         };
 
-        template <typename TState>
-        bool holds_state(TimeSeriesStatePtr state)
+        const BaseState &as_base_state(void *state)
         {
-            return std::holds_alternative<TState *>(state);
-        }
-
-        const BaseState &as_base_state(TimeSeriesStatePtr state)
-        {
-            return std::visit([](auto *ptr) -> const BaseState & { return *ptr; }, state);
+            return *static_cast<BaseState *>(state);
         }
     }  // namespace test_detail
 }  // namespace hgraph
@@ -56,19 +50,19 @@ TEST_CASE("TSValue picks the correct root state for each schema kind", "[ts_valu
     const auto *list_ts = ts_registry.tsl(scalar_ts, 3);
     const auto *window_ts = ts_registry.tsw(int_type, 4, 1);
 
-    std::vector<std::pair<const hgraph::TSMeta *, bool (*)(hgraph::TimeSeriesStatePtr)>> cases{
-        {scalar_ts, &hgraph::test_detail::holds_state<hgraph::TSState>},
-        {set_ts, &hgraph::test_detail::holds_state<hgraph::TSSState>},
-        {dict_ts, &hgraph::test_detail::holds_state<hgraph::TSDState>},
-        {list_ts, &hgraph::test_detail::holds_state<hgraph::TSLState>},
-        {window_ts, &hgraph::test_detail::holds_state<hgraph::TSWState>},
+    std::vector<const hgraph::TSMeta *> cases{
+        scalar_ts,
+        set_ts,
+        dict_ts,
+        list_ts,
+        window_ts,
     };
 
-    for (const auto &[schema, predicate] : cases) {
-        hgraph::test_detail::ExposedTSValue value{schema};
-        auto state = value.state_ptr();
+    for (const auto *schema : cases) {
+        hgraph::test_detail::ExposedTSValue value{*schema};
+        auto state = value.view_context().ts_state;
 
-        CHECK(predicate(state));
+        REQUIRE(state != nullptr);
 
         const hgraph::BaseState &base = hgraph::test_detail::as_base_state(state);
         CHECK(base.index == 0);
@@ -85,7 +79,7 @@ TEST_CASE("TSValue stores collection values with delta tracking for time-series 
     const auto *str_type = value_registry.register_type<std::string>("str");
 
     SECTION("set delta exposes added and removed elements") {
-        hgraph::test_detail::ExposedTSValue value{ts_registry.tss(int_type)};
+        hgraph::test_detail::ExposedTSValue value{*ts_registry.tss(int_type)};
 
         {
             auto mutation = value.set_value().begin_mutation();
@@ -109,7 +103,7 @@ TEST_CASE("TSValue stores collection values with delta tracking for time-series 
     }
 
     SECTION("map delta exposes removed items by stable slot") {
-        hgraph::test_detail::ExposedTSValue value{ts_registry.tsd(str_type, ts_registry.ts(int_type))};
+        hgraph::test_detail::ExposedTSValue value{*ts_registry.tsd(str_type, ts_registry.ts(int_type))};
 
         {
             auto mutation = value.dict_value().begin_mutation();
@@ -134,7 +128,7 @@ TEST_CASE("TSValue stores collection values with delta tracking for time-series 
     }
 
     SECTION("list and bundle delta surfaces are available from TSValue") {
-        hgraph::test_detail::ExposedTSValue list_value{ts_registry.tsl(ts_registry.ts(int_type), 2)};
+        hgraph::test_detail::ExposedTSValue list_value{*ts_registry.tsl(ts_registry.ts(int_type), 2)};
         {
             auto mutation = list_value.list_value().begin_mutation();
             mutation.setting(0, hgraph::Value{7}.view());
@@ -144,7 +138,7 @@ TEST_CASE("TSValue stores collection values with delta tracking for time-series 
         CHECK(updated_indices == std::vector<size_t>{0});
 
         const auto *bundle_schema = ts_registry.tsb({{"lhs", ts_registry.ts(int_type)}, {"rhs", ts_registry.ts(int_type)}}, "Pair");
-        hgraph::test_detail::ExposedTSValue bundle_value{bundle_schema};
+        hgraph::test_detail::ExposedTSValue bundle_value{*bundle_schema};
         {
             auto mutation = bundle_value.bundle_value().begin_mutation();
             mutation.setting_field("lhs", hgraph::Value{11}.view());

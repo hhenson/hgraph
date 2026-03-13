@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_value_builder.h>
 
 #include <functional>
@@ -143,14 +144,31 @@ protected:
     [[nodiscard]] MapDeltaView dict_delta_value() const;
 
     /**
-     * Return the root time-series state for this stored value.
+     * Return the schema-resolved context needed to construct a TS view.
      */
-    [[nodiscard]] TimeSeriesStatePtr state_ptr() noexcept
+    [[nodiscard]] ViewContext view_context() noexcept
     {
-        return std::visit([](auto &state_value) -> TimeSeriesStatePtr { return TimeSeriesStatePtr{&state_value}; }, state_variant());
+        return ViewContext{
+            &schema(),
+            &builder().value_builder().dispatch(),
+            value_memory(),
+            root_state()};
     }
 
 private:
+    /**
+     * Return the conceptual root time-series state for this stored value.
+     *
+     * The current TS prototype still materialises the TS extension region as a
+     * `TimeSeriesStateV`. `ViewContext` is the only TS-facing carrier that
+     * should expose that conceptual root, so this helper remains private and
+     * returns the raw state pointer directly.
+     */
+    [[nodiscard]] void *root_state() noexcept
+    {
+        return std::visit([](auto &state_value) -> void * { return &state_value; }, state_variant());
+    }
+
     [[nodiscard]] const TSValueBuilder &builder() const noexcept { return *m_builder; }
     [[nodiscard]] void *storage_memory() noexcept { return m_storage; }
     [[nodiscard]] const void *storage_memory() const noexcept { return m_storage; }

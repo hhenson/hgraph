@@ -12,6 +12,12 @@ namespace hgraph {
  * transferring ownership of the underlying `TSOutput` state.
  */
 struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
+    using TSView<TSOutputView>::TSView;
+
+    TSOutputView(ParentValue owner, ViewContext context, ViewContext parent = ViewContext::none()) noexcept :
+        TSView<TSOutputView>(owner, context, parent)
+    {}
+
     /**
      * Construct an output view.
      *
