@@ -108,6 +108,7 @@ add_executable(hgraph_time_series_value_tests
     test_time_series_list_value.cpp
     test_time_series_record_value.cpp
     test_time_series_sequence_value.cpp
+    test_time_series_ts_value.cpp
     ../src/cpp/types/time_series/value/atomic.cpp
     ../src/cpp/types/time_series/value/associative.cpp
     ../src/cpp/types/time_series/value/list.cpp
@@ -115,6 +116,9 @@ add_executable(hgraph_time_series_value_tests
     ../src/cpp/types/time_series/value/sequence.cpp
     ../src/cpp/types/time_series/value/state.cpp
     ../src/cpp/types/time_series/value/value.cpp
+    ../src/cpp/types/time_series/ts_value.cpp
+    ../src/cpp/types/time_series/time_series_state.cpp
+    ../src/cpp/types/time_series/ts_type_registry.cpp
     ../src/cpp/types/value/type_meta_bindings.cpp
     ../src/cpp/types/value/type_registry.cpp
 )
