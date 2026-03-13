@@ -44,8 +44,7 @@ namespace hgraph {
         }
 
         bool operator()(const value::View& a, const value::View& b) const {
-            if (!a.valid() || !b.valid()) return false;
-            return a.hash() == b.hash() && a.schema() == b.schema();
+            return a.equals(b);
         }
     };
 

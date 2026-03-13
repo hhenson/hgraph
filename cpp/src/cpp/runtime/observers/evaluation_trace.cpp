@@ -30,10 +30,11 @@ namespace hgraph {
         auto time_us = std::chrono::duration_cast<std::chrono::microseconds>(eval_time.time_since_epoch()).count();
         std::string formatted = fmt::format("[{}] {}", time_us, msg);
         if (_use_logger) {
-            // For now, just use cout. In future could integrate with a logging framework
-            std::cerr << formatted << std::endl;
+            // Trace output is diagnostic and can be voluminous. Avoid forcing a
+            // flush per line because that perturbs real-time scheduling tests.
+            std::clog << formatted << '\n';
         } else {
-            std::cout << formatted << std::endl;
+            std::cout << formatted << '\n';
         }
     }
 
@@ -236,4 +237,3 @@ namespace hgraph {
     }
 
 } // namespace hgraph
-

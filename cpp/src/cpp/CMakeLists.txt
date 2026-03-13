@@ -105,6 +105,7 @@ set(HGRAPH_SOURCES
         types/tsb.cpp
         types/tsl.cpp
         types/tsw.cpp
+        types/value/compat_ops.cpp
         types/value/type_registry.cpp
         types/value/type_meta_bindings.cpp
         types/time_series/value/atomic.cpp

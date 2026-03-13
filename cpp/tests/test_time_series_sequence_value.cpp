@@ -9,7 +9,7 @@ TEST_CASE("Cyclic buffer values overwrite the oldest element when full")
     auto &registry = hgraph::value::TypeRegistry::instance();
     const auto *schema = registry.cyclic_buffer(hgraph::value::scalar_type_meta<int32_t>(), 3).build();
 
-    hgraph::Value value{*schema};
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
     auto buffer = value.view().as_cyclic_buffer();
 
     {
@@ -37,7 +37,7 @@ TEST_CASE("Bounded queue values evict from the front when full")
     auto &registry = hgraph::value::TypeRegistry::instance();
     const auto *schema = registry.queue(hgraph::value::scalar_type_meta<int32_t>()).max_capacity(2).build();
 
-    hgraph::Value value{*schema};
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
     auto queue = value.view().as_queue();
 
     {
@@ -66,7 +66,7 @@ TEST_CASE("Buffer mutation views retain only the last removed payload in a scope
     const auto *cyclic_schema = registry.cyclic_buffer(hgraph::value::scalar_type_meta<int32_t>(), 2).build();
     const auto *queue_schema = registry.queue(hgraph::value::scalar_type_meta<int32_t>()).max_capacity(2).build();
 
-    hgraph::Value cyclic_value{*cyclic_schema};
+    hgraph::Value cyclic_value{*cyclic_schema, hgraph::MutationTracking::Delta};
     auto cyclic = cyclic_value.cyclic_buffer_view();
     cyclic.begin_mutation()
         .pushing(hgraph::value_for(int32_t{1}).view())
@@ -76,7 +76,7 @@ TEST_CASE("Buffer mutation views retain only the last removed payload in a scope
     CHECK(cyclic.has_removed());
     CHECK(cyclic.removed().as_atomic().as<int32_t>() == 2);
 
-    hgraph::Value queue_value{*queue_schema};
+    hgraph::Value queue_value{*queue_schema, hgraph::MutationTracking::Delta};
     auto queue = queue_value.queue_view();
     queue.begin_mutation()
         .pushing(hgraph::value_for(int32_t{10}).view())

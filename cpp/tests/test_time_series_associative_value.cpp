@@ -11,7 +11,7 @@ TEST_CASE("Set values support add contains and remove")
     auto &registry = hgraph::value::TypeRegistry::instance();
     const auto *schema = registry.set(hgraph::value::scalar_type_meta<int32_t>()).build();
 
-    hgraph::Value value{*schema};
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
     auto set = value.view().as_set();
 
     auto one = hgraph::value_for(int32_t{1});
@@ -38,7 +38,7 @@ TEST_CASE("Set values retain removed payloads by slot until reuse")
     auto &registry = hgraph::value::TypeRegistry::instance();
     const auto *schema = registry.set(hgraph::value::scalar_type_meta<int32_t>()).build();
 
-    hgraph::Value value{*schema};
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
     auto set = value.set_view();
     auto delta = set.delta();
 
@@ -79,7 +79,7 @@ TEST_CASE("Map values support lookup and require live values")
                                       hgraph::value::scalar_type_meta<int32_t>())
                              .build();
 
-    hgraph::Value value{*schema};
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
     auto map = value.view().as_map();
 
     auto key = hgraph::value_for(std::string{"alpha"});
@@ -104,7 +104,7 @@ TEST_CASE("Map values retain removed key and value payloads by slot until reuse"
     const auto *schema =
         registry.map(hgraph::value::scalar_type_meta<std::string>(), hgraph::value::scalar_type_meta<int32_t>()).build();
 
-    hgraph::Value value{*schema};
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
     auto map = value.map_view();
     auto delta = map.delta();
 
@@ -228,7 +228,7 @@ TEST_CASE("Associative mutation scopes support nesting with depth tracking")
     const auto *map_schema =
         registry.map(hgraph::value::scalar_type_meta<int32_t>(), hgraph::value::scalar_type_meta<int32_t>()).build();
 
-    hgraph::Value set_value{*set_schema};
+    hgraph::Value set_value{*set_schema, hgraph::MutationTracking::Delta};
     auto set = set_value.set_view();
     auto set_delta = set.delta();
     auto one = hgraph::value_for(int32_t{1});
@@ -248,7 +248,7 @@ TEST_CASE("Associative mutation scopes support nesting with depth tracking")
         CHECK_FALSE(reopen.remove(one.view()));
     }
 
-    hgraph::Value map_value{*map_schema};
+    hgraph::Value map_value{*map_schema, hgraph::MutationTracking::Delta};
     auto map = map_value.map_view();
     auto map_delta = map.delta();
     auto key = hgraph::value_for(int32_t{7});
@@ -269,7 +269,7 @@ TEST_CASE("Associative mutation scopes support nesting with depth tracking")
         CHECK_FALSE(reopen.remove(key.view()));
     }
 
-    hgraph::Value existing_set_value{*set_schema};
+    hgraph::Value existing_set_value{*set_schema, hgraph::MutationTracking::Delta};
     auto existing_set = existing_set_value.set_view();
     auto existing_set_delta = existing_set.delta();
     existing_set.begin_mutation().adding(int32_t{2});
@@ -283,7 +283,7 @@ TEST_CASE("Associative mutation scopes support nesting with depth tracking")
         CHECK(existing_set_delta.slot_occupied(0));
     }
 
-    hgraph::Value existing_map_value{*map_schema};
+    hgraph::Value existing_map_value{*map_schema, hgraph::MutationTracking::Delta};
     auto existing_map = existing_map_value.map_view();
     auto existing_map_delta = existing_map.delta();
     existing_map.begin_mutation().setting(int32_t{9}, int32_t{90});
@@ -318,7 +318,7 @@ TEST_CASE("Associative delta views expose net added and removed slots")
     const auto *map_schema =
         registry.map(hgraph::value::scalar_type_meta<int32_t>(), hgraph::value::scalar_type_meta<int32_t>()).build();
 
-    hgraph::Value set_value{*set_schema};
+    hgraph::Value set_value{*set_schema, hgraph::MutationTracking::Delta};
     auto set = set_value.set_view();
     auto set_delta = set.delta();
     set.begin_mutation().adding(int32_t{1}).adding(int32_t{2}).removing(int32_t{1});
@@ -333,7 +333,7 @@ TEST_CASE("Associative delta views expose net added and removed slots")
         FAIL_CHECK("Unexpected removed set delta entry: " << entry.as_atomic().as<int32_t>());
     }
 
-    hgraph::Value map_value{*map_schema};
+    hgraph::Value map_value{*map_schema, hgraph::MutationTracking::Delta};
     auto map = map_value.map_view();
     auto map_delta = map.delta();
     map.begin_mutation().setting(int32_t{7}, int32_t{70}).setting(int32_t{8}, int32_t{80}).removing(int32_t{7});
@@ -356,7 +356,7 @@ TEST_CASE("Map delta views expose updated items for existing keys")
     const auto *map_schema =
         registry.map(hgraph::value::scalar_type_meta<int32_t>(), hgraph::value::scalar_type_meta<int32_t>()).build();
 
-    hgraph::Value map_value{*map_schema};
+    hgraph::Value map_value{*map_schema, hgraph::MutationTracking::Delta};
     auto map = map_value.map_view();
     auto delta = map.delta();
 

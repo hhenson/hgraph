@@ -7,9 +7,10 @@
  */
 
 #include <hgraph/types/value/type_meta_bindings.h>
+#include <hgraph/types/value/compat_ops.h>
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/type_meta.h>
-#include <hgraph/types/value/composite_ops.h>
+#include <hgraph/types/value/value.h>
 #include <hgraph/util/date_time.h>
 #include <hgraph/python/chrono.h>
 
@@ -255,11 +256,11 @@ struct CompoundScalarOps {
         if (py_class.is_valid()) {
             // Build kwargs dict from field values
             nb::dict kwargs;
+            auto bundle = static_cast<const ::hgraph::Value*>(obj)->bundle_view();
             for (size_t i = 0; i < schema->field_count; ++i) {
                 const BundleFieldInfo& field = schema->fields[i];
-                const void* field_ptr = static_cast<const char*>(obj) + field.offset;
-                if (field.type && field.type->ops().to_python && field.name) {
-                    kwargs[field.name] = field.type->ops().to_python(field_ptr, field.type);
+                if (field.name != nullptr) {
+                    kwargs[field.name] = bundle.at(i).to_python();
                 }
             }
             // Construct the Python class with **kwargs

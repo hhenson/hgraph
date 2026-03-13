@@ -85,6 +85,7 @@ namespace hgraph
             HGRAPH_ATOMIC_BUILDER_CASE(float)
             HGRAPH_ATOMIC_BUILDER_CASE(double)
             HGRAPH_ATOMIC_BUILDER_CASE(std::string)
+            HGRAPH_ATOMIC_BUILDER_CASE(nb::object)
             HGRAPH_ATOMIC_BUILDER_CASE(engine_date_t)
             HGRAPH_ATOMIC_BUILDER_CASE(engine_time_t)
             HGRAPH_ATOMIC_BUILDER_CASE(engine_time_delta_t)

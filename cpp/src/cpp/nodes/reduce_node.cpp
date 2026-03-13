@@ -61,7 +61,7 @@ namespace hgraph {
             // This matches Python: keys = key_set.valid - key_set.added
             std::vector<value::View> keys;
             auto &key_set = tsd->key_set();
-            for (auto elem : key_set.value_view()) {
+            for (auto elem : key_set.value_view().values()) {
                 if (!key_set.was_added(elem)) {
                     keys.push_back(elem);
                 }
@@ -456,11 +456,8 @@ namespace hgraph {
 
     nb::dict ReduceNode::py_bound_node_indexes() const {
         nb::dict result;
-        auto* tsd = const_cast<ReduceNode*>(this)->ts();
-        const auto* key_schema = tsd->key_type_meta();
         for (const auto& [key, ndx] : bound_node_indexes_) {
-            // Convert Value key to Python using TypeMeta
-            nb::object py_key = key_schema->ops().to_python(key.data(), key_schema);
+            nb::object py_key = key.to_python();
             result[py_key] = nb::make_tuple(std::get<0>(ndx), std::get<1>(ndx));
         }
         return result;

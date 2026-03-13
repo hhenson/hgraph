@@ -34,7 +34,7 @@ def make_int_value(val):
     int_schema = value.scalar_type_meta_int64()
     v = Value(int_schema)
 
-    v.emplace()
+    v.reset()
     v.set_int(val)
     return v
 
@@ -87,7 +87,7 @@ def test_create_cyclic_buffer(cyclic_buffer_schema_5):
     """Test creating a cyclic buffer."""
     buf = Value(cyclic_buffer_schema_5)
 
-    buf.emplace()
+    buf.reset()
     assert buf.view().is_cyclic_buffer()
     assert buf.schema.kind == TypeKind.CyclicBuffer
 
@@ -96,7 +96,7 @@ def test_cyclic_buffer_capacity(cyclic_buffer_schema_5):
     """Test cyclic buffer reports correct capacity."""
     buf = Value(cyclic_buffer_schema_5)
 
-    buf.emplace()
+    buf.reset()
     view = buf.view().as_cyclic_buffer()
     assert view.capacity() == 5
 
@@ -105,7 +105,7 @@ def test_cyclic_buffer_initially_empty(cyclic_buffer_schema_5):
     """Test cyclic buffer is initially empty."""
     buf = Value(cyclic_buffer_schema_5)
 
-    buf.emplace()
+    buf.reset()
     view = buf.view().as_cyclic_buffer()
     assert len(view) == 0
     assert not view.full()
@@ -119,7 +119,7 @@ def test_push_back_single(cyclic_buffer_schema_5):
     """Test pushing a single element."""
     buf = Value(cyclic_buffer_schema_5)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     elem = make_int_value(42)
@@ -133,7 +133,7 @@ def test_push_back_multiple(cyclic_buffer_schema_5):
     """Test pushing multiple elements."""
     buf = Value(cyclic_buffer_schema_5)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     for i in range(3):
@@ -150,7 +150,7 @@ def test_push_back_until_full(cyclic_buffer_schema_3):
     """Test pushing until buffer is full."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     for i in range(3):
@@ -172,7 +172,7 @@ def test_eviction_when_full(cyclic_buffer_schema_3):
     """Test that oldest element is evicted when full."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     # Fill buffer with 0, 1, 2
@@ -196,7 +196,7 @@ def test_multiple_evictions(cyclic_buffer_schema_3):
     """Test multiple evictions maintain logical order."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     # Push 0, 1, 2, 3, 4, 5 into buffer of capacity 3
@@ -215,7 +215,7 @@ def test_many_evictions_wrap_around(cyclic_buffer_schema_3):
     """Test buffer behavior after many wrap-arounds."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     # Push 100 elements
@@ -238,7 +238,7 @@ def test_front_returns_oldest(cyclic_buffer_schema_3):
     """Test front() returns the oldest element."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     for i in range(5):  # 0, 1, 2, 3, 4 -> buffer has 2, 3, 4
@@ -252,7 +252,7 @@ def test_back_returns_newest(cyclic_buffer_schema_3):
     """Test back() returns the newest element."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     for i in range(5):  # 0, 1, 2, 3, 4 -> buffer has 2, 3, 4
@@ -270,7 +270,7 @@ def test_clear_empties_buffer(cyclic_buffer_schema_5):
     """Test clear() empties the buffer."""
     buf = Value(cyclic_buffer_schema_5)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     # Add some elements
@@ -290,7 +290,7 @@ def test_push_after_clear(cyclic_buffer_schema_3):
     """Test that push works correctly after clear."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     # Fill, clear, refill
@@ -317,7 +317,7 @@ def test_iteration_logical_order(cyclic_buffer_schema_3):
     """Test iteration returns elements in logical order (oldest first)."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     # Push 0, 1, 2, 3, 4 -> buffer contains 2, 3, 4
@@ -338,10 +338,10 @@ def test_equal_cyclic_buffers(cyclic_buffer_schema_3):
     """Test equality of cyclic buffers with same content."""
     buf1 = Value(cyclic_buffer_schema_3)
 
-    buf1.emplace()
+    buf1.reset()
     buf2 = Value(cyclic_buffer_schema_3)
 
-    buf2.emplace()
+    buf2.reset()
     # Add same elements to both
     for b in [buf1, buf2]:
         view = b.view().as_cyclic_buffer()
@@ -356,10 +356,10 @@ def test_unequal_cyclic_buffers(cyclic_buffer_schema_3):
     """Test inequality of cyclic buffers with different content."""
     buf1 = Value(cyclic_buffer_schema_3)
 
-    buf1.emplace()
+    buf1.reset()
     buf2 = Value(cyclic_buffer_schema_3)
 
-    buf2.emplace()
+    buf2.reset()
     view1 = buf1.view().as_cyclic_buffer()
     view2 = buf2.view().as_cyclic_buffer()
 
@@ -376,10 +376,10 @@ def test_equal_after_different_pushes(cyclic_buffer_schema_3):
     """Test buffers are equal if they have same logical content after different paths."""
     buf1 = Value(cyclic_buffer_schema_3)
 
-    buf1.emplace()
+    buf1.reset()
     buf2 = Value(cyclic_buffer_schema_3)
 
-    buf2.emplace()
+    buf2.reset()
     # buf1: push 0, 1, 2, 3 -> contains 1, 2, 3
     view1 = buf1.view().as_cyclic_buffer()
     for i in range(4):
@@ -400,10 +400,10 @@ def test_hash_consistency(cyclic_buffer_schema_3):
     """Test hash is consistent for equal buffers."""
     buf1 = Value(cyclic_buffer_schema_3)
 
-    buf1.emplace()
+    buf1.reset()
     buf2 = Value(cyclic_buffer_schema_3)
 
-    buf2.emplace()
+    buf2.reset()
     for b in [buf1, buf2]:
         view = b.view().as_cyclic_buffer()
         for i in range(3):
@@ -421,7 +421,7 @@ def test_to_numpy_int(cyclic_buffer_schema_3):
     """Test to_numpy returns correct numpy array for int buffer."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     # Push 0, 1, 2, 3, 4 -> buffer contains 2, 3, 4
@@ -441,14 +441,14 @@ def test_to_numpy_double(double_cyclic_buffer_schema):
     """Test to_numpy for double buffer."""
     buf = Value(double_cyclic_buffer_schema)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     double_schema = value.scalar_type_meta_double()
     for d in [1.5, 2.5, 3.5]:
         elem = Value(double_schema)
 
-        elem.emplace()
+        elem.reset()
         elem.set_double(d)
         buf_view.push(elem.view())
 
@@ -463,7 +463,7 @@ def test_to_numpy_recentered(cyclic_buffer_schema_3):
     """Test to_numpy returns re-centered (logical order) data."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     # Push 10, 20, 30, 40, 50 -> buffer contains 30, 40, 50
@@ -481,7 +481,7 @@ def test_is_buffer_compatible(cyclic_buffer_schema_3, type_registry):
     """Test is_buffer_compatible returns True for numeric types."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     view = buf.view().as_cyclic_buffer()
     assert view.is_buffer_compatible()
 
@@ -490,7 +490,7 @@ def test_empty_buffer_to_numpy(cyclic_buffer_schema_3):
     """Test to_numpy on empty buffer."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     view = buf.view().as_cyclic_buffer()
 
     arr = view.to_numpy()
@@ -506,7 +506,7 @@ def test_to_python_returns_list(cyclic_buffer_schema_3):
     """Test to_python returns a Python list."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     for i in range(3):
@@ -521,7 +521,7 @@ def test_to_python_recentered(cyclic_buffer_schema_3):
     """Test to_python returns data in logical order."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     buf_view = buf.view().as_cyclic_buffer()
 
     # Push 0, 1, 2, 3, 4 -> buffer contains 2, 3, 4
@@ -537,7 +537,7 @@ def test_from_python(cyclic_buffer_schema_5):
     """Test from_python populates buffer from Python list."""
     buf = Value(cyclic_buffer_schema_5)
 
-    buf.emplace()
+    buf.reset()
     buf.view().from_python([10, 20, 30])
 
     view = buf.view().as_cyclic_buffer()
@@ -551,7 +551,7 @@ def test_from_python_truncates_to_capacity(cyclic_buffer_schema_3):
     """Test from_python only takes up to capacity elements."""
     buf = Value(cyclic_buffer_schema_3)
 
-    buf.emplace()
+    buf.reset()
     buf.view().from_python([1, 2, 3, 4, 5])  # More than capacity
 
     view = buf.view().as_cyclic_buffer()
@@ -570,6 +570,6 @@ def test_element_type(cyclic_buffer_schema_5, int_schema):
     """Test element_type returns the correct schema."""
     buf = Value(cyclic_buffer_schema_5)
 
-    buf.emplace()
+    buf.reset()
     view = buf.view().as_cyclic_buffer()
     assert view.element_type() == int_schema

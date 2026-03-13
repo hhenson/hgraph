@@ -323,13 +323,12 @@ namespace hgraph {
                 }
 
                 bool scheduled = false;
-                auto sleep_time = std::chrono::duration_cast<engine_time_delta_t>(next_scheduled_time - now); {
+                auto wake_deadline = std::min(next_scheduled_time, now + std::chrono::seconds(10)); {
                     nb::gil_scoped_release gil; // release GIL before taking the mutex
                     std::unique_lock<std::mutex> lock(_condition_mutex);
                     scheduled = _push_node_requires_scheduling;
                     if (!scheduled) {
-                        _push_node_requires_scheduling_condition.wait_for(
-                            lock, std::min(sleep_time, duration_cast<engine_time_delta_t>(std::chrono::seconds(10))));
+                        _push_node_requires_scheduling_condition.wait_until(lock, wake_deadline);
                         scheduled = _push_node_requires_scheduling;
                     }
                 } // lock released here, then GIL is reacquired — no inversion

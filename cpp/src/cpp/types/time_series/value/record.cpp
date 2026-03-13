@@ -1,6 +1,7 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/value/record.h>
 #include <hgraph/types/time_series/value/state.h>
+#include <hgraph/types/value/type_meta_bindings.h>
 #include <hgraph/types/value/validity_bitmap.h>
 
 #include <algorithm>
@@ -447,7 +448,22 @@ namespace hgraph
 
             [[nodiscard]] nb::object to_python(const void *data, const value::TypeMeta *schema) const override
             {
-                static_cast<void>(schema);
+                if (schema != nullptr) {
+                    nb::object py_class = value::get_compound_scalar_class(schema);
+                    if (py_class.is_valid()) {
+                        nb::dict kwargs;
+                        for (size_t i = 0; i < this->size(); ++i) {
+                            const std::string_view name = this->field_name(i);
+                            if (name.empty()) { continue; }
+                            kwargs[nb::str(name.data(), name.size())] =
+                                this->field_valid(data, i)
+                                    ? this->field_dispatch(i).to_python(this->field_data(data, i), &this->field_schema(i))
+                                    : nb::none();
+                        }
+                        return py_class(**kwargs);
+                    }
+                }
+
                 nb::dict result;
                 for (size_t i = 0; i < this->size(); ++i) {
                     const std::string_view name = this->field_name(i);
@@ -598,7 +614,7 @@ namespace hgraph
             if (schema == nullptr) { return nullptr; }
             if (schema->kind != value::TypeKind::Tuple && schema->kind != value::TypeKind::Bundle) { return nullptr; }
 
-            static std::mutex cache_mutex;
+            static std::recursive_mutex cache_mutex;
             static std::unordered_map<RecordBuilderKey, CachedBuilderEntry, RecordBuilderKeyHash> cache;
 
             std::lock_guard lock(cache_mutex);
@@ -656,7 +672,7 @@ namespace hgraph
     TupleView::TupleView(const View &view)
         : View(view)
     {
-        if (!view.valid()) { return; }
+        if (!view.has_value()) { return; }
         if (view.schema() == nullptr ||
             (view.schema()->kind != value::TypeKind::Tuple && view.schema()->kind != value::TypeKind::Bundle)) {
             throw std::runtime_error("TupleView requires a tuple-compatible record schema");
@@ -739,7 +755,7 @@ namespace hgraph
     TupleDeltaView::TupleDeltaView(const View &view)
         : View(view)
     {
-        if (!view.valid()) { return; }
+        if (!view.has_value()) { return; }
         if (view.schema() == nullptr ||
             (view.schema()->kind != value::TypeKind::Tuple && view.schema()->kind != value::TypeKind::Bundle)) {
             throw std::runtime_error("TupleDeltaView requires a tuple-compatible record schema");
@@ -775,12 +791,12 @@ namespace hgraph
 
     View TupleDeltaView::project_value(const void *context, size_t index)
     {
-        return static_cast<const TupleDeltaView *>(context)->as_tuple().at(index);
+        return TupleView{*static_cast<const TupleDeltaView *>(context)}.at(index);
     }
 
     const detail::RecordViewDispatch *TupleDeltaView::record_dispatch() const noexcept
     {
-        return valid() ? static_cast<const detail::RecordViewDispatch *>(dispatch()) : nullptr;
+        return has_value() ? static_cast<const detail::RecordViewDispatch *>(dispatch()) : nullptr;
     }
 
     TupleMutationView::TupleMutationView(TupleView &view)
@@ -807,9 +823,9 @@ namespace hgraph
         const auto *dispatch = record_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("TupleMutationView::set on invalid view"); }
         if (value.schema() != nullptr && value.schema() != &dispatch->field_schema(index)) {
-            throw std::invalid_argument("TupleMutationView::set requires matching field schema");
+            throw std::runtime_error("TupleMutationView::set requires matching field schema");
         }
-        if (!value.valid()) {
+        if (!value.has_value()) {
             dispatch->set_field_valid(data(), index, false);
             return;
         }
@@ -819,13 +835,13 @@ namespace hgraph
 
     const detail::RecordViewDispatch *TupleView::record_dispatch() const noexcept
     {
-        return valid() ? static_cast<const detail::RecordViewDispatch *>(dispatch()) : nullptr;
+        return has_value() ? static_cast<const detail::RecordViewDispatch *>(dispatch()) : nullptr;
     }
 
     BundleView::BundleView(const View &view)
         : TupleView(view)
     {
-        if (!view.valid()) { return; }
+        if (!view.has_value()) { return; }
         if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Bundle) {
             throw std::runtime_error("BundleView requires a bundle schema");
         }
@@ -848,7 +864,7 @@ namespace hgraph
 
     bool BundleView::has_field(std::string_view name) const noexcept
     {
-        if (!valid()) { return false; }
+        if (!has_value()) { return false; }
         const auto *dispatch = record_dispatch();
         if (dispatch == nullptr) { return false; }
         for (size_t i = 0; i < dispatch->size(); ++i) {
@@ -870,7 +886,7 @@ namespace hgraph
     BundleDeltaView::BundleDeltaView(const View &view)
         : TupleDeltaView(view)
     {
-        if (!view.valid()) { return; }
+        if (!view.has_value()) { return; }
         if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Bundle) {
             throw std::runtime_error("BundleDeltaView requires a bundle schema");
         }
@@ -913,9 +929,9 @@ namespace hgraph
         const auto *dispatch = record_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("BundleMutationView::set on invalid view"); }
         if (value.schema() != nullptr && value.schema() != &dispatch->field_schema(index)) {
-            throw std::invalid_argument("BundleMutationView::set requires matching field schema");
+            throw std::runtime_error("BundleMutationView::set requires matching field schema");
         }
-        if (!value.valid()) {
+        if (!value.has_value()) {
             dispatch->set_field_valid(data(), index, false);
             return;
         }

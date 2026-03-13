@@ -249,10 +249,10 @@ class TestSetDeltaValue:
         # Create sets for added and removed
         added_set = Value(int_set_schema)
 
-        added_set.emplace()
+        added_set.reset()
         removed_set = Value(int_set_schema)
 
-        removed_set.emplace()
+        removed_set.reset()
         # Add elements
         elem1 = Value(int_element_type)
         elem1.from_python(1)
@@ -277,14 +277,14 @@ class TestSetDeltaValue:
         # Create sets
         added_set = Value(int_set_schema)
 
-        added_set.emplace()
+        added_set.reset()
         elem = Value(int_element_type)
         elem.from_python(42)
         added_set.view().as_set().add(elem.view())
 
         removed_set = Value(int_set_schema)
 
-        removed_set.emplace()
+        removed_set.reset()
         # Create delta
         delta = SetDeltaValue(
             added_set.view().as_set(),

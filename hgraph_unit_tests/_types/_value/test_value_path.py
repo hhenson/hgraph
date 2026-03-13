@@ -166,7 +166,7 @@ def make_int_value(val):
     int_schema = value.scalar_type_meta_int64()
     v = Value(int_schema)
 
-    v.emplace()
+    v.reset()
     v.set_int(val)
     return v
 
@@ -176,7 +176,7 @@ def make_string_value(val):
     string_schema = value.scalar_type_meta_string()
     v = Value(string_schema)
 
-    v.emplace()
+    v.reset()
     v.set_string(val)
     return v
 
@@ -186,7 +186,7 @@ def make_double_value(val):
     double_schema = value.scalar_type_meta_double()
     v = Value(double_schema)
 
-    v.emplace()
+    v.reset()
     v.set_double(val)
     return v
 
@@ -372,8 +372,8 @@ def test_navigate_single_field(simple_bundle_schema):
     """navigate() to single bundle field."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("x", 42)
     bv.set("y", 3.14)
     bv.set("name", "test")
@@ -389,8 +389,8 @@ def test_navigate_single_field_string(simple_bundle_schema):
     """navigate() to string field."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("name", "hello world")
 
     result = v.navigate("name")
@@ -403,8 +403,8 @@ def test_navigate_single_field_double(simple_bundle_schema):
     """navigate() to double field."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("y", 3.14159)
 
     result = v.navigate("y")
@@ -421,8 +421,8 @@ def test_navigate_nested_fields(person_schema, address_schema):
     """navigate() through nested bundles."""
     v = Value(person_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("name", "Alice")
     bv.set("age", 30)
 
@@ -442,8 +442,8 @@ def test_navigate_deeply_nested_fields(deeply_nested_schema, person_schema, addr
     """navigate() through deeply nested bundles."""
     v = Value(deeply_nested_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("company_name", "Acme Corp")
     bv.set("employee_count", 100)
 
@@ -471,8 +471,8 @@ def test_navigate_list_index(list_of_ints_schema):
     """navigate() to list element by index."""
     v = Value(list_of_ints_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     lv.push_back(make_int_value(10).view())
     lv.push_back(make_int_value(20).view())
@@ -488,8 +488,8 @@ def test_navigate_list_first_element(list_of_strings_schema):
     """navigate() to first list element."""
     v = Value(list_of_strings_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     # Keep Value objects alive to avoid dangling views
     first_val = make_string_value("first")
@@ -508,8 +508,8 @@ def test_navigate_list_last_element(list_of_ints_schema):
     """navigate() to last list element."""
     v = Value(list_of_ints_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     lv.push_back(make_int_value(10).view())
     lv.push_back(make_int_value(20).view())
@@ -529,8 +529,8 @@ def test_navigate_tuple_index(tuple_schema):
     """navigate() to tuple element by index."""
     v = Value(tuple_schema)
 
-    v.emplace()
-    tv = v.as_tuple()
+    v.reset()
+    tv = v.tuple_view()
 
     tv.at(0).set_int(42)
     tv.at(1).set_string("hello")
@@ -546,8 +546,8 @@ def test_navigate_tuple_first_element(tuple_schema):
     """navigate() to first tuple element."""
     v = Value(tuple_schema)
 
-    v.emplace()
-    tv = v.as_tuple()
+    v.reset()
+    tv = v.tuple_view()
 
     tv.at(0).set_int(100)
 
@@ -561,8 +561,8 @@ def test_navigate_tuple_last_element(tuple_schema):
     """navigate() to last tuple element."""
     v = Value(tuple_schema)
 
-    v.emplace()
-    tv = v.as_tuple()
+    v.reset()
+    tv = v.tuple_view()
 
     tv.at(2).set_double(9.99)
 
@@ -580,8 +580,8 @@ def test_navigate_mixed(person_with_addresses_schema, address_schema):
     """navigate() with mixed field and index access."""
     v = Value(person_with_addresses_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("name", "Charlie")
     bv.set("age", 35)
 
@@ -590,8 +590,8 @@ def test_navigate_mixed(person_with_addresses_schema, address_schema):
     # Add first address
     addr1 = Value(address_schema)
 
-    addr1.emplace()
-    addr1_bv = addr1.as_bundle()
+    addr1.reset()
+    addr1_bv = addr1.bundle_view()
     addr1_bv.set("street", "100 First St")
     addr1_bv.set("city", "Chicago")
     addr1_bv.set("zip", 60601)
@@ -600,8 +600,8 @@ def test_navigate_mixed(person_with_addresses_schema, address_schema):
     # Add second address
     addr2 = Value(address_schema)
 
-    addr2.emplace()
-    addr2_bv = addr2.as_bundle()
+    addr2.reset()
+    addr2_bv = addr2.bundle_view()
     addr2_bv.set("street", "200 Second St")
     addr2_bv.set("city", "Los Angeles")
     addr2_bv.set("zip", 90001)
@@ -618,8 +618,8 @@ def test_navigate_mixed_second_element(person_with_addresses_schema, address_sch
     """navigate() with mixed access to second list element."""
     v = Value(person_with_addresses_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("name", "Dave")
     bv.set("age", 40)
 
@@ -629,8 +629,8 @@ def test_navigate_mixed_second_element(person_with_addresses_schema, address_sch
     for i, city in enumerate(["Denver", "Seattle"]):
         addr = Value(address_schema)
 
-        addr.emplace()
-        addr_bv = addr.as_bundle()
+        addr.reset()
+        addr_bv = addr.bundle_view()
         addr_bv.set("street", f"{i * 100} Main St")
         addr_bv.set("city", city)
         addr_bv.set("zip", 80000 + i)
@@ -647,8 +647,8 @@ def test_navigate_bundle_with_tuple(bundle_with_tuple_schema):
     """navigate() through bundle containing tuple."""
     v = Value(bundle_with_tuple_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("label", "test data")
 
     data = bv["data"].as_tuple()
@@ -667,25 +667,25 @@ def test_navigate_list_of_tuples(list_of_tuples_schema, tuple_schema):
     """navigate() through list of tuples."""
     v = Value(list_of_tuples_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     # Add first tuple
     t1 = Value(tuple_schema)
 
-    t1.emplace()
-    t1.as_tuple().at(0).set_int(1)
-    t1.as_tuple().at(1).set_string("one")
-    t1.as_tuple().at(2).set_double(1.0)
+    t1.reset()
+    t1.tuple_view().at(0).set_int(1)
+    t1.tuple_view().at(1).set_string("one")
+    t1.tuple_view().at(2).set_double(1.0)
     lv.push_back(t1.view())
 
     # Add second tuple
     t2 = Value(tuple_schema)
 
-    t2.emplace()
-    t2.as_tuple().at(0).set_int(2)
-    t2.as_tuple().at(1).set_string("two")
-    t2.as_tuple().at(2).set_double(2.0)
+    t2.reset()
+    t2.tuple_view().at(0).set_int(2)
+    t2.tuple_view().at(1).set_string("two")
+    t2.tuple_view().at(2).set_double(2.0)
     lv.push_back(t2.view())
 
     # Navigate: [1][1] - second tuple, second element
@@ -703,8 +703,8 @@ def test_navigate_invalid_field_throws(simple_bundle_schema):
     """navigate() to non-existent field throws."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("x", 42)
 
     with pytest.raises((KeyError, RuntimeError)):
@@ -715,8 +715,8 @@ def test_navigate_invalid_index_throws(list_of_ints_schema):
     """navigate() to out-of-range index throws."""
     v = Value(list_of_ints_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
     lv.push_back(make_int_value(10).view())
 
     with pytest.raises((IndexError, RuntimeError)):
@@ -727,8 +727,8 @@ def test_navigate_negative_index_throws(list_of_ints_schema):
     """navigate() with negative index throws."""
     v = Value(list_of_ints_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
     lv.push_back(make_int_value(10).view())
 
     # Negative indices are not supported
@@ -756,8 +756,8 @@ def test_navigate_index_on_bundle_succeeds(simple_bundle_schema):
     """navigate() with index access on bundle succeeds (bundles support positional access)."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("x", 42)
     bv.set("y", 3.14)
     bv.set("name", "test")
@@ -774,8 +774,8 @@ def test_navigate_type_mismatch_field_on_list_throws(list_of_ints_schema):
     """navigate() with field access on list throws."""
     v = Value(list_of_ints_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
     lv.push_back(make_int_value(10).view())
 
     # Lists don't support field access
@@ -787,8 +787,8 @@ def test_navigate_empty_path_returns_self(simple_bundle_schema):
     """navigate() with empty path returns view of self."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("x", 42)
 
     result = v.navigate("")
@@ -802,8 +802,8 @@ def test_navigate_nested_invalid_field_throws(person_schema, address_schema):
     """navigate() to non-existent nested field throws."""
     v = Value(person_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("name", "Test")
 
     # First part exists, second doesn't
@@ -815,8 +815,8 @@ def test_navigate_partial_path_valid_then_invalid(person_with_addresses_schema, 
     """navigate() fails partway through when path becomes invalid."""
     v = Value(person_with_addresses_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("name", "Test")
     # addresses list is empty
 
@@ -833,8 +833,8 @@ def test_try_navigate_success(simple_bundle_schema):
     """try_navigate() returns view on success."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("x", 42)
 
     result = v.try_navigate("x")
@@ -847,8 +847,8 @@ def test_try_navigate_failure_invalid_field(simple_bundle_schema):
     """try_navigate() returns None on invalid field."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("x", 42)
 
     result = v.try_navigate("nonexistent")
@@ -860,8 +860,8 @@ def test_try_navigate_failure_invalid_index(list_of_ints_schema):
     """try_navigate() returns None on invalid index."""
     v = Value(list_of_ints_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
     lv.push_back(make_int_value(10).view())
 
     result = v.try_navigate("[5]")
@@ -882,8 +882,8 @@ def test_try_navigate_nested_success(person_schema, address_schema):
     """try_navigate() succeeds for valid nested path."""
     v = Value(person_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("name", "Alice")
 
     addr = bv["address"].as_bundle()
@@ -899,8 +899,8 @@ def test_try_navigate_nested_failure(person_schema):
     """try_navigate() returns None for invalid nested path."""
     v = Value(person_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("name", "Alice")
 
     result = v.try_navigate("address.nonexistent")
@@ -912,8 +912,8 @@ def test_try_navigate_empty_path(simple_bundle_schema):
     """try_navigate() with empty path returns view of self."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("x", 42)
 
     result = v.try_navigate("")
@@ -930,8 +930,8 @@ def test_navigate_mut_set_value(simple_bundle_schema):
     """navigate_mut() returns mutable view that can be modified."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("x", 0)
 
     # Get mutable view and modify
@@ -939,15 +939,15 @@ def test_navigate_mut_set_value(simple_bundle_schema):
     mut_view.set_int(100)
 
     # Verify modification
-    assert v.as_bundle()["x"].as_int() == 100
+    assert v.bundle_view()["x"].as_int() == 100
 
 
 def test_navigate_mut_nested(person_schema, address_schema):
     """navigate_mut() through nested path."""
     v = Value(person_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("name", "Test")
     bv["address"].as_bundle().set("city", "Old City")
 
@@ -956,15 +956,15 @@ def test_navigate_mut_nested(person_schema, address_schema):
     mut_view.set_string("New City")
 
     # Verify modification
-    assert v.as_bundle()["address"].as_bundle()["city"].as_string() == "New City"
+    assert v.bundle_view()["address"].as_bundle()["city"].as_string() == "New City"
 
 
 def test_navigate_mut_list_element(list_of_ints_schema):
     """navigate_mut() to list element for modification."""
     v = Value(list_of_ints_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
     lv.push_back(make_int_value(10).view())
     lv.push_back(make_int_value(20).view())
 
@@ -973,7 +973,7 @@ def test_navigate_mut_list_element(list_of_ints_schema):
     mut_view.set_int(200)
 
     # Verify modification
-    assert v.as_list()[1].as_int() == 200
+    assert v.list_view()[1].as_int() == 200
 
 
 # =============================================================================
@@ -990,8 +990,8 @@ def test_navigate_with_numeric_field_name(type_registry, int_schema):
 
     v = Value(schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("123", 42)
 
     # Navigate to field named "123" (not index)
@@ -1019,8 +1019,8 @@ def test_navigate_special_characters_in_field_name(type_registry, int_schema):
 
     v = Value(schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("field_name", 42)
 
     result = v.navigate("field_name")
@@ -1037,8 +1037,8 @@ def test_view_navigate(simple_bundle_schema):
     """View.navigate() works correctly."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("x", 42)
 
     cv = v.view()
@@ -1052,8 +1052,8 @@ def test_value_view_navigate(simple_bundle_schema):
     """ValueView.navigate() works correctly."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("x", 42)
 
     view = v.view()
@@ -1067,15 +1067,15 @@ def test_value_view_navigate_mut(simple_bundle_schema):
     """ValueView.navigate_mut() returns mutable view."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("x", 0)
 
     view = v.view()
     mut_result = view.navigate_mut("x")
     mut_result.set_int(999)
 
-    assert v.as_bundle()["x"].as_int() == 999
+    assert v.bundle_view()["x"].as_int() == 999
 
 
 # =============================================================================
@@ -1086,8 +1086,8 @@ def test_navigate_result_to_python(simple_bundle_schema):
     """navigated view can be converted to Python."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("name", "test value")
 
     result = v.navigate("name")
@@ -1100,14 +1100,14 @@ def test_navigate_mut_from_python(simple_bundle_schema):
     """navigated mutable view can be updated from Python."""
     v = Value(simple_bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
     bv.set("x", 0)
 
     mut_view = v.navigate_mut("x")
     mut_view.from_python(12345)
 
-    assert v.as_bundle()["x"].as_int() == 12345
+    assert v.bundle_view()["x"].as_int() == 12345
 
 
 # =============================================================================
@@ -1192,8 +1192,8 @@ def test_navigate_map_string_key(string_to_int_map_schema):
     """navigate() through map with string key using quoted syntax."""
     v = Value(string_to_int_map_schema)
 
-    v.emplace()
-    mv = v.as_map()
+    v.reset()
+    mv = v.map_view()
 
     # Insert key-value pairs
     key1 = make_string_value("alpha")
@@ -1215,8 +1215,8 @@ def test_navigate_map_string_key_single_quotes(string_to_int_map_schema):
     """navigate() through map with string key using single quotes."""
     v = Value(string_to_int_map_schema)
 
-    v.emplace()
-    mv = v.as_map()
+    v.reset()
+    mv = v.map_view()
 
     key = make_string_value("mykey")
     val = make_int_value(42)
@@ -1232,8 +1232,8 @@ def test_navigate_map_int_key(int_to_string_map_schema):
     """navigate() through map with integer key."""
     v = Value(int_to_string_map_schema)
 
-    v.emplace()
-    mv = v.as_map()
+    v.reset()
+    mv = v.map_view()
 
     key1 = make_int_value(1)
     val1 = make_string_value("one")
@@ -1254,14 +1254,14 @@ def test_navigate_nested_map_value(nested_map_schema, address_schema):
     """navigate() through map to nested bundle field."""
     v = Value(nested_map_schema)
 
-    v.emplace()
-    mv = v.as_map()
+    v.reset()
+    mv = v.map_view()
 
     # Insert an address with key "home"
     addr = Value(address_schema)
 
-    addr.emplace()
-    addr_bv = addr.as_bundle()
+    addr.reset()
+    addr_bv = addr.bundle_view()
     addr_bv.set("street", "123 Main St")
     addr_bv.set("city", "Boston")
     addr_bv.set("zip", 12345)
@@ -1280,8 +1280,8 @@ def test_navigate_map_invalid_key_throws(string_to_int_map_schema):
     """navigate() with non-existent map key throws."""
     v = Value(string_to_int_map_schema)
 
-    v.emplace()
-    mv = v.as_map()
+    v.reset()
+    mv = v.map_view()
 
     key = make_string_value("exists")
     val = make_int_value(42)
@@ -1295,8 +1295,8 @@ def test_try_navigate_map_key_success(string_to_int_map_schema):
     """try_navigate() returns view for valid map key."""
     v = Value(string_to_int_map_schema)
 
-    v.emplace()
-    mv = v.as_map()
+    v.reset()
+    mv = v.map_view()
 
     key = make_string_value("key")
     val = make_int_value(999)
@@ -1312,7 +1312,7 @@ def test_try_navigate_map_key_failure(string_to_int_map_schema):
     """try_navigate() returns None for invalid map key."""
     v = Value(string_to_int_map_schema)
 
-    v.emplace()
+    v.reset()
     # Empty map
 
     result = v.try_navigate('["missing"]')
@@ -1324,8 +1324,8 @@ def test_navigate_mut_map_value(string_to_int_map_schema):
     """navigate_mut() through map key for modification."""
     v = Value(string_to_int_map_schema)
 
-    v.emplace()
-    mv = v.as_map()
+    v.reset()
+    mv = v.map_view()
 
     key = make_string_value("count")
     val = make_int_value(0)
@@ -1380,8 +1380,8 @@ def test_navigate_with_value_key(string_to_int_map_schema):
     PathElement = value.PathElement
     v = Value(string_to_int_map_schema)
 
-    v.emplace()
-    mv = v.as_map()
+    v.reset()
+    mv = v.map_view()
 
     # Insert value
     key = make_string_value("target")
@@ -1403,16 +1403,16 @@ def test_navigate_tuple_key_map(tuple_key_map_schema, tuple_schema):
     PathElement = value.PathElement
     v = Value(tuple_key_map_schema)
 
-    v.emplace()
-    mv = v.as_map()
+    v.reset()
+    mv = v.map_view()
 
     # Create tuple key
     tuple_key = Value(tuple_schema)
 
-    tuple_key.emplace()
-    tuple_key.as_tuple().at(0).set_int(1)
-    tuple_key.as_tuple().at(1).set_string("x")
-    tuple_key.as_tuple().at(2).set_double(1.0)
+    tuple_key.reset()
+    tuple_key.tuple_view().at(0).set_int(1)
+    tuple_key.tuple_view().at(1).set_string("x")
+    tuple_key.tuple_view().at(2).set_double(1.0)
 
     # Insert value
     val = make_string_value("found")
@@ -1430,8 +1430,8 @@ def test_navigate_value_key_type_mismatch(string_to_int_map_schema):
     """navigate() with wrong value key type throws."""
     PathElement = value.PathElement
     v = Value(string_to_int_map_schema)  # Has string keys
-    v.emplace()
-    mv = v.as_map()
+    v.reset()
+    mv = v.map_view()
 
     key = make_string_value("test")
     val = make_int_value(42)
@@ -1457,16 +1457,16 @@ def test_navigate_mixed_path_with_value_key(type_registry, string_schema, int_sc
 
     v = Value(bundle_schema)
 
-    v.emplace()
-    bv = v.as_bundle()
+    v.reset()
+    bv = v.bundle_view()
 
     # Insert address into the map
     addr = Value(address_schema)
 
-    addr.emplace()
-    addr.as_bundle().set("street", "123 Main")
-    addr.as_bundle().set("city", "Boston")
-    addr.as_bundle().set("zip", 12345)
+    addr.reset()
+    addr.bundle_view().set("street", "123 Main")
+    addr.bundle_view().set("city", "Boston")
+    addr.bundle_view().set("zip", 12345)
 
     map_view = bv["data"].as_map()
     key = make_string_value("home")

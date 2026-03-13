@@ -16,8 +16,7 @@ namespace hgraph
         auto self = impl();
         const auto *key_schema = self->key_type_meta();
         value::Value key_val(key_schema);
-        key_val.emplace();
-        key_schema->ops().from_python(key_val.data(), key, key_schema);
+        key_val.from_python(key);
         return key_val;
     }
 
@@ -189,8 +188,7 @@ namespace hgraph
         }
         try {
             auto key_view = impl()->key_from_ts(p);
-            const auto *key_schema = impl()->key_type_meta();
-            return key_schema->ops().to_python(key_view.data(), key_schema);
+            return key_view.to_python();
         } catch (const std::exception &e) {
             return nb::none();
         }
@@ -237,8 +235,7 @@ namespace hgraph
         auto self = impl();
         const auto *key_schema = self->key_type_meta();
         value::Value key_val(key_schema);
-        key_val.emplace();
-        key_schema->ops().from_python(key_val.data(), key, key_schema);
+        key_val.from_python(key);
         return key_val;
     }
 
@@ -400,8 +397,7 @@ namespace hgraph
         }
         try {
             auto key_view = impl()->key_from_ts(p);
-            const auto *key_schema = impl()->key_type_meta();
-            return key_schema->ops().to_python(key_view.data(), key_schema);
+            return key_view.to_python();
         } catch (const std::exception &e) {
             return nb::none();
         }

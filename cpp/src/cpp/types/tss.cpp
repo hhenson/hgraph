@@ -6,6 +6,7 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/ts.h>
 #include <hgraph/types/tss.h>
+#include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/value.h>
 
 namespace hgraph
@@ -227,7 +228,7 @@ namespace hgraph
             }
 
             // Items in current set but not in new - remove them
-            for (auto elem : _storage.value()) {
+            for (auto elem : _storage.value().values()) {
                 auto py_item = elem.to_python();
                 if (!fs.contains(py_item)) {
                     to_remove.append(py_item);
@@ -279,7 +280,7 @@ namespace hgraph
     void TimeSeriesSetOutput::clear() {
         // Update contains outputs for all elements before clearing
         if (_contains_ref_outputs) {
-            for (auto elem : _storage.value()) {
+            for (auto elem : _storage.value().values()) {
                 _contains_ref_outputs.update(elem.to_python());
             }
         }
@@ -296,14 +297,14 @@ namespace hgraph
         nb::list to_remove;
 
         // Elements in other but not in this - add them
-        for (auto elem : other._storage.value()) {
+        for (auto elem : other._storage.value().values()) {
             if (!_storage.contains(elem)) {
                 to_add.append(elem.to_python());
             }
         }
 
         // Elements in this but not in other - remove them
-        for (auto elem : _storage.value()) {
+        for (auto elem : _storage.value().values()) {
             if (!other._storage.contains(elem)) {
                 to_remove.append(elem.to_python());
             }
@@ -327,14 +328,14 @@ namespace hgraph
         nb::list to_remove;
 
         // Elements in other but not in this - add them
-        for (auto elem : other.value_view()) {
+        for (auto elem : other.value_view().values()) {
             if (!_storage.contains(elem)) {
                 to_add.append(elem.to_python());
             }
         }
 
         // Elements in this but not in other - remove them
-        for (auto elem : _storage.value()) {
+        for (auto elem : _storage.value().values()) {
             if (!other.contains(elem)) {
                 to_remove.append(elem.to_python());
             }
@@ -404,10 +405,10 @@ namespace hgraph
 
     void TimeSeriesSetOutput::_update_contains_refs() {
         if (_contains_ref_outputs) {
-            for (auto elem : _storage.added()) {
+            for (auto elem : _storage.added().values()) {
                 _contains_ref_outputs.update(elem.to_python());
             }
-            for (auto elem : _storage.removed()) {
+            for (auto elem : _storage.removed().values()) {
                 _contains_ref_outputs.update(elem.to_python());
             }
         }
@@ -436,9 +437,9 @@ namespace hgraph
         if (has_output()) {
             return set_output().value_view();
         }
-        // Return an invalid view when no output is bound
-        // Callers should check valid() or handle empty iteration gracefully
-        return value::SetView{};
+        const auto *set_schema = element_type() != nullptr ? value::TypeRegistry::instance().set(element_type()).build()
+                                                           : nullptr;
+        return value::SetView{value::View::invalid_for(set_schema)};
     }
 
     bool TimeSeriesSetInput::contains(const value::View& elem) const {
@@ -483,7 +484,7 @@ namespace hgraph
         if (has_prev_output()) {
             // Calculate added: items in current that weren't in prev state
             // prev state = (prev_values + prev_removed - prev_added)
-            for (auto elem : set_output().value_view()) {
+            for (auto elem : set_output().value_view().values()) {
                 bool was_in_prev = (prev_output().contains(elem) || prev_output().was_removed(elem))
                                    && !prev_output().was_added(elem);
                 if (!was_in_prev) {
@@ -494,13 +495,13 @@ namespace hgraph
         }
 
         if (sampled()) {
-            for (auto elem : set_output().value_view()) {
+            for (auto elem : set_output().value_view().values()) {
                 result.push_back(elem);
             }
             return result;
         }
 
-        for (auto elem : set_output().added_view()) {
+        for (auto elem : set_output().added_view().values()) {
             result.push_back(elem);
         }
         return result;
@@ -515,10 +516,10 @@ namespace hgraph
             // prev state = (prev_values + prev_removed - prev_added)
             // Collect views into prev_output storage (no copying needed!)
             std::vector<value::View> prev_state;
-            for (auto elem : prev_output().value_view()) {
+            for (auto elem : prev_output().value_view().values()) {
                 prev_state.push_back(elem);
             }
-            for (auto elem : prev_output().removed_view()) {
+            for (auto elem : prev_output().removed_view().values()) {
                 // Only add if not already in prev_state
                 bool found = false;
                 for (const auto& existing : prev_state) {
@@ -532,7 +533,7 @@ namespace hgraph
                 }
             }
             // Remove items that were only added in the previous cycle
-            for (auto elem : prev_output().added_view()) {
+            for (auto elem : prev_output().added_view().values()) {
                 prev_state.erase(
                     std::remove_if(prev_state.begin(), prev_state.end(),
                         [&](const value::View& v) { return v.equals(elem); }),
@@ -552,7 +553,7 @@ namespace hgraph
         if (sampled()) return result;  // Return empty
 
         if (has_output()) {
-            for (auto elem : set_output().removed_view()) {
+            for (auto elem : set_output().removed_view().values()) {
                 result.push_back(elem);
             }
         }
@@ -599,7 +600,7 @@ namespace hgraph
         if (has_prev_output()) {
             // Calculate added: items in current that weren't in prev state
             nb::set result;
-            for (auto elem : set_output().value_view()) {
+            for (auto elem : set_output().value_view().values()) {
                 auto py_item = elem.to_python();
                 bool was_in_prev = (prev_output().py_contains(py_item) || prev_output().py_was_removed(py_item))
                                    && !prev_output().py_was_added(py_item);
@@ -623,13 +624,13 @@ namespace hgraph
             // Calculate removed: items in prev state that aren't in current
             // prev state = (prev_values + prev_removed - prev_added)
             nb::set prev_state;
-            for (auto elem : prev_output().value_view()) {
+            for (auto elem : prev_output().value_view().values()) {
                 prev_state.add(elem.to_python());
             }
-            for (auto elem : prev_output().removed_view()) {
+            for (auto elem : prev_output().removed_view().values()) {
                 prev_state.add(elem.to_python());
             }
-            for (auto elem : prev_output().added_view()) {
+            for (auto elem : prev_output().added_view().values()) {
                 auto py_item = elem.to_python();
                 if (prev_state.contains(py_item)) {
                     prev_state.discard(py_item);
@@ -639,7 +640,7 @@ namespace hgraph
             // Get current values (empty if no output)
             nb::set current_values;
             if (has_output()) {
-                for (auto elem : set_output().value_view()) {
+                for (auto elem : set_output().value_view().values()) {
                     current_values.add(elem.to_python());
                 }
             }

@@ -25,10 +25,10 @@ TEST_CASE("Fixed lists default construct inline atomic elements", "[time_series]
 {
     const value::TypeMeta *schema = value::TypeRegistry::instance().fixed_list(value::scalar_type_meta<int32_t>(), 3).build();
 
-    Value value{*schema};
+    Value value{*schema, hgraph::MutationTracking::Delta};
     auto  list = value.list_view();
 
-    REQUIRE(list.valid());
+    REQUIRE(list.has_value());
     CHECK(list.is_fixed());
     REQUIRE(list.size() == 3);
     CHECK(list[0].as_atomic().as<int32_t>() == 0);
@@ -40,7 +40,7 @@ TEST_CASE("Dynamic lists support resize and push_back", "[time_series][value][li
 {
     const value::TypeMeta *schema = value::TypeRegistry::instance().list(value::scalar_type_meta<int32_t>()).build();
 
-    Value value{*schema};
+    Value value{*schema, hgraph::MutationTracking::Delta};
     auto  list = value.list_view();
 
     CHECK_FALSE(list.is_fixed());
@@ -69,15 +69,15 @@ TEST_CASE("Lists preserve invalid element slots", "[time_series][value][list]")
 {
     const value::TypeMeta *schema = value::TypeRegistry::instance().fixed_list(value::scalar_type_meta<int32_t>(), 3).build();
 
-    Value value{*schema};
+    Value value{*schema, hgraph::MutationTracking::Delta};
     auto  list = value.view().as_list();
 
     list.begin_mutation().set(1, hgraph::View::invalid_for(value::scalar_type_meta<int32_t>()));
 
-    CHECK(list[0].valid());
-    CHECK_FALSE(list[1].valid());
+    CHECK(list[0].has_value());
+    CHECK_FALSE(list[1].has_value());
     CHECK(list[1].schema() == value::scalar_type_meta<int32_t>());
-    CHECK(list[2].valid());
+    CHECK(list[2].has_value());
     CHECK(value.view().to_string() == "[0, None, 0]");
 }
 
@@ -85,7 +85,7 @@ TEST_CASE("Fixed lists clear by invalidating each slot", "[time_series][value][l
 {
     const value::TypeMeta *schema = value::TypeRegistry::instance().fixed_list(value::scalar_type_meta<int32_t>(), 3).build();
 
-    Value value{*schema};
+    Value value{*schema, hgraph::MutationTracking::Delta};
     auto  list = value.view().as_list();
 
     {
@@ -98,9 +98,9 @@ TEST_CASE("Fixed lists clear by invalidating each slot", "[time_series][value][l
     list.begin_mutation().clear();
 
     REQUIRE(list.size() == 3);
-    CHECK_FALSE(list[0].valid());
-    CHECK_FALSE(list[1].valid());
-    CHECK_FALSE(list[2].valid());
+    CHECK_FALSE(list[0].has_value());
+    CHECK_FALSE(list[1].has_value());
+    CHECK_FALSE(list[2].has_value());
     CHECK(value.view().to_string() == "[None, None, None]");
 }
 
@@ -108,7 +108,7 @@ TEST_CASE("Fixed lists clear releases non-trivial payloads and keeps slots writa
 {
     const value::TypeMeta *schema = value::TypeRegistry::instance().fixed_list(value::scalar_type_meta<std::string>(), 2).build();
 
-    Value value{*schema};
+    Value value{*schema, hgraph::MutationTracking::Delta};
     auto  list = value.view().as_list();
 
     {
@@ -120,8 +120,8 @@ TEST_CASE("Fixed lists clear releases non-trivial payloads and keeps slots writa
     list.begin_mutation().clear();
 
     REQUIRE(list.size() == 2);
-    CHECK_FALSE(list[0].valid());
-    CHECK_FALSE(list[1].valid());
+    CHECK_FALSE(list[0].has_value());
+    CHECK_FALSE(list[1].has_value());
 
     {
         auto mutation = list.begin_mutation();
@@ -157,7 +157,7 @@ TEST_CASE("List comparison is lexicographic within a schema", "[time_series][val
 
     CHECK(std::is_lt(lower.view() <=> upper.view()));
     CHECK(std::is_gt(upper.view() <=> lower.view()));
-    CHECK_FALSE(lower.view().eq(upper.view()));
+    CHECK_FALSE(lower.view().equals(upper.view()));
 }
 
 TEST_CASE("Builder lookup is singleton per list schema", "[time_series][value][list]")
@@ -174,7 +174,7 @@ TEST_CASE("List mutation views support fluent command-style chaining", "[time_se
 {
     const value::TypeMeta *schema = value::TypeRegistry::instance().list(value::scalar_type_meta<int32_t>()).build();
 
-    Value value{*schema};
+    Value value{*schema, hgraph::MutationTracking::Delta};
     auto  list = value.list_view();
 
     list.begin_mutation().pushing_back(int32_t{1}).pushing_back(int32_t{2}).setting(0, int32_t{3});
@@ -188,7 +188,7 @@ TEST_CASE("Fixed lists expose updated delta slots for the current mutation epoch
 {
     const value::TypeMeta *schema = value::TypeRegistry::instance().fixed_list(value::scalar_type_meta<int32_t>(), 3).build();
 
-    Value value{*schema};
+    Value value{*schema, hgraph::MutationTracking::Delta};
     auto  list = value.list_view();
 
     list.begin_mutation().setting(0, int32_t{1}).setting(1, int32_t{2}).setting(2, int32_t{3});
@@ -214,7 +214,7 @@ TEST_CASE("Fixed lists expose updated delta slots for the current mutation epoch
     CHECK(updated_indices == std::vector<size_t>{1, 2});
     REQUIRE(updated_values.size() == 2);
     CHECK(updated_values[0].as_atomic().as<int32_t>() == 7);
-    CHECK_FALSE(updated_values[1].valid());
+    CHECK_FALSE(updated_values[1].has_value());
     CHECK(updated_values[1].schema() == value::scalar_type_meta<int32_t>());
     CHECK(added_indices.empty());
 }
@@ -223,7 +223,7 @@ TEST_CASE("Dynamic lists expose updated and added delta slots for the current mu
 {
     const value::TypeMeta *schema = value::TypeRegistry::instance().list(value::scalar_type_meta<int32_t>()).build();
 
-    Value value{*schema};
+    Value value{*schema, hgraph::MutationTracking::Delta};
     auto  list = value.list_view();
 
     list.begin_mutation().pushing_back(int32_t{10}).pushing_back(int32_t{20});

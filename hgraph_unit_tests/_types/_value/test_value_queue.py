@@ -68,7 +68,7 @@ def test_queue_max_capacity():
     bounded_schema = registry.queue(int_schema).max_capacity(10).build()
     bounded_v = value.Value(bounded_schema)
 
-    bounded_v.emplace()
+    bounded_v.reset()
     bounded_q = bounded_v.view().as_queue()
     assert bounded_q.max_capacity() == 10
     assert bounded_q.has_max_capacity() == True
@@ -77,7 +77,7 @@ def test_queue_max_capacity():
     unbounded_schema = registry.queue(int_schema).build()
     unbounded_v = value.Value(unbounded_schema)
 
-    unbounded_v.emplace()
+    unbounded_v.reset()
     unbounded_q = unbounded_v.view().as_queue()
     assert unbounded_q.max_capacity() == 0
     assert unbounded_q.has_max_capacity() == False
@@ -93,7 +93,7 @@ def test_queue_initially_empty():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     assert q.size() == 0
@@ -110,14 +110,14 @@ def test_push_back_single():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     elem = value.Value(42)
     q.push(elem.view())
 
     assert q.size() == 1
-    assert q[0].as_int() == 42
+    assert q.front().as_int() == 42
 
 
 def test_push_back_multiple():
@@ -130,7 +130,7 @@ def test_push_back_multiple():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     for i in range(5):
@@ -138,8 +138,7 @@ def test_push_back_multiple():
         q.push(elem.view())
 
     assert q.size() == 5
-    for i in range(5):
-        assert q[i].as_int() == i * 10
+    assert list(q) == [i * 10 for i in range(5)]
 
 
 def test_pop_front():
@@ -152,7 +151,7 @@ def test_pop_front():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     # Push 3 elements: 10, 20, 30
@@ -184,7 +183,7 @@ def test_pop_front_empty_raises():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     with pytest.raises(IndexError):
@@ -201,7 +200,7 @@ def test_fifo_order():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     # Push 1, 2, 3, 4, 5
@@ -227,7 +226,7 @@ def test_front_and_back():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     for i in [10, 20, 30, 40]:
@@ -248,7 +247,7 @@ def test_bounded_queue_eviction():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     # Push 1, 2, 3 - queue is now full
@@ -257,21 +256,21 @@ def test_bounded_queue_eviction():
         q.push(elem.view())
 
     assert q.size() == 3
-    assert list(e.as_int() for e in q) == [1, 2, 3]
+    assert list(q) == [1, 2, 3]
 
     # Push 4 - evicts 1
     elem = value.Value(4)
     q.push(elem.view())
 
     assert q.size() == 3
-    assert list(e.as_int() for e in q) == [2, 3, 4]
+    assert list(q) == [2, 3, 4]
 
     # Push 5 - evicts 2
     elem = value.Value(5)
     q.push(elem.view())
 
     assert q.size() == 3
-    assert list(e.as_int() for e in q) == [3, 4, 5]
+    assert list(q) == [3, 4, 5]
 
 
 def test_unbounded_queue_grows():
@@ -284,7 +283,7 @@ def test_unbounded_queue_grows():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     # Push many elements - should grow
@@ -295,8 +294,7 @@ def test_unbounded_queue_grows():
     assert q.size() == 100
 
     # Verify order
-    for i in range(100):
-        assert q[i].as_int() == i
+    assert list(q) == list(range(100))
 
 
 def test_clear():
@@ -309,7 +307,7 @@ def test_clear():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     for i in range(5):
@@ -333,7 +331,7 @@ def test_push_after_clear():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     # Initial push
@@ -348,7 +346,7 @@ def test_push_after_clear():
     q.push(elem.view())
 
     assert q.size() == 1
-    assert q[0].as_int() == 100
+    assert q.front().as_int() == 100
 
 
 def test_iteration():
@@ -361,7 +359,7 @@ def test_iteration():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     values = [10, 20, 30, 40, 50]
@@ -369,7 +367,7 @@ def test_iteration():
         elem = value.Value(val)
         q.push(elem.view())
 
-    result = [e.as_int() for e in q]
+    result = list(q)
     assert result == values
 
 
@@ -383,10 +381,10 @@ def test_equal_queues():
 
     v1 = value.Value(queue_schema)
 
-    v1.emplace()
+    v1.reset()
     v2 = value.Value(queue_schema)
 
-    v2.emplace()
+    v2.reset()
     q1 = v1.view().as_queue()
     q2 = v2.view().as_queue()
 
@@ -408,10 +406,10 @@ def test_unequal_queues():
 
     v1 = value.Value(queue_schema)
 
-    v1.emplace()
+    v1.reset()
     v2 = value.Value(queue_schema)
 
-    v2.emplace()
+    v2.reset()
     q1 = v1.view().as_queue()
     q2 = v2.view().as_queue()
 
@@ -436,10 +434,10 @@ def test_hash_consistency():
 
     v1 = value.Value(queue_schema)
 
-    v1.emplace()
+    v1.reset()
     v2 = value.Value(queue_schema)
 
-    v2.emplace()
+    v2.reset()
     q1 = v1.view().as_queue()
     q2 = v2.view().as_queue()
 
@@ -461,7 +459,7 @@ def test_to_python_returns_list():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     for val in [10, 20, 30]:
@@ -484,12 +482,12 @@ def test_from_python():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     v.view().from_python([1, 2, 3, 4, 5])
 
     q = v.view().as_queue()
     assert q.size() == 5
-    assert list(e.as_int() for e in q) == [1, 2, 3, 4, 5]
+    assert list(q) == [1, 2, 3, 4, 5]
 
 
 def test_from_python_truncates_to_max_capacity():
@@ -502,13 +500,13 @@ def test_from_python_truncates_to_max_capacity():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     v.view().from_python([1, 2, 3, 4, 5])  # More than capacity
 
     q = v.view().as_queue()
     assert q.size() == 3
     # Should keep first 3 elements
-    assert list(e.as_int() for e in q) == [1, 2, 3]
+    assert list(q) == [1, 2, 3]
 
 
 def test_element_type():
@@ -521,7 +519,7 @@ def test_element_type():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     assert q.element_type() == int_schema
@@ -537,7 +535,7 @@ def test_is_queue():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     assert v.view().is_queue() == True
     assert v.view().is_cyclic_buffer() == False
     assert v.view().is_list() == False
@@ -553,7 +551,7 @@ def test_to_string():
 
     v = value.Value(queue_schema)
 
-    v.emplace()
+    v.reset()
     q = v.view().as_queue()
 
     for val in [1, 2, 3]:

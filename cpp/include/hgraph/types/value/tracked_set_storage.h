@@ -9,7 +9,6 @@
  */
 
 #include <hgraph/types/value/value.h>
-#include <hgraph/types/value/indexed_view.h>
 #include <hgraph/types/value/type_registry.h>
 
 namespace hgraph::value {
@@ -43,9 +42,9 @@ struct TrackedSetStorage {
             _value = Value(_set_schema);
             _added = Value(_set_schema);
             _removed = Value(_set_schema);
-            _value.emplace();
-            _added.emplace();
-            _removed.emplace();
+            _value.reset();
+            _added.reset();
+            _removed.reset();
         }
     }
 
@@ -62,8 +61,10 @@ struct TrackedSetStorage {
      * @return Empty invalid view if storage not initialized, otherwise set view.
      */
     [[nodiscard]] SetView value() const {
-        if (!_set_schema) return SetView{};
-        return SetView(_value.view());
+        if (!_set_schema) {
+            throw std::runtime_error("TrackedSetStorage::value(): storage not initialized");
+        }
+        return _value.view().as_set();
     }
 
     /**
@@ -82,8 +83,10 @@ struct TrackedSetStorage {
      * @return Empty invalid view if storage not initialized, otherwise set view.
      */
     [[nodiscard]] SetView added() const {
-        if (!_set_schema) return SetView{};
-        return SetView(_added.view());
+        if (!_set_schema) {
+            throw std::runtime_error("TrackedSetStorage::added(): storage not initialized");
+        }
+        return _added.view().as_set();
     }
 
     /**
@@ -91,8 +94,10 @@ struct TrackedSetStorage {
      * @return Empty invalid view if storage not initialized, otherwise set view.
      */
     [[nodiscard]] SetView removed() const {
-        if (!_set_schema) return SetView{};
-        return SetView(_removed.view());
+        if (!_set_schema) {
+            throw std::runtime_error("TrackedSetStorage::removed(): storage not initialized");
+        }
+        return _removed.view().as_set();
     }
 
     // ========== Size and State ==========
@@ -158,15 +163,15 @@ struct TrackedSetStorage {
         }
 
         // Add to value
-        value().add(elem);
+        static_cast<void>(value().begin_mutation().add(elem));
 
         // Track delta: if it was removed this cycle, just un-remove it
         auto removed_view = _removed.view().as_set();
         if (removed_view.contains(elem)) {
-            removed_view.remove(elem);
+            static_cast<void>(removed_view.begin_mutation().remove(elem));
         } else {
             // Otherwise track as newly added
-            _added.view().as_set().add(elem);
+            static_cast<void>(_added.view().as_set().begin_mutation().add(elem));
         }
         return true;
     }
@@ -186,15 +191,15 @@ struct TrackedSetStorage {
         }
 
         // Remove from value
-        value().remove(elem);
+        static_cast<void>(value().begin_mutation().remove(elem));
 
         // Track delta: if it was added this cycle, just un-add it
         auto added_view = _added.view().as_set();
         if (added_view.contains(elem)) {
-            added_view.remove(elem);
+            static_cast<void>(added_view.begin_mutation().remove(elem));
         } else {
             // Otherwise track as newly removed
-            _removed.view().as_set().add(elem);
+            static_cast<void>(_removed.view().as_set().begin_mutation().add(elem));
         }
         return true;
     }
@@ -203,8 +208,8 @@ struct TrackedSetStorage {
      * @brief Clear all delta tracking (call at end of cycle).
      */
     void clear_deltas() {
-        _added.view().as_set().clear();
-        _removed.view().as_set().clear();
+        _added.view().as_set().begin_mutation().clear();
+        _removed.view().as_set().begin_mutation().clear();
     }
 
     /**
@@ -218,15 +223,16 @@ struct TrackedSetStorage {
         auto val = value();
         auto added_view = _added.view().as_set();
         auto removed_view = _removed.view().as_set();
-        for (auto elem : val) {
+        for (size_t i = 0; i < val.size(); ++i) {
+            auto elem = val.at(i);
             // Only mark as removed if it wasn't added this cycle
             if (!added_view.contains(elem)) {
-                removed_view.add(elem);
+                static_cast<void>(removed_view.begin_mutation().add(elem));
             }
         }
         // Clear value and added
-        value().clear();
-        _added.view().as_set().clear();
+        value().begin_mutation().clear();
+        _added.view().as_set().begin_mutation().clear();
     }
 
     // ========== Typed Convenience Methods ==========

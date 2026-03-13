@@ -73,7 +73,7 @@ namespace hgraph {
         }
         if (other->valid()) {
             if (!_value.has_value()) {
-                _value.emplace();
+                _value.reset();
             }
             _value.view().copy_from(other->_value.view());
             _py_cached_value = other->_py_cached_value.is_valid() ? other->_py_cached_value : nb::object();
@@ -90,7 +90,7 @@ namespace hgraph {
         }
         if (other->valid()) {
             if (!_value.has_value()) {
-                _value.emplace();
+                _value.reset();
             }
             _value.view().copy_from(other->value());
             const auto& source = other->value_output();

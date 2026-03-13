@@ -40,8 +40,8 @@ namespace hgraph
             if (v_.is_none()) { continue; }
             // Convert Python key to Value using TypeOps
             value::Value key_val(_key_type);
-            key_val.emplace();
-            _key_type->ops().from_python(key_val.data(), k, _key_type);
+            key_val.reset();
+            key_val.from_python(k);
             auto key_view = key_val.view();
             if (v_.is(remove) || v_.is(remove_if_exists)) {
                 if (v_.is(remove_if_exists) && !contains(key_view)) { continue; }
@@ -280,8 +280,8 @@ namespace hgraph
         for (const auto &kv : items) {
             // Convert Python key to Value using TypeOps
             value::Value key_val(_key_type);
-            key_val.emplace();
-            _key_type->ops().from_python(key_val.data(), kv[0], _key_type);
+            key_val.reset();
+            key_val.from_python(kv[0]);
             auto key_view = key_val.view();
             auto v  = kv[1];
             if (v.is_none()) { continue; }
@@ -306,7 +306,7 @@ namespace hgraph
         for (const auto &[pv_key, value] : _ts_values) {
             if (value->valid()) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
+                nb::object py_key = pv_key.view().to_python();
                 v[py_key] = value->py_value();
             }
         }
@@ -319,7 +319,7 @@ namespace hgraph
         for (const auto &[pv_key, value] : _ts_values) {
             if (value->modified() && value->valid()) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
+                nb::object py_key = pv_key.view().to_python();
                 delta_value[py_key] = value->py_delta_value();
             }
         }
@@ -327,7 +327,7 @@ namespace hgraph
             auto removed{get_remove()};
             for (const auto &[pv_key, _] : _removed_items) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
+                nb::object py_key = pv_key.view().to_python();
                 delta_value[py_key] = removed;
             }
         }
@@ -372,7 +372,7 @@ namespace hgraph
 
         // Build list of keys to remove
         std::vector<value::Value> to_remove;
-        for (auto elem : key_set().value_view()) {
+        for (auto elem : key_set().value_view().values()) {
             // Check if key is NOT in other's key set
             if (!other.key_set().contains(elem)) {
                 to_remove.push_back(elem.clone());
@@ -389,7 +389,7 @@ namespace hgraph
 
         // Remove keys that are in output but NOT in input (matching Python: self.key_set.value - input.key_set.value)
         std::vector<value::Value> to_remove;
-        for (auto elem : key_set().value_view()) {
+        for (auto elem : key_set().value_view().values()) {
             // Check if key is NOT in input's key set
             if (!dict_input.key_set().contains(elem)) {
                 to_remove.push_back(elem.clone());
@@ -470,7 +470,7 @@ namespace hgraph
 
         // Rebuild cache - uses instance member instead of static for thread safety
         _added_items_cache.clear();
-        for (auto elem : key_set().added_view()) {
+        for (auto elem : key_set().added_view().values()) {
             auto it = _ts_values.find(elem);
             if (it != _ts_values.end()) {
                 _added_items_cache.emplace(elem.clone(), it->second);
@@ -487,8 +487,8 @@ namespace hgraph
     void TimeSeriesDictOutputImpl::py_set_item(const nb::object &key, const nb::object &value) {
         // Convert Python key to Value using TypeOps
         value::Value key_val(_key_type);
-        key_val.emplace();
-        _key_type->ops().from_python(key_val.data(), key, _key_type);
+        key_val.reset();
+        key_val.from_python(key);
         auto ts{operator[](key_val.view())};
         ts->apply_result(value);
     }
@@ -496,8 +496,8 @@ namespace hgraph
     void TimeSeriesDictOutputImpl::py_del_item(const nb::object &key) {
         // Convert Python key to Value using TypeOps
         value::Value key_val(_key_type);
-        key_val.emplace();
-        _key_type->ops().from_python(key_val.data(), key, _key_type);
+        key_val.reset();
+        key_val.from_python(key);
         erase(key_val.view());
     }
 
@@ -509,8 +509,8 @@ namespace hgraph
         nb::object result_value{};
         // Convert Python key to Value using TypeOps
         value::Value key_val(_key_type);
-        key_val.emplace();
-        _key_type->ops().from_python(key_val.data(), key, _key_type);
+        key_val.reset();
+        key_val.from_python(key);
         auto key_view = key_val.view();
         if (auto it = _ts_values.find(key_view); it != _ts_values.end()) {
             result_value = it->second->py_value();
@@ -531,16 +531,16 @@ namespace hgraph
     time_series_output_s_ptr& TimeSeriesDictOutputImpl::get_ref(const nb::object &key, const void *requester) {
         // Convert Python key to Value using TypeOps
         value::Value key_val(_key_type);
-        key_val.emplace();
-        _key_type->ops().from_python(key_val.data(), key, _key_type);
+        key_val.reset();
+        key_val.from_python(key);
         return _ref_ts_feature.create_or_increment(key_val.view(), requester);
     }
 
     void TimeSeriesDictOutputImpl::release_ref(const nb::object &key, const void *requester) {
         // Convert Python key to Value using TypeOps
         value::Value key_val(_key_type);
-        key_val.emplace();
-        _key_type->ops().from_python(key_val.data(), key, _key_type);
+        key_val.reset();
+        key_val.from_python(key);
         _ref_ts_feature.release(key_val.view(), requester);
     }
 
@@ -624,7 +624,7 @@ namespace hgraph
         for (const auto &[pv_key, value] : _ts_values) {
             if (value->valid()) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
+                nb::object py_key = pv_key.view().to_python();
                 v[py_key] = value->py_value();
             }
         }
@@ -638,7 +638,7 @@ namespace hgraph
         for (const auto &[pv_key, value] : _ts_values) {
             if (value->modified() && value->valid()) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
+                nb::object py_key = pv_key.view().to_python();
                 delta[py_key] = value->py_delta_value();
             }
         }
@@ -655,7 +655,7 @@ namespace hgraph
             for (const auto &[pv_key, value] : removed_map) {
                 // Check was_valid flag from _removed_items
                 if (was_removed_valid(pv_key.view())) {
-                    nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
+                    nb::object py_key = pv_key.view().to_python();
                     delta[py_key] = removed;
                 }
             }
@@ -897,7 +897,7 @@ namespace hgraph
         // Iterate INPUT's key_set values and removed (not output's) to get keys - matches Python behavior
         // The input's key_set was just bound to output's key_set above, so it now reflects
         // the delta from the old output to the new output
-        for (auto elem : key_set().value_view()) {
+        for (auto elem : key_set().value_view().values()) {
             on_key_added(elem);
         }
 

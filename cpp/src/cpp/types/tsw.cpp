@@ -11,7 +11,7 @@ namespace hgraph
         _buffer.reserve(_size);
         for (size_t i = 0; i < _size; ++i) {
             _buffer.emplace_back(_element_type);
-            _buffer.back().emplace();
+            _buffer.back().reset();
         }
         _times.resize(_size, engine_time_t{});
     }
@@ -22,7 +22,7 @@ namespace hgraph
         _buffer.reserve(_size);
         for (size_t i = 0; i < _size; ++i) {
             _buffer.emplace_back(_element_type);
-            _buffer.back().emplace();
+            _buffer.back().reset();
         }
         _times.resize(_size, engine_time_t{});
     }
@@ -34,13 +34,13 @@ namespace hgraph
         if (_length < _size) {
             // No rotation has occurred; use the first _length elements
             for (size_t i = 0; i < _length; ++i) {
-                result.append(_element_type->ops().to_python(_buffer[i].data(), _element_type));
+                result.append(_buffer[i].to_python());
             }
         } else {
             // Buffer is full with rotation
             for (size_t i = 0; i < _size; ++i) {
                 size_t idx = (_start + i) % _size;
-                result.append(_element_type->ops().to_python(_buffer[idx].data(), _element_type));
+                result.append(_buffer[idx].to_python());
             }
         }
         return result;
@@ -50,7 +50,7 @@ namespace hgraph
         if (_length == 0) return nb::none();
         size_t pos = (_length < _size) ? (_length - 1) : ((_start + _length - 1) % _size);
         if (_times[pos] == owning_graph()->evaluation_time()) {
-            return _element_type->ops().to_python(_buffer[pos].data(), _element_type);
+            return _buffer[pos].to_python();
         }
         return nb::none();
     }
@@ -77,9 +77,9 @@ namespace hgraph
             }
             size_t pos = (_start + _length - 1) % _size;
             if (!_buffer[pos].has_value()) {
-                _buffer[pos].emplace();
+                _buffer[pos].reset();
             }
-            _element_type->ops().from_python(_buffer[pos].data(), value, _element_type);
+            _buffer[pos].from_python(value);
             _times[pos] = owning_graph()->evaluation_time();
             mark_modified();
         } catch (const std::exception &e) {
@@ -99,7 +99,7 @@ namespace hgraph
         _buffer.reserve(_size);
         for (size_t i = 0; i < _size; ++i) {
             _buffer.emplace_back(_element_type);
-            _buffer.back().emplace();
+            _buffer.back().reset();
         }
         _times.assign(_size, engine_time_t{});
         _has_removed_value = false;
@@ -158,7 +158,7 @@ namespace hgraph
 
     nb::object TimeSeriesFixedWindowOutput::py_removed_value() const {
         if (!_has_removed_value) return nb::none();
-        return _element_type->ops().to_python(_removed_value.data(), _element_type);
+        return _removed_value.to_python();
     }
 
     void TimeSeriesFixedWindowOutput::reset_value() {
@@ -166,7 +166,7 @@ namespace hgraph
         _buffer.reserve(_size);
         for (size_t i = 0; i < _size; ++i) {
             _buffer.emplace_back(_element_type);
-            _buffer.back().emplace();
+            _buffer.back().reset();
         }
         _times.assign(_size, engine_time_t{});
         _has_removed_value = false;
@@ -291,7 +291,7 @@ namespace hgraph
         // Return the removed values as a list
         nb::list result;
         for (const auto& v : _removed_values) {
-            result.append(_element_type->ops().to_python(v.data(), _element_type));
+            result.append(v.to_python());
         }
         return result;
     }
@@ -319,7 +319,7 @@ namespace hgraph
         // Convert deque to Python list
         nb::list result;
         for (const auto& v : _buffer) {
-            result.append(_element_type->ops().to_python(v.data(), _element_type));
+            result.append(v.to_python());
         }
         return result;
     }
@@ -335,7 +335,7 @@ namespace hgraph
         if (_ready && !_times.empty()) {
             auto current_time = owning_graph()->evaluation_time();
             if (_times.back() == current_time) {
-                return _element_type->ops().to_python(_buffer.back().data(), _element_type);
+                return _buffer.back().to_python();
             }
         }
         return nb::none();
@@ -354,8 +354,8 @@ namespace hgraph
         if (!value.is_valid() || value.is_none()) return;
         try {
             value::Value v(_element_type);
-            v.emplace();
-            _element_type->ops().from_python(v.data(), value, _element_type);
+            v.reset();
+            v.from_python(value);
             _buffer.push_back(std::move(v));
             _times.push_back(owning_graph()->evaluation_time());
             mark_modified();

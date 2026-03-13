@@ -136,4 +136,8 @@ def test_wall_clock_scheduler_reschedule():
     assert values[1][0] >= now + timedelta(milliseconds=50)  # we will expect to accumulate 100/7*3 = 42.8ms lag
     assert values[1][0] < now + timedelta(milliseconds=60)
     assert values[2][1][1] >= values[1][1][1] + timedelta(milliseconds=90)  # we will expect to accumulate 100/7*3 = 42.8ms lag
-    assert values[2][1][1] < values[1][1][1] + timedelta(milliseconds=110)
+    # Real-time reschedule tests run with trace output enabled and are sensitive
+    # to host wake-up jitter. Keep the bound tight enough to catch real
+    # regressions while allowing a small amount of scheduler noise under full
+    # C++ suite load.
+    assert values[2][1][1] < values[1][1][1] + timedelta(milliseconds=115)

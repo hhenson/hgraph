@@ -40,7 +40,7 @@ def make_int_value(val):
     int_schema = value.scalar_type_meta_int64()
     v = Value(int_schema)
 
-    v.emplace()
+    v.reset()
     v.set_int(val)
     return v
 
@@ -50,7 +50,7 @@ def make_double_value(val):
     double_schema = value.scalar_type_meta_double()
     v = Value(double_schema)
 
-    v.emplace()
+    v.reset()
     v.set_double(val)
     return v
 
@@ -60,7 +60,7 @@ def make_bool_value(val):
     bool_schema = value.scalar_type_meta_bool()
     v = Value(bool_schema)
 
-    v.emplace()
+    v.reset()
     v.set_bool(val)
     return v
 
@@ -70,7 +70,7 @@ def make_string_value(val):
     string_schema = value.scalar_type_meta_string()
     v = Value(string_schema)
 
-    v.emplace()
+    v.reset()
     v.set_string(val)
     return v
 
@@ -168,8 +168,8 @@ def test_int_list_to_numpy_array(dynamic_int_list_schema):
     """Create numpy array from int64 list."""
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     # Populate with test data
     for val in [10, 20, 30, 40, 50]:
@@ -191,8 +191,8 @@ def test_double_list_to_numpy_array(dynamic_double_list_schema):
     """Create numpy array from double list."""
     v = Value(dynamic_double_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     # Populate with test data
     for val in [1.5, 2.5, 3.5, 4.5, 5.5]:
@@ -214,8 +214,8 @@ def test_bool_list_to_numpy_array(dynamic_bool_list_schema):
     """Create numpy array from bool list."""
     v = Value(dynamic_bool_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     # Populate with test data
     for val in [True, False, True, True, False]:
@@ -241,8 +241,8 @@ def test_float_list_to_numpy_array(dynamic_double_list_schema):
     """
     v = Value(dynamic_double_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     # Populate with test data
     for val in [1.0, 2.0, 3.0]:
@@ -265,8 +265,8 @@ def test_buffer_shape_matches_list_size(dynamic_int_list_schema):
     """numpy shape matches list size."""
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     for val in [1, 2, 3, 4, 5, 6, 7]:
         elem = make_int_value(val)
@@ -284,8 +284,8 @@ def test_buffer_dtype_matches_element_type(type_registry, dynamic_int_list_schem
     # Test int64
     v_int = Value(dynamic_int_list_schema)
 
-    v_int.emplace()
-    lv_int = v_int.as_list()
+    v_int.reset()
+    lv_int = v_int.list_view()
     elem_int = make_int_value(42)
     lv_int.push_back(elem_int.view())
     arr_int = v_int.view().as_list().to_numpy()
@@ -294,8 +294,8 @@ def test_buffer_dtype_matches_element_type(type_registry, dynamic_int_list_schem
     # Test double (float64)
     v_double = Value(dynamic_double_list_schema)
 
-    v_double.emplace()
-    lv_double = v_double.as_list()
+    v_double.reset()
+    lv_double = v_double.list_view()
     elem_double = make_double_value(3.14)
     lv_double.push_back(elem_double.view())
     arr_double = v_double.view().as_list().to_numpy()
@@ -304,8 +304,8 @@ def test_buffer_dtype_matches_element_type(type_registry, dynamic_int_list_schem
     # Test bool
     v_bool = Value(dynamic_bool_list_schema)
 
-    v_bool.emplace()
-    lv_bool = v_bool.as_list()
+    v_bool.reset()
+    lv_bool = v_bool.list_view()
     elem_bool = make_bool_value(True)
     lv_bool.push_back(elem_bool.view())
     arr_bool = v_bool.view().as_list().to_numpy()
@@ -316,8 +316,8 @@ def test_buffer_is_contiguous(dynamic_int_list_schema):
     """Buffer is C-contiguous."""
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     for val in range(10):
         elem = make_int_value(val)
@@ -342,8 +342,8 @@ def test_buffer_shares_memory(dynamic_int_list_schema):
     """
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     for val in [100, 200, 300]:
         elem = make_int_value(val)
@@ -374,8 +374,8 @@ def test_buffer_modifications_visible(dynamic_int_list_schema):
     """
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     for val in [10, 20, 30]:
         elem = make_int_value(val)
@@ -405,11 +405,11 @@ def test_buffer_modifications_visible(dynamic_int_list_schema):
 
 
 def test_view_buffer_is_writable(dynamic_int_list_schema):
-    """view().as_list().to_numpy() exposes writable list storage."""
+    """view().list_view().to_numpy() exposes writable list storage."""
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     for val in [10, 20, 30]:
         elem = make_int_value(val)
@@ -438,8 +438,8 @@ def test_fixed_list_buffer(fixed_int_list_schema):
     """Fixed-size list supports buffer."""
     v = Value(fixed_int_list_schema)
 
-    v.emplace()
-    flv = v.as_list()
+    v.reset()
+    flv = v.list_view()
 
     # Fixed list is pre-allocated, set values at specific indices
     for i in range(5):
@@ -463,8 +463,8 @@ def test_dynamic_list_buffer(dynamic_int_list_schema):
     """Dynamic list supports buffer."""
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     # Dynamic list can grow
     for val in [1, 2, 3, 4, 5]:
@@ -482,8 +482,8 @@ def test_fixed_double_list_buffer(fixed_double_list_schema):
     """Fixed-size double list supports buffer."""
     v = Value(fixed_double_list_schema)
 
-    v.emplace()
-    flv = v.as_list()
+    v.reset()
+    flv = v.list_view()
 
     for i in range(5):
         elem = make_double_value((i + 1) * 1.5)
@@ -509,8 +509,8 @@ def test_string_list_not_buffer_compatible(dynamic_string_list_schema):
     """
     v = Value(dynamic_string_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     s1 = make_string_value("hello")
     s2 = make_string_value("world")
@@ -536,8 +536,8 @@ def test_bundle_list_not_buffer_compatible(bundle_list_schema):
     """
     v = Value(bundle_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     # Bundle elements would need to be added differently
     # For now, just test that the list exists
@@ -563,13 +563,13 @@ def test_is_buffer_compatible_check(dynamic_int_list_schema, dynamic_string_list
     # Int list should be buffer compatible
     v_int = Value(dynamic_int_list_schema)
 
-    v_int.emplace()
+    v_int.reset()
     clv_int = v_int.view().as_list()
 
     # String list should not be buffer compatible
     v_str = Value(dynamic_string_list_schema)
 
-    v_str.emplace()
+    v_str.reset()
     clv_str = v_str.view().as_list()
 
     try:
@@ -590,7 +590,7 @@ def test_empty_list_buffer(dynamic_int_list_schema):
     """Empty list returns empty array."""
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
+    v.reset()
     clv = v.view().as_list()
 
     assert clv.size() == 0
@@ -606,8 +606,8 @@ def test_single_element_buffer(dynamic_int_list_schema):
     """Single-element list works."""
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     elem = make_int_value(42)
     lv.push_back(elem.view())
@@ -623,8 +623,8 @@ def test_large_list_buffer(dynamic_int_list_schema):
     """Large list (1000+ elements) works efficiently."""
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     # Create a large list
     n = 1000
@@ -653,8 +653,8 @@ def test_very_large_list_buffer(dynamic_double_list_schema):
     """Very large list (100K+ elements) with doubles."""
     v = Value(dynamic_double_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     # Create a very large list
     n = 100_000
@@ -682,8 +682,8 @@ def test_buffer_with_negative_values(dynamic_int_list_schema):
     """Buffer works with negative integer values."""
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     for val in [-100, -50, 0, 50, 100]:
         elem = make_int_value(val)
@@ -699,8 +699,8 @@ def test_buffer_with_special_float_values(dynamic_double_list_schema):
     """Buffer works with special float values (inf, -inf, nan)."""
     v = Value(dynamic_double_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     special_values = [float('inf'), float('-inf'), float('nan'), 0.0, -0.0]
     for val in special_values:
@@ -723,8 +723,8 @@ def test_buffer_with_max_min_int_values(dynamic_int_list_schema):
 
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     max_int = 2**63 - 1  # Maximum int64
     min_int = -(2**63)   # Minimum int64
@@ -745,8 +745,8 @@ def test_bool_list_buffer_values(dynamic_bool_list_schema):
     """Bool list buffer has correct boolean semantics."""
     v = Value(dynamic_bool_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     for val in [True, False, True, False]:
         elem = make_bool_value(val)
@@ -770,8 +770,8 @@ def test_numpy_sum_on_int_buffer(dynamic_int_list_schema):
     """numpy.sum() works on int list buffer."""
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     for val in range(1, 11):
         elem = make_int_value(val)
@@ -787,8 +787,8 @@ def test_numpy_mean_on_double_buffer(dynamic_double_list_schema):
     """numpy.mean() works on double list buffer."""
     v = Value(dynamic_double_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     for val in [1.0, 2.0, 3.0, 4.0, 5.0]:
         elem = make_double_value(val)
@@ -804,8 +804,8 @@ def test_numpy_vectorized_operations(dynamic_double_list_schema):
     """Vectorized numpy operations work on buffer."""
     v = Value(dynamic_double_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     for val in [1.0, 4.0, 9.0, 16.0, 25.0]:
         elem = make_double_value(val)
@@ -827,8 +827,8 @@ def test_numpy_slicing_on_buffer(dynamic_int_list_schema):
     """Numpy slicing works on buffer."""
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     for val in range(10):
         elem = make_int_value(val)
@@ -847,8 +847,8 @@ def test_numpy_boolean_indexing(dynamic_int_list_schema):
     """Boolean indexing works on buffer."""
     v = Value(dynamic_int_list_schema)
 
-    v.emplace()
-    lv = v.as_list()
+    v.reset()
+    lv = v.list_view()
 
     for val in range(10):
         elem = make_int_value(val)

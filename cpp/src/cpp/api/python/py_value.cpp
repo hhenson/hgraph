@@ -1,1474 +1,1241 @@
 #include <hgraph/api/python/py_value.h>
 #include <hgraph/types/value/value.h>
-#include <hgraph/types/value/type_registry.h>
-#include <hgraph/types/value/composite_ops.h>
-#include <hgraph/types/value/path.h>
-#include <hgraph/types/value/traversal.h>
 #include <hgraph/types/value/type_meta_bindings.h>
-#include <hgraph/types/value/tracked_set_storage.h>
-#include <hgraph/types/value/tracked_set_view.h>
-#include <hgraph/types/value/set_delta_value.h>
+#include <hgraph/types/value/type_registry.h>
 #include <hgraph/python/chrono.h>
 
-#include <nanobind/stl/string.h>
 #include <nanobind/stl/optional.h>
+#include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
-#include <Python.h>  // For Py_buffer
 
-namespace hgraph {
+#include <cctype>
+#include <memory>
 
-using namespace hgraph::value;
-using namespace nanobind::literals;
+namespace hgraph
+{
+    using namespace nanobind::literals;
 
-// ============================================================================
-// TypeKind Enum Binding
-// ============================================================================
+    namespace
+    {
+        using namespace hgraph::value;
 
-static void register_type_kind(nb::module_& m) {
-    nb::enum_<TypeKind>(m, "TypeKind", "Categories of types in the Value system")
-        .value("Atomic", TypeKind::Atomic, "Atomic values: int, double, bool, string, datetime, etc.")
-        .value("Tuple", TypeKind::Tuple, "Indexed heterogeneous collection (unnamed, positional access only)")
-        .value("Bundle", TypeKind::Bundle, "Named field collection (struct-like, index + name access)")
-        .value("List", TypeKind::List, "Indexed homogeneous collection (dynamic size)")
-        .value("Set", TypeKind::Set, "Unordered unique elements")
-        .value("Map", TypeKind::Map, "Key-value pairs")
-        .value("CyclicBuffer", TypeKind::CyclicBuffer, "Fixed-size circular buffer (re-centers on read)")
-        .value("Queue", TypeKind::Queue, "FIFO queue with optional max capacity");
-}
-
-// ============================================================================
-// BundleFieldInfo Binding (User Guide Section 5.2)
-// ============================================================================
-
-static void register_bundle_field_info(nb::module_& m) {
-    nb::class_<BundleFieldInfo>(m, "BundleFieldInfo",
-        "Metadata for a single field in a Bundle type")
-        .def_prop_ro("name", [](const BundleFieldInfo& self) {
-            return self.name ? std::string(self.name) : std::string();
-        }, "Get the field name")
-        .def_ro("index", &BundleFieldInfo::index, "Get the field index (0-based)")
-        .def_ro("offset", &BundleFieldInfo::offset, "Get the byte offset from bundle start")
-        .def_prop_ro("type", [](const BundleFieldInfo& self) { return self.type; },
-            nb::rv_policy::reference, "Get the field type schema")
-        .def("__repr__", [](const BundleFieldInfo& self) {
-            return "BundleFieldInfo(name='" + (self.name ? std::string(self.name) : "<null>") +
-                   "', index=" + std::to_string(self.index) +
-                   ", offset=" + std::to_string(self.offset) + ")";
-        });
-}
-
-// ============================================================================
-// TypeMeta Binding (Read-only schema descriptor)
-// ============================================================================
-
-static void register_type_meta(nb::module_& m) {
-    nb::class_<TypeMeta>(m, "TypeMeta", "Type metadata describing a value's schema")
-        .def_ro("size", &TypeMeta::size, "Size in bytes")
-        .def_ro("alignment", &TypeMeta::alignment, "Alignment requirement")
-        .def_ro("kind", &TypeMeta::kind, "Type category")
-        .def_ro("field_count", &TypeMeta::field_count, "Number of fields (Bundle/Tuple)")
-        .def_ro("fixed_size", &TypeMeta::fixed_size, "Fixed size (0 = dynamic)")
-        // Name-based lookup
-        .def_prop_ro("name", [](const TypeMeta& self) -> nb::object {
-            return self.name ? nb::str(self.name) : nb::none();
-        }, "Human-readable type name (or None)")
-        .def_static("get", [](const std::string& name) {
-            return TypeMeta::get(name);
-        }, nb::rv_policy::reference, "Look up a TypeMeta by name")
-        .def("is_fixed_size", &TypeMeta::is_fixed_size, "Check if this is a fixed-size collection")
-        .def("is_hashable", &TypeMeta::is_hashable, "Check if this type is hashable")
-        .def("is_comparable", &TypeMeta::is_comparable, "Check if this type is comparable")
-        .def("is_equatable", &TypeMeta::is_equatable, "Check if this type is equatable")
-        .def("is_trivially_copyable", &TypeMeta::is_trivially_copyable, "Check if this type is trivially copyable")
-        // Element and key type access for composite types
-        .def_prop_ro("element_type", [](const TypeMeta& self) { return self.element_type; },
-            nb::rv_policy::reference, "Get the element type (for List/Set/Map value)")
-        .def_prop_ro("key_type", [](const TypeMeta& self) { return self.key_type; },
-            nb::rv_policy::reference, "Get the key type (for Map)")
-        // Fields property for Bundle/Tuple types (User Guide Section 5.2)
-        .def_prop_ro("fields", [](const TypeMeta& self) {
-            std::vector<const BundleFieldInfo*> result;
-            if (self.fields && self.field_count > 0) {
-                result.reserve(self.field_count);
-                for (size_t i = 0; i < self.field_count; ++i) {
-                    result.push_back(&self.fields[i]);
-                }
-            }
+        template <typename TView> std::vector<View> collect_indexed_views(const TView &view)
+        {
+            std::vector<View> result;
+            result.reserve(view.size());
+            for (size_t i = 0; i < view.size(); ++i) { result.push_back(view.at(i)); }
             return result;
-        }, nb::rv_policy::reference_internal, "Get the field metadata (for Bundle/Tuple)");
-}
-
-// ============================================================================
-// Free Functions for Scalar Type Metadata (Design Doc Section 3.2)
-// ============================================================================
-
-static void register_scalar_type_meta_functions(nb::module_& m) {
-    // Free functions matching Design Doc API: scalar_type_meta<T>()
-    m.def("scalar_type_meta_int64", []() { return scalar_type_meta<int64_t>(); },
-        nb::rv_policy::reference,
-        "Get the TypeMeta for int64 scalar type");
-
-    m.def("scalar_type_meta_double", []() { return scalar_type_meta<double>(); },
-        nb::rv_policy::reference,
-        "Get the TypeMeta for double scalar type");
-
-    m.def("scalar_type_meta_bool", []() { return scalar_type_meta<bool>(); },
-        nb::rv_policy::reference,
-        "Get the TypeMeta for bool scalar type");
-
-    m.def("scalar_type_meta_string", []() { return scalar_type_meta<std::string>(); },
-        nb::rv_policy::reference,
-        "Get the TypeMeta for string scalar type");
-
-    m.def("scalar_type_meta_date", []() { return scalar_type_meta<engine_date_t>(); },
-        nb::rv_policy::reference,
-        "Get the TypeMeta for date scalar type");
-
-    m.def("scalar_type_meta_datetime", []() { return scalar_type_meta<engine_time_t>(); },
-        nb::rv_policy::reference,
-        "Get the TypeMeta for datetime scalar type");
-
-    m.def("scalar_type_meta_timedelta", []() { return scalar_type_meta<engine_time_delta_t>(); },
-        nb::rv_policy::reference,
-        "Get the TypeMeta for timedelta scalar type");
-}
-
-// ============================================================================
-// Type Builders Binding (Design Doc Section 3.2)
-// ============================================================================
-
-static void register_type_builders(nb::module_& m) {
-    // TupleBuilder
-    nb::class_<TupleBuilder>(m, "TupleBuilder",
-        "Builder for tuple types (heterogeneous, index-only access)")
-        .def(nb::init<>())
-        .def("add_element", &TupleBuilder::add_element, "type"_a, nb::rv_policy::reference,
-            "Add an element type to the tuple")
-        .def("element", &TupleBuilder::element, "type"_a, nb::rv_policy::reference,
-            "Add an element type (legacy name)")
-        .def("build", &TupleBuilder::build, nb::rv_policy::reference,
-            "Build and register the tuple type");
-
-    // BundleBuilder
-    nb::class_<BundleBuilder>(m, "BundleBuilder",
-        "Builder for bundle types (struct-like, index + name access)")
-        .def(nb::init<>())
-        .def("set_name", &BundleBuilder::set_name, "name"_a, nb::rv_policy::reference,
-            "Set the bundle name")
-        .def("add_field", &BundleBuilder::add_field, "name"_a, "type"_a, nb::rv_policy::reference,
-            "Add a field to the bundle")
-        .def("field", &BundleBuilder::field, "name"_a, "type"_a, nb::rv_policy::reference,
-            "Add a field (legacy name)")
-        .def("build", &BundleBuilder::build, nb::rv_policy::reference,
-            "Build and register the bundle type");
-
-    // ListBuilder
-    nb::class_<ListBuilder>(m, "ListBuilder",
-        "Builder for list types (homogeneous indexed collections)")
-        .def(nb::init<>())
-        .def("set_element_type", &ListBuilder::set_element_type, "type"_a, nb::rv_policy::reference,
-            "Set the element type")
-        .def("set_size", &ListBuilder::set_size, "size"_a, nb::rv_policy::reference,
-            "Set the fixed size (0 = dynamic)")
-        .def("build", &ListBuilder::build, nb::rv_policy::reference,
-            "Build and register the list type");
-
-    // SetBuilder
-    nb::class_<SetBuilder>(m, "SetBuilder",
-        "Builder for set types (unique elements)")
-        .def(nb::init<>())
-        .def("set_element_type", &SetBuilder::set_element_type, "type"_a, nb::rv_policy::reference,
-            "Set the element type")
-        .def("build", &SetBuilder::build, nb::rv_policy::reference,
-            "Build and register the set type");
-
-    // MapBuilder
-    nb::class_<MapBuilder>(m, "MapBuilder",
-        "Builder for map types (key-value pairs)")
-        .def(nb::init<>())
-        .def("set_key_type", &MapBuilder::set_key_type, "type"_a, nb::rv_policy::reference,
-            "Set the key type")
-        .def("set_value_type", &MapBuilder::set_value_type, "type"_a, nb::rv_policy::reference,
-            "Set the value type")
-        .def("build", &MapBuilder::build, nb::rv_policy::reference,
-            "Build and register the map type");
-}
-
-// ============================================================================
-// TypeRegistry Binding (Design Doc Section 3.2)
-// ============================================================================
-
-static void register_type_registry(nb::module_& m) {
-    nb::class_<TypeRegistry>(m, "TypeRegistry", "Central registry for all type metadata")
-        // Singleton accessor
-        .def_static("instance", &TypeRegistry::instance, nb::rv_policy::reference,
-            "Get the singleton TypeRegistry instance")
-
-        // Named bundle lookup
-        .def("get_bundle_by_name", &TypeRegistry::get_bundle_by_name, nb::rv_policy::reference,
-            "name"_a, "Get a named bundle type by name (returns None if not found)")
-        .def("has_bundle", &TypeRegistry::has_bundle, "name"_a, "Check if a named bundle exists")
-
-        // Scalar type accessors (kept for backward compatibility)
-        .def("get_int_type", [](TypeRegistry& self) { return self.get_scalar<int64_t>(); },
-            nb::rv_policy::reference, "Get the int64 type metadata")
-        .def("get_double_type", [](TypeRegistry& self) { return self.get_scalar<double>(); },
-            nb::rv_policy::reference, "Get the double type metadata")
-        .def("get_bool_type", [](TypeRegistry& self) { return self.get_scalar<bool>(); },
-            nb::rv_policy::reference, "Get the bool type metadata")
-        .def("get_string_type", [](TypeRegistry& self) { return self.get_scalar<std::string>(); },
-            nb::rv_policy::reference, "Get the string type metadata")
-
-        // Composite type builders (Design Doc API)
-        .def("tuple", &TypeRegistry::tuple,
-            "Create a tuple type builder (heterogeneous, unnamed)")
-        .def("bundle", static_cast<BundleBuilder (TypeRegistry::*)()>(&TypeRegistry::bundle),
-            "Create an anonymous bundle type builder")
-        .def("bundle", static_cast<BundleBuilder (TypeRegistry::*)(const std::string&)>(&TypeRegistry::bundle),
-            "name"_a, "Create a named bundle type builder")
-        .def("list", &TypeRegistry::list, "element_type"_a,
-            "Create a dynamic list type builder")
-        .def("fixed_list", &TypeRegistry::fixed_list, "element_type"_a, "size"_a,
-            "Create a fixed-size list type builder")
-        .def("set", &TypeRegistry::set, "element_type"_a,
-            "Create a set type builder")
-        .def("map", &TypeRegistry::map, "key_type"_a, "value_type"_a,
-            "Create a map type builder")
-        .def("cyclic_buffer", &TypeRegistry::cyclic_buffer, "element_type"_a, "capacity"_a,
-            "Create a cyclic buffer type builder")
-        .def("queue", &TypeRegistry::queue, "element_type"_a,
-            "Create a queue type builder");
-
-    // CyclicBuffer type builder
-    nb::class_<CyclicBufferBuilder>(m, "CyclicBufferBuilder",
-        "Builder for cyclic buffer types")
-        .def(nb::init<>())
-        .def("set_element_type", &CyclicBufferBuilder::set_element_type, "type"_a,
-            nb::rv_policy::reference, "Set the element type")
-        .def("set_capacity", &CyclicBufferBuilder::set_capacity, "capacity"_a,
-            nb::rv_policy::reference, "Set the buffer capacity")
-        .def("build", &CyclicBufferBuilder::build, nb::rv_policy::reference,
-            "Build and register the cyclic buffer type");
-
-    // Queue type builder
-    nb::class_<QueueBuilder>(m, "QueueBuilder",
-        "Builder for queue types")
-        .def(nb::init<>())
-        .def("set_element_type", &QueueBuilder::set_element_type, "type"_a,
-            nb::rv_policy::reference, "Set the element type")
-        .def("max_capacity", &QueueBuilder::max_capacity, "max"_a,
-            nb::rv_policy::reference, "Set the maximum capacity (0 = unbounded)")
-        .def("build", &QueueBuilder::build, nb::rv_policy::reference,
-            "Build and register the queue type");
-}
-
-// ============================================================================
-// View Binding
-// ============================================================================
-
-static void register_view(nb::module_& m) {
-    nb::class_<View>(m, "_View",
-        "Non-owning read-only view into a Value, providing read-only access")
-        // Validity
-        .def("valid", &View::valid, "Check if the view is valid")
-        .def("__bool__", &View::valid, "Boolean conversion (validity)")
-        .def_prop_ro("schema", &View::schema, nb::rv_policy::reference,
-            "Get the type schema")
-
-        // Type kind queries
-        .def("is_scalar", &View::is_scalar, "Check if this is a scalar type")
-        .def("is_tuple", &View::is_tuple, "Check if this is a tuple type")
-        .def("is_bundle", &View::is_bundle, "Check if this is a bundle type")
-        .def("is_list", &View::is_list, "Check if this is a list type")
-        .def("is_fixed_list", &View::is_fixed_list, "Check if this is a fixed-size list")
-        .def("is_set", &View::is_set, "Check if this is a set type")
-        .def("is_map", &View::is_map, "Check if this is a map type")
-        .def("is_cyclic_buffer", &View::is_cyclic_buffer, "Check if this is a cyclic buffer type")
-        .def("is_queue", &View::is_queue, "Check if this is a queue type")
-
-        // Type checking
-        .def("is_type", &View::is_type, "schema"_a,
-            "Check if this view has a specific schema (pointer equality)")
-
-        // Typed scalar access - explicit getters since Python can't do as<T>()
-        .def("as_int", [](const View& self) { return self.checked_as<int64_t>(); },
-            "Get the value as int64 (throws if type mismatch)")
-        .def("as_double", [](const View& self) { return self.checked_as<double>(); },
-            "Get the value as double (throws if type mismatch)")
-        .def("as_bool", [](const View& self) { return self.checked_as<bool>(); },
-            "Get the value as bool (throws if type mismatch)")
-        .def("as_string", [](const View& self) -> std::string {
-            return self.checked_as<std::string>();
-        }, "Get the value as string (throws if type mismatch)")
-
-        // Safe typed access (returns None on type mismatch)
-        .def("try_as_int", [](const View& self) -> std::optional<int64_t> {
-            auto* p = self.try_as<int64_t>();
-            return p ? std::optional<int64_t>(*p) : std::nullopt;
-        }, "Try to get the value as int64 (returns None if type mismatch)")
-        .def("try_as_double", [](const View& self) -> std::optional<double> {
-            auto* p = self.try_as<double>();
-            return p ? std::optional<double>(*p) : std::nullopt;
-        }, "Try to get the value as double (returns None if type mismatch)")
-        .def("try_as_bool", [](const View& self) -> std::optional<bool> {
-            auto* p = self.try_as<bool>();
-            return p ? std::optional<bool>(*p) : std::nullopt;
-        }, "Try to get the value as bool (returns None if type mismatch)")
-        .def("try_as_string", [](const View& self) -> std::optional<std::string> {
-            auto* p = self.try_as<std::string>();
-            return p ? std::optional<std::string>(*p) : std::nullopt;
-        }, "Try to get the value as string (returns None if type mismatch)")
-
-        // Type-specific scalar checks
-        .def("is_int", [](const View& self) { return self.is_scalar_type<int64_t>(); },
-            "Check if this is an int64 scalar")
-        .def("is_double", [](const View& self) { return self.is_scalar_type<double>(); },
-            "Check if this is a double scalar")
-        .def("is_bool", [](const View& self) { return self.is_scalar_type<bool>(); },
-            "Check if this is a bool scalar")
-        .def("is_string", [](const View& self) { return self.is_scalar_type<std::string>(); },
-            "Check if this is a string scalar")
-
-        // Specialized view access (Design Doc Section 6.2 - as_bundle(), as_list(), etc.)
-        .def("as_tuple", &View::as_tuple, nb::rv_policy::reference_internal,
-            "Get as a tuple view (throws if not a tuple)")
-        .def("as_bundle", &View::as_bundle, nb::rv_policy::reference_internal,
-            "Get as a bundle view (throws if not a bundle)")
-        .def("as_list", &View::as_list, nb::rv_policy::reference_internal,
-            "Get as a list view (throws if not a list)")
-        .def("as_set", &View::as_set, nb::rv_policy::reference_internal,
-            "Get as a set view (throws if not a set)")
-        .def("as_map", &View::as_map, nb::rv_policy::reference_internal,
-            "Get as a map view (throws if not a map)")
-        .def("as_cyclic_buffer", &View::as_cyclic_buffer, nb::rv_policy::reference_internal,
-            "Get as a cyclic buffer view (throws if not a cyclic buffer)")
-        .def("as_queue", &View::as_queue, nb::rv_policy::reference_internal,
-            "Get as a queue view (throws if not a queue)")
-
-        // Safe composite type access (returns None if type mismatch)
-        .def("try_as_tuple", &View::try_as_tuple,
-            "Try to get as a tuple view (returns None if not a tuple)")
-        .def("try_as_bundle", &View::try_as_bundle,
-            "Try to get as a bundle view (returns None if not a bundle)")
-        .def("try_as_list", &View::try_as_list,
-            "Try to get as a list view (returns None if not a list)")
-        .def("try_as_set", &View::try_as_set,
-            "Try to get as a set view (returns None if not a set)")
-        .def("try_as_map", &View::try_as_map,
-            "Try to get as a map view (returns None if not a map)")
-        .def("try_as_cyclic_buffer", &View::try_as_cyclic_buffer,
-            "Try to get as a cyclic buffer view (returns None if not a cyclic buffer)")
-        .def("try_as_queue", &View::try_as_queue,
-            "Try to get as a queue view (returns None if not a queue)")
-
-        // Operations
-        .def("equals", &View::equals, "other"_a, "Check equality with another view")
-        .def("hash", &View::hash, "Compute the hash of the value")
-        .def("to_string", &View::to_string, "Convert the value to a string")
-        .def("to_python", &View::to_python, "Convert the value to a Python object")
-        .def("clone", [](const View& self) -> Value {
-            return self.clone();
-        }, "Create a deep copy of this value")
-
-        // Python special methods
-        .def("__eq__", [](const View& self, const View& other) {
-            return self.equals(other);
-        }, nb::is_operator())
-        .def("__hash__", &View::hash)
-        .def("__str__", &View::to_string)
-        .def("__repr__", [](const View& self) {
-            if (!self.valid()) return std::string("View(invalid)");
-            return "View(" + self.to_string() + ")";
-        })
-
-        // Visitor Pattern (User Guide Section 8)
-        .def("visit", [](const View& self, nb::callable handler) {
-            // Convert value to Python and call the handler
-            nb::object py_value = self.to_python();
-            return handler(py_value);
-        }, "handler"_a,
-            "Visit the value with a callable handler.\n\n"
-            "The handler is called with the Python-converted value.\n"
-            "Returns whatever the handler returns.")
-
-        .def("visit_void", [](const View& self, nb::callable handler) {
-            // Convert value to Python and call the handler (discard result)
-            nb::object py_value = self.to_python();
-            handler(py_value);
-        }, "handler"_a,
-            "Visit the value with a callable handler for side effects only.\n\n"
-            "The handler is called with the Python-converted value.\n"
-            "The return value is ignored.")
-
-        .def("match", [](const View& self, nb::args type_handler_pairs) {
-            // Pattern matching: pairs of (type, handler)
-            // Last pair can have None as type for default handler
-            nb::object py_value = self.to_python();
-
-            for (size_t i = 0; i < type_handler_pairs.size(); ++i) {
-                nb::tuple pair = nb::cast<nb::tuple>(type_handler_pairs[i]);
-                if (pair.size() != 2) {
-                    throw std::runtime_error("match: each argument must be a (type, handler) tuple");
-                }
-
-                nb::object type_or_none = pair[0];
-                nb::callable handler = nb::cast<nb::callable>(pair[1]);
-
-                if (type_or_none.is_none()) {
-                    // Default handler
-                    return handler(py_value);
-                }
-
-                // Check if py_value is an instance of the type
-                if (nb::isinstance(py_value, type_or_none)) {
-                    return handler(py_value);
-                }
-            }
-
-            throw std::runtime_error("match: no handler matched for value type");
-        },
-            "Pattern match on the value with (type, handler) pairs.\n\n"
-            "Each argument should be a tuple of (type, callable).\n"
-            "Use (None, handler) as the last pair for a default handler.\n"
-            "Returns the result of the first matching handler.\n\n"
-            "Example:\n"
-            "    result = view.match(\n"
-            "        (int, lambda x: f'int:{x}'),\n"
-            "        (float, lambda x: f'float:{x}'),\n"
-            "        (str, lambda x: f'str:{x}'),\n"
-            "        (None, lambda x: 'default')\n"
-            "    )")
-
-        // Path-based Navigation (User Guide Section 10)
-        .def("navigate", [](const View& self, const std::string& path_str) {
-            return navigate(self, path_str);
-        }, "path"_a, nb::rv_policy::reference_internal,
-            "Navigate through the value using a path string.\n\n"
-            "Returns the View at the path destination.\n"
-            "Throws if navigation fails.")
-        .def("try_navigate", [](const View& self, const std::string& path_str)
-            -> std::optional<View> {
-            return try_navigate(self, path_str);
-        }, "path"_a,
-            "Try to navigate through the value using a path string.\n\n"
-            "Returns the View at the destination, or None on failure.");
-}
-
-// ============================================================================
-// ValueView Binding
-// ============================================================================
-
-static void register_value_view(nb::module_& m) {
-    nb::class_<ValueView, View>(m, "ValueView",
-        "Non-owning mutable view into a Value")
-        // Mutable scalar setters
-        .def("set_int", [](ValueView& self, int64_t value) {
-            self.checked_as<int64_t>() = value;
-        }, "value"_a, "Set the value as int64 (throws if type mismatch)")
-        .def("set_double", [](ValueView& self, double value) {
-            self.checked_as<double>() = value;
-        }, "value"_a, "Set the value as double (throws if type mismatch)")
-        .def("set_bool", [](ValueView& self, bool value) {
-            self.checked_as<bool>() = value;
-        }, "value"_a, "Set the value as bool (throws if type mismatch)")
-        .def("set_string", [](ValueView& self, const std::string& value) {
-            self.checked_as<std::string>() = value;
-        }, "value"_a, "Set the value as string (throws if type mismatch)")
-
-        // Specialized view access (mutable)
-        .def("as_tuple", &ValueView::as_tuple, nb::rv_policy::reference_internal,
-            "Get as a mutable tuple view (throws if not a tuple)")
-        .def("as_bundle", &ValueView::as_bundle, nb::rv_policy::reference_internal,
-            "Get as a mutable bundle view (throws if not a bundle)")
-        .def("as_list", &ValueView::as_list, nb::rv_policy::reference_internal,
-            "Get as a mutable list view (throws if not a list)")
-        .def("as_set", &ValueView::as_set, nb::rv_policy::reference_internal,
-            "Get as a mutable set view (throws if not a set)")
-        .def("as_map", &ValueView::as_map, nb::rv_policy::reference_internal,
-            "Get as a mutable map view (throws if not a map)")
-        .def("as_cyclic_buffer", &ValueView::as_cyclic_buffer, nb::rv_policy::reference_internal,
-            "Get as a mutable cyclic buffer view (throws if not a cyclic buffer)")
-        .def("as_queue", &ValueView::as_queue, nb::rv_policy::reference_internal,
-            "Get as a mutable queue view (throws if not a queue)")
-
-        // Mutation from another view
-        .def("copy_from", &ValueView::copy_from, "other"_a,
-            "Copy data from another view (schemas must match)")
-
-        // Python interop
-        .def("from_python", [](ValueView& self, nb::handle src) {
-            self.from_python(nb::borrow<nb::object>(src));
-        }, nb::arg("src").none(), "Set the value from a Python object")
-
-        // Raw data access (returns pointer as integer for debugging/FFI)
-        .def("data", [](ValueView& self) -> uintptr_t {
-            return reinterpret_cast<uintptr_t>(self.data());
-        }, "Get raw data pointer as integer (for debugging/FFI)")
-
-        // Repr
-        .def("__repr__", [](const ValueView& self) {
-            if (!self.valid()) return std::string("ValueView(invalid)");
-            return "ValueView(" + self.to_string() + ")";
-        })
-
-        // Mutable Visitor Pattern (User Guide Section 8)
-        .def("visit_mut", [](ValueView& self, nb::callable handler) {
-            // For mutable visiting, we pass the view itself to allow mutations
-            // The handler can use from_python() to update the value
-            nb::object py_value = self.to_python();
-            nb::object result = handler(py_value);
-
-            // If handler returns a value, set it back
-            if (!result.is_none()) {
-                self.from_python(result);
-            }
-        }, "handler"_a,
-            "Visit the value with a mutable callable handler.\n\n"
-            "The handler is called with the Python-converted value.\n"
-            "If the handler returns a value (not None), the view is updated with it.")
-
-        // Path-based Navigation (User Guide Section 10)
-        .def("navigate_mut", [](ValueView& self, const std::string& path_str) {
-            return navigate_mut(self, path_str);
-        }, "path"_a, nb::rv_policy::reference_internal,
-            "Navigate through the mutable value using a path string.\n\n"
-            "Returns the ValueView at the path destination.\n"
-            "Throws if navigation fails.")
-        .def("try_navigate_mut", [](ValueView& self, const std::string& path_str)
-            -> std::optional<ValueView> {
-            return try_navigate_mut(self, path_str);
-        }, "path"_a,
-            "Try to navigate through the mutable value using a path string.\n\n"
-            "Returns the ValueView at the destination, or None on failure.");
-}
-
-// ============================================================================
-// IndexedView Binding
-// ============================================================================
-
-static void register_indexed_view(nb::module_& m) {
-    nb::class_<IndexedView, ValueView>(m, "IndexedView",
-        "Base class for types supporting mutable index-based access")
-        .def("size", &IndexedView::size, "Get the number of elements")
-        .def("empty", &IndexedView::empty, "Check if empty")
-        .def("at", static_cast<ValueView (IndexedView::*)(size_t)>(&IndexedView::at),
-            "index"_a, nb::rv_policy::reference_internal, "Get element at index (mutable)")
-        .def("__getitem__", [](IndexedView& self, int64_t index) {
-            int64_t size = static_cast<int64_t>(self.size());
-            if (index < 0) {
-                index += size;  // Convert negative index to positive
-            }
-            if (index < 0 || index >= size) {
-                throw nb::index_error("index out of range");
-            }
-            return self[static_cast<size_t>(index)];
-        }, "index"_a, nb::rv_policy::reference_internal)
-        .def("__len__", &IndexedView::size)
-        .def("set", static_cast<void (IndexedView::*)(size_t, const View&)>(&IndexedView::set),
-            "index"_a, "value"_a, "Set element at index from a view")
-        // Overload: set from Value (auto-extract view)
-        .def("set", [](IndexedView& self, size_t index, const Value& value) {
-            self.set(index, View(value.view()));
-        }, "index"_a, "value"_a, "Set element at index from a Value")
-        .def("__iter__", [](IndexedView& self) {
-            nb::list result;
-            for (size_t i = 0; i < self.size(); ++i) {
-                result.append(nb::cast(self[i]));
-            }
-            return nb::iter(result);
-        }, "Iterate over elements");
-}
-
-// ============================================================================
-// Tuple Views Binding
-// ============================================================================
-
-static void register_tuple_views(nb::module_& m) {
-    nb::class_<TupleView, IndexedView>(m, "TupleView",
-        "Mutable view for tuple types")
-        .def("element_type", &TupleView::element_type, "index"_a, nb::rv_policy::reference,
-            "Get the type of element at index")
-        // Overload: set from Value (must come before generic object version)
-        .def("set", [](TupleView& self, size_t index, const Value& value) {
-            if (index >= self.size()) {
-                throw std::out_of_range("Tuple index out of range");
-            }
-            // Verify type matches the expected element type
-            const TypeMeta* elem_type = self.element_type(index);
-            if (value.schema() != elem_type) {
-                throw std::runtime_error("Type mismatch: value type doesn't match tuple element type");
-            }
-            self.set(index, View(value.view()));
-        }, "index"_a, "value"_a, "Set element at index from Value (with type checking)")
-        // Auto-wrapping set from Python native object with type checking
-        .def("set", [](TupleView& self, size_t index, const nb::object& py_value) {
-            if (index >= self.size()) {
-                throw std::out_of_range("Tuple index out of range");
-            }
-            // Get the expected element type at this index
-            const TypeMeta* elem_type = self.element_type(index);
-            // Create a temporary Value of the correct type
-            Value temp(elem_type);
-            // Convert from Python - this will throw if types are incompatible
-            temp.from_python(py_value);
-            // Set using the view
-            self.set(index, View(temp.view()));
-        }, "index"_a, "value"_a, "Set element at index from Python object (with type checking)");
-}
-
-// ============================================================================
-// Bundle Views Binding
-// ============================================================================
-
-static void register_bundle_views(nb::module_& m) {
-    nb::class_<BundleView, IndexedView>(m, "BundleView",
-        "Mutable view for bundle types")
-        // Named field access (const)
-        .def("at_name", [](const BundleView& self, const std::string& name) {
-            return self.at(name);
-        }, "name"_a, nb::rv_policy::reference_internal, "Get field by name (const)")
-        // Named field access (mutable)
-        .def("at_name_mut", [](BundleView& self, const std::string& name) {
-            return self.at(name);
-        }, "name"_a, nb::rv_policy::reference_internal, "Get field by name (mutable)")
-        // Set by name with View
-        .def("set_name", [](BundleView& self, const std::string& name, const View& value) {
-            self.set(name, value);
-        }, "name"_a, "value"_a, "Set field by name from View")
-        // Set by name with auto-wrap from Python object
-        .def("set", [](BundleView& self, const std::string& name, const nb::object& py_value) {
-            size_t idx = self.field_index(name);
-            if (idx >= self.field_count()) {
-                throw std::runtime_error("Field not found: " + name);
-            }
-            const TypeMeta* field_type = self.schema()->fields[idx].type;
-            Value temp(field_type);
-            temp.from_python(py_value);
-            self.set(name, View(temp.view()));
-        }, "name"_a, "value"_a, "Set field by name from Python object (auto-wrap)")
-        // __getitem__ for indexing
-        .def("__getitem__", [](BundleView& self, const std::string& name) {
-            return self.at(name);
-        }, "name"_a, nb::rv_policy::reference_internal)
-        // Field metadata
-        .def("field_count", &BundleView::field_count, "Get the number of fields")
-        .def("has_field", [](const BundleView& self, const std::string& name) {
-            return self.has_field(name);
-        }, "name"_a, "Check if a field exists")
-        .def("field_index", [](const BundleView& self, const std::string& name) {
-            return self.field_index(name);
-        }, "name"_a, "Get field index by name (returns size() if not found)");
-}
-
-// ============================================================================
-// List Views Binding
-// ============================================================================
-
-static void register_list_views(nb::module_& m) {
-    nb::class_<ListView, IndexedView>(m, "ListView",
-        "Mutable view for list types")
-        .def("front", static_cast<ValueView (ListView::*)()>(&ListView::front),
-            nb::rv_policy::reference_internal, "Get the first element (mutable)")
-        .def("back", static_cast<ValueView (ListView::*)()>(&ListView::back),
-            nb::rv_policy::reference_internal, "Get the last element (mutable)")
-        .def("element_type", &ListView::element_type, nb::rv_policy::reference,
-            "Get the element type")
-        .def("is_fixed", &ListView::is_fixed, "Check if this is a fixed-size list")
-        .def("is_buffer_compatible", [](const ListView& self) {
-            // Check if element type supports buffer protocol
-            const TypeMeta* elem = self.element_type();
-            if (!elem || elem->kind != TypeKind::Atomic) return false;
-            return elem->is_buffer_compatible();
-        }, "Check if this list supports the buffer protocol (numpy compatibility)")
-        // Zero-copy numpy conversion for mutable list view
-        .def("to_numpy", [](ListView& self) -> nb::object {
-            const TypeMeta* elem = self.element_type();
-            if (!elem || elem->kind != TypeKind::Atomic || !elem->is_buffer_compatible()) {
-                throw std::runtime_error("List element type not buffer compatible for numpy");
-            }
-
-            // Import numpy
-            nb::module_ np = nb::module_::import_("numpy");
-
-            size_t n = self.size();
-            if (n == 0) {
-                // Return empty array for empty list
-                const char* dtype = "int64";
-                if (elem == scalar_type_meta<double>()) dtype = "float64";
-                else if (elem == scalar_type_meta<bool>()) dtype = "bool";
-                return np.attr("array")(nb::list(), "dtype"_a = dtype);
-            }
-
-            // Get pointer to data
-            void* data_ptr = nullptr;
-            const TypeMeta* schema = self.schema();
-            if (schema->is_fixed_size()) {
-                // Fixed list: data stored inline
-                data_ptr = const_cast<void*>(self.data());
-            } else {
-                // Dynamic list: data in DynamicListStorage
-                auto* storage = static_cast<DynamicListStorage*>(const_cast<void*>(self.data()));
-                data_ptr = storage->data_ptr();
-            }
-
-            if (!data_ptr) {
-                throw std::runtime_error("Cannot get data pointer for list");
-            }
-
-            // Create numpy array using ctypes to directly reference the memory
-            // This creates a zero-copy view into the Value's storage
-            // Use numpy.ctypeslib.as_array for zero-copy
-            // But we need to ensure the Value stays alive - use numpy.ndarray directly
-            nb::module_ ctypes = nb::module_::import_("ctypes");
-
-            // Create a ctypes pointer to the data
-            nb::object c_void_p = ctypes.attr("c_void_p")(reinterpret_cast<uintptr_t>(data_ptr));
-
-            // Use numpy.ctypeslib.as_array with shape
-            nb::object np_ctypeslib = np.attr("ctypeslib");
-
-            // Create the appropriate ctypes array type
-            nb::object c_type;
-            if (elem == scalar_type_meta<int64_t>()) {
-                c_type = ctypes.attr("c_int64");
-            } else if (elem == scalar_type_meta<double>()) {
-                c_type = ctypes.attr("c_double");
-            } else if (elem == scalar_type_meta<bool>()) {
-                c_type = ctypes.attr("c_bool");
-            } else {
-                throw std::runtime_error("Unsupported element type for zero-copy numpy");
-            }
-
-            // Create pointer type and cast
-            // Use Python's __mul__ to create array type (e.g., c_int64 * n)
-            nb::object array_type = c_type.attr("__mul__")(n);
-            nb::object ptr = ctypes.attr("cast")(c_void_p, ctypes.attr("POINTER")(array_type));
-
-            // Use np.ctypeslib.as_array to create zero-copy view
-            nb::object arr = np_ctypeslib.attr("as_array")(ptr.attr("contents"));
-
-            return arr;
-        }, "Convert to a numpy array (zero-copy, shares memory with Value)")
-        // Dynamic list operations with type checking
-        .def("push_back", [](ListView& self, const View& value) {
-            // Type check: value schema must match element type
-            if (value.schema() != self.element_type()) {
-                throw std::runtime_error("Type mismatch: cannot push_back value of different type");
-            }
-            self.push_back(value);
-        }, "value"_a, "Append an element (throws if fixed-size or type mismatch)")
-        // Override set with type checking for lists
-        .def("set", [](ListView& self, size_t index, const View& value) {
-            if (value.schema() != self.element_type()) {
-                throw std::runtime_error("Type mismatch: cannot set value of different type");
-            }
-            self.set(index, value);
-        }, "index"_a, "value"_a, "Set element at index (with type checking)")
-        .def("pop_back", &ListView::pop_back, "Remove the last element (throws if fixed-size)")
-        .def("clear", &ListView::clear, "Clear all elements (throws if fixed-size)")
-        .def("resize", &ListView::resize, "new_size"_a, "Resize the list (throws if fixed-size)")
-        .def("reset", static_cast<void (ListView::*)(const View&)>(&ListView::reset),
-            "sentinel"_a, "Reset all elements to a sentinel value");
-}
-
-// ============================================================================
-// Set Views Binding
-// ============================================================================
-
-static void register_set_views(nb::module_& m) {
-    nb::class_<SetView, ValueView>(m, "SetView",
-        "Mutable view for set types")
-        .def("size", &SetView::size, "Get the number of elements")
-        .def("empty", &SetView::empty, "Check if empty")
-        .def("__len__", &SetView::size)
-        .def("contains", static_cast<bool (SetView::*)(const View&) const>(
-            &SetView::contains), "value"_a, "Check if an element is in the set")
-        .def("__contains__", static_cast<bool (SetView::*)(const View&) const>(
-            &SetView::contains), "value"_a)
-        .def("add", static_cast<bool (SetView::*)(const View&)>(&SetView::add),
-            "value"_a, "Add an element (returns true if added)")
-        .def("remove", static_cast<bool (SetView::*)(const View&)>(&SetView::remove),
-            "value"_a, "Remove an element (returns true if removed)")
-        .def("clear", &SetView::clear, "Clear all elements")
-        .def("element_type", &SetView::element_type, nb::rv_policy::reference,
-            "Get the element type")
-        // Index-based element access
-        .def("__getitem__", [](SetView& self, size_t index) {
-            if (index >= self.size()) {
-                throw nb::index_error("set index out of range");
-            }
-            const void* elem = self.schema()->ops().at(self.data(), index, self.schema());
-            return View(elem, self.schema()->element_type);
-        }, "index"_a, nb::rv_policy::reference_internal, "Get element at index")
-        // Iteration support
-        .def("__iter__", [](SetView& self) {
-            nb::list result;
-            for (auto elem : self) {
-                result.append(nb::cast(elem));
-            }
-            return nb::iter(result);
-        }, "Iterate over elements");
-}
-
-// ============================================================================
-// TrackedSetStorage Binding
-// ============================================================================
-
-static void register_tracked_set(nb::module_& m) {
-    // TrackedSetStorage - owning storage with delta tracking
-    nb::class_<TrackedSetStorage>(m, "TrackedSetStorage",
-        "Storage for sets with delta tracking (added/removed elements)")
-        .def(nb::init<const TypeMeta*>(), "element_type"_a,
-            "Create TrackedSetStorage with element type")
-        .def("size", &TrackedSetStorage::size, "Get current set size")
-        .def("empty", &TrackedSetStorage::empty, "Check if empty")
-        .def("has_delta", &TrackedSetStorage::has_delta, "Check if there are pending changes")
-        .def("__len__", &TrackedSetStorage::size)
-        .def("value", static_cast<SetView (TrackedSetStorage::*)() const>(&TrackedSetStorage::value),
-            nb::rv_policy::reference_internal, "Get read-only view of current set")
-        .def("added", &TrackedSetStorage::added, nb::rv_policy::reference_internal,
-            "Get read-only view of added elements")
-        .def("removed", &TrackedSetStorage::removed, nb::rv_policy::reference_internal,
-            "Get read-only view of removed elements")
-        .def("contains", static_cast<bool (TrackedSetStorage::*)(const View&) const>(
-            &TrackedSetStorage::contains), "elem"_a, "Check if element is in set")
-        .def("__contains__", static_cast<bool (TrackedSetStorage::*)(const View&) const>(
-            &TrackedSetStorage::contains), "elem"_a)
-        .def("was_added", static_cast<bool (TrackedSetStorage::*)(const View&) const>(
-            &TrackedSetStorage::was_added), "elem"_a, "Check if element was added this cycle")
-        .def("was_removed", static_cast<bool (TrackedSetStorage::*)(const View&) const>(
-            &TrackedSetStorage::was_removed), "elem"_a, "Check if element was removed this cycle")
-        .def("add", static_cast<bool (TrackedSetStorage::*)(const View&)>(
-            &TrackedSetStorage::add), "elem"_a, "Add element with delta tracking")
-        .def("remove", static_cast<bool (TrackedSetStorage::*)(const View&)>(
-            &TrackedSetStorage::remove), "elem"_a, "Remove element with delta tracking")
-        .def("clear_deltas", &TrackedSetStorage::clear_deltas, "Clear delta tracking")
-        .def("clear", &TrackedSetStorage::clear, "Clear all elements");
-
-    // TrackedSetView - single view type (const-correct in C++)
-    nb::class_<TrackedSetView>(m, "TrackedSetView",
-        "View for TrackedSetStorage (read/write based on C++ constness)")
-        .def(nb::init<TrackedSetStorage*>(), "storage"_a)
-        .def("size", &TrackedSetView::size, "Get set size")
-        .def("empty", &TrackedSetView::empty, "Check if empty")
-        .def("has_delta", &TrackedSetView::has_delta, "Check for pending changes")
-        .def("__len__", &TrackedSetView::size)
-        .def("value", &TrackedSetView::value, nb::rv_policy::reference_internal,
-            "Get read-only view of current set")
-        .def("added", &TrackedSetView::added, nb::rv_policy::reference_internal,
-            "Get read-only view of added elements")
-        .def("removed", &TrackedSetView::removed, nb::rv_policy::reference_internal,
-            "Get read-only view of removed elements")
-        .def("contains", static_cast<bool (TrackedSetView::*)(const View&) const>(
-            &TrackedSetView::contains), "elem"_a)
-        .def("__contains__", static_cast<bool (TrackedSetView::*)(const View&) const>(
-            &TrackedSetView::contains), "elem"_a)
-        .def("was_added", &TrackedSetView::was_added, "elem"_a)
-        .def("was_removed", &TrackedSetView::was_removed, "elem"_a)
-        .def("element_type", &TrackedSetView::element_type, nb::rv_policy::reference)
-        .def("__iter__", [](const TrackedSetView& self) {
-            nb::list result;
-            for (auto elem : self) {
-                result.append(nb::cast(elem));
-            }
-            return nb::iter(result);
-        }, "Iterate over current set elements")
-        .def("add", static_cast<bool (TrackedSetView::*)(const View&)>(
-            &TrackedSetView::add), "elem"_a, "Add element with delta tracking")
-        .def("remove", static_cast<bool (TrackedSetView::*)(const View&)>(
-            &TrackedSetView::remove), "elem"_a, "Remove element with delta tracking")
-        .def("clear_deltas", &TrackedSetView::clear_deltas)
-        .def("clear", &TrackedSetView::clear);
-
-    // SetDeltaValue - snapshot of delta changes
-    nb::class_<SetDeltaValue>(m, "SetDeltaValue",
-        "Value class representing set delta changes")
-        .def(nb::init<const TypeMeta*>(), "element_type"_a,
-            "Create empty delta with element type")
-        .def(nb::init<SetView, SetView, const TypeMeta*>(),
-            "added"_a, "removed"_a, "element_type"_a,
-            "Create delta from added/removed sets")
-        .def("added", &SetDeltaValue::added, nb::rv_policy::reference_internal,
-            "Get read-only view of added elements")
-        .def("removed", &SetDeltaValue::removed, nb::rv_policy::reference_internal,
-            "Get read-only view of removed elements")
-        .def("empty", &SetDeltaValue::empty, "Check if delta is empty")
-        .def("added_count", &SetDeltaValue::added_count, "Get number of added elements")
-        .def("removed_count", &SetDeltaValue::removed_count, "Get number of removed elements")
-        .def("element_type", &SetDeltaValue::element_type, nb::rv_policy::reference)
-        .def("to_python", &SetDeltaValue::to_python, "Convert to Python dict with added/removed");
-}
-
-// ============================================================================
-// KeySetView Binding - Set View Over Map Keys
-// ============================================================================
-
-static void register_key_set_view(nb::module_& m) {
-    nb::class_<KeySetView, View>(m, "_KeySetView",
-        "Read-only set view over map keys")
-        .def("size", &KeySetView::size, "Get the number of keys")
-        .def("empty", &KeySetView::empty, "Check if empty")
-        .def("__len__", &KeySetView::size)
-        .def("contains", static_cast<bool (KeySetView::*)(const View&) const>(
-            &KeySetView::contains), "key"_a, "Check if a key is in the set")
-        .def("__contains__", static_cast<bool (KeySetView::*)(const View&) const>(
-            &KeySetView::contains), "key"_a)
-        .def("element_type", &KeySetView::element_type, nb::rv_policy::reference,
-            "Get the key/element type")
-        // Iteration support using KeySetView::const_iterator
-        .def("__iter__", [](const KeySetView& self) {
-            nb::list result;
-            for (auto it = self.begin(); it != self.end(); ++it) {
-                result.append(nb::cast(*it));
-            }
-            return nb::iter(result);
-        }, "Iterate over keys");
-}
-
-// ============================================================================
-// Map Views Binding
-// ============================================================================
-
-static void register_map_views(nb::module_& m) {
-    nb::class_<MapView, ValueView>(m, "MapView",
-        "Map view for map types (mutable or read-only depending on source)")
-        .def("size", &MapView::size, "Get the number of entries")
-        .def("empty", &MapView::empty, "Check if empty")
-        .def("__len__", &MapView::size)
-        .def("at", static_cast<ValueView (MapView::*)(const View&)>(&MapView::at),
-            "key"_a, nb::rv_policy::reference_internal,
-            "Get value by key (mutable, throws if not found)")
-        .def("at_const", static_cast<View (MapView::*)(const View&) const>(
-            &MapView::at), "key"_a, nb::rv_policy::reference_internal,
-            "Get value by key (const, throws if not found)")
-        // __getitem__ with auto-insert behavior (like C++ std::map::operator[])
-        .def("__getitem__", [](MapView& self, const View& key) -> ValueView {
-            // If key doesn't exist, insert default value
-            if (!self.contains(key)) {
-                // Create a default-constructed value of the value type
-                const TypeMeta* val_type = self.value_type();
-                Value default_val(val_type);
-                default_val.emplace();
-                self.set(key, View(default_val.view()));
-            }
-            return self.at(key);
-        }, "key"_a, nb::rv_policy::reference_internal,
-            "Get value by key (auto-inserts default if missing)")
-        .def("contains", static_cast<bool (MapView::*)(const View&) const>(
-            &MapView::contains), "key"_a, "Check if a key exists")
-        .def("__contains__", static_cast<bool (MapView::*)(const View&) const>(
-            &MapView::contains), "key"_a)
-        .def("set", static_cast<void (MapView::*)(const View&, const View&)>(
-            &MapView::set), "key"_a, "value"_a, "Set value for key")
-        .def("add", static_cast<bool (MapView::*)(const View&, const View&)>(
-            &MapView::add), "key"_a, "value"_a, "Add key-value pair (returns true if added)")
-        .def("remove", static_cast<bool (MapView::*)(const View&)>(&MapView::remove),
-            "key"_a, "Remove entry by key (returns true if removed)")
-        .def("clear", &MapView::clear, "Clear all entries")
-        .def("key_type", &MapView::key_type, nb::rv_policy::reference, "Get the key type")
-        .def("value_type", &MapView::value_type, nb::rv_policy::reference, "Get the value type")
-        // Iteration support - iterate over keys (like Python dict)
-        .def("__iter__", [](MapView& self) {
-            // Use keys() to get KeySetView, then iterate
-            auto keys = self.keys();
-            nb::list result;
-            for (auto it = keys.begin(); it != keys.end(); ++it) {
-                result.append(nb::cast(*it));
-            }
-            return nb::iter(result);
-        }, "Iterate over keys (like dict)")
-        .def("keys", &MapView::keys, nb::rv_policy::reference_internal,
-            "Get KeySetView over map keys")
-        .def("values", [](MapView& self) {
-            nb::object py_dict = self.to_python();
-            return py_dict.attr("values")();
-        }, "Get view of values")
-        .def("items", [](MapView& self) {
-            nb::object py_dict = self.to_python();
-            return py_dict.attr("items")();
-        }, "Get view of (key, value) pairs");
-}
-
-// ============================================================================
-// CyclicBuffer Views Binding
-// ============================================================================
-
-static void register_cyclic_buffer_views(nb::module_& m) {
-    nb::class_<CyclicBufferView, IndexedView>(m, "CyclicBufferView",
-        "Mutable view for cyclic buffer types")
-        .def("front", static_cast<ValueView (CyclicBufferView::*)()>(&CyclicBufferView::front),
-            nb::rv_policy::reference_internal, "Get the oldest element (mutable)")
-        .def("back", static_cast<ValueView (CyclicBufferView::*)()>(&CyclicBufferView::back),
-            nb::rv_policy::reference_internal, "Get the newest element (mutable)")
-        .def("element_type", &CyclicBufferView::element_type, nb::rv_policy::reference,
-            "Get the element type")
-        .def("capacity", &CyclicBufferView::capacity, "Get the fixed capacity")
-        .def("full", &CyclicBufferView::full, "Check if the buffer is full")
-        .def("push", static_cast<void (CyclicBufferView::*)(const View&)>(
-            &CyclicBufferView::push), "value"_a,
-            "Push a value to the back (evicts oldest if full)")
-        .def("clear", &CyclicBufferView::clear, "Clear all elements")
-        .def("is_buffer_compatible", [](const CyclicBufferView& self) {
-            const TypeMeta* elem = self.element_type();
-            if (!elem || elem->kind != TypeKind::Atomic) return false;
-            return elem->is_buffer_compatible();
-        }, "Check if this buffer supports numpy conversion")
-        .def("to_numpy", [](const CyclicBufferView& self) -> nb::object {
-            const TypeMeta* elem = self.element_type();
-            if (!elem || elem->kind != TypeKind::Atomic || !elem->is_buffer_compatible()) {
-                throw std::runtime_error("CyclicBuffer element type not buffer compatible for numpy");
-            }
-
-            nb::module_ np = nb::module_::import_("numpy");
-            size_t n = self.size();
-
-            // Always copy (cannot be zero-copy due to re-centering)
-            if (elem == scalar_type_meta<int64_t>()) {
-                auto arr = np.attr("empty")(n, "dtype"_a = "int64");
-                int64_t* ptr = reinterpret_cast<int64_t*>(
-                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
-                for (size_t i = 0; i < n; ++i) {
-                    ptr[i] = self[i].as<int64_t>();
-                }
-                return arr;
-            } else if (elem == scalar_type_meta<double>()) {
-                auto arr = np.attr("empty")(n, "dtype"_a = "float64");
-                double* ptr = reinterpret_cast<double*>(
-                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
-                for (size_t i = 0; i < n; ++i) {
-                    ptr[i] = self[i].as<double>();
-                }
-                return arr;
-            } else if (elem == scalar_type_meta<bool>()) {
-                auto arr = np.attr("empty")(n, "dtype"_a = "bool");
-                bool* ptr = reinterpret_cast<bool*>(
-                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
-                for (size_t i = 0; i < n; ++i) {
-                    ptr[i] = self[i].as<bool>();
-                }
-                return arr;
-            }
-            throw std::runtime_error("Unsupported element type for numpy conversion");
-        }, "Convert to a numpy array (copies data in logical order)");
-}
-
-// ============================================================================
-// Queue Views Binding
-// ============================================================================
-
-static void register_queue_views(nb::module_& m) {
-    nb::class_<QueueView, IndexedView>(m, "QueueView",
-        "Mutable view for queue types")
-        .def("front", static_cast<ValueView (QueueView::*)()>(&QueueView::front),
-            nb::rv_policy::reference_internal, "Get the front element (mutable)")
-        .def("back", static_cast<ValueView (QueueView::*)()>(&QueueView::back),
-            nb::rv_policy::reference_internal, "Get the back element (mutable)")
-        .def("element_type", &QueueView::element_type, nb::rv_policy::reference,
-            "Get the element type")
-        .def("max_capacity", &QueueView::max_capacity,
-            "Get the max capacity (0 = unbounded)")
-        .def("has_max_capacity", &QueueView::has_max_capacity,
-            "Check if the queue has a max capacity")
-        .def("push", [](QueueView& self, const View& value) {
-            self.push(value);
-        }, "value"_a, "Push a value to the back of the queue")
-        .def("pop", &QueueView::pop,
-            "Remove and discard the front element")
-        .def("clear", &QueueView::clear, "Clear all elements");
-}
-
-// ============================================================================
-// PathElement Binding (User Guide Section 10)
-// ============================================================================
-
-static void register_path_element(nb::module_& m) {
-    nb::class_<PathElement>(m, "PathElement",
-        "Represents a single element in a navigation path")
-        // Factory methods - use different names to avoid conflict with properties
-        .def_static("field", &PathElement::field, "name"_a,
-            "Create a field access element (for bundles)")
-        .def_static("index", &PathElement::index, "idx"_a,
-            "Create an index access element (for lists/tuples)")
-        .def_static("key", &PathElement::key, "view"_a,
-            "Create a value key element (for maps with arbitrary key types)")
-
-        // Type queries
-        .def("is_field", &PathElement::is_field,
-            "Check if this is a field access element")
-        .def("is_index", &PathElement::is_index,
-            "Check if this is an index access element")
-        .def("is_string", &PathElement::is_string,
-            "Check if this uses a string for access")
-        .def("is_value", &PathElement::is_value,
-            "Check if this contains an arbitrary value key")
-
-        // Accessors - use get_ prefix to avoid conflict with static factory methods
-        .def_prop_ro("name", [](const PathElement& self) -> std::string {
-            if (!self.is_string()) {
-                throw std::runtime_error("PathElement is not a field element");
-            }
-            return self.name();
-        }, "Get the field name (throws if not a field element)")
-        .def("get_index", &PathElement::get_index,
-            "Get the index value (throws if not an index element)")
-        .def("get_value", &PathElement::get_value, nb::rv_policy::reference_internal,
-            "Get the value key as a View (throws if not a value element)")
-
-        // String representation
-        .def("to_string", &PathElement::to_string, "Convert to string representation")
-        .def("__repr__", [](const PathElement& self) {
-            return "PathElement(" + self.to_string() + ")";
-        });
-}
-
-// ============================================================================
-// Path Functions Binding (User Guide Section 10)
-// ============================================================================
-
-static void register_path_functions(nb::module_& m) {
-    // parse_path function
-    m.def("parse_path", [](const std::string& path_str) {
-        return parse_path(path_str);
-    }, "path_str"_a,
-        "Parse a path string into a list of PathElements.\n\n"
-        "Supports syntax:\n"
-        "  - Field access: 'name', 'user.address'\n"
-        "  - Index access: '[0]', 'items[0]'\n"
-        "  - Mixed: 'users[0].addresses[1].city'");
-
-    // path_to_string function
-    m.def("path_to_string", [](const ValuePath& path) {
-        return path_to_string(path);
-    }, "path"_a,
-        "Convert a path to string representation");
-
-    // navigate function (const)
-    m.def("navigate", [](View view, const std::string& path_str) {
-        return navigate(view, path_str);
-    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
-        "Navigate through a value using a path string.\n\n"
-        "Returns the View at the path destination.\n"
-        "Throws if navigation fails.");
-
-    // navigate with ValuePath
-    m.def("navigate", [](View view, const ValuePath& path) {
-        return navigate(view, path);
-    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
-        "Navigate through a value using a ValuePath.");
-
-    // try_navigate function (const)
-    m.def("try_navigate", [](View view, const std::string& path_str)
-        -> std::optional<View> {
-        return try_navigate(view, path_str);
-    }, "view"_a, "path"_a,
-        "Try to navigate through a value using a path string.\n\n"
-        "Returns the View at the path destination, or None on failure.");
-
-    // try_navigate with ValuePath
-    m.def("try_navigate", [](View view, const ValuePath& path)
-        -> std::optional<View> {
-        return try_navigate(view, path);
-    }, "view"_a, "path"_a,
-        "Try to navigate through a value using a ValuePath.");
-
-    // navigate_mut function (mutable)
-    m.def("navigate_mut", [](ValueView view, const std::string& path_str) {
-        return navigate_mut(view, path_str);
-    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
-        "Navigate through a mutable value using a path string.\n\n"
-        "Returns the ValueView at the path destination.\n"
-        "Throws if navigation fails.");
-
-    // navigate_mut with ValuePath
-    m.def("navigate_mut", [](ValueView view, const ValuePath& path) {
-        return navigate_mut(view, path);
-    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
-        "Navigate through a mutable value using a ValuePath.");
-
-    // try_navigate_mut function
-    m.def("try_navigate_mut", [](ValueView view, const std::string& path_str)
-        -> std::optional<ValueView> {
-        return try_navigate_mut(view, path_str);
-    }, "view"_a, "path"_a,
-        "Try to navigate through a mutable value using a path string.\n\n"
-        "Returns the ValueView at the path destination, or None on failure.");
-
-    // try_navigate_mut with ValuePath
-    m.def("try_navigate_mut", [](ValueView view, const ValuePath& path)
-        -> std::optional<ValueView> {
-        return try_navigate_mut(view, path);
-    }, "view"_a, "path"_a,
-        "Try to navigate through a mutable value using a ValuePath.");
-}
-
-// ============================================================================
-// Traversal Functions Binding (User Guide Section 11)
-// ============================================================================
-
-static void register_traversal_functions(nb::module_& m) {
-    // deep_visit function
-    m.def("deep_visit", [](View view, nb::object callback) {
-        deep_visit(view, [&callback](View leaf, const TraversalPath& path) {
-            // Convert TraversalPath to Python list
-            nb::list py_path;
-            for (const auto& elem : path) {
-                if (std::holds_alternative<std::string>(elem)) {
-                    py_path.append(nb::cast(std::get<std::string>(elem)));
-                } else {
-                    py_path.append(nb::cast(std::get<size_t>(elem)));
-                }
-            }
-            callback(leaf, py_path);
-        });
-    }, "view"_a, "callback"_a,
-        "Visit all leaf (scalar) values in a nested structure.\n\n"
-        "Calls callback(leaf_view, path) for each scalar value.");
-
-    // count_leaves function
-    m.def("count_leaves", &count_leaves, "view"_a,
-        "Count all leaf (scalar) values in a nested structure.");
-
-    // collect_leaf_paths function
-    m.def("collect_leaf_paths", [](View view) {
-        auto paths = collect_leaf_paths(view);
-        nb::list result;
-        for (const auto& path : paths) {
-            nb::list py_path;
-            for (const auto& elem : path) {
-                if (std::holds_alternative<std::string>(elem)) {
-                    py_path.append(nb::cast(std::get<std::string>(elem)));
-                } else {
-                    py_path.append(nb::cast(std::get<size_t>(elem)));
-                }
-            }
-            result.append(py_path);
         }
-        return result;
-    }, "view"_a,
-        "Collect the paths to all leaf values.");
 
-    // sum_numeric function
-    m.def("sum_numeric", &sum_numeric, "view"_a,
-        "Sum all numeric leaf values (int64 and double).");
-
-    // max_numeric function
-    m.def("max_numeric", &max_numeric, "view"_a,
-        "Find maximum numeric leaf value (returns None if no numeric leaves).");
-
-    // min_numeric function
-    m.def("min_numeric", &min_numeric, "view"_a,
-        "Find minimum numeric leaf value (returns None if no numeric leaves).");
-
-    // path_to_string for TraversalPath (using overload)
-    m.def("traversal_path_to_string", [](const nb::list& py_path) {
-        TraversalPath path;
-        for (size_t i = 0; i < nb::len(py_path); ++i) {
-            nb::object elem = py_path[i];
-            if (nb::isinstance<nb::str>(elem)) {
-                path.push_back(nb::cast<std::string>(elem));
-            } else {
-                path.push_back(nb::cast<size_t>(elem));
-            }
+        [[nodiscard]] Value materialize_python_value(const TypeMeta &schema, const nb::object &src)
+        {
+            Value value{schema};
+            value.reset();
+            value.from_python(src);
+            return value;
         }
-        return path_to_string(path);
-    }, "path"_a,
-        "Convert a traversal path (list of strings/ints) to string representation.");
-}
 
-// ============================================================================
-// Value (Value) Binding
-// ============================================================================
+        struct KeySetView
+        {
+            explicit KeySetView(MapView map) : m_map(std::move(map))
+            {
+                nb::dict items = nb::cast<nb::dict>(m_map.to_python());
+                m_keys.reserve(items.size());
+                for (auto item : items) {
+                    m_keys.push_back(materialize_python_value(*m_map.key_schema(), nb::borrow<nb::object>(item.first)));
+                }
+            }
 
-static void register_value(nb::module_& m) {
-    nb::class_<Value>(m, "Value",
-        "Owning type-erased value storage")
-        // Constructors from scalars
-        .def(nb::init<int64_t>(), "value"_a, "Construct from int64")
-        .def(nb::init<double>(), "value"_a, "Construct from double")
-        .def(nb::init<bool>(), "value"_a, "Construct from bool")
-        .def(nb::init<const std::string&>(), "value"_a, "Construct from string")
-        .def(nb::init<engine_date_t>(), "value"_a, "Construct from date")
-        .def(nb::init<engine_time_t>(), "value"_a, "Construct from datetime")
-        .def(nb::init<engine_time_delta_t>(), "value"_a, "Construct from timedelta")
-        // Construct from schema
-        .def(nb::init<const TypeMeta*>(), "schema"_a,
-            "Construct from type schema (typed-null value)")
-        // Construct from schema and Python object
-        .def("__init__", [](Value* self, const TypeMeta* schema, const nb::object& src) {
-            new (self) Value(schema);
-            self->from_python(src);
-        }, "schema"_a, "value"_a,
-            "Construct from type schema and initialize from Python object")
-        // Construct from view (copy)
-        .def(nb::init<const View&>(), "view"_a,
-            "Construct by copying from a view")
+            [[nodiscard]] size_t size() const { return m_map.size(); }
+            [[nodiscard]] bool empty() const { return m_map.empty(); }
+            [[nodiscard]] const TypeMeta *element_type() const { return m_map.key_schema(); }
+            [[nodiscard]] const TypeMeta *element_schema() const { return m_map.key_schema(); }
+            [[nodiscard]] bool contains(const View &key) const { return m_map.contains(key); }
 
-        // Validity
-        .def("valid", &Value::valid, "Check if the Value contains data")
-        .def("has_value", &Value::has_value, "Check whether data is present")
-        .def("__bool__", &Value::has_value, "Boolean conversion (has value)")
-        .def_prop_ro("schema", &Value::schema, nb::rv_policy::reference,
-            "Get the type schema")
+            [[nodiscard]] std::vector<View> values() const
+            {
+                std::vector<View> result;
+                result.reserve(m_keys.size());
+                for (const Value &key : m_keys) {
+                    result.push_back(key.view());
+                }
+                return result;
+            }
 
-        // View access (Design Doc Section 6.2)
-        .def("view", static_cast<ValueView (Value::*)()>(&Value::view),
-            nb::rv_policy::reference_internal, "Get a mutable view of the data")
+            MapView            m_map;
+            std::vector<Value> m_keys;
+        };
 
-        // Specialized view access (Design Doc Section 6.2)
-        .def("as_tuple", static_cast<TupleView (Value::*)()>(&Value::as_tuple),
-            nb::rv_policy::reference_internal, "Get as a tuple view (mutable)")
-        .def("as_bundle", static_cast<BundleView (Value::*)()>(&Value::as_bundle),
-            nb::rv_policy::reference_internal, "Get as a bundle view (mutable)")
-        .def("as_list", static_cast<ListView (Value::*)()>(&Value::as_list),
-            nb::rv_policy::reference_internal, "Get as a list view (mutable)")
-        .def("as_set", static_cast<SetView (Value::*)()>(&Value::as_set),
-            nb::rv_policy::reference_internal, "Get as a set view (mutable)")
-        .def("as_map", static_cast<MapView (Value::*)()>(&Value::as_map),
-            nb::rv_policy::reference_internal, "Get as a map view (mutable)")
+        struct PathElement
+        {
+            enum class Kind
+            {
+                Field,
+                Index,
+                Value,
+            };
 
-        // Typed access - explicit getters (Design Doc Section 7)
-        .def("as_int", [](Value& self) { return self.checked_as<int64_t>(); },
-            "Get the value as int64 (throws if type mismatch)")
-        .def("as_double", [](Value& self) { return self.checked_as<double>(); },
-            "Get the value as double (throws if type mismatch)")
-        .def("as_bool", [](Value& self) { return self.checked_as<bool>(); },
-            "Get the value as bool (throws if type mismatch)")
-        .def("as_string", [](Value& self) -> std::string {
-            return self.checked_as<std::string>();
-        }, "Get the value as string (throws if type mismatch)")
+            [[nodiscard]] static PathElement field(std::string name)
+            {
+                PathElement out;
+                out.m_kind = Kind::Field;
+                out.m_name = std::move(name);
+                return out;
+            }
 
-        // Typed setters
-        .def("set_int", [](Value& self, int64_t value) {
-            self.as<int64_t>() = value;
-        }, "value"_a, "Set the value as int64")
-        .def("set_double", [](Value& self, double value) {
-            self.as<double>() = value;
-        }, "value"_a, "Set the value as double")
-        .def("set_bool", [](Value& self, bool value) {
-            self.as<bool>() = value;
-        }, "value"_a, "Set the value as bool")
-        .def("set_string", [](Value& self, const std::string& value) {
-            self.as<std::string>() = value;
-        }, "value"_a, "Set the value as string")
+            [[nodiscard]] static PathElement index(size_t index)
+            {
+                PathElement out;
+                out.m_kind = Kind::Index;
+                out.m_index = index;
+                return out;
+            }
 
-        // Operations
-        .def("equals", static_cast<bool (Value::*)(const View&) const>(
-            &Value::equals), "other"_a, "Check equality with a view")
-        .def("hash", &Value::hash, "Compute the hash")
-        .def("to_string", &Value::to_string, "Convert to string")
+            [[nodiscard]] static PathElement key(const View &key)
+            {
+                PathElement out;
+                out.m_kind = Kind::Value;
+                out.m_value = std::make_unique<Value>(key.clone());
+                return out;
+            }
 
-        // Python interop (Design Doc Section 6.2)
-        .def("to_python", &Value::to_python, "Convert to a Python object")
-        .def("from_python", [](Value& self, nb::handle src) {
-            self.from_python(nb::borrow<nb::object>(src));
-        }, nb::arg("src").none(), "Set the value from a Python object")
-        .def("reset", &Value::reset, "Reset to typed-null (preserves schema)")
-        .def("emplace", &Value::emplace, "Default-construct the value for the schema")
+            PathElement() = default;
+            PathElement(const PathElement &other)
+                : m_kind(other.m_kind), m_name(other.m_name), m_index(other.m_index)
+            {
+                if (other.m_value != nullptr) { m_value = std::make_unique<Value>(*other.m_value); }
+            }
 
-        // Static copy method
-        .def_static("copy", static_cast<Value (*)(const Value&)>(&Value::copy),
-            "other"_a, "Create a copy of a Value")
-        .def_static("copy_view", static_cast<Value (*)(const View&)>(
-            &Value::copy), "view"_a, "Create a copy from a view")
+            PathElement &operator=(const PathElement &other)
+            {
+                if (this == &other) { return *this; }
+                m_kind = other.m_kind;
+                m_name = other.m_name;
+                m_index = other.m_index;
+                m_value.reset();
+                if (other.m_value != nullptr) { m_value = std::make_unique<Value>(*other.m_value); }
+                return *this;
+            }
 
-        // Python special methods
-        .def("__eq__", [](const Value& self, const View& other) {
-            return self.equals(other);
-        }, nb::is_operator())
-        .def("__hash__", &Value::hash)
-        .def("__str__", &Value::to_string)
-        .def("__repr__", [](const Value& self) {
-            if (!self.valid()) return std::string("Value(invalid)");
-            return "Value(" + self.to_string() + ")";
-        })
+            PathElement(PathElement &&) noexcept = default;
+            PathElement &operator=(PathElement &&) noexcept = default;
 
-        // Path-based Navigation (User Guide Section 10)
-        .def("navigate", [](const Value& self, const std::string& path_str) {
-            return navigate(self.view(), path_str);
-        }, "path"_a, nb::rv_policy::reference_internal,
-            "Navigate through the value using a path string.\n\n"
-            "Returns the View at the path destination.\n"
-            "Throws if navigation fails.")
-        .def("try_navigate", [](const Value& self, const std::string& path_str)
-            -> std::optional<View> {
-            return try_navigate(self.view(), path_str);
-        }, "path"_a,
-            "Try to navigate through the value using a path string.\n\n"
-            "Returns the View at the destination, or None on failure.")
-        .def("navigate_mut", [](Value& self, const std::string& path_str) {
-            return navigate_mut(self.view(), path_str);
-        }, "path"_a, nb::rv_policy::reference_internal,
-            "Navigate through the mutable value using a path string.\n\n"
-            "Returns the ValueView at the path destination.\n"
-            "Throws if navigation fails.")
-        .def("try_navigate_mut", [](Value& self, const std::string& path_str)
-            -> std::optional<ValueView> {
-            return try_navigate_mut(self.view(), path_str);
-        }, "path"_a,
-            "Try to navigate through the mutable value using a path string.\n\n"
-            "Returns the ValueView at the destination, or None on failure.");
-}
+            [[nodiscard]] bool is_field() const noexcept { return m_kind == Kind::Field; }
+            [[nodiscard]] bool is_index() const noexcept { return m_kind == Kind::Index; }
+            [[nodiscard]] bool is_value() const noexcept { return m_kind == Kind::Value; }
+            [[nodiscard]] std::string_view name() const noexcept { return m_name; }
 
-// ============================================================================
-// Main Registration Function
-// ============================================================================
+            [[nodiscard]] size_t get_index() const
+            {
+                if (!is_index()) { throw std::runtime_error("PathElement does not hold an index"); }
+                return m_index;
+            }
 
-void value_register_with_nanobind(nb::module_& m) {
-    // Create a submodule for the value type system
-    auto value_mod = m.def_submodule("value", "Value type system bindings");
+            [[nodiscard]] View get_value() const
+            {
+                if (!is_value() || m_value == nullptr) { throw std::runtime_error("PathElement does not hold a value key"); }
+                return m_value->view();
+            }
 
-    // Register enums first
-    register_type_kind(value_mod);
+          private:
+            Kind                   m_kind{Kind::Field};
+            std::string            m_name{};
+            size_t                 m_index{0};
+            std::unique_ptr<Value> m_value{};
+        };
 
-    // Register BundleFieldInfo before TypeMeta (TypeMeta references it)
-    register_bundle_field_info(value_mod);
+        [[nodiscard]] View navigate_impl(View current, const std::vector<PathElement> &path)
+        {
+            for (const PathElement &element : path) {
+                const TypeMeta *schema = current.schema();
+                if (schema == nullptr) { throw std::runtime_error("Cannot navigate an invalid view"); }
 
-    // Register TypeMeta and TypeRegistry
-    register_type_meta(value_mod);
-    register_type_builders(value_mod);
-    register_type_registry(value_mod);
+                if (element.is_field()) {
+                    try {
+                        if (schema->kind == TypeKind::Bundle) {
+                            current = current.as_bundle().field(element.name());
+                        } else if (schema->kind == TypeKind::Map) {
+                            const TypeMeta *key_schema = current.as_map().key_schema();
+                            if (key_schema != scalar_type_meta<std::string>()) {
+                                throw std::runtime_error("Field-style access on maps requires a string key schema");
+                            }
+                            Value key{key_schema};
+                            key.reset();
+                            key.atomic_view().set(std::string(element.name()));
+                            current = current.as_map().at(key.view());
+                        } else {
+                            throw std::runtime_error("Field access requires a bundle view");
+                        }
+                    } catch (const std::out_of_range &e) {
+                        throw std::runtime_error(e.what());
+                    }
+                    continue;
+                }
 
-    // Register free functions for scalar type metadata (Design Doc Section 3.2)
-    register_scalar_type_meta_functions(value_mod);
+                if (element.is_value()) {
+                    if (schema->kind != TypeKind::Map) { throw std::runtime_error("Value key access requires a map view"); }
+                    try {
+                        current = current.as_map().at(element.get_value());
+                    } catch (const std::exception &e) {
+                        throw std::runtime_error(e.what());
+                    }
+                    continue;
+                }
 
-    // Register type meta binding functions for Python-to-C++ type mapping
-    register_type_meta_bindings(value_mod);
+                const size_t index = element.get_index();
+                switch (schema->kind) {
+                    case TypeKind::List:
+                        current = current.as_list().at(index);
+                        break;
+                    case TypeKind::Tuple:
+                        current = current.as_tuple().at(index);
+                        break;
+                    case TypeKind::Bundle:
+                        current = current.as_bundle().at(index);
+                        break;
+                    case TypeKind::CyclicBuffer:
+                        current = current.as_cyclic_buffer().at(index);
+                        break;
+                    case TypeKind::Map: {
+                        const TypeMeta *key_schema = current.as_map().key_schema();
+                        if (key_schema != scalar_type_meta<int64_t>()) {
+                            throw std::runtime_error("Numeric bracket access on maps requires an int64 key schema");
+                        }
+                        Value key{key_schema};
+                        key.reset();
+                        key.atomic_view().set(static_cast<int64_t>(index));
+                        try {
+                            current = current.as_map().at(key.view());
+                        } catch (const std::exception &e) {
+                            throw std::runtime_error(e.what());
+                        }
+                        break;
+                    }
+                    default:
+                        throw std::runtime_error("Index access is not supported for this view kind");
+                }
+            }
 
-    // Register base view classes (order matters for inheritance)
-    register_view(value_mod);
-    register_value_view(value_mod);
+            return current;
+        }
 
-    // Register indexed view base class
-    register_indexed_view(value_mod);
+        [[nodiscard]] std::vector<PathElement> parse_path_impl(const std::string &path)
+        {
+            std::vector<PathElement> out;
+            if (path.empty()) { return out; }
+            for (char c : path) {
+                if (std::isspace(static_cast<unsigned char>(c))) {
+                    throw std::runtime_error("Whitespace is not allowed in value paths");
+                }
+            }
 
-    // Register specialized views
-    register_tuple_views(value_mod);
-    register_bundle_views(value_mod);
-    register_list_views(value_mod);
-    register_set_views(value_mod);
-    register_tracked_set(value_mod);  // TrackedSetStorage and related views
-    register_key_set_view(value_mod);  // Before map_views - KeySetView returned by map.keys()
-    register_map_views(value_mod);
-    register_cyclic_buffer_views(value_mod);
-    register_queue_views(value_mod);
+            size_t i = 0;
+            while (i < path.size()) {
+                if (path[i] == '.') {
+                    throw std::runtime_error("Invalid path syntax");
+                }
 
-    // Register Value classes
-    register_value(value_mod);
+                if (path[i] == '[') {
+                    ++i;
+                    if (i >= path.size()) { throw std::runtime_error("Unclosed bracket in path"); }
 
-    // Register path-based access utilities
-    register_path_element(value_mod);
-    register_path_functions(value_mod);
-    register_traversal_functions(value_mod);
+                    if (path[i] == '"' || path[i] == '\'') {
+                        const char quote = path[i++];
+                        const size_t start = i;
+                        while (i < path.size() && path[i] != quote) { ++i; }
+                        if (i >= path.size()) { throw std::runtime_error("Unclosed quoted key in path"); }
+                        const std::string key = path.substr(start, i - start);
+                        ++i;
+                        if (i >= path.size() || path[i] != ']') { throw std::runtime_error("Expected closing bracket in path"); }
+                        ++i;
+                        out.push_back(PathElement::field(key));
+                    } else {
+                        const size_t start = i;
+                        while (i < path.size() && path[i] != ']') { ++i; }
+                        if (i >= path.size()) { throw std::runtime_error("Unclosed bracket in path"); }
+                        const std::string token = path.substr(start, i - start);
+                        if (token.empty()) { throw std::runtime_error("Empty bracket element in path"); }
+                        if (token[0] == '-') { throw std::runtime_error("Negative indices are not supported"); }
+                        for (char c : token) {
+                            if (!std::isdigit(static_cast<unsigned char>(c))) {
+                                throw std::runtime_error("Invalid bracket element in path");
+                            }
+                        }
+                        ++i;
+                        out.push_back(PathElement::index(static_cast<size_t>(std::stoull(token))));
+                    }
+                } else {
+                    const size_t start = i;
+                    while (i < path.size() && path[i] != '.' && path[i] != '[') { ++i; }
+                    if (start == i) { throw std::runtime_error("Invalid path syntax"); }
+                    const std::string token = path.substr(start, i - start);
+                    if (token.find(']') != std::string::npos) { throw std::runtime_error("Invalid path syntax"); }
+                    out.push_back(PathElement::field(token));
+                }
 
-    // Also export the main types at the module level for convenience
-    m.attr("Value") = value_mod.attr("Value");
-    m.attr("ValueView") = value_mod.attr("ValueView");
-    m.attr("TypeRegistry") = value_mod.attr("TypeRegistry");
-    m.attr("TypeMeta") = value_mod.attr("TypeMeta");
-    // TrackedSet types for TSS
-    m.attr("TrackedSetStorage") = value_mod.attr("TrackedSetStorage");
-    m.attr("TrackedSetView") = value_mod.attr("TrackedSetView");
-    m.attr("SetDeltaValue") = value_mod.attr("SetDeltaValue");
-}
+                if (i < path.size() && path[i] == '.') {
+                    ++i;
+                    if (i >= path.size()) { throw std::runtime_error("Trailing dot in path"); }
+                }
+            }
 
-} // namespace hgraph
+            return out;
+        }
+
+        void register_path_support(nb::module_ &m)
+        {
+            nb::class_<PathElement>(m, "PathElement")
+                .def_static("field", [](const std::string &name) { return PathElement::field(name); }, "name"_a)
+                .def_static("index", [](size_t index) { return PathElement::index(index); }, "index"_a)
+                .def_static("key", [](const View &key) { return PathElement::key(key); }, "key"_a)
+                .def_prop_ro("name", [](const PathElement &self) { return std::string(self.name()); })
+                .def("get_index", &PathElement::get_index)
+                .def("get_value", &PathElement::get_value)
+                .def("is_field", &PathElement::is_field)
+                .def("is_index", &PathElement::is_index)
+                .def("is_value", &PathElement::is_value);
+
+            m.def("parse_path", &parse_path_impl, "path"_a);
+            m.def("navigate",
+                  [](View view, const std::vector<PathElement> &path) { return navigate_impl(view, path); },
+                  "view"_a,
+                  "path"_a);
+            m.def("navigate",
+                  [](View view, const std::string &path) { return navigate_impl(view, parse_path_impl(path)); },
+                  "view"_a,
+                  "path"_a);
+            m.def("try_navigate",
+                  [](View view, const std::vector<PathElement> &path) -> nb::object {
+                      try {
+                          return nb::cast(navigate_impl(view, path));
+                      } catch (...) {
+                          return nb::none();
+                      }
+                  },
+                  "view"_a,
+                  "path"_a);
+            m.def("try_navigate",
+                  [](View view, const std::string &path) -> nb::object {
+                      try {
+                          return nb::cast(navigate_impl(view, parse_path_impl(path)));
+                      } catch (...) {
+                          return nb::none();
+                      }
+                  },
+                  "view"_a,
+                  "path"_a);
+        }
+
+        void register_type_kind(nb::module_ &m)
+        {
+            nb::enum_<TypeKind>(m, "TypeKind")
+                .value("Atomic", TypeKind::Atomic)
+                .value("Tuple", TypeKind::Tuple)
+                .value("Bundle", TypeKind::Bundle)
+                .value("List", TypeKind::List)
+                .value("Set", TypeKind::Set)
+                .value("Map", TypeKind::Map)
+                .value("CyclicBuffer", TypeKind::CyclicBuffer)
+                .value("Queue", TypeKind::Queue);
+        }
+
+        void register_bundle_field_info(nb::module_ &m)
+        {
+            nb::class_<BundleFieldInfo>(m, "BundleFieldInfo")
+                .def_prop_ro("name", [](const BundleFieldInfo &self) { return self.name ? nb::str(self.name) : nb::none(); })
+                .def_ro("index", &BundleFieldInfo::index)
+                .def_ro("offset", &BundleFieldInfo::offset)
+                .def_prop_ro("type", [](const BundleFieldInfo &self) { return self.type; }, nb::rv_policy::reference);
+        }
+
+        void register_type_meta(nb::module_ &m)
+        {
+            nb::class_<TypeMeta>(m, "TypeMeta")
+                .def_ro("size", &TypeMeta::size)
+                .def_ro("alignment", &TypeMeta::alignment)
+                .def_ro("kind", &TypeMeta::kind)
+                .def_ro("field_count", &TypeMeta::field_count)
+                .def_ro("fixed_size", &TypeMeta::fixed_size)
+                .def_prop_ro("name", [](const TypeMeta &self) { return self.name ? nb::str(self.name) : nb::none(); })
+                .def_prop_ro("element_type", [](const TypeMeta &self) { return self.element_type; }, nb::rv_policy::reference)
+                .def_prop_ro("key_type", [](const TypeMeta &self) { return self.key_type; }, nb::rv_policy::reference)
+                .def_prop_ro("fields",
+                             [](const TypeMeta &self) {
+                                 std::vector<const BundleFieldInfo *> result;
+                                 for (size_t i = 0; i < self.field_count; ++i) { result.push_back(&self.fields[i]); }
+                                 return result;
+                             },
+                             nb::rv_policy::reference_internal)
+                .def("is_fixed_size", &TypeMeta::is_fixed_size)
+                .def("is_hashable", &TypeMeta::is_hashable)
+                .def("is_comparable", &TypeMeta::is_comparable)
+                .def("is_equatable", &TypeMeta::is_equatable)
+                .def("is_trivially_copyable", &TypeMeta::is_trivially_copyable)
+                .def_static("get", [](const std::string &name) { return TypeMeta::get(name); }, "name"_a, nb::rv_policy::reference);
+        }
+
+        void register_scalar_type_meta_functions(nb::module_ &m)
+        {
+            m.def("scalar_type_meta_int64", []() { return scalar_type_meta<int64_t>(); }, nb::rv_policy::reference);
+            m.def("scalar_type_meta_double", []() { return scalar_type_meta<double>(); }, nb::rv_policy::reference);
+            m.def("scalar_type_meta_bool", []() { return scalar_type_meta<bool>(); }, nb::rv_policy::reference);
+            m.def("scalar_type_meta_string", []() { return scalar_type_meta<std::string>(); }, nb::rv_policy::reference);
+            m.def("scalar_type_meta_date", []() { return scalar_type_meta<engine_date_t>(); }, nb::rv_policy::reference);
+            m.def("scalar_type_meta_datetime", []() { return scalar_type_meta<engine_time_t>(); }, nb::rv_policy::reference);
+            m.def("scalar_type_meta_timedelta",
+                  []() { return scalar_type_meta<engine_time_delta_t>(); },
+                  nb::rv_policy::reference);
+        }
+
+        void register_type_builders(nb::module_ &m)
+        {
+            nb::class_<TupleBuilder>(m, "TupleBuilder")
+                .def(nb::init<>())
+                .def("add_element", &TupleBuilder::add_element, "type"_a, nb::rv_policy::reference)
+                .def("element", &TupleBuilder::element, "type"_a, nb::rv_policy::reference)
+                .def("build", &TupleBuilder::build, nb::rv_policy::reference);
+
+            nb::class_<BundleBuilder>(m, "BundleBuilder")
+                .def(nb::init<>())
+                .def("set_name", &BundleBuilder::set_name, "name"_a, nb::rv_policy::reference)
+                .def("add_field", &BundleBuilder::add_field, "name"_a, "type"_a, nb::rv_policy::reference)
+                .def("field", &BundleBuilder::field, "name"_a, "type"_a, nb::rv_policy::reference)
+                .def("build", &BundleBuilder::build, nb::rv_policy::reference);
+
+            nb::class_<ListBuilder>(m, "ListBuilder")
+                .def(nb::init<>())
+                .def("set_element_type", &ListBuilder::set_element_type, "type"_a, nb::rv_policy::reference)
+                .def("set_size", &ListBuilder::set_size, "size"_a, nb::rv_policy::reference)
+                .def("build", &ListBuilder::build, nb::rv_policy::reference);
+
+            nb::class_<SetBuilder>(m, "SetBuilder")
+                .def(nb::init<>())
+                .def("set_element_type", &SetBuilder::set_element_type, "type"_a, nb::rv_policy::reference)
+                .def("build", &SetBuilder::build, nb::rv_policy::reference);
+
+            nb::class_<MapBuilder>(m, "MapBuilder")
+                .def(nb::init<>())
+                .def("set_key_type", &MapBuilder::set_key_type, "type"_a, nb::rv_policy::reference)
+                .def("set_value_type", &MapBuilder::set_value_type, "type"_a, nb::rv_policy::reference)
+                .def("build", &MapBuilder::build, nb::rv_policy::reference);
+
+            nb::class_<CyclicBufferBuilder>(m, "CyclicBufferBuilder")
+                .def(nb::init<>())
+                .def("set_element_type", &CyclicBufferBuilder::set_element_type, "type"_a, nb::rv_policy::reference)
+                .def("set_capacity", &CyclicBufferBuilder::set_capacity, "capacity"_a, nb::rv_policy::reference)
+                .def("build", &CyclicBufferBuilder::build, nb::rv_policy::reference);
+
+            nb::class_<QueueBuilder>(m, "QueueBuilder")
+                .def(nb::init<>())
+                .def("set_element_type", &QueueBuilder::set_element_type, "type"_a, nb::rv_policy::reference)
+                .def("max_capacity", &QueueBuilder::max_capacity, "max"_a, nb::rv_policy::reference)
+                .def("build", &QueueBuilder::build, nb::rv_policy::reference);
+        }
+
+        void register_type_registry(nb::module_ &m)
+        {
+            nb::class_<TypeRegistry>(m, "TypeRegistry")
+                .def_static("instance", &TypeRegistry::instance, nb::rv_policy::reference)
+                .def("get_bundle_by_name", &TypeRegistry::get_bundle_by_name, "name"_a, nb::rv_policy::reference)
+                .def("has_bundle", &TypeRegistry::has_bundle, "name"_a)
+                .def("tuple", &TypeRegistry::tuple)
+                .def("bundle", static_cast<BundleBuilder (TypeRegistry::*)()>(&TypeRegistry::bundle))
+                .def("bundle", static_cast<BundleBuilder (TypeRegistry::*)(const std::string &)>(&TypeRegistry::bundle), "name"_a)
+                .def("list", &TypeRegistry::list, "element_type"_a)
+                .def("fixed_list", &TypeRegistry::fixed_list, "element_type"_a, "size"_a)
+                .def("set", &TypeRegistry::set, "element_type"_a)
+                .def("map", &TypeRegistry::map, "key_type"_a, "value_type"_a)
+                .def("cyclic_buffer", &TypeRegistry::cyclic_buffer, "element_type"_a, "capacity"_a)
+                .def("queue", &TypeRegistry::queue, "element_type"_a);
+        }
+
+        void register_view(nb::module_ &m)
+        {
+            nb::class_<View>(m, "_View")
+                .def("has_value", &View::has_value)
+                .def("__bool__", &View::has_value)
+                .def_prop_ro("schema", &View::schema, nb::rv_policy::reference)
+                .def("is_type", &View::is_type, "schema"_a)
+                .def("is_scalar", [](const View &self) { return self.schema() != nullptr && self.schema()->kind == TypeKind::Atomic; })
+                .def("is_tuple", [](const View &self) { return self.schema() != nullptr && self.schema()->kind == TypeKind::Tuple; })
+                .def("is_bundle", [](const View &self) { return self.schema() != nullptr && self.schema()->kind == TypeKind::Bundle; })
+                .def("is_list", [](const View &self) { return self.schema() != nullptr && self.schema()->kind == TypeKind::List; })
+                .def("is_fixed_list",
+                     [](const View &self) {
+                         return self.schema() != nullptr && self.schema()->kind == TypeKind::List && self.schema()->is_fixed_size();
+                     })
+                .def("is_set", [](const View &self) { return self.schema() != nullptr && self.schema()->kind == TypeKind::Set; })
+                .def("is_map", [](const View &self) { return self.schema() != nullptr && self.schema()->kind == TypeKind::Map; })
+                .def("is_cyclic_buffer",
+                     [](const View &self) { return self.schema() != nullptr && self.schema()->kind == TypeKind::CyclicBuffer; })
+                .def("is_queue", [](const View &self) { return self.schema() != nullptr && self.schema()->kind == TypeKind::Queue; })
+                .def("to_string", &View::to_string)
+                .def("to_python", &View::to_python)
+                .def("from_python",
+                     [](View &self, nb::handle src) { self.from_python(nb::borrow<nb::object>(src)); },
+                     "src"_a)
+                .def("hash", &View::hash)
+                .def("equals", &View::equals, "other"_a)
+                .def("clone", &View::clone)
+                .def("copy_from", &View::copy_from, "other"_a)
+                .def("as_int", [](const View &self) { return self.checked_as<int64_t>(); })
+                .def("as_double", [](const View &self) { return self.checked_as<double>(); })
+                .def("as_bool", [](const View &self) { return self.checked_as<bool>(); })
+                .def("as_string", [](const View &self) { return self.checked_as<std::string>(); })
+                .def("set_int", [](View &self, int64_t value) { self.as_atomic().set(value); }, "value"_a)
+                .def("set_double", [](View &self, double value) { self.as_atomic().set(value); }, "value"_a)
+                .def("set_bool", [](View &self, bool value) { self.as_atomic().set(value); }, "value"_a)
+                .def("set_string", [](View &self, const std::string &value) { self.as_atomic().set(value); }, "value"_a)
+                .def("try_as_int",
+                     [](const View &self) -> std::optional<int64_t> {
+                         const auto *ptr = self.try_as<int64_t>();
+                         if (ptr != nullptr) { return *ptr; }
+                         return std::nullopt;
+                     })
+                .def("try_as_double",
+                     [](const View &self) -> std::optional<double> {
+                         const auto *ptr = self.try_as<double>();
+                         if (ptr != nullptr) { return *ptr; }
+                         return std::nullopt;
+                     })
+                .def("try_as_bool",
+                     [](const View &self) -> std::optional<bool> {
+                         const auto *ptr = self.try_as<bool>();
+                         if (ptr != nullptr) { return *ptr; }
+                         return std::nullopt;
+                     })
+                .def("try_as_string",
+                     [](const View &self) -> std::optional<std::string> {
+                         const auto *ptr = self.try_as<std::string>();
+                         if (ptr != nullptr) { return *ptr; }
+                         return std::nullopt;
+                     })
+                .def("as_atomic", [](View &self) { return self.as_atomic(); })
+                .def("as_tuple", [](View &self) { return self.as_tuple(); })
+                .def("as_bundle", [](View &self) { return self.as_bundle(); })
+                .def("as_list", [](View &self) { return self.as_list(); })
+                .def("as_set", [](View &self) { return self.as_set(); })
+                .def("as_map", [](View &self) { return self.as_map(); })
+                .def("as_cyclic_buffer", [](View &self) { return self.as_cyclic_buffer(); })
+                .def("as_queue", [](View &self) { return self.as_queue(); })
+                .def("try_as_tuple",
+                     [](View &self) -> nb::object {
+                         const auto *schema = self.schema();
+                         if (schema == nullptr) { return nb::none(); }
+                         if (schema->kind != TypeKind::Tuple && schema->kind != TypeKind::Bundle) { return nb::none(); }
+                         return nb::cast(self.as_tuple());
+                     })
+                .def("try_as_bundle",
+                     [](View &self) -> nb::object {
+                         const auto *schema = self.schema();
+                         if (schema == nullptr || schema->kind != TypeKind::Bundle) { return nb::none(); }
+                         return nb::cast(self.as_bundle());
+                     })
+                .def("try_as_list",
+                     [](View &self) -> nb::object {
+                         const auto *schema = self.schema();
+                         if (schema == nullptr || schema->kind != TypeKind::List) { return nb::none(); }
+                         return nb::cast(self.as_list());
+                     })
+                .def("try_as_set",
+                     [](View &self) -> nb::object {
+                         const auto *schema = self.schema();
+                         if (schema == nullptr || schema->kind != TypeKind::Set) { return nb::none(); }
+                         return nb::cast(self.as_set());
+                     })
+                .def("try_as_map",
+                     [](View &self) -> nb::object {
+                         const auto *schema = self.schema();
+                         if (schema == nullptr || schema->kind != TypeKind::Map) { return nb::none(); }
+                         return nb::cast(self.as_map());
+                     })
+                .def("try_as_cyclic_buffer",
+                     [](View &self) -> nb::object {
+                         const auto *schema = self.schema();
+                         if (schema == nullptr || schema->kind != TypeKind::CyclicBuffer) { return nb::none(); }
+                         return nb::cast(self.as_cyclic_buffer());
+                     })
+                .def("try_as_queue",
+                     [](View &self) -> nb::object {
+                         const auto *schema = self.schema();
+                         if (schema == nullptr || schema->kind != TypeKind::Queue) { return nb::none(); }
+                         return nb::cast(self.as_queue());
+                     })
+                .def("navigate", [](View self, const std::string &path) { return navigate_impl(self, parse_path_impl(path)); }, "path"_a)
+                .def("navigate",
+                     [](View self, const std::vector<PathElement> &path) { return navigate_impl(self, path); },
+                     "path"_a)
+                .def("navigate_mut",
+                     [](View self, const std::string &path) { return navigate_impl(self, parse_path_impl(path)); },
+                     "path"_a)
+                .def("navigate_mut",
+                     [](View self, const std::vector<PathElement> &path) { return navigate_impl(self, path); },
+                     "path"_a)
+                .def("try_navigate",
+                     [](View self, const std::string &path) -> nb::object {
+                         try {
+                             return nb::cast(navigate_impl(self, parse_path_impl(path)));
+                         } catch (...) {
+                             return nb::none();
+                         }
+                     },
+                     "path"_a)
+                .def("try_navigate",
+                     [](View self, const std::vector<PathElement> &path) -> nb::object {
+                         try {
+                             return nb::cast(navigate_impl(self, path));
+                         } catch (...) {
+                             return nb::none();
+                         }
+                     },
+                     "path"_a)
+                .def("__repr__", [](const View &self) {
+                    return self.has_value() ? std::string("View(") + self.to_string() + ")" : std::string("View(invalid)");
+                });
+        }
+
+        void register_atomic_view(nb::module_ &m)
+        {
+            nb::class_<AtomicView, View>(m, "AtomicView")
+                .def("set_int", [](AtomicView &self, int64_t value) { self.set(value); })
+                .def("set_double", [](AtomicView &self, double value) { self.set(value); })
+                .def("set_bool", [](AtomicView &self, bool value) { self.set(value); })
+                .def("set_string", [](AtomicView &self, const std::string &value) { self.set(value); });
+        }
+
+        void register_tuple_view(nb::module_ &m)
+        {
+            nb::class_<TupleView, View>(m, "TupleView")
+                .def("size", &TupleView::size)
+                .def("__len__", &TupleView::size)
+                .def("empty", &TupleView::empty)
+                .def("element_type", [](const TupleView &self, size_t index) { return self.at(index).schema(); }, "index"_a, nb::rv_policy::reference)
+                .def("at", static_cast<View (TupleView::*)(size_t)>(&TupleView::at), "index"_a)
+                .def("__getitem__", [](TupleView &self, size_t index) { return self.at(index); })
+                .def("set",
+                     [](TupleView &self, size_t index, const Value &value) {
+                         auto mutation = self.begin_mutation();
+                         mutation.set(index, value.view());
+                     },
+                     "index"_a,
+                     "value"_a)
+                .def("set",
+                     [](TupleView &self, size_t index, const nb::object &value) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped = materialize_python_value(*self.at(index).schema(), value);
+                         mutation.set(index, wrapped.view());
+                     },
+                     "index"_a,
+                     "value"_a)
+                .def("__iter__", [](const TupleView &self) { return nb::iter(nb::cast(collect_indexed_views(self))); });
+        }
+
+        void register_bundle_view(nb::module_ &m)
+        {
+            nb::class_<BundleView, TupleView>(m, "BundleView")
+                .def("has_field", &BundleView::has_field, "name"_a)
+                .def("is_field", &BundleView::has_field, "name"_a)
+                .def("at_name",
+                     [](BundleView &self, std::string_view name) {
+                         try {
+                             return self.field(name);
+                         } catch (const std::out_of_range &e) {
+                             throw std::runtime_error(e.what());
+                         }
+                     },
+                     "name"_a)
+                .def("at_name_mut",
+                     [](BundleView &self, std::string_view name) {
+                         try {
+                             return self.field(name);
+                         } catch (const std::out_of_range &e) {
+                             throw std::runtime_error(e.what());
+                         }
+                     },
+                     "name"_a)
+                .def("field",
+                     [](BundleView &self, std::string_view name) {
+                         try {
+                             return self.field(name);
+                         } catch (const std::out_of_range &e) {
+                             throw std::runtime_error(e.what());
+                         }
+                     },
+                     "name"_a)
+                .def("field_index",
+                     [](const BundleView &self, std::string_view name) {
+                         const TypeMeta *schema = self.schema();
+                         if (schema == nullptr || schema->fields == nullptr) {
+                             throw std::runtime_error("BundleView::field_index on invalid view");
+                         }
+                         for (size_t i = 0; i < schema->field_count; ++i) {
+                             if (schema->fields[i].name != nullptr && name == schema->fields[i].name) { return i; }
+                         }
+                         throw std::out_of_range("BundleView::field_index unknown name");
+                     },
+                     "name"_a)
+                .def("set",
+                     [](BundleView &self, std::string_view name, const Value &value) {
+                         auto mutation = self.begin_mutation();
+                         mutation.set_field(name, value.view());
+                     },
+                     "name"_a,
+                     "value"_a)
+                .def("set",
+                     [](BundleView &self, std::string_view name, const nb::object &value) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped = materialize_python_value(*self.field(name).schema(), value);
+                         mutation.set_field(name, wrapped.view());
+                     },
+                     "name"_a,
+                     "value"_a)
+                .def("__getitem__", [](BundleView &self, const std::string &name) {
+                    try {
+                        return self.field(name);
+                    } catch (const std::out_of_range &e) {
+                        throw std::runtime_error(e.what());
+                    }
+                });
+        }
+
+        void register_list_view(nb::module_ &m)
+        {
+            nb::class_<ListView, View>(m, "ListView")
+                .def("size", &ListView::size)
+                .def("__len__", &ListView::size)
+                .def("empty", &ListView::empty)
+                .def("is_fixed", &ListView::is_fixed)
+                .def("is_fixed_list", &ListView::is_fixed)
+                .def("element_schema", &ListView::element_schema, nb::rv_policy::reference)
+                .def("element_type", &ListView::element_schema, nb::rv_policy::reference)
+                .def("is_buffer_compatible",
+                     [](const ListView &self) {
+                         const TypeMeta *elem = self.element_schema();
+                         return elem != nullptr && elem->kind == TypeKind::Atomic && elem->is_buffer_compatible();
+                     })
+                .def("at", static_cast<View (ListView::*)(size_t)>(&ListView::at), "index"_a)
+                .def("__getitem__", [](ListView &self, size_t index) { return self.at(index); })
+                .def("front", static_cast<View (ListView::*)()>(&ListView::front))
+                .def("back", static_cast<View (ListView::*)()>(&ListView::back))
+                .def("__iter__", [](const ListView &self) { return nb::iter(nb::cast(collect_indexed_views(self))); })
+                .def("to_numpy", [](ListView &self) -> nb::object {
+                    const TypeMeta *elem = self.element_schema();
+                    if (elem == nullptr || elem->kind != TypeKind::Atomic || !elem->is_buffer_compatible()) {
+                        throw std::runtime_error("List element type not buffer compatible for numpy");
+                    }
+
+                    nb::module_ np = nb::module_::import_("numpy");
+                    const size_t n = self.size();
+                    if (n == 0) {
+                        const char *dtype = "int64";
+                        if (elem == scalar_type_meta<double>()) { dtype = "float64"; }
+                        else if (elem == scalar_type_meta<bool>()) { dtype = "bool"; }
+                        return np.attr("array")(nb::list(), "dtype"_a = dtype);
+                    }
+
+                    nb::module_ ctypes = nb::module_::import_("ctypes");
+                    if (elem == scalar_type_meta<int64_t>()) {
+                        auto &first = self.at(0).checked_as<int64_t>();
+                        nb::object array_type = ctypes.attr("c_int64").attr("__mul__")(n);
+                        nb::object ptr = ctypes.attr("cast")(
+                            ctypes.attr("c_void_p")(reinterpret_cast<uintptr_t>(std::addressof(first))),
+                            ctypes.attr("POINTER")(array_type));
+                        return np.attr("ctypeslib").attr("as_array")(ptr.attr("contents"));
+                    }
+                    if (elem == scalar_type_meta<double>()) {
+                        auto &first = self.at(0).checked_as<double>();
+                        nb::object array_type = ctypes.attr("c_double").attr("__mul__")(n);
+                        nb::object ptr = ctypes.attr("cast")(
+                            ctypes.attr("c_void_p")(reinterpret_cast<uintptr_t>(std::addressof(first))),
+                            ctypes.attr("POINTER")(array_type));
+                        return np.attr("ctypeslib").attr("as_array")(ptr.attr("contents"));
+                    }
+                    if (elem == scalar_type_meta<bool>()) {
+                        auto &first = self.at(0).checked_as<bool>();
+                        nb::object array_type = ctypes.attr("c_bool").attr("__mul__")(n);
+                        nb::object ptr = ctypes.attr("cast")(
+                            ctypes.attr("c_void_p")(reinterpret_cast<uintptr_t>(std::addressof(first))),
+                            ctypes.attr("POINTER")(array_type));
+                        return np.attr("ctypeslib").attr("as_array")(ptr.attr("contents"));
+                    }
+                    throw std::runtime_error("Unsupported list element type for numpy conversion");
+                })
+                .def("set",
+                     [](ListView &self, size_t index, const View &value) {
+                         auto mutation = self.begin_mutation();
+                         mutation.set(index, value);
+                     },
+                     "index"_a,
+                     "value"_a)
+                .def("set",
+                     [](ListView &self, size_t index, const Value &value) {
+                         auto mutation = self.begin_mutation();
+                         mutation.set(index, value.view());
+                     },
+                     "index"_a,
+                     "value"_a)
+                .def("set",
+                     [](ListView &self, size_t index, const nb::object &value) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped = materialize_python_value(*self.element_schema(), value);
+                         mutation.set(index, wrapped.view());
+                     },
+                     "index"_a,
+                     "value"_a)
+                .def("push_back",
+                     [](ListView &self, const View &value) {
+                         auto mutation = self.begin_mutation();
+                         mutation.push_back(value);
+                     },
+                     "value"_a)
+                .def("push_back",
+                     [](ListView &self, const Value &value) {
+                         auto mutation = self.begin_mutation();
+                         mutation.push_back(value.view());
+                     },
+                     "value"_a)
+                .def("push_back",
+                     [](ListView &self, const nb::object &value) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped = materialize_python_value(*self.element_schema(), value);
+                         mutation.push_back(wrapped.view());
+                     },
+                     "value"_a)
+                .def("append",
+                     [](ListView &self, const View &value) {
+                         auto mutation = self.begin_mutation();
+                         mutation.push_back(value);
+                     },
+                     "value"_a)
+                .def("append",
+                     [](ListView &self, const Value &value) {
+                         auto mutation = self.begin_mutation();
+                         mutation.push_back(value.view());
+                     },
+                     "value"_a)
+                .def("append",
+                     [](ListView &self, const nb::object &value) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped = materialize_python_value(*self.element_schema(), value);
+                         mutation.push_back(wrapped.view());
+                     },
+                     "value"_a)
+                .def("pop_back", [](ListView &self) {
+                    if (self.is_fixed()) { throw std::runtime_error("ListView::pop_back on fixed-size list"); }
+                    if (self.empty()) { throw std::out_of_range("ListView::pop_back on empty list"); }
+                    auto mutation = self.begin_mutation();
+                    mutation.resize(self.size() - 1);
+                })
+                .def("resize",
+                     [](ListView &self, size_t new_size) {
+                         auto mutation = self.begin_mutation();
+                         mutation.resize(new_size);
+                     },
+                     "new_size"_a)
+                .def("clear", [](ListView &self) {
+                    auto mutation = self.begin_mutation();
+                    mutation.clear();
+                })
+                .def("reset",
+                     [](ListView &self, const View &value) {
+                         auto mutation = self.begin_mutation();
+                         for (size_t i = 0; i < self.size(); ++i) { mutation.set(i, value); }
+                     },
+                     "value"_a);
+        }
+
+        void register_set_view(nb::module_ &m)
+        {
+            nb::class_<SetView, View>(m, "SetView")
+                .def("size", &SetView::size)
+                .def("__len__", &SetView::size)
+                .def("empty", &SetView::empty)
+                .def("element_schema", &SetView::element_schema, nb::rv_policy::reference)
+                .def("element_type", &SetView::element_schema, nb::rv_policy::reference)
+                .def("at", static_cast<View (SetView::*)(size_t)>(&SetView::at), "index"_a)
+                .def("contains", &SetView::contains, "value"_a)
+                .def("__contains__", &SetView::contains, "value"_a)
+                .def("__iter__", [](const SetView &self) { return nb::iter(nb::cast(collect_indexed_views(self))); })
+                .def("add",
+                     [](SetView &self, const View &value) {
+                         auto mutation = self.begin_mutation();
+                         return mutation.add(value);
+                     },
+                     "value"_a)
+                .def("add",
+                     [](SetView &self, const nb::object &value) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped = materialize_python_value(*self.element_schema(), value);
+                         return mutation.add(wrapped.view());
+                     },
+                     "value"_a)
+                .def("insert",
+                     [](SetView &self, const View &value) {
+                         auto mutation = self.begin_mutation();
+                         return mutation.add(value);
+                     },
+                     "value"_a)
+                .def("insert",
+                     [](SetView &self, const nb::object &value) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped = materialize_python_value(*self.element_schema(), value);
+                         return mutation.add(wrapped.view());
+                     },
+                     "value"_a)
+                .def("remove",
+                     [](SetView &self, const View &value) {
+                         auto mutation = self.begin_mutation();
+                         return mutation.remove(value);
+                     },
+                     "value"_a)
+                .def("remove",
+                     [](SetView &self, const nb::object &value) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped = materialize_python_value(*self.element_schema(), value);
+                         return mutation.remove(wrapped.view());
+                     },
+                     "value"_a)
+                .def("erase",
+                     [](SetView &self, const View &value) {
+                         auto mutation = self.begin_mutation();
+                         return mutation.remove(value);
+                     },
+                     "value"_a)
+                .def("erase",
+                     [](SetView &self, const nb::object &value) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped = materialize_python_value(*self.element_schema(), value);
+                         return mutation.remove(wrapped.view());
+                     },
+                     "value"_a)
+                .def("clear", [](SetView &self) {
+                    auto mutation = self.begin_mutation();
+                    mutation.clear();
+                });
+        }
+
+        void register_key_set_view(nb::module_ &m)
+        {
+            nb::class_<KeySetView>(m, "KeySetView")
+                .def("size", &KeySetView::size)
+                .def("__len__", &KeySetView::size)
+                .def("empty", &KeySetView::empty)
+                .def("contains", &KeySetView::contains, "value"_a)
+                .def("__contains__", &KeySetView::contains, "value"_a)
+                .def("element_type", &KeySetView::element_type, nb::rv_policy::reference)
+                .def("element_schema", &KeySetView::element_schema, nb::rv_policy::reference)
+                .def("__iter__", [](const KeySetView &self) { return nb::iter(nb::cast(self.values())); });
+        }
+
+        void register_map_view(nb::module_ &m)
+        {
+            nb::class_<MapView, View>(m, "MapView")
+                .def("size", &MapView::size)
+                .def("__len__", &MapView::size)
+                .def("empty", &MapView::empty)
+                .def("key_schema", &MapView::key_schema, nb::rv_policy::reference)
+                .def("value_schema", &MapView::value_schema, nb::rv_policy::reference)
+                .def("key_type", &MapView::key_schema, nb::rv_policy::reference)
+                .def("value_type", &MapView::value_schema, nb::rv_policy::reference)
+                .def("contains", &MapView::contains, "key"_a)
+                .def("__contains__", &MapView::contains, "key"_a)
+                .def("at", static_cast<View (MapView::*)(const View &)>(&MapView::at), "key"_a)
+                .def("__getitem__", [](MapView &self, const View &key) { return self.at(key); })
+                .def("keys", [](MapView &self) { return KeySetView(self); })
+                .def("set",
+                     [](MapView &self, const View &key, const View &value) {
+                         auto mutation = self.begin_mutation();
+                         static_cast<void>(mutation.set(key, value));
+                     },
+                     "key"_a,
+                     "value"_a)
+                .def("set",
+                     [](MapView &self, const nb::object &key, const nb::object &value) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped_key = materialize_python_value(*self.key_schema(), key);
+                         Value wrapped_value = materialize_python_value(*self.value_schema(), value);
+                         static_cast<void>(mutation.set(wrapped_key.view(), wrapped_value.view()));
+                     },
+                     "key"_a,
+                     "value"_a)
+                .def("add",
+                     [](MapView &self, const View &key, const View &value) {
+                         const bool existed = self.contains(key);
+                         if (!existed) {
+                             auto mutation = self.begin_mutation();
+                             mutation.set(key, value);
+                         }
+                         return !existed;
+                     },
+                     "key"_a,
+                     "value"_a)
+                .def("add",
+                     [](MapView &self, const nb::object &key, const nb::object &value) {
+                         Value wrapped_key = materialize_python_value(*self.key_schema(), key);
+                         const bool existed = self.contains(wrapped_key.view());
+                         if (!existed) {
+                             auto mutation = self.begin_mutation();
+                             Value wrapped_value = materialize_python_value(*self.value_schema(), value);
+                             mutation.set(wrapped_key.view(), wrapped_value.view());
+                         }
+                         return !existed;
+                     },
+                     "key"_a,
+                     "value"_a)
+                .def("remove",
+                     [](MapView &self, const View &key) {
+                         auto mutation = self.begin_mutation();
+                         return mutation.remove(key);
+                     },
+                     "key"_a)
+                .def("remove",
+                     [](MapView &self, const nb::object &key) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped_key = materialize_python_value(*self.key_schema(), key);
+                         return mutation.remove(wrapped_key.view());
+                     },
+                     "key"_a)
+                .def("erase",
+                     [](MapView &self, const View &key) {
+                         auto mutation = self.begin_mutation();
+                         return mutation.remove(key);
+                     },
+                     "key"_a)
+                .def("erase",
+                     [](MapView &self, const nb::object &key) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped_key = materialize_python_value(*self.key_schema(), key);
+                         return mutation.remove(wrapped_key.view());
+                     },
+                     "key"_a)
+                .def("clear", [](MapView &self) {
+                    auto mutation = self.begin_mutation();
+                    mutation.clear();
+                })
+                .def("items", [](MapView &self) {
+                    nb::dict d = nb::cast<nb::dict>(self.to_python());
+                    std::vector<std::pair<nb::object, nb::object>> result;
+                    result.reserve(d.size());
+                    for (auto item : d) { result.emplace_back(nb::borrow(item.first), nb::borrow(item.second)); }
+                    return result;
+                });
+        }
+
+        void register_sequence_views(nb::module_ &m)
+        {
+            nb::class_<CyclicBufferView, View>(m, "CyclicBufferView")
+                .def("size", &CyclicBufferView::size)
+                .def("__len__", &CyclicBufferView::size)
+                .def("empty", &CyclicBufferView::empty)
+                .def("element_schema", &CyclicBufferView::element_schema, nb::rv_policy::reference)
+                .def("element_type", &CyclicBufferView::element_schema, nb::rv_policy::reference)
+                .def("is_buffer_compatible",
+                     [](const CyclicBufferView &self) {
+                         const TypeMeta *elem = self.element_schema();
+                         return elem != nullptr && elem->kind == TypeKind::Atomic && elem->is_buffer_compatible();
+                     })
+                .def("front", static_cast<View (CyclicBufferView::*)()>(&CyclicBufferView::front))
+                .def("back", static_cast<View (CyclicBufferView::*)()>(&CyclicBufferView::back))
+                .def("capacity", &CyclicBufferView::capacity)
+                .def("full", &CyclicBufferView::full)
+                .def("at", static_cast<View (CyclicBufferView::*)(size_t)>(&CyclicBufferView::at), "index"_a)
+                .def("__getitem__", [](CyclicBufferView &self, size_t index) { return self.at(index); })
+                .def("to_numpy", [](const CyclicBufferView &self) -> nb::object {
+                    const TypeMeta *elem = self.element_schema();
+                    if (elem == nullptr || elem->kind != TypeKind::Atomic || !elem->is_buffer_compatible()) {
+                        throw std::runtime_error("CyclicBuffer element type not buffer compatible for numpy");
+                    }
+
+                    nb::module_ np = nb::module_::import_("numpy");
+                    const size_t n = self.size();
+                    if (elem == scalar_type_meta<int64_t>()) {
+                        auto arr = np.attr("empty")(n, "dtype"_a = "int64");
+                        auto *ptr =
+                            reinterpret_cast<int64_t *>(nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
+                        for (size_t i = 0; i < n; ++i) { ptr[i] = self.at(i).checked_as<int64_t>(); }
+                        return arr;
+                    }
+                    if (elem == scalar_type_meta<double>()) {
+                        auto arr = np.attr("empty")(n, "dtype"_a = "float64");
+                        auto *ptr =
+                            reinterpret_cast<double *>(nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
+                        for (size_t i = 0; i < n; ++i) { ptr[i] = self.at(i).checked_as<double>(); }
+                        return arr;
+                    }
+                    if (elem == scalar_type_meta<bool>()) {
+                        auto arr = np.attr("empty")(n, "dtype"_a = "bool");
+                        auto *ptr = reinterpret_cast<bool *>(nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
+                        for (size_t i = 0; i < n; ++i) { ptr[i] = self.at(i).checked_as<bool>(); }
+                        return arr;
+                    }
+                    throw std::runtime_error("Unsupported cyclic buffer element type for numpy conversion");
+                })
+                .def("push",
+                     [](CyclicBufferView &self, const View &value) {
+                         auto mutation = self.begin_mutation();
+                         mutation.push(value);
+                     },
+                     "value"_a)
+                .def("push",
+                     [](CyclicBufferView &self, const nb::object &value) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped = materialize_python_value(*self.element_schema(), value);
+                         mutation.push(wrapped.view());
+                     },
+                     "value"_a)
+                .def("clear", [](CyclicBufferView &self) {
+                    auto mutation = self.begin_mutation();
+                    mutation.clear();
+                });
+
+            nb::class_<QueueView, View>(m, "QueueView")
+                .def("size", &QueueView::size)
+                .def("__len__", &QueueView::size)
+                .def("empty", &QueueView::empty)
+                .def("element_schema", &QueueView::element_schema, nb::rv_policy::reference)
+                .def("element_type", &QueueView::element_schema, nb::rv_policy::reference)
+                .def("front", static_cast<View (QueueView::*)()>(&QueueView::front))
+                .def("back", static_cast<View (QueueView::*)()>(&QueueView::back))
+                .def("__iter__", [](QueueView &self) { return nb::iter(self.to_python()); })
+                .def("max_capacity", &QueueView::max_capacity)
+                .def("has_max_capacity", &QueueView::has_max_capacity)
+                .def("push",
+                     [](QueueView &self, const View &value) {
+                         auto mutation = self.begin_mutation();
+                         mutation.push(value);
+                     },
+                     "value"_a)
+                .def("push",
+                     [](QueueView &self, const nb::object &value) {
+                         auto mutation = self.begin_mutation();
+                         Value wrapped = materialize_python_value(*self.element_schema(), value);
+                         mutation.push(wrapped.view());
+                     },
+                     "value"_a)
+                .def("pop", [](QueueView &self) {
+                    auto mutation = self.begin_mutation();
+                    mutation.pop();
+                })
+                .def("clear", [](QueueView &self) {
+                    auto mutation = self.begin_mutation();
+                    mutation.clear();
+                });
+        }
+
+        void register_value(nb::module_ &m)
+        {
+            nb::class_<Value>(m, "Value")
+                .def(nb::init<const TypeMeta *>(), "schema"_a)
+                .def("__init__",
+                     [](Value *self, bool value) { new (self) Value(hgraph::value_for<bool>(std::move(value))); },
+                     "value"_a)
+                .def("__init__",
+                     [](Value *self, int64_t value) { new (self) Value(hgraph::value_for<int64_t>(std::move(value))); },
+                     "value"_a)
+                .def("__init__",
+                     [](Value *self, double value) { new (self) Value(hgraph::value_for<double>(std::move(value))); },
+                     "value"_a)
+                .def("__init__",
+                     [](Value *self, std::string value) { new (self) Value(hgraph::value_for<std::string>(std::move(value))); },
+                     "value"_a)
+                .def("has_value", &Value::has_value)
+                .def("__bool__", &Value::has_value)
+                .def_prop_ro("schema", &Value::schema, nb::rv_policy::reference)
+                .def("view", static_cast<View (Value::*)()>(&Value::view))
+                .def("as_int", [](const Value &self) { return self.view().checked_as<int64_t>(); })
+                .def("as_double", [](const Value &self) { return self.view().checked_as<double>(); })
+                .def("as_bool", [](const Value &self) { return self.view().checked_as<bool>(); })
+                .def("as_string", [](const Value &self) { return self.view().checked_as<std::string>(); })
+                .def("set_int", [](Value &self, int64_t value) { self.atomic_view().set(value); }, "value"_a)
+                .def("set_double", [](Value &self, double value) { self.atomic_view().set(value); }, "value"_a)
+                .def("set_bool", [](Value &self, bool value) { self.atomic_view().set(value); }, "value"_a)
+                .def("set_string", [](Value &self, const std::string &value) { self.atomic_view().set(value); }, "value"_a)
+                .def("tuple_view", static_cast<TupleView (Value::*)()>(&Value::tuple_view))
+                .def("bundle_view", static_cast<BundleView (Value::*)()>(&Value::bundle_view))
+                .def("list_view", static_cast<ListView (Value::*)()>(&Value::list_view))
+                .def("set_view", static_cast<SetView (Value::*)()>(&Value::set_view))
+                .def("map_view", static_cast<MapView (Value::*)()>(&Value::map_view))
+                .def("cyclic_buffer_view", static_cast<CyclicBufferView (Value::*)()>(&Value::cyclic_buffer_view))
+                .def("queue_view", static_cast<QueueView (Value::*)()>(&Value::queue_view))
+                .def("to_python", &Value::to_python)
+                .def("from_python",
+                     [](Value &self, nb::handle src) { self.from_python(nb::borrow<nb::object>(src)); },
+                     "src"_a)
+                .def("hash", &Value::hash)
+                .def("equals", static_cast<bool (Value::*)(const Value &) const>(&Value::equals), "other"_a)
+                .def("equals", static_cast<bool (Value::*)(const View &) const>(&Value::equals), "other"_a)
+                .def("to_string", &Value::to_string)
+                .def("reset", &Value::reset)
+                .def("navigate", [](Value &self, const std::string &path) { return navigate_impl(self.view(), parse_path_impl(path)); }, "path"_a)
+                .def("navigate",
+                     [](Value &self, const std::vector<PathElement> &path) { return navigate_impl(self.view(), path); },
+                     "path"_a)
+                .def("navigate_mut",
+                     [](Value &self, const std::string &path) { return navigate_impl(self.view(), parse_path_impl(path)); },
+                     "path"_a)
+                .def("navigate_mut",
+                     [](Value &self, const std::vector<PathElement> &path) { return navigate_impl(self.view(), path); },
+                     "path"_a)
+                .def("try_navigate",
+                     [](Value &self, const std::string &path) -> nb::object {
+                         try {
+                             return nb::cast(navigate_impl(self.view(), parse_path_impl(path)));
+                         } catch (...) {
+                             return nb::none();
+                         }
+                     },
+                     "path"_a)
+                .def("try_navigate",
+                     [](Value &self, const std::vector<PathElement> &path) -> nb::object {
+                         try {
+                             return nb::cast(navigate_impl(self.view(), path));
+                         } catch (...) {
+                             return nb::none();
+                         }
+                     },
+                     "path"_a)
+                .def("__repr__", [](const Value &self) {
+                    return self.has_value() ? std::string("Value(") + self.to_string() + ")" : std::string("Value(invalid)");
+                });
+        }
+    }  // namespace
+
+    void value_register_with_nanobind(nb::module_ &m)
+    {
+        nb::module_ value_mod = m.def_submodule("value");
+
+        register_type_kind(value_mod);
+        register_bundle_field_info(value_mod);
+        register_type_meta(value_mod);
+        register_type_meta_bindings(value_mod);
+        register_scalar_type_meta_functions(value_mod);
+        register_type_builders(value_mod);
+        register_type_registry(value_mod);
+        register_view(value_mod);
+        register_atomic_view(value_mod);
+        register_tuple_view(value_mod);
+        register_bundle_view(value_mod);
+        register_list_view(value_mod);
+        register_set_view(value_mod);
+        register_key_set_view(value_mod);
+        register_map_view(value_mod);
+        register_sequence_views(value_mod);
+        register_value(value_mod);
+        register_path_support(value_mod);
+
+        m.attr("TypeKind") = value_mod.attr("TypeKind");
+        m.attr("TypeMeta") = value_mod.attr("TypeMeta");
+        m.attr("TypeRegistry") = value_mod.attr("TypeRegistry");
+        m.attr("Value") = value_mod.attr("Value");
+        m.attr("View") = value_mod.attr("_View");
+        m.attr("ValueView") = value_mod.attr("_View");
+        m.attr("AtomicView") = value_mod.attr("AtomicView");
+        m.attr("TupleView") = value_mod.attr("TupleView");
+        m.attr("BundleView") = value_mod.attr("BundleView");
+        m.attr("ListView") = value_mod.attr("ListView");
+        m.attr("SetView") = value_mod.attr("SetView");
+        m.attr("MapView") = value_mod.attr("MapView");
+        m.attr("CyclicBufferView") = value_mod.attr("CyclicBufferView");
+        m.attr("QueueView") = value_mod.attr("QueueView");
+    }
+}  // namespace hgraph

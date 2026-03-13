@@ -589,7 +589,15 @@ namespace hgraph
             void resize(void *data, size_t new_size) const override
             {
                 if (new_size > capacity(data)) {
-                    reserve(data, new_size);
+                    const size_t current_capacity = capacity(data);
+                    // Dynamic lists are append-heavy in buffer-style use. Grow
+                    // geometrically so repeated push_back() does not reallocate
+                    // and move the full prefix on every append.
+                    size_t target_capacity = current_capacity == 0 ? size_t{4} : current_capacity;
+                    while (target_capacity < new_size) {
+                        target_capacity *= 2;
+                    }
+                    reserve(data, target_capacity);
                 }
                 const size_t current_size = size(data);
                 if (new_size > current_size) {
@@ -917,7 +925,7 @@ namespace hgraph
         {
             if (schema == nullptr || schema->kind != value::TypeKind::List) { return nullptr; }
 
-            static std::mutex cache_mutex;
+            static std::recursive_mutex cache_mutex;
             static std::unordered_map<ListBuilderKey, CachedBuilderEntry, ListBuilderKeyHash> cache;
 
             std::lock_guard lock(cache_mutex);
@@ -983,7 +991,7 @@ namespace hgraph
     ListView::ListView(const View &view)
         : View(view)
     {
-        if (!view.valid()) { return; }
+        if (!view.has_value()) { return; }
         if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::List) {
             throw std::runtime_error("ListView requires a list schema");
         }
@@ -1101,7 +1109,7 @@ namespace hgraph
     ListDeltaView::ListDeltaView(const View &view)
         : View(view)
     {
-        if (!view.valid()) { return; }
+        if (!view.has_value()) { return; }
         if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::List) {
             throw std::runtime_error("ListDeltaView requires a list schema");
         }
@@ -1157,12 +1165,12 @@ namespace hgraph
 
     View ListDeltaView::project_value(const void *context, size_t index)
     {
-        return static_cast<const ListDeltaView *>(context)->as_list().at(index);
+        return ListView{*static_cast<const ListDeltaView *>(context)}.at(index);
     }
 
     const detail::ListViewDispatch *ListDeltaView::list_dispatch() const noexcept
     {
-        return valid() ? static_cast<const detail::ListViewDispatch *>(dispatch()) : nullptr;
+        return has_value() ? static_cast<const detail::ListViewDispatch *>(dispatch()) : nullptr;
     }
 
     ListMutationView::ListMutationView(ListView &view)
@@ -1190,10 +1198,10 @@ namespace hgraph
         if (dispatch == nullptr) { throw std::runtime_error("ListMutationView::set on invalid view"); }
         if (index >= dispatch->size(data())) { throw std::out_of_range("ListMutationView::set index out of range"); }
         if (value.schema() != nullptr && value.schema() != &dispatch->element_schema()) {
-            throw std::invalid_argument("ListMutationView::set requires matching element schema");
+            throw std::runtime_error("ListMutationView::set requires matching element schema");
         }
 
-        if (!value.valid()) {
+        if (!value.has_value()) {
             dispatch->set_element_valid(data(), index, false);
             return;
         }
@@ -1225,7 +1233,7 @@ namespace hgraph
 
     const detail::ListViewDispatch *ListView::list_dispatch() const noexcept
     {
-        return valid() ? static_cast<const detail::ListViewDispatch *>(dispatch()) : nullptr;
+        return has_value() ? static_cast<const detail::ListViewDispatch *>(dispatch()) : nullptr;
     }
 
 }  // namespace hgraph

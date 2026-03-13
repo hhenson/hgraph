@@ -9,7 +9,6 @@
  */
 
 #include <hgraph/types/value/value.h>
-#include <hgraph/types/value/indexed_view.h>
 #include <hgraph/types/value/type_registry.h>
 
 #include <nanobind/nanobind.h>
@@ -43,8 +42,8 @@ struct SetDeltaValue {
             _set_schema = TypeRegistry::instance().set(_element_type).build();
             _added = Value(_set_schema);
             _removed = Value(_set_schema);
-            _added.emplace();
-            _removed.emplace();
+            _added.reset();
+            _removed.reset();
         }
     }
 
@@ -58,17 +57,19 @@ struct SetDeltaValue {
             _set_schema = TypeRegistry::instance().set(_element_type).build();
             _added = Value(_set_schema);
             _removed = Value(_set_schema);
-            _added.emplace();
-            _removed.emplace();
+            _added.reset();
+            _removed.reset();
 
             // Copy elements from views
             auto add_set = _added.view().as_set();
-            for (auto elem : added_view) {
-                add_set.add(elem);
+            auto add_mut = add_set.begin_mutation();
+            for (size_t i = 0; i < added_view.size(); ++i) {
+                static_cast<void>(add_mut.add(added_view.at(i)));
             }
             auto rem_set = _removed.view().as_set();
-            for (auto elem : removed_view) {
-                rem_set.add(elem);
+            auto rem_mut = rem_set.begin_mutation();
+            for (size_t i = 0; i < removed_view.size(); ++i) {
+                static_cast<void>(rem_mut.add(removed_view.at(i)));
             }
         }
     }
@@ -132,13 +133,15 @@ struct SetDeltaValue {
 
         // Convert to Python sets
         nb::set py_added;
-        for (auto elem : added()) {
-            py_added.add(elem.to_python());
+        auto add_view = added();
+        for (size_t i = 0; i < add_view.size(); ++i) {
+            py_added.add(add_view.at(i).to_python());
         }
 
         nb::set py_removed;
-        for (auto elem : removed()) {
-            py_removed.add(elem.to_python());
+        auto rem_view = removed();
+        for (size_t i = 0; i < rem_view.size(); ++i) {
+            py_removed.add(rem_view.at(i).to_python());
         }
 
         // Create a SetDelta-like object

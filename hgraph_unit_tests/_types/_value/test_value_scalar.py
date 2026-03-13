@@ -66,88 +66,88 @@ def string_value():
 def test_create_int_value():
     """Value can be created from an integer (int64_t)."""
     v = Value(42)
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_create_large_int_value():
     """Value can be created from a large integer (>256)."""
     v = Value(123456789)
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_create_negative_int_value():
     """Value can be created from a negative integer."""
     v = Value(-42)
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_create_zero_int_value():
     """Value can be created from zero."""
     v = Value(0)
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_create_double_value():
     """Value can be created from a double/float."""
     v = Value(3.14)
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_create_negative_double_value():
     """Value can be created from a negative double."""
     v = Value(-3.14)
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_create_bool_true_value():
     """Value can be created from True."""
     v = Value(True)
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_create_bool_false_value():
     """Value can be created from False."""
     v = Value(False)
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_create_string_value():
     """Value can be created from a string."""
     v = Value("hello")
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_create_empty_string_value():
     """Value can be created from an empty string."""
     v = Value("")
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_create_unicode_string_value():
     """Value can be created from a unicode string."""
     v = Value("hello \u4e16\u754c")
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_create_date_value():
     """Value can be created from a date."""
     from datetime import date
     v = Value(date(2024, 1, 15))
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_create_datetime_value():
     """Value can be created from a datetime."""
     from datetime import datetime
     v = Value(datetime(2024, 1, 15, 10, 30, 0))
-    assert v.valid()
+    assert v.has_value()
 
 
 def test_create_timedelta_value():
     """Value can be created from a timedelta."""
     from datetime import timedelta
     v = Value(timedelta(hours=1, minutes=30))
-    assert v.valid()
+    assert v.has_value()
 
 
 # =============================================================================
@@ -303,13 +303,13 @@ def test_view_cannot_modify():
 # =============================================================================
 
 def test_valid_returns_true_for_initialized(int_value):
-    """valid() returns True for properly initialized values."""
-    assert int_value.valid() is True
+    """has_value() returns True for properly initialized values."""
+    assert int_value.has_value() is True
 
 
 def test_valid_returns_true_for_string(string_value):
-    """valid() returns True for string values."""
-    assert string_value.valid() is True
+    """has_value() returns True for string values."""
+    assert string_value.has_value() is True
 
 
 # =============================================================================

@@ -21,11 +21,11 @@ TEST_CASE("Atomic values default construct through the bound schema", "[time_ser
     const value::TypeMeta &schema = *value::scalar_type_meta<int32_t>();
     Value                  value{schema};
 
-    REQUIRE(value.valid());
+    REQUIRE(value.has_value());
     REQUIRE(value.schema() == &schema);
 
     auto view = value.atomic_view();
-    REQUIRE(view.valid());
+    REQUIRE(view.has_value());
     CHECK(view.as<int32_t>() == 0);
     CHECK(value.view().to_string() == "0");
 }
@@ -78,18 +78,18 @@ TEST_CASE("Atomic value copy and move preserve payload semantics", "[time_series
     Value moved{std::move(source)};
     CHECK(moved.view().as_atomic().as<int32_t>() == 42);
 
-    CHECK(source.valid());
+    CHECK(source.has_value());
     CHECK(source.view().schema() == value::scalar_type_meta<int32_t>());
-    CHECK(source.view().valid());
+    CHECK(source.view().has_value());
 
     Value string_source = value_for(std::string{"moved"});
     Value string_moved{std::move(string_source)};
 
     CHECK(string_moved.view().as_atomic().as<std::string>() == "moved");
-    CHECK_FALSE(string_source.valid());
+    CHECK_FALSE(string_source.has_value());
     CHECK(string_source.view().schema() == value::scalar_type_meta<std::string>());
-    CHECK_FALSE(string_source.view().valid());
-    CHECK(string_source.view().eq(string_source.view()));
+    CHECK_FALSE(string_source.view().has_value());
+    CHECK(string_source.view().equals(string_source.view()));
     CHECK((string_source.view() <=> string_source.view()) == std::partial_ordering::equivalent);
 }
 
@@ -159,7 +159,7 @@ TEST_CASE("Atomic view comparison follows same-schema ordering rules", "[time_se
 
     CHECK(std::is_lt(lower.view() <=> upper.view()));
     CHECK(std::is_gt(upper.view() <=> lower.view()));
-    CHECK_FALSE(lower.view().eq(upper.view()));
+    CHECK_FALSE(lower.view().equals(upper.view()));
 }
 
 }  // namespace

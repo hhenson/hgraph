@@ -1,88 +1,43 @@
 #pragma once
 
-/**
- * @file value_fwd.h
- * @brief Forward declarations for the Value type system.
- *
- * This header provides forward declarations of all Value-related types,
- * allowing headers to reference them without creating circular dependencies.
- */
-
 #include <cstddef>
 #include <cstdint>
 
-namespace hgraph::value {
+namespace hgraph
+{
+    struct View;
+    struct Value;
+    struct AtomicView;
+    struct TupleView;
+    struct BundleView;
+    struct ListView;
+    struct SetView;
+    struct MapView;
+    struct CyclicBufferView;
+    struct QueueView;
+}
 
-// ============================================================================
-// Type System Forward Declarations
-// ============================================================================
+namespace hgraph::value
+{
+    enum class TypeKind : uint8_t;
+    enum class TypeFlags : uint32_t;
+    struct TypeMeta;
+    struct type_ops;
+    struct BundleFieldInfo;
+    class TypeRegistry;
 
-/// Type kind enumeration - identifies the category of a type
-enum class TypeKind : uint8_t;
+    using View = ::hgraph::View;
+    using ValueView = ::hgraph::View;
+    using AtomicView = ::hgraph::AtomicView;
+    using TupleView = ::hgraph::TupleView;
+    using BundleView = ::hgraph::BundleView;
+    using ListView = ::hgraph::ListView;
+    using SetView = ::hgraph::SetView;
+    using MapView = ::hgraph::MapView;
+    using CyclicBufferView = ::hgraph::CyclicBufferView;
+    using QueueView = ::hgraph::QueueView;
+    using Value = ::hgraph::Value;
 
-/// Type capability flags
-enum class TypeFlags : uint32_t;
-
-/// Type metadata structure - describes a type's layout and operations
-struct TypeMeta;
-
-/// Type operations — common ops + kind-tagged union of specific ops
-struct type_ops;
-
-/// Bundle field metadata
-struct BundleFieldInfo;
-
-// ============================================================================
-// Storage Forward Declarations
-// ============================================================================
-
-/// Type-erased value storage with small buffer optimization
-class ValueStorage;
-
-// ============================================================================
-// View Forward Declarations
-// ============================================================================
-
-/// Non-owning read-only view into a Value
-class View;
-
-/// Non-owning mutable view into a Value
-class ValueView;
-
-/// Mutable view with indexed access
-class IndexedView;
-
-/// Mutable view for tuples
-class TupleView;
-
-/// Mutable view for bundles
-class BundleView;
-
-/// Mutable view for lists
-class ListView;
-
-/// Mutable view for sets
-class SetView;
-
-/// Mutable view for maps
-class MapView;
-
-// ============================================================================
-// Value Forward Declarations
-// ============================================================================
-
-/// Owning value storage
-class Value;
-
-// ============================================================================
-// Type Registry Forward Declarations
-// ============================================================================
-
-/// Central registry for type metadata
-class TypeRegistry;
-
-/// Get the TypeMeta for a scalar type (convenience function)
-template<typename T>
-const TypeMeta* scalar_type_meta();
-
-} // namespace hgraph::value
+    template <typename T>
+    const TypeMeta *scalar_type_meta();
+}  // namespace hgraph::value

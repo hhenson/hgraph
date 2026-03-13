@@ -25,7 +25,7 @@ TEST_CASE("Tuple values support positional heterogeneous access")
                              .add_element(hgraph::value::scalar_type_meta<std::string>())
                              .build();
 
-    hgraph::Value value{*schema};
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
     auto tuple = value.view().as_tuple();
 
     {
@@ -38,7 +38,7 @@ TEST_CASE("Tuple values support positional heterogeneous access")
     CHECK(tuple[1].as_atomic().as<std::string>() == "alpha");
 
     tuple.begin_mutation().set(1, hgraph::View::invalid_for(hgraph::value::scalar_type_meta<std::string>()));
-    CHECK_FALSE(tuple[1].valid());
+    CHECK_FALSE(tuple[1].has_value());
 }
 
 TEST_CASE("Bundle values support named and positional access")
@@ -49,7 +49,7 @@ TEST_CASE("Bundle values support named and positional access")
                              .add_field("label", hgraph::value::scalar_type_meta<std::string>())
                              .build();
 
-    hgraph::Value value{*schema};
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
     auto bundle = value.view().as_bundle();
 
     {
@@ -99,7 +99,7 @@ TEST_CASE("Tuple values expose updated field indices and values for the current 
                              .add_element(hgraph::value::scalar_type_meta<std::string>())
                              .build();
 
-    hgraph::Value value{*schema};
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
     auto tuple = value.tuple_view();
 
     tuple.begin_mutation().setting(0, int32_t{3}).setting(1, std::string{"three"});
@@ -129,7 +129,7 @@ TEST_CASE("Bundle values expose updated keys and values for the current mutation
                              .add_field("label", hgraph::value::scalar_type_meta<std::string>())
                              .build();
 
-    hgraph::Value value{*schema};
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
     auto bundle = value.bundle_view();
 
     bundle.begin_mutation().setting_field("count", int32_t{1}).setting_field("label", std::string{"one"});

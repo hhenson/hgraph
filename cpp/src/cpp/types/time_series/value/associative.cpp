@@ -924,7 +924,11 @@ namespace hgraph
                 reserve(*state(data), key_state.size + 1);
                 const auto insertion = m_keys.insert(state(data)->keys, key);
                 const size_t slot = insertion.slot;
-                prepare_value_slot(*state(data), slot);
+                // Key insertion marks the slot occupied before the value
+                // payload exists. A newly allocated map slot therefore needs
+                // first-time value construction here, not reset/destruction of
+                // an uninitialised payload.
+                m_value_builder.get().construct(values_memory(data) + slot * m_value_stride);
                 value_dispatch().assign(value_data(data, slot), value);
                 return insertion.inserted;
             }
@@ -1379,7 +1383,7 @@ namespace hgraph
             if (schema == nullptr) { return nullptr; }
             if (schema->kind != value::TypeKind::Set && schema->kind != value::TypeKind::Map) { return nullptr; }
 
-            static std::mutex cache_mutex;
+            static std::recursive_mutex cache_mutex;
             static std::unordered_map<AssociativeBuilderKey, CachedBuilderEntry, AssociativeBuilderKeyHash> cache;
 
             std::lock_guard lock(cache_mutex);
@@ -1437,7 +1441,7 @@ namespace hgraph
     SetView::SetView(const View &view)
         : View(view)
     {
-        if (!view.valid()) { return; }
+        if (!view.has_value()) { return; }
         if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Set) {
             throw std::runtime_error("SetView requires a set schema");
         }
@@ -1487,7 +1491,7 @@ namespace hgraph
     SetDeltaView::SetDeltaView(const View &view)
         : View(view)
     {
-        if (!view.valid()) { return; }
+        if (!view.has_value()) { return; }
         if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Set) {
             throw std::runtime_error("SetDeltaView requires a set schema");
         }
@@ -1515,6 +1519,11 @@ namespace hgraph
         const auto *dispatch = set_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("SetView::element_schema on invalid view"); }
         return &dispatch->element_schema();
+    }
+
+    Range<View> SetView::values() const
+    {
+        return Range<View>{this, size(), nullptr, &SetView::project_value};
     }
 
     View SetView::at(size_t index)
@@ -1574,8 +1583,8 @@ namespace hgraph
     {
         const auto *dispatch = set_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("SetView::contains on invalid view"); }
-        if (!value.valid() || value.schema() != &dispatch->element_schema()) {
-            throw std::invalid_argument("SetView::contains requires a valid matching-schema element");
+        if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
+            throw std::runtime_error("SetView::contains requires a valid matching-schema element");
         }
         return dispatch->contains(data(), data_of(value));
     }
@@ -1606,8 +1615,8 @@ namespace hgraph
     {
         const auto *dispatch = set_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("SetMutationView::add on invalid view"); }
-        if (!value.valid() || value.schema() != &dispatch->element_schema()) {
-            throw std::invalid_argument("SetMutationView::add requires a valid matching-schema element");
+        if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
+            throw std::runtime_error("SetMutationView::add requires a valid matching-schema element");
         }
         return dispatch->add(data(), data_of(value));
     }
@@ -1622,8 +1631,8 @@ namespace hgraph
     {
         const auto *dispatch = set_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("SetMutationView::remove on invalid view"); }
-        if (!value.valid() || value.schema() != &dispatch->element_schema()) {
-            throw std::invalid_argument("SetMutationView::remove requires a valid matching-schema element");
+        if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
+            throw std::runtime_error("SetMutationView::remove requires a valid matching-schema element");
         }
         return dispatch->remove(data(), data_of(value));
     }
@@ -1649,12 +1658,17 @@ namespace hgraph
 
     const detail::SetViewDispatch *SetView::set_dispatch() const noexcept
     {
-        return valid() ? static_cast<const detail::SetViewDispatch *>(dispatch()) : nullptr;
+        return has_value() ? static_cast<const detail::SetViewDispatch *>(dispatch()) : nullptr;
+    }
+
+    View SetView::project_value(const void *context, size_t index)
+    {
+        return static_cast<const SetView *>(context)->at(index);
     }
 
     const detail::SetViewDispatch *SetDeltaView::set_dispatch() const noexcept
     {
-        return valid() ? static_cast<const detail::SetViewDispatch *>(dispatch()) : nullptr;
+        return has_value() ? static_cast<const detail::SetViewDispatch *>(dispatch()) : nullptr;
     }
 
     bool SetDeltaView::slot_is_added(const void *context, size_t slot)
@@ -1678,7 +1692,7 @@ namespace hgraph
     MapView::MapView(const View &view)
         : View(view)
     {
-        if (!view.valid()) { return; }
+        if (!view.has_value()) { return; }
         if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Map) {
             throw std::runtime_error("MapView requires a map schema");
         }
@@ -1728,7 +1742,7 @@ namespace hgraph
     MapDeltaView::MapDeltaView(const View &view)
         : View(view)
     {
-        if (!view.valid()) { return; }
+        if (!view.has_value()) { return; }
         if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Map) {
             throw std::runtime_error("MapDeltaView requires a map schema");
         }
@@ -1857,8 +1871,8 @@ namespace hgraph
     {
         const auto *dispatch = map_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("MapView::contains on invalid view"); }
-        if (!key.valid() || key.schema() != &dispatch->key_schema()) {
-            throw std::invalid_argument("MapView::contains requires a valid matching-schema key");
+        if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
+            throw std::runtime_error("MapView::contains requires a valid matching-schema key");
         }
         return dispatch->find(data(), data_of(key)) != static_cast<size_t>(-1);
     }
@@ -1867,8 +1881,8 @@ namespace hgraph
     {
         const auto *dispatch = map_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("MapView::at on invalid view"); }
-        if (!key.valid() || key.schema() != &dispatch->key_schema()) {
-            throw std::invalid_argument("MapView::at requires a valid matching-schema key");
+        if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
+            throw std::runtime_error("MapView::at requires a valid matching-schema key");
         }
         const size_t index = dispatch->find(data(), data_of(key));
         if (index == static_cast<size_t>(-1)) { throw std::out_of_range("MapView::at key not found"); }
@@ -1879,8 +1893,8 @@ namespace hgraph
     {
         const auto *dispatch = map_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("MapView::at on invalid view"); }
-        if (!key.valid() || key.schema() != &dispatch->key_schema()) {
-            throw std::invalid_argument("MapView::at requires a valid matching-schema key");
+        if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
+            throw std::runtime_error("MapView::at requires a valid matching-schema key");
         }
         const size_t index = dispatch->find(data(), data_of(key));
         if (index == static_cast<size_t>(-1)) { throw std::out_of_range("MapView::at key not found"); }
@@ -1915,14 +1929,14 @@ namespace hgraph
     {
         const auto *dispatch = map_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("MapMutationView::set on invalid view"); }
-        if (!key.valid() || key.schema() != &dispatch->key_schema()) {
-            throw std::invalid_argument("MapMutationView::set requires a valid matching-schema key");
+        if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
+            throw std::runtime_error("MapMutationView::set requires a valid matching-schema key");
         }
-        if (!value.valid()) {
-            throw std::invalid_argument("MapMutationView::set requires a valid value");
+        if (!value.has_value()) {
+            throw std::runtime_error("MapMutationView::set requires a valid value");
         }
         if (value.schema() != nullptr && value.schema() != &dispatch->value_schema()) {
-            throw std::invalid_argument("MapMutationView::set requires a matching value schema");
+            throw std::runtime_error("MapMutationView::set requires a matching value schema");
         }
         dispatch->set_item(data(), data_of(key), data_of(value));
     }
@@ -1937,8 +1951,8 @@ namespace hgraph
     {
         const auto *dispatch = map_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("MapMutationView::remove on invalid view"); }
-        if (!key.valid() || key.schema() != &dispatch->key_schema()) {
-            throw std::invalid_argument("MapMutationView::remove requires a valid matching-schema key");
+        if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
+            throw std::runtime_error("MapMutationView::remove requires a valid matching-schema key");
         }
         return dispatch->remove(data(), data_of(key));
     }
@@ -1964,12 +1978,12 @@ namespace hgraph
 
     const detail::MapViewDispatch *MapView::map_dispatch() const noexcept
     {
-        return valid() ? static_cast<const detail::MapViewDispatch *>(dispatch()) : nullptr;
+        return has_value() ? static_cast<const detail::MapViewDispatch *>(dispatch()) : nullptr;
     }
 
     const detail::MapViewDispatch *MapDeltaView::map_dispatch() const noexcept
     {
-        return valid() ? static_cast<const detail::MapViewDispatch *>(dispatch()) : nullptr;
+        return has_value() ? static_cast<const detail::MapViewDispatch *>(dispatch()) : nullptr;
     }
 
     bool MapDeltaView::slot_is_added(const void *context, size_t slot)

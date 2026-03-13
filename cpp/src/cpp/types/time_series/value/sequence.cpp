@@ -337,7 +337,8 @@ namespace hgraph
 
                 clear(dst);
                 nb::iterator it = nb::iter(src);
-                while (it != nb::iterator::sentinel()) {
+                size_t imported = 0;
+                while (it != nb::iterator::sentinel() && imported < capacity()) {
                     void *temp = this->m_element_builder.get().allocate();
                     try {
                         this->m_element_builder.get().construct(temp);
@@ -357,6 +358,7 @@ namespace hgraph
                         throw;
                     }
                     ++it;
+                    ++imported;
                 }
             }
 
@@ -653,7 +655,9 @@ namespace hgraph
 
                 clear(dst);
                 nb::iterator it = nb::iter(src);
-                while (it != nb::iterator::sentinel()) {
+                const size_t import_limit = max_capacity();
+                size_t       imported = 0;
+                while (it != nb::iterator::sentinel() && (import_limit == 0 || imported < import_limit)) {
                     void *temp = this->m_element_builder.get().allocate();
                     try {
                         this->m_element_builder.get().construct(temp);
@@ -673,6 +677,7 @@ namespace hgraph
                         throw;
                     }
                     ++it;
+                    ++imported;
                 }
             }
 
@@ -900,7 +905,7 @@ namespace hgraph
             if (schema == nullptr) { return nullptr; }
             if (schema->kind != value::TypeKind::CyclicBuffer && schema->kind != value::TypeKind::Queue) { return nullptr; }
 
-            static std::mutex cache_mutex;
+            static std::recursive_mutex cache_mutex;
             static std::unordered_map<SequenceBuilderKey, CachedBuilderEntry, SequenceBuilderKeyHash> cache;
 
             std::lock_guard lock(cache_mutex);
@@ -958,7 +963,7 @@ namespace hgraph
     BufferView::BufferView(const View &view)
         : View(view)
     {
-        if (!view.valid()) { return; }
+        if (!view.has_value()) { return; }
         if (view.schema() == nullptr ||
             (view.schema()->kind != value::TypeKind::CyclicBuffer && view.schema()->kind != value::TypeKind::Queue)) {
             throw std::runtime_error("BufferView requires a cyclic buffer or queue schema");
@@ -1059,8 +1064,8 @@ namespace hgraph
     {
         const auto *dispatch = buffer_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("BufferMutationView::push on invalid view"); }
-        if (!value.valid() || value.schema() != &dispatch->element_schema()) {
-            throw std::invalid_argument("BufferMutationView::push requires a valid matching-schema value");
+        if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
+            throw std::runtime_error("BufferMutationView::push requires a valid matching-schema value");
         }
         dispatch->push(data(), data_of(value));
     }
@@ -1078,13 +1083,13 @@ namespace hgraph
     }
     const detail::BufferViewDispatch *BufferView::buffer_dispatch() const noexcept
     {
-        return valid() ? static_cast<const detail::BufferViewDispatch *>(dispatch()) : nullptr;
+        return has_value() ? static_cast<const detail::BufferViewDispatch *>(dispatch()) : nullptr;
     }
 
     CyclicBufferView::CyclicBufferView(const View &view)
         : BufferView(view)
     {
-        if (!view.valid()) { return; }
+        if (!view.has_value()) { return; }
         if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::CyclicBuffer) {
             throw std::runtime_error("CyclicBufferView requires a cyclic buffer schema");
         }
@@ -1133,8 +1138,8 @@ namespace hgraph
     {
         const auto *dispatch = buffer_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("CyclicBufferMutationView::push on invalid view"); }
-        if (!value.valid() || value.schema() != &dispatch->element_schema()) {
-            throw std::invalid_argument("CyclicBufferMutationView::push requires a valid matching-schema value");
+        if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
+            throw std::runtime_error("CyclicBufferMutationView::push requires a valid matching-schema value");
         }
         dispatch->push(data(), data_of(value));
     }
@@ -1157,20 +1162,20 @@ namespace hgraph
     {
         const auto *dispatch = cyclic_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("CyclicBufferMutationView::set on invalid view"); }
-        if (!value.valid() || value.schema() != &dispatch->element_schema()) {
-            throw std::invalid_argument("CyclicBufferMutationView::set requires a valid matching-schema value");
+        if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
+            throw std::runtime_error("CyclicBufferMutationView::set requires a valid matching-schema value");
         }
         dispatch->set_at(data(), index, data_of(value));
     }
     const detail::CyclicBufferViewDispatch *CyclicBufferView::cyclic_dispatch() const noexcept
     {
-        return valid() ? static_cast<const detail::CyclicBufferViewDispatch *>(dispatch()) : nullptr;
+        return has_value() ? static_cast<const detail::CyclicBufferViewDispatch *>(dispatch()) : nullptr;
     }
 
     QueueView::QueueView(const View &view)
         : BufferView(view)
     {
-        if (!view.valid()) { return; }
+        if (!view.has_value()) { return; }
         if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Queue) {
             throw std::runtime_error("QueueView requires a queue schema");
         }
@@ -1187,7 +1192,7 @@ namespace hgraph
         if (dispatch == nullptr) { throw std::runtime_error("QueueView::max_capacity on invalid view"); }
         return dispatch->max_capacity();
     }
-    bool QueueView::has_max_capacity() const noexcept { return valid() && max_capacity() > 0; }
+    bool QueueView::has_max_capacity() const noexcept { return has_value() && max_capacity() > 0; }
 
     QueueMutationView::QueueMutationView(QueueView &view)
         : QueueView(view)
@@ -1215,8 +1220,8 @@ namespace hgraph
     {
         const auto *dispatch = buffer_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("QueueMutationView::push on invalid view"); }
-        if (!value.valid() || value.schema() != &dispatch->element_schema()) {
-            throw std::invalid_argument("QueueMutationView::push requires a valid matching-schema value");
+        if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
+            throw std::runtime_error("QueueMutationView::push requires a valid matching-schema value");
         }
         dispatch->push(data(), data_of(value));
     }
@@ -1237,6 +1242,6 @@ namespace hgraph
 
     const detail::QueueViewDispatch *QueueView::queue_dispatch() const noexcept
     {
-        return valid() ? static_cast<const detail::QueueViewDispatch *>(dispatch()) : nullptr;
+        return has_value() ? static_cast<const detail::QueueViewDispatch *>(dispatch()) : nullptr;
     }
 }  // namespace hgraph
