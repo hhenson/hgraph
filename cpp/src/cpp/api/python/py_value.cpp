@@ -1,4 +1,5 @@
 #include <hgraph/api/python/py_value.h>
+#include <hgraph/types/value/visitor.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/type_meta_bindings.h>
 #include <hgraph/types/value/type_registry.h>
@@ -225,6 +226,40 @@ namespace hgraph
             }
 
             return current;
+        }
+
+        [[nodiscard]] nb::object visit_python_value(View view, const nb::callable &fn)
+        {
+            return fn(view.to_python());
+        }
+
+        void visit_python_value_void(View view, const nb::callable &fn)
+        {
+            static_cast<void>(fn(view.to_python()));
+        }
+
+        void visit_python_value_mut(View view, const nb::callable &fn)
+        {
+            nb::object result = fn(view.to_python());
+            if (!result.is_none()) { view.from_python(result); }
+        }
+
+        [[nodiscard]] nb::object match_python_value(View view, const nb::args &cases)
+        {
+            nb::object python_value = view.to_python();
+
+            for (const nb::handle &case_handle : cases) {
+                nb::tuple case_tuple = nb::cast<nb::tuple>(case_handle);
+                if (case_tuple.size() != 2) { throw std::runtime_error("match expects (type, handler) pairs"); }
+
+                nb::handle type_handle = case_tuple[0];
+                nb::callable handler = nb::cast<nb::callable>(case_tuple[1]);
+
+                if (type_handle.is_none()) { return handler(python_value); }
+                if (nb::isinstance(python_value, type_handle)) { return handler(python_value); }
+            }
+
+            throw std::runtime_error("no handler matched");
         }
 
         [[nodiscard]] std::vector<PathElement> parse_path_impl(const std::string &path)
@@ -486,6 +521,14 @@ namespace hgraph
                 .def("equals", &View::equals, "other"_a)
                 .def("clone", &View::clone)
                 .def("copy_from", &View::copy_from, "other"_a)
+                .def("visit", [](View self, const nb::callable &fn) { return visit_python_value(self, fn); }, "fn"_a)
+                .def("visit_void",
+                     [](View self, const nb::callable &fn) { visit_python_value_void(self, fn); },
+                     "fn"_a)
+                .def("visit_mut",
+                     [](View self, const nb::callable &fn) { visit_python_value_mut(self, fn); },
+                     "fn"_a)
+                .def("match", [](View self, const nb::args &cases) { return match_python_value(self, cases); })
                 .def("as_int", [](const View &self) { return self.checked_as<int64_t>(); })
                 .def("as_double", [](const View &self) { return self.checked_as<double>(); })
                 .def("as_bool", [](const View &self) { return self.checked_as<bool>(); })
