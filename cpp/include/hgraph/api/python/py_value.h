@@ -22,8 +22,10 @@ namespace hgraph {
  * - TypeMeta (read-only schema descriptor)
  * - TypeKind enum
  * - Value class (Value)
- * - View classes (View, ValueView)
+ * - View classes (View and specialized typed views)
  * - Specialized views (TupleView, BundleView, ListView, SetView, MapView)
+ * - Path and traversal helpers such as `navigate`, `deep_visit`,
+ *   `count_leaves`, and `collect_leaf_paths`
  *
  * @param m The nanobind module to register with
  */

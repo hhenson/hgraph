@@ -142,6 +142,18 @@ def dynamic_int_list_schema(type_registry, int_schema):
 
 
 @pytest.fixture
+def queue_int_schema(type_registry, int_schema):
+    """Create a queue schema for int64_t elements."""
+    return type_registry.queue(int_schema).max_capacity(5).build()
+
+
+@pytest.fixture
+def cyclic_buffer_int_schema(type_registry, int_schema):
+    """Create a cyclic buffer schema for int64_t elements."""
+    return type_registry.cyclic_buffer(int_schema, 5).build()
+
+
+@pytest.fixture
 def int_set_schema(type_registry, int_schema):
     """Create a set schema for int64_t elements."""
     return type_registry.set(int_schema).build()
@@ -941,3 +953,43 @@ def test_collect_leaf_paths_matches_count(bundle_with_list_schema):
     count = count_leaves(v.view())
 
     assert len(paths) == count
+
+
+def test_queue_is_treated_as_leaf(queue_int_schema):
+    """Queues are traversed as one logical leaf rather than expanded storage."""
+    deep_visit, count_leaves, collect_leaf_paths = get_traversal_functions()
+
+    v = Value(queue_int_schema)
+    v.reset()
+    q = v.queue_view()
+    q.push(make_int_value(10).view())
+    q.push(make_int_value(20).view())
+
+    visited = []
+    deep_visit(v.view(), lambda leaf_value, path: visited.append((leaf_value, list(path))))
+
+    assert len(visited) == 1
+    assert visited[0][0].is_queue()
+    assert visited[0][1] == []
+    assert count_leaves(v.view()) == 1
+    assert [list(p) for p in collect_leaf_paths(v.view())] == [[]]
+
+
+def test_cyclic_buffer_is_treated_as_leaf(cyclic_buffer_int_schema):
+    """Cyclic buffers are traversed as one logical leaf rather than expanded storage."""
+    deep_visit, count_leaves, collect_leaf_paths = get_traversal_functions()
+
+    v = Value(cyclic_buffer_int_schema)
+    v.reset()
+    b = v.cyclic_buffer_view()
+    b.push(make_int_value(10).view())
+    b.push(make_int_value(20).view())
+
+    visited = []
+    deep_visit(v.view(), lambda leaf_value, path: visited.append((leaf_value, list(path))))
+
+    assert len(visited) == 1
+    assert visited[0][0].is_cyclic_buffer()
+    assert visited[0][1] == []
+    assert count_leaves(v.view()) == 1
+    assert [list(p) for p in collect_leaf_paths(v.view())] == [[]]

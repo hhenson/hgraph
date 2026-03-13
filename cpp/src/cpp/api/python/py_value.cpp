@@ -262,6 +262,221 @@ namespace hgraph
             throw std::runtime_error("no handler matched");
         }
 
+        using PythonPath = std::vector<nb::object>;
+
+        /**
+         * Convert the current traversal path into a plain Python list.
+         *
+         * The traversal API deliberately exposes paths as simple Python values
+         * so callers can inspect, compare, serialize, and feed them back into
+         * `navigate(...)` without learning a second custom path abstraction.
+         */
+        [[nodiscard]] nb::list python_path_list(const PythonPath &path)
+        {
+            nb::list out;
+            for (const nb::object &part : path) { out.append(part); }
+            return out;
+        }
+
+        /**
+         * Recursively visit every scalar leaf reachable from the supplied
+         * value-layer view.
+         *
+         * This utility exists for generic tooling and schema-agnostic
+         * algorithms. It centralizes structural recursion over nested values so
+         * callers do not need to hand-code traversal for bundles, lists, maps,
+         * and sets. Cyclic buffers and queues are treated as leaf values: they
+         * are stateful sequence objects rather than structural containers for
+         * traversal purposes.
+         */
+        void deep_visit_impl(View current, PythonPath &path, const nb::callable &callback)
+        {
+            const TypeMeta *schema = current.schema();
+            if (schema == nullptr || !current.has_value()) { return; }
+
+            switch (schema->kind) {
+                case TypeKind::Atomic:
+                    callback(current, python_path_list(path));
+                    return;
+                case TypeKind::Tuple: {
+                    TupleView tuple = current.as_tuple();
+                    for (size_t i = 0; i < tuple.size(); ++i) {
+                        path.push_back(nb::int_(i));
+                        deep_visit_impl(tuple.at(i), path, callback);
+                        path.pop_back();
+                    }
+                    return;
+                }
+                case TypeKind::Bundle: {
+                    BundleView bundle = current.as_bundle();
+                    for (size_t i = 0; i < bundle.size(); ++i) {
+                        path.push_back(nb::str(bundle.schema()->fields[i].name));
+                        deep_visit_impl(bundle.at(i), path, callback);
+                        path.pop_back();
+                    }
+                    return;
+                }
+                case TypeKind::List: {
+                    ListView list = current.as_list();
+                    for (size_t i = 0; i < list.size(); ++i) {
+                        path.push_back(nb::int_(i));
+                        deep_visit_impl(list.at(i), path, callback);
+                        path.pop_back();
+                    }
+                    return;
+                }
+                case TypeKind::Set: {
+                    for (View element : current.as_set().values()) {
+                        path.push_back(element.to_python());
+                        deep_visit_impl(element, path, callback);
+                        path.pop_back();
+                    }
+                    return;
+                }
+                case TypeKind::Map: {
+                    MapView map = current.as_map();
+                    nb::dict items = nb::cast<nb::dict>(map.to_python());
+                    for (auto item : items) {
+                        nb::object key_object = nb::borrow<nb::object>(item.first);
+                        Value key = materialize_python_value(*map.key_schema(), key_object);
+                        path.push_back(key_object);
+                        deep_visit_impl(map.at(key.view()), path, callback);
+                        path.pop_back();
+                    }
+                    return;
+                }
+                case TypeKind::CyclicBuffer:
+                case TypeKind::Queue:
+                    callback(current, python_path_list(path));
+                    return;
+            }
+        }
+
+        [[nodiscard]] size_t count_leaves_impl(View current)
+        {
+            const TypeMeta *schema = current.schema();
+            if (schema == nullptr || !current.has_value()) { return 0; }
+
+            switch (schema->kind) {
+                case TypeKind::Atomic:
+                    return 1;
+                case TypeKind::Tuple: {
+                    size_t count = 0;
+                    TupleView tuple = current.as_tuple();
+                    for (size_t i = 0; i < tuple.size(); ++i) { count += count_leaves_impl(tuple.at(i)); }
+                    return count;
+                }
+                case TypeKind::Bundle: {
+                    size_t count = 0;
+                    BundleView bundle = current.as_bundle();
+                    for (size_t i = 0; i < bundle.size(); ++i) { count += count_leaves_impl(bundle.at(i)); }
+                    return count;
+                }
+                case TypeKind::List: {
+                    size_t count = 0;
+                    ListView list = current.as_list();
+                    for (size_t i = 0; i < list.size(); ++i) { count += count_leaves_impl(list.at(i)); }
+                    return count;
+                }
+                case TypeKind::Set: {
+                    size_t count = 0;
+                    for (View element : current.as_set().values()) { count += count_leaves_impl(element); }
+                    return count;
+                }
+                case TypeKind::Map: {
+                    size_t count = 0;
+                    MapView map = current.as_map();
+                    nb::dict items = nb::cast<nb::dict>(map.to_python());
+                    for (auto item : items) {
+                        Value key = materialize_python_value(*map.key_schema(), nb::borrow<nb::object>(item.first));
+                        count += count_leaves_impl(map.at(key.view()));
+                    }
+                    return count;
+                }
+                case TypeKind::CyclicBuffer:
+                case TypeKind::Queue:
+                    return 1;
+            }
+        }
+
+        /**
+         * Collect the logical path to every scalar leaf in a nested value.
+         *
+         * This complements `deep_visit(...)` by providing a lightweight way to
+         * discover all reachable leaf paths without consuming the leaf values
+         * themselves.
+         */
+        void collect_leaf_paths_impl(View current, PythonPath &path, nb::list &result)
+        {
+            const TypeMeta *schema = current.schema();
+            if (schema == nullptr || !current.has_value()) { return; }
+
+            switch (schema->kind) {
+                case TypeKind::Atomic:
+                    result.append(python_path_list(path));
+                    return;
+                case TypeKind::Tuple: {
+                    TupleView tuple = current.as_tuple();
+                    for (size_t i = 0; i < tuple.size(); ++i) {
+                        path.push_back(nb::int_(i));
+                        collect_leaf_paths_impl(tuple.at(i), path, result);
+                        path.pop_back();
+                    }
+                    return;
+                }
+                case TypeKind::Bundle: {
+                    BundleView bundle = current.as_bundle();
+                    for (size_t i = 0; i < bundle.size(); ++i) {
+                        path.push_back(nb::str(bundle.schema()->fields[i].name));
+                        collect_leaf_paths_impl(bundle.at(i), path, result);
+                        path.pop_back();
+                    }
+                    return;
+                }
+                case TypeKind::List: {
+                    ListView list = current.as_list();
+                    for (size_t i = 0; i < list.size(); ++i) {
+                        path.push_back(nb::int_(i));
+                        collect_leaf_paths_impl(list.at(i), path, result);
+                        path.pop_back();
+                    }
+                    return;
+                }
+                case TypeKind::Set: {
+                    for (View element : current.as_set().values()) {
+                        path.push_back(element.to_python());
+                        collect_leaf_paths_impl(element, path, result);
+                        path.pop_back();
+                    }
+                    return;
+                }
+                case TypeKind::Map: {
+                    MapView map = current.as_map();
+                    nb::dict items = nb::cast<nb::dict>(map.to_python());
+                    for (auto item : items) {
+                        nb::object key_object = nb::borrow<nb::object>(item.first);
+                        Value key = materialize_python_value(*map.key_schema(), key_object);
+                        path.push_back(key_object);
+                        collect_leaf_paths_impl(map.at(key.view()), path, result);
+                        path.pop_back();
+                    }
+                    return;
+                }
+                case TypeKind::CyclicBuffer:
+                case TypeKind::Queue:
+                    result.append(python_path_list(path));
+                    return;
+            }
+        }
+
+        [[nodiscard]] nb::list collect_leaf_paths_impl(View current)
+        {
+            nb::list result;
+            PythonPath path;
+            collect_leaf_paths_impl(current, path, result);
+            return result;
+        }
+
         [[nodiscard]] std::vector<PathElement> parse_path_impl(const std::string &path)
         {
             std::vector<PathElement> out;
@@ -367,6 +582,24 @@ namespace hgraph
                   },
                   "view"_a,
                   "path"_a);
+            m.def("deep_visit",
+                  [](View view, const nb::callable &callback) {
+                      PythonPath path;
+                      deep_visit_impl(view, path, callback);
+                  },
+                  "view"_a,
+                  "callback"_a,
+                  "Recursively visit every scalar leaf in a nested value. "
+                  "The callback receives `(leaf_view, path)` where `path` is a "
+                  "Python list of field names, indices, or logical keys.");
+            m.def("count_leaves",
+                  [](View view) { return count_leaves_impl(view); },
+                  "view"_a,
+                  "Return the number of scalar leaves reachable from a nested value.");
+            m.def("collect_leaf_paths",
+                  [](View view) { return collect_leaf_paths_impl(view); },
+                  "view"_a,
+                  "Return the logical path to every scalar leaf in a nested value.");
         }
 
         void register_type_kind(nb::module_ &m)
