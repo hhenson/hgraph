@@ -112,6 +112,11 @@ namespace hgraph
 
     /**
      * Non-owning typed wrapper over a cyclic buffer value.
+     *
+     * A cyclic buffer has schema-fixed logical capacity, so its element payload
+     * is laid out inline inside the owning root value allocation. This keeps
+     * fixed-capacity buffer storage in one contiguous block rather than
+     * requiring a secondary heap buffer.
      */
     struct HGRAPH_EXPORT CyclicBufferView : BufferView
     {
@@ -131,6 +136,10 @@ namespace hgraph
 
     /**
      * Non-owning typed wrapper over a queue value.
+     *
+     * Queues remain dynamically sized even when they have a configured maximum
+     * capacity, so their element payload is managed through a separate growable
+     * buffer rather than the root value allocation.
      */
     struct HGRAPH_EXPORT QueueView : BufferView
     {

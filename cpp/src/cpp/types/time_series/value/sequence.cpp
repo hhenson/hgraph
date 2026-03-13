@@ -16,6 +16,14 @@ namespace hgraph
     namespace detail
     {
 
+        /**
+         * Header for cyclic-buffer storage.
+         *
+         * Cyclic buffers have schema-fixed capacity, so their element payload is
+         * placed directly after this header in the owning value allocation. The
+         * `elements` pointer therefore aliases memory inside the root value block
+         * rather than a separately allocated child buffer.
+         */
         struct CyclicBufferStateBase
         {
             std::byte *elements{nullptr};
@@ -155,6 +163,24 @@ namespace hgraph
             [[nodiscard]] size_t capacity() const noexcept override { return this->m_schema.get().fixed_size; }
             [[nodiscard]] const value::TypeMeta &element_schema() const noexcept override { return SequenceDispatchBase<TTracking>::element_schema(); }
             [[nodiscard]] const ViewDispatch &element_dispatch() const noexcept override { return SequenceDispatchBase<TTracking>::element_dispatch(); }
+
+            /**
+             * Return the total root-allocation size required for the cyclic
+             * buffer header plus all schema-fixed element slots.
+             */
+            [[nodiscard]] size_t allocation_size() const noexcept
+            {
+                return align_up(sizeof(BufferState), this->m_element_builder.get().alignment()) +
+                       storage_slots() * this->element_stride();
+            }
+
+            /**
+             * Return the alignment required by the header/element block.
+             */
+            [[nodiscard]] size_t allocation_alignment() const noexcept
+            {
+                return std::max(alignof(BufferState), this->m_element_builder.get().alignment());
+            }
 
             void begin_mutation(void *data) const override
             {
@@ -376,22 +402,30 @@ namespace hgraph
                 throw std::invalid_argument("Cyclic buffer move_from_cpp requires a matching schema");
             }
 
+            /**
+             * Construct the cyclic buffer in caller-supplied root storage.
+             *
+             * The element array is rebound to the inline payload region that
+             * follows the header, so no secondary allocation is required.
+             */
             void construct(void *memory) const
             {
                 std::construct_at(state(memory));
                 if (storage_slots() == 0) { return; }
-                state(memory)->elements = static_cast<std::byte *>(
-                    ::operator new(storage_slots() * this->element_stride(),
-                                   std::align_val_t{this->m_element_builder.get().alignment()}));
+                state(memory)->elements = elements_memory(memory);
                 this->construct_slots(state(memory)->elements, storage_slots());
             }
 
+            /**
+             * Destroy the inline payload in place without deallocating any child
+             * buffer, because cyclic-buffer elements live inside the root value
+             * allocation.
+             */
             void destroy(void *memory) const noexcept
             {
                 auto *buffer = state(memory);
                 if (buffer->elements != nullptr) {
                     this->destroy_slots(buffer->elements, storage_slots());
-                    ::operator delete(buffer->elements, std::align_val_t{this->m_element_builder.get().alignment()});
                 }
                 std::destroy_at(state(memory));
             }
@@ -402,22 +436,59 @@ namespace hgraph
                 assign(dst, src);
             }
 
+            /**
+             * Move-construct the cyclic buffer into a new root allocation.
+             *
+             * Because the element payload is inline rather than separately
+             * allocated, move-construction must rebind the destination element
+             * pointer and move each slot into the new inline region.
+             */
             void move_construct(void *dst, void *src) const
             {
-                std::construct_at(state(dst), std::move(*state(src)));
-                state(src)->elements = nullptr;
-                state(src)->size = 0;
-                state(src)->head = 0;
+                auto *dst_buffer = state(dst);
+                auto *src_buffer = state(src);
+                std::construct_at(dst_buffer);
+                dst_buffer->elements = elements_memory(dst);
+                dst_buffer->size = src_buffer->size;
+                dst_buffer->head = src_buffer->head;
                 if constexpr (tracks_deltas_v) {
-                    state(src)->has_removed = false;
-                    state(src)->mutation_depth = 0;
+                    dst_buffer->has_removed = src_buffer->has_removed;
+                    dst_buffer->mutation_depth = 0;
+                }
+
+                for (size_t i = 0; i < storage_slots(); ++i) {
+                    this->m_element_builder.get().move_construct(dst_buffer->elements + i * this->element_stride(),
+                                                                 src_buffer->elements + i * this->element_stride(),
+                                                                 this->m_element_builder);
+                }
+
+                src_buffer->size = 0;
+                src_buffer->head = 0;
+                if constexpr (tracks_deltas_v) {
+                    src_buffer->has_removed = false;
+                    src_buffer->mutation_depth = 0;
                 }
             }
 
           private:
+            [[nodiscard]] static size_t align_up(size_t value, size_t alignment) noexcept
+            {
+                return alignment <= 1 ? value : ((value + alignment - 1) / alignment) * alignment;
+            }
+
             [[nodiscard]] size_t storage_slots() const noexcept
             {
                 return tracks_deltas_v ? capacity() + 1 : capacity();
+            }
+
+            /**
+             * Return the start of the inline element region inside the root
+             * value allocation.
+             */
+            [[nodiscard]] std::byte *elements_memory(void *memory) const noexcept
+            {
+                return static_cast<std::byte *>(memory) +
+                       align_up(sizeof(BufferState), this->m_element_builder.get().alignment());
             }
 
             [[nodiscard]] size_t removed_slot_index() const noexcept
@@ -827,11 +898,7 @@ namespace hgraph
                 static_cast<void>(schema);
                 if constexpr (std::same_as<TDispatch, CyclicBufferDispatch<MutationTracking::Delta>> ||
                               std::same_as<TDispatch, CyclicBufferDispatch<MutationTracking::Plain>>) {
-                    if constexpr (TDispatch::tracking_mode == MutationTracking::Delta) {
-                        builder.cache_layout(sizeof(DeltaCyclicBufferState), alignof(DeltaCyclicBufferState));
-                    } else {
-                        builder.cache_layout(sizeof(PlainCyclicBufferState), alignof(PlainCyclicBufferState));
-                    }
+                    builder.cache_layout(m_dispatch.get().allocation_size(), m_dispatch.get().allocation_alignment());
                 } else {
                     if constexpr (TDispatch::tracking_mode == MutationTracking::Delta) {
                         builder.cache_layout(sizeof(DeltaQueueState), alignof(DeltaQueueState));
