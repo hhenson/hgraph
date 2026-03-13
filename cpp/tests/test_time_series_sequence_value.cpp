@@ -60,6 +60,33 @@ TEST_CASE("Bounded queue values evict from the front when full")
     CHECK(queue.removed().as_atomic().as<int32_t>() == 20);
 }
 
+TEST_CASE("Queue mutation views support exact reserve", "[time_series][value][sequence]")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+    const auto *schema = registry.queue(hgraph::value::scalar_type_meta<int32_t>()).build();
+
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
+    auto queue = value.queue_view();
+
+    queue.begin_mutation().reserving(12).pushing(int32_t{10}).pushing(int32_t{20}).pushing(int32_t{30});
+
+    REQUIRE(queue.size() == 3);
+    CHECK(queue.front().as_atomic().as<int32_t>() == 10);
+    CHECK(queue.back().as_atomic().as<int32_t>() == 30);
+}
+
+TEST_CASE("Bounded queues reject impossible reserve requests", "[time_series][value][sequence]")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+    const auto *schema = registry.queue(hgraph::value::scalar_type_meta<int32_t>()).max_capacity(2).build();
+
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
+    auto queue = value.queue_view();
+
+    CHECK_NOTHROW(queue.begin_mutation().reserve(2));
+    CHECK_THROWS(queue.begin_mutation().reserve(3));
+}
+
 TEST_CASE("Buffer mutation views retain only the last removed payload in a scope")
 {
     auto &registry = hgraph::value::TypeRegistry::instance();

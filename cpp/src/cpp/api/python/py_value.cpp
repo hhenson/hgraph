@@ -1116,6 +1116,12 @@ namespace hgraph
                          mutation.resize(new_size);
                      },
                      "new_size"_a)
+                .def("reserve",
+                     [](ListView &self, size_t capacity) {
+                         auto mutation = self.begin_mutation();
+                         mutation.reserve(capacity);
+                     },
+                     "capacity"_a)
                 .def("clear", [](ListView &self) {
                     auto mutation = self.begin_mutation();
                     mutation.clear();
@@ -1191,6 +1197,12 @@ namespace hgraph
                          return mutation.remove(wrapped.view());
                      },
                      "value"_a)
+                .def("reserve",
+                     [](SetView &self, size_t capacity) {
+                         auto mutation = self.begin_mutation();
+                         mutation.reserve(capacity);
+                     },
+                     "capacity"_a)
                 .def("clear", [](SetView &self) {
                     auto mutation = self.begin_mutation();
                     mutation.clear();
@@ -1291,6 +1303,12 @@ namespace hgraph
                          return mutation.remove(wrapped_key.view());
                      },
                      "key"_a)
+                .def("reserve",
+                     [](MapView &self, size_t capacity) {
+                         auto mutation = self.begin_mutation();
+                         mutation.reserve(capacity);
+                     },
+                     "capacity"_a)
                 .def("clear", [](MapView &self) {
                     auto mutation = self.begin_mutation();
                     mutation.clear();
@@ -1399,6 +1417,12 @@ namespace hgraph
                     auto mutation = self.begin_mutation();
                     mutation.pop();
                 })
+                .def("reserve",
+                     [](QueueView &self, size_t capacity) {
+                         auto mutation = self.begin_mutation();
+                         mutation.reserve(capacity);
+                     },
+                     "capacity"_a)
                 .def("clear", [](QueueView &self) {
                     auto mutation = self.begin_mutation();
                     mutation.clear();

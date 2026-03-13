@@ -61,6 +61,15 @@ namespace hgraph
             [[nodiscard]] virtual void *slot_data(void *data, size_t slot) const = 0;
             [[nodiscard]] virtual const void *slot_data(const void *data, size_t slot) const = 0;
             [[nodiscard]] virtual bool contains(const void *data, const void *element) const = 0;
+            /**
+             * Ensure the set can hold at least `capacity` live elements
+             * without shrinking or allocating beyond the requested capacity.
+             *
+             * This explicit reserve path is intended for callers that know
+             * expected set cardinality in advance and want to avoid the
+             * amortized growth policy used by ordinary insertion.
+             */
+            virtual void reserve(void *data, size_t capacity) const = 0;
             [[nodiscard]] virtual bool add(void *data, const void *element) const = 0;
             [[nodiscard]] virtual bool remove(void *data, const void *element) const = 0;
             virtual void clear(void *data) const = 0;
@@ -109,6 +118,11 @@ namespace hgraph
             [[nodiscard]] virtual const void *key_data(const void *data, size_t index) const = 0;
             [[nodiscard]] virtual void *value_data(void *data, size_t index) const = 0;
             [[nodiscard]] virtual const void *value_data(const void *data, size_t index) const = 0;
+            /**
+             * Ensure the map can hold at least `capacity` live key/value pairs
+             * without shrinking or allocating beyond the requested capacity.
+             */
+            virtual void reserve(void *data, size_t capacity) const = 0;
             virtual bool set_item(void *data, const void *key, const void *value) const = 0;
             virtual bool remove(void *data, const void *key) const = 0;
             virtual void clear(void *data) const = 0;
@@ -229,6 +243,21 @@ namespace hgraph
          * Close the owned mutation scope, if any.
          */
         ~SetMutationView();
+
+        /**
+         * Ensure the set can hold at least `capacity` live elements without
+         * shrinking or over-allocating beyond the requested capacity.
+         */
+        void reserve(size_t capacity);
+
+        /**
+         * Reserve capacity and return this mutation scope for fluent chains.
+         */
+        SetMutationView &reserving(size_t capacity)
+        {
+            reserve(capacity);
+            return *this;
+        }
 
         /**
          * Insert a new live element into the set.
@@ -434,6 +463,21 @@ namespace hgraph
          * Close the owned mutation scope, if any.
          */
         ~MapMutationView();
+
+        /**
+         * Ensure the map can hold at least `capacity` live key/value pairs
+         * without shrinking or over-allocating beyond the requested capacity.
+         */
+        void reserve(size_t capacity);
+
+        /**
+         * Reserve capacity and return this mutation scope for fluent chains.
+         */
+        MapMutationView &reserving(size_t capacity)
+        {
+            reserve(capacity);
+            return *this;
+        }
 
         /**
          * Insert or replace the value for a key.

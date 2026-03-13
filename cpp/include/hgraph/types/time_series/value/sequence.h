@@ -56,6 +56,14 @@ namespace hgraph
         struct QueueViewDispatch : BufferViewDispatch
         {
             [[nodiscard]] virtual size_t max_capacity() const noexcept = 0;
+            /**
+             * Ensure the queue can hold at least `capacity` live elements
+             * without shrinking or allocating beyond the requested capacity.
+             *
+             * Bounded queues must reject impossible requests that exceed the
+             * configured maximum capacity.
+             */
+            virtual void reserve(void *data, size_t capacity) const = 0;
         };
 
         [[nodiscard]] HGRAPH_EXPORT const ValueBuilder *sequence_builder_for(
@@ -384,6 +392,24 @@ namespace hgraph
         QueueMutationView(QueueMutationView &&other) noexcept;
         QueueMutationView &operator=(QueueMutationView &&other) = delete;
         ~QueueMutationView();
+
+        /**
+         * Ensure the queue can hold at least `capacity` live elements without
+         * shrinking or over-allocating beyond the requested capacity.
+         *
+         * Bounded queues reject reserve requests that exceed their configured
+         * maximum capacity because those requests cannot be satisfied.
+         */
+        void reserve(size_t capacity);
+
+        /**
+         * Reserve capacity and return this mutation view for fluent chains.
+         */
+        QueueMutationView &reserving(size_t capacity)
+        {
+            reserve(capacity);
+            return *this;
+        }
 
         /**
          * Push a value onto the logical end of the queue.

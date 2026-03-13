@@ -65,6 +65,17 @@ namespace hgraph
             [[nodiscard]] virtual bool slot_updated(const void *data, size_t index) const noexcept = 0;
             [[nodiscard]] virtual bool slot_added(const void *data, size_t index) const noexcept = 0;
             virtual void set_element_valid(void *data, size_t index, bool valid) const = 0;
+            /**
+             * Ensure the list can hold at least `capacity` elements without
+             * shrinking or allocating beyond the requested capacity.
+             *
+             * This explicit reserve path is separate from the internal growth
+             * policy used by append-heavy operations. Callers that care about
+             * memory shape can reserve an exact capacity up front, while
+             * ordinary push/resize paths are still free to use amortized
+             * growth internally.
+             */
+            virtual void reserve(void *data, size_t capacity) const = 0;
             virtual void resize(void *data, size_t new_size) const = 0;
             virtual void clear(void *data) const = 0;
         };
@@ -216,6 +227,25 @@ namespace hgraph
         ListMutationView &setting(size_t index, T &&value)
         {
             set(index, std::forward<T>(value));
+            return *this;
+        }
+
+        /**
+         * Ensure the list can hold at least `capacity` elements without
+         * shrinking or over-allocating beyond the requested capacity.
+         *
+         * This is only meaningful for dynamic lists. Fixed-size lists already
+         * have schema-fixed extent and therefore reject explicit reserve
+         * requests larger than their extent.
+         */
+        void reserve(size_t capacity);
+
+        /**
+         * Reserve capacity and return this mutation view for fluent chains.
+         */
+        ListMutationView &reserving(size_t capacity)
+        {
+            reserve(capacity);
             return *this;
         }
 

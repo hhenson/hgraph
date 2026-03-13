@@ -280,11 +280,11 @@ namespace hgraph
                 return find_live_slot(state, key) != npos;
             }
 
-            void reserve(PlainSetState &state, size_t min_capacity) const
+            void reserve_exact(PlainSetState &state, size_t min_capacity) const
             {
                 if (min_capacity <= state.capacity) { return; }
 
-                const size_t new_capacity = std::max<size_t>(min_capacity, std::max<size_t>(8, state.capacity * 2));
+                const size_t new_capacity = min_capacity;
                 std::byte *new_elements = static_cast<std::byte *>(
                     ::operator new(new_capacity * stride(), std::align_val_t{builder().alignment()}));
 
@@ -314,11 +314,11 @@ namespace hgraph
                 state.elements_inline = false;
             }
 
-            void reserve(DeltaSetState &state, size_t min_capacity) const
+            void reserve_exact(DeltaSetState &state, size_t min_capacity) const
             {
                 if (min_capacity <= state.capacity) { return; }
 
-                const size_t new_capacity = std::max<size_t>(min_capacity, std::max<size_t>(8, state.capacity * 2));
+                const size_t new_capacity = min_capacity;
                 std::byte *new_elements = static_cast<std::byte *>(
                     ::operator new(new_capacity * stride(), std::align_val_t{builder().alignment()}));
 
@@ -375,7 +375,9 @@ namespace hgraph
                     return {.slot = existing, .inserted = false};
                 }
 
-                if (state.size == state.capacity) { reserve(state, state.size + 1); }
+                if (state.size == state.capacity) {
+                    reserve_exact(state, std::max<size_t>(state.size + 1, std::max<size_t>(8, state.capacity * 2)));
+                }
                 const size_t slot = state.size;
                 void *dst = slot_data(state, slot);
                 builder().construct(dst);
@@ -395,7 +397,9 @@ namespace hgraph
                     return {.slot = existing, .inserted = true};
                 }
 
-                if (state.free_list.empty()) { reserve(state, state.size + 1); }
+                if (state.free_list.empty()) {
+                    reserve_exact(state, std::max<size_t>(state.size + 1, std::max<size_t>(8, state.capacity * 2)));
+                }
                 const size_t slot = state.free_list.back();
                 state.free_list.pop_back();
 
@@ -686,6 +690,11 @@ namespace hgraph
             [[nodiscard]] bool contains(const void *data, const void *element) const override
             {
                 return m_keys.contains(*state(data), element);
+            }
+
+            void reserve(void *data, size_t capacity) const override
+            {
+                m_keys.reserve_exact(*state(data), capacity);
             }
 
             [[nodiscard]] bool add(void *data, const void *element) const override
@@ -1155,7 +1164,17 @@ namespace hgraph
                     }
                 }
 
-                reserve(*state(data), key_state.size + 1);
+                if constexpr (tracks_deltas_v) {
+                    if (key_state.free_list.empty()) {
+                        reserve_exact(*state(data),
+                                      std::max<size_t>(key_state.size + 1, std::max<size_t>(8, key_state.capacity * 2)));
+                    }
+                } else {
+                    if (key_state.size == key_state.capacity) {
+                        reserve_exact(*state(data),
+                                      std::max<size_t>(key_state.size + 1, std::max<size_t>(8, key_state.capacity * 2)));
+                    }
+                }
                 const auto insertion = m_keys.insert(state(data)->keys, key);
                 const size_t slot = insertion.slot;
                 // Key insertion marks the slot occupied before the value
@@ -1200,6 +1219,11 @@ namespace hgraph
                         remove_dense_slot(*state(data), map_keys.size - 1);
                     }
                 }
+            }
+
+            void reserve(void *data, size_t capacity) const override
+            {
+                reserve_exact(*state(data), capacity);
             }
 
             [[nodiscard]] size_t hash(const void *data) const override
@@ -1471,11 +1495,11 @@ namespace hgraph
                 return ((size + alignment - 1) / alignment) * alignment;
             }
 
-            void reserve(PlainMapState &map, size_t min_capacity) const
+            void reserve_exact(PlainMapState &map, size_t min_capacity) const
             {
                 if (min_capacity <= map.keys.capacity) { return; }
 
-                const size_t new_capacity = std::max<size_t>(min_capacity, std::max<size_t>(8, map.keys.capacity * 2));
+                const size_t new_capacity = min_capacity;
                 std::byte *new_values = static_cast<std::byte *>(
                     ::operator new(new_capacity * m_value_stride, std::align_val_t{m_value_builder.get().alignment()}));
 
@@ -1494,7 +1518,7 @@ namespace hgraph
                 }
 
                 try {
-                    m_keys.reserve(map.keys, new_capacity);
+                    m_keys.reserve_exact(map.keys, new_capacity);
                 } catch (...) {
                     for (size_t slot = 0; slot < moved; ++slot) {
                         destroy_value(new_values + slot * m_value_stride);
@@ -1513,11 +1537,11 @@ namespace hgraph
                 map.values_inline = false;
             }
 
-            void reserve(DeltaMapState &map, size_t min_capacity) const
+            void reserve_exact(DeltaMapState &map, size_t min_capacity) const
             {
                 if (min_capacity <= map.keys.capacity) { return; }
 
-                const size_t new_capacity = std::max<size_t>(min_capacity, std::max<size_t>(8, map.keys.capacity * 2));
+                const size_t new_capacity = min_capacity;
                 std::byte *new_values = static_cast<std::byte *>(
                     ::operator new(new_capacity * m_value_stride, std::align_val_t{m_value_builder.get().alignment()}));
 
@@ -1540,7 +1564,7 @@ namespace hgraph
                 }
 
                 try {
-                    m_keys.reserve(map.keys, new_capacity);
+                    m_keys.reserve_exact(map.keys, new_capacity);
                 } catch (...) {
                     for (const size_t slot : moved_slots) {
                         destroy_value(new_values + slot * m_value_stride);
@@ -1972,6 +1996,13 @@ namespace hgraph
         return dispatch->add(data(), data_of(value));
     }
 
+    void SetMutationView::reserve(size_t capacity)
+    {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetMutationView::reserve on invalid view"); }
+        dispatch->reserve(data(), capacity);
+    }
+
     SetMutationView &SetMutationView::adding(const View &value)
     {
         static_cast<void>(add(value));
@@ -2302,6 +2333,13 @@ namespace hgraph
             throw std::runtime_error("MapMutationView::set requires a matching value schema");
         }
         dispatch->set_item(data(), data_of(key), data_of(value));
+    }
+
+    void MapMutationView::reserve(size_t capacity)
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapMutationView::reserve on invalid view"); }
+        dispatch->reserve(data(), capacity);
     }
 
     MapMutationView &MapMutationView::setting(const View &key, const View &value)

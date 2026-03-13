@@ -654,12 +654,12 @@ namespace hgraph
             {
                 auto *queue = state(data);
                 if (queue->capacity == 0) {
-                    reserve(data, max_capacity() > 0 ? max_capacity() : 4);
+                    reserve_exact(data, max_capacity() > 0 ? max_capacity() : 4);
                 } else if (max_capacity() > 0 && queue->size == max_capacity()) {
                     pop(data);
                 } else if (queue->size == queue->capacity) {
                     const size_t grown = max_capacity() > 0 ? max_capacity() : queue->capacity * 2;
-                    reserve(data, std::max<size_t>(grown, queue->capacity + 1));
+                    reserve_exact(data, std::max<size_t>(grown, queue->capacity + 1));
                 }
 
                 const size_t tail = (queue->head + queue->size) % queue->capacity;
@@ -756,7 +756,7 @@ namespace hgraph
                 const size_t import_limit = max_capacity();
                 const size_t target_size = import_limit == 0 ? sequence_size : std::min(import_limit, sequence_size);
                 if (target_size > 0) {
-                    reserve(dst, max_capacity() > 0 ? std::min(max_capacity(), target_size) : target_size);
+                    reserve_exact(dst, max_capacity() > 0 ? std::min(max_capacity(), target_size) : target_size);
                 }
 
                 nb::iterator it = nb::iter(src);
@@ -796,6 +796,14 @@ namespace hgraph
                     return;
                 }
                 throw std::invalid_argument("Queue value move_from_cpp requires a matching schema");
+            }
+
+            void reserve(void *data, size_t capacity) const override
+            {
+                if (max_capacity() > 0 && capacity > max_capacity()) {
+                    throw std::invalid_argument("Queue reserve exceeds the configured maximum capacity");
+                }
+                reserve_exact(data, capacity);
             }
 
             void construct(void *memory) const
@@ -858,7 +866,7 @@ namespace hgraph
                 return queue.capacity == 0 ? 0 : (queue.head + logical_index) % queue.capacity;
             }
 
-            void reserve(void *data, size_t min_capacity) const
+            void reserve_exact(void *data, size_t min_capacity) const
             {
                 QueueStateBase *queue = state(data);
                 if (min_capacity <= queue->capacity) { return; }
@@ -1376,6 +1384,13 @@ namespace hgraph
         const auto *dispatch = buffer_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("QueueMutationView::clear on invalid view"); }
         dispatch->clear(data());
+    }
+
+    void QueueMutationView::reserve(size_t capacity)
+    {
+        const auto *dispatch = queue_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("QueueMutationView::reserve on invalid view"); }
+        dispatch->reserve(data(), capacity);
     }
 
     const detail::QueueViewDispatch *QueueView::queue_dispatch() const noexcept

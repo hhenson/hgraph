@@ -350,6 +350,14 @@ namespace hgraph
                 }
             }
 
+            void reserve(void *data, size_t capacity) const override
+            {
+                static_cast<void>(data);
+                if (capacity > m_fixed_size) {
+                    throw std::invalid_argument("Fixed-size lists cannot reserve beyond their schema-fixed extent");
+                }
+            }
+
             void resize(void *data, size_t new_size) const override
             {
                 static_cast<void>(data);
@@ -638,14 +646,11 @@ namespace hgraph
             {
                 if (new_size > capacity(data)) {
                     const size_t current_capacity = capacity(data);
-                    // Dynamic lists are append-heavy in buffer-style use. Grow
-                    // geometrically so repeated push_back() does not reallocate
-                    // and move the full prefix on every append.
                     size_t target_capacity = current_capacity == 0 ? size_t{4} : current_capacity;
                     while (target_capacity < new_size) {
                         target_capacity *= 2;
                     }
-                    reserve(data, target_capacity);
+                    reserve_exact(data, target_capacity);
                 }
                 const size_t current_size = size(data);
                 if (new_size > current_size) {
@@ -706,7 +711,7 @@ namespace hgraph
             void copy_construct(void *dst, const void *src) const
             {
                 construct(dst);
-                reserve(dst, size(src));
+                reserve_exact(dst, size(src));
                 this->copy_elements(data_memory(dst), data_memory(src), size(src));
                 std::memcpy(validity_memory(dst), validity_memory(src), value::validity_mask_bytes(size(src)));
                 if constexpr (tracks_deltas_v) {
@@ -780,7 +785,12 @@ namespace hgraph
                 state(data)->size = new_size;
             }
 
-            void reserve(void *data, size_t new_capacity) const
+            void reserve(void *data, size_t capacity) const override
+            {
+                reserve_exact(data, capacity);
+            }
+
+            void reserve_exact(void *data, size_t new_capacity) const
             {
                 const size_t current_capacity = capacity(data);
                 if (new_capacity <= current_capacity) { return; }
@@ -1332,6 +1342,13 @@ namespace hgraph
 
         dispatch->element_dispatch().assign(dispatch->element_data(data(), index), data_of(value));
         dispatch->set_element_valid(data(), index, true);
+    }
+
+    void ListMutationView::reserve(size_t capacity)
+    {
+        const auto *dispatch = list_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("ListMutationView::reserve on invalid view"); }
+        dispatch->reserve(data(), capacity);
     }
 
     void ListMutationView::resize(size_t new_size)

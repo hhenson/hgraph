@@ -33,6 +33,23 @@ TEST_CASE("Set values support add contains and remove")
     CHECK(set.size() == 1);
 }
 
+TEST_CASE("Set mutation views support exact reserve", "[time_series][value][associative]")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+    const auto *schema = registry.set(hgraph::value::scalar_type_meta<int32_t>()).build();
+
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
+    auto set = value.set_view();
+
+    auto mutation = set.begin_mutation();
+    mutation.reserving(32).adding(int32_t{1}).adding(int32_t{2}).adding(int32_t{3});
+
+    CHECK(set.size() == 3);
+    CHECK(set.contains(hgraph::value_for(int32_t{1}).view()));
+    CHECK(set.contains(hgraph::value_for(int32_t{2}).view()));
+    CHECK(set.contains(hgraph::value_for(int32_t{3}).view()));
+}
+
 TEST_CASE("Set values retain removed payloads by slot until reuse")
 {
     auto &registry = hgraph::value::TypeRegistry::instance();
@@ -96,6 +113,23 @@ TEST_CASE("Map values support lookup and require live values")
         auto mutation = map.begin_mutation();
         mutation.set(key.view(), hgraph::View::invalid_for(hgraph::value::scalar_type_meta<int32_t>()));
     }());
+}
+
+TEST_CASE("Map mutation views support exact reserve", "[time_series][value][associative]")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+    const auto *schema =
+        registry.map(hgraph::value::scalar_type_meta<int32_t>(), hgraph::value::scalar_type_meta<int32_t>()).build();
+
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
+    auto map = value.map_view();
+
+    auto mutation = map.begin_mutation();
+    mutation.reserving(24).setting(int32_t{1}, int32_t{10}).setting(int32_t{2}, int32_t{20});
+
+    CHECK(map.size() == 2);
+    CHECK(map.at(hgraph::value_for(int32_t{1}).view()).as_atomic().as<int32_t>() == 10);
+    CHECK(map.at(hgraph::value_for(int32_t{2}).view()).as_atomic().as<int32_t>() == 20);
 }
 
 TEST_CASE("Map values retain removed key and value payloads by slot until reuse")

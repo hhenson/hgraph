@@ -65,6 +65,31 @@ TEST_CASE("Dynamic lists support resize and push_back", "[time_series][value][li
     CHECK(list.empty());
 }
 
+TEST_CASE("Dynamic lists support exact reserve without changing logical size", "[time_series][value][list]")
+{
+    const value::TypeMeta *schema = value::TypeRegistry::instance().list(value::scalar_type_meta<int32_t>()).build();
+
+    Value value{*schema, hgraph::MutationTracking::Delta};
+    auto  list = value.list_view();
+
+    list.begin_mutation().reserving(16).pushing_back(int32_t{4}).pushing_back(int32_t{7});
+
+    REQUIRE(list.size() == 2);
+    CHECK(list.front().as_atomic().as<int32_t>() == 4);
+    CHECK(list.back().as_atomic().as<int32_t>() == 7);
+}
+
+TEST_CASE("Fixed lists reject reserve requests beyond their schema extent", "[time_series][value][list]")
+{
+    const value::TypeMeta *schema = value::TypeRegistry::instance().fixed_list(value::scalar_type_meta<int32_t>(), 3).build();
+
+    Value value{*schema, hgraph::MutationTracking::Delta};
+    auto  list = value.list_view();
+
+    CHECK_NOTHROW(list.begin_mutation().reserve(3));
+    CHECK_THROWS(list.begin_mutation().reserve(4));
+}
+
 TEST_CASE("Lists preserve invalid element slots", "[time_series][value][list]")
 {
     const value::TypeMeta *schema = value::TypeRegistry::instance().fixed_list(value::scalar_type_meta<int32_t>(), 3).build();
