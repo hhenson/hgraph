@@ -7,7 +7,6 @@
  */
 
 #include <hgraph/types/value/type_meta_bindings.h>
-#include <hgraph/types/value/compat_ops.h>
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/types/value/value.h>
@@ -25,108 +24,6 @@
 namespace hgraph::value {
 
 using namespace nanobind::literals;
-
-// ============================================================================
-// nb::object Scalar Type Operations
-// ============================================================================
-
-/**
- * @brief ScalarOps specialization for nb::object.
- *
- * This provides type-erased storage for arbitrary Python objects.
- * All operations delegate to the Python runtime.
- */
-template<>
-struct ScalarOps<nb::object> {
-    static void construct(void* dst, const TypeMeta*) {
-        new (dst) nb::object{};
-    }
-
-    static void destroy(void* obj, const TypeMeta*) {
-        static_cast<nb::object*>(obj)->~object();
-    }
-
-    static void copy(void* dst, const void* src, const TypeMeta*) {
-        *static_cast<nb::object*>(dst) = *static_cast<const nb::object*>(src);
-    }
-
-    static void move(void* dst, void* src, const TypeMeta*) {
-        *static_cast<nb::object*>(dst) = std::move(*static_cast<nb::object*>(src));
-    }
-
-    static void move_construct(void* dst, void* src, const TypeMeta*) {
-        new (dst) nb::object(std::move(*static_cast<nb::object*>(src)));
-    }
-
-    static bool equals(const void* a, const void* b, const TypeMeta*) {
-        const auto& obj_a = *static_cast<const nb::object*>(a);
-        const auto& obj_b = *static_cast<const nb::object*>(b);
-        if (!obj_a.is_valid() && !obj_b.is_valid()) return true;
-        if (!obj_a.is_valid() || !obj_b.is_valid()) return false;
-        try {
-            return obj_a.equal(obj_b);
-        } catch (...) {
-            return false;
-        }
-    }
-
-    static size_t hash(const void* obj, const TypeMeta*) {
-        const auto& py_obj = *static_cast<const nb::object*>(obj);
-        if (!py_obj.is_valid()) return 0;
-        try {
-            return nb::hash(py_obj);
-        } catch (...) {
-            return 0;
-        }
-    }
-
-    static bool less_than(const void* a, const void* b, const TypeMeta*) {
-        const auto& obj_a = *static_cast<const nb::object*>(a);
-        const auto& obj_b = *static_cast<const nb::object*>(b);
-        if (!obj_a.is_valid() || !obj_b.is_valid()) return false;
-        try {
-            return obj_a < obj_b;
-        } catch (...) {
-            return false;
-        }
-    }
-
-    static std::string to_string(const void* obj, const TypeMeta*) {
-        const auto& py_obj = *static_cast<const nb::object*>(obj);
-        if (!py_obj.is_valid()) return "None";
-        try {
-            return nb::str(py_obj).c_str();
-        } catch (...) {
-            return "<object>";
-        }
-    }
-
-    static nb::object to_python(const void* obj, const TypeMeta*) {
-        const auto& py_obj = *static_cast<const nb::object*>(obj);
-        return py_obj.is_valid() ? nb::object(py_obj) : nb::none();
-    }
-
-    static void from_python(void* dst, const nb::object& src, const TypeMeta*) {
-        *static_cast<nb::object*>(dst) = src;
-    }
-
-    static type_ops make_ops() {
-        type_ops ops{};
-        ops.construct = &construct;
-        ops.destroy = &destroy;
-        ops.copy = &copy;
-        ops.move = &move;
-        ops.move_construct = &move_construct;
-        ops.equals = &equals;
-        ops.hash = &hash;
-        ops.to_string = &to_string;
-        ops.to_python = &to_python;
-        ops.from_python = &from_python;
-        ops.kind = TypeKind::Atomic;
-        ops.specific.atomic = {&less_than};
-        return ops;
-    }
-};
 
 // Specialization for nb::object flags - not trivially anything since it holds Python refs
 template<>
@@ -184,15 +81,9 @@ std::unordered_map<const TypeMeta*, nb::object> g_compound_scalar_registry;
 } // anonymous namespace
 
 // ============================================================================
-// CompoundScalar Operations (Bundle with Python class reconstruction)
+// CompoundScalar Python class registry
 // ============================================================================
 
-/**
- * @brief Get the Python class associated with a TypeMeta (for CompoundScalar).
- *
- * @param meta The TypeMeta to look up
- * @return The Python class, or an invalid nb::object if not found
- */
 nb::object get_compound_scalar_class(const TypeMeta* meta) {
     auto it = g_compound_scalar_registry.find(meta);
     if (it != g_compound_scalar_registry.end()) {
@@ -210,120 +101,6 @@ nb::object get_compound_scalar_class(const TypeMeta* meta) {
 void register_compound_scalar_class(const TypeMeta* meta, nb::object py_class) {
     g_compound_scalar_registry[meta] = std::move(py_class);
 }
-
-/**
- * @brief Operations for CompoundScalar types (Bundle with Python class reconstruction).
- *
- * This is like BundleOps but to_python() reconstructs the original Python
- * CompoundScalar class instead of returning a dict. This preserves hashability
- * when CompoundScalar is used as keys in TSD/TSS/mesh operations.
- */
-struct CompoundScalarOps {
-    // Most operations delegate to BundleOps
-    static void construct(void* dst, const TypeMeta* schema) {
-        BundleOps::construct(dst, schema);
-    }
-
-    static void destroy(void* obj, const TypeMeta* schema) {
-        BundleOps::destroy(obj, schema);
-    }
-
-    static void copy(void* dst, const void* src, const TypeMeta* schema) {
-        BundleOps::copy(dst, src, schema);
-    }
-
-    static void move(void* dst, void* src, const TypeMeta* schema) {
-        BundleOps::move(dst, src, schema);
-    }
-
-    static void move_construct(void* dst, void* src, const TypeMeta* schema) {
-        BundleOps::move_construct(dst, src, schema);
-    }
-
-    static bool equals(const void* a, const void* b, const TypeMeta* schema) {
-        return BundleOps::equals(a, b, schema);
-    }
-
-    static std::string to_string(const void* obj, const TypeMeta* schema) {
-        return BundleOps::to_string(obj, schema);
-    }
-
-    // ========== Python Interop - Reconstruct CompoundScalar ==========
-
-    static nb::object to_python(const void* obj, const TypeMeta* schema) {
-        // Check if we have a registered Python class for this type
-        nb::object py_class = get_compound_scalar_class(schema);
-        if (py_class.is_valid()) {
-            // Build kwargs dict from field values
-            nb::dict kwargs;
-            auto bundle = static_cast<const ::hgraph::Value*>(obj)->bundle_view();
-            for (size_t i = 0; i < schema->field_count; ++i) {
-                const BundleFieldInfo& field = schema->fields[i];
-                if (field.name != nullptr) {
-                    kwargs[field.name] = bundle.at(i).to_python();
-                }
-            }
-            // Construct the Python class with **kwargs
-            return py_class(**kwargs);
-        }
-        // Fallback to dict if no class registered
-        return BundleOps::to_python(obj, schema);
-    }
-
-    static void from_python(void* dst, const nb::object& src, const TypeMeta* schema) {
-        BundleOps::from_python(dst, src, schema);
-    }
-
-    // ========== Hashable Operations ==========
-
-    static size_t hash(const void* obj, const TypeMeta* schema) {
-        return BundleOps::hash(obj, schema);
-    }
-
-    // ========== Iterable Operations ==========
-
-    static size_t size(const void* obj, const TypeMeta* schema) {
-        return BundleOps::size(obj, schema);
-    }
-
-    // ========== Indexable Operations ==========
-
-    static const void* at(const void* obj, size_t index, const TypeMeta* schema) {
-        return BundleOps::at(obj, index, schema);
-    }
-
-    static void set_at(void* obj, size_t index, const void* value, const TypeMeta* schema) {
-        BundleOps::set_at(obj, index, value, schema);
-    }
-
-    // ========== Bundle-specific Operations ==========
-
-    static const void* get_field(const void* obj, const char* name, const TypeMeta* schema) {
-        return BundleOps::get_field(obj, name, schema);
-    }
-
-    static void set_field(void* obj, const char* name, const void* value, const TypeMeta* schema) {
-        BundleOps::set_field(obj, name, value, schema);
-    }
-
-    /// Build the type_ops for CompoundScalar
-    static type_ops make_ops() {
-        type_ops ops{};
-        ops.construct = &construct;
-        ops.destroy = &destroy;
-        ops.copy = &copy;
-        ops.move = &move;
-        ops.move_construct = &move_construct;
-        ops.equals = &equals;
-        ops.hash = &hash;
-        ops.to_string = &to_string;
-        ops.to_python = &to_python;
-        ops.from_python = &from_python;
-        ops.kind = TypeKind::Bundle;
-        ops.specific.bundle = {&size, &at, &set_at, &get_field, &set_field};
-        return ops;
-    }
-};
 
 // ============================================================================
 // Scalar Type Mapping
@@ -551,9 +328,9 @@ static const TypeMeta* get_bundle_type_meta(
 /**
  * @brief Get the TypeMeta for a CompoundScalar type.
  *
- * This creates a Bundle-like TypeMeta but uses CompoundScalarOps which
- * reconstructs the original Python class in to_python() instead of returning a dict.
- * This preserves hashability when CompoundScalar is used as keys in TSD/TSS/mesh.
+ * This registers the Python class against a bundle-compatible schema so the
+ * runtime bundle view can reconstruct the original Python CompoundScalar in
+ * `to_python()` rather than degrading to a dict.
  *
  * @param fields Vector of (field_name, field_meta) pairs
  * @param py_class The Python CompoundScalar class to reconstruct
@@ -581,67 +358,10 @@ static const TypeMeta* get_compound_scalar_type_meta(
         return it->second;
     }
 
-    // Build new type manually (similar to BundleBuilder but with CompoundScalarOps)
-    auto& registry = TypeRegistry::instance();
-    const size_t count = fields.size();
-
-    // Calculate total size and alignment
-    size_t total_size = 0;
-    size_t max_alignment = 1;
-
-    // Allocate field info array
-    auto field_info = std::make_unique<BundleFieldInfo[]>(count);
-
-    for (size_t i = 0; i < count; ++i) {
-        const char* name = fields[i].first.c_str();
-        const TypeMeta* type = fields[i].second;
-
-        // Align offset for this field
-        size_t alignment = type ? type->alignment : 1;
-        total_size = (total_size + alignment - 1) & ~(alignment - 1);
-
-        // Store the name in registry (to ensure stable pointer)
-        const char* stored_name = registry.store_name(name ? name : "");
-
-        // Store field info
-        field_info[i].name = stored_name;
-        field_info[i].index = i;
-        field_info[i].offset = total_size;
-        field_info[i].type = type;
-
-        // Update totals
-        total_size += type ? type->size : 0;
-        if (alignment > max_alignment) max_alignment = alignment;
-    }
-
-    // Align final size
-    total_size = (total_size + max_alignment - 1) & ~(max_alignment - 1);
-
-    // Store fields in registry and get pointer
-    BundleFieldInfo* fields_ptr = count > 0 ? registry.store_field_info(std::move(field_info)) : nullptr;
-
-    // Create TypeMeta with CompoundScalarOps
-    auto meta = std::make_unique<TypeMeta>();
-    meta->kind = TypeKind::Bundle;
-    meta->flags = TypeFlags::Hashable | TypeFlags::Equatable;  // CompoundScalar is hashable
-    meta->field_count = count;
-    meta->size = total_size;
-    meta->alignment = max_alignment;
-    meta->ops_ = CompoundScalarOps::make_ops();  // Use CompoundScalarOps for to_python reconstruction
-    meta->element_type = nullptr;
-    meta->key_type = nullptr;
-    meta->fields = fields_ptr;
-    meta->fixed_size = 0;
-
-    const TypeMeta* result = registry.register_composite(std::move(meta));
+    const TypeMeta* result = get_bundle_type_meta(std::move(fields), std::move(type_name));
 
     // Register the Python class for reconstruction
     register_compound_scalar_class(result, py_class);
-
-    // Register as named bundle if name was provided
-    if (type_name.has_value() && !type_name.value().empty()) {
-        registry.register_named_bundle(type_name.value(), result);
-    }
 
     g_composite_cache[cache_key] = result;
     return result;
@@ -713,8 +433,9 @@ void register_type_meta_bindings(nb::module_& m) {
         "fields"_a, "py_class"_a, "type_name"_a = nb::none(),
         nb::rv_policy::reference,
         "Get the TypeMeta for a CompoundScalar type.\n\n"
-        "This creates a Bundle-like TypeMeta but uses CompoundScalarOps which\n"
-        "reconstructs the original Python class in to_python() instead of returning a dict.\n"
+        "This registers the Python class against a bundle-compatible schema so\n"
+        "the runtime bundle view reconstructs the original Python class in\n"
+        "to_python() instead of returning a dict.\n"
         "This preserves hashability when CompoundScalar is used as keys in TSD/TSS/mesh.\n\n"
         "Args:\n"
         "    fields: List of (field_name, field_meta) tuples\n"

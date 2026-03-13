@@ -5,6 +5,7 @@
 #include <hgraph/types/time_series/value/tracking.h>
 #include <hgraph/types/time_series/value/view.h>
 #include <hgraph/types/value/type_registry.h>
+#include <hgraph/util/string_utils.h>
 
 #include <cstddef>
 #include <memory>
@@ -15,6 +16,46 @@
 
 namespace hgraph
 {
+    template <typename T>
+    [[nodiscard]] T atomic_default_value(std::type_identity<T>)
+    {
+        return T{};
+    }
+
+    template <typename T>
+    [[nodiscard]] size_t atomic_hash(const T &value)
+    {
+        return std::hash<T>{}(value);
+    }
+
+    template <typename T>
+    [[nodiscard]] std::partial_ordering atomic_compare(const T &lhs, const T &rhs)
+    {
+        if constexpr (requires { lhs <=> rhs; }) {
+            return lhs <=> rhs;
+        } else if constexpr (requires { lhs == rhs; lhs < rhs; }) {
+            if (lhs == rhs) { return std::partial_ordering::equivalent; }
+            return lhs < rhs ? std::partial_ordering::less : std::partial_ordering::greater;
+        } else if constexpr (requires { lhs == rhs; }) {
+            return lhs == rhs ? std::partial_ordering::equivalent : std::partial_ordering::unordered;
+        } else {
+            static_assert(requires { lhs == rhs; },
+                          "Atomic values require either operator== or an atomic_compare overload");
+        }
+    }
+
+    template <typename T>
+    [[nodiscard]] nb::object atomic_to_python(const T &value)
+    {
+        return nb::cast(value);
+    }
+
+    template <typename T>
+    void atomic_from_python(T &dst, const nb::object &src)
+    {
+        dst = nb::cast<T>(src);
+    }
+
 
     struct ValueBuilder;
 
@@ -37,28 +78,11 @@ namespace hgraph
             sizeof(AtomicState<T>) <= sizeof(void *) && alignof(AtomicState<T>) <= alignof(void *) &&
             std::is_trivially_copyable_v<AtomicState<T>> && std::is_trivially_destructible_v<AtomicState<T>>;
 
-        template <typename T>
-        [[nodiscard]] nb::object atomic_to_python(const T &value)
-        {
-            return nb::cast(value);
-        }
-
-        template <typename T>
-        void atomic_from_python(T &dst, const nb::object &src)
-        {
-            dst = nb::cast<T>(src);
-        }
-
         template <typename T> struct AtomicDispatch final : ViewDispatch
         {
-            static_assert(Hashable<T>, "AtomicState<T> requires std::hash<T>");
-            static_assert(EqualityComparable<T>, "AtomicState<T> requires operator==");
-            static_assert(PartiallyOrdered<T>,
-                          "AtomicState<T> requires operator<=> returning an ordering convertible to std::partial_ordering");
-
             [[nodiscard]] size_t hash(const void *data) const override
             {
-                return std::hash<T>{}(state(data)->value);
+                return atomic_hash(state(data)->value);
             }
 
             [[nodiscard]] std::string to_string(const void *data) const override
@@ -68,19 +92,19 @@ namespace hgraph
 
             [[nodiscard]] std::partial_ordering compare(const void *lhs, const void *rhs) const override
             {
-                return state(lhs)->value <=> state(rhs)->value;
+                return atomic_compare(state(lhs)->value, state(rhs)->value);
             }
 
             [[nodiscard]] nb::object to_python(const void *data, const value::TypeMeta *schema) const override
             {
                 static_cast<void>(schema);
-                return atomic_to_python(state(data)->value);
+                return ::hgraph::atomic_to_python(state(data)->value);
             }
 
             void from_python(void *dst, const nb::object &src, const value::TypeMeta *schema) const override
             {
                 static_cast<void>(schema);
-                atomic_from_python(state(dst)->value, src);
+                ::hgraph::atomic_from_python(state(dst)->value, src);
             }
 
             void assign(void *dst, const void *src) const override

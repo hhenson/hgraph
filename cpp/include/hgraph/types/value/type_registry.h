@@ -110,32 +110,6 @@ public:
     const TypeMeta* register_type(const std::string& name);
 
     /**
-     * @brief Register a type with a name and custom operations.
-     *
-     * Allows registering types with user-provided operations rather than
-     * auto-generated ones. The custom_ops pointer must remain valid for
-     * the lifetime of the registry.
-     *
-     * @tparam T The type to register
-     * @param name The human-readable name
-     * @param custom_ops Custom operations vtable (must outlive the registry)
-     * @return Pointer to the registered TypeMeta
-     */
-    template<typename T>
-    const TypeMeta* register_type(const std::string& name, const type_ops& custom_ops);
-
-    /**
-     * @brief Register a type by name only with custom operations (no C++ type binding).
-     *
-     * Used for types that only exist in the Python layer or have no C++ counterpart.
-     *
-     * @param name The human-readable name
-     * @param custom_ops Custom operations vtable (must outlive the registry)
-     * @return Pointer to the registered TypeMeta
-     */
-    const TypeMeta* register_type(const std::string& name, const type_ops& custom_ops);
-
-    /**
      * @brief Get the TypeMeta for a registered scalar type.
      *
      * @tparam T The scalar type
@@ -406,13 +380,12 @@ const TypeMeta* TypeRegistry::register_type() {
         return it->second.get();
     }
 
-    // Create TypeMeta with operations stored by value
+    // Create TypeMeta for the scalar schema.
     auto meta = std::make_unique<TypeMeta>();
     meta->size = sizeof(T);
     meta->alignment = alignof(T);
     meta->kind = TypeKind::Atomic;
     meta->flags = compute_scalar_flags<T>();
-    meta->ops_ = ScalarOps<T>::make_ops();
     meta->name = nullptr;
     meta->element_type = nullptr;
     meta->key_type = nullptr;
@@ -451,50 +424,6 @@ const TypeMeta* TypeRegistry::register_type(const std::string& name) {
 
     // Add to name cache
     _name_cache[name] = meta_ptr;
-
-    return meta_ptr;
-}
-
-template<typename T>
-const TypeMeta* TypeRegistry::register_type(const std::string& name, const type_ops& custom_ops) {
-    std::type_index idx(typeid(T));
-
-    // Check if already registered
-    auto it = _scalar_types.find(idx);
-    if (it != _scalar_types.end()) {
-        // Update name and ops if provided
-        TypeMeta* meta_ptr = it->second.get();
-        if (!name.empty()) {
-            const char* stored_name = store_name_interned(name);
-            meta_ptr->name = stored_name;
-            _name_cache[name] = meta_ptr;
-        }
-        meta_ptr->ops_ = custom_ops;
-        return meta_ptr;
-    }
-
-    // Create TypeMeta with custom ops
-    auto meta = std::make_unique<TypeMeta>();
-    meta->size = sizeof(T);
-    meta->alignment = alignof(T);
-    meta->kind = TypeKind::Atomic;
-    meta->flags = compute_scalar_flags<T>();
-    meta->ops_ = custom_ops;
-    meta->name = nullptr;
-    meta->element_type = nullptr;
-    meta->key_type = nullptr;
-    meta->fields = nullptr;
-    meta->field_count = 0;
-    meta->fixed_size = 0;
-
-    TypeMeta* meta_ptr = meta.get();
-    _scalar_types[idx] = std::move(meta);
-
-    if (!name.empty()) {
-        const char* stored_name = store_name_interned(name);
-        meta_ptr->name = stored_name;
-        _name_cache[name] = meta_ptr;
-    }
 
     return meta_ptr;
 }

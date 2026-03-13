@@ -22,7 +22,6 @@ namespace hgraph::value
     enum class TypeKind : uint8_t;
     enum class TypeFlags : uint32_t;
     struct TypeMeta;
-    struct type_ops;
     struct BundleFieldInfo;
     class TypeRegistry;
 

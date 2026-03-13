@@ -15,6 +15,22 @@
 
 namespace hgraph
 {
+    TimeSeriesReference atomic_default_value(std::type_identity<TimeSeriesReference>) {
+        return TimeSeriesReference::make();
+    }
+
+    size_t atomic_hash(const TimeSeriesReference &value) {
+        return std::hash<std::string>{}(value.to_string());
+    }
+
+    std::partial_ordering atomic_compare(const TimeSeriesReference &lhs, const TimeSeriesReference &rhs) {
+        return lhs == rhs ? std::partial_ordering::equivalent : std::partial_ordering::unordered;
+    }
+
+    std::string to_string(const TimeSeriesReference &value) {
+        return value.to_string();
+    }
+
     // ============================================================
     // TimeSeriesReference Implementation
     // ============================================================

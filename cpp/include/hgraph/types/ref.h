@@ -5,6 +5,9 @@
 #ifndef REF_H
 #define REF_H
 
+#include <compare>
+#include <type_traits>
+
 #include <hgraph/builders/input_builder.h>
 #include <hgraph/builders/output_builder.h>
 #include <hgraph/types/base_time_series.h>
@@ -75,6 +78,19 @@ namespace hgraph
         void copy_from(const TimeSeriesReference &other);
         void move_from(TimeSeriesReference &&other) noexcept;
     };
+
+    /**
+     * Atomic value customization points for `TimeSeriesReference`.
+     *
+     * References are equatable and hashable as scalar payloads, but they do not
+     * expose a meaningful total order in the value layer. Non-equal values
+     * therefore compare as unordered.
+    */
+    [[nodiscard]] HGRAPH_EXPORT size_t atomic_hash(const TimeSeriesReference &value);
+    [[nodiscard]] HGRAPH_EXPORT TimeSeriesReference atomic_default_value(std::type_identity<TimeSeriesReference>);
+    [[nodiscard]] HGRAPH_EXPORT std::partial_ordering atomic_compare(const TimeSeriesReference &lhs,
+                                                                     const TimeSeriesReference &rhs);
+    [[nodiscard]] HGRAPH_EXPORT std::string to_string(const TimeSeriesReference &value);
 
     struct TimeSeriesReferenceOutput : BaseTimeSeriesOutput
     {

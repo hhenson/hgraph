@@ -1,4 +1,7 @@
 #include <hgraph/hgraph_base.h>
+#ifndef HGRAPH_DISABLE_TS_REFERENCE_ATOMIC
+#include <hgraph/types/ref.h>
+#endif
 #include <hgraph/types/time_series/value/atomic.h>
 #include <hgraph/types/time_series/value/state.h>
 
@@ -37,7 +40,10 @@ namespace hgraph
                 return InlineValueEligible<T>;
             }
 
-            void construct(void *memory) const override { std::construct_at(state(memory)); }
+            void construct(void *memory) const override
+            {
+                std::construct_at(state(memory), AtomicState<T>{::hgraph::atomic_default_value(std::type_identity<T>{})});
+            }
 
             void destroy(void *memory) const noexcept override { std::destroy_at(state(memory)); }
 
@@ -86,6 +92,9 @@ namespace hgraph
             HGRAPH_ATOMIC_BUILDER_CASE(double)
             HGRAPH_ATOMIC_BUILDER_CASE(std::string)
             HGRAPH_ATOMIC_BUILDER_CASE(nb::object)
+#ifndef HGRAPH_DISABLE_TS_REFERENCE_ATOMIC
+            HGRAPH_ATOMIC_BUILDER_CASE(TimeSeriesReference)
+#endif
             HGRAPH_ATOMIC_BUILDER_CASE(engine_date_t)
             HGRAPH_ATOMIC_BUILDER_CASE(engine_time_t)
             HGRAPH_ATOMIC_BUILDER_CASE(engine_time_delta_t)

@@ -13,76 +13,21 @@
 namespace hgraph {
 
 namespace {
-
-void ts_reference_construct(void* dst, const value::TypeMeta*) {
-    new (dst) TimeSeriesReference(TimeSeriesReference::make());
-}
-
-void ts_reference_destroy(void* obj, const value::TypeMeta*) {
-    static_cast<TimeSeriesReference*>(obj)->~TimeSeriesReference();
-}
-
-void ts_reference_copy(void* dst, const void* src, const value::TypeMeta*) {
-    *static_cast<TimeSeriesReference*>(dst) = *static_cast<const TimeSeriesReference*>(src);
-}
-
-void ts_reference_move(void* dst, void* src, const value::TypeMeta*) {
-    *static_cast<TimeSeriesReference*>(dst) = std::move(*static_cast<TimeSeriesReference*>(src));
-}
-
-void ts_reference_move_construct(void* dst, void* src, const value::TypeMeta*) {
-    new (dst) TimeSeriesReference(std::move(*static_cast<TimeSeriesReference*>(src)));
-}
-
-bool ts_reference_equals(const void* a, const void* b, const value::TypeMeta*) {
-    return *static_cast<const TimeSeriesReference*>(a) == *static_cast<const TimeSeriesReference*>(b);
-}
-
-size_t ts_reference_hash(const void* obj, const value::TypeMeta*) {
-    return std::hash<std::string>{}(static_cast<const TimeSeriesReference*>(obj)->to_string());
-}
-
-bool ts_reference_less_than(const void* a, const void* b, const value::TypeMeta*) {
-    return static_cast<const TimeSeriesReference*>(a)->to_string() <
-           static_cast<const TimeSeriesReference*>(b)->to_string();
-}
-
-std::string ts_reference_to_string(const void* obj, const value::TypeMeta*) {
-    return static_cast<const TimeSeriesReference*>(obj)->to_string();
-}
-
-nb::object ts_reference_to_python(const void* obj, const value::TypeMeta*) {
-    return nb::cast(*static_cast<const TimeSeriesReference*>(obj));
-}
-
-void ts_reference_from_python(void* dst, const nb::object& src, const value::TypeMeta*) {
-    *static_cast<TimeSeriesReference*>(dst) = nb::cast<TimeSeriesReference>(src);
-}
-
-value::type_ops make_ts_reference_ops() {
-    value::type_ops ops{};
-    ops.construct = &ts_reference_construct;
-    ops.destroy = &ts_reference_destroy;
-    ops.copy = &ts_reference_copy;
-    ops.move = &ts_reference_move;
-    ops.move_construct = &ts_reference_move_construct;
-    ops.equals = &ts_reference_equals;
-    ops.hash = &ts_reference_hash;
-    ops.to_string = &ts_reference_to_string;
-    ops.to_python = &ts_reference_to_python;
-    ops.from_python = &ts_reference_from_python;
-    ops.kind = value::TypeKind::Atomic;
-    ops.specific.atomic = {&ts_reference_less_than};
-    return ops;
-}
-
 const value::TypeMeta* ts_reference_type_meta() {
     static const value::TypeMeta* meta = value::TypeRegistry::instance()
-        .register_type<TimeSeriesReference>("TimeSeriesReference", make_ts_reference_ops());
+        .register_type<TimeSeriesReference>("TimeSeriesReference");
     return meta;
 }
 
 } // namespace
+
+namespace value
+{
+    template <>
+    constexpr TypeFlags compute_scalar_flags<TimeSeriesReference>() {
+        return TypeFlags::Hashable | TypeFlags::Equatable;
+    }
+}
 
 // ============================================================================
 // Singleton Instance
