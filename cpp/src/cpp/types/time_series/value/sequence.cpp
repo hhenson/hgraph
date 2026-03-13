@@ -336,27 +336,14 @@ namespace hgraph
                 }
 
                 clear(dst);
+                BufferState *buffer = state(dst);
                 nb::iterator it = nb::iter(src);
                 size_t imported = 0;
                 while (it != nb::iterator::sentinel() && imported < capacity()) {
-                    void *temp = this->m_element_builder.get().allocate();
-                    try {
-                        this->m_element_builder.get().construct(temp);
-                        this->element_dispatch().from_python(temp, nb::borrow<nb::object>(*it), &this->element_schema());
-                        push(dst, temp);
-                        if (this->m_element_builder.get().requires_destroy()) {
-                            this->m_element_builder.get().destroy(temp);
-                        }
-                        this->m_element_builder.get().deallocate(temp);
-                    } catch (...) {
-                        if (temp != nullptr) {
-                            if (this->m_element_builder.get().requires_destroy()) {
-                                this->m_element_builder.get().destroy(temp);
-                            }
-                            this->m_element_builder.get().deallocate(temp);
-                        }
-                        throw;
-                    }
+                    const size_t tail = (buffer->head + buffer->size) % capacity();
+                    this->element_dispatch().from_python(
+                        buffer->elements + tail * this->element_stride(), nb::borrow<nb::object>(*it), &this->element_schema());
+                    ++buffer->size;
                     ++it;
                     ++imported;
                 }
@@ -372,18 +359,21 @@ namespace hgraph
 
             void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override
             {
-                static_cast<void>(dst);
-                static_cast<void>(src);
-                static_cast<void>(src_schema);
-                throw std::invalid_argument("Cyclic buffer set_from_cpp is not implemented");
+                if (src_schema == &this->m_schema.get()) {
+                    assign(dst, src);
+                    return;
+                }
+                throw std::invalid_argument("Cyclic buffer set_from_cpp requires a matching schema");
             }
 
             void move_from_cpp(void *dst, void *src, const value::TypeMeta *src_schema) const override
             {
-                static_cast<void>(dst);
-                static_cast<void>(src);
-                static_cast<void>(src_schema);
-                throw std::invalid_argument("Cyclic buffer move_from_cpp is not implemented");
+                if (src_schema == &this->m_schema.get()) {
+                    assign(dst, src);
+                    clear(src);
+                    return;
+                }
+                throw std::invalid_argument("Cyclic buffer move_from_cpp requires a matching schema");
             }
 
             void construct(void *memory) const
@@ -654,28 +644,21 @@ namespace hgraph
                 }
 
                 clear(dst);
-                nb::iterator it = nb::iter(src);
+                QueueState *queue = state(dst);
+                const size_t sequence_size = nb::len(nb::cast<nb::sequence>(src));
                 const size_t import_limit = max_capacity();
+                const size_t target_size = import_limit == 0 ? sequence_size : std::min(import_limit, sequence_size);
+                if (target_size > 0) {
+                    reserve(queue, max_capacity() > 0 ? std::min(max_capacity(), target_size) : target_size);
+                }
+
+                nb::iterator it = nb::iter(src);
                 size_t       imported = 0;
                 while (it != nb::iterator::sentinel() && (import_limit == 0 || imported < import_limit)) {
-                    void *temp = this->m_element_builder.get().allocate();
-                    try {
-                        this->m_element_builder.get().construct(temp);
-                        this->element_dispatch().from_python(temp, nb::borrow<nb::object>(*it), &this->element_schema());
-                        push(dst, temp);
-                        if (this->m_element_builder.get().requires_destroy()) {
-                            this->m_element_builder.get().destroy(temp);
-                        }
-                        this->m_element_builder.get().deallocate(temp);
-                    } catch (...) {
-                        if (temp != nullptr) {
-                            if (this->m_element_builder.get().requires_destroy()) {
-                                this->m_element_builder.get().destroy(temp);
-                            }
-                            this->m_element_builder.get().deallocate(temp);
-                        }
-                        throw;
-                    }
+                    const size_t tail = (queue->head + queue->size) % queue->capacity;
+                    this->element_dispatch().from_python(
+                        queue->elements + tail * this->element_stride(), nb::borrow<nb::object>(*it), &this->element_schema());
+                    ++queue->size;
                     ++it;
                     ++imported;
                 }
@@ -691,18 +674,21 @@ namespace hgraph
 
             void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override
             {
-                static_cast<void>(dst);
-                static_cast<void>(src);
-                static_cast<void>(src_schema);
-                throw std::invalid_argument("Queue value set_from_cpp is not implemented");
+                if (src_schema == &this->m_schema.get()) {
+                    assign(dst, src);
+                    return;
+                }
+                throw std::invalid_argument("Queue value set_from_cpp requires a matching schema");
             }
 
             void move_from_cpp(void *dst, void *src, const value::TypeMeta *src_schema) const override
             {
-                static_cast<void>(dst);
-                static_cast<void>(src);
-                static_cast<void>(src_schema);
-                throw std::invalid_argument("Queue value move_from_cpp is not implemented");
+                if (src_schema == &this->m_schema.get()) {
+                    assign(dst, src);
+                    clear(src);
+                    return;
+                }
+                throw std::invalid_argument("Queue value move_from_cpp requires a matching schema");
             }
 
             void construct(void *memory) const
@@ -759,16 +745,31 @@ namespace hgraph
                 std::byte *new_elements = static_cast<std::byte *>(
                     ::operator new(storage_slots(min_capacity) * this->element_stride(),
                                    std::align_val_t{this->m_element_builder.get().alignment()}));
-                this->construct_slots(new_elements, storage_slots(min_capacity));
-
-                for (size_t i = 0; i < queue->size; ++i) {
-                    this->assign_slot(new_elements + i * this->element_stride(), element_data(queue, i));
-                }
-                if constexpr (tracks_deltas_v) {
-                    if (queue->elements != nullptr && removed_flag(reinterpret_cast<void *>(queue)) && queue->capacity > 0) {
-                        this->assign_slot(
-                            new_elements + min_capacity * this->element_stride(), removed_slot_memory(reinterpret_cast<void *>(queue)));
+                size_t constructed = 0;
+                try {
+                    for (; constructed < queue->size; ++constructed) {
+                        this->m_element_builder.get().move_construct(new_elements + constructed * this->element_stride(),
+                                                                     const_cast<void *>(element_data(queue, constructed)),
+                                                                     this->m_element_builder);
                     }
+                    for (; constructed < min_capacity; ++constructed) {
+                        this->m_element_builder.get().construct(new_elements + constructed * this->element_stride());
+                    }
+                    if constexpr (tracks_deltas_v) {
+                        if (queue->elements != nullptr && removed_flag(reinterpret_cast<void *>(queue)) && queue->capacity > 0) {
+                            this->m_element_builder.get().move_construct(
+                                new_elements + min_capacity * this->element_stride(),
+                                const_cast<void *>(removed_slot_memory(reinterpret_cast<void *>(queue))),
+                                this->m_element_builder);
+                        } else {
+                            this->m_element_builder.get().construct(new_elements + min_capacity * this->element_stride());
+                        }
+                        ++constructed;
+                    }
+                } catch (...) {
+                    this->destroy_slots(new_elements, constructed);
+                    ::operator delete(new_elements, std::align_val_t{this->m_element_builder.get().alignment()});
+                    throw;
                 }
 
                 if (queue->elements != nullptr) {

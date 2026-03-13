@@ -183,18 +183,21 @@ namespace hgraph
 
             void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override
             {
-                static_cast<void>(dst);
-                static_cast<void>(src);
-                static_cast<void>(src_schema);
-                throw std::invalid_argument("List set_from_cpp is not implemented");
+                if (src_schema == &m_schema.get()) {
+                    assign(dst, src);
+                    return;
+                }
+                throw std::invalid_argument("List set_from_cpp requires a matching list schema");
             }
 
             void move_from_cpp(void *dst, void *src, const value::TypeMeta *src_schema) const override
             {
-                static_cast<void>(dst);
-                static_cast<void>(src);
-                static_cast<void>(src_schema);
-                throw std::invalid_argument("List move_from_cpp is not implemented");
+                if (src_schema == &m_schema.get()) {
+                    assign(dst, src);
+                    clear(src);
+                    return;
+                }
+                throw std::invalid_argument("List move_from_cpp requires a matching list schema");
             }
 
           protected:
