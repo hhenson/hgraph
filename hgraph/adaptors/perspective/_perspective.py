@@ -31,6 +31,7 @@ else:
     psp_new_api = True
 
 from hgraph import TS, GlobalState, sink_node
+from hgraph._runtime._constants import utc_now
 from hgraph.adaptors.tornado._tornado_web import BaseHandler, TornadoWeb
 
 __all__ = ["perspective_web", "PerspectiveTablesManager", "TablePageHandler", "IndexPageHandler"]
@@ -325,7 +326,7 @@ class PerspectiveTablesManager:
                     batch = pyarrow.record_batch(d, schema=pyarrow.schema({k: schema.field(k).type for k in d}))
                     self._stats['batches'] += 1
                     self._stats['rows'] += batch.num_rows
-                    self._table_stats.append({'table': name, 'batch': i, 'rows': batch.num_rows, 'time': datetime.utcnow()})
+                    self._table_stats.append({'table': name, 'batch': i, 'rows': batch.num_rows, 'time': utc_now()})
                 except Exception as e:
                     logger.error(
                         f"Error creating record batch :{e}\n"
@@ -496,7 +497,7 @@ class PerspectiveTablesManager:
     async def _publish_heartbeat(self):
         counter = 0
         while True:
-            self.update_table("heartbeat", [{"name": "heartbeat", "time": datetime.utcnow(), "sequence": counter}])
+            self.update_table("heartbeat", [{"name": "heartbeat", "time": utc_now(), "sequence": counter}])
             counter += 1
             await asyncio.sleep(15)
 

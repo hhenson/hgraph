@@ -10,7 +10,7 @@ The tests are designed to work with the hgraph._hgraph extension module.
 import pytest
 
 from hgraph._feature_switch import is_feature_enabled
-if is_feature_enabled("use_cpp"):
+if not is_feature_enabled("use_cpp"):
     pytest.skip("Buffer protocol tests require C++ extension", allow_module_level=True)
 
 # Try to import the C++ extension module

@@ -6,6 +6,7 @@ import polars as pl
 from polars import DataFrame
 
 from hgraph import COMPOUND_SCALAR, Frame
+from hgraph._runtime._constants import utc_now
 from ._recorder_api import RecorderAPI, TableAPI, TableReaderAPI, TableWriterAPI
 
 __all__ = ("PolarsRecorderAPI",)
@@ -16,7 +17,7 @@ class PolarsRecorderAPI(RecorderAPI):
     def __init__(self):
         self._table_definitions: dict[str, tuple[COMPOUND_SCALAR, tuple[str, type[date | datetime]]]] = {}
         self._tables: dict[str, dict[str, pl.DataFrame]] = defaultdict(dict)
-        self._as_of = datetime.utcnow()
+        self._as_of = utc_now()
 
     def has_table_definition(self, table_name: str) -> bool:
         return table_name in self._table_definitions

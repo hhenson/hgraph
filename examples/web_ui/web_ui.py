@@ -37,6 +37,7 @@ from hgraph import (
     TSS,
     default,
     MIN_DT,
+    utc_now,
 )
 from hgraph._operators._flow_control import merge
 from hgraph.adaptors.perspective import (
@@ -167,7 +168,7 @@ def host_web_server():
 
 @compute_node
 def wall_clock_time(ts: SIGNAL) -> TS[datetime]:
-    return datetime.utcnow()
+    return utc_now()
 
 
 if __name__ == "__main__":

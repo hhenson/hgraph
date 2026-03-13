@@ -7,6 +7,7 @@ from typing import Type
 import polars as pl
 from polars import DataFrame
 
+from hgraph._runtime._constants import utc_now
 from hgraph.adaptors.executor.executor import adaptor_executor
 from hgraph.adaptors.data_catalogue.catalogue import DataEnvironment
 from hgraph import (
@@ -72,12 +73,12 @@ def json_adaptor_impl(
             logger.info(f"Loading json file {directory} / {file}")
             r = pl.read_json(directory / file)
             if not r.is_empty():
-                tick = {id: {"status": StreamStatus.OK, "status_msg": "", "values": r, "timestamp": datetime.utcnow()}}
+                tick = {id: {"status": StreamStatus.OK, "status_msg": "", "values": r, "timestamp": utc_now()}}
                 queue(tick)
             else:
                 msg = f"Empty json file {directory} / {file}"
                 logger.warning(msg)
-                tick = {id: {"status": StreamStatus.ERROR, "status_msg": msg, "timestamp": datetime.utcnow()}}
+                tick = {id: {"status": StreamStatus.ERROR, "status_msg": msg, "timestamp": utc_now()}}
         except Exception as e:
             logger.exception(f"Error loading json file {directory} / {file}")
             error = {id: {"status": StreamStatus.ERROR, "status_msg": str(e)}}

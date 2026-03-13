@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from hgraph import Graph, Node, record
+from hgraph._runtime._constants import utc_now
 from hgraph.debug._inspector_util import estimate_value_size, estimate_size
 
 __all__ = ("InspectionObserver",)
@@ -85,7 +86,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
         self.node_subscriptions = set()
         
         self.track_recent_performance = track_recent_performance
-        self.recent_performance_batch = datetime.utcnow().replace(second=0, microsecond=0)
+        self.recent_performance_batch = utc_now().replace(second=0, microsecond=0)
         self.recent_node_performance = [(self.recent_performance_batch, {})]  # list of dicts
         self.recent_graph_performance = [(self.recent_performance_batch, {})]  # list of dicts
         self.recent_perforamance_horizon = 15  # keep last 60 minutes
@@ -222,7 +223,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
         if self.current_graph.id == ():
             self.current_graph.os_eval_begin_thread_time = int(time.thread_time() * 1_000_000_000)
-            batch_time = datetime.utcnow().replace(second=0, microsecond=0)
+            batch_time = utc_now().replace(second=0, microsecond=0)
             if self.track_recent_performance and batch_time > self.recent_performance_batch:
                 self.recent_performance_batch = batch_time
                 self.recent_node_performance.append((batch_time, {}))
