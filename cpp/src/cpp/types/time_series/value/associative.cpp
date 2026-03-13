@@ -233,17 +233,6 @@ namespace hgraph
                 return state.elements + slot * stride();
             }
 
-            template <typename TState> [[nodiscard]] size_t live_slot_at(const TState &state, size_t live_index) const
-            {
-                size_t seen = 0;
-                for (size_t slot = 0; slot < state.capacity; ++slot) {
-                    if (!state.alive.test(slot)) { continue; }
-                    if (seen == live_index) { return slot; }
-                    ++seen;
-                }
-                throw std::out_of_range("Associative slot index out of range");
-            }
-
             template <typename TState> [[nodiscard]] size_t find_slot(const TState &state, const void *key) const
             {
                 if (state.index == nullptr) { return npos; }
@@ -510,16 +499,10 @@ namespace hgraph
                 }
             }
 
-            [[nodiscard]] void *element_data(void *data, size_t index) const override
-            {
-                auto *set = state(data);
-                return m_keys.slot_data(*set, m_keys.live_slot_at(*set, index));
-            }
-
-            [[nodiscard]] const void *element_data(const void *data, size_t index) const override
+            [[nodiscard]] bool slot_live(const void *data, size_t slot) const noexcept override
             {
                 const auto *set = state(data);
-                return m_keys.slot_data(*set, m_keys.live_slot_at(*set, index));
+                return slot < set->capacity && set->alive.test(slot);
             }
 
             [[nodiscard]] bool slot_occupied(const void *data, size_t slot) const noexcept override
@@ -585,9 +568,10 @@ namespace hgraph
 
             void clear(void *data) const override
             {
-                while (state(data)->size > 0) {
-                    const size_t slot = m_keys.live_slot_at(*state(data), 0);
-                    m_keys.remove_slot(*state(data), slot);
+                auto &set = *state(data);
+                for (size_t slot = 0; slot < set.capacity; ++slot) {
+                    if (!set.alive.test(slot)) { continue; }
+                    m_keys.remove_slot(set, slot);
                 }
             }
 
@@ -951,8 +935,9 @@ namespace hgraph
 
             void clear(void *data) const override
             {
-                while (keys(data).size > 0) {
-                    const size_t slot = m_keys.live_slot_at(keys(data), 0);
+                auto &map_keys = keys(data);
+                for (size_t slot = 0; slot < map_keys.capacity; ++slot) {
+                    if (!map_keys.alive.test(slot)) { continue; }
                     if constexpr (tracks_deltas_v) {
                         if (state(data)->keys.added.test(slot)) {
                             destroy_value(values_memory(data) + slot * m_value_stride);
@@ -1523,23 +1508,9 @@ namespace hgraph
 
     Range<View> SetView::values() const
     {
-        return Range<View>{this, size(), nullptr, &SetView::project_value};
-    }
-
-    View SetView::at(size_t index)
-    {
         const auto *dispatch = set_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("SetView::at on invalid view"); }
-        return View{&dispatch->element_dispatch(), dispatch->element_data(data(), index), &dispatch->element_schema()};
-    }
-
-    View SetView::at(size_t index) const
-    {
-        const auto *dispatch = set_dispatch();
-        if (dispatch == nullptr) { throw std::runtime_error("SetView::at on invalid view"); }
-        return View{&dispatch->element_dispatch(),
-                    const_cast<void *>(dispatch->element_data(data(), index)),
-                    &dispatch->element_schema()};
+        if (dispatch == nullptr) { throw std::runtime_error("SetView::values on invalid view"); }
+        return Range<View>{this, dispatch->slot_capacity(data()), &SetView::slot_is_live, &SetView::project_live_slot};
     }
 
     bool SetDeltaView::slot_occupied(size_t slot) const
@@ -1661,9 +1632,21 @@ namespace hgraph
         return has_value() ? static_cast<const detail::SetViewDispatch *>(dispatch()) : nullptr;
     }
 
-    View SetView::project_value(const void *context, size_t index)
+    bool SetView::slot_is_live(const void *context, size_t slot)
     {
-        return static_cast<const SetView *>(context)->at(index);
+        const auto *self = static_cast<const SetView *>(context);
+        const auto *dispatch = self->set_dispatch();
+        return dispatch != nullptr && dispatch->slot_live(self->data(), slot);
+    }
+
+    View SetView::project_live_slot(const void *context, size_t slot)
+    {
+        const auto *self = static_cast<const SetView *>(context);
+        const auto *dispatch = self->set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetView::values on invalid view"); }
+        return View{&dispatch->element_dispatch(),
+                    const_cast<void *>(dispatch->slot_data(self->data(), slot)),
+                    &dispatch->element_schema()};
     }
 
     const detail::SetViewDispatch *SetDeltaView::set_dispatch() const noexcept

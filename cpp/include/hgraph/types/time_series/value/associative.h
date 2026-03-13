@@ -54,8 +54,7 @@ namespace hgraph
             [[nodiscard]] virtual size_t slot_capacity(const void *data) const noexcept = 0;
             [[nodiscard]] virtual const value::TypeMeta &element_schema() const noexcept = 0;
             [[nodiscard]] virtual const ViewDispatch &element_dispatch() const noexcept = 0;
-            [[nodiscard]] virtual void *element_data(void *data, size_t index) const = 0;
-            [[nodiscard]] virtual const void *element_data(const void *data, size_t index) const = 0;
+            [[nodiscard]] virtual bool slot_live(const void *data, size_t slot) const noexcept = 0;
             [[nodiscard]] virtual bool slot_occupied(const void *data, size_t slot) const noexcept = 0;
             [[nodiscard]] virtual bool slot_added(const void *data, size_t slot) const noexcept = 0;
             [[nodiscard]] virtual bool slot_removed(const void *data, size_t slot) const noexcept = 0;
@@ -152,8 +151,6 @@ namespace hgraph
          * type on `SetView`.
          */
         [[nodiscard]] Range<View> values() const;
-        [[nodiscard]] View at(size_t index);
-        [[nodiscard]] View at(size_t index) const;
         [[nodiscard]] bool contains(const View &value) const;
 
       protected:
@@ -175,7 +172,8 @@ namespace hgraph
         [[nodiscard]] const detail::SetViewDispatch *set_dispatch() const noexcept;
 
       private:
-        [[nodiscard]] static View project_value(const void *context, size_t index);
+        [[nodiscard]] static bool slot_is_live(const void *context, size_t slot);
+        [[nodiscard]] static View project_live_slot(const void *context, size_t slot);
     };
 
     /**

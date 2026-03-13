@@ -223,8 +223,7 @@ struct TrackedSetStorage {
         auto val = value();
         auto added_view = _added.view().as_set();
         auto removed_view = _removed.view().as_set();
-        for (size_t i = 0; i < val.size(); ++i) {
-            auto elem = val.at(i);
+        for (auto elem : val.values()) {
             // Only mark as removed if it wasn't added this cycle
             if (!added_view.contains(elem)) {
                 static_cast<void>(removed_view.begin_mutation().add(elem));

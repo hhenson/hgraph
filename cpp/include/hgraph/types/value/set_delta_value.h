@@ -63,13 +63,13 @@ struct SetDeltaValue {
             // Copy elements from views
             auto add_set = _added.view().as_set();
             auto add_mut = add_set.begin_mutation();
-            for (size_t i = 0; i < added_view.size(); ++i) {
-                static_cast<void>(add_mut.add(added_view.at(i)));
+            for (auto elem : added_view.values()) {
+                static_cast<void>(add_mut.add(elem));
             }
             auto rem_set = _removed.view().as_set();
             auto rem_mut = rem_set.begin_mutation();
-            for (size_t i = 0; i < removed_view.size(); ++i) {
-                static_cast<void>(rem_mut.add(removed_view.at(i)));
+            for (auto elem : removed_view.values()) {
+                static_cast<void>(rem_mut.add(elem));
             }
         }
     }
@@ -134,14 +134,14 @@ struct SetDeltaValue {
         // Convert to Python sets
         nb::set py_added;
         auto add_view = added();
-        for (size_t i = 0; i < add_view.size(); ++i) {
-            py_added.add(add_view.at(i).to_python());
+        for (auto elem : add_view.values()) {
+            py_added.add(elem.to_python());
         }
 
         nb::set py_removed;
         auto rem_view = removed();
-        for (size_t i = 0; i < rem_view.size(); ++i) {
-            py_removed.add(rem_view.at(i).to_python());
+        for (auto elem : rem_view.values()) {
+            py_removed.add(elem.to_python());
         }
 
         // Create a SetDelta-like object

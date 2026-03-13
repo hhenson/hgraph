@@ -27,6 +27,14 @@ namespace hgraph
             return result;
         }
 
+        std::vector<View> collect_set_views(const SetView &view)
+        {
+            std::vector<View> result;
+            result.reserve(view.size());
+            for (auto elem : view.values()) { result.push_back(elem); }
+            return result;
+        }
+
         [[nodiscard]] Value materialize_python_value(const TypeMeta &schema, const nb::object &src)
         {
             Value value{schema};
@@ -852,10 +860,9 @@ namespace hgraph
                 .def("empty", &SetView::empty)
                 .def("element_schema", &SetView::element_schema, nb::rv_policy::reference)
                 .def("element_type", &SetView::element_schema, nb::rv_policy::reference)
-                .def("at", static_cast<View (SetView::*)(size_t)>(&SetView::at), "index"_a)
                 .def("contains", &SetView::contains, "value"_a)
                 .def("__contains__", &SetView::contains, "value"_a)
-                .def("__iter__", [](const SetView &self) { return nb::iter(nb::cast(collect_indexed_views(self))); })
+                .def("__iter__", [](const SetView &self) { return nb::iter(nb::cast(collect_set_views(self))); })
                 .def("add",
                      [](SetView &self, const View &value) {
                          auto mutation = self.begin_mutation();
