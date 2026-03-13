@@ -116,6 +116,96 @@ namespace hgraph
             }
         };
 
+        /**
+         * Python-object atomic dispatch.
+         *
+         * Unknown Python scalar types are represented as `nb::object` in the
+         * value schema layer. They remain atomic from a storage perspective,
+         * but their behavior must defer to Python rather than relying on C++
+         * ordering and hashing concepts.
+         */
+        template <> struct AtomicDispatch<nb::object> final : ViewDispatch
+        {
+            [[nodiscard]] size_t hash(const void *data) const override
+            {
+                const auto &obj = state(data)->value;
+                if (!obj.is_valid()) { return 0; }
+                try {
+                    return nb::hash(obj);
+                } catch (...) {
+                    return 0;
+                }
+            }
+
+            [[nodiscard]] std::string to_string(const void *data) const override
+            {
+                const auto &obj = state(data)->value;
+                if (!obj.is_valid()) { return "None"; }
+                try {
+                    return std::string(nb::str(nb::repr(obj)).c_str());
+                } catch (...) {
+                    return "<python-object>";
+                }
+            }
+
+            [[nodiscard]] std::partial_ordering compare(const void *lhs, const void *rhs) const override
+            {
+                const auto &lhs_obj = state(lhs)->value;
+                const auto &rhs_obj = state(rhs)->value;
+                if (!lhs_obj.is_valid() && !rhs_obj.is_valid()) { return std::partial_ordering::equivalent; }
+                if (!lhs_obj.is_valid() || !rhs_obj.is_valid()) { return std::partial_ordering::unordered; }
+                try {
+                    return lhs_obj.equal(rhs_obj) ? std::partial_ordering::equivalent : std::partial_ordering::unordered;
+                } catch (...) {
+                    return std::partial_ordering::unordered;
+                }
+            }
+
+            [[nodiscard]] nb::object to_python(const void *data, const value::TypeMeta *schema) const override
+            {
+                static_cast<void>(schema);
+                return state(data)->value;
+            }
+
+            void from_python(void *dst, const nb::object &src, const value::TypeMeta *schema) const override
+            {
+                static_cast<void>(schema);
+                state(dst)->value = src;
+            }
+
+            void assign(void *dst, const void *src) const override
+            {
+                state(dst)->value = state(src)->value;
+            }
+
+            void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override
+            {
+                if (src_schema != value::scalar_type_meta<nb::object>()) {
+                    throw std::invalid_argument("AtomicDispatch<nb::object>::set_from_cpp requires matching source schema");
+                }
+                state(dst)->value = *static_cast<const nb::object *>(src);
+            }
+
+            void move_from_cpp(void *dst, void *src, const value::TypeMeta *src_schema) const override
+            {
+                if (src_schema != value::scalar_type_meta<nb::object>()) {
+                    throw std::invalid_argument("AtomicDispatch<nb::object>::move_from_cpp requires matching source schema");
+                }
+                state(dst)->value = std::move(*static_cast<nb::object *>(src));
+            }
+
+          private:
+            [[nodiscard]] static AtomicState<nb::object> *state(void *data) noexcept
+            {
+                return std::launder(reinterpret_cast<AtomicState<nb::object> *>(data));
+            }
+
+            [[nodiscard]] static const AtomicState<nb::object> *state(const void *data) noexcept
+            {
+                return std::launder(reinterpret_cast<const AtomicState<nb::object> *>(data));
+            }
+        };
+
         template <typename T>
         [[nodiscard]] inline const ViewDispatch &atomic_view_dispatch() noexcept
         {
@@ -223,6 +313,41 @@ namespace hgraph
     inline AtomicView View::as_atomic() const
     {
         return AtomicView{*this};
+    }
+
+    template <typename T> inline T *View::try_as() noexcept
+    {
+        return schema() != nullptr && schema()->kind == value::TypeKind::Atomic ? as_atomic().template try_as<T>() : nullptr;
+    }
+
+    template <typename T> inline const T *View::try_as() const noexcept
+    {
+        return schema() != nullptr && schema()->kind == value::TypeKind::Atomic ? as_atomic().template try_as<T>() : nullptr;
+    }
+
+    template <typename T> inline T &View::checked_as()
+    {
+        return as_atomic().template checked_as<T>();
+    }
+
+    template <typename T> inline const T &View::checked_as() const
+    {
+        return as_atomic().template checked_as<T>();
+    }
+
+    template <typename T> inline T &View::as()
+    {
+        return checked_as<T>();
+    }
+
+    template <typename T> inline const T &View::as() const
+    {
+        return checked_as<T>();
+    }
+
+    template <typename T> inline bool View::is_scalar_type() const noexcept
+    {
+        return schema() == value::scalar_type_meta<T>();
     }
 
 }  // namespace hgraph

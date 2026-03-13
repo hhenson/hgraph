@@ -144,6 +144,14 @@ namespace hgraph
         [[nodiscard]] size_t size() const;
         [[nodiscard]] bool empty() const;
         [[nodiscard]] const value::TypeMeta *element_schema() const;
+        /**
+         * Return the live set elements as a storage-backed range.
+         *
+         * Set iteration uses the shared range abstraction used elsewhere in
+         * the value layer rather than carrying a one-off container iterator
+         * type on `SetView`.
+         */
+        [[nodiscard]] Range<View> values() const;
         [[nodiscard]] View at(size_t index);
         [[nodiscard]] View at(size_t index) const;
         [[nodiscard]] bool contains(const View &value) const;
@@ -165,6 +173,9 @@ namespace hgraph
          */
         void end_mutation_scope() noexcept;
         [[nodiscard]] const detail::SetViewDispatch *set_dispatch() const noexcept;
+
+      private:
+        [[nodiscard]] static View project_value(const void *context, size_t index);
     };
 
     /**

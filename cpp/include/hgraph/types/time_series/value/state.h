@@ -82,7 +82,7 @@ namespace hgraph
 
       private:
         std::reference_wrapper<const value::TypeMeta>  m_schema;
-        MutationTracking                               m_tracking{MutationTracking::Delta};
+        MutationTracking                               m_tracking{MutationTracking::Plain};
         size_t                                         m_size{0};
         size_t                                         m_alignment{alignof(std::max_align_t)};
         bool                                           m_requires_destroy{true};
@@ -97,14 +97,15 @@ namespace hgraph
      *
      * Builders are cached singletons per `(schema pointer, tracking mode)`.
      * Builder identity is the compatibility contract for copy and move in this
-     * value layer.
+     * value layer. Plain tracking is the default lookup mode so ordinary value
+     * storage does not retain delta state unless the caller requests it.
      */
     struct HGRAPH_EXPORT ValueBuilderFactory
     {
         [[nodiscard]] static const ValueBuilder *builder_for(
-            const value::TypeMeta *schema, MutationTracking tracking = MutationTracking::Delta);
+            const value::TypeMeta *schema, MutationTracking tracking = MutationTracking::Plain);
         [[nodiscard]] static const ValueBuilder &checked_builder_for(
-            const value::TypeMeta *schema, MutationTracking tracking = MutationTracking::Delta);
+            const value::TypeMeta *schema, MutationTracking tracking = MutationTracking::Plain);
     };
 
 }  // namespace hgraph
