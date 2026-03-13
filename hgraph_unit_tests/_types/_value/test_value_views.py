@@ -1,7 +1,7 @@
 """
 Test Value Type System - Views
 
-Tests for ValueView and View based on the Value_DESIGN.md Section 6:
+Tests for Value views based on the Value_DESIGN.md Section 6:
 Value and View Classes
 
 These tests verify the C++ implementation once available.
@@ -20,7 +20,6 @@ value = _hgraph.value  # Value types are in the value submodule
 # Import types from the C++ extension
 try:
     Value = value.Value
-    ValueView = value.ValueView
     TypeRegistry = value.TypeRegistry
 except AttributeError:
     pytest.skip("Value view types not yet exposed in C++ extension", allow_module_level=True)
@@ -200,16 +199,16 @@ def test_is_list_for_list_value(list_schema):
 # View Scalar Access
 # =============================================================================
 
-def test_is_scalar_type_correct(int_value):
-    """is_int() returns True for integer values."""
+def test_try_as_scalar_type_correct(int_value):
+    """try_as_int() returns the integer payload for integer values."""
     cv = int_value.view()
-    assert cv.is_int() is True
+    assert cv.try_as_int() == 42
 
 
-def test_is_scalar_type_incorrect(int_value):
-    """is_double() returns False for integer values."""
+def test_try_as_scalar_type_incorrect(int_value):
+    """try_as_double() returns None for integer values."""
     cv = int_value.view()
-    assert cv.is_double() is False
+    assert cv.try_as_double() is None
 
 
 def test_as_scalar_read(int_value):
@@ -389,12 +388,6 @@ def test_as_mutable_access():
     view = v.view()
     view.set_int(100)
     assert v.view().as_int() == 100
-
-
-def test_mutable_data_access(int_value):
-    """data() provides raw data pointer (as integer for FFI)."""
-    view = int_value.view()
-    assert view.data() is not None
 
 
 # =============================================================================

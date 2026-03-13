@@ -20,9 +20,8 @@ value = _hgraph.value  # Value types are in the value submodule
 # Import Value types from the C++ extension
 try:
     Value = value.Value
-    ValueView = value.ValueView
 except AttributeError:
-    pytest.skip("Value types not yet exposed in C++ extension", allow_module_level=True)
+    pytest.skip("Value type not yet exposed in C++ extension", allow_module_level=True)
 
 
 # =============================================================================
@@ -132,21 +131,24 @@ def test_create_unicode_string_value():
 def test_create_date_value():
     """Value can be created from a date."""
     from datetime import date
-    v = Value(date(2024, 1, 15))
+    v = Value(value.scalar_type_meta_date())
+    v.from_python(date(2024, 1, 15))
     assert v.has_value()
 
 
 def test_create_datetime_value():
     """Value can be created from a datetime."""
     from datetime import datetime
-    v = Value(datetime(2024, 1, 15, 10, 30, 0))
+    v = Value(value.scalar_type_meta_datetime())
+    v.from_python(datetime(2024, 1, 15, 10, 30, 0))
     assert v.has_value()
 
 
 def test_create_timedelta_value():
     """Value can be created from a timedelta."""
     from datetime import timedelta
-    v = Value(timedelta(hours=1, minutes=30))
+    v = Value(value.scalar_type_meta_timedelta())
+    v.from_python(timedelta(hours=1, minutes=30))
     assert v.has_value()
 
 

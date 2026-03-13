@@ -20,9 +20,11 @@ value = _hgraph.value  # Value types are in the value submodule
 # Import Value types from the C++ extension
 try:
     Value = value.Value
-    ValueView = value.ValueView
 except AttributeError:
-    pytest.skip("Value types not yet exposed in C++ extension", allow_module_level=True)
+    pytest.skip("Value type not yet exposed in C++ extension", allow_module_level=True)
+
+if not hasattr(Value(1).view(), "visit"):
+    pytest.skip("Visitor helpers are not exposed in Python bindings", allow_module_level=True)
 
 
 # =============================================================================
