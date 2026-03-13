@@ -14,6 +14,8 @@
 
 namespace hgraph
 {
+    struct Value;
+
 
     /**
      * Lightweight type-erased range over value-layer results.
@@ -310,10 +312,14 @@ struct Range
 
         /**
          * Return `true` when this view currently refers to live storage.
+         *
+         * The value layer follows optional-style presence semantics. A view
+         * either has a value or it does not; there is no separate notion of a
+         * "valid" value in this API.
          */
-        [[nodiscard]] bool valid() const noexcept { return m_data != nullptr; }
+        [[nodiscard]] bool has_value() const noexcept { return m_data != nullptr; }
 
-        explicit operator bool() const noexcept { return valid(); }
+        explicit operator bool() const noexcept { return has_value(); }
 
         /**
          * Return the schema represented by this view.
@@ -332,22 +338,22 @@ struct Range
         [[nodiscard]] TupleView as_tuple() const;
         [[nodiscard]] BundleView as_bundle();
         [[nodiscard]] BundleView as_bundle() const;
-        [[nodiscard]] ListView   as_list();
-        [[nodiscard]] ListView   as_list() const;
-        [[nodiscard]] SetView    as_set();
-        [[nodiscard]] SetView    as_set() const;
-        [[nodiscard]] MapView    as_map();
-        [[nodiscard]] MapView    as_map() const;
+        [[nodiscard]] ListView as_list();
+        [[nodiscard]] ListView as_list() const;
+        [[nodiscard]] SetView as_set();
+        [[nodiscard]] SetView as_set() const;
+        [[nodiscard]] MapView as_map();
+        [[nodiscard]] MapView as_map() const;
         [[nodiscard]] CyclicBufferView as_cyclic_buffer();
         [[nodiscard]] CyclicBufferView as_cyclic_buffer() const;
-        [[nodiscard]] QueueView  as_queue();
-        [[nodiscard]] QueueView  as_queue() const;
+        [[nodiscard]] QueueView as_queue();
+        [[nodiscard]] QueueView as_queue() const;
 
         /**
          * Return the hash of the represented value.
          */
         [[nodiscard]] size_t hash() const {
-            if (!valid()) { throw std::runtime_error("View::hash() on invalid view"); }
+            if (!has_value()) { throw std::runtime_error("View::hash() on empty view"); }
             return m_dispatch->hash(m_data);
         }
 
@@ -357,9 +363,9 @@ struct Range
          * Equality is schema-sensitive. Two invalid views are equal only when
          * they represent the same schema.
          */
-        [[nodiscard]] bool eq(const View &other) const {
+        [[nodiscard]] bool equals(const View &other) const {
             if (schema() != other.schema()) { return false; }
-            if (!valid() || !other.valid()) { return !valid() && !other.valid(); }
+            if (!has_value() || !other.has_value()) { return !has_value() && !other.has_value(); }
             return std::is_eq(m_dispatch->compare(m_data, other.m_data));
         }
 
@@ -367,28 +373,61 @@ struct Range
          * Return a string representation of the represented value.
          */
         [[nodiscard]] std::string to_string() const {
-            if (!valid()) { throw std::runtime_error("View::to_string() on invalid view"); }
+            if (!has_value()) { throw std::runtime_error("View::to_string() on empty view"); }
             return m_dispatch->to_string(m_data);
         }
 
         [[nodiscard]] nb::object to_python() const {
-            if (!valid()) { throw std::runtime_error("View::to_python() on invalid view"); }
+            if (!has_value()) { throw std::runtime_error("View::to_python() on empty view"); }
             return m_dispatch->to_python(m_data, schema());
         }
 
         void from_python(const nb::object &src) {
-            if (!valid()) { throw std::runtime_error("View::from_python() on invalid view"); }
+            if (!has_value()) { throw std::runtime_error("View::from_python() on empty view"); }
             m_dispatch->from_python(m_data, src, schema());
         }
 
         template <typename T> void set(T &&value);
 
-        [[nodiscard]] bool operator==(const View &other) const { return eq(other); }
+        /**
+         * Create an owning value by copying the storage currently represented
+         * by this view.
+         *
+         * This preserves the represented schema and copies the current payload
+         * when the view is valid.
+         */
+        [[nodiscard]] Value clone() const;
+
+        /**
+         * Copy the payload represented by another view into this view.
+         *
+         * Both views must be valid and must describe the same schema. This
+         * copies payload state only; it does not rebind either view.
+         */
+        void copy_from(const View &other)
+        {
+            if (!has_value() || !other.has_value()) { throw std::runtime_error("View::copy_from requires non-empty views"); }
+            if (schema() != other.schema()) {
+                throw std::invalid_argument("View::copy_from requires matching schemas");
+            }
+            m_dispatch->assign(m_data, other.m_data);
+        }
+
+        template <typename T> [[nodiscard]] T *try_as() noexcept;
+        template <typename T> [[nodiscard]] const T *try_as() const noexcept;
+        template <typename T> [[nodiscard]] T &checked_as();
+        template <typename T> [[nodiscard]] const T &checked_as() const;
+        template <typename T> [[nodiscard]] T &as();
+        template <typename T> [[nodiscard]] const T &as() const;
+        template <typename T> [[nodiscard]] bool is_scalar_type() const noexcept;
+
+        [[nodiscard]] bool operator==(const View &other) const { return equals(other); }
 
         [[nodiscard]] std::partial_ordering operator<=>(const View &other) const {
             if (schema() != other.schema()) { return std::partial_ordering::unordered; }
-            if (!valid() || !other.valid()) {
-                return !valid() && !other.valid() ? std::partial_ordering::equivalent : std::partial_ordering::unordered;
+            if (!has_value() || !other.has_value()) {
+                return !has_value() && !other.has_value() ? std::partial_ordering::equivalent
+                                                          : std::partial_ordering::unordered;
             }
             return m_dispatch->compare(m_data, other.m_data);
         }

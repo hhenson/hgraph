@@ -35,19 +35,58 @@ namespace hgraph
     struct Value
     {
         /**
+         * Construct a schema-less empty value.
+         *
+         * This exists only as a storage placeholder for runtime types that
+         * later bind a concrete schema before use.
+         */
+        Value() noexcept = default;
+        /**
+         * Construct a schema-bound value from a schema pointer.
+         *
+         * This compatibility overload keeps older call sites readable while
+         * still requiring a concrete schema to exist.
+         */
+        explicit Value(const value::TypeMeta *schema, MutationTracking tracking = MutationTracking::Plain);
+        /**
          * Bind this value to the supplied schema and default-construct storage
          * for that schema.
          *
          * The tracking mode selects whether this value retains mutation deltas.
-         * Ordinary value storage can use `Plain`, while time-series-facing
-         * storage uses `Delta`.
+         * Plain tracking is the default for ordinary value storage so callers
+         * do not pay delta costs unless they ask for them explicitly.
+         * Time-series-facing storage opts into `Delta` deliberately.
          */
-        explicit Value(const value::TypeMeta &schema, MutationTracking tracking = MutationTracking::Delta);
+        explicit Value(const value::TypeMeta &schema, MutationTracking tracking = MutationTracking::Plain);
+        /**
+         * Construct a schema-bound value by copying the payload represented by
+         * an existing view.
+         */
+        explicit Value(const View &view, MutationTracking tracking = MutationTracking::Plain);
+        /**
+         * Construct an atomic value directly from a native C++ object.
+         *
+         * This keeps transient scalar key/value creation compact at runtime.
+         */
+        template <typename T>
+            requires(!std::same_as<std::remove_cvref_t<T>, Value> && !std::derived_from<std::remove_cvref_t<T>, View>)
+        explicit Value(T &&value)
+            : Value(*value::scalar_type_meta<std::remove_cvref_t<T>>())
+        {
+            view().set(std::forward<T>(value));
+        }
         /**
          * Copy the stored payload while preserving the schema selected by the
          * builder.
          */
         Value(const Value &other);
+        /**
+         * Copy the supplied value into a new owning instance.
+         *
+         * This compatibility helper keeps older runtime code readable while
+         * still going through the ordinary copy-construction path.
+         */
+        [[nodiscard]] static Value copy(const Value &other) { return Value(other); }
         /**
          * Move the stored payload while preserving the schema selected by the
          * builder.
@@ -76,10 +115,11 @@ namespace hgraph
         /**
          * Return whether this value currently owns live storage.
          *
-         * Inline-storage values are always live. Heap-backed values are live
-         * when their owned pointer is non-null.
+         * The value layer follows optional-style presence semantics. A value
+         * either has storage or it does not; there is no separate "valid"
+         * state in this API.
          */
-        [[nodiscard]] bool valid() const noexcept;
+        [[nodiscard]] bool has_value() const noexcept;
         explicit operator bool() const noexcept;
         /**
          * Return the schema bound to this value.
@@ -107,67 +147,102 @@ namespace hgraph
          * This is shorthand for `view().as_atomic()` when the caller already
          * owns a `Value` and wants the typed view directly.
          */
-        [[nodiscard]] AtomicView atomic_view() noexcept;
+        [[nodiscard]] AtomicView atomic_view();
         /**
          * Return a const atomic view over the stored payload.
          */
-        [[nodiscard]] AtomicView atomic_view() const noexcept;
+        [[nodiscard]] AtomicView atomic_view() const;
         /**
          * Return a mutable tuple-compatible view over the stored payload.
          */
-        [[nodiscard]] TupleView tuple_view() noexcept;
+        [[nodiscard]] TupleView tuple_view();
         /**
          * Return a const tuple-compatible view over the stored payload.
          */
-        [[nodiscard]] TupleView tuple_view() const noexcept;
+        [[nodiscard]] TupleView tuple_view() const;
         /**
          * Return a mutable bundle view over the stored payload.
          */
-        [[nodiscard]] BundleView bundle_view() noexcept;
+        [[nodiscard]] BundleView bundle_view();
         /**
          * Return a const bundle view over the stored payload.
          */
-        [[nodiscard]] BundleView bundle_view() const noexcept;
+        [[nodiscard]] BundleView bundle_view() const;
         /**
          * Return a mutable list view over the stored payload.
          */
-        [[nodiscard]] ListView list_view() noexcept;
+        [[nodiscard]] ListView list_view();
         /**
          * Return a const list view over the stored payload.
          */
-        [[nodiscard]] ListView list_view() const noexcept;
+        [[nodiscard]] ListView list_view() const;
         /**
          * Return a mutable set view over the stored payload.
          */
-        [[nodiscard]] SetView set_view() noexcept;
+        [[nodiscard]] SetView set_view();
         /**
          * Return a const set view over the stored payload.
          */
-        [[nodiscard]] SetView set_view() const noexcept;
+        [[nodiscard]] SetView set_view() const;
         /**
          * Return a mutable map view over the stored payload.
          */
-        [[nodiscard]] MapView map_view() noexcept;
+        [[nodiscard]] MapView map_view();
         /**
          * Return a const map view over the stored payload.
          */
-        [[nodiscard]] MapView map_view() const noexcept;
+        [[nodiscard]] MapView map_view() const;
         /**
          * Return a mutable cyclic buffer view over the stored payload.
          */
-        [[nodiscard]] CyclicBufferView cyclic_buffer_view() noexcept;
+        [[nodiscard]] CyclicBufferView cyclic_buffer_view();
         /**
          * Return a const cyclic buffer view over the stored payload.
          */
-        [[nodiscard]] CyclicBufferView cyclic_buffer_view() const noexcept;
+        [[nodiscard]] CyclicBufferView cyclic_buffer_view() const;
         /**
          * Return a mutable queue view over the stored payload.
          */
-        [[nodiscard]] QueueView queue_view() noexcept;
+        [[nodiscard]] QueueView queue_view();
         /**
          * Return a const queue view over the stored payload.
          */
-        [[nodiscard]] QueueView queue_view() const noexcept;
+        [[nodiscard]] QueueView queue_view() const;
+        /**
+         * Compare two owning values for equality.
+         */
+        [[nodiscard]] bool equals(const Value &other) const;
+        /**
+         * Compare this owning value to a non-owning view.
+         */
+        [[nodiscard]] bool equals(const View &other) const;
+        /**
+         * Return the hash of the current payload.
+         */
+        [[nodiscard]] size_t hash() const;
+        /**
+         * Return the string form of the current payload.
+         */
+        [[nodiscard]] std::string to_string() const;
+        /**
+         * Convert the current payload to a Python object.
+         */
+        [[nodiscard]] nb::object to_python() const;
+        /**
+         * Replace the current payload from a Python object.
+         *
+         * Passing `None` clears heap-backed storage and reconstructs a default
+         * payload so the value remains schema-bound and settable.
+         */
+        void from_python(const nb::object &src);
+        /**
+         * Reset this value to the default payload for its schema.
+         *
+         * The name follows the standard C++ `reset()` convention: after the
+         * call, the value remains schema-bound but its payload is restored to
+         * the default state for that schema.
+         */
+        void reset();
 
       private:
         union Storage
@@ -189,7 +264,7 @@ namespace hgraph
          * This leaves heap-backed values storage-empty. Inline-storage values
          * do not have an externally observable invalid state.
          */
-        void reset() noexcept;
+        void clear_storage() noexcept;
         /**
          * Return the raw memory block that holds the payload.
          *
@@ -213,9 +288,14 @@ namespace hgraph
         Storage             m_storage;
     };
 
+    inline Value View::clone() const
+    {
+        return Value{*this};
+    }
+
     template <typename T> inline void View::set(T &&value)
     {
-        if (!valid()) { throw std::runtime_error("View::set(T) on invalid view"); }
+        if (!has_value()) { throw std::runtime_error("View::set(T) on empty view"); }
 
         using TValue = std::remove_cvref_t<T>;
         if constexpr (std::is_lvalue_reference_v<T &&>) {

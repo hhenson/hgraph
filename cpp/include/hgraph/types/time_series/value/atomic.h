@@ -236,7 +236,7 @@ namespace hgraph
         explicit AtomicView(const View &view)
             : View(view)
         {
-            if (!view.valid()) { return; }
+            if (!view.has_value()) { return; }
             if (view.schema() == nullptr || view.schema()->kind != value::TypeKind::Atomic) {
                 throw std::runtime_error("AtomicView requires an atomic schema");
             }
@@ -254,14 +254,14 @@ namespace hgraph
 
         template <typename T> [[nodiscard]] T &checked_as()
         {
-            if (!valid()) { throw std::runtime_error("AtomicView::checked_as<T>() on invalid view"); }
+            if (!has_value()) { throw std::runtime_error("AtomicView::checked_as<T>() on invalid view"); }
             if (T *ptr = try_as<T>(); ptr != nullptr) { return *ptr; }
             throw std::runtime_error("AtomicView::checked_as<T>() type mismatch");
         }
 
         template <typename T> [[nodiscard]] const T &checked_as() const
         {
-            if (!valid()) { throw std::runtime_error("AtomicView::checked_as<T>() on invalid view"); }
+            if (!has_value()) { throw std::runtime_error("AtomicView::checked_as<T>() on invalid view"); }
             if (const T *ptr = try_as<T>(); ptr != nullptr) { return *ptr; }
             throw std::runtime_error("AtomicView::checked_as<T>() type mismatch");
         }
@@ -271,8 +271,8 @@ namespace hgraph
 
         AtomicView &operator=(const View &other)
         {
-            if (!valid()) { throw std::runtime_error("AtomicView::operator= on invalid view"); }
-            if (!other.valid()) { throw std::runtime_error("AtomicView::operator= from invalid view"); }
+            if (!has_value()) { throw std::runtime_error("AtomicView::operator= on invalid view"); }
+            if (!other.has_value()) { throw std::runtime_error("AtomicView::operator= from invalid view"); }
             if (schema() != other.schema()) {
                 throw std::runtime_error("AtomicView::operator= requires matching schema");
             }
