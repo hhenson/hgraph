@@ -465,6 +465,13 @@ namespace hgraph
 
         struct PlainDynamicListState
         {
+            /**
+             * Element payload storage.
+             *
+             * Small lists point into the root value allocation. The pointer is
+             * rebound to heap storage only after growth exceeds the schema-
+             * derived inline capacity.
+             */
             std::byte *data{nullptr};
             std::byte *validity{nullptr};
             size_t     size{0};
@@ -473,6 +480,13 @@ namespace hgraph
 
         struct DeltaDynamicListState
         {
+            /**
+             * Element payload storage.
+             *
+             * Small lists point into the root value allocation. The pointer is
+             * rebound to heap storage only after growth exceeds the schema-
+             * derived inline capacity.
+             */
             std::byte *data{nullptr};
             std::byte *validity{nullptr};
             std::byte *updated{nullptr};
@@ -491,6 +505,37 @@ namespace hgraph
             DynamicListDispatch(const value::TypeMeta &schema, const ValueBuilder &element_builder) noexcept
                 : ListDispatchBase(schema, element_builder)
             {
+            }
+
+            /**
+             * Return the number of elements that fit in the root value
+             * allocation before this dynamic list spills to heap storage.
+             */
+            [[nodiscard]] size_t inline_capacity() const noexcept
+            {
+                return SmallBufferPolicy::capacity_for([this](size_t elements) noexcept {
+                    const size_t bytes = this->element_stride() * elements + bitmap_bytes(elements) +
+                                         (tracks_deltas_v ? bitmap_bytes(elements) * 2 : 0);
+                    return bytes <= SmallBufferPolicy::target_bytes;
+                });
+            }
+
+            /**
+             * Return the total root-allocation size required for the list header
+             * plus the schema-derived inline small-buffer region.
+             */
+            [[nodiscard]] size_t allocation_size() const noexcept
+            {
+                return inline_capacity() == 0 ? sizeof(DynamicListState)
+                                              : added_memory_offset() + (tracks_deltas_v ? bitmap_bytes(inline_capacity()) : 0);
+            }
+
+            /**
+             * Return the alignment required by the header and inline payload.
+             */
+            [[nodiscard]] size_t allocation_alignment() const noexcept
+            {
+                return std::max(alignof(DynamicListState), this->m_element_builder.get().alignment());
             }
 
             [[nodiscard]] size_t size(const void *data) const noexcept override
@@ -633,22 +678,25 @@ namespace hgraph
             void construct(void *memory) const
             {
                 std::construct_at(state(memory));
+                if (const size_t capacity = inline_capacity(); capacity > 0) {
+                    bind_inline_storage(memory, capacity);
+                }
             }
 
             void destroy(void *memory) const noexcept
             {
                 this->destroy_elements(data_memory(memory), size(memory));
-                if (data_memory(memory) != nullptr) {
+                if (data_memory(memory) != nullptr && !uses_inline_storage(memory)) {
                     ::operator delete(data_memory(memory), std::align_val_t{this->m_element_builder.get().alignment()});
                 }
-                if (validity_memory(memory) != nullptr) {
+                if (validity_memory(memory) != nullptr && !uses_inline_storage(memory)) {
                     ::operator delete(validity_memory(memory));
                 }
                 if constexpr (tracks_deltas_v) {
-                    if (state(memory)->updated != nullptr) {
+                    if (state(memory)->updated != nullptr && !uses_inline_storage(memory)) {
                         ::operator delete(state(memory)->updated);
                     }
-                    if (state(memory)->added != nullptr) {
+                    if (state(memory)->added != nullptr && !uses_inline_storage(memory)) {
                         ::operator delete(state(memory)->added);
                     }
                 }
@@ -672,6 +720,13 @@ namespace hgraph
 
             void move_construct(void *dst, void *src) const
             {
+                if (uses_inline_storage(src)) {
+                    construct(dst);
+                    assign(dst, src);
+                    clear(src);
+                    return;
+                }
+
                 std::construct_at(state(dst), std::move(*state(src)));
                 state(src)->data = nullptr;
                 state(src)->validity = nullptr;
@@ -760,7 +815,9 @@ namespace hgraph
 
                 if (data_memory(data) != nullptr) {
                     this->destroy_elements(data_memory(data), current_size);
-                    ::operator delete(data_memory(data), std::align_val_t{this->m_element_builder.get().alignment()});
+                    if (!uses_inline_storage(data)) {
+                        ::operator delete(data_memory(data), std::align_val_t{this->m_element_builder.get().alignment()});
+                    }
                 }
 
                 const size_t old_bytes = value::validity_mask_bytes(current_size);
@@ -779,14 +836,14 @@ namespace hgraph
                     }
                     value::validity_set_range(new_added, current_capacity, new_capacity - current_capacity, false);
                 }
-                if (validity_memory(data) != nullptr) {
+                if (validity_memory(data) != nullptr && !uses_inline_storage(data)) {
                     ::operator delete(validity_memory(data));
                 }
                 if constexpr (tracks_deltas_v) {
-                    if (state(data)->updated != nullptr) {
+                    if (state(data)->updated != nullptr && !uses_inline_storage(data)) {
                         ::operator delete(state(data)->updated);
                     }
-                    if (state(data)->added != nullptr) {
+                    if (state(data)->added != nullptr && !uses_inline_storage(data)) {
                         ::operator delete(state(data)->added);
                     }
                 }
@@ -798,6 +855,74 @@ namespace hgraph
                     state(data)->updated = new_updated;
                     state(data)->added = new_added;
                 }
+            }
+
+            [[nodiscard]] static size_t bitmap_bytes(size_t elements) noexcept
+            {
+                return value::validity_mask_bytes(elements);
+            }
+
+            [[nodiscard]] size_t header_size() const noexcept
+            {
+                return align_up(sizeof(DynamicListState), this->m_element_builder.get().alignment());
+            }
+
+            [[nodiscard]] size_t validity_memory_offset() const noexcept
+            {
+                return header_size() + this->element_stride() * inline_capacity();
+            }
+
+            [[nodiscard]] size_t updated_memory_offset() const noexcept
+            {
+                return validity_memory_offset() + bitmap_bytes(inline_capacity());
+            }
+
+            [[nodiscard]] size_t added_memory_offset() const noexcept
+            {
+                return updated_memory_offset() + (tracks_deltas_v ? bitmap_bytes(inline_capacity()) : 0);
+            }
+
+            void bind_inline_storage(void *memory, size_t capacity) const noexcept
+            {
+                DynamicListState *list = state(memory);
+                list->data = capacity > 0 ? inline_data_memory(memory) : nullptr;
+                list->validity = capacity > 0 ? inline_validity_memory(memory) : nullptr;
+                list->size = 0;
+                list->capacity = capacity;
+                if (list->validity != nullptr) { value::validity_set_all(list->validity, capacity, false); }
+                if constexpr (tracks_deltas_v) {
+                    list->updated = capacity > 0 ? inline_updated_memory(memory) : nullptr;
+                    list->added = capacity > 0 ? inline_added_memory(memory) : nullptr;
+                    list->mutation_depth = 0;
+                    if (list->updated != nullptr) { value::validity_set_all(list->updated, capacity, false); }
+                    if (list->added != nullptr) { value::validity_set_all(list->added, capacity, false); }
+                }
+            }
+
+            [[nodiscard]] std::byte *inline_data_memory(void *memory) const noexcept
+            {
+                return static_cast<std::byte *>(memory) + header_size();
+            }
+
+            [[nodiscard]] std::byte *inline_validity_memory(void *memory) const noexcept
+            {
+                return static_cast<std::byte *>(memory) + validity_memory_offset();
+            }
+
+            [[nodiscard]] std::byte *inline_updated_memory(void *memory) const noexcept
+            {
+                return static_cast<std::byte *>(memory) + updated_memory_offset();
+            }
+
+            [[nodiscard]] std::byte *inline_added_memory(void *memory) const noexcept
+            {
+                return static_cast<std::byte *>(memory) + added_memory_offset();
+            }
+
+            [[nodiscard]] bool uses_inline_storage(const void *memory) const noexcept
+            {
+                const DynamicListState *list = state(memory);
+                return list->data != nullptr && list->data == static_cast<const std::byte *>(memory) + header_size();
             }
         };
 
@@ -857,11 +982,7 @@ namespace hgraph
             void expand_builder(ValueBuilder &builder, const value::TypeMeta &schema) const noexcept override
             {
                 static_cast<void>(schema);
-                if constexpr (TDispatch::tracking_mode == MutationTracking::Delta) {
-                    builder.cache_layout(sizeof(DeltaDynamicListState), alignof(DeltaDynamicListState));
-                } else {
-                    builder.cache_layout(sizeof(PlainDynamicListState), alignof(PlainDynamicListState));
-                }
+                builder.cache_layout(m_dispatch.get().allocation_size(), m_dispatch.get().allocation_alignment());
                 builder.cache_lifecycle(true, true, false);
             }
 

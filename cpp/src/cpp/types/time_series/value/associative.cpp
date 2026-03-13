@@ -70,8 +70,17 @@ namespace hgraph
             size_t capacity{0};
             /**
              * Raw element storage.
+             *
+             * Small associative containers point this at inline payload storage
+             * inside the root value allocation. Larger containers spill to heap
+             * storage once they exceed the schema-derived inline capacity.
              */
             std::byte *elements{nullptr};
+            /**
+             * Whether `elements` points into the root value allocation rather
+             * than a separately allocated heap buffer.
+             */
+            bool elements_inline{false};
         };
 
         struct PlainSetState : KeyStorageBase
@@ -133,6 +142,11 @@ namespace hgraph
              */
             PlainSetState keys{};
             std::byte    *values{nullptr};
+            /**
+             * Whether `values` points into the root value allocation rather
+             * than a separately allocated heap buffer.
+             */
+            bool          values_inline{false};
         };
 
         struct DeltaMapState
@@ -143,6 +157,11 @@ namespace hgraph
              */
             DeltaSetState keys{};
             std::byte    *values{nullptr};
+            /**
+             * Whether `values` points into the root value allocation rather
+             * than a separately allocated heap buffer.
+             */
+            bool          values_inline{false};
             /**
              * Slots whose values were updated in the current mutation epoch
              * without the key being newly added in that same epoch.
@@ -285,11 +304,14 @@ namespace hgraph
 
                 destroy_dense_payloads(state);
                 if (state.elements != nullptr) {
-                    ::operator delete(state.elements, std::align_val_t{builder().alignment()});
+                    if (!state.elements_inline) {
+                        ::operator delete(state.elements, std::align_val_t{builder().alignment()});
+                    }
                 }
 
                 state.elements = new_elements;
                 state.capacity = new_capacity;
+                state.elements_inline = false;
             }
 
             void reserve(DeltaSetState &state, size_t min_capacity) const
@@ -318,12 +340,15 @@ namespace hgraph
 
                 destroy_occupied_payloads(state);
                 if (state.elements != nullptr) {
-                    ::operator delete(state.elements, std::align_val_t{builder().alignment()});
+                    if (!state.elements_inline) {
+                        ::operator delete(state.elements, std::align_val_t{builder().alignment()});
+                    }
                 }
 
                 const size_t old_capacity = state.capacity;
                 state.elements = new_elements;
                 state.capacity = new_capacity;
+                state.elements_inline = false;
                 state.alive.resize(new_capacity);
                 state.occupied.resize(new_capacity);
                 state.added.resize(new_capacity);
@@ -530,6 +555,35 @@ namespace hgraph
                 if (schema.element_type == nullptr) {
                     throw std::runtime_error("Set schema requires an element schema");
                 }
+            }
+
+            /**
+             * Return the number of keys retained inline in the root value
+             * allocation before the set spills to heap storage.
+             */
+            [[nodiscard]] size_t inline_capacity() const noexcept
+            {
+                return SmallBufferPolicy::capacity_for([this](size_t elements) noexcept {
+                    return m_keys.stride() * elements <= SmallBufferPolicy::target_bytes;
+                });
+            }
+
+            /**
+             * Return the total root-allocation size required for the set header
+             * plus its schema-derived inline key buffer.
+             */
+            [[nodiscard]] size_t allocation_size() const noexcept
+            {
+                return inline_capacity() == 0 ? sizeof(SetState) : header_size() + m_keys.stride() * inline_capacity();
+            }
+
+            /**
+             * Return the alignment required by the header and inline key
+             * storage.
+             */
+            [[nodiscard]] size_t allocation_alignment() const noexcept
+            {
+                return std::max(alignof(SetState), m_element_builder.get().alignment());
             }
 
             [[nodiscard]] bool tracks_deltas() const noexcept { return tracks_deltas_v; }
@@ -796,6 +850,22 @@ namespace hgraph
             {
                 std::construct_at(state(memory));
                 m_keys.initialise(*state(memory));
+                if (const size_t capacity = inline_capacity(); capacity > 0) {
+                    state(memory)->elements = inline_elements_memory(memory);
+                    state(memory)->capacity = capacity;
+                    state(memory)->elements_inline = true;
+                    state(memory)->index->reserve(capacity);
+                    if constexpr (tracks_deltas_v) {
+                        state(memory)->alive.resize(capacity);
+                        state(memory)->occupied.resize(capacity);
+                        state(memory)->added.resize(capacity);
+                        state(memory)->removed.resize(capacity);
+                        state(memory)->free_list.reserve(capacity);
+                        for (size_t slot = capacity; slot > 0; --slot) {
+                            state(memory)->free_list.push_back(slot - 1);
+                        }
+                    }
+                }
             }
 
             void destroy(void *memory) const noexcept
@@ -803,7 +873,9 @@ namespace hgraph
                 auto *set = state(memory);
                 hard_clear(*set);
                 if (set->elements != nullptr) {
-                    ::operator delete(set->elements, std::align_val_t{m_element_builder.get().alignment()});
+                    if (!set->elements_inline) {
+                        ::operator delete(set->elements, std::align_val_t{m_element_builder.get().alignment()});
+                    }
                 }
                 std::destroy_at(state(memory));
             }
@@ -816,11 +888,19 @@ namespace hgraph
 
             void move_construct(void *dst, void *src) const
             {
+                if (state(src)->elements_inline) {
+                    construct(dst);
+                    assign(dst, src);
+                    hard_clear(src);
+                    return;
+                }
+
                 std::construct_at(state(dst), std::move(*state(src)));
                 m_keys.rebind_index(*state(dst));
                 state(src)->elements = nullptr;
                 state(src)->size = 0;
                 state(src)->capacity = 0;
+                state(src)->elements_inline = false;
                 state(src)->index.reset();
                 if constexpr (tracks_deltas_v) {
                     state(src)->alive.clear();
@@ -853,6 +933,18 @@ namespace hgraph
                 return std::launder(reinterpret_cast<const SetState *>(memory));
             }
 
+            [[nodiscard]] size_t header_size() const noexcept
+            {
+                const size_t header = tracks_deltas_v ? sizeof(DeltaSetState) : sizeof(PlainSetState);
+                const size_t alignment = m_element_builder.get().alignment();
+                return alignment <= 1 ? header : ((header + alignment - 1) / alignment) * alignment;
+            }
+
+            [[nodiscard]] std::byte *inline_elements_memory(void *memory) const noexcept
+            {
+                return static_cast<std::byte *>(memory) + header_size();
+            }
+
             std::reference_wrapper<const value::TypeMeta> m_schema;
             std::reference_wrapper<const ValueBuilder>    m_element_builder;
             KeySlotStorage                                m_keys;
@@ -876,6 +968,34 @@ namespace hgraph
                 if (schema.key_type == nullptr || schema.element_type == nullptr) {
                     throw std::runtime_error("Map schema requires key and value schemas");
                 }
+            }
+
+            /**
+             * Return the number of map items retained inline in the root value
+             * allocation before the map spills to heap-backed key/value arrays.
+             */
+            [[nodiscard]] size_t inline_capacity() const noexcept
+            {
+                return SmallBufferPolicy::capacity_for([this](size_t elements) noexcept {
+                    return m_keys.stride() * elements + m_value_stride * elements <= SmallBufferPolicy::target_bytes;
+                });
+            }
+
+            /**
+             * Return the total root-allocation size required for the map header
+             * plus its schema-derived inline key and value buffers.
+             */
+            [[nodiscard]] size_t allocation_size() const noexcept
+            {
+                return inline_capacity() == 0 ? sizeof(MapState) : inline_values_offset() + m_value_stride * inline_capacity();
+            }
+
+            /**
+             * Return the alignment required by the header and inline payload.
+             */
+            [[nodiscard]] size_t allocation_alignment() const noexcept
+            {
+                return std::max({alignof(MapState), m_key_builder.get().alignment(), m_value_builder.get().alignment()});
             }
 
             [[nodiscard]] bool tracks_deltas() const noexcept { return tracks_deltas_v; }
@@ -1242,16 +1362,39 @@ namespace hgraph
             {
                 std::construct_at(state(memory));
                 m_keys.initialise(state(memory)->keys);
+                if (const size_t capacity = inline_capacity(); capacity > 0) {
+                    state(memory)->keys.elements = inline_keys_memory(memory);
+                    state(memory)->keys.capacity = capacity;
+                    state(memory)->keys.elements_inline = true;
+                    state(memory)->values = inline_values_memory(memory);
+                    state(memory)->values_inline = true;
+                    state(memory)->keys.index->reserve(capacity);
+                    if constexpr (tracks_deltas_v) {
+                        state(memory)->keys.alive.resize(capacity);
+                        state(memory)->keys.occupied.resize(capacity);
+                        state(memory)->keys.added.resize(capacity);
+                        state(memory)->keys.removed.resize(capacity);
+                        state(memory)->updated.resize(capacity);
+                        state(memory)->keys.free_list.reserve(capacity);
+                        for (size_t slot = capacity; slot > 0; --slot) {
+                            state(memory)->keys.free_list.push_back(slot - 1);
+                        }
+                    }
+                }
             }
 
             void destroy(void *memory) const noexcept
             {
                 hard_clear(memory);
                 if (keys(memory).elements != nullptr) {
-                    ::operator delete(keys(memory).elements, std::align_val_t{m_key_builder.get().alignment()});
+                    if (!keys(memory).elements_inline) {
+                        ::operator delete(keys(memory).elements, std::align_val_t{m_key_builder.get().alignment()});
+                    }
                 }
                 if (values_memory(memory) != nullptr) {
-                    ::operator delete(values_memory(memory), std::align_val_t{m_value_builder.get().alignment()});
+                    if (!state(memory)->values_inline) {
+                        ::operator delete(values_memory(memory), std::align_val_t{m_value_builder.get().alignment()});
+                    }
                 }
                 std::destroy_at(state(memory));
             }
@@ -1264,13 +1407,22 @@ namespace hgraph
 
             void move_construct(void *dst, void *src) const
             {
+                if (state(src)->keys.elements_inline || state(src)->values_inline) {
+                    construct(dst);
+                    assign(dst, src);
+                    hard_clear(src);
+                    return;
+                }
+
                 std::construct_at(state(dst), std::move(*state(src)));
                 m_keys.rebind_index(state(dst)->keys);
                 state(src)->keys.elements = nullptr;
                 state(src)->keys.size = 0;
                 state(src)->keys.capacity = 0;
+                state(src)->keys.elements_inline = false;
                 state(src)->keys.index.reset();
                 state(src)->values = nullptr;
+                state(src)->values_inline = false;
                 if constexpr (tracks_deltas_v) {
                     state(src)->keys.alive.clear();
                     state(src)->keys.occupied.clear();
@@ -1353,9 +1505,12 @@ namespace hgraph
 
                 destroy_dense_values(map);
                 if (map.values != nullptr) {
-                    ::operator delete(map.values, std::align_val_t{m_value_builder.get().alignment()});
+                    if (!map.values_inline) {
+                        ::operator delete(map.values, std::align_val_t{m_value_builder.get().alignment()});
+                    }
                 }
                 map.values = new_values;
+                map.values_inline = false;
             }
 
             void reserve(DeltaMapState &map, size_t min_capacity) const
@@ -1396,10 +1551,13 @@ namespace hgraph
 
                 destroy_constructed_values(map);
                 if (map.values != nullptr) {
-                    ::operator delete(map.values, std::align_val_t{m_value_builder.get().alignment()});
+                    if (!map.values_inline) {
+                        ::operator delete(map.values, std::align_val_t{m_value_builder.get().alignment()});
+                    }
                 }
 
                 map.values = new_values;
+                map.values_inline = false;
                 map.updated.resize(new_capacity);
             }
 
@@ -1472,6 +1630,30 @@ namespace hgraph
                 return std::launder(reinterpret_cast<const MapState *>(memory));
             }
 
+            [[nodiscard]] size_t header_size() const noexcept
+            {
+                const size_t header = tracks_deltas_v ? sizeof(DeltaMapState) : sizeof(PlainMapState);
+                const size_t alignment = std::max(m_key_builder.get().alignment(), m_value_builder.get().alignment());
+                return alignment <= 1 ? header : ((header + alignment - 1) / alignment) * alignment;
+            }
+
+            [[nodiscard]] size_t inline_values_offset() const noexcept
+            {
+                const size_t keys_end = header_size() + m_keys.stride() * inline_capacity();
+                const size_t alignment = m_value_builder.get().alignment();
+                return alignment <= 1 ? keys_end : ((keys_end + alignment - 1) / alignment) * alignment;
+            }
+
+            [[nodiscard]] std::byte *inline_keys_memory(void *memory) const noexcept
+            {
+                return static_cast<std::byte *>(memory) + header_size();
+            }
+
+            [[nodiscard]] std::byte *inline_values_memory(void *memory) const noexcept
+            {
+                return static_cast<std::byte *>(memory) + inline_values_offset();
+            }
+
             [[nodiscard]] KeyState &keys(void *memory) const noexcept { return state(memory)->keys; }
 
             [[nodiscard]] const KeyState &keys(const void *memory) const noexcept { return state(memory)->keys; }
@@ -1498,20 +1680,7 @@ namespace hgraph
             void expand_builder(ValueBuilder &builder, const value::TypeMeta &schema) const noexcept override
             {
                 static_cast<void>(schema);
-                if constexpr (std::same_as<TDispatch, SetDispatch<MutationTracking::Delta>> ||
-                              std::same_as<TDispatch, SetDispatch<MutationTracking::Plain>>) {
-                    if constexpr (TDispatch::tracking_mode == MutationTracking::Delta) {
-                        builder.cache_layout(sizeof(DeltaSetState), alignof(DeltaSetState));
-                    } else {
-                        builder.cache_layout(sizeof(PlainSetState), alignof(PlainSetState));
-                    }
-                } else {
-                    if constexpr (TDispatch::tracking_mode == MutationTracking::Delta) {
-                        builder.cache_layout(sizeof(DeltaMapState), alignof(DeltaMapState));
-                    } else {
-                        builder.cache_layout(sizeof(PlainMapState), alignof(PlainMapState));
-                    }
-                }
+                builder.cache_layout(m_dispatch.get().allocation_size(), m_dispatch.get().allocation_alignment());
                 builder.cache_lifecycle(true, true, false);
             }
 

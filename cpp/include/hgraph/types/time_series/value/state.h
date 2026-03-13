@@ -17,6 +17,34 @@ namespace hgraph
     {
 
         /**
+         * Shared small-buffer policy for dynamically sized containers.
+         *
+         * Dynamic containers still need heap growth when they exceed their
+         * inline budget, but the root value allocation can reserve enough
+         * schema-shaped storage for a small number of elements up front. This
+         * keeps small collections in one allocation and defers heap growth
+         * until the inline budget is exhausted.
+         *
+         * The policy is bounded by both a byte budget and an element-count
+         * budget so wide element schemas do not force an excessively large root
+         * allocation, while narrow schemas still get a useful inline capacity.
+         */
+        struct SmallBufferPolicy
+        {
+            static constexpr size_t target_bytes = 256;
+            static constexpr size_t max_elements = 20;
+
+            template <typename TFits>
+            [[nodiscard]] static size_t capacity_for(TFits &&fits) noexcept
+            {
+                for (size_t elements = max_elements; elements > 0; --elements) {
+                    if (fits(elements)) { return elements; }
+                }
+                return 0;
+            }
+        };
+
+        /**
          * Lifecycle dispatcher for raw value storage.
          *
          * `StateOps` is responsible only for constructing, destroying, copying,

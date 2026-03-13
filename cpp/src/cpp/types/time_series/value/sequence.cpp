@@ -43,6 +43,13 @@ namespace hgraph
 
         struct QueueStateBase
         {
+            /**
+             * Element payload storage.
+             *
+             * Small queues point into the root value allocation. Once growth
+             * exceeds the schema-derived inline capacity, this pointer is
+             * rebound to a separately allocated growable buffer.
+             */
             std::byte *elements{nullptr};
             size_t     size{0};
             size_t     capacity{0};
@@ -540,6 +547,35 @@ namespace hgraph
             {
             }
 
+            /**
+             * Return the number of logical queue elements retained inline in the
+             * root value allocation before the queue grows into heap storage.
+             */
+            [[nodiscard]] size_t inline_capacity() const noexcept
+            {
+                return SmallBufferPolicy::capacity_for([this](size_t elements) noexcept {
+                    return storage_slots(elements) * this->element_stride() <= SmallBufferPolicy::target_bytes;
+                });
+            }
+
+            /**
+             * Return the total root-allocation size required for the queue
+             * header plus its schema-derived inline small buffer.
+             */
+            [[nodiscard]] size_t allocation_size() const noexcept
+            {
+                return inline_capacity() == 0 ? sizeof(QueueState)
+                                              : header_size() + storage_slots(inline_capacity()) * this->element_stride();
+            }
+
+            /**
+             * Return the alignment required by the header and inline payload.
+             */
+            [[nodiscard]] size_t allocation_alignment() const noexcept
+            {
+                return std::max(alignof(QueueState), this->m_element_builder.get().alignment());
+            }
+
             [[nodiscard]] size_t size(const void *data) const noexcept override { return state(data)->size; }
             [[nodiscard]] size_t max_capacity() const noexcept override { return this->m_schema.get().fixed_size; }
             [[nodiscard]] const value::TypeMeta &element_schema() const noexcept override { return SequenceDispatchBase<TTracking>::element_schema(); }
@@ -618,12 +654,12 @@ namespace hgraph
             {
                 auto *queue = state(data);
                 if (queue->capacity == 0) {
-                    reserve(queue, max_capacity() > 0 ? max_capacity() : 4);
+                    reserve(data, max_capacity() > 0 ? max_capacity() : 4);
                 } else if (max_capacity() > 0 && queue->size == max_capacity()) {
                     pop(data);
                 } else if (queue->size == queue->capacity) {
                     const size_t grown = max_capacity() > 0 ? max_capacity() : queue->capacity * 2;
-                    reserve(queue, std::max<size_t>(grown, queue->capacity + 1));
+                    reserve(data, std::max<size_t>(grown, queue->capacity + 1));
                 }
 
                 const size_t tail = (queue->head + queue->size) % queue->capacity;
@@ -720,7 +756,7 @@ namespace hgraph
                 const size_t import_limit = max_capacity();
                 const size_t target_size = import_limit == 0 ? sequence_size : std::min(import_limit, sequence_size);
                 if (target_size > 0) {
-                    reserve(queue, max_capacity() > 0 ? std::min(max_capacity(), target_size) : target_size);
+                    reserve(dst, max_capacity() > 0 ? std::min(max_capacity(), target_size) : target_size);
                 }
 
                 nb::iterator it = nb::iter(src);
@@ -765,6 +801,14 @@ namespace hgraph
             void construct(void *memory) const
             {
                 std::construct_at(state(memory));
+                if (const size_t capacity = inline_capacity(); capacity > 0) {
+                    QueueState *queue = state(memory);
+                    queue->elements = inline_elements_memory(memory);
+                    queue->capacity = capacity;
+                    queue->size = 0;
+                    queue->head = 0;
+                    this->construct_slots(queue->elements, storage_slots(capacity));
+                }
             }
 
             void destroy(void *memory) const noexcept
@@ -774,7 +818,9 @@ namespace hgraph
                     if (queue->capacity > 0) {
                         this->destroy_slots(queue->elements, storage_slots(queue->capacity));
                     }
-                    ::operator delete(queue->elements, std::align_val_t{this->m_element_builder.get().alignment()});
+                    if (!uses_inline_storage(memory)) {
+                        ::operator delete(queue->elements, std::align_val_t{this->m_element_builder.get().alignment()});
+                    }
                 }
                 std::destroy_at(state(memory));
             }
@@ -787,6 +833,13 @@ namespace hgraph
 
             void move_construct(void *dst, void *src) const
             {
+                if (uses_inline_storage(src)) {
+                    construct(dst);
+                    assign(dst, src);
+                    clear(src);
+                    return;
+                }
+
                 std::construct_at(state(dst), std::move(*state(src)));
                 state(src)->elements = nullptr;
                 state(src)->size = 0;
@@ -805,8 +858,9 @@ namespace hgraph
                 return queue.capacity == 0 ? 0 : (queue.head + logical_index) % queue.capacity;
             }
 
-            void reserve(QueueStateBase *queue, size_t min_capacity) const
+            void reserve(void *data, size_t min_capacity) const
             {
+                QueueStateBase *queue = state(data);
                 if (min_capacity <= queue->capacity) { return; }
                 if (max_capacity() > 0 && min_capacity > max_capacity()) {
                     min_capacity = max_capacity();
@@ -845,7 +899,9 @@ namespace hgraph
 
                 if (queue->elements != nullptr) {
                     this->destroy_slots(queue->elements, storage_slots(queue->capacity));
-                    ::operator delete(queue->elements, std::align_val_t{this->m_element_builder.get().alignment()});
+                    if (!uses_inline_storage(data)) {
+                        ::operator delete(queue->elements, std::align_val_t{this->m_element_builder.get().alignment()});
+                    }
                 }
 
                 queue->elements = new_elements;
@@ -857,6 +913,24 @@ namespace hgraph
             {
                 if (logical_capacity == 0) { return 1; }
                 return tracks_deltas_v ? logical_capacity + 1 : logical_capacity;
+            }
+
+            [[nodiscard]] size_t header_size() const noexcept
+            {
+                const size_t header = tracks_deltas_v ? sizeof(DeltaQueueState) : sizeof(PlainQueueState);
+                const size_t alignment = this->m_element_builder.get().alignment();
+                return alignment <= 1 ? header : ((header + alignment - 1) / alignment) * alignment;
+            }
+
+            [[nodiscard]] std::byte *inline_elements_memory(void *memory) const noexcept
+            {
+                return static_cast<std::byte *>(memory) + header_size();
+            }
+
+            [[nodiscard]] bool uses_inline_storage(const void *memory) const noexcept
+            {
+                const QueueState *queue = state(memory);
+                return queue->elements != nullptr && queue->elements == static_cast<const std::byte *>(memory) + header_size();
             }
 
             [[nodiscard]] void *removed_slot_memory(void *memory) const noexcept
@@ -900,11 +974,7 @@ namespace hgraph
                               std::same_as<TDispatch, CyclicBufferDispatch<MutationTracking::Plain>>) {
                     builder.cache_layout(m_dispatch.get().allocation_size(), m_dispatch.get().allocation_alignment());
                 } else {
-                    if constexpr (TDispatch::tracking_mode == MutationTracking::Delta) {
-                        builder.cache_layout(sizeof(DeltaQueueState), alignof(DeltaQueueState));
-                    } else {
-                        builder.cache_layout(sizeof(PlainQueueState), alignof(PlainQueueState));
-                    }
+                    builder.cache_layout(m_dispatch.get().allocation_size(), m_dispatch.get().allocation_alignment());
                 }
                 builder.cache_lifecycle(true, true, false);
             }
