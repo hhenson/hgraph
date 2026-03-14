@@ -28,7 +28,7 @@ namespace hgraph
 
                 if (ptr == nullptr) { return; }
 
-                if constexpr (std::is_same_v<T, TSOutput>) {
+                if constexpr (std::is_same_v<T, TSInput> || std::is_same_v<T, TSOutput>) {
                     return;
                 } else {
                     ptr->child_modified(index, modified_time);

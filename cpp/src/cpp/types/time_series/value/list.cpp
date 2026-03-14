@@ -34,7 +34,7 @@ namespace hgraph
                 return *m_schema.get().element_type;
             }
 
-            [[nodiscard]] const ViewDispatch &element_dispatch() const noexcept override
+            [[nodiscard]] const ViewDispatch &element_dispatch() const noexcept
             {
                 return m_element_builder.get().dispatch();
             }
@@ -1340,7 +1340,8 @@ namespace hgraph
             return;
         }
 
-        dispatch->element_dispatch().assign(dispatch->element_data(data(), index), data_of(value));
+        View destination{&dispatch->element_dispatch(), dispatch->element_data(data(), index), &dispatch->element_schema()};
+        destination.copy_from(value);
         dispatch->set_element_valid(data(), index, true);
     }
 

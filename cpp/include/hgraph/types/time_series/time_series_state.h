@@ -7,6 +7,7 @@
 namespace hgraph
 {
 
+    struct TSInput;
     struct TSOutput;
     struct TSState;
     struct TSLState;
@@ -41,14 +42,15 @@ namespace hgraph
      * Pointer variant covering all concrete time-series state types plus the
      * root output endpoint.
      */
-    using TimeSeriesStateParentPtr = std::variant<TSLState *, TSDState *, TSBState *, TSOutput *>;
+    using TimeSeriesStateParentPtr = std::variant<TSLState *, TSDState *, TSBState *, TSInput *, TSOutput *>;
 
     struct HGRAPH_EXPORT BaseState
     {
         /**
          * This identifies the parent container and is used to propagate notifications and updated time to the parent.
          * If null this represents a parent container.
-         * `TSOutput*` indicates the root output endpoint for a state tree.
+         * `TSInput*` or `TSOutput*` indicates the root endpoint for a state
+         * tree.
          */
         TimeSeriesStateParentPtr parent;
         /**

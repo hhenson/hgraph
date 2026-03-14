@@ -6,9 +6,7 @@ namespace hgraph
     TSOutputView TSOutput::view()
     {
         const ViewContext context = view_context();
-        return TSOutputView{
-            ParentValue{this},
-            context};
+        return TSOutputView{context};
     }
 
 }  // namespace hgraph

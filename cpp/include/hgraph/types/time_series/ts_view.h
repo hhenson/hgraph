@@ -6,6 +6,7 @@
 #include <hgraph/types/time_series/value/view.h>
 
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 namespace hgraph
@@ -39,10 +40,10 @@ namespace hgraph
     struct SignalView;
 
     /**
-     * Identifies the endpoint object that owns or produced a time-series view.
+     * Identifies the endpoint object at the root of a time-series state tree.
      *
-     * A time-series view is rooted at either an input endpoint or an output
-     * endpoint.
+     * A time-series view ultimately resolves to either an input endpoint or
+     * an output endpoint by walking the TS state parent chain.
      */
     using ParentValue = std::variant<TSInput *, TSOutput *>;
 
@@ -119,11 +120,10 @@ namespace hgraph
     {
         TSView() = default;
 
-        TSView(ParentValue owner,
-               ViewContext context,
+        TSView(ViewContext context,
                ViewContext parent = ViewContext::none(),
                engine_time_t evaluation_time = MIN_DT) noexcept
-            : m_owner(owner), m_context(context), m_parent(parent), m_evaluation_time(evaluation_time)
+            : m_context(context), m_parent(parent), m_evaluation_time(evaluation_time)
         {
         }
 
@@ -182,19 +182,9 @@ namespace hgraph
          */
         [[nodiscard]] engine_time_t last_modified_time() const noexcept
         {
-            if (m_context.ts_state == nullptr || m_context.schema == nullptr) { return MIN_DT; }
-
-            switch (m_context.schema->kind) {
-                case TSKind::TSValue: return static_cast<const TSState *>(m_context.ts_state)->last_modified_time;
-                case TSKind::TSS: return static_cast<const TSSState *>(m_context.ts_state)->last_modified_time;
-                case TSKind::TSD: return static_cast<const TSDState *>(m_context.ts_state)->last_modified_time;
-                case TSKind::TSL: return static_cast<const TSLState *>(m_context.ts_state)->last_modified_time;
-                case TSKind::TSW: return static_cast<const TSWState *>(m_context.ts_state)->last_modified_time;
-                case TSKind::TSB: return static_cast<const TSBState *>(m_context.ts_state)->last_modified_time;
-                case TSKind::REF: return static_cast<const RefLinkState *>(m_context.ts_state)->last_modified_time;
-                case TSKind::SIGNAL: return static_cast<const SignalState *>(m_context.ts_state)->last_modified_time;
+            if (const BaseState *state = base_state_from(m_context.ts_state, m_context.schema); state != nullptr) {
+                return state->last_modified_time;
             }
-
             return MIN_DT;
         }
 
@@ -260,9 +250,40 @@ namespace hgraph
 
     protected:
         /**
-         * Return the endpoint that owns the root of this view.
+         * Return the endpoint at the root of this view's TS state tree.
          */
-        [[nodiscard]] ParentValue parent() const noexcept { return m_owner; }
+        [[nodiscard]] ParentValue parent() const noexcept
+        {
+            const BaseState *state = base_state_from(m_context.ts_state, m_context.schema);
+
+            while (state != nullptr) {
+                ParentValue resolved{};
+                bool        found = false;
+
+                std::visit(
+                    [&state, &resolved, &found](auto *ptr) {
+                        using T = std::remove_pointer_t<decltype(ptr)>;
+
+                        if (ptr == nullptr) {
+                            state = nullptr;
+                            return;
+                        }
+
+                        if constexpr (std::is_same_v<T, TSInput> || std::is_same_v<T, TSOutput>) {
+                            resolved = ptr;
+                            found = true;
+                            state = nullptr;
+                        } else {
+                            state = ptr;
+                        }
+                    },
+                    state->parent);
+
+                if (found) { return resolved; }
+            }
+
+            return static_cast<TSInput *>(nullptr);
+        }
 
         /**
          * Return the state node associated to the represented time-series
@@ -276,10 +297,28 @@ namespace hgraph
         [[nodiscard]] const TSMeta *schema() const noexcept { return m_context.schema; }
         [[nodiscard]] ViewContext parent_context() const noexcept { return m_parent; }
 
-        ParentValue m_owner{static_cast<TSInput *>(nullptr)};
         ViewContext m_context{ViewContext::none()};
         ViewContext m_parent{ViewContext::none()};
         engine_time_t m_evaluation_time{MIN_DT};
+
+      private:
+        [[nodiscard]] static const BaseState *base_state_from(const void *ts_state, const TSMeta *schema) noexcept
+        {
+            if (ts_state == nullptr || schema == nullptr) { return nullptr; }
+
+            switch (schema->kind) {
+                case TSKind::TSValue: return static_cast<const TSState *>(ts_state);
+                case TSKind::TSS: return static_cast<const TSSState *>(ts_state);
+                case TSKind::TSD: return static_cast<const TSDState *>(ts_state);
+                case TSKind::TSL: return static_cast<const TSLState *>(ts_state);
+                case TSKind::TSW: return static_cast<const TSWState *>(ts_state);
+                case TSKind::TSB: return static_cast<const TSBState *>(ts_state);
+                case TSKind::REF: return static_cast<const RefLinkState *>(ts_state);
+                case TSKind::SIGNAL: return static_cast<const SignalState *>(ts_state);
+            }
+
+            return nullptr;
+        }
     };
 
     /**
