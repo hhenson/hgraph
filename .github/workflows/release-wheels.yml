@@ -26,7 +26,7 @@ jobs:
           echo "publish_testpypi=${{ inputs.publish_testpypi }}"
 
       - name: Setup uv (Python 3.12 ABI3 baseline)
-        uses: astral-sh/setup-uv@v7.5.0
+        uses: astral-sh/setup-uv@v7.6.0
         with:
           python-version: '3.12'
 
