@@ -21,15 +21,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
 
       - name: Setup uv (Python 3.12)
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@v7.5.0
         with:
           python-version: '3.12'
 
       - name: Restore uv/pip caches
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.3
         with:
           path: |
             ~/.cache/uv
@@ -40,10 +40,10 @@ jobs:
 
       - name: Install optional tooling (Conan)
         run: |
-          uv tool install conan
+          uv tool install --upgrade conan==2.26.2
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.language == 'cpp' && 'manual' || 'none' }}
@@ -60,6 +60,6 @@ jobs:
           uv build -v
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: '/language:${{matrix.language}}'

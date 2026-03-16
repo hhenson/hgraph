@@ -86,16 +86,14 @@ test = [
 ]
 dev = [
     # This is needed for CLion / other dev env to find the nanobind libs.
-    "nanobind>=2.9.2",
+    "nanobind==2.12.0",
 ]
 
 [build-system]
 requires = [
-    "scikit-build-core>=0.9",
-    "nanobind>=2.9",
-    "cmake>=3.25",
-    "ninja",
-    "setuptools>=65"
+    "scikit-build-core==0.12.2",
+    "nanobind==2.12.0",
+    "setuptools==82.0.1"
 ]
 build-backend = "scikit_build_core.build"
 
@@ -103,7 +101,7 @@ build-backend = "scikit_build_core.build"
 # Install pure Python package from hgraph and place the compiled extension under hgraph/
 wheel.packages = ["hgraph"]
 wheel.py-api = "cp312"
-cmake.verbose = true
+build.verbose = true
 cmake.source-dir = "."
 # Use the invoking Python for nanobind discovery unless overridden in CI
 cmake.define.Python_EXECUTABLE = "{sys.executable}"

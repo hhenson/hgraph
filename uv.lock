@@ -512,7 +512,7 @@ requires-dist = [
     { name = "multimethod" },
     { name = "mypy", marker = "extra == 'test'" },
     { name = "myst-parser", marker = "extra == 'docs'", specifier = ">=2.0.0" },
-    { name = "nanobind", marker = "extra == 'dev'", specifier = ">=2.9.2" },
+    { name = "nanobind", marker = "extra == 'dev'", specifier = "==2.12.0" },
     { name = "numpy", specifier = ">=1.23" },
     { name = "ordered-set", specifier = ">=4.1.0" },
     { name = "pandas", marker = "extra == 'web'" },
