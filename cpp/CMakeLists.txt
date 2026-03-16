@@ -82,6 +82,8 @@ if (DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
 endif ()
 # Required: Python interpreter + development module
 find_package(Python 3.12 COMPONENTS Interpreter Development.Module REQUIRED)
+# Optional: NumPy headers for zero-copy array views
+find_package(Python 3.12 COMPONENTS NumPy QUIET)
 include_directories(${Python_INCLUDE_DIRS})
 
 # Get Python SOABI to avoid double .so extension in nanobind

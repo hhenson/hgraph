@@ -44,7 +44,12 @@ struct Range
 
             [[nodiscard]] bool operator!=(const iterator &other) const
             {
-                return context != other.context || index != other.index || range != other.range;
+                return index != other.index || context != other.context;
+            }
+
+            [[nodiscard]] bool operator==(const iterator &other) const
+            {
+                return index == other.index && context != other.context;
             }
 
           private:
@@ -134,7 +139,12 @@ struct Range
 
             [[nodiscard]] bool operator!=(const iterator &other) const
             {
-                return context != other.context || index != other.index || range != other.range;
+                return index != other.index || context != other.context;
+            }
+
+            [[nodiscard]] bool operator==(const iterator &other) const
+            {
+                return index == other.index && context != other.context;
             }
 
           private:
@@ -263,8 +273,13 @@ struct Range
          */
         struct ViewDispatch
         {
-            virtual ~ViewDispatch() = default;
-
+            /**
+             * Dispatch objects are always static singletons with process
+             * lifetime.  A trivial protected destructor avoids the vtable
+             * slot and per-instance overhead of a virtual destructor while
+             * preventing accidental polymorphic deletion through a base
+             * pointer.
+             */
             [[nodiscard]] virtual size_t hash(const void *data) const = 0;
             [[nodiscard]] virtual std::string to_string(const void *data) const = 0;
             [[nodiscard]] virtual std::partial_ordering compare(const void *lhs, const void *rhs) const = 0;
@@ -273,6 +288,9 @@ struct Range
             virtual void assign(void *dst, const void *src) const = 0;
             virtual void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const = 0;
             virtual void move_from_cpp(void *dst, void *src, const value::TypeMeta *src_schema) const = 0;
+
+          protected:
+            ~ViewDispatch() = default;
         };
 
     }  // namespace detail
@@ -390,6 +408,17 @@ struct Range
         template <typename T> void set(T &&value);
 
         /**
+         * Directly assign a scalar value, bypassing the dispatch vtable.
+         *
+         * This is the fast path for callers that know the concrete type at
+         * compile time.  It validates the schema pointer once and then writes
+         * directly to storage, avoiding the virtual call through
+         * `set_from_cpp` / `move_from_cpp`.
+         */
+        template <typename T> void set_scalar(T &&value);
+
+
+        /**
          * Create an owning value by copying the storage currently represented
          * by this view.
          *
@@ -407,6 +436,7 @@ struct Range
         void copy_from(const View &other)
         {
             if (!has_value() || !other.has_value()) { throw std::runtime_error("View::copy_from requires non-empty views"); }
+            if (m_data == other.m_data) { return; }
             if (schema() != other.schema()) {
                 throw std::invalid_argument("View::copy_from requires matching schemas");
             }

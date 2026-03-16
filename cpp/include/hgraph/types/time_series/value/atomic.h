@@ -374,4 +374,14 @@ namespace hgraph
         return schema() == value::scalar_type_meta<T>();
     }
 
+    template <typename T> inline void View::set_scalar(T &&value)
+    {
+        using TValue = std::remove_cvref_t<T>;
+        if (!has_value()) { throw std::runtime_error("View::set_scalar<T> on empty view"); }
+        if (schema() != value::scalar_type_meta<TValue>()) {
+            throw std::invalid_argument("View::set_scalar<T> schema mismatch");
+        }
+        std::launder(reinterpret_cast<AtomicState<TValue> *>(data()))->value = std::forward<T>(value);
+    }
+
 }  // namespace hgraph

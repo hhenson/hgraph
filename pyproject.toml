@@ -93,7 +93,8 @@ requires = [
     "nanobind>=2.9",
     "cmake>=3.25",
     "ninja",
-    "setuptools>=65"
+    "setuptools>=65",
+    "numpy>=1.23"
 ]
 build-backend = "scikit_build_core.build"
 

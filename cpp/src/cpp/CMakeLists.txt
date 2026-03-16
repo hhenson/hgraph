@@ -132,6 +132,20 @@ add_definitions(-Dhgraph_EXPORTS)
 
 nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
 
+# numpy C API — required for zero-copy array views (PyArray_SimpleNewFromData).
+if (Python_NumPy_INCLUDE_DIRS)
+    target_include_directories(${PROJECT_NAME} PRIVATE ${Python_NumPy_INCLUDE_DIRS})
+else ()
+    execute_process(
+        COMMAND "${Python_EXECUTABLE}" -c "import numpy; print(numpy.get_include())"
+        OUTPUT_VARIABLE _NUMPY_INC OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE _NUMPY_RC)
+    if (_NUMPY_RC EQUAL 0 AND EXISTS "${_NUMPY_INC}")
+        target_include_directories(${PROJECT_NAME} PRIVATE "${_NUMPY_INC}")
+    else ()
+        message(FATAL_ERROR "numpy headers not found — numpy>=1.23 is required (pyproject.toml [build-system].requires)")
+    endif ()
+endif ()
+
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
 target_link_libraries(${PROJECT_NAME} PUBLIC ${HGRAPH_FMT_TARGET} ddvisitor dynamic_bitset ${HGRAPH_NANOARROW_TARGET})
 

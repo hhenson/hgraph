@@ -58,13 +58,17 @@ namespace hgraph
                     const size_t field_alignment = field_builder.alignment();
                     offset = align_up(offset, field_alignment);
 
+                    std::string_view field_name = field.name != nullptr ? std::string_view{field.name} : std::string_view{};
                     m_fields.push_back(RecordFieldLayout{
-                        field.name != nullptr ? std::string_view{field.name} : std::string_view{},
+                        field_name,
                         std::cref(*field.type),
                         std::cref(field_builder),
                         offset,
                         field_builder.requires_destroy(),
                     });
+                    if (!field_name.empty()) {
+                        m_name_to_index[field_name] = i;
+                    }
                     offset += field_builder.size();
                     max_alignment = std::max(max_alignment, field_alignment);
                 }
@@ -161,6 +165,12 @@ namespace hgraph
                         value::validity_bit_set(updated_memory(data), checked, true);
                     }
                 }
+            }
+
+            [[nodiscard]] size_t find_field(std::string_view name) const noexcept override
+            {
+                auto it = m_name_to_index.find(name);
+                return it != m_name_to_index.end() ? it->second : SIZE_MAX;
             }
 
             [[nodiscard]] size_t allocation_size() const noexcept
@@ -363,6 +373,9 @@ namespace hgraph
 
             std::reference_wrapper<const value::TypeMeta> m_schema;
             std::vector<RecordFieldLayout>                m_fields;
+            /// Cached field-name → index lookup.  Populated once at
+            /// construction for O(1) name-based field access.
+            std::unordered_map<std::string_view, size_t>  m_name_to_index;
             size_t                                        m_payload_size{0};
             size_t                                        m_header_size{0};
             size_t                                        m_alignment{alignof(std::max_align_t)};
@@ -872,10 +885,7 @@ namespace hgraph
         if (!has_value()) { return false; }
         const auto *dispatch = record_dispatch();
         if (dispatch == nullptr) { return false; }
-        for (size_t i = 0; i < dispatch->size(); ++i) {
-            if (dispatch->field_name(i) == name) { return true; }
-        }
-        return false;
+        return dispatch->find_field(name) != SIZE_MAX;
     }
 
     View BundleView::field(std::string_view name)
@@ -953,10 +963,9 @@ namespace hgraph
     {
         const auto *dispatch = record_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("BundleView::field on invalid view"); }
-        for (size_t i = 0; i < dispatch->size(); ++i) {
-            if (dispatch->field_name(i) == name) { return i; }
-        }
-        throw std::out_of_range("BundleView::field unknown name");
+        const size_t index = dispatch->find_field(name);
+        if (index == SIZE_MAX) { throw std::out_of_range("BundleView::field unknown name"); }
+        return index;
     }
 
 }  // namespace hgraph

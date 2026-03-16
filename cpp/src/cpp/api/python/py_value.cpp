@@ -5,11 +5,25 @@
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/python/chrono.h>
 
+// numpy C API — used for zero-copy mutable array views.
+// numpy is a build dependency (pyproject.toml [build-system].requires).
+#define PY_ARRAY_UNIQUE_SYMBOL hgraph_value_ARRAY_API
+#include <numpy/arrayobject.h>
+
+#include <nanobind/ndarray.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 
+#if __has_include(<nanoarrow/nanoarrow.h>)
+#include <nanoarrow/nanoarrow.h>
+#elif __has_include(<nanoarrow.h>)
+#include <nanoarrow.h>
+#endif
+
 #include <cctype>
+#include <cstdint>
+#include <cstring>
 #include <memory>
 
 namespace hgraph
@@ -42,6 +56,278 @@ namespace hgraph
             value.reset();
             value.from_python(src);
             return value;
+        }
+
+        // ================================================================
+        // DLPack dtype for a buffer-compatible element schema.
+        // Returns false when the schema is not buffer-compatible.
+        // ================================================================
+
+        [[maybe_unused]] [[nodiscard]] bool dlpack_dtype_for(const TypeMeta *elem, nb::dlpack::dtype &out) noexcept
+        {
+            if (elem == nullptr || elem->kind != TypeKind::Atomic || !elem->is_buffer_compatible()) { return false; }
+            if (elem == scalar_type_meta<int64_t>())  { out = nb::dtype<int64_t>();  return true; }
+            if (elem == scalar_type_meta<int32_t>())  { out = nb::dtype<int32_t>();  return true; }
+            if (elem == scalar_type_meta<int16_t>())  { out = nb::dtype<int16_t>();  return true; }
+            if (elem == scalar_type_meta<int8_t>())   { out = nb::dtype<int8_t>();   return true; }
+            if (elem == scalar_type_meta<uint64_t>()) { out = nb::dtype<uint64_t>(); return true; }
+            if (elem == scalar_type_meta<uint32_t>()) { out = nb::dtype<uint32_t>(); return true; }
+            if (elem == scalar_type_meta<uint16_t>()) { out = nb::dtype<uint16_t>(); return true; }
+            if (elem == scalar_type_meta<uint8_t>())  { out = nb::dtype<uint8_t>();  return true; }
+            if (elem == scalar_type_meta<double>())   { out = nb::dtype<double>();   return true; }
+            if (elem == scalar_type_meta<float>())    { out = nb::dtype<float>();    return true; }
+            if (elem == scalar_type_meta<bool>())     { out = nb::dtype<bool>();     return true; }
+            return false;
+        }
+
+        // ================================================================
+        // nanoarrow ArrowType for a buffer-compatible element schema.
+        // Returns NANOARROW_TYPE_UNINITIALIZED when not supported.
+        // ================================================================
+
+        [[nodiscard]] ArrowType nanoarrow_type_for(const TypeMeta *elem) noexcept
+        {
+            if (elem == nullptr || elem->kind != TypeKind::Atomic) { return NANOARROW_TYPE_UNINITIALIZED; }
+            if (elem == scalar_type_meta<int64_t>())  { return NANOARROW_TYPE_INT64; }
+            if (elem == scalar_type_meta<int32_t>())  { return NANOARROW_TYPE_INT32; }
+            if (elem == scalar_type_meta<int16_t>())  { return NANOARROW_TYPE_INT16; }
+            if (elem == scalar_type_meta<int8_t>())   { return NANOARROW_TYPE_INT8; }
+            if (elem == scalar_type_meta<uint64_t>()) { return NANOARROW_TYPE_UINT64; }
+            if (elem == scalar_type_meta<uint32_t>()) { return NANOARROW_TYPE_UINT32; }
+            if (elem == scalar_type_meta<uint16_t>()) { return NANOARROW_TYPE_UINT16; }
+            if (elem == scalar_type_meta<uint8_t>())  { return NANOARROW_TYPE_UINT8; }
+            if (elem == scalar_type_meta<double>())   { return NANOARROW_TYPE_DOUBLE; }
+            if (elem == scalar_type_meta<float>())    { return NANOARROW_TYPE_FLOAT; }
+            if (elem == scalar_type_meta<bool>())     { return NANOARROW_TYPE_BOOL; }
+            return NANOARROW_TYPE_UNINITIALIZED;
+        }
+
+        // ================================================================
+        // Resolve the raw data pointer for the first element of a list.
+        //
+        // `View::try_as<T>()` returns a pointer to the `T` member inside
+        // `AtomicState<T>`.  For contiguous list storage this is the base
+        // of the element array.
+        // ================================================================
+
+        [[nodiscard]] void *resolve_element_ptr(View first, const TypeMeta *elem)
+        {
+            void *p = nullptr;
+            if (elem == scalar_type_meta<int64_t>())  { p = first.try_as<int64_t>(); }
+            else if (elem == scalar_type_meta<double>())   { p = first.try_as<double>(); }
+            else if (elem == scalar_type_meta<float>())    { p = first.try_as<float>(); }
+            else if (elem == scalar_type_meta<int32_t>())  { p = first.try_as<int32_t>(); }
+            else if (elem == scalar_type_meta<int16_t>())  { p = first.try_as<int16_t>(); }
+            else if (elem == scalar_type_meta<int8_t>())   { p = first.try_as<int8_t>(); }
+            else if (elem == scalar_type_meta<uint64_t>()) { p = first.try_as<uint64_t>(); }
+            else if (elem == scalar_type_meta<uint32_t>()) { p = first.try_as<uint32_t>(); }
+            else if (elem == scalar_type_meta<uint16_t>()) { p = first.try_as<uint16_t>(); }
+            else if (elem == scalar_type_meta<uint8_t>())  { p = first.try_as<uint8_t>(); }
+            else if (elem == scalar_type_meta<bool>())     { p = first.try_as<bool>(); }
+            return p;
+        }
+
+        // ================================================================
+        // list_to_numpy  — zero-copy via numpy C API
+        //
+        // Uses PyArray_SimpleNewFromData to create a mutable numpy array
+        // backed by the list's contiguous element storage.  No Python
+        // module imports, no ctypes, no DLPack copy overhead.
+        // ================================================================
+
+        bool ensure_numpy_c_api()
+        {
+            static bool ok = [] { return _import_array() == 0; }();
+            return ok;
+        }
+
+        [[nodiscard]] int numpy_typenum_for(const TypeMeta *elem) noexcept
+        {
+            if (elem == scalar_type_meta<int64_t>())  return NPY_INT64;
+            if (elem == scalar_type_meta<int32_t>())  return NPY_INT32;
+            if (elem == scalar_type_meta<int16_t>())  return NPY_INT16;
+            if (elem == scalar_type_meta<int8_t>())   return NPY_INT8;
+            if (elem == scalar_type_meta<uint64_t>()) return NPY_UINT64;
+            if (elem == scalar_type_meta<uint32_t>()) return NPY_UINT32;
+            if (elem == scalar_type_meta<uint16_t>()) return NPY_UINT16;
+            if (elem == scalar_type_meta<uint8_t>())  return NPY_UINT8;
+            if (elem == scalar_type_meta<double>())   return NPY_FLOAT64;
+            if (elem == scalar_type_meta<float>())    return NPY_FLOAT32;
+            if (elem == scalar_type_meta<bool>())     return NPY_BOOL;
+            return -1;
+        }
+
+        [[nodiscard]] nb::object list_to_numpy(ListView &self)
+        {
+            const TypeMeta *elem = self.element_schema();
+            const int typenum = numpy_typenum_for(elem);
+            if (typenum < 0) {
+                throw std::runtime_error("List element type not buffer compatible for numpy");
+            }
+            if (!ensure_numpy_c_api()) {
+                throw std::runtime_error("Failed to initialise numpy C API");
+            }
+
+            const size_t n = self.size();
+            npy_intp dims[1] = {static_cast<npy_intp>(n)};
+
+            if (n == 0) {
+                PyObject *arr = PyArray_SimpleNew(1, dims, typenum);
+                if (arr == nullptr) { throw nb::python_error(); }
+                return nb::steal(arr);
+            }
+
+            void *data = resolve_element_ptr(self.at(0), elem);
+            if (data == nullptr) {
+                throw std::runtime_error("List element type not buffer compatible for numpy");
+            }
+
+            PyObject *arr = PyArray_SimpleNewFromData(1, dims, typenum, data);
+            if (arr == nullptr) { throw nb::python_error(); }
+            PyArray_ENABLEFLAGS(reinterpret_cast<PyArrayObject *>(arr), NPY_ARRAY_WRITEABLE);
+            return nb::steal(arr);
+        }
+
+        // ================================================================
+        // cyclic_buffer_to_numpy  — materialized copy via nanobind ndarray
+        //
+        // Cyclic buffers are not contiguous so we allocate a fresh numpy
+        // array and memcpy each element through the logical index.
+        // ================================================================
+
+        [[nodiscard]] nb::object cyclic_buffer_to_numpy(const CyclicBufferView &self)
+        {
+            const TypeMeta *elem = self.element_schema();
+            const int typenum = numpy_typenum_for(elem);
+            if (typenum < 0) {
+                throw std::runtime_error("CyclicBuffer element type not buffer compatible for numpy");
+            }
+            if (!ensure_numpy_c_api()) {
+                throw std::runtime_error("Failed to initialise numpy C API");
+            }
+
+            const size_t n = self.size();
+            const size_t elem_size = elem->size;
+            npy_intp dims[1] = {static_cast<npy_intp>(n)};
+
+            // Allocate an owning numpy array, then memcpy each element
+            // through the logical index (handles circular addressing).
+            PyObject *arr = PyArray_SimpleNew(1, dims, typenum);
+            if (arr == nullptr) { throw nb::python_error(); }
+
+            if (n > 0) {
+                auto *dst = static_cast<std::byte *>(
+                    PyArray_DATA(reinterpret_cast<PyArrayObject *>(arr)));
+                for (size_t i = 0; i < n; ++i) {
+                    View element = self.at(i);
+                    void *src = resolve_element_ptr(element, elem);
+                    if (src != nullptr) {
+                        std::memcpy(dst + i * elem_size, src, elem_size);
+                    }
+                }
+            }
+            return nb::steal(arr);
+        }
+
+        // ================================================================
+        // Arrow C Data Interface export — pure nanoarrow + PyCapsule
+        //
+        // Builds ArrowSchema and ArrowArray structs directly, wraps them
+        // in PyCapsule objects with the names specified by the Arrow C
+        // Data Interface ("arrow_schema", "arrow_array"), and returns the
+        // (schema_capsule, array_capsule) tuple.  No pyarrow dependency.
+        // ================================================================
+
+        void release_arrow_array(ArrowArray *array)
+        {
+            if (array->release != nullptr) {
+                // Free the buffers array we allocated (the data pointers
+                // are borrowed from ListView storage so we don't free them).
+                delete[] array->buffers;
+                array->buffers = nullptr;
+                array->release = nullptr;
+            }
+        }
+
+        void pycapsule_release_schema(PyObject *capsule)
+        {
+            auto *schema = static_cast<ArrowSchema *>(PyCapsule_GetPointer(capsule, "arrow_schema"));
+            if (schema != nullptr && schema->release != nullptr) {
+                schema->release(schema);
+            }
+            delete schema;
+        }
+
+        void pycapsule_release_array(PyObject *capsule)
+        {
+            auto *array = static_cast<ArrowArray *>(PyCapsule_GetPointer(capsule, "arrow_array"));
+            if (array != nullptr && array->release != nullptr) {
+                array->release(array);
+            }
+            delete array;
+        }
+
+        [[nodiscard]] nb::object list_to_arrow_c_array(ListView &self, nb::object requested_schema)
+        {
+            static_cast<void>(requested_schema);
+            const TypeMeta *elem = self.element_schema();
+            const ArrowType arrow_type = nanoarrow_type_for(elem);
+            if (arrow_type == NANOARROW_TYPE_UNINITIALIZED) {
+                throw std::runtime_error("List element type not supported for Arrow export");
+            }
+
+            const int64_t n = static_cast<int64_t>(self.size());
+
+            // --- Build ArrowSchema ---
+            auto *schema = new ArrowSchema{};
+            if (ArrowSchemaInitFromType(schema, arrow_type) != NANOARROW_OK) {
+                delete schema;
+                throw std::runtime_error("Failed to initialize Arrow schema");
+            }
+
+            // --- Build ArrowArray ---
+            auto *array = new ArrowArray{};
+            array->length = n;
+            array->null_count = 0;
+            array->offset = 0;
+            array->n_buffers = 2;  // validity (null) + data
+            array->n_children = 0;
+            array->children = nullptr;
+            array->dictionary = nullptr;
+
+            auto **buffers = new const void *[2];
+            buffers[0] = nullptr;  // no validity bitmap (all valid)
+            if (n > 0) {
+                void *data = resolve_element_ptr(self.at(0), elem);
+                buffers[1] = data;
+            } else {
+                buffers[1] = nullptr;
+            }
+            array->buffers = buffers;
+            array->release = reinterpret_cast<void (*)(ArrowArray *)>(release_arrow_array);
+            array->private_data = nullptr;
+
+            // --- Wrap in PyCapsules ---
+            PyObject *schema_capsule = PyCapsule_New(schema, "arrow_schema", pycapsule_release_schema);
+            if (schema_capsule == nullptr) {
+                delete schema;
+                delete[] buffers;
+                delete array;
+                throw nb::python_error();
+            }
+
+            PyObject *array_capsule = PyCapsule_New(array, "arrow_array", pycapsule_release_array);
+            if (array_capsule == nullptr) {
+                Py_DECREF(schema_capsule);
+                delete[] buffers;
+                delete array;
+                throw nb::python_error();
+            }
+
+            nb::object result = nb::steal(PyTuple_Pack(2, schema_capsule, array_capsule));
+            Py_DECREF(schema_capsule);
+            Py_DECREF(array_capsule);
+            return result;
         }
 
         struct KeySetView
@@ -1003,47 +1289,20 @@ namespace hgraph
                 .def("back", static_cast<View (ListView::*)()>(&ListView::back))
                 .def("__iter__", [](const ListView &self) { return nb::iter(nb::cast(collect_indexed_views(self))); })
                 .def("to_numpy", [](ListView &self) -> nb::object {
-                    const TypeMeta *elem = self.element_schema();
-                    if (elem == nullptr || elem->kind != TypeKind::Atomic || !elem->is_buffer_compatible()) {
-                        throw std::runtime_error("List element type not buffer compatible for numpy");
-                    }
-
-                    nb::module_ np = nb::module_::import_("numpy");
-                    const size_t n = self.size();
-                    if (n == 0) {
-                        const char *dtype = "int64";
-                        if (elem == scalar_type_meta<double>()) { dtype = "float64"; }
-                        else if (elem == scalar_type_meta<bool>()) { dtype = "bool"; }
-                        return np.attr("array")(nb::list(), "dtype"_a = dtype);
-                    }
-
-                    nb::module_ ctypes = nb::module_::import_("ctypes");
-                    if (elem == scalar_type_meta<int64_t>()) {
-                        auto &first = self.at(0).checked_as<int64_t>();
-                        nb::object array_type = ctypes.attr("c_int64").attr("__mul__")(n);
-                        nb::object ptr = ctypes.attr("cast")(
-                            ctypes.attr("c_void_p")(reinterpret_cast<uintptr_t>(std::addressof(first))),
-                            ctypes.attr("POINTER")(array_type));
-                        return np.attr("ctypeslib").attr("as_array")(ptr.attr("contents"));
-                    }
-                    if (elem == scalar_type_meta<double>()) {
-                        auto &first = self.at(0).checked_as<double>();
-                        nb::object array_type = ctypes.attr("c_double").attr("__mul__")(n);
-                        nb::object ptr = ctypes.attr("cast")(
-                            ctypes.attr("c_void_p")(reinterpret_cast<uintptr_t>(std::addressof(first))),
-                            ctypes.attr("POINTER")(array_type));
-                        return np.attr("ctypeslib").attr("as_array")(ptr.attr("contents"));
-                    }
-                    if (elem == scalar_type_meta<bool>()) {
-                        auto &first = self.at(0).checked_as<bool>();
-                        nb::object array_type = ctypes.attr("c_bool").attr("__mul__")(n);
-                        nb::object ptr = ctypes.attr("cast")(
-                            ctypes.attr("c_void_p")(reinterpret_cast<uintptr_t>(std::addressof(first))),
-                            ctypes.attr("POINTER")(array_type));
-                        return np.attr("ctypeslib").attr("as_array")(ptr.attr("contents"));
-                    }
-                    throw std::runtime_error("Unsupported list element type for numpy conversion");
+                    return list_to_numpy(self);
                 })
+                .def("__array__", [](ListView &self, nb::kwargs kwargs) -> nb::object {
+                    static_cast<void>(kwargs);
+                    return list_to_numpy(self);
+                })
+                .def("__arrow_c_array__",
+                     [](ListView &self, nb::object requested_schema) {
+                         return list_to_arrow_c_array(self, std::move(requested_schema));
+                     },
+                     "requested_schema"_a = nb::none(),
+                     "Export this list via the Arrow C Data Interface.\n"
+                     "Returns (schema_capsule, array_capsule) for zero-copy\n"
+                     "import by pyarrow, polars, DuckDB, or pandas 2.x.")
                 .def("set",
                      [](ListView &self, size_t index, const View &value) {
                          auto mutation = self.begin_mutation();
@@ -1342,34 +1601,11 @@ namespace hgraph
                 .def("at", static_cast<View (CyclicBufferView::*)(size_t)>(&CyclicBufferView::at), "index"_a)
                 .def("__getitem__", [](CyclicBufferView &self, size_t index) { return self.at(index); })
                 .def("to_numpy", [](const CyclicBufferView &self) -> nb::object {
-                    const TypeMeta *elem = self.element_schema();
-                    if (elem == nullptr || elem->kind != TypeKind::Atomic || !elem->is_buffer_compatible()) {
-                        throw std::runtime_error("CyclicBuffer element type not buffer compatible for numpy");
-                    }
-
-                    nb::module_ np = nb::module_::import_("numpy");
-                    const size_t n = self.size();
-                    if (elem == scalar_type_meta<int64_t>()) {
-                        auto arr = np.attr("empty")(n, "dtype"_a = "int64");
-                        auto *ptr =
-                            reinterpret_cast<int64_t *>(nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
-                        for (size_t i = 0; i < n; ++i) { ptr[i] = self.at(i).checked_as<int64_t>(); }
-                        return arr;
-                    }
-                    if (elem == scalar_type_meta<double>()) {
-                        auto arr = np.attr("empty")(n, "dtype"_a = "float64");
-                        auto *ptr =
-                            reinterpret_cast<double *>(nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
-                        for (size_t i = 0; i < n; ++i) { ptr[i] = self.at(i).checked_as<double>(); }
-                        return arr;
-                    }
-                    if (elem == scalar_type_meta<bool>()) {
-                        auto arr = np.attr("empty")(n, "dtype"_a = "bool");
-                        auto *ptr = reinterpret_cast<bool *>(nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
-                        for (size_t i = 0; i < n; ++i) { ptr[i] = self.at(i).checked_as<bool>(); }
-                        return arr;
-                    }
-                    throw std::runtime_error("Unsupported cyclic buffer element type for numpy conversion");
+                    return cyclic_buffer_to_numpy(self);
+                })
+                .def("__array__", [](const CyclicBufferView &self, nb::kwargs kwargs) -> nb::object {
+                    static_cast<void>(kwargs);
+                    return cyclic_buffer_to_numpy(self);
                 })
                 .def("push",
                      [](CyclicBufferView &self, const View &value) {

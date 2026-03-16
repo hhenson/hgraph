@@ -358,12 +358,12 @@ private:
  */
 template<typename T>
 const TypeMeta* scalar_type_meta() {
-    auto& registry = TypeRegistry::instance();
-    auto* meta = registry.get_scalar<T>();
-    if (!meta) {
-        meta = registry.register_type<T>();
-    }
-    return meta;
+    static const TypeMeta* cached = [] {
+        auto& registry = TypeRegistry::instance();
+        auto* meta = registry.get_scalar<T>();
+        return meta ? meta : registry.register_type<T>();
+    }();
+    return cached;
 }
 
 // ============================================================================

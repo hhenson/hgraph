@@ -52,6 +52,11 @@ namespace hgraph
             [[nodiscard]] virtual bool field_valid(const void *data, size_t index) const = 0;
             [[nodiscard]] virtual bool field_updated(const void *data, size_t index) const noexcept = 0;
             virtual void set_field_valid(void *data, size_t index, bool valid) const = 0;
+            /**
+             * Return the index of the named field, or `SIZE_MAX` when no
+             * field with the supplied name exists.
+             */
+            [[nodiscard]] virtual size_t find_field(std::string_view name) const noexcept = 0;
         };
 
         /**
