@@ -147,7 +147,7 @@ jobs:
           trap 'mv hgraph_src hgraph' EXIT
           for wheel in wheelhouse/*.whl; do
             for pyver in ${HGRAPH_SMOKE_PYTHONS}; do
-              uv venv ".venv-test-${pyver}" --python "${pyver}"
+              uv venv --clear ".venv-test-${pyver}" --python "${pyver}"
               uv pip install --python ".venv-test-${pyver}/bin/python" --upgrade pip
               uv pip install --python ".venv-test-${pyver}/bin/python" --reinstall pytest tornado requests pandas "perspective-python<4.0.0" kafka-python matplotlib "${wheel}"
               for use_cpp in false true; do
@@ -169,7 +169,7 @@ jobs:
             foreach ($wheel in $wheels) {
               foreach ($pyver in $env:HGRAPH_SMOKE_PYTHONS.Split(' ')) {
                 $venvPython = Join-Path $PWD ".venv-test-$pyver\Scripts\python.exe"
-                uv venv ".venv-test-$pyver" --python $pyver
+                uv venv --clear ".venv-test-$pyver" --python $pyver
                 uv pip install --python $venvPython --upgrade pip
                 uv pip install --python $venvPython --reinstall pytest tornado requests pandas "perspective-python<4.0.0" kafka-python matplotlib $wheel.FullName
                 foreach ($useCpp in @('false', 'true')) {

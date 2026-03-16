@@ -155,7 +155,7 @@ jobs:
           try {
             foreach ($pyver in $env:HGRAPH_SMOKE_PYTHONS.Split(' ')) {
               $venvPython = Join-Path $PWD ".venv-smoke-$pyver\Scripts\python.exe"
-              uv venv ".venv-smoke-$pyver" --python $pyver
+              uv venv --clear ".venv-smoke-$pyver" --python $pyver
               uv pip install --python $venvPython --upgrade pip
               uv pip install --python $venvPython pytest tornado requests pandas "perspective-python<4.0.0" kafka-python matplotlib "$env:HGRAPH_WHEEL"
               foreach ($useCpp in @('false', 'true')) {
@@ -177,7 +177,7 @@ jobs:
           mv hgraph hgraph_src
           trap 'mv hgraph_src hgraph' EXIT
           for pyver in ${HGRAPH_SMOKE_PYTHONS}; do
-            uv venv ".venv-smoke-${pyver}" --python "${pyver}"
+            uv venv --clear ".venv-smoke-${pyver}" --python "${pyver}"
             uv pip install --python ".venv-smoke-${pyver}/bin/python" --upgrade pip
             uv pip install --python ".venv-smoke-${pyver}/bin/python" pytest tornado requests pandas "perspective-python<4.0.0" kafka-python matplotlib "${HGRAPH_WHEEL}"
             for use_cpp in false true; do
