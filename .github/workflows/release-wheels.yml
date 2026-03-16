@@ -146,6 +146,10 @@ jobs:
           mv hgraph hgraph_src
           trap 'mv hgraph_src hgraph' EXIT
           for wheel in wheelhouse/*.whl; do
+            if [ "${RUNNER_OS}" = "Linux" ] && [[ "${wheel}" == *musllinux* ]]; then
+              echo "Skipping musllinux wheel on glibc runner: ${wheel}"
+              continue
+            fi
             for pyver in ${HGRAPH_SMOKE_PYTHONS}; do
               uv venv --clear ".venv-test-${pyver}" --python "${pyver}"
               uv pip install --python ".venv-test-${pyver}/bin/python" --upgrade pip
