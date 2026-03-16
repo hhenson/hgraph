@@ -10,6 +10,8 @@ jobs:
   build-wheels:
     name: Build wheels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      HGRAPH_SMOKE_PYTHONS: "3.12 3.13 3.14"
     strategy:
       fail-fast: false
       matrix:
@@ -23,7 +25,7 @@ jobs:
         run: |
           echo "publish_testpypi=${{ inputs.publish_testpypi }}"
 
-      - name: Setup uv (Python 3.12)
+      - name: Setup uv (Python 3.12 ABI3 baseline)
         uses: astral-sh/setup-uv@v4
         with:
           python-version: '3.12'
@@ -81,7 +83,7 @@ jobs:
 
       - name: Build wheels with cibuildwheel
         env:
-          # Build CPython 3.12 wheels only
+          # Build once on CPython 3.12 and publish ABI3 wheels for 3.12+.
           CIBW_BUILD: cp312-*
           # macOS: build Apple Silicon wheels only
           CIBW_ARCHS_MACOS: arm64
@@ -134,44 +136,53 @@ jobs:
             if ($wheels) { uvx twine check wheelhouse/*.whl }
           } else { Write-Host "wheelhouse not found" }
 
-      - name: Test a built wheel (basic import) [Linux/macOS]
+      - name: Test built wheels with ABI3 smoke tests [Linux/macOS]
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           ls -la wheelhouse || true
-          wheel=$(ls wheelhouse/*.whl | head -n1 || true)
-          if [ -z "$wheel" ]; then echo "No wheels built"; exit 1; fi
-          uv venv .venv-test
-          source .venv-test/bin/activate
-          uv pip install --upgrade pip
-          uv pip install "$wheel"
-          # Import from a clean working directory to avoid repo src shadowing
-          tmp=$(mktemp -d)
-          cd "$tmp"
-          python - <<'PY'
-          import importlib.util
-          print(importlib.util.find_spec('hgraph'))
-          print(importlib.util.find_spec('hgraph._hgraph'))
-          import hgraph, hgraph._hgraph as m
-          print('ok:', bool(getattr(m, '__doc__', None)))
-          PY
+          if ! compgen -G "wheelhouse/*.whl" > /dev/null; then echo "No wheels built"; exit 1; fi
+          mv hgraph hgraph_src
+          trap 'mv hgraph_src hgraph' EXIT
+          for wheel in wheelhouse/*.whl; do
+            for pyver in ${HGRAPH_SMOKE_PYTHONS}; do
+              uv venv ".venv-test-${pyver}" --python "${pyver}"
+              uv pip install --python ".venv-test-${pyver}/bin/python" --upgrade pip
+              uv pip install --python ".venv-test-${pyver}/bin/python" --reinstall pytest tornado requests pandas "perspective-python<4.0.0" kafka-python matplotlib "${wheel}"
+              for use_cpp in false true; do
+                echo "Smoke test: wheel=${wheel} python=${pyver} HGRAPH_USE_CPP=${use_cpp}"
+                HGRAPH_USE_CPP="${use_cpp}" ".venv-test-${pyver}/bin/pytest" hgraph_unit_tests -q -m smoke
+              done
+            done
+          done
 
-      - name: Test a built wheel (basic import) [Windows]
+      - name: Test built wheels with ABI3 smoke tests [Windows]
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           if (Test-Path wheelhouse) { Get-ChildItem wheelhouse | Format-Table Name,Length,LastWriteTime -AutoSize } else { Write-Host "wheelhouse not found" }
-          $wheel = (Get-ChildItem wheelhouse/*.whl | Select-Object -First 1).FullName
-          if (-not $wheel) { Write-Error "No wheels built"; exit 1 }
-          uv venv .venv-test
-          . .venv-test\Scripts\Activate.ps1
-          uv pip install --upgrade pip
-          uv pip install "$wheel"
-          # Import from a clean working directory to avoid repo src shadowing
-          $tmp = New-Item -ItemType Directory -Path ([System.IO.Path]::GetTempPath()) -Name ("hgraph-test-" + [guid]::NewGuid())
-          Set-Location $tmp.FullName
-          python -c "import hgraph, hgraph._hgraph; print('ok')"
+          $wheels = Get-ChildItem wheelhouse/*.whl -ErrorAction SilentlyContinue
+          if (-not $wheels) { Write-Error "No wheels built"; exit 1 }
+          Rename-Item hgraph hgraph_src
+          try {
+            foreach ($wheel in $wheels) {
+              foreach ($pyver in $env:HGRAPH_SMOKE_PYTHONS.Split(' ')) {
+                $venvPython = Join-Path $PWD ".venv-test-$pyver\Scripts\python.exe"
+                uv venv ".venv-test-$pyver" --python $pyver
+                uv pip install --python $venvPython --upgrade pip
+                uv pip install --python $venvPython --reinstall pytest tornado requests pandas "perspective-python<4.0.0" kafka-python matplotlib $wheel.FullName
+                foreach ($useCpp in @('false', 'true')) {
+                  Write-Host "Smoke test: wheel=$($wheel.Name) python=$pyver HGRAPH_USE_CPP=$useCpp"
+                  $env:HGRAPH_USE_CPP = $useCpp
+                  & (Join-Path $PWD ".venv-test-$pyver\Scripts\pytest.exe") hgraph_unit_tests -q -m smoke
+                }
+              }
+            }
+          } finally {
+            Remove-Item Env:HGRAPH_USE_CPP -ErrorAction SilentlyContinue
+            Rename-Item hgraph_src hgraph
+          }
 
       - name: Upload wheels
         uses: actions/upload-artifact@v4

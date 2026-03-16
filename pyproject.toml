@@ -19,9 +19,11 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: Implementation :: CPython",
 ]
-requires-python = ">=3.12, <3.13"
+requires-python = ">=3.12, <3.15"
 dependencies = [
     "frozendict>=2.3.10",
     "sortedcontainers>=2.4.0",
@@ -100,6 +102,7 @@ build-backend = "scikit_build_core.build"
 [tool.scikit-build]
 # Install pure Python package from hgraph and place the compiled extension under hgraph/
 wheel.packages = ["hgraph"]
+wheel.py-api = "cp312"
 cmake.verbose = true
 cmake.source-dir = "."
 # Use the invoking Python for nanobind discovery unless overridden in CI
