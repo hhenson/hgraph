@@ -204,15 +204,7 @@ namespace hgraph
     }
 
     bool TimeSeriesWindowInput::all_valid() const {
-        if (!valid()) return false;
-        if (auto *f = as_fixed_output()) return f->len() >= f->min_size();
-        if (auto *t = as_time_output()) {
-            // For time windows, check if enough time has passed
-            auto elapsed =
-                owning_graph()->evaluation_time() - owning_graph()->evaluation_engine_api()->start_time();
-            return elapsed >= t->min_size();
-        }
-        return false;
+        return output() != nullptr && output()->all_valid();
     }
 
     nb::object TimeSeriesWindowInput::py_value_times() const {
@@ -314,8 +306,6 @@ namespace hgraph
         }
 
         _roll();
-        if (_buffer.empty()) return nb::none();
-
         // Convert deque to Python list
         nb::list result;
         for (const auto& v : _buffer) {
@@ -374,7 +364,6 @@ namespace hgraph
 
     nb::object TimeSeriesTimeWindowOutput::py_value_times() const {
         _roll();
-        if (_times.empty()) return nb::none();
         std::vector<engine_time_t> out(_times.begin(), _times.end());
         return nb::cast(out);
     }
