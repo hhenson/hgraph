@@ -16,7 +16,6 @@ namespace hgraph
 {
     struct Value;
 
-
     /**
      * Lightweight type-erased range over value-layer results.
      *
@@ -25,8 +24,7 @@ namespace hgraph
      * predicate. This keeps delta-style APIs lazy and allocation-free while
      * still returning ordinary value-layer view objects.
      */
-template <typename T>
-struct Range
+    template <typename T> struct Range
     {
         using Predicate = bool (*)(const void *context, size_t index);
         using Projector = T (*)(const void *context, size_t index);
@@ -35,31 +33,21 @@ struct Range
         {
             [[nodiscard]] T operator*() const { return range->project(context, index); }
 
-            iterator &operator++()
-            {
+            iterator &operator++() {
                 ++index;
                 advance_to_match();
                 return *this;
             }
 
-            [[nodiscard]] bool operator!=(const iterator &other) const
-            {
-                return index != other.index || context != other.context;
-            }
+            [[nodiscard]] bool operator!=(const iterator &other) const { return index != other.index || context != other.context; }
 
-            [[nodiscard]] bool operator==(const iterator &other) const
-            {
-                return index == other.index && context != other.context;
-            }
+            [[nodiscard]] bool operator==(const iterator &other) const { return index == other.index && context != other.context; }
 
           private:
             friend struct Range<T>;
 
-            void advance_to_match()
-            {
-                while (index < range->m_limit && !range->includes(context, index)) {
-                    ++index;
-                }
+            void advance_to_match() {
+                while (index < range->m_limit && !range->includes(context, index)) { ++index; }
             }
 
             const Range<T> *range{nullptr};
@@ -68,43 +56,35 @@ struct Range
         };
 
         Range(const void *context, size_t limit, Predicate predicate, Projector projector) noexcept
-            : m_context(context), m_limit(limit), m_predicate(predicate), m_projector(projector)
-        {
-        }
+            : m_context(context), m_limit(limit), m_predicate(predicate), m_projector(projector) {}
 
         Range() noexcept = default;
 
-        [[nodiscard]] iterator begin() const
-        {
+        [[nodiscard]] iterator begin() const {
             iterator it;
-            it.range = this;
+            it.range   = this;
             it.context = m_context;
-            it.index = 0;
+            it.index   = 0;
             it.advance_to_match();
             return it;
         }
 
-        [[nodiscard]] iterator end() const
-        {
+        [[nodiscard]] iterator end() const {
             iterator it;
-            it.range = this;
+            it.range   = this;
             it.context = m_context;
-            it.index = m_limit;
+            it.index   = m_limit;
             return it;
         }
 
       private:
         friend struct iterator;
 
-        [[nodiscard]] bool includes(const void *context, size_t index) const
-        {
+        [[nodiscard]] bool includes(const void *context, size_t index) const {
             return m_predicate == nullptr ? true : m_predicate(context, index);
         }
 
-        [[nodiscard]] T project(const void *context, size_t index) const
-        {
-            return m_projector(context, index);
-        }
+        [[nodiscard]] T project(const void *context, size_t index) const { return m_projector(context, index); }
 
         const void *m_context{nullptr};
         size_t      m_limit{0};
@@ -118,10 +98,9 @@ struct Range
      * This mirrors `Range<T>` but projects a logical key together with a
      * logical value. The range remains lazy and allocation-free.
      */
-    template <typename K, typename V>
-    struct KeyValueRange
+    template <typename K, typename V> struct KeyValueRange
     {
-        using Value = std::pair<K, V>;
+        using Value     = std::pair<K, V>;
         using Predicate = bool (*)(const void *context, size_t index);
         using Projector = Value (*)(const void *context, size_t index);
 
@@ -129,31 +108,21 @@ struct Range
         {
             [[nodiscard]] Value operator*() const { return range->project(context, index); }
 
-            iterator &operator++()
-            {
+            iterator &operator++() {
                 ++index;
                 advance_to_match();
                 return *this;
             }
 
-            [[nodiscard]] bool operator!=(const iterator &other) const
-            {
-                return index != other.index || context != other.context;
-            }
+            [[nodiscard]] bool operator!=(const iterator &other) const { return index != other.index || context != other.context; }
 
-            [[nodiscard]] bool operator==(const iterator &other) const
-            {
-                return index == other.index && context != other.context;
-            }
+            [[nodiscard]] bool operator==(const iterator &other) const { return index == other.index && context != other.context; }
 
           private:
             friend struct KeyValueRange<K, V>;
 
-            void advance_to_match()
-            {
-                while (index < range->m_limit && !range->includes(context, index)) {
-                    ++index;
-                }
+            void advance_to_match() {
+                while (index < range->m_limit && !range->includes(context, index)) { ++index; }
             }
 
             const KeyValueRange<K, V> *range{nullptr};
@@ -162,43 +131,35 @@ struct Range
         };
 
         KeyValueRange(const void *context, size_t limit, Predicate predicate, Projector projector) noexcept
-            : m_context(context), m_limit(limit), m_predicate(predicate), m_projector(projector)
-        {
-        }
+            : m_context(context), m_limit(limit), m_predicate(predicate), m_projector(projector) {}
 
         KeyValueRange() noexcept = default;
 
-        [[nodiscard]] iterator begin() const
-        {
+        [[nodiscard]] iterator begin() const {
             iterator it;
-            it.range = this;
+            it.range   = this;
             it.context = m_context;
-            it.index = 0;
+            it.index   = 0;
             it.advance_to_match();
             return it;
         }
 
-        [[nodiscard]] iterator end() const
-        {
+        [[nodiscard]] iterator end() const {
             iterator it;
-            it.range = this;
+            it.range   = this;
             it.context = m_context;
-            it.index = m_limit;
+            it.index   = m_limit;
             return it;
         }
 
       private:
         friend struct iterator;
 
-        [[nodiscard]] bool includes(const void *context, size_t index) const
-        {
+        [[nodiscard]] bool includes(const void *context, size_t index) const {
             return m_predicate == nullptr ? true : m_predicate(context, index);
         }
 
-        [[nodiscard]] Value project(const void *context, size_t index) const
-        {
-            return m_projector(context, index);
-        }
+        [[nodiscard]] Value project(const void *context, size_t index) const { return m_projector(context, index); }
 
         const void *m_context{nullptr};
         size_t      m_limit{0};
@@ -278,20 +239,30 @@ struct Range
              * preventing accidental polymorphic deletion through a base
              * pointer.
              */
-            [[nodiscard]] virtual size_t hash(const void *data) const = 0;
-            [[nodiscard]] virtual std::string to_string(const void *data) const = 0;
-            [[nodiscard]] virtual std::partial_ordering compare(const void *lhs, const void *rhs) const = 0;
-            [[nodiscard]] virtual nb::object to_python(const void *data, const value::TypeMeta *schema) const = 0;
-            virtual void from_python(void *dst, const nb::object &src, const value::TypeMeta *schema) const = 0;
-            virtual void assign(void *dst, const void *src) const = 0;
-            virtual void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const = 0;
-            virtual void move_from_cpp(void *dst, void *src, const value::TypeMeta *src_schema) const = 0;
+            [[nodiscard]] virtual size_t                hash(const void *data) const                                     = 0;
+            [[nodiscard]] virtual std::string           to_string(const void *data) const                                = 0;
+            [[nodiscard]] virtual std::partial_ordering compare(const void *lhs, const void *rhs) const                  = 0;
+            [[nodiscard]] virtual nb::object            to_python(const void *data, const value::TypeMeta *schema) const = 0;
+            virtual void from_python(void *dst, const nb::object &src, const value::TypeMeta *schema) const              = 0;
+            virtual void assign(void *dst, const void *src) const                                                        = 0;
+            virtual void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const               = 0;
+            virtual void move_from_cpp(void *dst, void *src, const value::TypeMeta *src_schema) const                    = 0;
 
           protected:
             ~ViewDispatch() = default;
         };
 
     }  // namespace detail
+
+    /**
+     * Data holder, all views require this tuple of data, this keeps it in once place and neat.
+     */
+    struct ViewContext
+    {
+        const detail::ViewDispatch *dispatch;
+        void                       *data;
+        const value::TypeMeta      *schema;
+    };
 
     /**
      * Non-owning erased value view.
@@ -321,10 +292,7 @@ struct Range
          * schema is still known even though the slot currently has no live
          * storage.
          */
-        [[nodiscard]] static View invalid_for(const value::TypeMeta *schema) noexcept
-        {
-            return View{nullptr, nullptr, schema};
-        }
+        [[nodiscard]] static View invalid_for(const value::TypeMeta *schema) noexcept { return View{nullptr, nullptr, schema}; }
 
         /**
          * Return `true` when this view currently refers to live storage.
@@ -348,22 +316,22 @@ struct Range
          */
         [[nodiscard]] bool is_type(const value::TypeMeta *other) const noexcept { return m_schema == other; }
 
-        [[nodiscard]] AtomicView as_atomic();
-        [[nodiscard]] AtomicView as_atomic() const;
-        [[nodiscard]] TupleView as_tuple();
-        [[nodiscard]] TupleView as_tuple() const;
-        [[nodiscard]] BundleView as_bundle();
-        [[nodiscard]] BundleView as_bundle() const;
-        [[nodiscard]] ListView as_list();
-        [[nodiscard]] ListView as_list() const;
-        [[nodiscard]] SetView as_set();
-        [[nodiscard]] SetView as_set() const;
-        [[nodiscard]] MapView as_map();
-        [[nodiscard]] MapView as_map() const;
+        [[nodiscard]] AtomicView       as_atomic();
+        [[nodiscard]] AtomicView       as_atomic() const;
+        [[nodiscard]] TupleView        as_tuple();
+        [[nodiscard]] TupleView        as_tuple() const;
+        [[nodiscard]] BundleView       as_bundle();
+        [[nodiscard]] BundleView       as_bundle() const;
+        [[nodiscard]] ListView         as_list();
+        [[nodiscard]] ListView         as_list() const;
+        [[nodiscard]] SetView          as_set();
+        [[nodiscard]] SetView          as_set() const;
+        [[nodiscard]] MapView          as_map();
+        [[nodiscard]] MapView          as_map() const;
         [[nodiscard]] CyclicBufferView as_cyclic_buffer();
         [[nodiscard]] CyclicBufferView as_cyclic_buffer() const;
-        [[nodiscard]] QueueView as_queue();
-        [[nodiscard]] QueueView as_queue() const;
+        [[nodiscard]] QueueView        as_queue();
+        [[nodiscard]] QueueView        as_queue() const;
 
         /**
          * Return the hash of the represented value.
@@ -415,7 +383,6 @@ struct Range
          */
         template <typename T> void set_scalar(T &&value);
 
-
         /**
          * Create an owning value by copying the storage currently represented
          * by this view.
@@ -431,31 +398,27 @@ struct Range
          * Both views must be valid and must describe the same schema. This
          * copies payload state only; it does not rebind either view.
          */
-        void copy_from(const View &other)
-        {
+        void copy_from(const View &other) {
             if (!has_value() || !other.has_value()) { throw std::runtime_error("View::copy_from requires non-empty views"); }
             if (m_data == other.m_data) { return; }
-            if (schema() != other.schema()) {
-                throw std::invalid_argument("View::copy_from requires matching schemas");
-            }
+            if (schema() != other.schema()) { throw std::invalid_argument("View::copy_from requires matching schemas"); }
             m_dispatch->assign(m_data, other.m_data);
         }
 
-        template <typename T> [[nodiscard]] T *try_as() noexcept;
+        template <typename T> [[nodiscard]] T       *try_as() noexcept;
         template <typename T> [[nodiscard]] const T *try_as() const noexcept;
-        template <typename T> [[nodiscard]] T &checked_as();
+        template <typename T> [[nodiscard]] T       &checked_as();
         template <typename T> [[nodiscard]] const T &checked_as() const;
-        template <typename T> [[nodiscard]] T &as();
+        template <typename T> [[nodiscard]] T       &as();
         template <typename T> [[nodiscard]] const T &as() const;
-        template <typename T> [[nodiscard]] bool is_scalar_type() const noexcept;
+        template <typename T> [[nodiscard]] bool     is_scalar_type() const noexcept;
 
         [[nodiscard]] bool operator==(const View &other) const { return equals(other); }
 
         [[nodiscard]] std::partial_ordering operator<=>(const View &other) const {
             if (schema() != other.schema()) { return std::partial_ordering::unordered; }
             if (!has_value() || !other.has_value()) {
-                return !has_value() && !other.has_value() ? std::partial_ordering::equivalent
-                                                          : std::partial_ordering::unordered;
+                return !has_value() && !other.has_value() ? std::partial_ordering::equivalent : std::partial_ordering::unordered;
             }
             return m_dispatch->compare(m_data, other.m_data);
         }
