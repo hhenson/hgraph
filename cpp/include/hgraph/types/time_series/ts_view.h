@@ -61,11 +61,11 @@ namespace hgraph
      * position in the same lightweight carrier while preserving the key split
      * between pure value storage and TS extension state.
      */
-    struct ViewContext
+    struct TSViewContext
     {
-        [[nodiscard]] static ViewContext none() noexcept
+        [[nodiscard]] static TSViewContext none() noexcept
         {
-            return ViewContext{
+            return TSViewContext{
                 nullptr,
                 nullptr,
                 nullptr,
@@ -100,8 +100,8 @@ namespace hgraph
      *
      * The owning `TSValue` keeps one combined allocation. The TS-facing view
      * keeps:
-     * - a `ViewContext` for the current logical TS position
-     * - a `ViewContext` for the parent logical TS position
+     * - a `TSViewContext` for the current logical TS position
+     * - a `TSViewContext` for the parent logical TS position
      *
      * That preserves the raw split between:
      * - the value-layer dispatch and value pointer
@@ -120,8 +120,8 @@ namespace hgraph
     {
         TSView() = default;
 
-        TSView(ViewContext context,
-               ViewContext parent = ViewContext::none(),
+        TSView(TSViewContext context,
+               TSViewContext parent = TSViewContext::none(),
                engine_time_t evaluation_time = MIN_DT) noexcept
             : m_context(context), m_parent(parent), m_evaluation_time(evaluation_time)
         {
@@ -295,10 +295,10 @@ namespace hgraph
          * Return the logical TS schema represented by this view.
          */
         [[nodiscard]] const TSMeta *schema() const noexcept { return m_context.schema; }
-        [[nodiscard]] ViewContext parent_context() const noexcept { return m_parent; }
+        [[nodiscard]] TSViewContext parent_context() const noexcept { return m_parent; }
 
-        ViewContext m_context{ViewContext::none()};
-        ViewContext m_parent{ViewContext::none()};
+        TSViewContext m_context{TSViewContext::none()};
+        TSViewContext m_parent{TSViewContext::none()};
         engine_time_t m_evaluation_time{MIN_DT};
 
       private:

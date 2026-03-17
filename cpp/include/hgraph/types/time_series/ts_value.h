@@ -146,9 +146,9 @@ protected:
     /**
      * Return the schema-resolved context needed to construct a TS view.
      */
-    [[nodiscard]] ViewContext view_context() noexcept
+    [[nodiscard]] TSViewContext view_context() noexcept
     {
-        return ViewContext{
+        return TSViewContext{
             &schema(),
             &builder().value_builder().dispatch(),
             value_memory(),
@@ -160,7 +160,7 @@ private:
      * Return the conceptual root time-series state for this stored value.
      *
      * The current TS prototype still materialises the TS extension region as a
-     * `TimeSeriesStateV`. `ViewContext` is the only TS-facing carrier that
+     * `TimeSeriesStateV`. `TSViewContext` is the only TS-facing carrier that
      * should expose that conceptual root, so this helper remains private and
      * returns the raw state pointer directly.
      */

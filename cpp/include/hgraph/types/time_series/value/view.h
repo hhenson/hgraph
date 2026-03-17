@@ -257,7 +257,7 @@ namespace hgraph
     /**
      * Data holder, all views require this tuple of data, this keeps it in once place and neat.
      */
-    struct ViewContext
+    struct ValueViewContext
     {
         const detail::ViewDispatch *dispatch;
         void                       *data;
@@ -283,7 +283,7 @@ namespace hgraph
          * dispatcher for that storage.
          */
         View(const detail::ViewDispatch *dispatch, void *data, const value::TypeMeta *schema) noexcept
-            : m_dispatch(dispatch), m_data(data), m_schema(schema) {}
+            : context{dispatch, data, schema} {}
 
         /**
          * Construct an invalid view for a known schema.
@@ -301,20 +301,20 @@ namespace hgraph
          * either has a value or it does not; there is no separate notion of a
          * "valid" value in this API.
          */
-        [[nodiscard]] bool has_value() const noexcept { return m_data != nullptr; }
+        [[nodiscard]] bool has_value() const noexcept { return data() != nullptr; }
 
         explicit operator bool() const noexcept { return has_value(); }
 
         /**
          * Return the schema represented by this view.
          */
-        [[nodiscard]] const value::TypeMeta *schema() const noexcept { return m_schema; }
+        [[nodiscard]] const value::TypeMeta *schema() const noexcept { return context.schema; }
 
         /**
          * Return `true` when this view's schema exactly matches the supplied
          * schema pointer.
          */
-        [[nodiscard]] bool is_type(const value::TypeMeta *other) const noexcept { return m_schema == other; }
+        [[nodiscard]] bool is_type(const value::TypeMeta *other) const noexcept { return schema() == other; }
 
         [[nodiscard]] AtomicView       as_atomic();
         [[nodiscard]] AtomicView       as_atomic() const;
@@ -338,7 +338,7 @@ namespace hgraph
          */
         [[nodiscard]] size_t hash() const {
             if (!has_value()) { throw std::runtime_error("View::hash() on empty view"); }
-            return m_dispatch->hash(m_data);
+            return dispatch()->hash(data());
         }
 
         /**
@@ -350,7 +350,7 @@ namespace hgraph
         [[nodiscard]] bool equals(const View &other) const {
             if (schema() != other.schema()) { return false; }
             if (!has_value() || !other.has_value()) { return !has_value() && !other.has_value(); }
-            return std::is_eq(m_dispatch->compare(m_data, other.m_data));
+            return std::is_eq(dispatch()->compare(data(), data_of(other)));
         }
 
         /**
@@ -358,17 +358,17 @@ namespace hgraph
          */
         [[nodiscard]] std::string to_string() const {
             if (!has_value()) { throw std::runtime_error("View::to_string() on empty view"); }
-            return m_dispatch->to_string(m_data);
+            return dispatch()->to_string(data());
         }
 
         [[nodiscard]] nb::object to_python() const {
             if (!has_value()) { throw std::runtime_error("View::to_python() on empty view"); }
-            return m_dispatch->to_python(m_data, schema());
+            return dispatch()->to_python(data(), schema());
         }
 
         void from_python(const nb::object &src) {
             if (!has_value()) { throw std::runtime_error("View::from_python() on empty view"); }
-            m_dispatch->from_python(m_data, src, schema());
+            dispatch()->from_python(data(), src, schema());
         }
 
         template <typename T> void set(T &&value);
@@ -400,9 +400,9 @@ namespace hgraph
          */
         void copy_from(const View &other) {
             if (!has_value() || !other.has_value()) { throw std::runtime_error("View::copy_from requires non-empty views"); }
-            if (m_data == other.m_data) { return; }
+            if (data() == data_of(other)) { return; }
             if (schema() != other.schema()) { throw std::invalid_argument("View::copy_from requires matching schemas"); }
-            m_dispatch->assign(m_data, other.m_data);
+            dispatch()->assign(data(), data_of(other));
         }
 
         template <typename T> [[nodiscard]] T       *try_as() noexcept;
@@ -420,14 +420,14 @@ namespace hgraph
             if (!has_value() || !other.has_value()) {
                 return !has_value() && !other.has_value() ? std::partial_ordering::equivalent : std::partial_ordering::unordered;
             }
-            return m_dispatch->compare(m_data, other.m_data);
+            return dispatch()->compare(data(), data_of(other));
         }
 
       protected:
         /**
          * Return the schema-resolved behavior dispatcher.
          */
-        [[nodiscard]] const detail::ViewDispatch *dispatch() const noexcept { return m_dispatch; }
+        [[nodiscard]] const detail::ViewDispatch *dispatch() const noexcept { return context.dispatch; }
 
         /**
          * Return the raw storage pointer represented by this view.
@@ -435,7 +435,7 @@ namespace hgraph
          * This remains a protected helper so typed derived views can operate on
          * raw storage without exposing erased pointer access on the public API.
          */
-        [[nodiscard]] void *data() const noexcept { return m_data; }
+        [[nodiscard]] void *data() const noexcept { return context.data; }
 
         /**
          * Return the raw storage pointer from another view.
@@ -444,12 +444,10 @@ namespace hgraph
          * behavior with another erased `View`, for example during assignment from
          * another view of the same schema.
          */
-        [[nodiscard]] static void *data_of(const View &view) noexcept { return view.m_data; }
+        [[nodiscard]] static void *data_of(const View &view) noexcept { return view.context.data; }
 
       private:
-        const detail::ViewDispatch *m_dispatch{nullptr};
-        void                       *m_data{nullptr};
-        const value::TypeMeta      *m_schema{nullptr};
+        ValueViewContext context;
     };
 
 }  // namespace hgraph
