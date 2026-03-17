@@ -135,11 +135,14 @@ def _publish_table_from_tsd(
             state.data.append(data)
 
         removes = len(state.removed)
+        
 
-    if not sched.is_scheduled and (data or removes):
+    throttle = (ec.now - ec.evaluation_time) < timedelta(milliseconds=250)  # if the engine is running fast, throttle the updates
+    if throttle and not sched.is_scheduled and (data or removes):
         sched.schedule(timedelta(milliseconds=250), on_wall_clock=True, tag='-')
+        return
 
-    if sched.is_scheduled_now:
+    if not throttle or sched.is_scheduled_now:
         state.manager.update_table(name, state.data, state.removed)
         if history:
             state.manager.update_table(name + "_history", state.history)
