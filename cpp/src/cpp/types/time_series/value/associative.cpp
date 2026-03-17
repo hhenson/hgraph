@@ -1,6 +1,6 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/value/associative.h>
-#include <hgraph/types/time_series/value/state.h>
+#include <hgraph/types/time_series/value/builder.h>
 
 #include <ankerl/unordered_dense.h>
 #include <sul/dynamic_bitset.hpp>
@@ -1694,7 +1694,7 @@ namespace hgraph
             bool                                          m_value_requires_destroy;
         };
 
-        template <typename TDispatch> struct AssociativeStateOps final : StateOps
+        template <typename TDispatch> struct AssociativeStateOps final : ValueBuilderOps
         {
             explicit AssociativeStateOps(const TDispatch &dispatch) noexcept
                 : m_dispatch(dispatch)
@@ -1743,7 +1743,7 @@ namespace hgraph
         struct CachedBuilderEntry
         {
             std::shared_ptr<const ViewDispatch> dispatch;
-            std::shared_ptr<const StateOps>     state_ops;
+            std::shared_ptr<const ValueBuilderOps>     state_ops;
             std::shared_ptr<const ValueBuilder> builder;
         };
 

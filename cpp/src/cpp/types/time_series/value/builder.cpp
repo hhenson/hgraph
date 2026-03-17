@@ -1,12 +1,12 @@
 #include <hgraph/hgraph_base.h>
-#include <hgraph/types/time_series/value/state.h>
+#include <hgraph/types/time_series/value/builder.h>
 
 #include <stdexcept>
 
 namespace hgraph
 {
 
-    ValueBuilder::ValueBuilder(const value::TypeMeta &schema, MutationTracking tracking, const detail::StateOps &state_ops) noexcept
+    ValueBuilder::ValueBuilder(const value::TypeMeta &schema, MutationTracking tracking, const detail::ValueBuilderOps &state_ops) noexcept
         : m_schema(schema),
           m_tracking(tracking),
           m_state_ops(state_ops),

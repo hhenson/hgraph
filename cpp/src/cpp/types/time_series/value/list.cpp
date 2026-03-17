@@ -1,6 +1,6 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/value/list.h>
-#include <hgraph/types/time_series/value/state.h>
+#include <hgraph/types/time_series/value/builder.h>
 
 #include <algorithm>
 #include <cstring>
@@ -936,7 +936,7 @@ namespace hgraph
             }
         };
 
-        template <typename TDispatch> struct FixedListStateOps final : StateOps
+        template <typename TDispatch> struct FixedListStateOps final : ValueBuilderOps
         {
             explicit FixedListStateOps(const TDispatch &dispatch) noexcept
                 : m_dispatch(dispatch)
@@ -982,7 +982,7 @@ namespace hgraph
             std::reference_wrapper<const TDispatch> m_dispatch;
         };
 
-        template <typename TDispatch> struct DynamicListStateOps final : StateOps
+        template <typename TDispatch> struct DynamicListStateOps final : ValueBuilderOps
         {
             explicit DynamicListStateOps(const TDispatch &dispatch) noexcept
                 : m_dispatch(dispatch)
@@ -1031,7 +1031,7 @@ namespace hgraph
         struct CachedBuilderEntry
         {
             std::shared_ptr<const ViewDispatch> dispatch;
-            std::shared_ptr<const StateOps>     state_ops;
+            std::shared_ptr<const ValueBuilderOps>     state_ops;
             std::shared_ptr<const ValueBuilder> builder;
         };
 

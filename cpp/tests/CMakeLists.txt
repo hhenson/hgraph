@@ -114,7 +114,7 @@ add_executable(hgraph_time_series_value_tests
     ../src/cpp/types/time_series/value/list.cpp
     ../src/cpp/types/time_series/value/record.cpp
     ../src/cpp/types/time_series/value/sequence.cpp
-    ../src/cpp/types/time_series/value/state.cpp
+        ../src/cpp/types/time_series/value/builder.cpp
     ../src/cpp/types/time_series/value/value.cpp
     ../src/cpp/types/time_series/ts_value_builder.cpp
     ../src/cpp/types/time_series/ts_value.cpp

@@ -1,6 +1,6 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/value/record.h>
-#include <hgraph/types/time_series/value/state.h>
+#include <hgraph/types/time_series/value/builder.h>
 #include <hgraph/types/value/type_meta_bindings.h>
 #include <hgraph/types/value/validity_bitmap.h>
 
@@ -554,7 +554,7 @@ namespace hgraph
             }
         };
 
-        template <typename TDispatch> struct RecordStateOps final : StateOps
+        template <typename TDispatch> struct RecordStateOps final : ValueBuilderOps
         {
             explicit RecordStateOps(const TDispatch &dispatch) noexcept
                 : m_dispatch(dispatch)
@@ -603,7 +603,7 @@ namespace hgraph
         struct CachedBuilderEntry
         {
             std::shared_ptr<const ViewDispatch> dispatch;
-            std::shared_ptr<const StateOps>     state_ops;
+            std::shared_ptr<const ValueBuilderOps>     state_ops;
             std::shared_ptr<const ValueBuilder> builder;
         };
 

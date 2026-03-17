@@ -1,6 +1,6 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/value/sequence.h>
-#include <hgraph/types/time_series/value/state.h>
+#include <hgraph/types/time_series/value/builder.h>
 
 #include <algorithm>
 #include <concepts>
@@ -968,7 +968,7 @@ namespace hgraph
 
         };
 
-        template <typename TDispatch> struct SequenceStateOps final : StateOps
+        template <typename TDispatch> struct SequenceStateOps final : ValueBuilderOps
         {
             explicit SequenceStateOps(const TDispatch &dispatch) noexcept
                 : m_dispatch(dispatch)
@@ -1022,7 +1022,7 @@ namespace hgraph
         struct CachedBuilderEntry
         {
             std::shared_ptr<const ViewDispatch> dispatch;
-            std::shared_ptr<const StateOps>     state_ops;
+            std::shared_ptr<const ValueBuilderOps>     state_ops;
             std::shared_ptr<const ValueBuilder> builder;
         };
 

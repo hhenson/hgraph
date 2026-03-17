@@ -325,7 +325,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/time_series/value/list.h
         include/hgraph/types/time_series/value/record.h
         include/hgraph/types/time_series/value/sequence.h
-        include/hgraph/types/time_series/value/state.h
+        include/hgraph/types/time_series/value/builder.h
         include/hgraph/types/time_series/value/tracking.h
         include/hgraph/types/time_series/value/value.h
         include/hgraph/types/time_series/value/view.h

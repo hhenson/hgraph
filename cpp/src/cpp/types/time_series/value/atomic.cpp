@@ -3,7 +3,7 @@
 #include <hgraph/types/ref.h>
 #endif
 #include <hgraph/types/time_series/value/atomic.h>
-#include <hgraph/types/time_series/value/state.h>
+#include <hgraph/types/time_series/value/builder.h>
 
 namespace hgraph
 {
@@ -11,7 +11,7 @@ namespace hgraph
     namespace detail
     {
 
-        template <typename T> struct AtomicStateOps final : StateOps
+        template <typename T> struct AtomicStateOps final : ValueBuilderOps
         {
             void expand_builder(ValueBuilder &builder, const value::TypeMeta &schema) const noexcept override {
                 static_cast<void>(schema);
@@ -61,7 +61,7 @@ namespace hgraph
             }
         };
 
-        template <typename T> [[nodiscard]] const StateOps &atomic_state_ops() noexcept {
+        template <typename T> [[nodiscard]] const ValueBuilderOps &atomic_state_ops() noexcept {
             static const AtomicStateOps<T> ops{};
             return ops;
         }

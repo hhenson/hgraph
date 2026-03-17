@@ -3,7 +3,7 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/time_series_state.h>
 #include <hgraph/types/time_series/ts_meta.h>
-#include <hgraph/types/time_series/value/state.h>
+#include <hgraph/types/time_series/value/builder.h>
 
 #include <functional>
 #include <new>
@@ -22,7 +22,7 @@ namespace hgraph
          * region remains data-first and schema-shaped, while the TS region
          * holds the time-series runtime state associated with that data.
          *
-         * `TSStateOps` is the TS analogue of the value-layer `StateOps`: it
+         * `TSStateOps` is the TS analogue of the value-layer `ValueBuilderOps`: it
          * knows how to size, construct, destroy, copy, and move the TS region
          * for a schema, but it does not own the memory itself.
          */
