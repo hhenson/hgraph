@@ -67,6 +67,13 @@ struct Range
             size_t          index{0};
         };
 
+        Range(const void *context, size_t limit, Predicate predicate, Projector projector) noexcept
+            : m_context(context), m_limit(limit), m_predicate(predicate), m_projector(projector)
+        {
+        }
+
+        Range() noexcept = default;
+
         [[nodiscard]] iterator begin() const
         {
             iterator it;
@@ -103,14 +110,6 @@ struct Range
         size_t      m_limit{0};
         Predicate   m_predicate{nullptr};
         Projector   m_projector{nullptr};
-
-      public:
-        Range(const void *context, size_t limit, Predicate predicate, Projector projector) noexcept
-            : m_context(context), m_limit(limit), m_predicate(predicate), m_projector(projector)
-        {
-        }
-
-        Range() noexcept = default;
     };
 
     /**
@@ -162,6 +161,13 @@ struct Range
             size_t                     index{0};
         };
 
+        KeyValueRange(const void *context, size_t limit, Predicate predicate, Projector projector) noexcept
+            : m_context(context), m_limit(limit), m_predicate(predicate), m_projector(projector)
+        {
+        }
+
+        KeyValueRange() noexcept = default;
+
         [[nodiscard]] iterator begin() const
         {
             iterator it;
@@ -198,14 +204,6 @@ struct Range
         size_t      m_limit{0};
         Predicate   m_predicate{nullptr};
         Projector   m_projector{nullptr};
-
-      public:
-        KeyValueRange(const void *context, size_t limit, Predicate predicate, Projector projector) noexcept
-            : m_context(context), m_limit(limit), m_predicate(predicate), m_projector(projector)
-        {
-        }
-
-        KeyValueRange() noexcept = default;
     };
 
     struct AtomicView;
