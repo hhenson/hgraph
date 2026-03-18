@@ -331,8 +331,8 @@ namespace hgraph
         if (m_builder == nullptr) { return; }
         if (!has_value()) { return; }
 
-        if (builder().requires_destroy()) {
-            builder().destroy(storage_memory());
+        if (builder().requires_destruct()) {
+            builder().destruct(storage_memory());
         }
         if (builder().requires_deallocate() && !builder().stores_inline_in_value_handle()) {
             builder().deallocate(m_storage.heap_memory);

@@ -32,7 +32,7 @@ namespace hgraph
             std::reference_wrapper<const value::TypeMeta> schema;
             std::reference_wrapper<const ValueBuilder>    builder;
             size_t                                        offset{0};
-            bool                                          requires_destroy{true};
+            bool                                          requires_destruct{true};
         };
 
         template <MutationTracking TTracking> struct RecordDispatchBase : RecordViewDispatch
@@ -64,7 +64,7 @@ namespace hgraph
                         std::cref(*field.type),
                         std::cref(field_builder),
                         offset,
-                        field_builder.requires_destroy(),
+                        field_builder.requires_destruct(),
                     });
                     if (!field_name.empty()) {
                         m_name_to_index[field_name] = i;
@@ -80,8 +80,8 @@ namespace hgraph
                     align_up(m_header_size + m_payload_size + value::validity_mask_bytes(m_fields.size()) +
                                  (tracks_deltas_v ? value::validity_mask_bytes(m_fields.size()) : 0),
                              max_alignment);
-                m_requires_destroy = std::ranges::any_of(m_fields, [](const RecordFieldLayout &field) {
-                    return field.requires_destroy;
+                m_requires_destruct = std::ranges::any_of(m_fields, [](const RecordFieldLayout &field) {
+                    return field.requires_destruct;
                 });
             }
 
@@ -183,9 +183,9 @@ namespace hgraph
                 return m_alignment;
             }
 
-            [[nodiscard]] bool requires_destroy() const noexcept
+            [[nodiscard]] bool requires_destruct() const noexcept
             {
-                return m_requires_destroy;
+                return m_requires_destruct;
             }
 
             void construct(void *memory) const
@@ -198,12 +198,12 @@ namespace hgraph
                 if constexpr (tracks_deltas_v) { value::validity_set_all(updated_memory(memory), m_fields.size(), false); }
             }
 
-            void destroy(void *memory) const noexcept
+            void destruct(void *memory) const noexcept
             {
-                if (!m_requires_destroy) { return; }
+                if (!m_requires_destruct) { return; }
                 for (size_t i = 0; i < m_fields.size(); ++i) {
-                    if (field(i).requires_destroy) {
-                        field(i).builder.get().destroy(field_data(memory, i));
+                    if (field(i).requires_destruct) {
+                        field(i).builder.get().destruct(field_data(memory, i));
                     }
                 }
                 if constexpr (tracks_deltas_v) { std::destroy_at(state(memory)); }
@@ -359,8 +359,8 @@ namespace hgraph
             {
                 void *slot = field_data(data, index);
                 const auto &layout = field(index);
-                if (layout.requires_destroy) {
-                    layout.builder.get().destroy(slot);
+                if (layout.requires_destruct) {
+                    layout.builder.get().destruct(slot);
                 }
                 layout.builder.get().construct(slot);
             }
@@ -380,7 +380,7 @@ namespace hgraph
             size_t                                        m_header_size{0};
             size_t                                        m_alignment{alignof(std::max_align_t)};
             size_t                                        m_allocation_size{0};
-            bool                                          m_requires_destroy{true};
+            bool                                          m_requires_destruct{true};
         };
 
         template <MutationTracking TTracking> struct TupleDispatch final : RecordDispatchBase<TTracking>
@@ -561,11 +561,10 @@ namespace hgraph
             {
             }
 
-            void expand_builder(ValueBuilder &builder, const value::TypeMeta &schema) const noexcept override
+            [[nodiscard]] BuilderLayout layout(const value::TypeMeta &schema) const noexcept override
             {
                 static_cast<void>(schema);
-                builder.cache_layout(m_dispatch.get().allocation_size(), m_dispatch.get().alignment());
-                builder.cache_lifecycle(m_dispatch.get().requires_destroy(), true, false);
+                return BuilderLayout{m_dispatch.get().allocation_size(), m_dispatch.get().alignment()};
             }
 
             [[nodiscard]] const ViewDispatch &view_dispatch(const value::TypeMeta &schema) const noexcept override
@@ -574,10 +573,10 @@ namespace hgraph
                 return m_dispatch.get();
             }
 
-            [[nodiscard]] bool requires_destroy(const value::TypeMeta &schema) const noexcept override
+            [[nodiscard]] bool requires_destruct(const value::TypeMeta &schema) const noexcept override
             {
                 static_cast<void>(schema);
-                return m_dispatch.get().requires_destroy();
+                return m_dispatch.get().requires_destruct();
             }
 
             [[nodiscard]] bool requires_deallocate(const value::TypeMeta &schema) const noexcept override
@@ -593,7 +592,7 @@ namespace hgraph
             }
 
             void construct(void *memory) const override { m_dispatch.get().construct(memory); }
-            void destroy(void *memory) const noexcept override { m_dispatch.get().destroy(memory); }
+            void destruct(void *memory) const noexcept override { m_dispatch.get().destruct(memory); }
             void copy_construct(void *dst, const void *src) const override { m_dispatch.get().copy_construct(dst, src); }
             void move_construct(void *dst, void *src) const override { m_dispatch.get().move_construct(dst, src); }
 

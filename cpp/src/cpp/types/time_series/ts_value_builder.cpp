@@ -43,21 +43,26 @@ namespace hgraph
             throw std::invalid_argument("TSValueBuilder requires a supported TS schema kind");
         }
 
-        struct RootTSStateOps : detail::TSStateOps
+        struct RootTSStateOps : detail::TSBuilderOps
         {
-            void expand_builder(TSValueBuilder &builder, const TSMeta &schema) const noexcept override
+            [[nodiscard]] detail::TSBuilderLayout layout(const TSMeta &schema,
+                                                         const ValueBuilder &value_builder) const noexcept override
             {
                 static_cast<void>(schema);
 
                 const size_t value_offset = 0;
-                const size_t value_size = builder.value_builder().size();
-                const size_t value_alignment = builder.value_builder().alignment();
+                const size_t value_size = value_builder.size();
+                const size_t value_alignment = value_builder.alignment();
                 const size_t ts_alignment = alignof(TimeSeriesStateV);
                 const size_t ts_offset = align_up(value_size, ts_alignment);
                 const size_t total_size = ts_offset + sizeof(TimeSeriesStateV);
                 const size_t total_alignment = std::max(value_alignment, ts_alignment);
-
-                builder.cache_layout(value_offset, ts_offset, total_size, total_alignment);
+                return detail::TSBuilderLayout{
+                    .value_offset = value_offset,
+                    .ts_offset = ts_offset,
+                    .size = total_size,
+                    .alignment = total_alignment,
+                };
             }
 
             void construct(void *memory, const TSMeta &schema) const override
@@ -65,7 +70,7 @@ namespace hgraph
                 new (memory) TimeSeriesStateV(make_root_state(schema));
             }
 
-            void destroy(void *memory) const noexcept override
+            void destruct(void *memory) const noexcept override
             {
                 std::destroy_at(static_cast<TimeSeriesStateV *>(memory));
             }
@@ -83,25 +88,23 @@ namespace hgraph
             }
         };
 
-        [[nodiscard]] const detail::TSStateOps &root_state_ops() noexcept
+        [[nodiscard]] const detail::TSBuilderOps &root_builder_ops() noexcept
         {
             static RootTSStateOps ops;
             return ops;
         }
     }  // namespace
 
-    TSValueBuilder::TSValueBuilder(const TSMeta &schema, const ValueBuilder &value_builder, const detail::TSStateOps &state_ops) noexcept
-        : m_schema(schema), m_value_builder(value_builder), m_state_ops(state_ops)
+    TSValueBuilder::TSValueBuilder(const TSMeta &schema,
+                                   const ValueBuilder &value_builder,
+                                   const detail::TSBuilderOps &builder_ops) noexcept
+        : m_schema(schema), m_value_builder(value_builder), m_builder_ops(builder_ops)
     {
-        state_ops.expand_builder(*this, schema);
-    }
-
-    void TSValueBuilder::cache_layout(size_t value_offset, size_t ts_offset, size_t size, size_t alignment) noexcept
-    {
-        m_value_offset = value_offset;
-        m_ts_offset = ts_offset;
-        m_size = size;
-        m_alignment = alignment;
+        const auto layout = builder_ops.layout(schema, value_builder);
+        m_value_offset = layout.value_offset;
+        m_ts_offset = layout.ts_offset;
+        m_size = layout.size;
+        m_alignment = layout.alignment;
     }
 
     void *TSValueBuilder::allocate() const
@@ -118,17 +121,17 @@ namespace hgraph
     {
         value_builder().construct(value_memory(memory));
         try {
-            m_state_ops.get().construct(ts_memory(memory), schema());
+            m_builder_ops.get().construct(ts_memory(memory), schema());
         } catch (...) {
-            value_builder().destroy(value_memory(memory));
+            value_builder().destruct(value_memory(memory));
             throw;
         }
     }
 
-    void TSValueBuilder::destroy(void *memory) const noexcept
+    void TSValueBuilder::destruct(void *memory) const noexcept
     {
-        m_state_ops.get().destroy(ts_memory(memory));
-        value_builder().destroy(value_memory(memory));
+        m_builder_ops.get().destruct(ts_memory(memory));
+        value_builder().destruct(value_memory(memory));
     }
 
     void TSValueBuilder::copy_construct(void *dst, const void *src, const TSValueBuilder &src_builder) const
@@ -137,9 +140,9 @@ namespace hgraph
 
         value_builder().copy_construct(value_memory(dst), src_builder.value_memory(src), value_builder());
         try {
-            m_state_ops.get().copy_construct(ts_memory(dst), src_builder.ts_memory(src), schema());
+            m_builder_ops.get().copy_construct(ts_memory(dst), src_builder.ts_memory(src), schema());
         } catch (...) {
-            value_builder().destroy(value_memory(dst));
+            value_builder().destruct(value_memory(dst));
             throw;
         }
     }
@@ -150,9 +153,9 @@ namespace hgraph
 
         value_builder().move_construct(value_memory(dst), src_builder.value_memory(src), value_builder());
         try {
-            m_state_ops.get().move_construct(ts_memory(dst), src_builder.ts_memory(src), schema());
+            m_builder_ops.get().move_construct(ts_memory(dst), src_builder.ts_memory(src), schema());
         } catch (...) {
-            value_builder().destroy(value_memory(dst));
+            value_builder().destruct(value_memory(dst));
             throw;
         }
     }
@@ -197,7 +200,7 @@ namespace hgraph
         const auto [it, inserted] = cache.emplace(
             std::piecewise_construct,
             std::forward_as_tuple(schema),
-            std::forward_as_tuple(std::cref(*schema), std::cref(value_builder), std::cref(root_state_ops())));
+            std::forward_as_tuple(std::cref(*schema), std::cref(value_builder), std::cref(root_builder_ops())));
         static_cast<void>(inserted);
         return &it->second;
     }

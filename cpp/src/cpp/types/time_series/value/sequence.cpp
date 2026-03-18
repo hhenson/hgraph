@@ -104,8 +104,8 @@ namespace hgraph
 
             void reset_slot(void *slot) const
             {
-                if (m_element_builder.get().requires_destroy()) {
-                    m_element_builder.get().destroy(slot);
+                if (m_element_builder.get().requires_destruct()) {
+                    m_element_builder.get().destruct(slot);
                 }
                 m_element_builder.get().construct(slot);
             }
@@ -133,11 +133,11 @@ namespace hgraph
                 }
             }
 
-            void destroy_slots(std::byte *base, size_t count) const noexcept
+            void destruct_slots(std::byte *base, size_t count) const noexcept
             {
-                if (!m_element_builder.get().requires_destroy()) { return; }
+                if (!m_element_builder.get().requires_destruct()) { return; }
                 for (size_t i = 0; i < count; ++i) {
-                    m_element_builder.get().destroy(base + i * element_stride());
+                    m_element_builder.get().destruct(base + i * element_stride());
                 }
             }
 
@@ -428,11 +428,11 @@ namespace hgraph
              * buffer, because cyclic-buffer elements live inside the root value
              * allocation.
              */
-            void destroy(void *memory) const noexcept
+            void destruct(void *memory) const noexcept
             {
                 auto *buffer = state(memory);
                 if (buffer->elements != nullptr) {
-                    this->destroy_slots(buffer->elements, storage_slots());
+                    this->destruct_slots(buffer->elements, storage_slots());
                 }
                 std::destroy_at(state(memory));
             }
@@ -819,12 +819,12 @@ namespace hgraph
                 }
             }
 
-            void destroy(void *memory) const noexcept
+            void destruct(void *memory) const noexcept
             {
                 auto *queue = state(memory);
                 if (queue->elements != nullptr) {
                     if (queue->capacity > 0) {
-                        this->destroy_slots(queue->elements, storage_slots(queue->capacity));
+                        this->destruct_slots(queue->elements, storage_slots(queue->capacity));
                     }
                     if (!uses_inline_storage(memory)) {
                         ::operator delete(queue->elements, std::align_val_t{this->m_element_builder.get().alignment()});
@@ -900,13 +900,13 @@ namespace hgraph
                         ++constructed;
                     }
                 } catch (...) {
-                    this->destroy_slots(new_elements, constructed);
+                    this->destruct_slots(new_elements, constructed);
                     ::operator delete(new_elements, std::align_val_t{this->m_element_builder.get().alignment()});
                     throw;
                 }
 
                 if (queue->elements != nullptr) {
-                    this->destroy_slots(queue->elements, storage_slots(queue->capacity));
+                    this->destruct_slots(queue->elements, storage_slots(queue->capacity));
                     if (!uses_inline_storage(data)) {
                         ::operator delete(queue->elements, std::align_val_t{this->m_element_builder.get().alignment()});
                     }
@@ -975,16 +975,10 @@ namespace hgraph
             {
             }
 
-            void expand_builder(ValueBuilder &builder, const value::TypeMeta &schema) const noexcept override
+            [[nodiscard]] BuilderLayout layout(const value::TypeMeta &schema) const noexcept override
             {
                 static_cast<void>(schema);
-                if constexpr (std::same_as<TDispatch, CyclicBufferDispatch<MutationTracking::Delta>> ||
-                              std::same_as<TDispatch, CyclicBufferDispatch<MutationTracking::Plain>>) {
-                    builder.cache_layout(m_dispatch.get().allocation_size(), m_dispatch.get().allocation_alignment());
-                } else {
-                    builder.cache_layout(m_dispatch.get().allocation_size(), m_dispatch.get().allocation_alignment());
-                }
-                builder.cache_lifecycle(true, true, false);
+                return BuilderLayout{m_dispatch.get().allocation_size(), m_dispatch.get().allocation_alignment()};
             }
 
             [[nodiscard]] const ViewDispatch &view_dispatch(const value::TypeMeta &schema) const noexcept override
@@ -993,7 +987,7 @@ namespace hgraph
                 return m_dispatch.get();
             }
 
-            [[nodiscard]] bool requires_destroy(const value::TypeMeta &schema) const noexcept override
+            [[nodiscard]] bool requires_destruct(const value::TypeMeta &schema) const noexcept override
             {
                 static_cast<void>(schema);
                 return true;
@@ -1012,7 +1006,7 @@ namespace hgraph
             }
 
             void construct(void *memory) const override { m_dispatch.get().construct(memory); }
-            void destroy(void *memory) const noexcept override { m_dispatch.get().destroy(memory); }
+            void destruct(void *memory) const noexcept override { m_dispatch.get().destruct(memory); }
             void copy_construct(void *dst, const void *src) const override { m_dispatch.get().copy_construct(dst, src); }
             void move_construct(void *dst, void *src) const override { m_dispatch.get().move_construct(dst, src); }
 

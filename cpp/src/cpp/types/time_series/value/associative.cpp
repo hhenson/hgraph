@@ -226,7 +226,7 @@ namespace hgraph
                 : m_dispatch(dispatch),
                   m_builder(builder),
                   m_stride(stride_for(builder)),
-                  m_requires_destroy(builder.requires_destroy())
+                  m_requires_destruct(builder.requires_destruct())
             {
             }
 
@@ -296,13 +296,13 @@ namespace hgraph
                     }
                 } catch (...) {
                     for (size_t slot = 0; slot < moved; ++slot) {
-                        destroy_payload(new_elements + slot * stride());
+                        destruct_payload(new_elements + slot * stride());
                     }
                     ::operator delete(new_elements, std::align_val_t{builder().alignment()});
                     throw;
                 }
 
-                destroy_dense_payloads(state);
+                destruct_dense_payloads(state);
                 if (state.elements != nullptr) {
                     if (!state.elements_inline) {
                         ::operator delete(state.elements, std::align_val_t{builder().alignment()});
@@ -332,13 +332,13 @@ namespace hgraph
                     }
                 } catch (...) {
                     for (const size_t slot : moved_slots) {
-                        destroy_payload(new_elements + slot * stride());
+                        destruct_payload(new_elements + slot * stride());
                     }
                     ::operator delete(new_elements, std::align_val_t{builder().alignment()});
                     throw;
                 }
 
-                destroy_occupied_payloads(state);
+                destruct_occupied_payloads(state);
                 if (state.elements != nullptr) {
                     if (!state.elements_inline) {
                         ::operator delete(state.elements, std::align_val_t{builder().alignment()});
@@ -438,12 +438,12 @@ namespace hgraph
                 const size_t last = state.size - 1;
                 if (slot != last) {
                     state.index->erase(last);
-                    destroy_payload(slot_data(state, slot));
+                    destruct_payload(slot_data(state, slot));
                     builder().move_construct(slot_data(state, slot), slot_data(state, last), builder());
-                    destroy_payload(slot_data(state, last));
+                    destruct_payload(slot_data(state, last));
                     state.index->insert(slot);
                 } else {
-                    destroy_payload(slot_data(state, last));
+                    destruct_payload(slot_data(state, last));
                 }
                 --state.size;
             }
@@ -455,7 +455,7 @@ namespace hgraph
                 }
 
                 if (state.added.test(slot)) {
-                    destroy_payload(slot_data(state, slot));
+                    destruct_payload(slot_data(state, slot));
                     state.alive.reset(slot);
                     state.occupied.reset(slot);
                     state.added.reset(slot);
@@ -476,7 +476,7 @@ namespace hgraph
                 for (size_t slot = 0; slot < state.capacity; ++slot) {
                     if (!state.removed.test(slot)) { continue; }
                     state.index->erase(slot);
-                    destroy_payload(slot_data(state, slot));
+                    destruct_payload(slot_data(state, slot));
                     state.occupied.reset(slot);
                     state.removed.reset(slot);
                     state.free_list.push_back(slot);
@@ -486,14 +486,14 @@ namespace hgraph
 
             void clear(PlainSetState &state) const noexcept
             {
-                destroy_dense_payloads(state);
+                destruct_dense_payloads(state);
                 if (state.index != nullptr) { state.index->clear(); }
                 state.size = 0;
             }
 
             void clear(DeltaSetState &state) const noexcept
             {
-                destroy_occupied_payloads(state);
+                destruct_occupied_payloads(state);
                 if (state.index != nullptr) { state.index->clear(); }
                 state.size = 0;
                 state.alive.reset();
@@ -506,27 +506,27 @@ namespace hgraph
                 }
             }
 
-            void destroy_dense_payloads(PlainSetState &state) const noexcept
+            void destruct_dense_payloads(PlainSetState &state) const noexcept
             {
-                if (!m_requires_destroy) { return; }
+                if (!m_requires_destruct) { return; }
                 for (size_t slot = 0; slot < state.size; ++slot) {
-                    builder().destroy(slot_data(state, slot));
+                    builder().destruct(slot_data(state, slot));
                 }
             }
 
-            void destroy_occupied_payloads(DeltaSetState &state) const noexcept
+            void destruct_occupied_payloads(DeltaSetState &state) const noexcept
             {
-                if (!m_requires_destroy) { return; }
+                if (!m_requires_destruct) { return; }
                 for (size_t slot = 0; slot < state.capacity; ++slot) {
                     if (state.occupied.test(slot)) {
-                        builder().destroy(slot_data(state, slot));
+                        builder().destruct(slot_data(state, slot));
                     }
                 }
             }
 
-            void destroy_payload(void *slot) const noexcept
+            void destruct_payload(void *slot) const noexcept
             {
-                if (m_requires_destroy) { builder().destroy(slot); }
+                if (m_requires_destruct) { builder().destruct(slot); }
             }
 
           private:
@@ -542,7 +542,7 @@ namespace hgraph
             std::reference_wrapper<const ViewDispatch> m_dispatch;
             std::reference_wrapper<const ValueBuilder> m_builder;
             size_t                                     m_stride;
-            bool                                       m_requires_destroy;
+            bool                                       m_requires_destruct;
         };
 
         template <MutationTracking TTracking> struct SetDispatch final : SetViewDispatch
@@ -808,15 +808,15 @@ namespace hgraph
                         element_dispatch().from_python(temp, nb::borrow<nb::object>(item), &element_schema());
                         static_cast<void>(add(dst, temp));
                     } catch (...) {
-                        if (m_element_builder.get().requires_destroy()) {
-                            m_element_builder.get().destroy(temp);
+                        if (m_element_builder.get().requires_destruct()) {
+                            m_element_builder.get().destruct(temp);
                         }
                         m_element_builder.get().deallocate(temp);
                         throw;
                     }
 
-                    if (m_element_builder.get().requires_destroy()) {
-                        m_element_builder.get().destroy(temp);
+                    if (m_element_builder.get().requires_destruct()) {
+                        m_element_builder.get().destruct(temp);
                     }
                     m_element_builder.get().deallocate(temp);
                     ++it;
@@ -877,7 +877,7 @@ namespace hgraph
                 }
             }
 
-            void destroy(void *memory) const noexcept
+            void destruct(void *memory) const noexcept
             {
                 auto *set = state(memory);
                 hard_clear(*set);
@@ -972,7 +972,7 @@ namespace hgraph
                   m_value_builder(ValueBuilderFactory::checked_builder_for(schema.element_type, TTracking)),
                   m_keys(m_key_builder.get().dispatch(), m_key_builder.get()),
                   m_value_stride(stride_for(m_value_builder.get())),
-                  m_value_requires_destroy(m_value_builder.get().requires_destroy())
+                  m_value_requires_destruct(m_value_builder.get().requires_destruct())
             {
                 if (schema.key_type == nullptr || schema.element_type == nullptr) {
                     throw std::runtime_error("Map schema requires key and value schemas");
@@ -1192,7 +1192,7 @@ namespace hgraph
                 if (slot == npos) { return false; }
                 if constexpr (tracks_deltas_v) {
                     if (state(data)->keys.added.test(slot)) {
-                        destroy_value(values_memory(data) + slot * m_value_stride);
+                        destruct_value(values_memory(data) + slot * m_value_stride);
                     }
                     state(data)->updated.reset(slot);
                     m_keys.remove_slot(state(data)->keys, slot);
@@ -1209,7 +1209,7 @@ namespace hgraph
                     for (size_t slot = 0; slot < map_keys.capacity; ++slot) {
                         if (!map_keys.alive.test(slot)) { continue; }
                         if (state(data)->keys.added.test(slot)) {
-                            destroy_value(values_memory(data) + slot * m_value_stride);
+                            destruct_value(values_memory(data) + slot * m_value_stride);
                         }
                         state(data)->updated.reset(slot);
                         m_keys.remove_slot(state(data)->keys, slot);
@@ -1323,14 +1323,14 @@ namespace hgraph
                         static_cast<void>(set_item(dst, temp_key, temp_value));
                     } catch (...) {
                         if (temp_value != nullptr) {
-                            if (m_value_builder.get().requires_destroy()) {
-                                m_value_builder.get().destroy(temp_value);
+                            if (m_value_builder.get().requires_destruct()) {
+                                m_value_builder.get().destruct(temp_value);
                             }
                             m_value_builder.get().deallocate(temp_value);
                         }
                         if (temp_key != nullptr) {
-                            if (m_key_builder.get().requires_destroy()) {
-                                m_key_builder.get().destroy(temp_key);
+                            if (m_key_builder.get().requires_destruct()) {
+                                m_key_builder.get().destruct(temp_key);
                             }
                             m_key_builder.get().deallocate(temp_key);
                         }
@@ -1338,13 +1338,13 @@ namespace hgraph
                     }
 
                     if (temp_value != nullptr) {
-                        if (m_value_builder.get().requires_destroy()) {
-                            m_value_builder.get().destroy(temp_value);
+                        if (m_value_builder.get().requires_destruct()) {
+                            m_value_builder.get().destruct(temp_value);
                         }
                         m_value_builder.get().deallocate(temp_value);
                     }
-                    if (m_key_builder.get().requires_destroy()) {
-                        m_key_builder.get().destroy(temp_key);
+                    if (m_key_builder.get().requires_destruct()) {
+                        m_key_builder.get().destruct(temp_key);
                     }
                     m_key_builder.get().deallocate(temp_key);
                     ++it;
@@ -1407,7 +1407,7 @@ namespace hgraph
                 }
             }
 
-            void destroy(void *memory) const noexcept
+            void destruct(void *memory) const noexcept
             {
                 hard_clear(memory);
                 if (keys(memory).elements != nullptr) {
@@ -1471,19 +1471,19 @@ namespace hgraph
                 const size_t last = map.keys.size - 1;
                 map.keys.index->erase(slot);
 
-                destroy_value(map.values + slot * m_value_stride);
+                destruct_value(map.values + slot * m_value_stride);
                 if (slot != last) {
                     map.keys.index->erase(last);
-                    m_keys.destroy_payload(m_keys.slot_data(map.keys, slot));
+                    m_keys.destruct_payload(m_keys.slot_data(map.keys, slot));
                     m_keys.builder().move_construct(m_keys.slot_data(map.keys, slot), m_keys.slot_data(map.keys, last), m_keys.builder());
-                    m_keys.destroy_payload(m_keys.slot_data(map.keys, last));
+                    m_keys.destruct_payload(m_keys.slot_data(map.keys, last));
 
                     m_value_builder.get().move_construct(
                         map.values + slot * m_value_stride, map.values + last * m_value_stride, m_value_builder);
-                    destroy_value(map.values + last * m_value_stride);
+                    destruct_value(map.values + last * m_value_stride);
                     map.keys.index->insert(slot);
                 } else {
-                    m_keys.destroy_payload(m_keys.slot_data(map.keys, last));
+                    m_keys.destruct_payload(m_keys.slot_data(map.keys, last));
                 }
                 --map.keys.size;
             }
@@ -1511,7 +1511,7 @@ namespace hgraph
                     }
                 } catch (...) {
                     for (size_t slot = 0; slot < moved; ++slot) {
-                        destroy_value(new_values + slot * m_value_stride);
+                        destruct_value(new_values + slot * m_value_stride);
                     }
                     ::operator delete(new_values, std::align_val_t{m_value_builder.get().alignment()});
                     throw;
@@ -1521,13 +1521,13 @@ namespace hgraph
                     m_keys.reserve_exact(map.keys, new_capacity);
                 } catch (...) {
                     for (size_t slot = 0; slot < moved; ++slot) {
-                        destroy_value(new_values + slot * m_value_stride);
+                        destruct_value(new_values + slot * m_value_stride);
                     }
                     ::operator delete(new_values, std::align_val_t{m_value_builder.get().alignment()});
                     throw;
                 }
 
-                destroy_dense_values(map);
+                destruct_dense_values(map);
                 if (map.values != nullptr) {
                     if (!map.values_inline) {
                         ::operator delete(map.values, std::align_val_t{m_value_builder.get().alignment()});
@@ -1557,7 +1557,7 @@ namespace hgraph
                     }
                 } catch (...) {
                     for (const size_t slot : moved_slots) {
-                        destroy_value(new_values + slot * m_value_stride);
+                        destruct_value(new_values + slot * m_value_stride);
                     }
                     ::operator delete(new_values, std::align_val_t{m_value_builder.get().alignment()});
                     throw;
@@ -1567,13 +1567,13 @@ namespace hgraph
                     m_keys.reserve_exact(map.keys, new_capacity);
                 } catch (...) {
                     for (const size_t slot : moved_slots) {
-                        destroy_value(new_values + slot * m_value_stride);
+                        destruct_value(new_values + slot * m_value_stride);
                     }
                     ::operator delete(new_values, std::align_val_t{m_value_builder.get().alignment()});
                     throw;
                 }
 
-                destroy_constructed_values(map);
+                destruct_constructed_values(map);
                 if (map.values != nullptr) {
                     if (!map.values_inline) {
                         ::operator delete(map.values, std::align_val_t{m_value_builder.get().alignment()});
@@ -1589,8 +1589,8 @@ namespace hgraph
             {
                 for (size_t slot = 0; slot < map.keys.capacity; ++slot) {
                     if (!map.keys.removed.test(slot)) { continue; }
-                    m_keys.destroy_payload(m_keys.slot_data(map.keys, slot));
-                    destroy_value(map.values + slot * m_value_stride);
+                    m_keys.destruct_payload(m_keys.slot_data(map.keys, slot));
+                    destruct_value(map.values + slot * m_value_stride);
                     map.keys.index->erase(slot);
                     map.keys.occupied.reset(slot);
                     map.keys.removed.reset(slot);
@@ -1608,39 +1608,39 @@ namespace hgraph
 
             void hard_clear_impl(PlainMapState &map) const noexcept
             {
-                destroy_dense_values(map);
+                destruct_dense_values(map);
                 m_keys.clear(map.keys);
             }
 
             void hard_clear_impl(DeltaMapState &map) const noexcept
             {
-                destroy_constructed_values(map);
+                destruct_constructed_values(map);
                 m_keys.clear(map.keys);
                 map.updated.reset();
             }
 
-            void destroy_dense_values(PlainMapState &map) const noexcept
+            void destruct_dense_values(PlainMapState &map) const noexcept
             {
-                if (!m_value_requires_destroy) { return; }
+                if (!m_value_requires_destruct) { return; }
                 for (size_t slot = 0; slot < map.keys.size; ++slot) {
-                    m_value_builder.get().destroy(map.values + slot * m_value_stride);
+                    m_value_builder.get().destruct(map.values + slot * m_value_stride);
                 }
             }
 
-            void destroy_constructed_values(DeltaMapState &map) const noexcept
+            void destruct_constructed_values(DeltaMapState &map) const noexcept
             {
-                if (!m_value_requires_destroy) { return; }
+                if (!m_value_requires_destruct) { return; }
                 for (size_t slot = 0; slot < map.keys.capacity; ++slot) {
                     if (map.keys.occupied.test(slot)) {
-                        m_value_builder.get().destroy(map.values + slot * m_value_stride);
+                        m_value_builder.get().destruct(map.values + slot * m_value_stride);
                     }
                 }
             }
 
-            void destroy_value(void *slot) const noexcept
+            void destruct_value(void *slot) const noexcept
             {
-                if (m_value_requires_destroy) {
-                    m_value_builder.get().destroy(slot);
+                if (m_value_requires_destruct) {
+                    m_value_builder.get().destruct(slot);
                 }
             }
 
@@ -1691,7 +1691,7 @@ namespace hgraph
             std::reference_wrapper<const ValueBuilder>    m_value_builder;
             KeySlotStorage                                m_keys;
             size_t                                        m_value_stride;
-            bool                                          m_value_requires_destroy;
+            bool                                          m_value_requires_destruct;
         };
 
         template <typename TDispatch> struct AssociativeStateOps final : ValueBuilderOps
@@ -1701,11 +1701,10 @@ namespace hgraph
             {
             }
 
-            void expand_builder(ValueBuilder &builder, const value::TypeMeta &schema) const noexcept override
+            [[nodiscard]] BuilderLayout layout(const value::TypeMeta &schema) const noexcept override
             {
                 static_cast<void>(schema);
-                builder.cache_layout(m_dispatch.get().allocation_size(), m_dispatch.get().allocation_alignment());
-                builder.cache_lifecycle(true, true, false);
+                return BuilderLayout{m_dispatch.get().allocation_size(), m_dispatch.get().allocation_alignment()};
             }
 
             [[nodiscard]] const ViewDispatch &view_dispatch(const value::TypeMeta &schema) const noexcept override
@@ -1714,7 +1713,7 @@ namespace hgraph
                 return m_dispatch;
             }
 
-            [[nodiscard]] bool requires_destroy(const value::TypeMeta &schema) const noexcept override
+            [[nodiscard]] bool requires_destruct(const value::TypeMeta &schema) const noexcept override
             {
                 static_cast<void>(schema);
                 return true;
@@ -1733,7 +1732,7 @@ namespace hgraph
             }
 
             void construct(void *memory) const override { m_dispatch.get().construct(memory); }
-            void destroy(void *memory) const noexcept override { m_dispatch.get().destroy(memory); }
+            void destruct(void *memory) const noexcept override { m_dispatch.get().destruct(memory); }
             void copy_construct(void *dst, const void *src) const override { m_dispatch.get().copy_construct(dst, src); }
             void move_construct(void *dst, void *src) const override { m_dispatch.get().move_construct(dst, src); }
 

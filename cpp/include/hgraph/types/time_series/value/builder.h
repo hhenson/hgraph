@@ -43,25 +43,37 @@ namespace hgraph
         };
 
         /**
+         * Cached layout facts for schema-bound value storage.
+         */
+        struct BuilderLayout
+        {
+            size_t size{0};
+            size_t alignment{alignof(std::max_align_t)};
+        };
+
+        /**
          * Lifecycle dispatcher for raw value storage.
          *
-         * `ValueBuilderOps` is responsible only for constructing, destroying, copying,
-         * and moving plain storage. It does not own memory and it does not own
-         * behavior dispatch.
+         * `ValueBuilderOps` computes schema-bound layout/lifecycle facts and
+         * performs plain storage operations. It does not own memory and it
+         * does not own behavior dispatch.
          */
         struct HGRAPH_EXPORT ValueBuilderOps
         {
             virtual ~ValueBuilderOps() = default;
 
-            virtual void expand_builder(struct ValueBuilder &builder, const value::TypeMeta &schema) const noexcept     = 0;
+            // META DATA
+            [[nodiscard]] virtual BuilderLayout       layout(const value::TypeMeta &schema) const noexcept              = 0;
             [[nodiscard]] virtual const ViewDispatch &view_dispatch(const value::TypeMeta &schema) const noexcept       = 0;
-            [[nodiscard]] virtual bool                requires_destroy(const value::TypeMeta &schema) const noexcept    = 0;
+            [[nodiscard]] virtual bool                requires_destruct(const value::TypeMeta &schema) const noexcept   = 0;
             [[nodiscard]] virtual bool                requires_deallocate(const value::TypeMeta &schema) const noexcept = 0;
             [[nodiscard]] virtual bool stores_inline_in_value_handle(const value::TypeMeta &schema) const noexcept      = 0;
-            virtual void               construct(void *memory) const                                                    = 0;
-            virtual void               destroy(void *memory) const noexcept                                             = 0;
-            virtual void               copy_construct(void *dst, const void *src) const                                 = 0;
-            virtual void               move_construct(void *dst, void *src) const                                       = 0;
+
+            // BEHAVIOUR
+            virtual void construct(void *memory) const                    = 0;
+            virtual void destruct(void *memory) const noexcept            = 0;
+            virtual void copy_construct(void *dst, const void *src) const = 0;
+            virtual void move_construct(void *dst, void *src) const       = 0;
         };
 
     }  // namespace detail
@@ -77,42 +89,51 @@ namespace hgraph
     {
         ValueBuilder(const value::TypeMeta &schema, MutationTracking tracking, const detail::ValueBuilderOps &state_ops) noexcept;
 
-        [[nodiscard]] const value::TypeMeta &schema() const noexcept { return m_schema.get(); }
-        [[nodiscard]] MutationTracking       tracking() const noexcept { return m_tracking; }
-        [[nodiscard]] size_t                 size() const noexcept { return m_size; }
-        [[nodiscard]] size_t                 alignment() const noexcept { return m_alignment; }
-        [[nodiscard]] bool                   requires_destroy() const noexcept { return m_requires_destroy; }
-        [[nodiscard]] bool                   requires_deallocate() const noexcept { return m_requires_deallocate; }
-        [[nodiscard]] bool stores_inline_in_value_handle() const noexcept { return m_stores_inline_in_value_handle; }
-        [[nodiscard]] const detail::ViewDispatch &dispatch() const noexcept { return m_view_dispatch.get(); }
+        [[nodiscard]] const value::TypeMeta &schema() const noexcept;
+        [[nodiscard]] size_t                 size() const noexcept;
+        [[nodiscard]] size_t                 alignment() const noexcept;
 
-        void cache_layout(size_t size, size_t alignment) noexcept {
-            m_size      = size;
-            m_alignment = alignment;
-        }
+        [[nodiscard]] MutationTracking            tracking() const noexcept;
+        [[nodiscard]] bool                        requires_destruct() const noexcept;
+        [[nodiscard]] bool                        requires_deallocate() const noexcept;
+        [[nodiscard]] bool                        stores_inline_in_value_handle() const noexcept;
+        [[nodiscard]] const detail::ViewDispatch &dispatch() const noexcept;
 
-        void cache_lifecycle(bool requires_destroy, bool requires_deallocate, bool stores_inline_in_value_handle) noexcept {
-            m_requires_destroy              = requires_destroy;
-            m_requires_deallocate           = requires_deallocate;
-            m_stores_inline_in_value_handle = stores_inline_in_value_handle;
-        }
-
+        // Provide a default allocator to allocate memory.
+        // This step can be skipped if allocation is performed externally
         [[nodiscard]] void *allocate() const;
-        void                destroy(void *memory) const noexcept;
-        void                deallocate(void *memory) const noexcept;
-        void                construct(void *memory) const;
-        void                copy_construct(void *dst, const void *src, const ValueBuilder &src_builder) const;
-        void                move_construct(void *dst, void *src, const ValueBuilder &src_builder) const;
+
+        /**
+         * Construct or initialise the memory, calls the constructor logic.
+         * @param memory
+         */
+        void construct(void *memory) const;
+
+        /**
+         * Calls the destructor on the memory.
+         * @param memory
+         */
+        void destruct(void *memory) const noexcept;
+
+        /**
+         * Release the allocated memory, this should only be called if the memory used to allocate this
+         * was created using this builders allocate.
+         * @param memory
+         */
+        void deallocate(void *memory) const noexcept;
+
+        void copy_construct(void *dst, const void *src, const ValueBuilder &src_builder) const;
+        void move_construct(void *dst, void *src, const ValueBuilder &src_builder) const;
 
       private:
         std::reference_wrapper<const value::TypeMeta>         m_schema;
         MutationTracking                                      m_tracking{MutationTracking::Plain};
         size_t                                                m_size{0};
         size_t                                                m_alignment{alignof(std::max_align_t)};
-        bool                                                  m_requires_destroy{true};
+        bool                                                  m_requires_destruct{true};
         bool                                                  m_requires_deallocate{true};
         bool                                                  m_stores_inline_in_value_handle{false};
-        std::reference_wrapper<const detail::ValueBuilderOps> m_state_ops;
+        std::reference_wrapper<const detail::ValueBuilderOps> m_builder_ops;
         std::reference_wrapper<const detail::ViewDispatch>    m_view_dispatch;
     };
 

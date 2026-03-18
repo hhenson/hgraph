@@ -20,7 +20,7 @@ namespace hgraph {
  *
  * The owned storage block is divided into two aligned regions:
  * - a value region described by the value-layer `ValueBuilder`
- * - a time-series extension region described by `TSStateOps`
+ * - a time-series extension region described by `TSBuilderOps`
  *
  * The value region is laid out first so fixed shapes preserve their
  * data-first representation and remain suitable for vectorised access. The TS

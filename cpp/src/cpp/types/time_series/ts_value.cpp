@@ -179,7 +179,7 @@ namespace hgraph
     void TSValue::clear_storage() noexcept
     {
         if (m_builder == nullptr || m_storage == nullptr) { return; }
-        builder().destroy(m_storage);
+        builder().destruct(m_storage);
         builder().deallocate(m_storage);
         m_storage = nullptr;
     }

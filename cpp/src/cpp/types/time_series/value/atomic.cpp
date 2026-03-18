@@ -13,11 +13,9 @@ namespace hgraph
 
         template <typename T> struct AtomicStateOps final : ValueBuilderOps
         {
-            void expand_builder(ValueBuilder &builder, const value::TypeMeta &schema) const noexcept override {
+            [[nodiscard]] BuilderLayout layout(const value::TypeMeta &schema) const noexcept override {
                 static_cast<void>(schema);
-                builder.cache_layout(sizeof(AtomicState<T>), alignof(AtomicState<T>));
-                builder.cache_lifecycle(!std::is_trivially_destructible_v<AtomicState<T>>, !InlineValueEligible<T>,
-                                        InlineValueEligible<T>);
+                return BuilderLayout{sizeof(AtomicState<T>), alignof(AtomicState<T>)};
             }
 
             [[nodiscard]] const ViewDispatch &view_dispatch(const value::TypeMeta &schema) const noexcept override {
@@ -25,7 +23,7 @@ namespace hgraph
                 return atomic_view_dispatch<T>();
             }
 
-            [[nodiscard]] bool requires_destroy(const value::TypeMeta &schema) const noexcept override {
+            [[nodiscard]] bool requires_destruct(const value::TypeMeta &schema) const noexcept override {
                 static_cast<void>(schema);
                 return !std::is_trivially_destructible_v<AtomicState<T>>;
             }
@@ -45,7 +43,7 @@ namespace hgraph
                 std::construct_at(state(memory), AtomicState<T>{::hgraph::atomic_default_value(std::type_identity<T>{})});
             }
 
-            void destroy(void *memory) const noexcept override { std::destroy_at(state(memory)); }
+            void destruct(void *memory) const noexcept override { std::destroy_at(state(memory)); }
 
             void copy_construct(void *dst, const void *src) const override { std::construct_at(state(dst), *state(src)); }
 

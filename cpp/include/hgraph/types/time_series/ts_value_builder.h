@@ -14,6 +14,14 @@ namespace hgraph
 
     namespace detail
     {
+        struct TSBuilderLayout
+        {
+            size_t value_offset{0};
+            size_t ts_offset{0};
+            size_t size{0};
+            size_t alignment{alignof(std::max_align_t)};
+        };
+
         /**
          * Lifecycle dispatcher for the time-series extension region.
          *
@@ -22,19 +30,19 @@ namespace hgraph
          * region remains data-first and schema-shaped, while the TS region
          * holds the time-series runtime state associated with that data.
          *
-         * `TSStateOps` is the TS analogue of the value-layer `ValueBuilderOps`: it
-         * knows how to size, construct, destroy, copy, and move the TS region
+         * `TSBuilderOps` is the TS analogue of the value-layer `ValueBuilderOps`: it
+         * knows how to size, construct, destruct, copy, and move the TS region
          * for a schema, but it does not own the memory itself.
          */
-        struct HGRAPH_EXPORT TSStateOps
+        struct HGRAPH_EXPORT TSBuilderOps
         {
-            virtual ~TSStateOps() = default;
+            virtual ~TSBuilderOps() = default;
 
-            virtual void expand_builder(TSValueBuilder &builder, const TSMeta &schema) const noexcept = 0;
-            virtual void construct(void *memory, const TSMeta &schema) const = 0;
-            virtual void destroy(void *memory) const noexcept = 0;
-            virtual void copy_construct(void *dst, const void *src, const TSMeta &schema) const = 0;
-            virtual void move_construct(void *dst, void *src, const TSMeta &schema) const = 0;
+            [[nodiscard]] virtual TSBuilderLayout layout(const TSMeta &schema, const ValueBuilder &value_builder) const noexcept = 0;
+            virtual void construct(void *memory, const TSMeta &schema) const                                                  = 0;
+            virtual void destruct(void *memory) const noexcept                                                                = 0;
+            virtual void copy_construct(void *dst, const void *src, const TSMeta &schema) const                               = 0;
+            virtual void move_construct(void *dst, void *src, const TSMeta &schema) const                                     = 0;
         };
     }  // namespace detail
 
@@ -44,7 +52,7 @@ namespace hgraph
      * `TSValueBuilder` mirrors the value-layer builder design, but it plans a
      * single allocation containing two regions:
      * - a data-first value region described by `ValueBuilder`
-     * - a TS extension region described by `TSStateOps`
+     * - a TS extension region described by `TSBuilderOps`
      *
      * The value region is laid out first so fixed shapes retain their clean
      * memory representation. The TS region is placed after that at the
@@ -54,38 +62,37 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT TSValueBuilder
     {
-        TSValueBuilder(const TSMeta &schema, const ValueBuilder &value_builder, const detail::TSStateOps &state_ops) noexcept;
+        TSValueBuilder(const TSMeta &schema, const ValueBuilder &value_builder, const detail::TSBuilderOps &builder_ops) noexcept;
 
-        [[nodiscard]] const TSMeta &schema() const noexcept { return m_schema.get(); }
+        [[nodiscard]] const TSMeta       &schema() const noexcept { return m_schema.get(); }
         [[nodiscard]] const ValueBuilder &value_builder() const noexcept { return m_value_builder.get(); }
-        [[nodiscard]] size_t value_offset() const noexcept { return m_value_offset; }
-        [[nodiscard]] size_t ts_offset() const noexcept { return m_ts_offset; }
-        [[nodiscard]] size_t size() const noexcept { return m_size; }
-        [[nodiscard]] size_t alignment() const noexcept { return m_alignment; }
+        [[nodiscard]] size_t              size() const noexcept { return m_size; }
+        [[nodiscard]] size_t              alignment() const noexcept { return m_alignment; }
 
-        void cache_layout(size_t value_offset, size_t ts_offset, size_t size, size_t alignment) noexcept;
+        [[nodiscard]] size_t              value_offset() const noexcept { return m_value_offset; }
+        [[nodiscard]] size_t              ts_offset() const noexcept { return m_ts_offset; }
 
         [[nodiscard]] void *allocate() const;
-        void deallocate(void *memory) const noexcept;
+        void                construct(void *memory) const;
+        void                destruct(void *memory) const noexcept;
+        void                deallocate(void *memory) const noexcept;
 
-        void construct(void *memory) const;
-        void destroy(void *memory) const noexcept;
         void copy_construct(void *dst, const void *src, const TSValueBuilder &src_builder) const;
         void move_construct(void *dst, void *src, const TSValueBuilder &src_builder) const;
 
-        [[nodiscard]] void *value_memory(void *memory) const noexcept;
+        [[nodiscard]] void       *value_memory(void *memory) const noexcept;
         [[nodiscard]] const void *value_memory(const void *memory) const noexcept;
-        [[nodiscard]] void *ts_memory(void *memory) const noexcept;
+        [[nodiscard]] void       *ts_memory(void *memory) const noexcept;
         [[nodiscard]] const void *ts_memory(const void *memory) const noexcept;
 
       private:
-        std::reference_wrapper<const TSMeta> m_schema;
-        std::reference_wrapper<const ValueBuilder> m_value_builder;
-        std::reference_wrapper<const detail::TSStateOps> m_state_ops;
-        size_t m_value_offset{0};
-        size_t m_ts_offset{0};
-        size_t m_size{0};
-        size_t m_alignment{alignof(std::max_align_t)};
+        std::reference_wrapper<const TSMeta>               m_schema;
+        std::reference_wrapper<const ValueBuilder>         m_value_builder;
+        std::reference_wrapper<const detail::TSBuilderOps> m_builder_ops;
+        size_t                                             m_value_offset{0};
+        size_t                                             m_ts_offset{0};
+        size_t                                             m_size{0};
+        size_t                                             m_alignment{alignof(std::max_align_t)};
     };
 
     /**
