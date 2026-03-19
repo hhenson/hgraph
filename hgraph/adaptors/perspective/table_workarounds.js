@@ -134,6 +134,171 @@ export async function updateLockedMode(workspace, mode, locked, cb, call_cb){
 }
 
 
+async function evaluateOnDemandLoad(viewer, table_name) {
+    const wt = getWorkspaceTables()[table_name];
+    if (!wt || wt.type !== "on_demand_table") return;
+
+    const view = await viewer.getView();
+    if (!view) return;
+    const cfg = await view.get_config();
+    const filters = cfg.filter || [];
+
+    const overlay = document.querySelector(`.on-demand-overlay[data-on-demand-table="${table_name}"]`);
+
+    const all_present = wt.required_filter_columns.length === 0 ||
+        wt.required_filter_columns.every(col =>
+            filters.some(([fcol, op]) => fcol === col && op !== 'is null')
+        );
+
+    if (!all_present) {
+        if (wt.abort_controller) {
+            wt.abort_controller.abort();
+            wt.abort_controller = null;
+        }
+        if (wt.loaded) {
+            await wt.table.replace([]);
+            wt.loaded = false;
+        }
+        if (overlay) {
+            const missing = wt.required_filter_columns.filter(col =>
+                !filters.some(([fcol, op]) => fcol === col && op !== 'is null')
+            );
+            overlay.querySelector('.on-demand-message').textContent = `Please select ${missing.join(', ')} to load the data`;
+            overlay.style.display = 'flex';
+            overlay.querySelector('.on-demand-message').style.display = 'block';
+            overlay.querySelector('.on-demand-load').style.display = 'none';
+            overlay.querySelector('.on-demand-loading').style.display = 'none';
+            overlay.querySelector('.on-demand-error').style.display = 'none';
+        }
+        return;
+    }
+
+    if (wt.auto_filter) {
+        await triggerOnDemandLoad(viewer, table_name);
+        return;
+    }
+
+    if (overlay) {
+        overlay.style.display = 'flex';
+        overlay.querySelector('.on-demand-message').style.display = 'none';
+        overlay.querySelector('.on-demand-load').style.display = 'block';
+        overlay.querySelector('.on-demand-loading').style.display = 'none';
+        overlay.querySelector('.on-demand-error').style.display = 'none';
+    }
+}
+
+async function triggerOnDemandLoad(viewer, table_name) {
+    const wt = getWorkspaceTables()[table_name];
+    if (!wt || wt.type !== "on_demand_table") return;
+
+    const view = await viewer.getView();
+    const cfg = await view.get_config();
+    const filters = cfg.filter || [];
+
+    const overlay = document.querySelector(`.on-demand-overlay[data-on-demand-table="${table_name}"]`);
+
+    if (overlay) {
+        overlay.style.display = 'flex';
+        overlay.querySelector('.on-demand-message').style.display = 'none';
+        overlay.querySelector('.on-demand-load').style.display = 'none';
+        overlay.querySelector('.on-demand-loading').style.display = 'block';
+        overlay.querySelector('.on-demand-error').style.display = 'none';
+    }
+
+    if (wt.abort_controller) wt.abort_controller.abort();
+    wt.abort_controller = new AbortController();
+
+    const params = new URLSearchParams();
+    for (const [col, op, val] of filters) {
+        if (!wt.required_filter_columns.includes(col)) continue;
+        if (op === 'is null' || val === null || val === undefined) continue;
+        params.set(col, Array.isArray(val) ? val.join(',') : String(val));
+    }
+
+    const url = wt.url + (params.toString() ? '?' + params.toString() : '');
+    try {
+        const response = await fetch(url, {signal: wt.abort_controller.signal});
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.arrayBuffer();
+        if (data.byteLength > 0) await wt.table.replace(data);
+        wt.loaded = true;
+        if (overlay) overlay.style.display = 'none';
+    } catch (e) {
+        if (e.name === 'AbortError') return;
+        wt.loaded = false;
+        if (overlay) {
+            overlay.querySelector('.on-demand-loading').style.display = 'none';
+            overlay.querySelector('.on-demand-load').style.display = 'block';
+            const err = overlay.querySelector('.on-demand-error');
+            err.textContent = `Failed to load: ${e.message}`;
+            err.style.display = 'block';
+        }
+    }
+}
+
+
+async function resolve_required_filters(g, view_config, table_config) {
+    const cm_wt = getWorkspaceTables()["context_mapping"];
+    if (cm_wt?.table) {
+        const cm_view = await cm_wt.table.view();
+        const mappings = await cm_view.to_json();
+        cm_view.delete();
+        const cm_columns = mappings
+            .filter(m => m.target === view_config.title)
+            .map(m => m.column);
+        if (cm_columns.length > 0)
+            table_config.required_filter_columns = cm_columns;
+    }
+    await g.restore({filter: []});
+    await evaluateOnDemandLoad(g, view_config.table);
+}
+
+function setupOnDemandViewer(g, view_config, table_config) {
+    if (!document.querySelector(`.on-demand-overlay[data-on-demand-table="${view_config.table}"]`)) {
+        const overlay = document.createElement('div');
+        overlay.className = 'on-demand-overlay';
+        overlay.setAttribute('data-on-demand-table', view_config.table);
+        overlay.innerHTML = `
+            <span class="on-demand-message"></span>
+            <button class="on-demand-load" style="display:none">Load</button>
+            <div class="on-demand-loading" style="display:none"></div>
+            <span class="on-demand-error" style="display:none"></span>
+        `;
+        overlay.querySelector('.on-demand-load').addEventListener('click', () => {
+            triggerOnDemandLoad(g, view_config.table);
+        });
+        const updateOverlayPosition = () => {
+            const main_column = g.shadowRoot?.querySelector('#main_panel_container');
+            const rect = (main_column || g).getBoundingClientRect();
+            if (rect.width === 0 && rect.height === 0) {
+                overlay.style.visibility = 'hidden';
+                return;
+            }
+            overlay.style.visibility = 'visible';
+            overlay.style.top    = rect.top    + 'px';
+            overlay.style.left   = rect.left   + 'px';
+            overlay.style.width  = rect.width  + 'px';
+            overlay.style.height = rect.height + 'px';
+        };
+        new ResizeObserver(updateOverlayPosition).observe(g);
+        window.addEventListener('resize', updateOverlayPosition);
+        g.addEventListener('perspective-toggle-settings', () => {
+            // Re-position after the settings panel animation completes
+            for (const delay of [50, 150, 300]) {
+                setTimeout(updateOverlayPosition, delay);
+            }
+        });
+        updateOverlayPosition();
+        document.body.appendChild(overlay);
+    }
+
+    resolve_required_filters(g, view_config, table_config);
+
+    g.addEventListener("perspective-config-update", async () => {
+        await evaluateOnDemandLoad(g, view_config.table);
+    });
+}
+
 export async function installTableWorkarounds(mode, lockCallback) {
     await initViewSettings();
     await initColumnSettings();
@@ -189,6 +354,10 @@ export async function installTableWorkarounds(mode, lockCallback) {
                 }
             });
             await refreshTimeSensitiveViews({detail: config.viewers[g.slot]}, g, mode);
+
+            if (table_config.type === "on_demand_table") {
+                setupOnDemandViewer(g, view_config, table_config);
+            }
 
             g.dataset.events_set_up = "true";
         }
@@ -1121,6 +1290,13 @@ async function getContextActionColumns(from) {
     return {required_cols, required_vals}
 }
 
+function setOnDemandAutoFilter(table_name, row, actions, target_title, from_title) {
+    const wt = getWorkspaceTables()[table_name];
+    if (wt?.type !== 'on_demand_table') return;
+    const target_actions = actions.filter(x => x.target === target_title);
+    wt.auto_filter = !!row && target_actions.some(a => a.source === from_title && a.auto_filter === 'true');
+}
+
 async function fireContextActions(from, row) {
     const view = await getWorkspaceTables()["context_mapping"].table.view();
     const context_mapping = await (view).to_json();
@@ -1174,6 +1350,7 @@ async function fireContextActions(from, row) {
             }
         }
         if (new_filter !== filters){
+            setOnDemandAutoFilter(target[1].table, row, actions, target_title, from_title);
             await viewer.restore({filter: new_filter});
         }
         if (new_title !== null){
