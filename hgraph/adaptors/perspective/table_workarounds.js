@@ -17,7 +17,7 @@ export async function saveLayout(config, mode) {
     const layout = {version: 1, psp_config: config, mode: mode};
     const workspaceTables = getWorkspaceTables()
     for (const [table_name, table_config] of Object.entries(workspaceTables)) {
-        if (table_config.type === "client_only_table" && table_config.editable) {
+        if (table_config.type === "client_only_table") {
             const view = await table_config.table.view();
             layout[table_name] = await (view).to_json();
             view.delete();
@@ -1577,86 +1577,27 @@ function createButtonAction(td, action, metadata, model, viewer) {
         btn.addEventListener("click", async () => {
             const tbl = await viewer.getTable();
             const index = await tbl.get_index();
-            const view = await tbl.view({ filter: [[index, '==', id.join(',')]] });
-            const row = (await view.to_json())[0];
+            const view = await tbl.view({filter: [[index, '==', id.join(',')]]});
+            const row = (await (view).to_json())[0];
             view.delete();
-            if (!row) return;
-
-            const actions = Array.isArray(action.actions)
-                ? action.actions
-                : (action.action ? [action.action] : []);
-
-            btn.disabled = true;
-            btn.style.cursor = "progress";
-
-            const errors = [];
-
-            await Promise.all(actions.map(async (action) => {
-                switch (action.type) {
-                    case 'url': {
-                        const url = action.url.replace(FORMAT_REGEX, (match, p1) => row[p1]);
+            if (row) {
+                switch (action.action.type) {
+                    case 'url':
+                        const url = action.action.url.replace(FORMAT_REGEX, (match, p1) => row[p1]);
+                        btn.disabled = true;
+                        btn.style.cursor = "progress";
                         console.server(`Action: ${btn.innerText}, Fetching URL: ${url} at time ${new Date().toISOString()}`);
-
                         const reply = await fetch(url, {method: 'GET'});
-
+                        btn.disabled = false;
+                        btn.style.cursor = "default";
                         if (reply.ok) {
                             console.server(`Action: ${btn.innerText}, Successfully fetched URL: ${url} at time ${new Date().toISOString()}`);
                         } else {
                             const error_text = await reply.text();
                             console.server(`Action: ${btn.innerText}, Failed to fetch URL: ${url} with status ${reply.status} and message: '${error_text}' at time ${new Date().toISOString()}`);
-                            errors.push(`Action failed with status ${reply.status} and message: '${error_text}'`);
+                            alert(`Action failed with status ${reply.status} and message: '${error_text}'`);
                         }
-                        break;
-                    }
-
-                    case "update_table": {
-                        const targetTableName = action.target_table;
-                        const config = await window.workspace.save();
-                        const targetEntry = Object.entries(config.viewers).find(([_, vc]) => vc.table === targetTableName);
-                        const targetViewer = targetEntry ? document.querySelector(`perspective-viewer[slot="${targetEntry[0]}"]`) : null;
-
-                        if (!targetTableName || !(targetTableName in getWorkspaceTables()) || !targetEntry || !targetViewer) {
-                            console.warn(`update_table: skipping — '${targetTableName}' not defined, not in workspace, or not open.`);
-                            break;
-                        }
-
-                        const [targetSlot, targetViewerConfig] = targetEntry;
-
-                        try {
-                            await wait_for_table(window.workspace, targetTableName);
-                            const target_tbl = getWorkspaceTables()[targetTableName].table;
-                            const mode = action.mode ?? "replace";
-                            const removeOverlay = showViewerLoadingOverlay(targetViewer, "Loading…");
-                            const url = action.url.replace(FORMAT_REGEX, (match, p1) => row[p1]);
-
-                            try {
-                                if (action.set_title) {
-                                    const widget = window.workspace.workspace.getAllWidgets().find((w) => w.viewer === targetViewer);
-                                    if (widget) widget.title.label = `${targetViewerConfig.title ?? targetSlot} ${action.set_title.replace(FORMAT_REGEX, (match, p1) => row[p1] ?? match)}`;
-                                }
-
-                                const resp = await fetch(url, { method: "GET" });
-                                if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
-                                const buffer = await resp.arrayBuffer();
-                                if (buffer.byteLength > 0) await target_tbl[mode](buffer);
-
-                                console.server?.(`update_table: '${targetTableName}' updated via ${url} at ${new Date().toISOString()}`);
-                            } finally {
-                                removeOverlay();
-                            }
-                        } catch (e) {
-                            errors.push(`Action failed: ${e?.toString?.() ?? e}`);
-                        }
-                        break;
-                    }
                 }
-                }));
-
-            btn.disabled = false;
-            btn.style.cursor = "default";
-
-            if (errors.length > 0) {
-                alert(errors.join('\n\n'));
             }
         });
     } else {
@@ -2617,73 +2558,3 @@ function addItemsToMenu(menuElement, customItems, disableBuiltInItems, checkItem
         menuContent.appendChild(menuItem);
     }
 }
-
-function showViewerLoadingOverlay(targetViewer, message = "Loading…") {
-    const widget = window.workspace.workspace
-        .getAllWidgets()
-        .find((w) => w.viewer === targetViewer);
-
-    if (!widget?.node) return () => {};
-
-    const container = widget.node;
-    const prevPosition = container.style.position;
-    if (!prevPosition || prevPosition === "static") {
-        container.style.position = "relative";
-    }
-
-    const overlay = document.createElement("div");
-    overlay.dataset.loadingOverlay = "true";
-    Object.assign(overlay.style, {
-        position:        "absolute",
-        inset:           "0",
-        zIndex:          "9999",
-        display:         "flex",
-        flexDirection:   "column",
-        alignItems:      "center",
-        justifyContent:  "center",
-        gap:             "10px",
-        backdropFilter:  "blur(3px)",
-        backgroundColor: "rgba(0, 0, 0, 0.35)",
-        pointerEvents:   "all",
-        borderRadius:    "inherit",
-    });
-
-    const style = document.createElement("style");
-    style.textContent = `
-        @keyframes psp-loading-spin {
-            to { transform: rotate(360deg); }
-        }
-    `;
-    overlay.appendChild(style);
-
-    const spinner = document.createElement("div");
-    Object.assign(spinner.style, {
-        width:        "36px",
-        height:       "36px",
-        border:       "4px solid rgba(255,255,255,0.3)",
-        borderTop:    "4px solid #ffffff",
-        borderRadius: "50%",
-        animation:    "psp-loading-spin 0.8s linear infinite",
-    });
-
-    const label = document.createElement("span");
-    Object.assign(label.style, {
-        color:      "#ffffff",
-        fontSize:   "13px",
-        fontFamily: "inherit",
-        textShadow: "0 1px 3px rgba(0,0,0,0.6)",
-    });
-    label.textContent = message;
-
-    overlay.appendChild(spinner);
-    overlay.appendChild(label);
-    container.appendChild(overlay);
-
-    return () => {
-        overlay.remove();
-        if (!prevPosition || prevPosition === "static") {
-            container.style.position = prevPosition ?? "";
-        }
-    };
-}
-
