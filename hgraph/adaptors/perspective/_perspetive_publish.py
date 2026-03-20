@@ -76,6 +76,7 @@ def _publish_table_from_tsd(
     to be tuples in which case the index_col_name is expected to be a comma separated list (no spaces) of the key names
     in order. index_col_name can also include names of columns from the value in case of Frame value type.
     """
+    now = ec.now
     data = None
     if state.multi_row:
         for k in ts.removed_keys():
@@ -116,10 +117,10 @@ def _publish_table_from_tsd(
                 data = {**data, **state.create_index(data)}
             if history is not None:
                 if state.sample_row:
-                    sample = {**state.sample_row(v), **data, "time": ec.evaluation_time}
+                    sample = {**state.sample_row(v), **data, "time": now}
                     state.history.append(sample)
                 else:
-                    state.history.append({**data, "time": ec.evaluation_time})
+                    state.history.append({**data, "time": now})
 
             if state.map_index:
                 with state.index_to_id_lock:
