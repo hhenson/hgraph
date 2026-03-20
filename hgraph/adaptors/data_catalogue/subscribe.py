@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import logging
 
 from frozendict import frozendict
 
@@ -18,6 +19,7 @@ from hgraph import (
     if_then_else,
     combine,
     convert,
+    log_,
     service_adaptor,
     service_adaptor_impl,
     TSD,
@@ -95,6 +97,7 @@ def subscribe_dict(
 ) -> TSB[Stream[Data[Frame[SCHEMA]]]]:
     dce_and_options = find_data_catalogue_entry(_tp, dataset, __options__)
     error = exception_time_series(dce_and_options)
+    log_("data catalogue error {}", error, level=logging.ERROR)
     dce = dce_and_options.dce
     options = dce_and_options.options
     data = subscribe_adaptor[_tp](dce, options)

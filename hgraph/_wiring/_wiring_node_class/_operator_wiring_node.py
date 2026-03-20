@@ -122,6 +122,7 @@ class OverloadedWiringNodeHelper:
     overloads: List[Tuple[WiringNodeClass, float]]
 
     arg_count_cache: dict[object, list]  # no of args/kwarg names to applicable signatures
+    cached_overloads: int = 0
 
     def __init__(self, base: WiringNodeClass):
         self.base = base
@@ -156,6 +157,10 @@ class OverloadedWiringNodeHelper:
 
     def get_best_overload(self, *args, __return_sink_wp__: bool = False, **kwargs):
         overloads = self.overloads
+        
+        if self.cached_overloads != len(overloads):  # if the number of overloads has changed since last time, clear the cache
+            self.arg_count_cache = {}
+            self.cached_overloads = len(overloads)
 
         arg_count_key = (len(args), frozenset(kwargs.keys()) - {"__pre_resolved_types__", "__return_sink_wp__", "__enforce_output_type__", "__recordable_id__"})
         cleaned_kwargs = {k: v for k, v in kwargs.items() if k in arg_count_key[1]}
