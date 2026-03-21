@@ -9,15 +9,17 @@ jobs:
   build-test:
     name: Build and test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      HGRAPH_SMOKE_PYTHONS: "3.12 3.13 3.14"
     strategy:
       fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Restore uv/pip caches
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.3
         with:
           path: |
             ~/.cache/uv
@@ -26,14 +28,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-uvpip-
 
-      # Install uv and Python 3.12 (aligns with hg_cpp approach)
-      - uses: astral-sh/setup-uv@v4
+      # Build the ABI3 wheel against the 3.12 stable ABI baseline.
+      - uses: astral-sh/setup-uv@v7.5.0
         with:
           python-version: '3.12'
 
       # Ensure Conan is available for builds/tools
       - name: Install Conan via uv tool
-        run: uv tool install conan
+        run: uv tool install --upgrade conan==2.26.2
 
       # Build the wheel with nanobind stable ABI enabled
       - name: Build wheel (NB stable ABI, Windows MSVC)
@@ -68,7 +70,7 @@ jobs:
           ls -la dist || true
 
       - name: Upload built wheels (all OS)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: wheels-${{ runner.os }}
           path: dist/**
@@ -97,93 +99,92 @@ jobs:
 
       - name: Upload repaired Linux wheels (manylinux)
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: wheels-linux-manylinux
           path: wheelhouse/**
           if-no-files-found: error
           retention-days: 7
 
-      - name: Install built wheel into env (Windows)
+      - name: Resolve built wheel path (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $wheel = (Get-ChildItem dist/*.whl | Select-Object -First 1).FullName
           if (-not $wheel) { Write-Error "No wheel found in dist/"; Get-ChildItem dist -Recurse; exit 1 }
-          uv pip install --upgrade pip
-          uv pip install "$wheel"
+          "HGRAPH_WHEEL=$wheel" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Install built wheel into env (Unix)
+      - name: Resolve built wheel path (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          wheel=$(ls dist/*.whl | head -n1 || true)
+          if [ "${RUNNER_OS}" = "Linux" ] && compgen -G "wheelhouse/*.whl" > /dev/null; then
+            wheel=$(ls wheelhouse/*.whl | head -n1)
+          else
+            wheel=$(ls dist/*.whl | head -n1 || true)
+          fi
           if [ -z "${wheel}" ]; then
-            echo "No wheel found in dist/"
+            echo "No wheel found for smoke/full-test install"
             ls -la dist || true
+            ls -la wheelhouse || true
             exit 1
           fi
+          echo "HGRAPH_WHEEL=${wheel}" >> "${GITHUB_ENV}"
+
+      - name: Install built wheel into primary env (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
           uv pip install --upgrade pip
-          uv pip install "${wheel}"
+          uv pip install "$env:HGRAPH_WHEEL"
 
-      - name: Run smoke tests (macOS) [Python runtime]
-        if: runner.os == 'macOS'
+      - name: Install built wheel into primary env (Unix)
+        if: runner.os != 'Windows'
         shell: bash
-        env:
-          HGRAPH_USE_CPP: 'false'
         run: |
           set -euo pipefail
-          echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
-          # Temporarily hide local hgraph/ to force use of installed wheel
-          mv hgraph hgraph_src
-          .venv/bin/pytest hgraph_unit_tests -q -m smoke || status=$?
-          mv hgraph_src hgraph
-          exit ${status:-0}
+          uv pip install --upgrade pip
+          uv pip install "${HGRAPH_WHEEL}"
 
-      - name: Run smoke tests (macOS) [C++ runtime]
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          HGRAPH_USE_CPP: 'true'
-        run: |
-          set -euo pipefail
-          echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
-          # Temporarily hide local hgraph/ to force use of installed wheel
-          mv hgraph hgraph_src
-          .venv/bin/pytest hgraph_unit_tests -q -m smoke || status=$?
-          mv hgraph_src hgraph
-          exit ${status:-0}
-
-      - name: Run smoke tests (Windows) [Python runtime]
+      - name: Run ABI3 smoke tests (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        env:
-          HGRAPH_USE_CPP: 'false'
         run: |
-          Write-Host "HGRAPH_USE_CPP=$env:HGRAPH_USE_CPP"
-          # Temporarily hide local hgraph/ to force use of installed wheel
           Rename-Item hgraph hgraph_src
           try {
-            .venv\Scripts\pytest hgraph_unit_tests -q -m smoke
+            foreach ($pyver in $env:HGRAPH_SMOKE_PYTHONS.Split(' ')) {
+              $venvPython = Join-Path $PWD ".venv-smoke-$pyver\Scripts\python.exe"
+              uv venv --clear ".venv-smoke-$pyver" --python $pyver
+              uv pip install --python $venvPython --upgrade pip
+              uv pip install --python $venvPython pytest tornado requests pandas "perspective-python<4.0.0" kafka-python matplotlib "$env:HGRAPH_WHEEL"
+              foreach ($useCpp in @('false', 'true')) {
+                Write-Host "Smoke test: python=$pyver HGRAPH_USE_CPP=$useCpp wheel=$env:HGRAPH_WHEEL"
+                $env:HGRAPH_USE_CPP = $useCpp
+                & (Join-Path $PWD ".venv-smoke-$pyver\Scripts\pytest.exe") hgraph_unit_tests -q -m smoke
+              }
+            }
           } finally {
+            Remove-Item Env:HGRAPH_USE_CPP -ErrorAction SilentlyContinue
             Rename-Item hgraph_src hgraph
           }
 
-      - name: Run smoke tests (Windows) [C++ runtime]
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          HGRAPH_USE_CPP: 'true'
+      - name: Run ABI3 smoke tests (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
-          Write-Host "HGRAPH_USE_CPP=$env:HGRAPH_USE_CPP"
-          # Temporarily hide local hgraph/ to force use of installed wheel
-          Rename-Item hgraph hgraph_src
-          try {
-            .venv\Scripts\pytest hgraph_unit_tests -q -m smoke
-          } finally {
-            Rename-Item hgraph_src hgraph
-          }
+          set -euo pipefail
+          mv hgraph hgraph_src
+          trap 'mv hgraph_src hgraph' EXIT
+          for pyver in ${HGRAPH_SMOKE_PYTHONS}; do
+            uv venv --clear ".venv-smoke-${pyver}" --python "${pyver}"
+            uv pip install --python ".venv-smoke-${pyver}/bin/python" --upgrade pip
+            uv pip install --python ".venv-smoke-${pyver}/bin/python" pytest tornado requests pandas "perspective-python<4.0.0" kafka-python matplotlib "${HGRAPH_WHEEL}"
+            for use_cpp in false true; do
+              echo "Smoke test: python=${pyver} HGRAPH_USE_CPP=${use_cpp} wheel=${HGRAPH_WHEEL}"
+              HGRAPH_USE_CPP="${use_cpp}" ".venv-smoke-${pyver}/bin/pytest" hgraph_unit_tests -q -m smoke
+            done
+          done
 
       - name: Run tests (Linux only) [Python runtime]
         if: runner.os == 'Linux'
@@ -242,7 +243,7 @@ jobs:
 
       - name: Upload core dumps (Linux only)
         if: failure() && runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: linux-core-dumps
           path: |
@@ -252,4 +253,3 @@ jobs:
             /home/runner/work/*/*/core*
           if-no-files-found: ignore
           retention-days: 7
-

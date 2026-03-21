@@ -1,6 +1,6 @@
 [project]
 name = "hgraph"
-version = "0.5.13"
+version = "0.5.18"
 description = "A functional reactive platform used to process time-series streams. Provides support for backtest (simulation) and realtime time-series processing. Using a forward propagation graph with a microtask scheduler for the runtime engine."
 readme = "README.md"
 license = {text = "MIT"}
@@ -19,9 +19,11 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: Implementation :: CPython",
 ]
-requires-python = ">=3.12, <3.13"
+requires-python = ">=3.12, <3.15"
 dependencies = [
     "frozendict>=2.3.10",
     "sortedcontainers>=2.4.0",
@@ -84,23 +86,22 @@ test = [
 ]
 dev = [
     # This is needed for CLion / other dev env to find the nanobind libs.
-    "nanobind>=2.9.2",
+    "nanobind==2.12.0",
 ]
 
 [build-system]
 requires = [
-    "scikit-build-core>=0.9",
-    "nanobind>=2.9",
-    "cmake>=3.25",
-    "ninja",
-    "setuptools>=65"
+    "scikit-build-core==0.12.2",
+    "nanobind==2.12.0",
+    "setuptools==82.0.1"
 ]
 build-backend = "scikit_build_core.build"
 
 [tool.scikit-build]
 # Install pure Python package from hgraph and place the compiled extension under hgraph/
 wheel.packages = ["hgraph"]
-cmake.verbose = true
+wheel.py-api = "cp312"
+build.verbose = true
 cmake.source-dir = "."
 # Use the invoking Python for nanobind discovery unless overridden in CI
 cmake.define.Python_EXECUTABLE = "{sys.executable}"

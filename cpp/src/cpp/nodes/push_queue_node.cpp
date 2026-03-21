@@ -19,6 +19,12 @@ namespace hgraph {
 
     bool PushQueueNode::apply_message(nb::object message) {
         if (_batch) {
+            auto tuple_set_item = [](PyObject *tuple, size_t index, nb::object item) {
+                if (PyTuple_SetItem(tuple, index, item.release().ptr()) < 0) {
+                    throw nb::python_error();
+                }
+            };
+
             // Batch mode: accumulate messages into a tuple
             auto output_ptr = output();
 
@@ -54,9 +60,9 @@ namespace hgraph {
                             size_t existing_len = PyTuple_Size(existing.ptr());
                             nb::tuple new_tuple = nb::steal<nb::tuple>(PyTuple_New(existing_len + 1));
                             for (size_t i = 0; i < existing_len; ++i) {
-                                PyTuple_SET_ITEM(new_tuple.ptr(), i, nb::borrow(existing[i]).release().ptr());
+                                tuple_set_item(new_tuple.ptr(), i, nb::borrow(existing[i]));
                             }
-                            PyTuple_SET_ITEM(new_tuple.ptr(), existing_len, nb::borrow(val).release().ptr());
+                            tuple_set_item(new_tuple.ptr(), existing_len, nb::borrow(val));
                             child_output->py_set_value(new_tuple);
                         } else {
                             // Create new tuple with single element
@@ -75,9 +81,9 @@ namespace hgraph {
                     size_t existing_len = PyTuple_Size(existing.ptr());
                     nb::tuple new_tuple = nb::steal<nb::tuple>(PyTuple_New(existing_len + 1));
                     for (size_t i = 0; i < existing_len; ++i) {
-                        PyTuple_SET_ITEM(new_tuple.ptr(), i, nb::borrow(existing[i]).release().ptr());
+                        tuple_set_item(new_tuple.ptr(), i, nb::borrow(existing[i]));
                     }
-                    PyTuple_SET_ITEM(new_tuple.ptr(), existing_len, message.release().ptr());
+                    tuple_set_item(new_tuple.ptr(), existing_len, std::move(message));
                     output_ptr->py_set_value(new_tuple);
                 } else {
                     // Create new tuple with single element

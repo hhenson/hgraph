@@ -10,7 +10,7 @@ from typing import Callable, Any
 
 from typing_extensions import deprecated
 
-from hgraph._runtime._constants import MIN_ST, MAX_ET, MIN_DT
+from hgraph._runtime._constants import MIN_ST, MAX_ET, MIN_DT, utc_now
 from hgraph._runtime._evaluation_engine import EvaluationMode, EvaluationLifeCycleObserver
 from hgraph._runtime._global_state import GlobalState
 from hgraph._runtime._graph_executor import GraphEngineFactory
@@ -126,7 +126,7 @@ class GraphConfiguration:
 
     def __post_init__(self):
         if self.start_time is MIN_DT:
-            self.start_time = MIN_ST if self.run_mode is EvaluationMode.SIMULATION else datetime.utcnow()
+            self.start_time = MIN_ST if self.run_mode is EvaluationMode.SIMULATION else utc_now()
 
         if self.start_time < MIN_ST:
             raise RuntimeError(f"Start time '{self.start_time}' is less than minimum time '{MIN_ST}'")
@@ -135,7 +135,7 @@ class GraphConfiguration:
             if self.run_mode is EvaluationMode.SIMULATION:
                 self.end_time = self.start_time + self.end_time
             elif self.run_mode is EvaluationMode.REAL_TIME:
-                self.end_time = datetime.utcnow() + self.end_time
+                self.end_time = utc_now() + self.end_time
 
         if self.end_time > MAX_ET:
             raise RuntimeError(f"End time '{self.end_time}' is greater than maximum time '{MAX_ET}'")

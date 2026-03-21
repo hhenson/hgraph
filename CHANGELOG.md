@@ -1591,3 +1591,15 @@ Version 0.5.13
 
 * Additional bug fixes to both C++ and Python code.
 * Move to a newer structure for type erased value, introduction of C++ ts schema elements.
+
+Version 0.5.15
+--------------
+
+* Clean up use of utc_now. This is a partial fix by extracting a function utc_now that gets the datetime with the UTC
+  timezone and then sets the timezone info to None. This is equivalent to the previous state, but will avoid the 
+  warnings.
+
+Version 0.5.16
+--------------
+
+* Add min_/max_ support for TSW

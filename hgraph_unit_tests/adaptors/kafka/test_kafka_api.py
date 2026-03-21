@@ -16,6 +16,7 @@ from hgraph import (
     if_true,
     TSB,
     combine,
+    utc_now,
 )
 
 from hgraph.adaptors.kafka import register_kafka_adaptor, message_subscriber, message_publisher
@@ -76,7 +77,7 @@ def test_subscriber():
         g,
         GraphConfiguration(
             run_mode=EvaluationMode.REAL_TIME,
-            start_time=(st := datetime.utcnow()) - timedelta(hours=12),
+            start_time=(st := utc_now()) - timedelta(hours=12),
             end_time=st + timedelta(seconds=4),
             trace=False,
         ),

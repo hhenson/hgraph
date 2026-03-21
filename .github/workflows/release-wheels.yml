@@ -10,26 +10,28 @@ jobs:
   build-wheels:
     name: Build wheels (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      HGRAPH_SMOKE_PYTHONS: "3.12 3.13 3.14"
     strategy:
       fail-fast: false
       matrix:
         os: [ ubuntu-latest, macos-latest, windows-latest ]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Show trigger inputs
         if: github.event_name == 'workflow_dispatch'
         run: |
           echo "publish_testpypi=${{ inputs.publish_testpypi }}"
 
-      - name: Setup uv (Python 3.12)
-        uses: astral-sh/setup-uv@v4
+      - name: Setup uv (Python 3.12 ABI3 baseline)
+        uses: astral-sh/setup-uv@v7.5.0
         with:
           python-version: '3.12'
 
       - name: Cache uv/pip
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.3
         with:
           path: |
             ~/.cache/uv
@@ -76,12 +78,12 @@ jobs:
 
       - name: Install tooling
         run: |
-          uv tool install cibuildwheel
-          uv tool install conan
+          uv tool install --upgrade cibuildwheel==3.4.0
+          uv tool install --upgrade conan==2.26.2
 
       - name: Build wheels with cibuildwheel
         env:
-          # Build CPython 3.12 wheels only
+          # Build once on CPython 3.12 and publish ABI3 wheels for 3.12+.
           CIBW_BUILD: cp312-*
           # macOS: build Apple Silicon wheels only
           CIBW_ARCHS_MACOS: arm64
@@ -111,7 +113,7 @@ jobs:
           CIBW_ENVIRONMENT_MACOS_ARM64: >-
             CMAKE_OSX_ARCHITECTURES=arm64 MACOSX_DEPLOYMENT_TARGET=15.0 CMAKE_OSX_DEPLOYMENT_TARGET=15.0 CMAKE_GENERATOR=Ninja SKBUILD_VERBOSE=1
         run: |
-          uvx cibuildwheel --output-dir wheelhouse
+          uvx --from cibuildwheel==3.4.0 cibuildwheel --output-dir wheelhouse
 
       - name: Build sdist (source distribution)
         run: |
@@ -122,8 +124,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          uvx twine check wheelhouse/*
-          if compgen -G "dist/*.tar.gz" > /dev/null; then uvx twine check dist/*.tar.gz; fi
+          uvx --from twine==6.2.0 twine check wheelhouse/*
+          if compgen -G "dist/*.tar.gz" > /dev/null; then uvx --from twine==6.2.0 twine check dist/*.tar.gz; fi
 
       - name: Validate wheels metadata (twine check) [Windows]
         if: runner.os == 'Windows'
@@ -131,50 +133,63 @@ jobs:
         run: |
           if (Test-Path "wheelhouse") {
             $wheels = Get-ChildItem "wheelhouse/*.whl" -ErrorAction SilentlyContinue
-            if ($wheels) { uvx twine check wheelhouse/*.whl }
+            if ($wheels) { uvx --from twine==6.2.0 twine check wheelhouse/*.whl }
           } else { Write-Host "wheelhouse not found" }
 
-      - name: Test a built wheel (basic import) [Linux/macOS]
+      - name: Test built wheels with ABI3 smoke tests [Linux/macOS]
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
           ls -la wheelhouse || true
-          wheel=$(ls wheelhouse/*.whl | head -n1 || true)
-          if [ -z "$wheel" ]; then echo "No wheels built"; exit 1; fi
-          uv venv .venv-test
-          source .venv-test/bin/activate
-          uv pip install --upgrade pip
-          uv pip install "$wheel"
-          # Import from a clean working directory to avoid repo src shadowing
-          tmp=$(mktemp -d)
-          cd "$tmp"
-          python - <<'PY'
-          import importlib.util
-          print(importlib.util.find_spec('hgraph'))
-          print(importlib.util.find_spec('hgraph._hgraph'))
-          import hgraph, hgraph._hgraph as m
-          print('ok:', bool(getattr(m, '__doc__', None)))
-          PY
+          if ! compgen -G "wheelhouse/*.whl" > /dev/null; then echo "No wheels built"; exit 1; fi
+          mv hgraph hgraph_src
+          trap 'mv hgraph_src hgraph' EXIT
+          for wheel in wheelhouse/*.whl; do
+            if [ "${RUNNER_OS}" = "Linux" ] && [[ "${wheel}" == *musllinux* ]]; then
+              echo "Skipping musllinux wheel on glibc runner: ${wheel}"
+              continue
+            fi
+            for pyver in ${HGRAPH_SMOKE_PYTHONS}; do
+              uv venv --clear ".venv-test-${pyver}" --python "${pyver}"
+              uv pip install --python ".venv-test-${pyver}/bin/python" --upgrade pip
+              uv pip install --python ".venv-test-${pyver}/bin/python" --reinstall pytest tornado requests pandas "perspective-python<4.0.0" kafka-python matplotlib "${wheel}"
+              for use_cpp in false true; do
+                echo "Smoke test: wheel=${wheel} python=${pyver} HGRAPH_USE_CPP=${use_cpp}"
+                HGRAPH_USE_CPP="${use_cpp}" ".venv-test-${pyver}/bin/pytest" hgraph_unit_tests -q -m smoke
+              done
+            done
+          done
 
-      - name: Test a built wheel (basic import) [Windows]
+      - name: Test built wheels with ABI3 smoke tests [Windows]
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           if (Test-Path wheelhouse) { Get-ChildItem wheelhouse | Format-Table Name,Length,LastWriteTime -AutoSize } else { Write-Host "wheelhouse not found" }
-          $wheel = (Get-ChildItem wheelhouse/*.whl | Select-Object -First 1).FullName
-          if (-not $wheel) { Write-Error "No wheels built"; exit 1 }
-          uv venv .venv-test
-          . .venv-test\Scripts\Activate.ps1
-          uv pip install --upgrade pip
-          uv pip install "$wheel"
-          # Import from a clean working directory to avoid repo src shadowing
-          $tmp = New-Item -ItemType Directory -Path ([System.IO.Path]::GetTempPath()) -Name ("hgraph-test-" + [guid]::NewGuid())
-          Set-Location $tmp.FullName
-          python -c "import hgraph, hgraph._hgraph; print('ok')"
+          $wheels = Get-ChildItem wheelhouse/*.whl -ErrorAction SilentlyContinue
+          if (-not $wheels) { Write-Error "No wheels built"; exit 1 }
+          Rename-Item hgraph hgraph_src
+          try {
+            foreach ($wheel in $wheels) {
+              foreach ($pyver in $env:HGRAPH_SMOKE_PYTHONS.Split(' ')) {
+                $venvPython = Join-Path $PWD ".venv-test-$pyver\Scripts\python.exe"
+                uv venv --clear ".venv-test-$pyver" --python $pyver
+                uv pip install --python $venvPython --upgrade pip
+                uv pip install --python $venvPython --reinstall pytest tornado requests pandas "perspective-python<4.0.0" kafka-python matplotlib $wheel.FullName
+                foreach ($useCpp in @('false', 'true')) {
+                  Write-Host "Smoke test: wheel=$($wheel.Name) python=$pyver HGRAPH_USE_CPP=$useCpp"
+                  $env:HGRAPH_USE_CPP = $useCpp
+                  & (Join-Path $PWD ".venv-test-$pyver\Scripts\pytest.exe") hgraph_unit_tests -q -m smoke
+                }
+              }
+            }
+          } finally {
+            Remove-Item Env:HGRAPH_USE_CPP -ErrorAction SilentlyContinue
+            Rename-Item hgraph_src hgraph
+          }
 
       - name: Upload wheels
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: release-wheels-${{ runner.os }}
           path: wheelhouse/**
@@ -183,7 +198,7 @@ jobs:
 
       - name: Upload sdist (Linux only)
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.0
         with:
           name: release-sdist
           path: dist/*.tar.gz
@@ -204,7 +219,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Download release artifacts (wheels + sdist)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8.0.1
         with:
           path: dist_all
           pattern: release-*
@@ -224,13 +239,13 @@ jobs:
           echo "Collected distributions:" && ls -la to_upload || true
 
       - name: Publish to PyPI (trusted publishing)
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@v1.13.0
         with:
           packages-dir: to_upload
           skip-existing: true
 
       - name: Checkout repository for version commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

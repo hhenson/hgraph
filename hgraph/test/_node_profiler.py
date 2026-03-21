@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from hgraph import EvaluationLifeCycleObserver, MAX_ET
+from hgraph._runtime._constants import utc_now
 
 if TYPE_CHECKING:
     from hgraph import Graph, EvaluationClock
@@ -54,7 +55,7 @@ class EvaluationProfiler(EvaluationLifeCycleObserver):
             self.process = None
 
     def _print(self, evaluation_clock: "EvaluationClock", msg: str) -> None:
-        print(f"[{datetime.utcnow()}][{evaluation_clock.evaluation_time}] {msg}")
+        print(f"[{utc_now()}][{evaluation_clock.evaluation_time}] {msg}")
 
     def _graph_name(self, graph: "Graph") -> str:
         graph_str = []

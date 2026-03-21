@@ -1,13 +1,14 @@
 import logging
 import time
 from concurrent.futures import Executor
-from datetime import timedelta, datetime, UTC
+from datetime import timedelta, datetime
 from enum import Enum
 from typing import Callable
 
 import polars as pl
 from polars import DataFrame
 
+from hgraph._runtime._constants import utc_now
 from hgraph.adaptors.executor.executor import adaptor_executor
 from hgraph.adaptors.sql.sql_connection import SqlAdaptorConnection, start_sql_adaptor
 from hgraph import (
@@ -83,7 +84,7 @@ def sql_read_adaptor_raw_impl(
             
             time_taken = (time.perf_counter_ns() - start) / 1_000_000_000
             logger.info(f"Finished query {id} in {time_taken}s with {len(r)} rows")
-            tick = {id: {"status": StreamStatus.OK, "status_msg": "", "values": r, "timestamp": datetime.utcnow()}}
+            tick = {id: {"status": StreamStatus.OK, "status_msg": "", "values": r, "timestamp": utc_now()}}
             queue(tick)
         except Exception as e:
             logger.error(f"Query {id} on {path} failed: {query}")
@@ -154,8 +155,8 @@ def sql_write_adaptor_raw_impl(
                     id: {
                         "status": StreamStatus.OK,
                         "status_msg": "",
-                        "values": datetime.utcnow(),
-                        "timestamp": datetime.utcnow(),
+                        "values": utc_now(),
+                        "timestamp": utc_now(),
                     }
                 }
                 queue(tick)
@@ -218,7 +219,7 @@ def sql_execute_adaptor_raw_impl(path: str, query: TSD[int, TS[str]]) -> TSD[int
             r = connection.read_database(query)
             time_taken = (time.perf_counter_ns() - start) / 1_000_000_000
             logger.info(f"Finished executing query {id} in {time_taken}s")
-            tick = {id: {"status": StreamStatus.OK, "status_msg": "", "timestamp": datetime.now(UTC)}}
+            tick = {id: {"status": StreamStatus.OK, "status_msg": "", "timestamp": utc_now()}}
             queue(tick)
         except Exception as e:
             logger.error(f"Query {id} on {path} failed: {query}")
