@@ -61,6 +61,7 @@ __all__ = (
     "union",
     "var",
     "zero",
+    "sign",
 )
 
 
@@ -592,3 +593,8 @@ def index_of(ts: TIME_SERIES_TYPE_1, item: TIME_SERIES_TYPE_2) -> TS[int]:
 @operator
 def ln(ts: TS[float]) -> TS[float]:
     """The natural logarithm of the time-series value"""
+
+
+@operator
+def sign(ts: TS[TIME_SERIES_TYPE]) -> TS[TIME_SERIES_TYPE]:
+    """The sign of the time-series value"""

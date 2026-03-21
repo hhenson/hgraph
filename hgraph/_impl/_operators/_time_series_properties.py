@@ -9,6 +9,7 @@ from hgraph import (
     valid,
     last_modified_date,
     last_modified_time,
+    last_modified_wall_clock_time,
     modified,
     SCHEDULER,
     TS_OUT,
@@ -60,6 +61,11 @@ def modified_impl_start(_output: TS_OUT[bool]) -> TS[bool]:
 @compute_node(overloads=last_modified_time)
 def last_modified_time_impl(ts: SIGNAL) -> TS[datetime]:
     return ts.last_modified_time
+
+
+@compute_node(overloads=last_modified_wall_clock_time)
+def last_modified_wall_clock_time_time_impl(ts: SIGNAL, _clock: EvaluationClock = None) -> TS[datetime]:
+    return _clock.now
 
 
 @compute_node(overloads=last_modified_date)

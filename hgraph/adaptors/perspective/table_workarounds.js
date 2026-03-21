@@ -1080,7 +1080,8 @@ async function fireContextActions(from, row) {
         const viewer = document.querySelector(`perspective-viewer[slot="${target[0]}"]`);
         const view = await viewer.getView();
         const target_config = await view.get_config();
-        const filters = target_config.filter;
+        // This line is necessary because perspective adds nulls to the filter list and doubles the number each time, meaning the layout json size gets large very quickly
+        const filters = target_config.filter.map(x => ['in', 'not in'].includes(x[1]) ? [x[0], x[1], x[2].filter(y => y !== null)] : x);
 
         let new_filter = filters;
         let new_title = null;
@@ -1411,7 +1412,7 @@ async function createViewAndGetRows(tbl, view_config, values, required_cols, ind
         view = await tbl.view(query_config);
         get_rows = async () => {
             const rows = await view.to_json()
-            return rows.filter((x) => x["__ROW_PATH__"].length === view_config.group_by.length && required_cols.every((col) => x[col] !== null));
+            return rows.filter((x) => !unique || (x["__ROW_PATH__"].length === view_config.group_by.length && required_cols.every((col) => x[col] !== null)));
         }
     } else if (view_config.group_by.length > 0) {
         const query_config = {

@@ -53,7 +53,6 @@ def _receive_table_edits(name: str, type: Type[TIME_SERIES_TYPE]) -> TIME_SERIES
     """
     Receive the edits to a perspective table
     """
-    ...
 
 
 @sink_node(overloads=_publish_table, label="{name}")
@@ -77,8 +76,8 @@ def _publish_table_from_tsd(
     to be tuples in which case the index_col_name is expected to be a comma separated list (no spaces) of the key names
     in order. index_col_name can also include names of columns from the value in case of Frame value type.
     """
+    now = ec.now
     data = None
-    removes = 0
     if state.multi_row:
         for k in ts.removed_keys():
             state.removed.update(state.key_tracker.pop(k, set()))
@@ -118,10 +117,10 @@ def _publish_table_from_tsd(
                 data = {**data, **state.create_index(data)}
             if history is not None:
                 if state.sample_row:
-                    sample = {**state.sample_row(v), **data, "time": ec.evaluation_time}
+                    sample = {**state.sample_row(v), **data, "time": now}
                     state.history.append(sample)
                 else:
-                    state.history.append({**data, "time": ec.evaluation_time})
+                    state.history.append({**data, "time": now})
 
             if state.map_index:
                 with state.index_to_id_lock:
@@ -137,11 +136,14 @@ def _publish_table_from_tsd(
             state.data.append(data)
 
         removes = len(state.removed)
+        
 
-    if not sched.is_scheduled and (data or removes):
+    throttle = (ec.now - ec.evaluation_time) < timedelta(milliseconds=250)  # if the engine is running fast, throttle the updates
+    if throttle and not sched.is_scheduled and (data or removes):
         sched.schedule(timedelta(milliseconds=250), on_wall_clock=True, tag='-')
+        return
 
-    if sched.is_scheduled_now:
+    if not throttle or sched.is_scheduled_now:
         state.manager.update_table(name, state.data, state.removed)
         if history:
             state.manager.update_table(name + "_history", state.history)

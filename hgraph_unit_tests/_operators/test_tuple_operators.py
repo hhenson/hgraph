@@ -163,6 +163,14 @@ def test_add_tuple_scalar():
     eval_([(1, 2)], [3, 4], type_map=(TS[tuple[int, ...]], TS[int])) | add_ >> assert_((1, 2, 3), (1, 2, 4))
 
 
+def test_add_tuple_tuple_non_strict():
+    @graph
+    def g(lhs: TS[Tuple[int, ...]], rhs: TS[Tuple[int, ...]]) -> TS[Tuple[int, ...]]:
+        return add_(lhs, rhs, __strict__=False)
+
+    assert eval_node(g, [(1, 2), None, (3,)], [None, (4,), None]) == [(1, 2), (1, 2, 4), (3, 4)]
+
+
 def test_sub_tuple_scalar():
 
     eval_([(1, 2, 3, 4)], [3, 4], type_map=(TS[tuple[int, ...]], TS[int])) | sub_ >> assert_((1, 2, 4), (1, 2, 3))

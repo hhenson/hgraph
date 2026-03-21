@@ -88,8 +88,8 @@ def sql_read_adaptor_raw_impl(
             queue(tick)
         except Exception as e:
             logger.error(f"Query {id} on {path} failed: {query}")
-            time_taken = time_str((time.perf_counter_ns() - start) / 1_000_000_000)
-            logger.exception(f"Query failed after {time_taken}")
+            time_taken = (time.perf_counter_ns() - start) / 1_000_000_000
+            logger.exception(f"Query failed after {time_taken}s")
             error = {id: {"status": StreamStatus.ERROR, "status_msg": str(e)}}
             queue(error)
 
@@ -217,13 +217,13 @@ def sql_execute_adaptor_raw_impl(path: str, query: TSD[int, TS[str]]) -> TSD[int
             logger.info(f"Executing query {id} on {path}:\n{query}")
             start = time.perf_counter_ns()
             r = connection.read_database(query)
-            time_taken = time_str((time.perf_counter_ns() - start) / 1_000_000_000)
-            logger.info(f"Finished executing query {id} in {time_taken}")
+            time_taken = (time.perf_counter_ns() - start) / 1_000_000_000
+            logger.info(f"Finished executing query {id} in {time_taken}s")
             tick = {id: {"status": StreamStatus.OK, "status_msg": "", "timestamp": utc_now()}}
             queue(tick)
         except Exception as e:
             logger.error(f"Query {id} on {path} failed: {query}")
-            time_taken = time_str((time.perf_counter_ns() - start) / 1_000_000_000)
+            time_taken = (time.perf_counter_ns() - start) / 1_000_000_000
             logger.exception(f"Query failed after {time_taken}")
             error = {id: {"status": StreamStatus.ERROR, "status_msg": str(e)}}
             queue(error)

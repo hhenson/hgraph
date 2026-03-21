@@ -14,7 +14,7 @@ from hgraph._types._ts_type_var_meta_data import HgTsTypeVarTypeMetaData
 from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
 from hgraph._types._type_meta_data import cpp_type_property
 from hgraph._types._scalar_types import CompoundScalar
-from hgraph._types._tsb_type import TimeSeriesSchema
+from hgraph._types._tsb_type import TimeSeriesSchema, UnNamedTimeSeriesSchema
 
 __all__ = (
     "HgTimeSeriesSchemaTypeMetaData",
@@ -50,7 +50,14 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
             return True  # If we are matching a TIME_SERIES_TYPE, this matches that
 
         if tp_ is HgTimeSeriesSchemaTypeMetaData:
-            return self.py_type._matches(tp.py_type) or self.py_type._matches_schema(tp.py_type)
+            if self.py_type._matches(tp.py_type):
+                return True
+            elif self.py_type._root_cls() == tp.py_type._root_cls() and not self.is_resolved:
+                return self.py_type._matches_schema(tp.py_type)
+            elif issubclass(self.py_type, UnNamedTimeSeriesSchema) or issubclass(tp.py_type, UnNamedTimeSeriesSchema):
+                return self.py_type._matches_schema(tp.py_type)
+        
+        return False
 
     @property
     def meta_data_schema(self) -> dict[str, "HgTimeSeriesTypeMetaData"]:

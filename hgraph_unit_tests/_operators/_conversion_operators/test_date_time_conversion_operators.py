@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, time, datetime, timedelta
 
 from hgraph import combine, TS, graph
 from hgraph.test import eval_node
@@ -53,3 +53,11 @@ def test_combine_timedelta_non_strict():
         return combine[TS[timedelta]](days=days, hours=hours, __strict__=False)
 
     assert eval_node(g, [2022], [None, 1]) == [timedelta(days=2022), timedelta(days=2022, hours=1)]
+
+
+def test_combine_date_and_time():
+    @graph
+    def g(d: TS[date], t: TS[time]) -> TS[datetime]:
+        return combine[TS[datetime]](date=d, time=t)
+
+    assert eval_node(g, date(2022, 1, 1), time(1, 2, 3)) == [datetime(2022, 1, 1, 1, 2, 3)]

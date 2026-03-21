@@ -433,11 +433,9 @@ def websocket_server_adaptor_impl(path: str, port: int):
             for url, handler in WebSocketAdaptorManager.instance(msg_type).handlers.items():
                 if isinstance(handler, WiringNodeClass):
                     logger.info("Adding WS handler: [%s] %s", url, handler.signature.signature)
-                    if handler.signature.time_series_inputs["request"].matches_type(TSB[WebSocketServerRequest]):
+                    if HgTypeMetaData.parse_type(TSB[WebSocketServerRequest]).matches(handler.signature.time_series_inputs["request"]):
                         responses[url] = map_(handler, request=requests_by_url[url])
-                    elif handler.signature.time_series_inputs["request"].matches_type(
-                        TSD[int, TSB[WebSocketServerRequest]]
-                    ):
+                    elif HgTypeMetaData.parse_type(TSD[int, TSB[WebSocketServerRequest]]).matches(handler.signature.time_series_inputs["request"]):
                         responses[url] = handler(request=requests_by_url[url])
                 elif handler is None:
                     logger.info("Pre-wired WS handler: [%s]", url)

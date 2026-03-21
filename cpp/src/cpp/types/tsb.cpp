@@ -83,7 +83,7 @@ namespace hgraph {
             size_t index{static_cast<size_t>(std::distance(_schema->keys().begin(), it))};
             return this->operator[](index);
         }
-        throw std::out_of_range("Key not found in TimeSeriesSchema");
+        throw std::out_of_range(std::format("Key {} not found in TimeSeriesSchema", key));
     }
 
     template<typename T_TS>
