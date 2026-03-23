@@ -2,14 +2,47 @@
 
 #include <bit>
 #include <cassert>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <tuple>
 #include <type_traits>
 
 namespace hgraph
 {
     namespace detail
     {
+        template <typename T, typename... Ts>
+        inline constexpr bool one_of_v = (std::same_as<T, Ts> || ...);
+
+        template <typename... Ts>
+        inline constexpr bool all_distinct_v = true;
+
+        template <typename T, typename... Ts>
+        inline constexpr bool all_distinct_v<T, Ts...> = (!(std::same_as<T, Ts>) && ...) && all_distinct_v<Ts...>;
+
+        template <size_t Count>
+        inline constexpr size_t tag_bits_for_count_v =
+            Count <= 1 ? 0 : std::bit_width(static_cast<std::size_t>(Count - 1));
+
+        template <typename T, typename... Ts>
+        struct type_index;
+
+        template <typename T, typename... Ts>
+        struct type_index<T, T, Ts...> : std::integral_constant<size_t, 0>
+        {};
+
+        template <typename T, typename U, typename... Ts>
+        struct type_index<T, U, Ts...> : std::integral_constant<size_t, 1 + type_index<T, Ts...>::value>
+        {};
+
+        template <typename T0, typename... Ts>
+        inline constexpr size_t min_alignment_v = [] {
+            size_t result = alignof(T0);
+            ((result = result < alignof(Ts) ? result : alignof(Ts)), ...);
+            return result;
+        }();
+
         /**
          * Low-level erased tagged-pointer storage.
          *
@@ -115,6 +148,116 @@ namespace hgraph
           private:
             storage_type m_bits{0};
         };
+
+        template <size_t Alignment, typename... Ts>
+        class erased_discriminated_ptr
+            : private erased_tagged_ptr<Alignment, tag_bits_for_count_v<sizeof...(Ts)>>
+        {
+          public:
+            static_assert(sizeof...(Ts) > 0, "erased_discriminated_ptr<Ts...> requires at least one alternative");
+            static_assert((std::is_object_v<Ts> && ...), "erased_discriminated_ptr<Ts...> requires object types");
+            static_assert(all_distinct_v<Ts...>, "erased_discriminated_ptr<Ts...> requires distinct alternative types");
+
+            using base_type = erased_tagged_ptr<Alignment, tag_bits_for_count_v<sizeof...(Ts)>>;
+            using storage_type = typename base_type::storage_type;
+
+            static constexpr size_t alternative_count = sizeof...(Ts);
+            static constexpr size_t tag_bits = tag_bits_for_count_v<alternative_count>;
+            static constexpr size_t alignment = Alignment;
+            static constexpr size_t npos = static_cast<size_t>(-1);
+
+            constexpr erased_discriminated_ptr() noexcept = default;
+            constexpr erased_discriminated_ptr(std::nullptr_t) noexcept : base_type(nullptr) {}
+
+            template <typename T>
+                requires(one_of_v<T, Ts...>)
+            constexpr erased_discriminated_ptr(T *ptr) noexcept
+            {
+                set(ptr);
+            }
+
+            constexpr erased_discriminated_ptr &operator=(std::nullptr_t) noexcept
+            {
+                clear();
+                return *this;
+            }
+
+            template <typename T>
+                requires(one_of_v<T, Ts...>)
+            constexpr erased_discriminated_ptr &operator=(T *ptr) noexcept
+            {
+                set(ptr);
+                return *this;
+            }
+
+            [[nodiscard]] constexpr storage_type tag() const noexcept
+            {
+                return base_type::tag();
+            }
+
+            [[nodiscard]] constexpr size_t index() const noexcept
+            {
+                return *this ? static_cast<size_t>(tag()) : npos;
+            }
+
+            [[nodiscard]] constexpr bool empty() const noexcept
+            {
+                return !static_cast<bool>(*this);
+            }
+
+            [[nodiscard]] constexpr explicit operator bool() const noexcept
+            {
+                return static_cast<bool>(static_cast<const base_type &>(*this));
+            }
+
+            [[nodiscard]] constexpr void *ptr() const noexcept
+            {
+                return base_type::ptr();
+            }
+
+            [[nodiscard]] constexpr storage_type raw_bits() const noexcept
+            {
+                return base_type::raw_bits();
+            }
+
+            constexpr void clear() noexcept
+            {
+                base_type::clear();
+            }
+
+            template <typename T>
+                requires(one_of_v<T, Ts...>)
+            [[nodiscard]] constexpr bool is() const noexcept
+            {
+                return *this && tag() == tag_for<T>();
+            }
+
+            template <typename T>
+                requires(one_of_v<T, Ts...>)
+            [[nodiscard]] constexpr T *get() const noexcept
+            {
+                return is<T>() ? base_type::template as<T>() : nullptr;
+            }
+
+            template <typename T>
+                requires(one_of_v<T, Ts...>)
+            constexpr void set(T *ptr) noexcept
+            {
+                if (ptr == nullptr) {
+                    clear();
+                    return;
+                }
+
+                base_type::set(ptr, tag_for<T>());
+            }
+
+            template <typename T>
+                requires(one_of_v<T, Ts...>)
+            [[nodiscard]] static consteval storage_type tag_for() noexcept
+            {
+                return static_cast<storage_type>(type_index<T, Ts...>::value);
+            }
+        };
     }  // namespace detail
 
     /**
@@ -160,5 +303,37 @@ namespace hgraph
         {
             base_type::set_ptr(ptr);
         }
+    };
+
+    /**
+     * Discriminated pointer over a fixed family of pointee types.
+     *
+     * The active alternative is stored in the low pointer bits, with tag width
+     * derived from the minimum alignment across the alternative types.
+     * Empty/null pointers are represented by tag value 0.
+     */
+    template <typename... Ts>
+    class discriminated_ptr : public detail::erased_discriminated_ptr<detail::min_alignment_v<Ts...>, Ts...>
+    {
+      public:
+        using base_type = detail::erased_discriminated_ptr<detail::min_alignment_v<Ts...>, Ts...>;
+        using base_type::base_type;
+        using typename base_type::storage_type;
+        using base_type::alignment;
+        using base_type::alternative_count;
+        using base_type::clear;
+        using base_type::empty;
+        using base_type::get;
+        using base_type::index;
+        using base_type::is;
+        using base_type::npos;
+        using base_type::operator bool;
+        using base_type::operator=;
+        using base_type::ptr;
+        using base_type::raw_bits;
+        using base_type::set;
+        using base_type::tag;
+        using base_type::tag_bits;
+        using base_type::tag_for;
     };
 }  // namespace hgraph
