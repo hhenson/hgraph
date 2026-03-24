@@ -92,6 +92,11 @@ endif ()
 # Create test executable
 add_executable(hgraph_visitor_tests
     test_visitor_standalone.cpp
+    test_discriminated_ptr.cpp
+)
+
+target_include_directories(hgraph_visitor_tests PRIVATE
+    ../include
 )
 
 target_link_libraries(hgraph_visitor_tests PRIVATE
