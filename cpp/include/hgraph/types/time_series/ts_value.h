@@ -151,6 +151,7 @@ protected:
         return TSViewContext{
             &schema(),
             &builder().value_builder().dispatch(),
+            &builder().ts_dispatch(),
             value_memory(),
             root_state()};
     }

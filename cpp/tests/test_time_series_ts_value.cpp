@@ -1,10 +1,12 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/value/type_registry.h>
 
+#include <algorithm>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -148,5 +150,97 @@ TEST_CASE("TSValue stores collection values with delta tracking for time-series 
             updated_keys.emplace_back(key);
         }
         CHECK(updated_keys == std::vector<std::string>{"lhs"});
+    }
+}
+
+TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[ts_value]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *str_type = value_registry.register_type<std::string>("str");
+
+    SECTION("bundle children resolve field schemas and payloads") {
+        const auto *bundle_schema = ts_registry.tsb({{"lhs", ts_registry.ts(int_type)},
+                                                     {"rhs", ts_registry.tsl(ts_registry.ts(int_type), 2)}},
+                                                    "PairList");
+        hgraph::test_detail::ExposedTSValue value{*bundle_schema};
+
+        {
+            auto mutation = value.bundle_value().begin_mutation();
+            mutation.setting_field("lhs", hgraph::Value{11}.view());
+
+            auto rhs = value.bundle_value().field("rhs").as_list().begin_mutation();
+            rhs.setting(0, hgraph::Value{7}.view());
+            rhs.setting(1, hgraph::Value{13}.view());
+        }
+
+        hgraph::TSOutputView root{value.view_context()};
+        auto bundle_view = root.as_bundle();
+
+        const auto lhs = bundle_view.field("lhs");
+        CHECK(lhs.value().as_atomic().as<int>() == 11);
+
+        const auto rhs = bundle_view.field("rhs").as_list();
+        REQUIRE(rhs.size() == 2);
+        CHECK(rhs.at(0).value().as_atomic().as<int>() == 7);
+        CHECK(rhs.at(1).value().as_atomic().as<int>() == 13);
+    }
+
+    SECTION("dict children resolve by key and by storage slot") {
+        const auto *dict_schema = ts_registry.tsd(str_type, ts_registry.ts(int_type));
+        hgraph::test_detail::ExposedTSValue value{*dict_schema};
+
+        {
+            auto mutation = value.dict_value().begin_mutation();
+            mutation.setting(hgraph::Value{std::string{"a"}}.view(), hgraph::Value{1}.view());
+            mutation.setting(hgraph::Value{std::string{"b"}}.view(), hgraph::Value{2}.view());
+        }
+
+        size_t slot_a = SIZE_MAX;
+        size_t slot_b = SIZE_MAX;
+        {
+            const auto delta = value.dict_delta_value();
+            for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
+                if (!delta.slot_occupied(slot)) { continue; }
+                const auto key = delta.key_at_slot(slot).as_atomic().as<std::string>();
+                if (key == "a") { slot_a = slot; }
+                if (key == "b") { slot_b = slot; }
+            }
+        }
+
+        REQUIRE(slot_a != SIZE_MAX);
+        REQUIRE(slot_b != SIZE_MAX);
+
+        {
+            auto mutation = value.dict_value().begin_mutation();
+            mutation.removing(hgraph::Value{std::string{"a"}}.view());
+        }
+
+        hgraph::TSOutputView root{value.view_context()};
+        auto dict_view = root.as_dict();
+
+        const hgraph::Value key_b{std::string{"b"}};
+        const auto by_key = dict_view.at(key_b.view());
+        CHECK(by_key.value().as_atomic().as<int>() == 2);
+
+        const auto by_live_slot = dict_view.at(slot_b);
+        CHECK(by_live_slot.value().as_atomic().as<int>() == 2);
+
+        const auto by_removed_slot = dict_view.at(slot_a);
+        CHECK(by_removed_slot.value().as_atomic().as<int>() == 1);
+
+        CHECK(dict_view.size() == 1);
+
+        const auto delta = value.dict_delta_value();
+        CHECK(delta.slot_removed(slot_a));
+
+        std::vector<std::pair<std::string, int>> items;
+        for (auto [key, child] : dict_view.items()) {
+            items.emplace_back(key.as_atomic().as<std::string>(), child.value().as_atomic().as<int>());
+        }
+        std::sort(items.begin(), items.end());
+        CHECK((items == std::vector<std::pair<std::string, int>>{{"b", 2}}));
     }
 }

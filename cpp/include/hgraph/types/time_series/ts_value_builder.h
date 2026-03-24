@@ -14,6 +14,8 @@ namespace hgraph
 
     namespace detail
     {
+        struct TSDispatch;
+
         struct TSBuilderLayout
         {
             size_t value_offset{0};
@@ -62,10 +64,14 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT TSValueBuilder
     {
-        TSValueBuilder(const TSMeta &schema, const ValueBuilder &value_builder, const detail::TSBuilderOps &builder_ops) noexcept;
+        TSValueBuilder(const TSMeta &schema,
+                       const ValueBuilder &value_builder,
+                       const detail::TSBuilderOps &builder_ops,
+                       const detail::TSDispatch &ts_dispatch) noexcept;
 
         [[nodiscard]] const TSMeta       &schema() const noexcept { return m_schema.get(); }
         [[nodiscard]] const ValueBuilder &value_builder() const noexcept { return m_value_builder.get(); }
+        [[nodiscard]] const detail::TSDispatch &ts_dispatch() const noexcept { return m_ts_dispatch.get(); }
         [[nodiscard]] size_t              size() const noexcept { return m_size; }
         [[nodiscard]] size_t              alignment() const noexcept { return m_alignment; }
 
@@ -89,6 +95,7 @@ namespace hgraph
         std::reference_wrapper<const TSMeta>               m_schema;
         std::reference_wrapper<const ValueBuilder>         m_value_builder;
         std::reference_wrapper<const detail::TSBuilderOps> m_builder_ops;
+        std::reference_wrapper<const detail::TSDispatch>   m_ts_dispatch;
         size_t                                             m_value_offset{0};
         size_t                                             m_ts_offset{0};
         size_t                                             m_size{0};

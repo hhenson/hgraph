@@ -3,6 +3,9 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/value/value_view.h>
+#include <hgraph/util/tagged_ptr.h>
+
+#include <vector>
 
 namespace hgraph
 {
@@ -30,7 +33,7 @@ namespace hgraph
     /**
      * Pointer variant covering all concrete leaf state types.
      */
-    using TimeSeriesLeafStatePtr = std::variant<TSState *, TSLState *, TSDState *, TSBState *, TSSState *, TSWState *>;
+    using TimeSeriesLeafStatePtr = pointer_aligned_discriminated_ptr<TSState, TSLState, TSDState, TSBState, TSSState, TSWState>;
 
     /**
      * Pointer variant covering all concrete time-series state types.
@@ -38,23 +41,23 @@ namespace hgraph
     using TimeSeriesStatePtr = std::variant<TSState *, TSLState *, TSDState *, TSBState *, TSSState *, TSWState *,
                                             TargetLinkState *, RefLinkState *, SignalState *>;
 
+    using TaggedTSStatePtr = tagged_void_ptr<1>;
+
     /**
      * Pointer variant covering all concrete time-series state types plus the
      * root output endpoint.
      */
-    using TimeSeriesStateParentPtr = std::variant<TSLState *, TSDState *, TSBState *, TSInput *, TSOutput *>;
+    using TimeSeriesStateParentPtr = pointer_aligned_discriminated_ptr<TSLState, TSDState, TSBState, TSInput, TSOutput>;
 
     struct HGRAPH_EXPORT BaseState
     {
         /**
          * This identifies the parent container and is used to propagate notifications and updated time to the parent.
-         * If null this represents a parent container.
-         * `TSInput*` or `TSOutput*` indicates the root endpoint for a state
-         * tree.
+         * This will either be a Parent state (i.e. TSL, TSD, TSB) or a container i.e. TSInput/TSOutput.
          */
         TimeSeriesStateParentPtr parent;
         /**
-         * The index of this state within the context of its parent.
+         * The index (or slot in the case of a TSD) of this state within the context of its parent.
          * If this is the root, then the index represents the port within the context of the
          * value's node.
          */
@@ -103,17 +106,34 @@ namespace hgraph
 
     struct HGRAPH_EXPORT BaseCollectionState : BaseState
     {
+        static constexpr TaggedTSStatePtr::storage_type owned_tag = 1;
+
+        BaseCollectionState() = default;
+        ~BaseCollectionState();
+
+        BaseCollectionState(BaseCollectionState &&other) noexcept;
+        BaseCollectionState &operator=(BaseCollectionState &&other) noexcept;
+
+        BaseCollectionState(const BaseCollectionState &) = delete;
+        BaseCollectionState &operator=(const BaseCollectionState &) = delete;
+
         /**
          * Child states are indexed based on the value indexing.
-         * For TSL/TSB this is a state pre-computed-sized list.
-         * For TSD this is a dynamically sized list where the entries match the entries in the data.
+         * For `TSL`/`TSB` this is a schema-shaped list.
+         * For `TSD` this is indexed by the value layer's stable slot ids.
+         *
+         * The pointer currently refers to a heap-allocated `TimeSeriesStateV`
+         * wrapper for the child. `owned_tag` means this collection is
+         * responsible for deleting that wrapper.
          */
-        std::vector<TimeSeriesStatePtr> child_states;
+        std::vector<TaggedTSStatePtr> child_states;
         /**
          * Used to build the delta value. This is a short-cut to identify which items have been modified in the current
          * engine cycle and is reset when the modification time advances.
          */
         std::unordered_set<size_t> modified_children;
+
+        void reset_child_states() noexcept;
 
         /**
          * Record the modified child and continue propagating the modification.
@@ -131,7 +151,15 @@ namespace hgraph
      * State carried by a time-series dictionary.
      */
     struct HGRAPH_EXPORT TSDState : BaseCollectionState
-    {};
+    {
+        /**
+         * Last observed key hash for each stable slot.
+         *
+         * This is used to detect slot reuse so the corresponding child state
+         * can be reset when a removed slot later holds a different key.
+         */
+        std::vector<size_t> slot_key_hashes;
+    };
 
     /**
      * State carried by a time-series bundle.

@@ -39,13 +39,77 @@ namespace hgraph
     template <typename TView>
     struct SignalView;
 
+    struct TSViewContext;
+
+    namespace detail
+    {
+        struct TSCollectionDispatch;
+        struct TSFieldDispatch;
+        struct TSKeyDispatch;
+
+        /**
+         * Behavior-only dispatch over a logical TS position.
+         *
+         * The dispatch mirrors the value-layer builder pattern: it caches the
+         * schema-expanded behavior for one time-series schema and uses those
+         * cached facts to resolve TS operations from raw value and TS-state
+         * pointers. Navigation is intentionally factored into collection-only
+         * refinements so non-collection schemas do not implement child lookup
+         * semantics they can never support.
+         */
+        struct TSDispatch
+        {
+            virtual ~TSDispatch() = default;
+            [[nodiscard]] virtual const TSCollectionDispatch *as_collection() const noexcept { return nullptr; }
+        };
+
+        /**
+         * Navigation dispatch for collection-like time-series schemas.
+         */
+        struct TSCollectionDispatch : TSDispatch
+        {
+            [[nodiscard]] const TSCollectionDispatch *as_collection() const noexcept override { return this; }
+            [[nodiscard]] virtual const TSFieldDispatch *as_fields() const noexcept { return nullptr; }
+            [[nodiscard]] virtual const TSKeyDispatch *as_keys() const noexcept { return nullptr; }
+            [[nodiscard]] virtual size_t size(const TSViewContext &context) const noexcept                           = 0;
+            /**
+             * Resolve a child by schema-defined slot.
+             *
+             * For positional collections the slot is the logical index. For
+             * slot-backed collections such as maps it is the backing storage
+             * slot rather than the nth live element.
+             */
+            [[nodiscard]] virtual TSViewContext child_at(const TSViewContext &context, size_t index) const noexcept = 0;
+        };
+
+        /**
+         * Navigation dispatch for named child collections such as bundles.
+         */
+        struct TSFieldDispatch : TSCollectionDispatch
+        {
+            [[nodiscard]] const TSFieldDispatch *as_fields() const noexcept override { return this; }
+            [[nodiscard]] virtual TSViewContext child_field(const TSViewContext &context,
+                                                            std::string_view name) const noexcept                   = 0;
+            [[nodiscard]] virtual std::string_view child_name(size_t index) const noexcept                           = 0;
+        };
+
+        /**
+         * Navigation dispatch for keyed child collections such as dicts.
+         */
+        struct TSKeyDispatch : TSCollectionDispatch
+        {
+            [[nodiscard]] const TSKeyDispatch *as_keys() const noexcept override { return this; }
+            [[nodiscard]] virtual TSViewContext child_key(const TSViewContext &context, const View &key) const noexcept = 0;
+        };
+    }  // namespace detail
+
     /**
      * Identifies the endpoint object at the root of a time-series state tree.
      *
      * A time-series view ultimately resolves to either an input endpoint or
      * an output endpoint by walking the TS state parent chain.
      */
-    using ParentValue = std::variant<TSInput *, TSOutput *>;
+    using ParentValue = pointer_aligned_discriminated_ptr<TSInput, TSOutput>;
 
     /**
      * Reusable TS view context for a specific logical time-series position.
@@ -69,6 +133,7 @@ namespace hgraph
                 nullptr,
                 nullptr,
                 nullptr,
+                nullptr,
                 nullptr};
         }
 
@@ -88,6 +153,7 @@ namespace hgraph
 
         const TSMeta                 *schema{nullptr};
         const detail::ViewDispatch   *dispatch{nullptr};
+        const detail::TSDispatch     *ts_dispatch{nullptr};
         void                         *value_data{nullptr};
         void                        *ts_state{nullptr};
     };
@@ -258,31 +324,26 @@ namespace hgraph
 
             while (state != nullptr) {
                 ParentValue resolved{};
-                bool        found = false;
+                bool found = false;
 
-                std::visit(
+                hgraph::visit(
+                    state->parent,
                     [&state, &resolved, &found](auto *ptr) {
                         using T = std::remove_pointer_t<decltype(ptr)>;
 
-                        if (ptr == nullptr) {
-                            state = nullptr;
-                            return;
-                        }
-
-                        if constexpr (std::is_same_v<T, TSInput> || std::is_same_v<T, TSOutput>) {
+                        if constexpr (std::same_as<T, TSInput> || std::same_as<T, TSOutput>) {
                             resolved = ptr;
                             found = true;
-                            state = nullptr;
                         } else {
                             state = ptr;
                         }
                     },
-                    state->parent);
+                    [&state] { state = nullptr; });
 
                 if (found) { return resolved; }
             }
 
-            return static_cast<TSInput *>(nullptr);
+            return {};
         }
 
         /**
@@ -295,6 +356,7 @@ namespace hgraph
          * Return the logical TS schema represented by this view.
          */
         [[nodiscard]] const TSMeta *schema() const noexcept { return m_context.schema; }
+        [[nodiscard]] const detail::TSDispatch *ts_dispatch() const noexcept { return m_context.ts_dispatch; }
         [[nodiscard]] TSViewContext parent_context() const noexcept { return m_parent; }
 
         TSViewContext m_context{TSViewContext::none()};
@@ -304,20 +366,8 @@ namespace hgraph
       private:
         [[nodiscard]] static const BaseState *base_state_from(const void *ts_state, const TSMeta *schema) noexcept
         {
-            if (ts_state == nullptr || schema == nullptr) { return nullptr; }
-
-            switch (schema->kind) {
-                case TSKind::TSValue: return static_cast<const TSState *>(ts_state);
-                case TSKind::TSS: return static_cast<const TSSState *>(ts_state);
-                case TSKind::TSD: return static_cast<const TSDState *>(ts_state);
-                case TSKind::TSL: return static_cast<const TSLState *>(ts_state);
-                case TSKind::TSW: return static_cast<const TSWState *>(ts_state);
-                case TSKind::TSB: return static_cast<const TSBState *>(ts_state);
-                case TSKind::REF: return static_cast<const RefLinkState *>(ts_state);
-                case TSKind::SIGNAL: return static_cast<const SignalState *>(ts_state);
-            }
-
-            return nullptr;
+            static_cast<void>(schema);
+            return static_cast<const BaseState *>(ts_state);
         }
     };
 
@@ -334,6 +384,9 @@ namespace hgraph
         [[nodiscard]] size_t size() const noexcept;
         [[nodiscard]] TView at(size_t index) const noexcept;
         [[nodiscard]] TView operator[](size_t index) const noexcept;
+
+      protected:
+        [[nodiscard]] const detail::TSCollectionDispatch *collection_dispatch() const noexcept;
     };
 
     template <typename TView>
@@ -360,6 +413,9 @@ namespace hgraph
         [[nodiscard]] KeyValueRange<std::string_view, TView> items() const noexcept;
         [[nodiscard]] KeyValueRange<std::string_view, TView> valid_items() const noexcept;
         [[nodiscard]] KeyValueRange<std::string_view, TView> modified_items() const noexcept;
+
+      protected:
+        [[nodiscard]] const detail::TSFieldDispatch *field_dispatch() const noexcept;
     };
 
     template <typename TView>
@@ -376,6 +432,9 @@ namespace hgraph
         [[nodiscard]] KeyValueRange<View, TView> items() const noexcept;
         [[nodiscard]] KeyValueRange<View, TView> valid_items() const noexcept;
         [[nodiscard]] KeyValueRange<View, TView> modified_items() const noexcept;
+
+      protected:
+        [[nodiscard]] const detail::TSKeyDispatch *key_dispatch() const noexcept;
     };
 
     template <typename TView>
@@ -411,5 +470,360 @@ namespace hgraph
         SignalView() = default;
         SignalView(const TSView<TView> &other) noexcept : TSView<TView>(other) {}
     };
+
+    namespace detail
+    {
+        [[nodiscard]] inline const BaseCollectionState *collection_state(const void *state) noexcept
+        {
+            return static_cast<const BaseCollectionState *>(state);
+        }
+
+        [[nodiscard]] inline bool child_is_modified(const void *state, size_t index) noexcept
+        {
+            const auto *collection = collection_state(state);
+            return collection != nullptr && collection->modified_children.contains(index);
+        }
+
+        [[nodiscard]] inline bool dict_slot_is_live(const MapDeltaView &delta, size_t slot) noexcept
+        {
+            return delta.slot_occupied(slot) && !delta.slot_removed(slot);
+        }
+    }  // namespace detail
+
+    template <typename TView>
+    size_t BaseCollectionView<TView>::size() const noexcept
+    {
+        const auto *dispatch = collection_dispatch();
+        return dispatch != nullptr ? dispatch->size(this->m_context) : 0;
+    }
+
+    template <typename TView>
+    TView BaseCollectionView<TView>::at(size_t index) const noexcept
+    {
+        const auto *dispatch = collection_dispatch();
+        if (dispatch == nullptr) { return TView{TSViewContext::none(), this->m_context, this->m_evaluation_time}; }
+
+        const TSViewContext child = dispatch->child_at(this->m_context, index);
+        return TView{child, this->m_context, this->m_evaluation_time};
+    }
+
+    template <typename TView>
+    TView BaseCollectionView<TView>::operator[](size_t index) const noexcept
+    {
+        return at(index);
+    }
+
+    template <typename TView>
+    const detail::TSCollectionDispatch *BaseCollectionView<TView>::collection_dispatch() const noexcept
+    {
+        const auto *dispatch = this->ts_dispatch();
+        return dispatch != nullptr ? dispatch->as_collection() : nullptr;
+    }
+
+    template <typename TView>
+    Range<TView> TSLView<TView>::values() const noexcept
+    {
+        return Range<TView>{this, this->size(), nullptr,
+                            [](const void *context, size_t index) {
+                                return static_cast<const TSLView *>(context)->at(index);
+                            }};
+    }
+
+    template <typename TView>
+    Range<TView> TSLView<TView>::valid_values() const noexcept
+    {
+        return Range<TView>{this, this->size(),
+                            [](const void *context, size_t index) {
+                                return static_cast<const TSLView *>(context)->at(index).valid();
+                            },
+                            [](const void *context, size_t index) {
+                                return static_cast<const TSLView *>(context)->at(index);
+                            }};
+    }
+
+    template <typename TView>
+    Range<TView> TSLView<TView>::modified_values() const noexcept
+    {
+        return Range<TView>{this, this->size(),
+                            [](const void *context, size_t index) {
+                                return detail::child_is_modified(static_cast<const TSLView *>(context)->ts_state(), index);
+                            },
+                            [](const void *context, size_t index) {
+                                return static_cast<const TSLView *>(context)->at(index);
+                            }};
+    }
+
+    template <typename TView>
+    KeyValueRange<size_t, TView> TSLView<TView>::items() const noexcept
+    {
+        return KeyValueRange<size_t, TView>{this, this->size(), nullptr,
+                                            [](const void *context, size_t index) {
+                                                return std::pair<size_t, TView>{index, static_cast<const TSLView *>(context)->at(index)};
+                                            }};
+    }
+
+    template <typename TView>
+    KeyValueRange<size_t, TView> TSLView<TView>::valid_items() const noexcept
+    {
+        return KeyValueRange<size_t, TView>{this, this->size(),
+                                            [](const void *context, size_t index) {
+                                                return static_cast<const TSLView *>(context)->at(index).valid();
+                                            },
+                                            [](const void *context, size_t index) {
+                                                return std::pair<size_t, TView>{index, static_cast<const TSLView *>(context)->at(index)};
+                                            }};
+    }
+
+    template <typename TView>
+    KeyValueRange<size_t, TView> TSLView<TView>::modified_items() const noexcept
+    {
+        return KeyValueRange<size_t, TView>{this, this->size(),
+                                            [](const void *context, size_t index) {
+                                                return detail::child_is_modified(static_cast<const TSLView *>(context)->ts_state(), index);
+                                            },
+                                            [](const void *context, size_t index) {
+                                                return std::pair<size_t, TView>{index, static_cast<const TSLView *>(context)->at(index)};
+                                            }};
+    }
+
+    template <typename TView>
+    TView TSBView<TView>::field(std::string_view name) const noexcept
+    {
+        const auto *field_dispatch = this->field_dispatch();
+        if (field_dispatch == nullptr) { return TView{TSViewContext::none(), this->m_context, this->m_evaluation_time}; }
+
+        const TSViewContext child = field_dispatch->child_field(this->m_context, name);
+        return TView{child, this->m_context, this->m_evaluation_time};
+    }
+
+    template <typename TView>
+    Range<std::string_view> TSBView<TView>::keys() const noexcept
+    {
+        const auto *field_dispatch = this->field_dispatch();
+        return Range<std::string_view>{field_dispatch, field_dispatch != nullptr ? this->size() : 0, nullptr,
+                                       [](const void *context, size_t index) {
+                                           return static_cast<const detail::TSFieldDispatch *>(context)->child_name(index);
+                                       }};
+    }
+
+    template <typename TView>
+    Range<TView> TSBView<TView>::values() const noexcept
+    {
+        return Range<TView>{this, this->size(), nullptr,
+                            [](const void *context, size_t index) {
+                                return static_cast<const TSBView *>(context)->at(index);
+                            }};
+    }
+
+    template <typename TView>
+    KeyValueRange<std::string_view, TView> TSBView<TView>::items() const noexcept
+    {
+        const auto *field_dispatch = this->field_dispatch();
+        return KeyValueRange<std::string_view, TView>{this, field_dispatch != nullptr ? this->size() : 0, nullptr,
+                                                      [](const void *context, size_t index) {
+                                                          const auto *self = static_cast<const TSBView *>(context);
+                                                          const auto *field_dispatch = self->field_dispatch();
+                                                          const std::string_view name =
+                                                              field_dispatch != nullptr ? field_dispatch->child_name(index) : std::string_view{};
+                                                          return std::pair<std::string_view, TView>{name, self->at(index)};
+                                                      }};
+    }
+
+    template <typename TView>
+    KeyValueRange<std::string_view, TView> TSBView<TView>::valid_items() const noexcept
+    {
+        const auto *field_dispatch = this->field_dispatch();
+        return KeyValueRange<std::string_view, TView>{this, field_dispatch != nullptr ? this->size() : 0,
+                                                      [](const void *context, size_t index) {
+                                                          return static_cast<const TSBView *>(context)->at(index).valid();
+                                                      },
+                                                      [](const void *context, size_t index) {
+                                                          const auto *self = static_cast<const TSBView *>(context);
+                                                          const auto *field_dispatch = self->field_dispatch();
+                                                          const std::string_view name =
+                                                              field_dispatch != nullptr ? field_dispatch->child_name(index) : std::string_view{};
+                                                          return std::pair<std::string_view, TView>{name, self->at(index)};
+                                                      }};
+    }
+
+    template <typename TView>
+    KeyValueRange<std::string_view, TView> TSBView<TView>::modified_items() const noexcept
+    {
+        const auto *field_dispatch = this->field_dispatch();
+        return KeyValueRange<std::string_view, TView>{this, field_dispatch != nullptr ? this->size() : 0,
+                                                      [](const void *context, size_t index) {
+                                                          return detail::child_is_modified(static_cast<const TSBView *>(context)->ts_state(), index);
+                                                      },
+                                                      [](const void *context, size_t index) {
+                                                          const auto *self = static_cast<const TSBView *>(context);
+                                                          const auto *field_dispatch = self->field_dispatch();
+                                                          const std::string_view name =
+                                                              field_dispatch != nullptr ? field_dispatch->child_name(index) : std::string_view{};
+                                                          return std::pair<std::string_view, TView>{name, self->at(index)};
+                                                      }};
+    }
+
+    template <typename TView>
+    const detail::TSFieldDispatch *TSBView<TView>::field_dispatch() const noexcept
+    {
+        const auto *dispatch = this->collection_dispatch();
+        return dispatch != nullptr ? dispatch->as_fields() : nullptr;
+    }
+
+    template <typename TView>
+    TView TSDView<TView>::at(const View &key) const noexcept
+    {
+        const auto *key_dispatch = this->key_dispatch();
+        const View map_value = this->value();
+        if (key_dispatch == nullptr || !map_value.has_value() || !key.has_value()) {
+            return TView{TSViewContext::none(), this->m_context, this->m_evaluation_time};
+        }
+
+        const MapView map = map_value.as_map();
+        if (key.schema() != map.key_schema()) { return TView{TSViewContext::none(), this->m_context, this->m_evaluation_time}; }
+
+        const TSViewContext child = key_dispatch->child_key(this->m_context, key);
+        return TView{child, this->m_context, this->m_evaluation_time};
+    }
+
+    template <typename TView>
+    TView TSDView<TView>::operator[](const View &key) const noexcept
+    {
+        return at(key);
+    }
+
+    template <typename TView>
+    const detail::TSKeyDispatch *TSDView<TView>::key_dispatch() const noexcept
+    {
+        const auto *dispatch = this->collection_dispatch();
+        return dispatch != nullptr ? dispatch->as_keys() : nullptr;
+    }
+
+    template <typename TView>
+    Range<View> TSDView<TView>::keys() const noexcept
+    {
+        return Range<View>{this, this->value().as_map().delta().slot_capacity(),
+                           [](const void *context, size_t slot) {
+                               const auto delta = static_cast<const TSDView *>(context)->value().as_map().delta();
+                               return detail::dict_slot_is_live(delta, slot);
+                           },
+                           [](const void *context, size_t slot) {
+                               return static_cast<const TSDView *>(context)->value().as_map().delta().key_at_slot(slot);
+                           }};
+    }
+
+    template <typename TView>
+    Range<TView> TSDView<TView>::values() const noexcept
+    {
+        return Range<TView>{this, this->value().as_map().delta().slot_capacity(),
+                            [](const void *context, size_t slot) {
+                                const auto delta = static_cast<const TSDView *>(context)->value().as_map().delta();
+                                return detail::dict_slot_is_live(delta, slot);
+                            },
+                            [](const void *context, size_t slot) {
+                                const auto key = static_cast<const TSDView *>(context)->value().as_map().delta().key_at_slot(slot);
+                                return static_cast<const TSDView *>(context)->at(key);
+                            }};
+    }
+
+    template <typename TView>
+    KeyValueRange<View, TView> TSDView<TView>::items() const noexcept
+    {
+        return KeyValueRange<View, TView>{this, this->value().as_map().delta().slot_capacity(),
+                                          [](const void *context, size_t slot) {
+                                              const auto delta = static_cast<const TSDView *>(context)->value().as_map().delta();
+                                              return detail::dict_slot_is_live(delta, slot);
+                                          },
+                                          [](const void *context, size_t slot) {
+                                              const auto *self = static_cast<const TSDView *>(context);
+                                              const View key = self->value().as_map().delta().key_at_slot(slot);
+                                              return std::pair<View, TView>{key, self->at(key)};
+                                          }};
+    }
+
+    template <typename TView>
+    KeyValueRange<View, TView> TSDView<TView>::valid_items() const noexcept
+    {
+        return KeyValueRange<View, TView>{this, this->value().as_map().delta().slot_capacity(),
+                                          [](const void *context, size_t slot) {
+                                              const auto *self = static_cast<const TSDView *>(context);
+                                              const auto delta = self->value().as_map().delta();
+                                              if (!detail::dict_slot_is_live(delta, slot)) { return false; }
+                                              return self->at(delta.key_at_slot(slot)).valid();
+                                          },
+                                          [](const void *context, size_t slot) {
+                                              const auto *self = static_cast<const TSDView *>(context);
+                                              const View key = self->value().as_map().delta().key_at_slot(slot);
+                                              return std::pair<View, TView>{key, self->at(key)};
+                                          }};
+    }
+
+    template <typename TView>
+    KeyValueRange<View, TView> TSDView<TView>::modified_items() const noexcept
+    {
+        return KeyValueRange<View, TView>{this, this->value().as_map().delta().slot_capacity(),
+                                          [](const void *context, size_t slot) {
+                                              const auto *self = static_cast<const TSDView *>(context);
+                                              const auto delta = self->value().as_map().delta();
+                                              return detail::dict_slot_is_live(delta, slot) &&
+                                                     detail::child_is_modified(self->ts_state(), slot);
+                                          },
+                                          [](const void *context, size_t slot) {
+                                              const auto *self = static_cast<const TSDView *>(context);
+                                              const View key = self->value().as_map().delta().key_at_slot(slot);
+                                              return std::pair<View, TView>{key, self->at(key)};
+                                          }};
+    }
+
+    template <typename TView>
+    size_t TSSView<TView>::size() const noexcept
+    {
+        return this->value().as_set().size();
+    }
+
+    template <typename TView>
+    Range<View> TSSView<TView>::values() const noexcept
+    {
+        return this->value().as_set().values();
+    }
+
+    template <typename TView>
+    Range<View> TSSView<TView>::added_values() const noexcept
+    {
+        return this->value().as_set().delta().added();
+    }
+
+    template <typename TView>
+    Range<View> TSSView<TView>::removed_values() const noexcept
+    {
+        return this->value().as_set().delta().removed();
+    }
+
+    template <typename TView>
+    TView TSSView<TView>::is_empty() const noexcept
+    {
+        return TView{};
+    }
+
+    template <typename TView>
+    size_t TSWView<TView>::size() const noexcept
+    {
+        return this->value().as_cyclic_buffer().size();
+    }
+
+    template <typename TView>
+    Range<View> TSWView<TView>::values() const noexcept
+    {
+        return Range<View>{this, this->size(), nullptr,
+                           [](const void *context, size_t index) {
+                               return static_cast<const TSWView *>(context)->value().as_cyclic_buffer().at(index);
+                           }};
+    }
+
+    template <typename TView>
+    Range<engine_time_t> TSWView<TView>::value_times() const noexcept
+    {
+        return Range<engine_time_t>{nullptr, 0, nullptr, nullptr};
+    }
 
 }  // namespace hgraph
