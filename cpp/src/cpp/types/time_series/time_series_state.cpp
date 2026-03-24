@@ -119,6 +119,55 @@ namespace hgraph
 
     TargetLinkState::TargetLinkState() noexcept : target_notifiable(this) {}
 
+    TargetLinkState::~TargetLinkState()
+    {
+        reset_target();
+    }
+
+    TargetLinkState::TargetLinkState(TargetLinkState &&other) noexcept
+        : target_notifiable(this)
+    {
+        parent = other.parent;
+        index = other.index;
+        last_modified_time = other.last_modified_time;
+        subscribers = std::move(other.subscribers);
+        scheduling_notifier.set_target(other.scheduling_notifier.get_target());
+
+        if (other.target.is_bound()) {
+            const LinkedTSContext bound_target = other.target;
+            other.unregister_from_target();
+            target = bound_target;
+            register_with_target();
+            other.target.clear();
+        }
+
+        other.scheduling_notifier.set_target(nullptr);
+    }
+
+    TargetLinkState &TargetLinkState::operator=(TargetLinkState &&other) noexcept
+    {
+        if (this == &other) { return *this; }
+
+        reset_target();
+
+        parent = other.parent;
+        index = other.index;
+        last_modified_time = other.last_modified_time;
+        subscribers = std::move(other.subscribers);
+        scheduling_notifier.set_target(other.scheduling_notifier.get_target());
+
+        if (other.target.is_bound()) {
+            const LinkedTSContext bound_target = other.target;
+            other.unregister_from_target();
+            target = bound_target;
+            register_with_target();
+            other.target.clear();
+        }
+
+        other.scheduling_notifier.set_target(nullptr);
+        return *this;
+    }
+
     void TargetLinkState::set_target(LinkedTSContext target_state) noexcept {
         unregister_from_target();
         target = std::move(target_state);

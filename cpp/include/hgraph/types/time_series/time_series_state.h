@@ -288,6 +288,13 @@ namespace hgraph
         };
 
         TargetLinkState() noexcept;
+        ~TargetLinkState();
+
+        TargetLinkState(TargetLinkState &&other) noexcept;
+        TargetLinkState &operator=(TargetLinkState &&other) noexcept;
+
+        TargetLinkState(const TargetLinkState &) = delete;
+        TargetLinkState &operator=(const TargetLinkState &) = delete;
 
         /**
          * Bind this link state to the supplied target context and register for

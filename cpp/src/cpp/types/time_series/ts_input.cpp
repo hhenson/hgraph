@@ -7,6 +7,8 @@
 
 namespace hgraph
 {
+    TSInputView TSInput::view() noexcept { return TSInputView{view_context()}; }
+
     const value::TypeMeta *TSInput::active_schema_from(const TSMeta *schema)
     {
         auto &registry = value::TypeRegistry::instance();

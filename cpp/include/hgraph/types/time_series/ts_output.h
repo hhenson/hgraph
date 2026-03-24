@@ -37,6 +37,11 @@ struct HGRAPH_EXPORT TSOutput : TSValue {
         TSValue(*schema)
     {}
 
+    /**
+     * Return the binding handle representing this output's current root view.
+     */
+    [[nodiscard]] LinkedTSContext linked_context() noexcept { return TSValue::linked_context(); }
+
     [[nodiscard]] TSOutputView view();
 
 protected:

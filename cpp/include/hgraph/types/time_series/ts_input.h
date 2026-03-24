@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/value/value.h>
 
@@ -52,6 +53,15 @@ struct HGRAPH_EXPORT TSInput : TSValue {
     explicit TSInput(const TSMeta *schema) :
         TSValue(*schema), m_active_state(*active_schema_from(schema))
     {}
+
+    /**
+     * Return an input view rooted at this endpoint.
+     *
+     * Binding is expected to happen through collection navigation on this
+     * view, matching the Python wiring model where `__getitem__` selects the
+     * slot to bind.
+     */
+    [[nodiscard]] TSInputView view() noexcept;
 
 protected:
     /**

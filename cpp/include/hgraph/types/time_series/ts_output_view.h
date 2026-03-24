@@ -25,6 +25,20 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
      * endpoint and navigation position.
      */
     TSOutputView() = default;
+
+    /**
+     * Return the binding handle for the represented output position.
+     */
+    [[nodiscard]] LinkedTSContext linked_context() const noexcept
+    {
+        return LinkedTSContext{
+            .schema = this->m_context.schema,
+            .value_dispatch = this->m_context.dispatch,
+            .ts_dispatch = this->m_context.ts_dispatch,
+            .value_data = this->m_context.value_data,
+            .ts_state = static_cast<BaseState *>(this->m_context.ts_state),
+        };
+    }
 };
 
 }  // namespace hgraph

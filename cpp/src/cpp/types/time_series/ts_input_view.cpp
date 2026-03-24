@@ -1,34 +1,97 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/ts_input_view.h>
+#include <hgraph/types/time_series/ts_output_view.h>
+
+#include <stdexcept>
 
 namespace hgraph
 {
-    TSInputView::TSInputView(View active_state, TimeSeriesStatePtr state,
-                             Notifiable &scheduling_notifier) noexcept :
+    TSInputView::TSInputView(TSViewContext context,
+                             TSViewContext parent,
+                             engine_time_t evaluation_time) noexcept :
+        TSView<TSInputView>(context, parent, evaluation_time), m_state(static_cast<BaseState *>(context.ts_state))
+    {}
+
+    TSInputView::TSInputView(View active_state, BaseState *state, Notifiable *scheduling_notifier) noexcept :
         m_active_state(active_state), m_state(state), m_scheduling_notifier(scheduling_notifier)
     {}
 
-    TSInputCollectionView::TSInputCollectionView(View active_state, TimeSeriesStatePtr state,
-                                                 Notifiable &scheduling_notifier) noexcept :
+    TSInputCollectionView::TSInputCollectionView(View active_state, BaseState *state,
+                                                 Notifiable *scheduling_notifier) noexcept :
         TSInputView(active_state, state, scheduling_notifier)
     {}
 
+    void TSInputView::bind_output(const TSOutputView &output)
+    {
+        BaseState *state = static_cast<BaseState *>(ts_state());
+        const TSViewContext parent_context = this->parent_context();
+        if (state == nullptr || parent_context.schema == nullptr) {
+            throw std::logic_error("TSInputView::bind_output requires a child view reached through TSL/TSB navigation");
+        }
+
+        const size_t slot = state->index;
+        const TSMeta *child_schema = nullptr;
+        switch (parent_context.schema->kind) {
+            case TSKind::TSB:
+                if (slot >= parent_context.schema->field_count()) {
+                    throw std::out_of_range("TSInputView::bind_output slot is out of range for the parent TSB");
+                }
+                child_schema = parent_context.schema->fields()[slot].ts_type;
+                break;
+
+            case TSKind::TSL:
+                child_schema = parent_context.schema->element_ts();
+                break;
+
+            default:
+                throw std::logic_error("TSInputView::bind_output is only supported for TSL/TSB child views");
+        }
+
+        const LinkedTSContext output_context = output.linked_context();
+        if (child_schema == nullptr || output_context.schema != child_schema) {
+            throw std::invalid_argument("TSInputView::bind_output requires an output matching the selected child schema");
+        }
+
+        bool replaced = false;
+        hgraph::visit(
+            state->parent,
+            [&](auto *parent_state) {
+                using T = std::remove_pointer_t<decltype(parent_state)>;
+
+                if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSBState>) {
+                    if (parent_state == nullptr) {
+                        throw std::logic_error("TSInputView::bind_output requires a live parent collection state");
+                    }
+                    if (parent_state->child_states.size() <= slot) { parent_state->child_states.resize(slot + 1); }
+
+                    auto child_state = std::make_unique<TimeSeriesStateV>();
+                    auto &link_state = child_state->emplace<TargetLinkState>();
+                    link_state.parent = parent_state;
+                    link_state.index = slot;
+                    link_state.last_modified_time = MIN_DT;
+                    link_state.subscribers.clear();
+                    link_state.target.clear();
+                    link_state.scheduling_notifier.set_target(nullptr);
+                    link_state.set_target(output_context);
+                    parent_state->child_states[slot] = std::move(child_state);
+                    replaced = true;
+                }
+            },
+            [] {});
+
+        if (!replaced) {
+            throw std::logic_error("TSInputView::bind_output requires a TSL/TSB-backed parent state");
+        }
+    }
+
     void TSInputView::subscribe_scheduling_notifier() noexcept
     {
-        std::visit(
-            [this](auto *ptr) {
-                if (ptr != nullptr) { ptr->subscribe(&m_scheduling_notifier); }
-            },
-            m_state);
+        if (m_state != nullptr && m_scheduling_notifier != nullptr) { m_state->subscribe(m_scheduling_notifier); }
     }
 
     void TSInputView::unsubscribe_scheduling_notifier() noexcept
     {
-        std::visit(
-            [this](auto *ptr) {
-                if (ptr != nullptr) { ptr->unsubscribe(&m_scheduling_notifier); }
-            },
-            m_state);
+        if (m_state != nullptr && m_scheduling_notifier != nullptr) { m_state->unsubscribe(m_scheduling_notifier); }
     }
 
     void TSInputView::make_active()

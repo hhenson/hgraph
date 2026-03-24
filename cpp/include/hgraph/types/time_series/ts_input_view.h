@@ -7,6 +7,8 @@
 
 namespace hgraph {
 
+struct TSOutputView;
+
 /**
  * Input-specialized instantiation of the generic time-series view surface.
  *
@@ -20,6 +22,16 @@ namespace hgraph {
  * from the surrounding subtree.
  */
 struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
+    /**
+     * Construct a navigable input view over TS storage.
+     *
+     * This is the wiring-time/runtime navigation surface used for collection
+     * access and binding.
+     */
+    TSInputView(TSViewContext context,
+                TSViewContext parent = TSViewContext::none(),
+                engine_time_t evaluation_time = MIN_DT) noexcept;
+
     /**
      * Construct an input view from the path-local active-state payload.
      *
@@ -35,10 +47,19 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
      * intended to switch to the target link state's `scheduling_notifier` so
      * each linked branch schedules independently.
      */
-    explicit TSInputView(View active_state, TimeSeriesStatePtr state,
-                         Notifiable &scheduling_notifier) noexcept;
+    explicit TSInputView(View active_state, BaseState *state,
+                         Notifiable *scheduling_notifier) noexcept;
 
     virtual ~TSInputView() = default;
+
+    /**
+     * Bind this collection-selected input slot to an output.
+     *
+     * This is intended to be called on a child view reached through `TSL` or
+     * `TSB` navigation, where the current view identifies the slot to replace
+     * with a target link.
+     */
+    void bind_output(const TSOutputView &output);
 
     /**
      * Mark the input view as active.
@@ -69,16 +90,16 @@ protected:
     void subscribe_scheduling_notifier() noexcept;
     void unsubscribe_scheduling_notifier() noexcept;
 
-    View               m_active_state;
+    View m_active_state{View::invalid_for(nullptr)};
     /**
      * Non-owning reference to the represented time-series state node.
      */
-    TimeSeriesStatePtr m_state;
+    BaseState         *m_state{nullptr};
     /**
      * Non-owning notifier used only for scheduling the owning node when this
      * input view becomes active against a bound output.
      */
-    Notifiable &       m_scheduling_notifier;
+    Notifiable        *m_scheduling_notifier{nullptr};
 };
 
 /**
@@ -89,8 +110,8 @@ protected:
  * flag in the remaining collection-specific slots.
  */
 struct HGRAPH_EXPORT TSInputCollectionView : TSInputView {
-    explicit TSInputCollectionView(View active_state, TimeSeriesStatePtr state,
-                                   Notifiable &scheduling_notifier) noexcept;
+    explicit TSInputCollectionView(View active_state, BaseState *state,
+                                   Notifiable *scheduling_notifier) noexcept;
 
     void make_active() override;
     void make_passive() override;

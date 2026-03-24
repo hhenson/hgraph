@@ -97,6 +97,46 @@ namespace hgraph
             return state != nullptr ? state_address(state_ptr(*state)) : nullptr;
         }
 
+        [[nodiscard]] TSViewContext linked_child_context(const LinkedTSContext &target,
+                                                         void *local_state,
+                                                         const TSMeta &schema,
+                                                         const detail::ViewDispatch &value_dispatch,
+                                                         const detail::TSDispatch &ts_dispatch) noexcept
+        {
+            return TSViewContext{
+                target.schema != nullptr ? target.schema : &schema,
+                target.value_dispatch != nullptr ? target.value_dispatch : &value_dispatch,
+                target.ts_dispatch != nullptr ? target.ts_dispatch : &ts_dispatch,
+                target.value_data,
+                local_state,
+            };
+        }
+
+        [[nodiscard]] TSViewContext child_context_from_slot(const std::unique_ptr<TimeSeriesStateV> &slot,
+                                                            const TSMeta &schema,
+                                                            const detail::ViewDispatch &value_dispatch,
+                                                            const detail::TSDispatch &ts_dispatch,
+                                                            void *native_value_data) noexcept
+        {
+            void *local_state = state_address(slot);
+            if (const TimeSeriesStateV *state = const_state_value(slot); state != nullptr) {
+                if (const auto *link = std::get_if<TargetLinkState>(state)) {
+                    return linked_child_context(link->target, local_state, schema, value_dispatch, ts_dispatch);
+                }
+                if (const auto *link = std::get_if<RefLinkState>(state)) {
+                    return linked_child_context(link->bound_link.target, local_state, schema, value_dispatch, ts_dispatch);
+                }
+            }
+
+            return TSViewContext{
+                &schema,
+                &value_dispatch,
+                &ts_dispatch,
+                native_value_data,
+                local_state,
+            };
+        }
+
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSDState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSBState &state) noexcept { return &state; }
@@ -202,6 +242,24 @@ namespace hgraph
 
         void clone_state_tree(TimeSeriesStateV &dst, const TimeSeriesStateV &src, const TSMeta &schema, TimeSeriesStateParentPtr parent, size_t index)
         {
+            if (const auto *src_state = std::get_if<TargetLinkState>(&src)) {
+                auto &dst_state = dst.emplace<TargetLinkState>();
+                initialize_base_state(dst_state, parent, index, src_state->last_modified_time);
+                dst_state.target.clear();
+                dst_state.scheduling_notifier.set_target(src_state->scheduling_notifier.get_target());
+                if (src_state->target.is_bound()) { dst_state.set_target(src_state->target); }
+                return;
+            }
+
+            if (const auto *src_state = std::get_if<RefLinkState>(&src)) {
+                auto &dst_state = dst.emplace<RefLinkState>();
+                initialize_ref_state(dst_state, parent, index, src_state->last_modified_time);
+                dst_state.bound_link.last_modified_time = src_state->bound_link.last_modified_time;
+                dst_state.bound_link.scheduling_notifier.set_target(src_state->bound_link.scheduling_notifier.get_target());
+                if (src_state->bound_link.target.is_bound()) { dst_state.bound_link.set_target(src_state->bound_link.target); }
+                return;
+            }
+
             switch (schema.kind) {
                 case TSKind::TSValue:
                     {
@@ -351,12 +409,11 @@ namespace hgraph
                 ensure_child_state(*state, index, m_element_schema.get());
 
                 View child_value = list.at(index);
-                return TSViewContext{
-                    &m_element_schema.get(),
-                    &m_element_value_dispatch.get(),
-                    &m_element_ts_dispatch.get(),
-                    RawViewAccess::data_of(child_value),
-                    state_address(state->child_states[index])};
+                return child_context_from_slot(state->child_states[index],
+                                               m_element_schema.get(),
+                                               m_element_value_dispatch.get(),
+                                               m_element_ts_dispatch.get(),
+                                               RawViewAccess::data_of(child_value));
             }
 
           private:
@@ -392,12 +449,11 @@ namespace hgraph
                 ensure_child_state(*state, index, m_fields[index].schema.get());
 
                 View child_value = context.value().as_bundle().at(index);
-                return TSViewContext{
-                    &m_fields[index].schema.get(),
-                    &m_fields[index].value_dispatch.get(),
-                    &m_fields[index].ts_dispatch.get(),
-                    RawViewAccess::data_of(child_value),
-                    state_address(state->child_states[index])};
+                return child_context_from_slot(state->child_states[index],
+                                               m_fields[index].schema.get(),
+                                               m_fields[index].value_dispatch.get(),
+                                               m_fields[index].ts_dispatch.get(),
+                                               RawViewAccess::data_of(child_value));
             }
 
             [[nodiscard]] TSViewContext child_field(const TSViewContext &context, std::string_view name) const noexcept override
@@ -463,12 +519,11 @@ namespace hgraph
                 const View key = delta.key_at_slot(slot);
                 ensure_child_state(*state, slot, m_value_schema.get(), key.hash());
 
-                return TSViewContext{
-                    &m_value_schema.get(),
-                    &m_value_dispatch.get(),
-                    &m_value_ts_dispatch.get(),
-                    RawViewAccess::data_of(delta.value_at_slot(slot)),
-                    state_address(state->child_states[slot])};
+                return child_context_from_slot(state->child_states[slot],
+                                               m_value_schema.get(),
+                                               m_value_dispatch.get(),
+                                               m_value_ts_dispatch.get(),
+                                               RawViewAccess::data_of(delta.value_at_slot(slot)));
             }
 
             std::reference_wrapper<const TSMeta>               m_value_schema;

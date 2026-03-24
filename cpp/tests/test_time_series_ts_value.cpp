@@ -1,5 +1,8 @@
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/time_series/ts_value.h>
@@ -30,6 +33,20 @@ namespace hgraph
             using TSValue::value;
             using TSValue::view_context;
             using TSValue::window_value;
+        };
+
+        struct ExposedTSOutput : TSOutput
+        {
+            using TSOutput::TSOutput;
+            using TSValue::atomic_value;
+            using TSValue::view_context;
+        };
+
+        struct ExposedTSInput : TSInput
+        {
+            using TSInput::TSInput;
+            using TSInput::view;
+            using TSValue::view_context;
         };
 
         const BaseState &as_base_state(void *state)
@@ -243,4 +260,87 @@ TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[t
         std::sort(items.begin(), items.end());
         CHECK((items == std::vector<std::pair<std::string, int>>{{"b", 2}}));
     }
+}
+
+TEST_CASE("TSInput can represent a top-level bundle field bound through a target link", "[ts_input][ts_output]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *input_schema = ts_registry.tsb({{"ts", scalar_ts}}, "InputBundle");
+
+    hgraph::test_detail::ExposedTSOutput output{scalar_ts};
+    const auto output_view = output.view();
+
+    hgraph::test_detail::ExposedTSInput input{input_schema};
+    input.view().as_bundle()[0].bind_output(output_view);
+
+    auto *root_state = static_cast<hgraph::TSBState *>(input.view_context().ts_state);
+    REQUIRE(root_state != nullptr);
+    REQUIRE(root_state->child_states.size() == 1);
+    REQUIRE(root_state->child_states[0] != nullptr);
+    REQUIRE(std::holds_alternative<hgraph::TargetLinkState>(*root_state->child_states[0]));
+
+    const auto &link_state = std::get<hgraph::TargetLinkState>(*root_state->child_states[0]);
+    CHECK(link_state.is_bound());
+    CHECK(link_state.target.schema == scalar_ts);
+    CHECK(link_state.target.ts_state == static_cast<hgraph::BaseState *>(output.view_context().ts_state));
+
+    hgraph::TSOutputView input_root{input.view_context()};
+    auto linked_leaf = input_root.as_bundle().field("ts");
+    CHECK_FALSE(linked_leaf.valid());
+
+    output.atomic_value().set(1.5f);
+    CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(1.5f));
+
+    output.atomic_value().set(2.5f);
+    CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(2.5f));
+}
+
+TEST_CASE("TSInput target-link rebinding and teardown release old output subscriptions", "[ts_input][ts_output]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *input_schema = ts_registry.tsb({{"ts", scalar_ts}}, "InputBundle");
+
+    hgraph::test_detail::ExposedTSOutput first_output{scalar_ts};
+    hgraph::test_detail::ExposedTSOutput second_output{scalar_ts};
+    const auto first_output_view = first_output.view();
+    const auto second_output_view = second_output.view();
+    first_output.atomic_value().set(1.0f);
+    second_output.atomic_value().set(2.0f);
+
+    auto *first_state = static_cast<hgraph::BaseState *>(first_output.view_context().ts_state);
+    auto *second_state = static_cast<hgraph::BaseState *>(second_output.view_context().ts_state);
+    REQUIRE(first_state != nullptr);
+    REQUIRE(second_state != nullptr);
+
+    {
+        hgraph::test_detail::ExposedTSInput input{input_schema};
+        input.view().as_bundle()[0].bind_output(first_output_view);
+        CHECK(first_state->subscribers.size() == 1);
+        CHECK(second_state->subscribers.empty());
+
+        input.view().as_bundle()[0].bind_output(second_output_view);
+        CHECK(first_state->subscribers.empty());
+        CHECK(second_state->subscribers.size() == 1);
+
+        hgraph::TSOutputView input_root{input.view_context()};
+        auto linked_leaf = input_root.as_bundle().field("ts");
+        CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(2.0f));
+
+        first_output.atomic_value().set(3.0f);
+        CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(2.0f));
+
+        second_output.atomic_value().set(4.0f);
+        CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(4.0f));
+    }
+
+    CHECK(first_state->subscribers.empty());
+    CHECK(second_state->subscribers.empty());
 }

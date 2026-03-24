@@ -156,6 +156,25 @@ protected:
             root_state()};
     }
 
+    /**
+     * Return the binding handle for this logical TS position.
+     *
+     * Link-backed storage nodes use this to bind to the represented
+     * time-series shape while keeping their own local link state as the owning
+     * storage node.
+     */
+    [[nodiscard]] LinkedTSContext linked_context() noexcept
+    {
+        const TSViewContext context = view_context();
+        return LinkedTSContext{
+            .schema = context.schema,
+            .value_dispatch = context.dispatch,
+            .ts_dispatch = context.ts_dispatch,
+            .value_data = context.value_data,
+            .ts_state = static_cast<BaseState *>(context.ts_state),
+        };
+    }
+
 private:
     /**
      * Return the conceptual root time-series state for this stored value.
