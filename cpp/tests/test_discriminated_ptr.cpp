@@ -93,3 +93,91 @@ TEST_CASE("discriminated_ptr supports narrow parent-style pointer families", "[u
     CHECK(ptr.get<AltB>() == &b);
     CHECK(ptr.index() == 1);
 }
+
+TEST_CASE("discriminated_ptr visit supports lambda overload sets", "[util][discriminated_ptr]")
+{
+    using Ptr = hgraph::discriminated_ptr<AltA, AltB, AltC>;
+
+    AltB b{};
+    Ptr ptr{&b};
+    int visited = 0;
+
+    hgraph::visit(
+        ptr,
+        [&](AltA *ptr_) {
+            static_cast<void>(ptr_);
+            visited = 1;
+        },
+        [&](AltB *ptr_) {
+            CHECK(ptr_ == &b);
+            visited = 2;
+        },
+        [&](AltC *ptr_) {
+            static_cast<void>(ptr_);
+            visited = 3;
+        },
+        [] {
+            FAIL("empty handler should not run for non-empty discriminated_ptr");
+        });
+
+    CHECK(visited == 2);
+}
+
+TEST_CASE("discriminated_ptr visit supports empty handlers", "[util][discriminated_ptr]")
+{
+    using Ptr = hgraph::discriminated_ptr<AltA, AltB>;
+
+    Ptr ptr{};
+    bool empty_handler_ran = false;
+
+    hgraph::visit(
+        ptr,
+        [](AltA *ptr_) { static_cast<void>(ptr_); },
+        [](AltB *ptr_) { static_cast<void>(ptr_); },
+        [&empty_handler_ran](std::nullptr_t) { empty_handler_ran = true; });
+
+    CHECK(empty_handler_ran);
+}
+
+TEST_CASE("discriminated_ptr visit ignores unhandled active alternatives", "[util][discriminated_ptr]")
+{
+    using Ptr = hgraph::discriminated_ptr<AltA, AltB, AltC>;
+
+    AltC c{};
+    Ptr ptr{&c};
+    bool handled = false;
+
+    hgraph::visit(
+        ptr,
+        [&](AltA *ptr_) {
+            static_cast<void>(ptr_);
+            handled = true;
+        },
+        [&](AltB *ptr_) {
+            static_cast<void>(ptr_);
+            handled = true;
+        });
+
+    CHECK_FALSE(handled);
+}
+
+TEST_CASE("discriminated_ptr visit ignores empty pointers without explicit empty handler", "[util][discriminated_ptr]")
+{
+    using Ptr = hgraph::discriminated_ptr<AltA, AltB>;
+
+    Ptr ptr{};
+    bool handled = false;
+
+    hgraph::visit(
+        ptr,
+        [&](AltA *ptr_) {
+            static_cast<void>(ptr_);
+            handled = true;
+        },
+        [&](AltB *ptr_) {
+            static_cast<void>(ptr_);
+            handled = true;
+        });
+
+    CHECK_FALSE(handled);
+}

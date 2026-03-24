@@ -43,6 +43,47 @@ namespace hgraph
             return result;
         }();
 
+        template <typename... Fs>
+        struct overloaded_fn : Fs...
+        {
+            using Fs::operator()...;
+        };
+
+        template <typename... Fs>
+        overloaded_fn(Fs...) -> overloaded_fn<Fs...>;
+
+        template <typename Visitor>
+        constexpr void invoke_empty_visitor(Visitor &&visitor)
+        {
+            if constexpr (std::invocable<Visitor>) {
+                std::forward<Visitor>(visitor)();
+            } else if constexpr (std::invocable<Visitor, std::nullptr_t>) {
+                std::forward<Visitor>(visitor)(nullptr);
+            }
+        }
+
+        template <size_t Index, typename Tuple, typename Visitor>
+        constexpr void visit_non_empty_discriminated_ptr(size_t active_index, void *ptr, Visitor &&visitor)
+        {
+            if constexpr (Index + 1 == std::tuple_size_v<Tuple>) {
+                using T = std::tuple_element_t<Index, Tuple>;
+                assert(active_index == Index);
+                if constexpr (std::invocable<Visitor, T *>) {
+                    std::forward<Visitor>(visitor)(static_cast<T *>(ptr));
+                }
+            } else {
+                if (active_index == Index) {
+                    using T = std::tuple_element_t<Index, Tuple>;
+                    if constexpr (std::invocable<Visitor, T *>) {
+                        std::forward<Visitor>(visitor)(static_cast<T *>(ptr));
+                    }
+                    return;
+                }
+
+                visit_non_empty_discriminated_ptr<Index + 1, Tuple>(active_index, ptr, std::forward<Visitor>(visitor));
+            }
+        }
+
         /**
          * Low-level pointer-plus-bits storage for erased pointer families.
          *
@@ -50,10 +91,11 @@ namespace hgraph
          * word by using low pointer bits that are guaranteed clear by the
          * supplied `Alignment` contract.
          *
-         * This is intentionally the low-level escape hatch. Call sites should
-         * normally prefer `tagged_ptr<T, TagBits>`, which derives the
-         * alignment contract from `T`, or `tagged_void_ptr<TagBits>`, which is
-         * appropriate for ordinarily heap-allocated erased objects.
+         * This is intentionally the low-level escape hatch that backs the
+         * public erased wrappers. Call sites should normally prefer
+         * `tagged_ptr<T, TagBits>`, which derives the alignment contract from
+         * `T`, or `tagged_void_ptr<TagBits>`, which is appropriate for
+         * ordinarily heap-allocated erased objects.
          *
          * `Alignment` is not discovered here. It is a promise from the caller
          * that every stored pointer value will have at least that alignment.
@@ -61,7 +103,7 @@ namespace hgraph
          *
          * Example:
          * @code
-         * using SlotPtr = hgraph::detail::erased_tagged_ptr<alignof(void *), 1>;
+         * using SlotPtr = hgraph::erased_tagged_ptr<alignof(void *), 1>;
          *
          * SlotPtr slot;
          * slot.set(some_heap_object, 1);  // store pointer and one ownership bit
@@ -179,9 +221,10 @@ namespace hgraph
          * in the remaining high bits.
          *
          * Like `erased_tagged_ptr`, the `Alignment` template argument is an
-         * explicit contract. This type exists for internal cases where the
-         * alternatives are forward-declared or intentionally erased at the
-         * declaration site. Most callers should prefer `discriminated_ptr<Ts...>`.
+         * explicit contract. This type exists to back the public erased
+         * wrappers used when the alternatives are forward-declared or
+         * intentionally erased at the declaration site. Most callers should
+         * prefer `discriminated_ptr<Ts...>`.
          *
          * Null is represented by a null pointer payload, not by a reserved tag
          * value. That means:
@@ -192,7 +235,7 @@ namespace hgraph
          * Example:
          * @code
          * using ParentPtr =
-         *     hgraph::detail::erased_discriminated_ptr<alignof(void *),
+         *     hgraph::erased_discriminated_ptr<alignof(void *),
          *                                              TSLState,
          *                                              TSDState,
          *                                              TSBState,
@@ -200,9 +243,11 @@ namespace hgraph
          *                                              TSOutput>;
          *
          * ParentPtr parent = some_output;
-         * if (auto *output = parent.get<TSOutput>(); output != nullptr) {
-         *     // ...
-         * }
+         * hgraph::visit(parent,
+         *     [](TSInput *ptr) { (void) ptr; },
+         *     [](TSOutput *ptr) { (void) ptr; },
+         *     [](auto *ptr) { (void) ptr; },
+         *     [] {});
          * @endcode
          */
         template <size_t Alignment, typename... Ts>
@@ -313,8 +358,47 @@ namespace hgraph
             {
                 return static_cast<storage_type>(type_index<T, Ts...>::value);
             }
+
+            template <typename Visitor>
+            constexpr void visit(Visitor &&visitor) const
+            {
+                auto &&bound_visitor = visitor;
+
+                if (!*this) {
+                    detail::invoke_empty_visitor(bound_visitor);
+                    return;
+                }
+
+                using tuple_type = std::tuple<Ts...>;
+                detail::visit_non_empty_discriminated_ptr<0, tuple_type>(tag(), ptr(), bound_visitor);
+            }
+
+            template <typename Visitor, typename EmptyVisitor>
+            constexpr void visit(Visitor &&visitor, EmptyVisitor &&empty_visitor) const
+            {
+                auto &&bound_visitor = visitor;
+                auto &&bound_empty_visitor = empty_visitor;
+
+                if (!*this) {
+                    detail::invoke_empty_visitor(bound_empty_visitor);
+                    return;
+                }
+
+                using tuple_type = std::tuple<Ts...>;
+                detail::visit_non_empty_discriminated_ptr<0, tuple_type>(tag(), ptr(), bound_visitor);
+            }
         };
     }  // namespace detail
+
+    /**
+     * Public erased tagged pointer for advanced cases where the pointee type
+     * is incomplete or intentionally erased.
+     *
+     * Most callers should prefer `tagged_ptr<T, TagBits>` or
+     * `tagged_void_ptr<TagBits>`.
+     */
+    template <size_t Alignment, size_t TagBits = 1>
+    using erased_tagged_ptr = detail::erased_tagged_ptr<Alignment, TagBits>;
 
     /**
      * Erased tagged pointer for ordinarily heap-allocated objects.
@@ -324,7 +408,7 @@ namespace hgraph
      * and therefore satisfies the standard `std::max_align_t` alignment
      * guarantee.
      *
-     * Prefer this over `detail::erased_tagged_ptr<...>` when:
+     * Prefer this over `erased_tagged_ptr<...>` when:
      * - the pointee type is incomplete or intentionally erased
      * - the pointer really is a normal heap pointer
      * - you only need a few low-bit flags
@@ -340,7 +424,7 @@ namespace hgraph
      * @endcode
      */
     template <size_t TagBits = 1>
-    using tagged_void_ptr = detail::erased_tagged_ptr<alignof(std::max_align_t), TagBits>;
+    using tagged_void_ptr = erased_tagged_ptr<alignof(std::max_align_t), TagBits>;
 
     /**
      * Type-safe tagged pointer with low-bit flag storage.
@@ -370,7 +454,7 @@ namespace hgraph
      * @endcode
      *
      * For erased or forward-declared pointee types, prefer `tagged_void_ptr`
-     * or `detail::erased_tagged_ptr` instead.
+     * or `erased_tagged_ptr` instead.
      */
     template <typename T, size_t TagBits = 1>
     class tagged_ptr : public detail::erased_tagged_ptr<alignof(T), TagBits>
@@ -402,6 +486,28 @@ namespace hgraph
     };
 
     /**
+     * Public erased discriminated pointer for advanced cases where the
+     * alternative family is forward-declared or intentionally incomplete at
+     * the declaration site.
+     *
+     * Most callers should prefer `discriminated_ptr<Ts...>`. Use this when
+     * you know the alignment contract but cannot form the fully typed wrapper
+     * yet.
+     */
+    template <size_t Alignment, typename... Ts>
+    using erased_discriminated_ptr = detail::erased_discriminated_ptr<Alignment, Ts...>;
+
+    /**
+     * Convenience erased discriminated pointer for pointer-aligned object
+     * families.
+     *
+     * This is intended for forward-declared runtime object/state families
+     * whose addresses are known to satisfy ordinary pointer alignment.
+     */
+    template <typename... Ts>
+    using pointer_aligned_discriminated_ptr = erased_discriminated_ptr<alignof(void *), Ts...>;
+
+    /**
      * Type-safe discriminated pointer over a fixed family of pointee types.
      *
      * This is the normal public entry point for "pointer to one of these
@@ -427,22 +533,21 @@ namespace hgraph
      *
      * ParentPtr parent = &bundle_state;
      *
-     * if (auto *bundle = parent.get<TSBState>(); bundle != nullptr) {
-     *     // bundle parent
-     * } else if (auto *input = parent.get<TSInput>(); input != nullptr) {
-     *     // rooted at an input endpoint
-     * }
+     * hgraph::visit(parent,
+     *     [](TSInput *ptr) { (void) ptr; },
+     *     [](TSOutput *ptr) { (void) ptr; },
+     *     [](TSBState *ptr) { (void) ptr; });
      * @endcode
      *
      * If the alternative family is only forward-declared at the declaration
-     * site, prefer `detail::erased_discriminated_ptr` internally and keep this
-     * typed wrapper for complete-type call sites.
+     * site, prefer `erased_discriminated_ptr` or
+     * `pointer_aligned_discriminated_ptr`.
      */
     template <typename... Ts>
-    class discriminated_ptr : public detail::erased_discriminated_ptr<detail::min_alignment_v<Ts...>, Ts...>
+    class discriminated_ptr : public erased_discriminated_ptr<detail::min_alignment_v<Ts...>, Ts...>
     {
       public:
-        using base_type = detail::erased_discriminated_ptr<detail::min_alignment_v<Ts...>, Ts...>;
+        using base_type = erased_discriminated_ptr<detail::min_alignment_v<Ts...>, Ts...>;
         using base_type::base_type;
         using typename base_type::storage_type;
         using base_type::alignment;
@@ -461,5 +566,31 @@ namespace hgraph
         using base_type::tag;
         using base_type::tag_bits;
         using base_type::tag_for;
+        using base_type::visit;
     };
+
+    /**
+     * Lambda-friendly visitation over discriminated pointers.
+     *
+     * This mirrors the value-layer `visit(...)` surface: callers can supply a
+     * set of lambdas and let overload resolution pick the active pointer type.
+     * Unhandled alternatives are ignored by default. For empty pointers, you
+     * may optionally provide either:
+     * - a zero-argument handler, or
+     * - a handler taking `std::nullptr_t`
+     *
+     * Example:
+     * @code
+     * hgraph::visit(parent,
+     *     [](TSInput *ptr) { (void) ptr; },
+     *     [](TSOutput *ptr) { (void) ptr; },
+     *     [](std::nullptr_t) {});
+     * @endcode
+     */
+    template <size_t Alignment, typename... Ts, typename... Handlers>
+    constexpr void visit(const erased_discriminated_ptr<Alignment, Ts...> &ptr, Handlers &&...handlers)
+    {
+        auto visitor = detail::overloaded_fn{std::forward<Handlers>(handlers)...};
+        ptr.visit(visitor);
+    }
 }  // namespace hgraph
