@@ -39,11 +39,6 @@ namespace hgraph
             using MapView::map_dispatch;
         };
 
-        [[nodiscard]] TaggedTSStatePtr null_child_state() noexcept
-        {
-            return TaggedTSStatePtr{};
-        }
-
         template <typename TState>
         void initialize_base_state(TState &state, TimeSeriesStateParentPtr parent, size_t index, engine_time_t modified_time = MIN_DT) noexcept
         {
@@ -72,7 +67,7 @@ namespace hgraph
         {
             initialize_base_state(state, parent, index, modified_time);
             initialize_base_state(state.bound_link, static_cast<TSOutput *>(nullptr), 0, MIN_DT);
-            state.bound_link.target = nullptr;
+            state.bound_link.target.clear();
             state.bound_link.scheduling_notifier.set_target(nullptr);
         }
 
@@ -81,14 +76,14 @@ namespace hgraph
             return std::visit([](auto &typed_state) -> TimeSeriesStatePtr { return &typed_state; }, state);
         }
 
-        [[nodiscard]] TimeSeriesStateV *state_value(const TaggedTSStatePtr &slot) noexcept
+        [[nodiscard]] TimeSeriesStateV *state_value(const std::unique_ptr<TimeSeriesStateV> &slot) noexcept
         {
-            return slot.as<TimeSeriesStateV>();
+            return slot.get();
         }
 
-        [[nodiscard]] const TimeSeriesStateV *const_state_value(const TaggedTSStatePtr &slot) noexcept
+        [[nodiscard]] const TimeSeriesStateV *const_state_value(const std::unique_ptr<TimeSeriesStateV> &slot) noexcept
         {
-            return slot.as<const TimeSeriesStateV>();
+            return slot.get();
         }
 
         [[nodiscard]] void *state_address(const TimeSeriesStatePtr &state) noexcept
@@ -96,16 +91,10 @@ namespace hgraph
             return std::visit([](auto *typed_state) -> void * { return typed_state; }, state);
         }
 
-        [[nodiscard]] void *state_address(const TaggedTSStatePtr &slot) noexcept
+        [[nodiscard]] void *state_address(const std::unique_ptr<TimeSeriesStateV> &slot) noexcept
         {
             TimeSeriesStateV *state = state_value(slot);
             return state != nullptr ? state_address(state_ptr(*state)) : nullptr;
-        }
-
-        void reset_child_state_slot(TaggedTSStatePtr &slot) noexcept
-        {
-            if (slot && slot.has_tag(BaseCollectionState::owned_tag)) { delete state_value(slot); }
-            slot.clear();
         }
 
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
@@ -115,11 +104,7 @@ namespace hgraph
         template <typename TCollectionState>
         void ensure_child_slot_capacity(TCollectionState &state, size_t slot_count)
         {
-            if (state.child_states.size() < slot_count) {
-                const size_t previous_size = state.child_states.size();
-                state.child_states.resize(slot_count, null_child_state());
-                for (size_t index = previous_size; index < slot_count; ++index) { state.child_states[index] = null_child_state(); }
-            }
+            if (state.child_states.size() < slot_count) { state.child_states.resize(slot_count); }
         }
 
         void ensure_child_slot_capacity(TSDState &state, size_t slot_count)
@@ -134,8 +119,7 @@ namespace hgraph
         void install_child_state(TCollectionState &collection_state, size_t slot, std::unique_ptr<TimeSeriesStateV> child_state)
         {
             ensure_child_slot_capacity(collection_state, slot + 1);
-            reset_child_state_slot(collection_state.child_states[slot]);
-            collection_state.child_states[slot].set(child_state.release(), BaseCollectionState::owned_tag);
+            collection_state.child_states[slot] = std::move(child_state);
         }
 
         template <typename TCollectionState>

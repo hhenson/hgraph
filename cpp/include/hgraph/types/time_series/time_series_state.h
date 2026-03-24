@@ -5,11 +5,13 @@
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/tagged_ptr.h>
 
+#include <memory>
 #include <vector>
 
 namespace hgraph
 {
 
+    struct TSMeta;
     struct TSInput;
     struct TSOutput;
     struct TSState;
@@ -23,6 +25,12 @@ namespace hgraph
     struct SignalState;
     struct BaseState;
 
+    namespace detail
+    {
+        struct TSDispatch;
+        struct ViewDispatch;
+    }  // namespace detail
+
     /**
      * Value variant covering the concrete time-series state structs currently
      * used in the struct model.
@@ -31,17 +39,10 @@ namespace hgraph
         std::variant<TSState, TSLState, TSDState, TSBState, TSSState, TSWState, TargetLinkState, RefLinkState, SignalState>;
 
     /**
-     * Pointer variant covering all concrete leaf state types.
-     */
-    using TimeSeriesLeafStatePtr = pointer_aligned_discriminated_ptr<TSState, TSLState, TSDState, TSBState, TSSState, TSWState>;
-
-    /**
      * Pointer variant covering all concrete time-series state types.
      */
     using TimeSeriesStatePtr = std::variant<TSState *, TSLState *, TSDState *, TSBState *, TSSState *, TSWState *,
                                             TargetLinkState *, RefLinkState *, SignalState *>;
-
-    using TaggedTSStatePtr = tagged_void_ptr<1>;
 
     /**
      * Pointer variant covering all concrete time-series state types plus the
@@ -104,10 +105,39 @@ namespace hgraph
     struct HGRAPH_EXPORT TSState : BaseState
     {};
 
+    /**
+     * Bound logical TS position used by link-backed storage nodes.
+     *
+     * This captures the represented TS shape separately from the storage node
+     * that owns the binding. A target/reference link can therefore present the
+     * delegate for the shape it represents while keeping its own storage for
+     * binding and notification mechanics.
+     */
+    struct HGRAPH_EXPORT LinkedTSContext
+    {
+        const TSMeta               *schema{nullptr};
+        const detail::ViewDispatch *value_dispatch{nullptr};
+        const detail::TSDispatch   *ts_dispatch{nullptr};
+        void                       *value_data{nullptr};
+        BaseState                  *ts_state{nullptr};
+
+        [[nodiscard]] bool is_bound() const noexcept
+        {
+            return schema != nullptr && value_dispatch != nullptr && ts_dispatch != nullptr && ts_state != nullptr;
+        }
+
+        void clear() noexcept
+        {
+            schema = nullptr;
+            value_dispatch = nullptr;
+            ts_dispatch = nullptr;
+            value_data = nullptr;
+            ts_state = nullptr;
+        }
+    };
+
     struct HGRAPH_EXPORT BaseCollectionState : BaseState
     {
-        static constexpr TaggedTSStatePtr::storage_type owned_tag = 1;
-
         BaseCollectionState() = default;
         ~BaseCollectionState();
 
@@ -122,11 +152,13 @@ namespace hgraph
          * For `TSL`/`TSB` this is a schema-shaped list.
          * For `TSD` this is indexed by the value layer's stable slot ids.
          *
-         * The pointer currently refers to a heap-allocated `TimeSeriesStateV`
-         * wrapper for the child. `owned_tag` means this collection is
-         * responsible for deleting that wrapper.
+         * Collections own their child nodes uniformly. A child node may be a
+         * native schema-backed state node or a link-backed state node, but the
+         * collection still owns that node object. External linkage is handled
+         * inside the child state itself rather than by storing borrowed child
+         * pointers here.
          */
-        std::vector<TaggedTSStatePtr> child_states;
+        std::vector<std::unique_ptr<TimeSeriesStateV>> child_states;
         /**
          * Used to build the delta value. This is a short-cut to identify which items have been modified in the current
          * engine cycle and is reset when the modification time advances.
@@ -205,8 +237,10 @@ namespace hgraph
     {};
 
     /**
-     * State carried by a target-link leaf time-series.
-     * This contains information describing how the target is linked.
+     * Storage carried by a target-linked logical time-series position.
+     *
+     * The represented TS shape is described by the bound target context. This
+     * state owns only the binding/subscription mechanics for that position.
      */
     struct HGRAPH_EXPORT TargetLinkState : BaseState
     {
@@ -256,10 +290,10 @@ namespace hgraph
         TargetLinkState() noexcept;
 
         /**
-         * Bind this link state to the supplied target state and register for
-         * modification notifications from that target.
+         * Bind this link state to the supplied target context and register for
+         * modification notifications from that represented TS position.
          */
-        void set_target(TimeSeriesLeafStatePtr target_state) noexcept;
+        void set_target(LinkedTSContext target_state) noexcept;
 
         /**
          * Remove any bound target and unregister from its modification
@@ -267,7 +301,7 @@ namespace hgraph
          */
         void reset_target() noexcept;
 
-        TimeSeriesLeafStatePtr target;
+        LinkedTSContext target;
         /**
          * Notification identity used to keep the target link state and the
          * non-peered collections above it up to date.
@@ -287,8 +321,7 @@ namespace hgraph
     };
 
     /**
-     * State carried by a reference-link leaf time-series.
-     * This points to two values, namely the target and the referenced link
+     * Storage carried by a reference-linked logical time-series position.
      */
     struct HGRAPH_EXPORT RefLinkState : BaseState
     {

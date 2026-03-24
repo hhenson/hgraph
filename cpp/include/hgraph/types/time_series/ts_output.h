@@ -22,8 +22,8 @@ namespace hgraph {
  * without changing the underlying endpoint identity.
  *
  * Collection outputs are intended to hold their native structure directly. Any
- * peered input observing that structure is expected to do so through
- * `TargetLinkState`, rather than by taking ownership of duplicated output leaf
+ * peered input observing that structure is expected to do so through link-
+ * backed TS state, rather than by taking ownership of duplicated output-side
  * storage.
  */
 struct HGRAPH_EXPORT TSOutput : TSValue {

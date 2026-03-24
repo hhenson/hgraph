@@ -36,10 +36,10 @@ namespace hgraph {
  * collection structure and the child state directly.
  *
  * When an input is peered to an output, child positions are intended to be
- * represented through `TargetLinkState` rather than by duplicating leaf value
- * storage inside the input. The output-side endpoint remains the source of
- * truth for peered leaf values, while the input tracks binding and activation
- * state for its local view of that structure.
+ * represented through link-backed TS state rather than by duplicating the
+ * linked output-side storage inside the input. The output-side endpoint
+ * remains the source of truth for those bound positions, while the input
+ * tracks binding and activation state for its local view of that structure.
  */
 struct HGRAPH_EXPORT TSInput : TSValue {
     /**

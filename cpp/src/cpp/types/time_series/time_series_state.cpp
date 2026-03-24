@@ -21,18 +21,10 @@ namespace hgraph
                 [] {});
         }
 
-        void delete_owned_state_slot(TaggedTSStatePtr &slot) noexcept
-        {
-            if (slot && slot.has_tag(BaseCollectionState::owned_tag)) {
-                delete slot.as<TimeSeriesStateV>();
-            }
-            slot.clear();
-        }
-
         template <typename TFn>
-        void with_target_leaf(TimeSeriesLeafStatePtr target, TFn &&fn) noexcept
+        void with_target_state(const LinkedTSContext &target, TFn &&fn) noexcept
         {
-            hgraph::visit(target, std::forward<TFn>(fn), [] {});
+            if (target.ts_state != nullptr) { std::forward<TFn>(fn)(target.ts_state); }
         }
     }  // namespace
 
@@ -63,10 +55,7 @@ namespace hgraph
         mark_modified(modified_time);
     }
 
-    BaseCollectionState::~BaseCollectionState()
-    {
-        reset_child_states();
-    }
+    BaseCollectionState::~BaseCollectionState() = default;
 
     BaseCollectionState::BaseCollectionState(BaseCollectionState &&other) noexcept
         : BaseState(std::move(other)),
@@ -96,7 +85,6 @@ namespace hgraph
 
     void BaseCollectionState::reset_child_states() noexcept
     {
-        for (auto &slot : child_states) { delete_owned_state_slot(slot); }
         child_states.clear();
     }
 
@@ -131,26 +119,26 @@ namespace hgraph
 
     TargetLinkState::TargetLinkState() noexcept : target_notifiable(this) {}
 
-    void TargetLinkState::set_target(TimeSeriesLeafStatePtr target_state) noexcept {
+    void TargetLinkState::set_target(LinkedTSContext target_state) noexcept {
         unregister_from_target();
-        target = target_state;
+        target = std::move(target_state);
         register_with_target();
     }
 
     void TargetLinkState::reset_target() noexcept {
         unregister_from_target();
-        target = nullptr;
+        target.clear();
     }
 
     bool TargetLinkState::is_bound() const noexcept {
-        return static_cast<bool>(target);
+        return target.is_bound();
     }
     void TargetLinkState::register_with_target() noexcept {
-        with_target_leaf(target, [this](auto *ptr) { ptr->subscribe(&target_notifiable); });
+        with_target_state(target, [this](BaseState *ptr) { ptr->subscribe(&target_notifiable); });
     }
 
     void TargetLinkState::unregister_from_target() noexcept {
-        with_target_leaf(target, [this](auto *ptr) { ptr->unsubscribe(&target_notifiable); });
+        with_target_state(target, [this](BaseState *ptr) { ptr->unsubscribe(&target_notifiable); });
     }
 
     engine_time_t RefLinkState::last_target_modified_time() const { return bound_link.last_modified_time; }
