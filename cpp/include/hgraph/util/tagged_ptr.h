@@ -44,11 +44,32 @@ namespace hgraph
         }();
 
         /**
-         * Low-level erased tagged-pointer storage.
+         * Low-level pointer-plus-bits storage for erased pointer families.
          *
-         * This is the escape hatch for cases where the stored pointer type is
-         * intentionally erased or incomplete at the declaration site. Most
-         * call sites should use `tagged_ptr<T, TagBits>` instead.
+         * This utility packs a raw pointer and a small tag into one machine
+         * word by using low pointer bits that are guaranteed clear by the
+         * supplied `Alignment` contract.
+         *
+         * This is intentionally the low-level escape hatch. Call sites should
+         * normally prefer `tagged_ptr<T, TagBits>`, which derives the
+         * alignment contract from `T`, or `tagged_void_ptr<TagBits>`, which is
+         * appropriate for ordinarily heap-allocated erased objects.
+         *
+         * `Alignment` is not discovered here. It is a promise from the caller
+         * that every stored pointer value will have at least that alignment.
+         * If that promise is wrong, the packed pointer can be corrupted.
+         *
+         * Example:
+         * @code
+         * using SlotPtr = hgraph::detail::erased_tagged_ptr<alignof(void *), 1>;
+         *
+         * SlotPtr slot;
+         * slot.set(some_heap_object, 1);  // store pointer and one ownership bit
+         *
+         * if (slot.has_tag(1)) {
+         *     auto *typed = slot.as<MyType>();
+         * }
+         * @endcode
          */
         template <size_t Alignment, size_t TagBits = 1>
         class erased_tagged_ptr
@@ -149,6 +170,41 @@ namespace hgraph
             storage_type m_bits{0};
         };
 
+        /**
+         * Low-level discriminated pointer for erased or incomplete type
+         * families.
+         *
+         * This stores "pointer to one of `Ts...`" in a single word. The active
+         * alternative is encoded in the low bits and the pointer payload lives
+         * in the remaining high bits.
+         *
+         * Like `erased_tagged_ptr`, the `Alignment` template argument is an
+         * explicit contract. This type exists for internal cases where the
+         * alternatives are forward-declared or intentionally erased at the
+         * declaration site. Most callers should prefer `discriminated_ptr<Ts...>`.
+         *
+         * Null is represented by a null pointer payload, not by a reserved tag
+         * value. That means:
+         * - `operator bool()` and `empty()` answer whether a pointer is present
+         * - `index()` returns `npos` for null
+         * - `tag()` is only meaningful when the pointer is non-null
+         *
+         * Example:
+         * @code
+         * using ParentPtr =
+         *     hgraph::detail::erased_discriminated_ptr<alignof(void *),
+         *                                              TSLState,
+         *                                              TSDState,
+         *                                              TSBState,
+         *                                              TSInput,
+         *                                              TSOutput>;
+         *
+         * ParentPtr parent = some_output;
+         * if (auto *output = parent.get<TSOutput>(); output != nullptr) {
+         *     // ...
+         * }
+         * @endcode
+         */
         template <size_t Alignment, typename... Ts>
         class erased_discriminated_ptr
             : private erased_tagged_ptr<Alignment, tag_bits_for_count_v<sizeof...(Ts)>>
@@ -263,18 +319,58 @@ namespace hgraph
     /**
      * Erased tagged pointer for ordinarily heap-allocated objects.
      *
-     * This uses the standard global `new` alignment guarantee and is intended
-     * for erased object pointers where the concrete pointee type is not
-     * available at the declaration site.
+     * This is the convenient erased form of `erased_tagged_ptr` for the common
+     * case where the pointed object is allocated with ordinary global `new`
+     * and therefore satisfies the standard `std::max_align_t` alignment
+     * guarantee.
+     *
+     * Prefer this over `detail::erased_tagged_ptr<...>` when:
+     * - the pointee type is incomplete or intentionally erased
+     * - the pointer really is a normal heap pointer
+     * - you only need a few low-bit flags
+     *
+     * Example:
+     * @code
+     * hgraph::tagged_void_ptr<1> slot;
+     * slot.set(new TimeSeriesStateV{}, 1);  // ownership bit in the low bit
+     *
+     * if (slot.has_tag(1)) {
+     *     delete slot.as<TimeSeriesStateV>();
+     * }
+     * @endcode
      */
     template <size_t TagBits = 1>
     using tagged_void_ptr = detail::erased_tagged_ptr<alignof(std::max_align_t), TagBits>;
 
     /**
-     * Type-safe tagged pointer.
+     * Type-safe tagged pointer with low-bit flag storage.
      *
-     * The tag width is derived against `alignof(T)`, which is the real safety
-     * constraint for storing data in the low bits of a pointer to `T`.
+     * This is the normal public entry point for "pointer plus a few flag bits".
+     * The usable tag width is checked against `alignof(T)`, so callers do not
+     * need to reason about pointer alignment directly.
+     *
+     * The pointer payload and the tag are orthogonal:
+     * - `ptr()` returns the stored pointer
+     * - `tag()` returns the stored flag bits
+     * - `operator bool()` reports whether the pointer is non-null
+     *
+     * This is useful when one pointer naturally carries a small amount of
+     * metadata such as ownership, inline/external storage, or a tiny state
+     * enum.
+     *
+     * Example:
+     * @code
+     * struct ChildState {};
+     *
+     * hgraph::tagged_ptr<ChildState, 1> child{&state, 1};
+     *
+     * if (child && child.has_tag(1)) {
+     *     ChildState *ptr = child.ptr();
+     * }
+     * @endcode
+     *
+     * For erased or forward-declared pointee types, prefer `tagged_void_ptr`
+     * or `detail::erased_tagged_ptr` instead.
      */
     template <typename T, size_t TagBits = 1>
     class tagged_ptr : public detail::erased_tagged_ptr<alignof(T), TagBits>
@@ -306,11 +402,41 @@ namespace hgraph
     };
 
     /**
-     * Discriminated pointer over a fixed family of pointee types.
+     * Type-safe discriminated pointer over a fixed family of pointee types.
      *
-     * The active alternative is stored in the low pointer bits, with tag width
-     * derived from the minimum alignment across the alternative types.
-     * Empty/null pointers are represented by tag value 0.
+     * This is the normal public entry point for "pointer to one of these
+     * concrete types". The active alternative index is stored in the low bits
+     * of the pointer, and the required tag width is derived from the minimum
+     * alignment across `Ts...`.
+     *
+     * Null is represented by a null pointer payload, not by reserving an extra
+     * tag value. That means the first alternative legitimately has tag/index
+     * `0`. In normal code:
+     * - use `operator bool()` or `empty()` to test for presence
+     * - use `is<T>()` or `get<T>()` to branch on the active type
+     * - use `index()` if you explicitly want the active alternative number
+     *
+     * This is a good fit for pointer-only sum types such as:
+     * - parent pointers that can point at one of a few container/root types
+     * - link targets that can point at one of a few state node types
+     * - other runtime unions where ownership is not part of the variant
+     *
+     * Example:
+     * @code
+     * using ParentPtr = hgraph::discriminated_ptr<TSLState, TSDState, TSBState, TSInput, TSOutput>;
+     *
+     * ParentPtr parent = &bundle_state;
+     *
+     * if (auto *bundle = parent.get<TSBState>(); bundle != nullptr) {
+     *     // bundle parent
+     * } else if (auto *input = parent.get<TSInput>(); input != nullptr) {
+     *     // rooted at an input endpoint
+     * }
+     * @endcode
+     *
+     * If the alternative family is only forward-declared at the declaration
+     * site, prefer `detail::erased_discriminated_ptr` internally and keep this
+     * typed wrapper for complete-type call sites.
      */
     template <typename... Ts>
     class discriminated_ptr : public detail::erased_discriminated_ptr<detail::min_alignment_v<Ts...>, Ts...>
