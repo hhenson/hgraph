@@ -56,8 +56,8 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
      * Bind this collection-selected input slot to an output.
      *
      * This is intended to be called on a child view reached through `TSL` or
-     * `TSB` navigation, where the current view identifies the slot to replace
-     * with a target link.
+     * `TSB` navigation, where the current view identifies a prebuilt
+     * target-link terminal from the input construction plan.
      */
     void bind_output(const TSOutputView &output);
 

@@ -50,6 +50,20 @@ namespace hgraph
      */
     using TimeSeriesStateParentPtr = pointer_aligned_discriminated_ptr<TSLState, TSDState, TSBState, TSInput, TSOutput>;
 
+    /**
+     * Identifies the storage backend carried by a logical TS state node.
+     *
+     * The represented TS shape comes from schema and dispatch. This marker
+     * describes how that logical position is backed at runtime so views can
+     * distinguish native storage from link-backed storage.
+     */
+    enum class TSStorageKind : uint8_t
+    {
+        Native,
+        TargetLink,
+        RefLink,
+    };
+
     struct HGRAPH_EXPORT BaseState
     {
         /**
@@ -64,6 +78,7 @@ namespace hgraph
          */
         size_t                           index;
         engine_time_t                    last_modified_time;
+        TSStorageKind                    storage_kind{TSStorageKind::Native};
         std::unordered_set<Notifiable *> subscribers;
 
         /**
@@ -106,6 +121,47 @@ namespace hgraph
     {};
 
     /**
+     * Shared raw context for one logical time-series position.
+     *
+     * This carries the schema-shaped metadata and raw storage pointers needed
+     * to represent a logical TS position independent of how that position is
+     * being used. View code layers navigation/value materialization on top of
+     * it, while link state uses the same carrier as a bound-target handle.
+     */
+    struct HGRAPH_EXPORT TSContext
+    {
+        constexpr TSContext() noexcept = default;
+
+        constexpr TSContext(const TSMeta *schema_,
+                            const detail::ViewDispatch *value_dispatch_,
+                            const detail::TSDispatch *ts_dispatch_,
+                            void *value_data_,
+                            BaseState *ts_state_) noexcept
+            : schema(schema_),
+              value_dispatch(value_dispatch_),
+              ts_dispatch(ts_dispatch_),
+              value_data(value_data_),
+              ts_state(ts_state_)
+        {
+        }
+
+        [[nodiscard]] static constexpr TSContext none() noexcept { return {}; }
+
+        [[nodiscard]] bool is_bound() const noexcept
+        {
+            return schema != nullptr && value_dispatch != nullptr && ts_dispatch != nullptr && ts_state != nullptr;
+        }
+
+        void clear() noexcept { *this = {}; }
+
+        const TSMeta               *schema{nullptr};
+        const detail::ViewDispatch *value_dispatch{nullptr};
+        const detail::TSDispatch   *ts_dispatch{nullptr};
+        void                       *value_data{nullptr};
+        BaseState                  *ts_state{nullptr};
+    };
+
+    /**
      * Bound logical TS position used by link-backed storage nodes.
      *
      * This captures the represented TS shape separately from the storage node
@@ -113,28 +169,7 @@ namespace hgraph
      * delegate for the shape it represents while keeping its own storage for
      * binding and notification mechanics.
      */
-    struct HGRAPH_EXPORT LinkedTSContext
-    {
-        const TSMeta               *schema{nullptr};
-        const detail::ViewDispatch *value_dispatch{nullptr};
-        const detail::TSDispatch   *ts_dispatch{nullptr};
-        void                       *value_data{nullptr};
-        BaseState                  *ts_state{nullptr};
-
-        [[nodiscard]] bool is_bound() const noexcept
-        {
-            return schema != nullptr && value_dispatch != nullptr && ts_dispatch != nullptr && ts_state != nullptr;
-        }
-
-        void clear() noexcept
-        {
-            schema = nullptr;
-            value_dispatch = nullptr;
-            ts_dispatch = nullptr;
-            value_data = nullptr;
-            ts_state = nullptr;
-        }
-    };
+    using LinkedTSContext = TSContext;
 
     struct HGRAPH_EXPORT BaseCollectionState : BaseState
     {

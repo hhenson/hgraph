@@ -12,9 +12,14 @@ namespace hgraph
     }  // namespace
 
     TSValue::TSValue(const TSMeta &schema)
-        : m_builder(&TSValueBuilderFactory::checked_builder_for(schema)), m_schema(schema)
+        : TSValue(schema, TSValueBuilderFactory::checked_builder_for(schema), StorageOwnership::Owned)
     {
         allocate_and_construct();
+    }
+
+    TSValue::TSValue(const TSMeta &schema, const TSValueBuilder &builder, StorageOwnership storage_ownership) noexcept
+        : m_builder(&builder), m_schema(schema), m_owns_storage(storage_ownership == StorageOwnership::Owned)
+    {
     }
 
     TSValue::TSValue(const TSValue &other)
@@ -33,7 +38,7 @@ namespace hgraph
     }
 
     TSValue::TSValue(TSValue &&other) noexcept
-        : m_builder(other.m_builder), m_storage(other.m_storage), m_schema(other.m_schema)
+        : m_builder(other.m_builder), m_storage(other.m_storage), m_schema(other.m_schema), m_owns_storage(other.m_owns_storage)
     {
         other.m_builder = nullptr;
         other.m_storage = nullptr;
@@ -91,6 +96,7 @@ namespace hgraph
         m_builder = other.m_builder;
         m_storage = other.m_storage;
         m_schema = other.m_schema;
+        m_owns_storage = other.m_owns_storage;
 
         other.m_builder = nullptr;
         other.m_storage = nullptr;
@@ -179,6 +185,10 @@ namespace hgraph
     void TSValue::clear_storage() noexcept
     {
         if (m_builder == nullptr || m_storage == nullptr) { return; }
+        if (!m_owns_storage) {
+            m_storage = nullptr;
+            return;
+        }
         builder().destruct(m_storage);
         builder().deallocate(m_storage);
         m_storage = nullptr;

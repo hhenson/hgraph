@@ -9,7 +9,7 @@ namespace hgraph
     TSInputView::TSInputView(TSViewContext context,
                              TSViewContext parent,
                              engine_time_t evaluation_time) noexcept :
-        TSView<TSInputView>(context, parent, evaluation_time), m_state(static_cast<BaseState *>(context.ts_state))
+        TSView<TSInputView>(context, parent, evaluation_time), m_state(context.ts_state)
     {}
 
     TSInputView::TSInputView(View active_state, BaseState *state, Notifiable *scheduling_notifier) noexcept :
@@ -23,7 +23,7 @@ namespace hgraph
 
     void TSInputView::bind_output(const TSOutputView &output)
     {
-        BaseState *state = static_cast<BaseState *>(ts_state());
+        BaseState *state = ts_state();
         const TSViewContext parent_context = this->parent_context();
         if (state == nullptr || parent_context.schema == nullptr) {
             throw std::logic_error("TSInputView::bind_output requires a child view reached through TSL/TSB navigation");
@@ -62,18 +62,13 @@ namespace hgraph
                     if (parent_state == nullptr) {
                         throw std::logic_error("TSInputView::bind_output requires a live parent collection state");
                     }
-                    if (parent_state->child_states.size() <= slot) { parent_state->child_states.resize(slot + 1); }
+                    if (parent_state->child_states.size() <= slot || parent_state->child_states[slot] == nullptr ||
+                        !std::holds_alternative<TargetLinkState>(*parent_state->child_states[slot])) {
+                        throw std::logic_error("TSInputView::bind_output requires a prebuilt target-link terminal");
+                    }
 
-                    auto child_state = std::make_unique<TimeSeriesStateV>();
-                    auto &link_state = child_state->emplace<TargetLinkState>();
-                    link_state.parent = parent_state;
-                    link_state.index = slot;
-                    link_state.last_modified_time = MIN_DT;
-                    link_state.subscribers.clear();
-                    link_state.target.clear();
-                    link_state.scheduling_notifier.set_target(nullptr);
+                    auto &link_state = std::get<TargetLinkState>(*parent_state->child_states[slot]);
                     link_state.set_target(output_context);
-                    parent_state->child_states[slot] = std::move(child_state);
                     replaced = true;
                 }
             },

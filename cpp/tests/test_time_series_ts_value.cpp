@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_input_builder.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/time_series/ts_output_view.h>
@@ -48,6 +49,21 @@ namespace hgraph
             using TSInput::view;
             using TSValue::view_context;
         };
+
+        [[nodiscard]] TSInputConstructionPlan single_link_plan(const TSMeta *input_schema,
+                                                               size_t field_index,
+                                                               TSInputBindingRef binding = {})
+        {
+            TSInputConstructionPlan plan{input_schema};
+            plan.root().children()[field_index] =
+                TSInputConstructionSlot::create_link_terminal(input_schema->fields()[field_index].ts_type, std::move(binding));
+            return plan;
+        }
+
+        [[nodiscard]] const TSInputBuilder &builder_for(const TSInputConstructionPlan &plan)
+        {
+            return TSInputBuilderFactory::checked_builder_for(plan);
+        }
 
         const BaseState &as_base_state(void *state)
         {
@@ -262,7 +278,7 @@ TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[t
     }
 }
 
-TEST_CASE("TSInput can represent a top-level bundle field bound through a target link", "[ts_input][ts_output]")
+TEST_CASE("TSInput construction plans prebuild top-level target-link terminals", "[ts_input][ts_output]")
 {
     auto &value_registry = hgraph::value::TypeRegistry::instance();
     auto &ts_registry = hgraph::TSTypeRegistry::instance();
@@ -270,11 +286,12 @@ TEST_CASE("TSInput can represent a top-level bundle field bound through a target
     const auto *float_type = value_registry.register_type<float>("float");
     const auto *scalar_ts = ts_registry.ts(float_type);
     const auto *input_schema = ts_registry.tsb({{"ts", scalar_ts}}, "InputBundle");
+    const auto plan = hgraph::test_detail::single_link_plan(input_schema, 0);
 
     hgraph::test_detail::ExposedTSOutput output{scalar_ts};
     const auto output_view = output.view();
 
-    hgraph::test_detail::ExposedTSInput input{input_schema};
+    hgraph::test_detail::ExposedTSInput input{hgraph::test_detail::builder_for(plan)};
     input.view().as_bundle()[0].bind_output(output_view);
 
     auto *root_state = static_cast<hgraph::TSBState *>(input.view_context().ts_state);
@@ -307,6 +324,7 @@ TEST_CASE("TSInput target-link rebinding and teardown release old output subscri
     const auto *float_type = value_registry.register_type<float>("float");
     const auto *scalar_ts = ts_registry.ts(float_type);
     const auto *input_schema = ts_registry.tsb({{"ts", scalar_ts}}, "InputBundle");
+    const auto plan = hgraph::test_detail::single_link_plan(input_schema, 0);
 
     hgraph::test_detail::ExposedTSOutput first_output{scalar_ts};
     hgraph::test_detail::ExposedTSOutput second_output{scalar_ts};
@@ -321,7 +339,7 @@ TEST_CASE("TSInput target-link rebinding and teardown release old output subscri
     REQUIRE(second_state != nullptr);
 
     {
-        hgraph::test_detail::ExposedTSInput input{input_schema};
+        hgraph::test_detail::ExposedTSInput input{hgraph::test_detail::builder_for(plan)};
         input.view().as_bundle()[0].bind_output(first_output_view);
         CHECK(first_state->subscribers.size() == 1);
         CHECK(second_state->subscribers.empty());
@@ -343,4 +361,102 @@ TEST_CASE("TSInput target-link rebinding and teardown release old output subscri
 
     CHECK(first_state->subscribers.empty());
     CHECK(second_state->subscribers.empty());
+}
+
+TEST_CASE("TSInput construction plans prebuild native prefixes and nested target links", "[ts_input][ts_output]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *nested_bundle_schema = ts_registry.tsb({{"ts", scalar_ts}}, "Nested");
+    const auto *input_schema = ts_registry.tsb({{"grp", nested_bundle_schema}}, "InputBundle");
+
+    hgraph::TSInputConstructionPlan plan{input_schema};
+    plan.root().children()[0] = hgraph::TSInputConstructionSlot::create_non_peered_collection(nested_bundle_schema);
+    plan.root().children()[0].children()[0] = hgraph::TSInputConstructionSlot::create_link_terminal(scalar_ts);
+
+    hgraph::test_detail::ExposedTSInput input{hgraph::test_detail::builder_for(plan)};
+    auto *root_state = static_cast<hgraph::TSBState *>(input.view_context().ts_state);
+    REQUIRE(root_state != nullptr);
+    REQUIRE(root_state->child_states.size() == 1);
+    REQUIRE(root_state->child_states[0] != nullptr);
+    REQUIRE(std::holds_alternative<hgraph::TSBState>(*root_state->child_states[0]));
+
+    auto &nested_state = std::get<hgraph::TSBState>(*root_state->child_states[0]);
+    REQUIRE(nested_state.child_states.size() == 1);
+    REQUIRE(nested_state.child_states[0] != nullptr);
+    REQUIRE(std::holds_alternative<hgraph::TargetLinkState>(*nested_state.child_states[0]));
+
+    hgraph::test_detail::ExposedTSOutput output{scalar_ts};
+    auto linked_leaf = input.view().as_bundle()[0].as_bundle()[0];
+    CHECK_FALSE(linked_leaf.valid());
+
+    linked_leaf.bind_output(output.view());
+    output.atomic_value().set(3.5f);
+    CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(3.5f));
+}
+
+TEST_CASE("TSInputBuilder constructs TSInput instances from construction plans", "[ts_input][ts_output]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *input_schema = ts_registry.tsb({{"ts", scalar_ts}}, "InputBundle");
+
+    const hgraph::TSInputBuilder &builder = hgraph::test_detail::builder_for(hgraph::test_detail::single_link_plan(input_schema, 0));
+    hgraph::TSInput input = builder.make_input();
+
+    hgraph::test_detail::ExposedTSOutput output{scalar_ts};
+    auto linked_leaf = input.view().as_bundle()[0];
+    linked_leaf.bind_output(output.view());
+    output.atomic_value().set(6.25f);
+    CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(6.25f));
+}
+
+TEST_CASE("TSInput construction plan compiler builds link terminals from edge paths", "[ts_input][wiring_stub]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *nested_bundle_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", ts_registry.ts(int_type)}}, "Nested");
+    const auto *input_schema = ts_registry.tsb({{"nested", nested_bundle_schema}}, "InputBundle");
+
+    std::vector<hgraph::TSInputConstructionEdge> edges{
+        hgraph::TSInputConstructionEdge{
+            .input_path = {0, 0},
+            .binding = hgraph::TSInputBindingRef{.src_node = 7, .output_path = {3, 1}},
+        },
+    };
+
+    const hgraph::TSInputConstructionPlan plan = hgraph::TSInputConstructionPlanCompiler::compile(*input_schema, edges);
+
+    REQUIRE(plan.root().kind() == hgraph::TSInputSlotKind::NonPeeredCollection);
+    REQUIRE(plan.root().children().size() == 1);
+    CHECK(plan.root().children()[0].kind() == hgraph::TSInputSlotKind::NonPeeredCollection);
+    REQUIRE(plan.root().children()[0].children().size() == 2);
+    CHECK(plan.root().children()[0].children()[0].kind() == hgraph::TSInputSlotKind::LinkTerminal);
+    CHECK(plan.root().children()[0].children()[0].schema() == scalar_ts);
+    CHECK(plan.root().children()[0].children()[0].binding().src_node == 7);
+    CHECK(plan.root().children()[0].children()[0].binding().output_path == std::vector<int64_t>({3, 1}));
+    CHECK(plan.root().children()[0].children()[1].kind() == hgraph::TSInputSlotKind::Empty);
+
+    const hgraph::TSInputBuilder &builder = hgraph::TSInputBuilderFactory::checked_builder_for(plan);
+    hgraph::test_detail::ExposedTSInput input{builder};
+    auto *root_state = static_cast<hgraph::TSBState *>(input.view_context().ts_state);
+    REQUIRE(root_state != nullptr);
+    REQUIRE(root_state->child_states.size() == 1);
+    REQUIRE(root_state->child_states[0] != nullptr);
+    REQUIRE(std::holds_alternative<hgraph::TSBState>(*root_state->child_states[0]));
+    const auto &nested_state = std::get<hgraph::TSBState>(*root_state->child_states[0]);
+    REQUIRE(nested_state.child_states.size() == 2);
+    REQUIRE(nested_state.child_states[0] != nullptr);
+    CHECK(std::holds_alternative<hgraph::TargetLinkState>(*nested_state.child_states[0]));
+    CHECK(nested_state.child_states[1] == nullptr);
 }

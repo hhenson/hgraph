@@ -47,6 +47,20 @@ struct HGRAPH_EXPORT TSValue {
     ~TSValue();
 
 protected:
+    enum class StorageOwnership : uint8_t
+    {
+        Owned,
+        External,
+    };
+
+    /**
+     * Bind this `TSValue` surface to an externally managed storage region.
+     *
+     * This is used by composite endpoint builders such as `TSInputBuilder`
+     * that own a larger allocation containing a `TSValue` sub-region.
+     */
+    TSValue(const TSMeta &schema, const TSValueBuilder &builder, StorageOwnership storage_ownership) noexcept;
+
     /**
      * Return the logical time-series schema satisfied by this storage.
      */
@@ -167,12 +181,21 @@ protected:
     {
         const TSViewContext context = view_context();
         return LinkedTSContext{
-            .schema = context.schema,
-            .value_dispatch = context.dispatch,
-            .ts_dispatch = context.ts_dispatch,
-            .value_data = context.value_data,
-            .ts_state = static_cast<BaseState *>(context.ts_state),
+            context.schema,
+            context.value_dispatch,
+            context.ts_dispatch,
+            context.value_data,
+            context.ts_state,
         };
+    }
+
+    void attach_storage(void *storage) noexcept { m_storage = storage; }
+    void detach_storage() noexcept { m_storage = nullptr; }
+    void rebind_builder(const TSMeta &schema, const TSValueBuilder &builder, StorageOwnership storage_ownership) noexcept
+    {
+        m_schema = schema;
+        m_builder = &builder;
+        m_owns_storage = storage_ownership == StorageOwnership::Owned;
     }
 
 private:
@@ -184,9 +207,9 @@ private:
      * should expose that conceptual root, so this helper remains private and
      * returns the raw state pointer directly.
      */
-    [[nodiscard]] void *root_state() noexcept
+    [[nodiscard]] BaseState *root_state() noexcept
     {
-        return std::visit([](auto &state_value) -> void * { return &state_value; }, state_variant());
+        return std::visit([](auto &state_value) -> BaseState * { return &state_value; }, state_variant());
     }
 
     [[nodiscard]] const TSValueBuilder &builder() const noexcept { return *m_builder; }
@@ -212,6 +235,7 @@ private:
      * Logical time-series schema describing the combined value and TS state.
      */
     std::reference_wrapper<const TSMeta> m_schema;
+    bool m_owns_storage{true};
 };
 
 }  // namespace hgraph

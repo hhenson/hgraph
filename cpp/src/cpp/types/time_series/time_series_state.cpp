@@ -74,6 +74,7 @@ namespace hgraph
         parent = other.parent;
         index = other.index;
         last_modified_time = other.last_modified_time;
+        storage_kind = other.storage_kind;
         subscribers = std::move(other.subscribers);
         child_states = std::move(other.child_states);
         modified_children = std::move(other.modified_children);
@@ -130,6 +131,7 @@ namespace hgraph
         parent = other.parent;
         index = other.index;
         last_modified_time = other.last_modified_time;
+        storage_kind = other.storage_kind;
         subscribers = std::move(other.subscribers);
         scheduling_notifier.set_target(other.scheduling_notifier.get_target());
 
@@ -153,6 +155,7 @@ namespace hgraph
         parent = other.parent;
         index = other.index;
         last_modified_time = other.last_modified_time;
+        storage_kind = other.storage_kind;
         subscribers = std::move(other.subscribers);
         scheduling_notifier.set_target(other.scheduling_notifier.get_target());
 

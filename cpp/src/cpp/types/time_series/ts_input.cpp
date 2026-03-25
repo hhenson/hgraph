@@ -1,77 +1,118 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/ts_input.h>
-#include <hgraph/types/value/type_registry.h>
 
-#include <mutex>
-#include <unordered_map>
+#include <stdexcept>
 
 namespace hgraph
 {
-    TSInputView TSInput::view() noexcept { return TSInputView{view_context()}; }
-
-    const value::TypeMeta *TSInput::active_schema_from(const TSMeta *schema)
+    TSInput::TSInput(const TSInputBuilder &builder)
+        : TSValue(builder.schema(), builder.ts_value_builder(), StorageOwnership::External), m_builder(&builder)
     {
-        auto &registry = value::TypeRegistry::instance();
-        const value::TypeMeta *bool_meta = value::scalar_type_meta<bool>();
-        static std::unordered_map<const TSMeta *, const value::TypeMeta *> cache;
-        static std::recursive_mutex cache_mutex;
+        allocate_and_construct();
+    }
 
-        if (schema == nullptr) {
-            return bool_meta;
+    TSInput::TSInput(const TSInput &other)
+        : TSValue(other.schema(), other.builder().ts_value_builder(), StorageOwnership::External), m_builder(other.m_builder)
+    {
+        m_storage = builder().allocate();
+        try {
+            builder().copy_construct(m_storage, other.storage_memory(), other.builder());
+            attach_storage(builder().ts_value_memory(m_storage));
+        } catch (...) {
+            builder().deallocate(m_storage);
+            m_storage = nullptr;
+            throw;
+        }
+    }
+
+    TSInput::TSInput(TSInput &&other) noexcept
+        : TSValue(other.schema(), other.builder().ts_value_builder(), StorageOwnership::External),
+          m_builder(other.m_builder),
+          m_storage(other.m_storage)
+    {
+        if (m_storage != nullptr) { attach_storage(builder().ts_value_memory(m_storage)); }
+        other.m_builder = nullptr;
+        other.m_storage = nullptr;
+        other.detach_storage();
+    }
+
+    TSInput &TSInput::operator=(const TSInput &other)
+    {
+        if (this == &other) { return *this; }
+
+        void *replacement = other.builder().allocate();
+        try {
+            other.builder().copy_construct(replacement, other.storage_memory(), other.builder());
+        } catch (...) {
+            other.builder().deallocate(replacement);
+            throw;
         }
 
-        std::lock_guard<std::recursive_mutex> lock(cache_mutex);
-        if (auto it = cache.find(schema); it != cache.end()) {
-            return it->second;
+        clear_storage();
+        m_builder = other.m_builder;
+        m_storage = replacement;
+        rebind_builder(builder().schema(), builder().ts_value_builder(), StorageOwnership::External);
+        attach_storage(builder().ts_value_memory(m_storage));
+        return *this;
+    }
+
+    TSInput &TSInput::operator=(TSInput &&other) noexcept
+    {
+        if (this == &other) { return *this; }
+
+        clear_storage();
+        m_builder = other.m_builder;
+        m_storage = other.m_storage;
+        if (m_builder != nullptr) { rebind_builder(builder().schema(), builder().ts_value_builder(), StorageOwnership::External); }
+        if (m_storage != nullptr) { attach_storage(builder().ts_value_memory(m_storage)); }
+
+        other.m_builder = nullptr;
+        other.m_storage = nullptr;
+        other.detach_storage();
+        return *this;
+    }
+
+    TSInput::~TSInput()
+    {
+        clear_storage();
+    }
+
+    TSInputView TSInput::view() noexcept
+    {
+        return TSInputView{view_context()};
+    }
+
+    View TSInput::active_state() const
+    {
+        return View{&builder().active_builder().dispatch(),
+                    m_storage != nullptr ? const_cast<void *>(active_memory()) : nullptr,
+                    &builder().active_schema()};
+    }
+
+    View TSInput::active_state()
+    {
+        return View{&builder().active_builder().dispatch(), m_storage != nullptr ? active_memory() : nullptr, &builder().active_schema()};
+    }
+
+    void TSInput::allocate_and_construct()
+    {
+        m_storage = builder().allocate();
+        try {
+            builder().construct(m_storage);
+            attach_storage(builder().ts_value_memory(m_storage));
+        } catch (...) {
+            builder().deallocate(m_storage);
+            m_storage = nullptr;
+            throw;
         }
+    }
 
-        const value::TypeMeta *active_schema = bool_meta;
-        switch (schema->kind) {
-            case TSKind::TSValue:
-            case TSKind::TSS:
-            case TSKind::TSW:
-            case TSKind::REF:
-            case TSKind::SIGNAL:
-                active_schema = bool_meta;
-                break;
-
-            case TSKind::TSB:
-                {
-                    auto builder = registry.tuple();
-                    builder.add_element(bool_meta);
-                    for (size_t i = 0; i < schema->field_count(); ++i) {
-                        builder.add_element(active_schema_from(schema->fields()[i].ts_type));
-                    }
-                    active_schema = builder.build();
-                    break;
-                }
-
-            case TSKind::TSL:
-                {
-                    const value::TypeMeta *child_active = active_schema_from(schema->element_ts());
-                    const value::TypeMeta *child_collection = schema->fixed_size() > 0
-                                                                  ? registry.fixed_list(child_active, schema->fixed_size()).build()
-                                                                  : registry.list(child_active).build();
-                    auto builder = registry.tuple();
-                    builder.add_element(bool_meta);
-                    builder.add_element(child_collection);
-                    active_schema = builder.build();
-                    break;
-                }
-
-            case TSKind::TSD:
-                {
-                    const value::TypeMeta *child_active = active_schema_from(schema->element_ts());
-                    const value::TypeMeta *child_collection = registry.map(schema->key_type(), child_active).build();
-                    auto builder = registry.tuple();
-                    builder.add_element(bool_meta);
-                    builder.add_element(child_collection);
-                    active_schema = builder.build();
-                    break;
-                }
-        }
-
-        cache.emplace(schema, active_schema);
-        return active_schema;
+    void TSInput::clear_storage() noexcept
+    {
+        if (m_builder == nullptr || m_storage == nullptr) { return; }
+        builder().destruct(m_storage);
+        builder().deallocate(m_storage);
+        m_storage = nullptr;
+        detach_storage();
     }
 }  // namespace hgraph

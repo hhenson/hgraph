@@ -31,12 +31,13 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
      */
     [[nodiscard]] LinkedTSContext linked_context() const noexcept
     {
+        const TSViewContext resolved = this->m_context.resolved();
         return LinkedTSContext{
-            .schema = this->m_context.schema,
-            .value_dispatch = this->m_context.dispatch,
-            .ts_dispatch = this->m_context.ts_dispatch,
-            .value_data = this->m_context.value_data,
-            .ts_state = static_cast<BaseState *>(this->m_context.ts_state),
+            resolved.schema,
+            resolved.value_dispatch,
+            resolved.ts_dispatch,
+            resolved.value_data,
+            this->m_context.ts_state,
         };
     }
 };

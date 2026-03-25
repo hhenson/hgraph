@@ -25,6 +25,14 @@ namespace hgraph
             return {};
         }
 
+        template <typename TInit>
+        [[nodiscard]] std::unique_ptr<TimeSeriesStateV> make_state_node(TInit &&init)
+        {
+            auto state = std::make_unique<TimeSeriesStateV>();
+            std::forward<TInit>(init)(*state);
+            return state;
+        }
+
         struct RawViewAccess : View
         {
             using View::data_of;
@@ -40,11 +48,16 @@ namespace hgraph
         };
 
         template <typename TState>
-        void initialize_base_state(TState &state, TimeSeriesStateParentPtr parent, size_t index, engine_time_t modified_time = MIN_DT) noexcept
+        void initialize_base_state(TState &state,
+                                   TimeSeriesStateParentPtr parent,
+                                   size_t index,
+                                   engine_time_t modified_time = MIN_DT,
+                                   TSStorageKind storage_kind = TSStorageKind::Native) noexcept
         {
             state.parent = parent;
             state.index = index;
             state.last_modified_time = modified_time;
+            state.storage_kind = storage_kind;
             state.subscribers.clear();
         }
 
@@ -69,6 +82,8 @@ namespace hgraph
             initialize_base_state(state.bound_link, static_cast<TSOutput *>(nullptr), 0, MIN_DT);
             state.bound_link.target.clear();
             state.bound_link.scheduling_notifier.set_target(nullptr);
+            state.storage_kind = TSStorageKind::RefLink;
+            state.bound_link.storage_kind = TSStorageKind::TargetLink;
         }
 
         [[nodiscard]] TimeSeriesStatePtr state_ptr(TimeSeriesStateV &state) noexcept
@@ -86,19 +101,19 @@ namespace hgraph
             return slot.get();
         }
 
-        [[nodiscard]] void *state_address(const TimeSeriesStatePtr &state) noexcept
+        [[nodiscard]] BaseState *state_address(const TimeSeriesStatePtr &state) noexcept
         {
-            return std::visit([](auto *typed_state) -> void * { return typed_state; }, state);
+            return std::visit([](auto *typed_state) -> BaseState * { return typed_state; }, state);
         }
 
-        [[nodiscard]] void *state_address(const std::unique_ptr<TimeSeriesStateV> &slot) noexcept
+        [[nodiscard]] BaseState *state_address(const std::unique_ptr<TimeSeriesStateV> &slot) noexcept
         {
             TimeSeriesStateV *state = state_value(slot);
             return state != nullptr ? state_address(state_ptr(*state)) : nullptr;
         }
 
         [[nodiscard]] TSViewContext linked_child_context(const LinkedTSContext &target,
-                                                         void *local_state,
+                                                         BaseState *local_state,
                                                          const TSMeta &schema,
                                                          const detail::ViewDispatch &value_dispatch,
                                                          const detail::TSDispatch &ts_dispatch) noexcept
@@ -118,7 +133,7 @@ namespace hgraph
                                                             const detail::TSDispatch &ts_dispatch,
                                                             void *native_value_data) noexcept
         {
-            void *local_state = state_address(slot);
+            BaseState *local_state = state_address(slot);
             if (const TimeSeriesStateV *state = const_state_value(slot); state != nullptr) {
                 if (const auto *link = std::get_if<TargetLinkState>(state)) {
                     return linked_child_context(link->target, local_state, schema, value_dispatch, ts_dispatch);
@@ -168,8 +183,9 @@ namespace hgraph
             ensure_child_slot_capacity(collection_state, slot + 1);
             if (state_value(collection_state.child_states[slot]) != nullptr) { return; }
 
-            auto child_state = std::make_unique<TimeSeriesStateV>();
-            initialize_state_tree(*child_state, child_schema, parent_ptr(collection_state), slot);
+            auto child_state = make_state_node([&](TimeSeriesStateV &state) {
+                initialize_state_tree(state, child_schema, parent_ptr(collection_state), slot);
+            });
             install_child_state(collection_state, slot, std::move(child_state));
         }
 
@@ -179,8 +195,9 @@ namespace hgraph
 
             if (state_value(collection_state.child_states[slot]) != nullptr && collection_state.slot_key_hashes[slot] == key_hash) { return; }
 
-            auto child_state = std::make_unique<TimeSeriesStateV>();
-            initialize_state_tree(*child_state, child_schema, parent_ptr(collection_state), slot);
+            auto child_state = make_state_node([&](TimeSeriesStateV &state) {
+                initialize_state_tree(state, child_schema, parent_ptr(collection_state), slot);
+            });
             install_child_state(collection_state, slot, std::move(child_state));
             collection_state.slot_key_hashes[slot] = key_hash;
         }
@@ -205,12 +222,7 @@ namespace hgraph
                         auto &list_state = state.emplace<TSLState>();
                         initialize_collection_state(list_state, parent, index);
 
-                        if (schema.fixed_size() > 0 && schema.element_ts() != nullptr) {
-                            ensure_child_slot_capacity(list_state, schema.fixed_size());
-                            for (size_t child_index = 0; child_index < schema.fixed_size(); ++child_index) {
-                                ensure_child_state(list_state, child_index, *schema.element_ts());
-                            }
-                        }
+                        if (schema.fixed_size() > 0) { ensure_child_slot_capacity(list_state, schema.fixed_size()); }
                         break;
                     }
 
@@ -222,11 +234,7 @@ namespace hgraph
                     {
                         auto &bundle_state = state.emplace<TSBState>();
                         initialize_collection_state(bundle_state, parent, index);
-
                         ensure_child_slot_capacity(bundle_state, schema.field_count());
-                        for (size_t child_index = 0; child_index < schema.field_count(); ++child_index) {
-                            ensure_child_state(bundle_state, child_index, *schema.fields()[child_index].ts_type);
-                        }
                         break;
                     }
 
@@ -244,7 +252,7 @@ namespace hgraph
         {
             if (const auto *src_state = std::get_if<TargetLinkState>(&src)) {
                 auto &dst_state = dst.emplace<TargetLinkState>();
-                initialize_base_state(dst_state, parent, index, src_state->last_modified_time);
+                initialize_base_state(dst_state, parent, index, src_state->last_modified_time, TSStorageKind::TargetLink);
                 dst_state.target.clear();
                 dst_state.scheduling_notifier.set_target(src_state->scheduling_notifier.get_target());
                 if (src_state->target.is_bound()) { dst_state.set_target(src_state->target); }
@@ -292,8 +300,9 @@ namespace hgraph
                                 const TimeSeriesStateV *src_child = const_state_value(src_state.child_states[child_index]);
                                 if (src_child == nullptr) { continue; }
 
-                                auto child_state = std::make_unique<TimeSeriesStateV>();
-                                clone_state_tree(*child_state, *src_child, *schema.element_ts(), parent_ptr(dst_state), child_index);
+                                auto child_state = make_state_node([&](TimeSeriesStateV &state) {
+                                    clone_state_tree(state, *src_child, *schema.element_ts(), parent_ptr(dst_state), child_index);
+                                });
                                 install_child_state(dst_state, child_index, std::move(child_state));
                             }
                         }
@@ -313,8 +322,9 @@ namespace hgraph
                                 const TimeSeriesStateV *src_child = const_state_value(src_state.child_states[child_index]);
                                 if (src_child == nullptr) { continue; }
 
-                                auto child_state = std::make_unique<TimeSeriesStateV>();
-                                clone_state_tree(*child_state, *src_child, *schema.element_ts(), parent_ptr(dst_state), child_index);
+                                auto child_state = make_state_node([&](TimeSeriesStateV &state) {
+                                    clone_state_tree(state, *src_child, *schema.element_ts(), parent_ptr(dst_state), child_index);
+                                });
                                 install_child_state(dst_state, child_index, std::move(child_state));
                             }
                         }
@@ -340,9 +350,10 @@ namespace hgraph
                             const TimeSeriesStateV *src_child = const_state_value(src_state.child_states[child_index]);
                             if (src_child == nullptr) { continue; }
 
-                            auto child_state = std::make_unique<TimeSeriesStateV>();
-                            clone_state_tree(*child_state, *src_child, *schema.fields()[child_index].ts_type,
-                                             parent_ptr(dst_state), child_index);
+                            auto child_state = make_state_node([&](TimeSeriesStateV &state) {
+                                clone_state_tree(state, *src_child, *schema.fields()[child_index].ts_type, parent_ptr(dst_state),
+                                                 child_index);
+                            });
                             install_child_state(dst_state, child_index, std::move(child_state));
                         }
                         break;

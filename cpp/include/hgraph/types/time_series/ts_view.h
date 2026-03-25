@@ -112,30 +112,20 @@ namespace hgraph
     using ParentValue = pointer_aligned_discriminated_ptr<TSInput, TSOutput>;
 
     /**
-     * Reusable TS view context for a specific logical time-series position.
+     * View-specialized TS context for a specific logical time-series position.
      *
-     * This carries the resolved TS-facing metadata for one logical position:
-     * - the TS schema at that position
-     * - the value-layer dispatch for that position
-     * - the raw value pointer for that position
-     * - the raw TS state pointer representing that position
-     *
-     * `TSView` uses one instance for its current position and another for its
-     * parent position. That keeps the current position and the parent
-     * position in the same lightweight carrier while preserving the key split
-     * between pure value storage and TS extension state.
+     * `TSViewContext` extends the shared raw `TSContext` carrier with the
+     * view-only helpers needed to resolve link-backed storage and materialize
+     * the corresponding erased value view.
      */
-    struct TSViewContext
+    struct TSViewContext : TSContext
     {
-        [[nodiscard]] static TSViewContext none() noexcept
-        {
-            return TSViewContext{
-                nullptr,
-                nullptr,
-                nullptr,
-                nullptr,
-                nullptr};
-        }
+        using TSContext::TSContext;
+
+        constexpr TSViewContext() noexcept = default;
+        constexpr TSViewContext(const TSContext &context) noexcept : TSContext(context) {}
+
+        [[nodiscard]] static constexpr TSViewContext none() noexcept { return {}; }
 
         /**
          * Materialize the value-layer view for this logical TS position.
@@ -144,18 +134,50 @@ namespace hgraph
          * resolved value and TS pointers explicitly. The erased `View` is
          * reconstructed on demand from those pieces.
          */
-        [[nodiscard]] View value() const noexcept
+        [[nodiscard]] TSViewContext resolved() const noexcept
         {
-            const value::TypeMeta *value_schema = schema != nullptr ? schema->value_type : nullptr;
-            if (dispatch == nullptr || value_data == nullptr) { return View::invalid_for(value_schema); }
-            return View{dispatch, value_data, value_schema};
+            TSViewContext resolved_context = *this;
+            const auto *state = ts_state;
+            if (state == nullptr) { return resolved_context; }
+
+            const auto apply_target = [&resolved_context](const LinkedTSContext &target) noexcept {
+                if (!target.is_bound()) {
+                    resolved_context.value_data = nullptr;
+                    return;
+                }
+
+                resolved_context.schema = target.schema != nullptr ? target.schema : resolved_context.schema;
+                resolved_context.value_dispatch =
+                    target.value_dispatch != nullptr ? target.value_dispatch : resolved_context.value_dispatch;
+                resolved_context.ts_dispatch = target.ts_dispatch != nullptr ? target.ts_dispatch : resolved_context.ts_dispatch;
+                resolved_context.value_data = target.value_data;
+            };
+
+            switch (state->storage_kind) {
+                case TSStorageKind::Native:
+                    break;
+
+                case TSStorageKind::TargetLink:
+                    apply_target(static_cast<const TargetLinkState *>(ts_state)->target);
+                    break;
+
+                case TSStorageKind::RefLink:
+                    apply_target(static_cast<const RefLinkState *>(ts_state)->bound_link.target);
+                    break;
+            }
+
+            return resolved_context;
         }
 
-        const TSMeta                 *schema{nullptr};
-        const detail::ViewDispatch   *dispatch{nullptr};
-        const detail::TSDispatch     *ts_dispatch{nullptr};
-        void                         *value_data{nullptr};
-        void                        *ts_state{nullptr};
+        [[nodiscard]] View value() const noexcept
+        {
+            const TSViewContext resolved_context = resolved();
+            const value::TypeMeta *value_schema = resolved_context.schema != nullptr ? resolved_context.schema->value_type : nullptr;
+            if (resolved_context.value_dispatch == nullptr || resolved_context.value_data == nullptr) {
+                return View::invalid_for(value_schema);
+            }
+            return View{resolved_context.value_dispatch, resolved_context.value_data, value_schema};
+        }
     };
 
     /**
@@ -248,7 +270,7 @@ namespace hgraph
          */
         [[nodiscard]] engine_time_t last_modified_time() const noexcept
         {
-            if (const BaseState *state = base_state_from(m_context.ts_state, m_context.schema); state != nullptr) {
+            if (const BaseState *state = m_context.ts_state; state != nullptr) {
                 return state->last_modified_time;
             }
             return MIN_DT;
@@ -320,7 +342,7 @@ namespace hgraph
          */
         [[nodiscard]] ParentValue parent() const noexcept
         {
-            const BaseState *state = base_state_from(m_context.ts_state, m_context.schema);
+            const BaseState *state = m_context.ts_state;
 
             while (state != nullptr) {
                 ParentValue resolved{};
@@ -350,25 +372,18 @@ namespace hgraph
          * Return the state node associated to the represented time-series
          * position.
          */
-        [[nodiscard]] void *ts_state() const noexcept { return m_context.ts_state; }
+        [[nodiscard]] BaseState *ts_state() const noexcept { return m_context.ts_state; }
 
         /**
          * Return the logical TS schema represented by this view.
          */
-        [[nodiscard]] const TSMeta *schema() const noexcept { return m_context.schema; }
-        [[nodiscard]] const detail::TSDispatch *ts_dispatch() const noexcept { return m_context.ts_dispatch; }
+        [[nodiscard]] const TSMeta *schema() const noexcept { return m_context.resolved().schema; }
+        [[nodiscard]] const detail::TSDispatch *ts_dispatch() const noexcept { return m_context.resolved().ts_dispatch; }
         [[nodiscard]] TSViewContext parent_context() const noexcept { return m_parent; }
 
         TSViewContext m_context{TSViewContext::none()};
         TSViewContext m_parent{TSViewContext::none()};
         engine_time_t m_evaluation_time{MIN_DT};
-
-      private:
-        [[nodiscard]] static const BaseState *base_state_from(const void *ts_state, const TSMeta *schema) noexcept
-        {
-            static_cast<void>(schema);
-            return static_cast<const BaseState *>(ts_state);
-        }
     };
 
     /**
@@ -473,12 +488,12 @@ namespace hgraph
 
     namespace detail
     {
-        [[nodiscard]] inline const BaseCollectionState *collection_state(const void *state) noexcept
+        [[nodiscard]] inline const BaseCollectionState *collection_state(const BaseState *state) noexcept
         {
             return static_cast<const BaseCollectionState *>(state);
         }
 
-        [[nodiscard]] inline bool child_is_modified(const void *state, size_t index) noexcept
+        [[nodiscard]] inline bool child_is_modified(const BaseState *state, size_t index) noexcept
         {
             const auto *collection = collection_state(state);
             return collection != nullptr && collection->modified_children.contains(index);

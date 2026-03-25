@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/ts_input_builder.h>
 #include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/value/value.h>
@@ -15,10 +16,10 @@ namespace hgraph {
  * input-specific navigation as exposed through the Python time-series input
  * API.
  *
- * In addition to the inherited `TSValue` payload, `TSInput` owns a parallel
- * active-state `Value`. This active payload is not the published time-series
- * value; it is a control structure used to answer `TSInputView::active()` and
- * to support `make_active()` / `make_passive()` at a specific input path.
+ * `TSInput` is built by a schema- and plan-bound `TSInputBuilder`. The
+ * builder owns the combined layout for:
+ * - a `TSValue` region representing the published TS payload and state
+ * - a parallel active-state `Value` region used only for input activation
  *
  * The active-state payload is intended to mirror the navigable structure of
  * the input:
@@ -46,13 +47,16 @@ struct HGRAPH_EXPORT TSInput : TSValue {
     /**
      * Construct an input endpoint.
      *
-     * Inputs are schema-bound. The supplied schema defines both the published
-     * time-series value shape and the parallel activation-control shape held
-     * by this endpoint.
+     * Inputs are builder-bound. The supplied builder owns the composite
+     * storage layout together with the plan-specialized TS state construction
+     * logic for this input shape.
      */
-    explicit TSInput(const TSMeta *schema) :
-        TSValue(*schema), m_active_state(*active_schema_from(schema))
-    {}
+    explicit TSInput(const TSInputBuilder &builder);
+    TSInput(const TSInput &other);
+    TSInput(TSInput &&other) noexcept;
+    TSInput &operator=(const TSInput &other);
+    TSInput &operator=(TSInput &&other) noexcept;
+    ~TSInput();
 
     /**
      * Return an input view rooted at this endpoint.
@@ -70,7 +74,7 @@ protected:
      * This view is intended to expose the parallel activation schema
      * associated to the input tree, not the published time-series value.
      */
-    [[nodiscard]] View active_state() const { return m_active_state.view(); }
+    [[nodiscard]] View active_state() const;
 
     /**
      * Return the hierarchical active-state payload as a mutable value view.
@@ -78,22 +82,20 @@ protected:
      * This is intended for view construction and activation control against
      * the input-local parallel active-state schema.
      */
-    [[nodiscard]] View active_state() { return m_active_state.view(); }
+    [[nodiscard]] View active_state();
 
 private:
-    /**
-     * Map a time-series schema to the parallel active-state value schema.
-     *
-     * The returned value schema is intended to preserve the same navigable
-     * shape as the input while replacing each input position with the active
-     * control payload needed for that position.
-     */
-    [[nodiscard]] static const value::TypeMeta *active_schema_from(const TSMeta *schema);
+    [[nodiscard]] const TSInputBuilder &builder() const noexcept { return *m_builder; }
+    [[nodiscard]] void *storage_memory() noexcept { return m_storage; }
+    [[nodiscard]] const void *storage_memory() const noexcept { return m_storage; }
+    [[nodiscard]] void *active_memory() noexcept { return builder().active_memory(storage_memory()); }
+    [[nodiscard]] const void *active_memory() const noexcept { return builder().active_memory(storage_memory()); }
 
-    /**
-     * Parallel activation payload aligned to the logical input structure.
-     */
-    Value m_active_state;
+    void allocate_and_construct();
+    void clear_storage() noexcept;
+
+    const TSInputBuilder *m_builder{nullptr};
+    void *m_storage{nullptr};
 };
 
 }  // namespace hgraph
