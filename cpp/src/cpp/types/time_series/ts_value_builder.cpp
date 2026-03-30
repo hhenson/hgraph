@@ -150,10 +150,29 @@ namespace hgraph
             };
         }
 
+        /**
+         * Resolve the scheduling notifier identity for a child position.
+         *
+         * When the child is a link-backed state (TargetLink/RefLink), the
+         * identity switches from the parent's notifier to the link's own
+         * SchedulingNotifier. This function also wires the link's forwarding
+         * target to the parent notifier so that notifications arriving at
+         * the link-local identity are forwarded to the owning node.
+         */
         [[nodiscard]] Notifiable *child_scheduling_notifier(const TSViewContext &parent, BaseState *child_state) noexcept
         {
-            Notifiable *notifier = parent.scheduling_notifier;
-            return child_state != nullptr ? child_state->boundary_notifier(notifier) : notifier;
+            Notifiable *parent_notifier = parent.scheduling_notifier;
+            if (child_state == nullptr) { return parent_notifier; }
+
+            Notifiable *child_notifier = child_state->boundary_notifier(parent_notifier);
+            if (child_notifier != parent_notifier && parent_notifier != nullptr) {
+                // The identity switched at a link boundary. Wire the
+                // forwarding target so the link-local SchedulingNotifier
+                // delivers notifications to the parent notifier (ultimately
+                // the owning Node).
+                static_cast<TargetLinkState::SchedulingNotifier *>(child_notifier)->set_target(parent_notifier);
+            }
+            return child_notifier;
         }
 
         template <typename TActiveResolver>

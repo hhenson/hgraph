@@ -113,11 +113,21 @@ namespace hgraph
         [[nodiscard]] const BaseState *resolved_state() const noexcept;
 
         /**
-         * Return the notifier boundary to use when traversing into this child.
+         * Return the notifier identity to use when traversing into this child.
          *
-         * Native storage inherits the supplied fallback notifier. Link-backed
-         * storage exposes the scheduling notifier associated with the binding
-         * boundary.
+         * Native storage inherits the supplied fallback notifier (passthrough).
+         * Link-backed storage switches to the SchedulingNotifier owned by
+         * the TargetLinkState/RefLinkState and wires its forwarding target
+         * to @p fallback.
+         *
+         * This identity switch is required because multiple TargetLinkStates
+         * under the same non-peered collection may ultimately schedule the
+         * same Node. Using the Node* directly as the subscriber identity in
+         * all of them would collapse to a single entry in the subscriber set
+         * (std::unordered_set<Notifiable*>), making independent
+         * subscribe/unsubscribe impossible. Each TargetLinkState's
+         * SchedulingNotifier provides a unique Notifiable address that
+         * forwards to the Node through its target pointer.
          */
         [[nodiscard]] Notifiable *boundary_notifier(Notifiable *fallback) noexcept;
 

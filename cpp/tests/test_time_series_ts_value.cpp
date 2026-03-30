@@ -626,13 +626,14 @@ TEST_CASE("TSInput leaf activation subscribes and unsubscribes through the targe
 
     auto &link_state = hgraph::test_detail::linked_field(input);
     hgraph::test_detail::RecordingNotifiable recorder;
-    link_state.scheduling_notifier.set_target(&recorder);
 
     auto *output_state = static_cast<hgraph::BaseState *>(output.view_context().ts_state);
     REQUIRE(output_state != nullptr);
     CHECK(link_state.subscribers.empty());
 
-    auto leaf_view = input.view().as_bundle()[0];
+    // Pass the recorder as root scheduling_notifier; boundary_notifier wires
+    // it through to the TargetLinkState's SchedulingNotifier automatically.
+    auto leaf_view = input.view(&recorder).as_bundle()[0];
 
     CHECK_FALSE(leaf_view.active());
     leaf_view.make_active();
@@ -687,9 +688,9 @@ TEST_CASE("TSInput collection activation on a bound list is hierarchical", "[ts_
 
     SECTION("an active list root is notified by any child modification") {
         hgraph::test_detail::RecordingNotifiable recorder;
-        link_state.scheduling_notifier.set_target(&recorder);
 
-        auto list_view = input.view().as_bundle()[0];
+        // boundary_notifier wires link_state.scheduling_notifier → recorder
+        auto list_view = input.view(&recorder).as_bundle()[0];
 
         CHECK_FALSE(list_view.active());
         list_view.make_active();
@@ -712,9 +713,9 @@ TEST_CASE("TSInput collection activation on a bound list is hierarchical", "[ts_
 
     SECTION("an active list element is notified only by that element") {
         hgraph::test_detail::RecordingNotifiable recorder;
-        link_state.scheduling_notifier.set_target(&recorder);
 
-        auto element_view = input.view().as_bundle()[0].as_list()[1];
+        // boundary_notifier wires link_state.scheduling_notifier → recorder
+        auto element_view = input.view(&recorder).as_bundle()[0].as_list()[1];
 
         CHECK_FALSE(element_view.active());
         element_view.make_active();
@@ -771,9 +772,9 @@ TEST_CASE("TSInput dict-key activation survives a simple remove and re-add of th
 
     auto &link_state = hgraph::test_detail::linked_field(input);
     hgraph::test_detail::RecordingNotifiable recorder;
-    link_state.scheduling_notifier.set_target(&recorder);
 
-    auto key_view = input.view().as_bundle()[0].as_dict().at(key.view());
+    // boundary_notifier wires link_state.scheduling_notifier → recorder
+    auto key_view = input.view(&recorder).as_bundle()[0].as_dict().at(key.view());
 
     key_view.make_active();
     initial_child_state->mark_modified(hgraph::test_detail::tick(31));

@@ -51,10 +51,11 @@ namespace hgraph
         clear_storage();
     }
 
-    TSInputView TSInput::view()
+    TSInputView TSInput::view(Notifiable *scheduling_notifier)
     {
         TSViewContext context{view_context()};
         context.active_state = active_state();
+        context.scheduling_notifier = scheduling_notifier;
         return TSInputView{context};
     }
 

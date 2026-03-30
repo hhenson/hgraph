@@ -73,8 +73,14 @@ struct HGRAPH_EXPORT TSInput : TSValue {
      * Binding is expected to happen through collection navigation on this
      * view, matching the Python wiring model where `__getitem__` selects the
      * slot to bind.
+     *
+     * @param scheduling_notifier The root scheduling identity for this input
+     *        branch, typically the owning Node. When navigating through
+     *        TargetLinkState boundaries the identity switches automatically
+     *        via BaseState::boundary_notifier(). May be nullptr when no
+     *        scheduling is required (e.g. during wiring-only traversal).
      */
-    [[nodiscard]] TSInputView view();
+    [[nodiscard]] TSInputView view(Notifiable *scheduling_notifier = nullptr);
 
 protected:
     /**
