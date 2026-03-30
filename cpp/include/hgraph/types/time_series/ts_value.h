@@ -210,6 +210,7 @@ protected:
 private:
     friend struct TSValueBuilder;
     friend struct TSInputBuilder;
+    friend struct TSOutputBuilder;
 
     /**
      * Return the conceptual root time-series state for this stored value.

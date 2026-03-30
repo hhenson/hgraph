@@ -2,8 +2,11 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/time_series_state.h>
+#include <hgraph/types/time_series/ts_output_builder.h>
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/time_series/ts_value.h>
+
+#include <unordered_map>
 
 namespace hgraph {
 
@@ -28,14 +31,17 @@ namespace hgraph {
  */
 struct HGRAPH_EXPORT TSOutput : TSValue {
     /**
-     * Construct an output endpoint.
+     * Construct an unbound output placeholder.
      *
-     * Outputs are schema-bound. The supplied schema defines the published
-     * time-series value shape owned by this endpoint.
+     * This is intended for delayed builder-driven construction.
      */
-    explicit TSOutput(const TSMeta *schema) :
-        TSValue(*schema)
-    {}
+    TSOutput() noexcept = default;
+    explicit TSOutput(const TSOutputBuilder &builder);
+    TSOutput(const TSOutput &other);
+    TSOutput(TSOutput &&other) noexcept;
+    TSOutput &operator=(const TSOutput &other);
+    TSOutput &operator=(TSOutput &&other) noexcept;
+    ~TSOutput();
 
     /**
      * Return the binding handle representing this output's current root view.
@@ -71,6 +77,12 @@ protected:
     void remove_alternative(const TSMeta *schema) noexcept;
 
 private:
+    friend struct TSOutputBuilder;
+
+    [[nodiscard]] const TSOutputBuilder &builder() const noexcept { return *m_builder; }
+    void clear_storage() noexcept;
+
+    const TSOutputBuilder *m_builder{nullptr};
     std::unordered_map<const TSMeta *, TSValue> m_alternatives;
 };
 

@@ -127,6 +127,7 @@ add_executable(hgraph_time_series_value_tests
     ../src/cpp/types/time_series/ts_input.cpp
     ../src/cpp/types/time_series/ts_input_view.cpp
     ../src/cpp/types/time_series/ts_output.cpp
+    ../src/cpp/types/time_series/ts_output_builder.cpp
     ../src/cpp/types/time_series/time_series_state.cpp
     ../src/cpp/types/time_series/ts_type_registry.cpp
     ../src/cpp/types/value/type_meta_bindings.cpp
@@ -148,6 +149,7 @@ add_executable(hgraph_time_series_ts_tests
     ../src/cpp/types/time_series/ts_input.cpp
     ../src/cpp/types/time_series/ts_input_view.cpp
     ../src/cpp/types/time_series/ts_output.cpp
+    ../src/cpp/types/time_series/ts_output_builder.cpp
     ../src/cpp/types/time_series/time_series_state.cpp
     ../src/cpp/types/time_series/ts_type_registry.cpp
     ../src/cpp/types/value/type_meta_bindings.cpp

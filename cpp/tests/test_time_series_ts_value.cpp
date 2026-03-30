@@ -4,6 +4,7 @@
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input_builder.h>
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output_builder.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/time_series/ts_value.h>
@@ -63,6 +64,11 @@ namespace hgraph
         [[nodiscard]] const TSInputBuilder &builder_for(const TSInputConstructionPlan &plan)
         {
             return TSInputBuilderFactory::checked_builder_for(plan);
+        }
+
+        [[nodiscard]] const TSOutputBuilder &output_builder_for(const TSMeta *schema)
+        {
+            return TSOutputBuilderFactory::checked_builder_for(schema);
         }
 
         const BaseState &as_base_state(void *state)
@@ -288,7 +294,7 @@ TEST_CASE("TSInput construction plans prebuild top-level target-link terminals",
     const auto *input_schema = ts_registry.tsb({{"ts", scalar_ts}}, "InputBundle");
     const auto plan = hgraph::test_detail::single_link_plan(input_schema, 0);
 
-    hgraph::test_detail::ExposedTSOutput output{scalar_ts};
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(scalar_ts)};
     const auto output_view = output.view();
 
     hgraph::test_detail::ExposedTSInput input{hgraph::test_detail::builder_for(plan)};
@@ -326,8 +332,8 @@ TEST_CASE("TSInput target-link rebinding and teardown release old output subscri
     const auto *input_schema = ts_registry.tsb({{"ts", scalar_ts}}, "InputBundle");
     const auto plan = hgraph::test_detail::single_link_plan(input_schema, 0);
 
-    hgraph::test_detail::ExposedTSOutput first_output{scalar_ts};
-    hgraph::test_detail::ExposedTSOutput second_output{scalar_ts};
+    hgraph::test_detail::ExposedTSOutput first_output{hgraph::test_detail::output_builder_for(scalar_ts)};
+    hgraph::test_detail::ExposedTSOutput second_output{hgraph::test_detail::output_builder_for(scalar_ts)};
     const auto first_output_view = first_output.view();
     const auto second_output_view = second_output.view();
     first_output.atomic_value().set(1.0f);
@@ -389,7 +395,7 @@ TEST_CASE("TSInput construction plans prebuild native prefixes and nested target
     REQUIRE(nested_state.child_states[0] != nullptr);
     REQUIRE(std::holds_alternative<hgraph::TargetLinkState>(*nested_state.child_states[0]));
 
-    hgraph::test_detail::ExposedTSOutput output{scalar_ts};
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(scalar_ts)};
     auto linked_leaf = input.view().as_bundle()[0].as_bundle()[0];
     CHECK_FALSE(linked_leaf.valid());
 
@@ -410,14 +416,14 @@ TEST_CASE("TSInputBuilder constructs TSInput instances from construction plans",
     const hgraph::TSInputBuilder &builder = hgraph::test_detail::builder_for(hgraph::test_detail::single_link_plan(input_schema, 0));
     hgraph::TSInput input = builder.make_input();
 
-    hgraph::test_detail::ExposedTSOutput output{scalar_ts};
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(scalar_ts)};
     auto linked_leaf = input.view().as_bundle()[0];
     linked_leaf.bind_output(output.view());
     output.atomic_value().set(6.25f);
     CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(6.25f));
 }
 
-TEST_CASE("TS builders can construct default-initialized TSValue and TSInput instances", "[ts_input][ts_output]")
+TEST_CASE("TS builders can construct default-initialized TSValue, TSInput, and TSOutput instances", "[ts_input][ts_output]")
 {
     auto &value_registry = hgraph::value::TypeRegistry::instance();
     auto &ts_registry = hgraph::TSTypeRegistry::instance();
@@ -445,10 +451,21 @@ TEST_CASE("TS builders can construct default-initialized TSValue and TSInput ins
         auto linked_leaf = input.view().as_bundle()[0];
         CHECK_FALSE(linked_leaf.valid());
 
-        hgraph::test_detail::ExposedTSOutput output{scalar_ts};
+        hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(scalar_ts)};
         linked_leaf.bind_output(output.view());
         output.atomic_value().set(8.5f);
         CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(8.5f));
+    }
+
+    SECTION("TSOutput can be default-constructed and later bound by its builder") {
+        const hgraph::TSOutputBuilder &builder = hgraph::test_detail::output_builder_for(scalar_ts);
+
+        hgraph::test_detail::ExposedTSOutput output;
+        builder.construct_output(output);
+
+        CHECK(output.view_context().schema == scalar_ts);
+        CHECK(output.view_context().ts_state != nullptr);
+        CHECK(output.atomic_value().as<float>() == Catch::Approx(0.0f));
     }
 
     SECTION("TSInput can be constructed and copy-constructed into caller-provided memory") {
@@ -462,7 +479,7 @@ TEST_CASE("TS builders can construct default-initialized TSValue and TSInput ins
         auto linked_leaf = input.view().as_bundle()[0];
         CHECK_FALSE(linked_leaf.valid());
 
-        hgraph::test_detail::ExposedTSOutput output{scalar_ts};
+        hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(scalar_ts)};
         linked_leaf.bind_output(output.view());
         output.atomic_value().set(3.25f);
         CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(3.25f));
@@ -476,6 +493,26 @@ TEST_CASE("TS builders can construct default-initialized TSValue and TSInput ins
 
         builder.destruct_input(copied_input);
         builder.destruct_input(input);
+        builder.deallocate(copy_memory);
+        builder.deallocate(memory);
+    }
+
+    SECTION("TSOutput can be constructed and copy-constructed into caller-provided memory") {
+        const hgraph::TSOutputBuilder &builder = hgraph::test_detail::output_builder_for(scalar_ts);
+
+        hgraph::test_detail::ExposedTSOutput output;
+        void *memory = builder.allocate();
+        builder.construct_output(output, memory);
+        output.atomic_value().set(4.75f);
+
+        hgraph::test_detail::ExposedTSOutput copied_output;
+        void *copy_memory = builder.allocate();
+        builder.copy_construct_output(copied_output, output, copy_memory);
+
+        CHECK(copied_output.atomic_value().as<float>() == Catch::Approx(4.75f));
+
+        builder.destruct_output(copied_output);
+        builder.destruct_output(output);
         builder.deallocate(copy_memory);
         builder.deallocate(memory);
     }
