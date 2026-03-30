@@ -36,8 +36,7 @@ struct HGRAPH_EXPORT ActiveTrieNode {
 
     /// TSD-only: subtrees evicted when their slot was removed while active.
     /// Keyed by owning copy of the removed key for O(1) resolve lookup.
-    using PendingMap = std::unordered_map<Value, std::unique_ptr<ActiveTrieNode>,
-                                          std::hash<Value>, std::equal_to<Value>>;
+    using PendingMap = std::unordered_map<Value, std::unique_ptr<ActiveTrieNode>>;
     PendingMap pending;
 
     // -- Query --
