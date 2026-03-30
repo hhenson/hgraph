@@ -572,7 +572,42 @@ namespace hgraph
                 if (state == nullptr) { return TSViewContext::none(); }
 
                 const View key = delta.key_at_slot(slot);
-                ensure_child_state(*state, slot, m_value_schema.get(), key.hash());
+                const size_t key_hash = key.hash();
+
+                // Before ensure_child_state may destroy the old child state,
+                // check if any registered active tries have entries at this
+                // slot that need eviction due to slot reuse (hash mismatch).
+                const bool is_slot_reuse = slot < state->slot_key_hashes.size() &&
+                                           state->child_states.size() > slot &&
+                                           state->child_states[slot] != nullptr &&
+                                           state->slot_key_hashes[slot] != key_hash;
+
+                if (is_slot_reuse && !state->active_tries.empty()) {
+                    // The old key is stored on each trie child's slot_key
+                    // (set during make_active). evict_to_pending uses it.
+                    for (auto &[notifier, trie_node] : state->active_tries) {
+                        trie_node->evict_to_pending(slot);
+                    }
+                }
+
+                ensure_child_state(*state, slot, m_value_schema.get(), key_hash);
+
+                // After creating the new child state, check if any registered
+                // tries have pending entries for the new key.
+                if (!state->active_tries.empty()) {
+                    for (auto &[notifier, trie_node] : state->active_tries) {
+                        if (auto *resolved = trie_node->resolve_pending(key, slot)) {
+                            // Resubscribe locally_active nodes in the resolved
+                            // subtree to the new child state.
+                            if (resolved->locally_active) {
+                                auto *child_state_v = state_value(state->child_states[slot]);
+                                if (child_state_v != nullptr && notifier != nullptr) {
+                                    std::visit([notifier](auto &s) { s.subscribe(notifier); }, *child_state_v);
+                                }
+                            }
+                        }
+                    }
+                }
 
                 TSViewContext child = child_context_from_slot(state->child_states[slot],
                                                               m_value_schema.get(),
@@ -580,6 +615,27 @@ namespace hgraph
                                                               m_value_ts_dispatch.get(),
                                                               RawViewAccess::data_of(delta.value_at_slot(slot)));
                 populate_input_child_context(child, context, slot);
+
+                // Ensure the trie child's slot_key is up to date so that
+                // evict_to_pending can store the correct key in the pending map.
+                if (child.active_pos.node != nullptr && !child.active_pos.node->slot_key) {
+                    child.active_pos.node->slot_key = std::make_unique<Value>(key);
+                }
+
+                // Register/unregister the parent trie node with the TSDState's
+                // active_tries registry. This is done during navigation so the
+                // correct TSD-level trie node is always associated regardless
+                // of activation depth.
+                if (ActiveTrieNode *parent_trie = context.active_pos.node; parent_trie != nullptr) {
+                    if (parent_trie->has_any_active() && child.scheduling_notifier != nullptr) {
+                        state->active_tries.emplace(child.scheduling_notifier, parent_trie);
+                    }
+                } else if (state != nullptr && child.scheduling_notifier != nullptr) {
+                    // Parent trie node is gone (all children passive + pruned),
+                    // ensure we're unregistered.
+                    state->active_tries.erase(child.scheduling_notifier);
+                }
+
                 return child;
             }
 

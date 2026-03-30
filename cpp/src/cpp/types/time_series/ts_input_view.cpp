@@ -145,6 +145,11 @@ namespace hgraph
         m_active_pos.node->locally_active = true;
         subscribe_scheduling_notifier();
 
+        // NOTE: TSD registration (active_tries on TSDState) is handled by
+        // DictTSDispatch::child_at_slot during navigation, not here. That
+        // ensures the correct TSD-level trie node is registered regardless
+        // of how deep the activation point is.
+
         // TODO: Initial notification — if the bound state is already modified
         // at or after the current evaluation time, schedule the node immediately.
         // This is required for correctness when resolve_pending resubscribes

@@ -6,10 +6,12 @@
 #include <hgraph/util/tagged_ptr.h>
 
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 namespace hgraph
 {
+    struct ActiveTrieNode;
 
     struct TSMeta;
     struct TSInput;
@@ -262,6 +264,21 @@ namespace hgraph
          * can be reset when a removed slot later holds a different key.
          */
         std::vector<size_t> slot_key_hashes;
+
+        /**
+         * Active trie nodes from bound inputs, keyed by scheduling notifier.
+         *
+         * Each bound input branch that has active children below this TSD
+         * registers its trie node here so that slot reuse in
+         * ensure_child_state can evict/resolve pending entries for ALL
+         * interested inputs, not just the one currently navigating.
+         *
+         * The key is the scheduling notifier identity (unique per input
+         * branch after TargetLinkState boundary switching). This provides
+         * the notifier needed for resubscription when pending entries are
+         * resolved.
+         */
+        std::unordered_map<Notifiable *, ActiveTrieNode *> active_tries;
     };
 
     /**
@@ -376,6 +393,13 @@ namespace hgraph
         /**
          * Remove any bound target and unregister from its modification
          * notifications.
+         *
+         * NOTE: This only unregisters the target_notifiable from the bound
+         * output's state. If the input's ActiveTrie has locally_active nodes
+         * below this link boundary with scheduling notifiers subscribed to
+         * output-side child states, those subscriptions must be cleaned up
+         * by the caller before calling reset_target. See
+         * ActiveTrieNode::unsubscribe_all (TODO: not yet implemented).
          */
         void reset_target() noexcept;
 

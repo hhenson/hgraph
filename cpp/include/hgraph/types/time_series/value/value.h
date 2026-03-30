@@ -327,3 +327,16 @@ namespace hgraph
     }
 
 }  // namespace hgraph
+
+template <>
+struct std::hash<hgraph::Value> {
+    size_t operator()(const hgraph::Value &v) const noexcept { return v.has_value() ? v.hash() : 0u; }
+};
+
+template <>
+struct std::equal_to<hgraph::Value> {
+    using is_transparent = void;
+    bool operator()(const hgraph::Value &a, const hgraph::Value &b) const { return a.equals(b); }
+    bool operator()(const hgraph::Value &a, const hgraph::View &b) const { return a.equals(b); }
+    bool operator()(const hgraph::View &a, const hgraph::Value &b) const { return b.equals(a); }
+};

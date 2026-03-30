@@ -88,13 +88,15 @@ TEST_CASE("ActiveTrieNode evict_to_pending moves active subtree to pending", "[a
     tsd_node.ensure_child(2).locally_active = true;
 
     Value key{std::string{"alpha"}};
-    tsd_node.evict_to_pending(2, key.view());
+    tsd_node.child_at(2)->slot_key = std::make_unique<Value>(key.view());
+    tsd_node.evict_to_pending(2);
 
     CHECK(tsd_node.child_at(2) == nullptr);
     REQUIRE(tsd_node.pending.size() == 1);
-    CHECK(tsd_node.pending[0].key.view() == key.view());
-    REQUIRE(tsd_node.pending[0].subtrie != nullptr);
-    CHECK(tsd_node.pending[0].subtrie->locally_active);
+    const auto it = tsd_node.pending.find(key);
+    REQUIRE(it != tsd_node.pending.end());
+    REQUIRE(it->second != nullptr);
+    CHECK(it->second->locally_active);
 }
 
 TEST_CASE("ActiveTrieNode evict_to_pending is no-op for inactive child", "[active_trie][pending]")
@@ -106,7 +108,8 @@ TEST_CASE("ActiveTrieNode evict_to_pending is no-op for inactive child", "[activ
     tsd_node.ensure_child(2);  // exists but inactive
 
     Value key{std::string{"beta"}};
-    tsd_node.evict_to_pending(2, key.view());
+    tsd_node.child_at(2)->slot_key = std::make_unique<Value>(key.view());
+    tsd_node.evict_to_pending(2);
 
     // Child not evicted (no active state), but it may or may not remain.
     CHECK(tsd_node.pending.empty());
@@ -114,12 +117,8 @@ TEST_CASE("ActiveTrieNode evict_to_pending is no-op for inactive child", "[activ
 
 TEST_CASE("ActiveTrieNode evict_to_pending is no-op for absent slot", "[active_trie][pending]")
 {
-    auto &registry = value::TypeRegistry::instance();
-    registry.register_type<std::string>("str");
-
     ActiveTrieNode tsd_node;
-    Value key{std::string{"gamma"}};
-    tsd_node.evict_to_pending(99, key.view());
+    tsd_node.evict_to_pending(99);
     CHECK(tsd_node.pending.empty());
 }
 
@@ -132,7 +131,8 @@ TEST_CASE("ActiveTrieNode resolve_pending reinstalls subtree at new slot", "[act
     tsd_node.ensure_child(2).locally_active = true;
 
     Value key{std::string{"delta"}};
-    tsd_node.evict_to_pending(2, key.view());
+    tsd_node.child_at(2)->slot_key = std::make_unique<Value>(key.view());
+    tsd_node.evict_to_pending(2);
     REQUIRE(tsd_node.pending.size() == 1);
 
     // Resolve at a different slot.
@@ -151,7 +151,8 @@ TEST_CASE("ActiveTrieNode resolve_pending returns nullptr for unknown key", "[ac
     ActiveTrieNode tsd_node;
     tsd_node.ensure_child(2).locally_active = true;
     Value key_a{std::string{"epsilon"}};
-    tsd_node.evict_to_pending(2, key_a.view());
+    tsd_node.child_at(2)->slot_key = std::make_unique<Value>(key_a.view());
+    tsd_node.evict_to_pending(2);
 
     Value key_b{std::string{"zeta"}};
     CHECK(tsd_node.resolve_pending(key_b.view(), 5) == nullptr);
@@ -167,7 +168,8 @@ TEST_CASE("ActiveTrieNode has_any_active includes pending subtrees", "[active_tr
     tsd_node.ensure_child(2).locally_active = true;
 
     Value key{std::string{"eta"}};
-    tsd_node.evict_to_pending(2, key.view());
+    tsd_node.child_at(2)->slot_key = std::make_unique<Value>(key.view());
+    tsd_node.evict_to_pending(2);
 
     // No slot children active, but pending subtree is active.
     CHECK(tsd_node.has_any_active());
@@ -187,7 +189,8 @@ TEST_CASE("ActiveTrieNode deep_copy preserves structure", "[active_trie]")
 
     Value key{std::string{"theta"}};
     root.ensure_child(2).locally_active = true;
-    root.evict_to_pending(2, key.view());
+    root.child_at(2)->slot_key = std::make_unique<Value>(key.view());
+    root.evict_to_pending(2);
 
     auto copy = root.deep_copy();
     REQUIRE(copy != nullptr);
@@ -198,8 +201,9 @@ TEST_CASE("ActiveTrieNode deep_copy preserves structure", "[active_trie]")
     REQUIRE(copy->child_at(1)->child_at(3) != nullptr);
     CHECK(copy->child_at(1)->child_at(3)->locally_active);
     REQUIRE(copy->pending.size() == 1);
-    CHECK(copy->pending[0].key.view() == key.view());
-    CHECK(copy->pending[0].subtrie->locally_active);
+    const auto pit = copy->pending.find(key);
+    REQUIRE(pit != copy->pending.end());
+    CHECK(pit->second->locally_active);
 
     // Mutation of copy doesn't affect original.
     copy->locally_active = false;

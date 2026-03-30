@@ -1,7 +1,5 @@
 #include <hgraph/types/time_series/active_trie.h>
 
-#include <algorithm>
-
 namespace hgraph
 {
     // -- ActiveTrieNode --
@@ -18,8 +16,8 @@ namespace hgraph
         for (const auto &[slot, child] : children) {
             if (child && child->has_any_active()) { return true; }
         }
-        for (const auto &entry : pending) {
-            if (entry.subtrie && entry.subtrie->has_any_active()) { return true; }
+        for (const auto &[key, subtrie] : pending) {
+            if (subtrie && subtrie->has_any_active()) { return true; }
         }
         return false;
     }
@@ -40,43 +38,45 @@ namespace hgraph
         return true;
     }
 
-    void ActiveTrieNode::evict_to_pending(size_t slot, const View &key)
+    void ActiveTrieNode::evict_to_pending(size_t slot)
     {
         const auto it = children.find(slot);
         if (it == children.end() || !it->second) { return; }
         if (!it->second->has_any_active()) { return; }
+        if (!it->second->slot_key) { return; }
 
-        pending.push_back(PendingTrieEntry{Value{key}, std::move(it->second)});
+        Value key_copy = Value{it->second->slot_key->view()};
+        auto subtrie = std::move(it->second);
         children.erase(it);
+        pending.emplace(std::move(key_copy), std::move(subtrie));
     }
 
     ActiveTrieNode *ActiveTrieNode::resolve_pending(const View &key, size_t new_slot)
     {
-        for (auto it = pending.begin(); it != pending.end(); ++it) {
-            if (it->key.view() == key) {
-                auto &child = children[new_slot];
-                child = std::move(it->subtrie);
-                ActiveTrieNode *result = child.get();
-                pending.erase(it);
-                return result;
-            }
-        }
-        return nullptr;
+        const Value lookup_key{key};
+        const auto it = pending.find(lookup_key);
+        if (it == pending.end()) { return nullptr; }
+
+        auto &child = children[new_slot];
+        child = std::move(it->second);
+        child->slot_key = std::make_unique<Value>(key);
+        ActiveTrieNode *result = child.get();
+        pending.erase(it);
+        return result;
     }
 
     std::unique_ptr<ActiveTrieNode> ActiveTrieNode::deep_copy() const
     {
         auto copy = std::make_unique<ActiveTrieNode>();
         copy->locally_active = locally_active;
+        if (slot_key) { copy->slot_key = std::make_unique<Value>(slot_key->view()); }
 
         for (const auto &[slot, child] : children) {
             if (child) { copy->children.emplace(slot, child->deep_copy()); }
         }
 
-        for (const auto &entry : pending) {
-            copy->pending.push_back(PendingTrieEntry{
-                Value{entry.key.view()},
-                entry.subtrie ? entry.subtrie->deep_copy() : nullptr});
+        for (const auto &[key, subtrie] : pending) {
+            copy->pending.emplace(Value{key.view()}, subtrie ? subtrie->deep_copy() : nullptr);
         }
 
         return copy;

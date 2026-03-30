@@ -4,25 +4,11 @@
 #include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/time_series/value/view.h>
 
+#include <functional>
 #include <memory>
 #include <unordered_map>
-#include <vector>
 
 namespace hgraph {
-
-struct ActiveTrieNode;
-
-/**
- * A pending trie entry created when a TSD key is removed while its subtree
- * contains active state.
- *
- * The entry preserves a copy of the key so that the subtree can be reinstalled
- * at a new slot when the same key reappears in the output.
- */
-struct HGRAPH_EXPORT PendingTrieEntry {
-    Value key;
-    std::unique_ptr<ActiveTrieNode> subtrie;
-};
 
 /**
  * A single node in the sparse active-state trie.
@@ -42,9 +28,17 @@ struct HGRAPH_EXPORT ActiveTrieNode {
     /// Children indexed by slot. Sparse: only active paths have entries.
     std::unordered_map<size_t, std::unique_ptr<ActiveTrieNode>> children;
 
+    /// TSD-only: the key associated with this trie node's slot position.
+    /// Set when make_active is called on a TSD child so that eviction
+    /// can store the correct key in the pending map even after the value
+    /// layer has overwritten the slot with a different key.
+    std::unique_ptr<Value> slot_key;
+
     /// TSD-only: subtrees evicted when their slot was removed while active.
-    /// Tracked by key copy so they can be reinstalled at a new slot.
-    std::vector<PendingTrieEntry> pending;
+    /// Keyed by owning copy of the removed key for O(1) resolve lookup.
+    using PendingMap = std::unordered_map<Value, std::unique_ptr<ActiveTrieNode>,
+                                          std::hash<Value>, std::equal_to<Value>>;
+    PendingMap pending;
 
     // -- Query --
 
@@ -65,14 +59,27 @@ struct HGRAPH_EXPORT ActiveTrieNode {
 
     // -- TSD pending ops --
 
-    /// Move the child at @p slot to pending storage, keyed by @p key.
-    /// No-op if the slot has no child or the child has no active state.
-    void evict_to_pending(size_t slot, const View &key);
+    /// Move the child at @p slot to pending storage.
+    /// The child's slot_key is used as the pending map key.
+    /// No-op if the slot has no child, the child has no slot_key, or
+    /// the child has no active state.
+    void evict_to_pending(size_t slot);
 
     /// Look for a pending entry matching @p key and, if found, reinstall
-    /// it as a child at @p new_slot. Returns the reinstalled node, or
-    /// nullptr if no matching pending entry was found.
+    /// it as a child at @p new_slot and update its slot_key.
+    /// Returns the reinstalled node, or nullptr if no match found.
     ActiveTrieNode *resolve_pending(const View &key, size_t new_slot);
+
+    // -- Bulk subscription management --
+    // These are used during unbind (unsubscribe the subtree from output-side
+    // states before the link is torn down) and rebind/resolve_pending
+    // (resubscribe against new target states).
+    //
+    // TODO: Implement when integrating with TSD structural observers and
+    //       TargetLinkState unbind cleanup. On unbind, the trie subtree at
+    //       the link boundary must be walked to unsubscribe all locally_active
+    //       nodes from the output-side states. On rebind, the subtree must
+    //       be walked to resubscribe against the new target's states.
 
     // -- Deep copy --
 
