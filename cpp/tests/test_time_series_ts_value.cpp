@@ -51,7 +51,6 @@ namespace hgraph
         struct ExposedTSInput : TSInput
         {
             using TSInput::TSInput;
-            using TSInput::active_state;
             using TSInput::view;
             using TSValue::view_context;
         };
@@ -770,10 +769,9 @@ TEST_CASE("TSInput dict-key activation survives a simple remove and re-add of th
     auto *initial_child_state = hgraph::test_detail::child_state(*dict_state, initial_slot);
     REQUIRE(initial_child_state != nullptr);
 
-    auto &link_state = hgraph::test_detail::linked_field(input);
     hgraph::test_detail::RecordingNotifiable recorder;
 
-    // boundary_notifier wires link_state.scheduling_notifier → recorder
+    // boundary_notifier wires TargetLinkState.scheduling_notifier → recorder
     auto key_view = input.view(&recorder).as_bundle()[0].as_dict().at(key.view());
 
     key_view.make_active();

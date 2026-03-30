@@ -11,11 +11,13 @@ namespace hgraph
     }
 
     TSInput::TSInput(const TSInput &other)
+        : m_active_trie(other.m_active_trie.deep_copy())
     {
         if (other.m_builder != nullptr) { other.builder().copy_construct_input(*this, other); }
     }
 
     TSInput::TSInput(TSInput &&other) noexcept
+        : m_active_trie(std::move(other.m_active_trie))
     {
         if (other.m_builder != nullptr) { other.builder().move_construct_input(*this, other); }
     }
@@ -34,10 +36,11 @@ namespace hgraph
         clear_storage();
         reset_binding();
         m_builder = nullptr;
+        m_active_trie = std::move(other.m_active_trie);
         m_builder = other.m_builder;
         m_storage = other.m_storage;
         if (m_builder != nullptr) { rebind_builder(builder().ts_value_builder(), StorageOwnership::External); }
-        if (storage_memory() != nullptr) { attach_storage(builder().ts_value_memory(storage_memory())); }
+        if (storage_memory() != nullptr) { attach_storage(storage_memory()); }
 
         other.clear_storage_handle();
         other.m_builder = nullptr;
@@ -54,23 +57,9 @@ namespace hgraph
     TSInputView TSInput::view(Notifiable *scheduling_notifier)
     {
         TSViewContext context{view_context()};
-        context.active_state = active_state();
+        context.active_pos = ActiveTriePosition{&m_active_trie, m_active_trie.root_node()};
         context.scheduling_notifier = scheduling_notifier;
         return TSInputView{context};
-    }
-
-    View TSInput::active_state() const
-    {
-        if (m_builder == nullptr || storage_memory() == nullptr) { return View::invalid_for(nullptr); }
-        return View{&builder().active_builder().dispatch(),
-                    storage_memory() != nullptr ? const_cast<void *>(active_memory()) : nullptr,
-                    &builder().active_schema()};
-    }
-
-    View TSInput::active_state()
-    {
-        if (m_builder == nullptr || storage_memory() == nullptr) { return View::invalid_for(nullptr); }
-        return View{&builder().active_builder().dispatch(), storage_memory() != nullptr ? active_memory() : nullptr, &builder().active_schema()};
     }
 
     void TSInput::allocate_and_construct()

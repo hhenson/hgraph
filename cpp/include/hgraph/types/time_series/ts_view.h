@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/active_trie.h>
 #include <hgraph/types/time_series/time_series_state.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/value/value.h>
@@ -121,24 +122,19 @@ namespace hgraph
      */
     struct TSViewContext : TSContext
     {
-        TSViewContext() noexcept
-            : active_state(View::invalid_for(nullptr))
-        {
-        }
+        TSViewContext() noexcept = default;
 
         TSViewContext(const TSMeta *schema_,
                       const detail::ViewDispatch *value_dispatch_,
                       const detail::TSDispatch *ts_dispatch_,
                       void *value_data_,
                       BaseState *ts_state_) noexcept
-            : TSContext(schema_, value_dispatch_, ts_dispatch_, value_data_, ts_state_),
-              active_state(View::invalid_for(nullptr))
+            : TSContext(schema_, value_dispatch_, ts_dispatch_, value_data_, ts_state_)
         {
         }
 
         TSViewContext(const TSContext &context) noexcept
-            : TSContext(context),
-              active_state(View::invalid_for(nullptr))
+            : TSContext(context)
         {
         }
 
@@ -185,7 +181,7 @@ namespace hgraph
             return View{resolved_context.value_dispatch, resolved_context.value_data, value_schema};
         }
 
-        View active_state;
+        ActiveTriePosition active_pos;
         Notifiable *scheduling_notifier{nullptr};
     };
 

@@ -184,67 +184,7 @@ namespace hgraph
             }
         }
 
-        [[nodiscard]] const value::TypeMeta *active_schema_from(const TSMeta *schema)
-        {
-            auto &registry = value::TypeRegistry::instance();
-            const value::TypeMeta *bool_meta = value::scalar_type_meta<bool>();
-            static std::unordered_map<const TSMeta *, const value::TypeMeta *> cache;
-            static std::recursive_mutex cache_mutex;
-
-            if (schema == nullptr) { return bool_meta; }
-
-            std::lock_guard<std::recursive_mutex> lock(cache_mutex);
-            if (const auto it = cache.find(schema); it != cache.end()) { return it->second; }
-
-            const value::TypeMeta *active_schema = bool_meta;
-            switch (schema->kind) {
-                case TSKind::TSValue:
-                case TSKind::TSS:
-                case TSKind::TSW:
-                case TSKind::REF:
-                case TSKind::SIGNAL:
-                    active_schema = bool_meta;
-                    break;
-
-                case TSKind::TSB:
-                    {
-                        auto builder = registry.tuple();
-                        builder.add_element(bool_meta);
-                        for (size_t i = 0; i < schema->field_count(); ++i) {
-                            builder.add_element(active_schema_from(schema->fields()[i].ts_type));
-                        }
-                        active_schema = builder.build();
-                        break;
-                    }
-
-                case TSKind::TSL:
-                    {
-                        const value::TypeMeta *child_active = active_schema_from(schema->element_ts());
-                        const value::TypeMeta *child_collection = schema->fixed_size() > 0
-                                                                      ? registry.fixed_list(child_active, schema->fixed_size()).build()
-                                                                      : registry.list(child_active).build();
-                        auto builder = registry.tuple();
-                        builder.add_element(bool_meta);
-                        builder.add_element(child_collection);
-                        active_schema = builder.build();
-                        break;
-                    }
-
-                case TSKind::TSD:
-                    {
-                        const value::TypeMeta *child_active = active_schema_from(schema->element_ts());
-                        const value::TypeMeta *child_collection = registry.map(schema->key_type(), child_active).build();
-                        auto builder = registry.tuple();
-                        builder.add_element(bool_meta);
-                        builder.add_element(child_collection);
-                        active_schema = builder.build();
-                        break;
-                    }
-            }
-
-            cache.emplace(schema, active_schema);
-            return active_schema;
-        }
+        // active_schema_from removed — active state is now tracked by ActiveTrie on TSInput.
 
         struct InputStateNodeOps
         {
@@ -466,84 +406,7 @@ namespace hgraph
             std::shared_ptr<const InputStateNodeOps> m_root_ops;
         };
 
-        struct CompositeTSInputBuilderOps final : detail::TSInputBuilderOps
-        {
-            [[nodiscard]] detail::TSInputBuilderLayout layout(const TSValueBuilder &ts_value_builder,
-                                                              const ValueBuilder &active_builder) const noexcept override
-            {
-                const size_t ts_value_offset = 0;
-                const size_t active_offset = align_up(ts_value_builder.size(), active_builder.alignment());
-                const size_t total_size = active_offset + active_builder.size();
-                const size_t total_alignment = std::max(ts_value_builder.alignment(), active_builder.alignment());
-                return detail::TSInputBuilderLayout{
-                    .ts_value_offset = ts_value_offset,
-                    .active_offset = active_offset,
-                    .size = total_size,
-                    .alignment = total_alignment,
-                };
-            }
-
-            void construct(void *ts_value_memory,
-                           void *active_memory,
-                           const TSValueBuilder &ts_value_builder,
-                           const ValueBuilder &active_builder) const override
-            {
-                ts_value_builder.construct(ts_value_memory);
-                try {
-                    active_builder.construct(active_memory);
-                } catch (...) {
-                    ts_value_builder.destruct(ts_value_memory);
-                    throw;
-                }
-            }
-
-            void destruct(void *ts_value_memory,
-                          void *active_memory,
-                          const TSValueBuilder &ts_value_builder,
-                          const ValueBuilder &active_builder) const noexcept override
-            {
-                active_builder.destruct(active_memory);
-                ts_value_builder.destruct(ts_value_memory);
-            }
-
-            void copy_construct(void *dst_ts_value_memory,
-                                void *dst_active_memory,
-                                const void *src_ts_value_memory,
-                                const void *src_active_memory,
-                                const TSValueBuilder &ts_value_builder,
-                                const ValueBuilder &active_builder) const override
-            {
-                ts_value_builder.copy_construct(dst_ts_value_memory, src_ts_value_memory, ts_value_builder);
-                try {
-                    active_builder.copy_construct(dst_active_memory, src_active_memory, active_builder);
-                } catch (...) {
-                    ts_value_builder.destruct(dst_ts_value_memory);
-                    throw;
-                }
-            }
-
-            void move_construct(void *dst_ts_value_memory,
-                                void *dst_active_memory,
-                                void *src_ts_value_memory,
-                                void *src_active_memory,
-                                const TSValueBuilder &ts_value_builder,
-                                const ValueBuilder &active_builder) const override
-            {
-                ts_value_builder.move_construct(dst_ts_value_memory, src_ts_value_memory, ts_value_builder);
-                try {
-                    active_builder.move_construct(dst_active_memory, src_active_memory, active_builder);
-                } catch (...) {
-                    ts_value_builder.destruct(dst_ts_value_memory);
-                    throw;
-                }
-            }
-        };
-
-        [[nodiscard]] const detail::TSInputBuilderOps &composite_builder_ops() noexcept
-        {
-            static CompositeTSInputBuilderOps ops;
-            return ops;
-        }
+        // CompositeTSInputBuilderOps removed — TSInputBuilder now delegates directly to TSValueBuilder.
     }  // namespace
 
     TSInputConstructionSlot TSInputConstructionSlot::create_non_peered_collection(const TSMeta *schema)
@@ -635,44 +498,34 @@ namespace hgraph
     }
 
     TSInputBuilder::TSInputBuilder(const TSMeta &schema,
-                                   const value::TypeMeta &active_schema,
-                                   std::shared_ptr<const detail::TSBuilderOps> ts_state_builder_ops,
-                                   const detail::TSInputBuilderOps &builder_ops) noexcept
+                                   std::shared_ptr<const detail::TSBuilderOps> ts_state_builder_ops) noexcept
         : m_schema(&schema),
-          m_active_schema(&active_schema),
           m_ts_state_builder_ops(std::move(ts_state_builder_ops)),
           m_ts_value_builder(schema,
                             ValueBuilderFactory::checked_builder_for(schema.value_type, MutationTracking::Delta),
                             *m_ts_state_builder_ops,
-                            TSValueBuilderFactory::checked_builder_for(schema).ts_dispatch()),
-          m_active_builder(&ValueBuilderFactory::checked_builder_for(&active_schema)),
-          m_builder_ops(builder_ops)
+                            TSValueBuilderFactory::checked_builder_for(schema).ts_dispatch())
     {
-        const auto layout = m_builder_ops.get().layout(m_ts_value_builder, active_builder());
-        m_ts_value_offset = layout.ts_value_offset;
-        m_active_offset = layout.active_offset;
-        m_size = layout.size;
-        m_alignment = layout.alignment;
     }
 
     void *TSInputBuilder::allocate() const
     {
-        return ::operator new(m_size, std::align_val_t{m_alignment});
+        return ::operator new(size(), std::align_val_t{alignment()});
     }
 
     void TSInputBuilder::construct(void *memory) const
     {
-        m_builder_ops.get().construct(ts_value_memory(memory), active_memory(memory), ts_value_builder(), active_builder());
+        m_ts_value_builder.construct(memory);
     }
 
     void TSInputBuilder::destruct(void *memory) const noexcept
     {
-        m_builder_ops.get().destruct(ts_value_memory(memory), active_memory(memory), ts_value_builder(), active_builder());
+        m_ts_value_builder.destruct(memory);
     }
 
     void TSInputBuilder::deallocate(void *memory) const noexcept
     {
-        ::operator delete(memory, std::align_val_t{m_alignment});
+        ::operator delete(memory, std::align_val_t{alignment()});
     }
 
     void TSInputBuilder::copy_construct(void *dst, const void *src, const TSInputBuilder &src_builder) const
@@ -680,9 +533,7 @@ namespace hgraph
         if (!compatible_with(src_builder)) {
             throw std::invalid_argument("TSInput copy construction requires matching builder");
         }
-
-        m_builder_ops.get().copy_construct(ts_value_memory(dst), active_memory(dst), src_builder.ts_value_memory(src),
-                                           src_builder.active_memory(src), ts_value_builder(), active_builder());
+        m_ts_value_builder.copy_construct(dst, src, src_builder.m_ts_value_builder);
     }
 
     void TSInputBuilder::move_construct(void *dst, void *src, const TSInputBuilder &src_builder) const
@@ -690,35 +541,22 @@ namespace hgraph
         if (!compatible_with(src_builder)) {
             throw std::invalid_argument("TSInput move construction requires matching builder");
         }
-
-        m_builder_ops.get().move_construct(ts_value_memory(dst), active_memory(dst), src_builder.ts_value_memory(src),
-                                           src_builder.active_memory(src), ts_value_builder(), active_builder());
+        m_ts_value_builder.move_construct(dst, src, src_builder.m_ts_value_builder);
     }
 
     void *TSInputBuilder::ts_value_memory(void *memory) const noexcept
     {
-        return static_cast<std::byte *>(memory) + m_ts_value_offset;
+        return memory;
     }
 
     const void *TSInputBuilder::ts_value_memory(const void *memory) const noexcept
     {
-        return static_cast<const std::byte *>(memory) + m_ts_value_offset;
-    }
-
-    void *TSInputBuilder::active_memory(void *memory) const noexcept
-    {
-        return static_cast<std::byte *>(memory) + m_active_offset;
-    }
-
-    const void *TSInputBuilder::active_memory(const void *memory) const noexcept
-    {
-        return static_cast<const std::byte *>(memory) + m_active_offset;
+        return memory;
     }
 
     bool TSInputBuilder::compatible_with(const TSInputBuilder &other) const noexcept
     {
-        return m_schema == other.m_schema && m_active_schema == other.m_active_schema &&
-               m_ts_state_builder_ops.get() == other.m_ts_state_builder_ops.get() && m_active_builder == other.m_active_builder;
+        return m_schema == other.m_schema && m_ts_state_builder_ops.get() == other.m_ts_state_builder_ops.get();
     }
 
     TSInput TSInputBuilder::make_input() const
@@ -737,7 +575,7 @@ namespace hgraph
         try {
             construct(memory);
             input.set_storage(memory, ownership);
-            input.attach_storage(ts_value_memory(memory));
+            input.attach_storage(memory);
         } catch (...) {
             input.clear_storage_handle();
             input.m_builder = nullptr;
@@ -778,7 +616,7 @@ namespace hgraph
         try {
             copy_construct(memory, other.storage_memory(), other.builder());
             input.set_storage(memory, ownership);
-            input.attach_storage(ts_value_memory(memory));
+            input.attach_storage(memory);
         } catch (...) {
             input.clear_storage_handle();
             input.m_builder = nullptr;
@@ -815,7 +653,7 @@ namespace hgraph
         input.m_builder = this;
         input.rebind_builder(ts_value_builder(), TSValue::StorageOwnership::External);
         input.m_storage = other.m_storage;
-        if (input.storage_memory() != nullptr) { input.attach_storage(ts_value_memory(input.storage_memory())); }
+        if (input.storage_memory() != nullptr) { input.attach_storage(input.storage_memory()); }
 
         other.m_builder = nullptr;
         other.clear_storage_handle();
@@ -852,12 +690,9 @@ namespace hgraph
         if (const auto it = cache.find(key); it != cache.end()) { return it->second.get(); }
 
         const auto root_ops = compile_state_node(root);
-        const auto active_schema = active_schema_from(root.schema());
         auto builder = std::unique_ptr<TSInputBuilder>(new TSInputBuilder(
             construction_plan.schema(),
-            *active_schema,
-            std::make_shared<PlannedInputTSBuilderOps>(root_ops),
-            composite_builder_ops()));
+            std::make_shared<PlannedInputTSBuilderOps>(root_ops)));
 
         const TSInputBuilder *builder_ptr = builder.get();
         cache.emplace(key, std::move(builder));

@@ -175,24 +175,15 @@ namespace hgraph
             return child_notifier;
         }
 
-        template <typename TActiveResolver>
         void populate_input_child_context(TSViewContext &child,
                                           const TSViewContext &parent,
-                                          TActiveResolver &&active_resolver)
+                                          size_t child_slot)
         {
             child.scheduling_notifier = child_scheduling_notifier(parent, child.ts_state);
-            if (parent.active_state.has_value()) { child.active_state = std::forward<TActiveResolver>(active_resolver)(); }
-        }
-
-        [[nodiscard]] View ensure_dict_child_active_state(View parent_active_state, const View &key)
-        {
-            MapView child_map = parent_active_state.as_tuple().at(1).as_map();
-            if (!child_map.contains(key)) {
-                Value child_active{child_map.value_schema()};
-                auto mutation = child_map.begin_mutation();
-                mutation.setting(key, child_active.view());
-            }
-            return child_map.at(key);
+            child.active_pos.trie = parent.active_pos.trie;
+            child.active_pos.node = parent.active_pos.node
+                ? parent.active_pos.node->child_at(child_slot)
+                : nullptr;
         }
 
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
@@ -474,7 +465,7 @@ namespace hgraph
                                                               m_element_value_dispatch.get(),
                                                               m_element_ts_dispatch.get(),
                                                               RawViewAccess::data_of(child_value));
-                populate_input_child_context(child, context, [&] { return context.active_state.as_tuple().at(1).as_list().at(index); });
+                populate_input_child_context(child, context, index);
                 return child;
             }
 
@@ -516,7 +507,7 @@ namespace hgraph
                                                               m_fields[index].value_dispatch.get(),
                                                               m_fields[index].ts_dispatch.get(),
                                                               RawViewAccess::data_of(child_value));
-                populate_input_child_context(child, context, [&] { return context.active_state.as_tuple().at(index + 1); });
+                populate_input_child_context(child, context, index);
                 return child;
             }
 
@@ -588,7 +579,7 @@ namespace hgraph
                                                               m_value_dispatch.get(),
                                                               m_value_ts_dispatch.get(),
                                                               RawViewAccess::data_of(delta.value_at_slot(slot)));
-                populate_input_child_context(child, context, [&] { return ensure_dict_child_active_state(context.active_state, key); });
+                populate_input_child_context(child, context, slot);
                 return child;
             }
 

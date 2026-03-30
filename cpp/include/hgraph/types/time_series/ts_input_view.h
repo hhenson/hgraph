@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/active_trie.h>
 #include <hgraph/types/time_series/value/atomic.h>
 #include <hgraph/types/time_series/ts_view.h>
 
@@ -31,24 +32,6 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
     TSInputView(TSViewContext context,
                 TSViewContext parent = TSViewContext::none(),
                 engine_time_t evaluation_time = MIN_DT);
-
-    /**
-     * Construct an input view from the path-local active-state payload.
-     *
-     * The supplied active-state view is expected to represent the activation
-     * flag for this exact input position. The supplied state pointer is a
-     * non-owning reference to the time-series state node represented by this
-     * view. The supplied scheduling notifier is the non-null registration
-     * identity to use when this view requests node scheduling from a bound
-     * output.
-     *
-     * From the input root down to the first target link, this is intended to
-     * be the owning node itself. For views below a target link, this is
-     * intended to switch to the target link state's `scheduling_notifier` so
-     * each linked branch schedules independently.
-     */
-    explicit TSInputView(View active_state, BaseState *state,
-                         Notifiable *scheduling_notifier);
 
     virtual ~TSInputView() = default;
 
@@ -90,7 +73,7 @@ protected:
     void subscribe_scheduling_notifier() noexcept;
     void unsubscribe_scheduling_notifier() noexcept;
 
-    View m_active_state{View::invalid_for(nullptr)};
+    ActiveTriePosition m_active_pos;
     /**
      * Non-owning reference to the represented time-series state node.
      */
@@ -110,13 +93,11 @@ protected:
  * flag in the remaining collection-specific slots.
  */
 struct HGRAPH_EXPORT TSInputCollectionView : TSInputView {
-    explicit TSInputCollectionView(View active_state, BaseState *state,
-                                   Notifiable *scheduling_notifier);
+    using TSInputView::TSInputView;
 
     void make_active() override;
     void make_passive() override;
     [[nodiscard]] bool active() const override;
-
 };
 
 }  // namespace hgraph

@@ -122,6 +122,7 @@ set(HGRAPH_SOURCES
         types/time_series/ts_value_builder.cpp
         types/time_series/ts_value.cpp
         types/time_series/time_series_state.cpp
+        types/time_series/active_trie.cpp
         types/time_series/ts_type_registry.cpp
 
         util/lifecycle.cpp
