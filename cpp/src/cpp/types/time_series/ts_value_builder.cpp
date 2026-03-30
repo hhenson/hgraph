@@ -1,4 +1,5 @@
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_value_builder.h>
 #include <hgraph/types/time_series/ts_view.h>
 
@@ -682,6 +683,76 @@ namespace hgraph
         m_ts_offset = layout.ts_offset;
         m_size = layout.size;
         m_alignment = layout.alignment;
+    }
+
+    TSValue TSValueBuilder::make_value() const
+    {
+        TSValue value;
+        construct_value(value);
+        return value;
+    }
+
+    void TSValueBuilder::construct_value(TSValue &value) const
+    {
+        value.clear_storage();
+        value.reset_binding();
+        value.rebind_builder(*this, TSValue::StorageOwnership::Owned);
+
+        void *memory = allocate();
+        try {
+            construct(memory);
+            value.attach_storage(memory);
+        } catch (...) {
+            value.reset_binding();
+            deallocate(memory);
+            throw;
+        }
+    }
+
+    void TSValueBuilder::copy_construct_value(TSValue &value, const TSValue &other) const
+    {
+        if (other.m_builder != this) {
+            throw std::invalid_argument("TSValueBuilder::copy_construct_value requires matching builder");
+        }
+
+        value.clear_storage();
+        value.reset_binding();
+        value.rebind_builder(*this, TSValue::StorageOwnership::Owned);
+
+        void *memory = allocate();
+        try {
+            copy_construct(memory, other.storage_memory(), other.builder());
+            value.attach_storage(memory);
+        } catch (...) {
+            value.reset_binding();
+            deallocate(memory);
+            throw;
+        }
+    }
+
+    void TSValueBuilder::move_construct_value(TSValue &value, TSValue &other) const
+    {
+        if (other.m_builder != this) {
+            throw std::invalid_argument("TSValueBuilder::move_construct_value requires matching builder");
+        }
+
+        value.clear_storage();
+        value.reset_binding();
+        value.rebind_builder(*this, TSValue::StorageOwnership::Owned);
+        value.m_storage = other.m_storage;
+        other.reset_binding();
+    }
+
+    void TSValueBuilder::destruct_value(TSValue &value) const noexcept
+    {
+        if (value.m_builder != this || value.storage_memory() == nullptr) { return; }
+        if (!value.owns_storage()) {
+            value.reset_binding();
+            return;
+        }
+        destruct(value.storage_memory());
+        deallocate(value.storage_memory());
+        value.reset_binding();
     }
 
     void *TSValueBuilder::allocate() const

@@ -179,6 +179,12 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT TSInputBuilder
     {
+        enum class MemoryOwnership : uint8_t
+        {
+            External,
+            Owned = 1,
+        };
+
         [[nodiscard]] const TSMeta &schema() const noexcept { return *m_schema; }
         [[nodiscard]] const value::TypeMeta &active_schema() const noexcept { return *m_active_schema; }
         [[nodiscard]] const TSValueBuilder &ts_value_builder() const noexcept { return m_ts_value_builder; }
@@ -202,6 +208,42 @@ namespace hgraph
 
         [[nodiscard]] bool compatible_with(const TSInputBuilder &other) const noexcept;
         [[nodiscard]] TSInput make_input() const;
+        /**
+         * Construct an input into caller-supplied storage.
+         *
+         * This assumes `input` is uninitialized and `memory` points at a raw
+         * storage block that satisfies this builder's `size()` and
+         * `alignment()` requirements. If construction throws, any partially
+         * constructed subobjects are cleaned up, `input` is reset to the
+         * unbound state, and ownership of `memory` remains with the caller.
+         */
+        void construct_input(TSInput &input, void *memory, MemoryOwnership ownership = MemoryOwnership::External) const;
+        /**
+         * Allocate storage and construct an input into it.
+         *
+         * This is the convenience heap-owning wrapper over
+         * `construct_input(input, memory)`.
+         */
+        void construct_input(TSInput &input) const;
+        /**
+         * Copy-construct an input into caller-supplied storage.
+         *
+         * This assumes `input` is uninitialized. The destination storage is
+         * supplied by the caller unless `ownership` is set to `Owned`.
+         */
+        void copy_construct_input(TSInput &input,
+                                  const TSInput &other,
+                                  void *memory,
+                                  MemoryOwnership ownership = MemoryOwnership::External) const;
+        /**
+         * Allocate storage and copy-construct an input into it.
+         *
+         * This is the convenience heap-owning wrapper over
+         * `copy_construct_input(input, other, memory)`.
+         */
+        void copy_construct_input(TSInput &input, const TSInput &other) const;
+        void                move_construct_input(TSInput &input, TSInput &other) const;
+        void                destruct_input(TSInput &input) const noexcept;
 
       private:
         friend struct TSInputBuilderFactory;

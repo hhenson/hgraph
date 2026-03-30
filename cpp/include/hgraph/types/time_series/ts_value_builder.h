@@ -10,6 +10,7 @@
 
 namespace hgraph
 {
+    struct TSValue;
     struct TSValueBuilder;
 
     namespace detail
@@ -77,6 +78,11 @@ namespace hgraph
 
         [[nodiscard]] size_t              value_offset() const noexcept { return m_value_offset; }
         [[nodiscard]] size_t              ts_offset() const noexcept { return m_ts_offset; }
+        [[nodiscard]] TSValue             make_value() const;
+        void                              construct_value(TSValue &value) const;
+        void                              copy_construct_value(TSValue &value, const TSValue &other) const;
+        void                              move_construct_value(TSValue &value, TSValue &other) const;
+        void                              destruct_value(TSValue &value) const noexcept;
 
         [[nodiscard]] void *allocate() const;
         void                construct(void *memory) const;

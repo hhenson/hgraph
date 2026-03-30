@@ -417,6 +417,70 @@ TEST_CASE("TSInputBuilder constructs TSInput instances from construction plans",
     CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(6.25f));
 }
 
+TEST_CASE("TS builders can construct default-initialized TSValue and TSInput instances", "[ts_input][ts_output]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *input_schema = ts_registry.tsb({{"ts", scalar_ts}}, "InputBundle");
+
+    SECTION("TSValue can be default-constructed and later bound by its builder") {
+        hgraph::test_detail::ExposedTSValue value;
+        hgraph::TSValueBuilderFactory::checked_builder_for(*scalar_ts).construct_value(value);
+
+        CHECK(value.view_context().schema == scalar_ts);
+        CHECK(value.view_context().ts_state != nullptr);
+        CHECK(value.atomic_value().as<float>() == Catch::Approx(0.0f));
+    }
+
+    SECTION("TSInput can be default-constructed and later bound by its builder") {
+        const hgraph::TSInputBuilder &builder =
+            hgraph::test_detail::builder_for(hgraph::test_detail::single_link_plan(input_schema, 0));
+
+        hgraph::test_detail::ExposedTSInput input;
+        builder.construct_input(input);
+
+        auto linked_leaf = input.view().as_bundle()[0];
+        CHECK_FALSE(linked_leaf.valid());
+
+        hgraph::test_detail::ExposedTSOutput output{scalar_ts};
+        linked_leaf.bind_output(output.view());
+        output.atomic_value().set(8.5f);
+        CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(8.5f));
+    }
+
+    SECTION("TSInput can be constructed and copy-constructed into caller-provided memory") {
+        const hgraph::TSInputBuilder &builder =
+            hgraph::test_detail::builder_for(hgraph::test_detail::single_link_plan(input_schema, 0));
+
+        hgraph::test_detail::ExposedTSInput input;
+        void *memory = builder.allocate();
+        builder.construct_input(input, memory);
+
+        auto linked_leaf = input.view().as_bundle()[0];
+        CHECK_FALSE(linked_leaf.valid());
+
+        hgraph::test_detail::ExposedTSOutput output{scalar_ts};
+        linked_leaf.bind_output(output.view());
+        output.atomic_value().set(3.25f);
+        CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(3.25f));
+
+        hgraph::test_detail::ExposedTSInput copied_input;
+        void *copy_memory = builder.allocate();
+        builder.copy_construct_input(copied_input, input, copy_memory);
+
+        auto copied_leaf = copied_input.view().as_bundle()[0];
+        CHECK(copied_leaf.value().as_atomic().as<float>() == Catch::Approx(3.25f));
+
+        builder.destruct_input(copied_input);
+        builder.destruct_input(input);
+        builder.deallocate(copy_memory);
+        builder.deallocate(memory);
+    }
+}
+
 TEST_CASE("TSInput construction plan compiler builds link terminals from edge paths", "[ts_input][wiring_stub]")
 {
     auto &value_registry = hgraph::value::TypeRegistry::instance();

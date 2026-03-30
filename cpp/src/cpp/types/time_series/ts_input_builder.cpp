@@ -726,6 +726,116 @@ namespace hgraph
         return TSInput{*this};
     }
 
+    void TSInputBuilder::construct_input(TSInput &input, void *memory, MemoryOwnership ownership) const
+    {
+        assert(memory != nullptr);
+        assert(input.m_builder == nullptr);
+        assert(input.storage_memory() == nullptr);
+
+        input.m_builder = this;
+        input.rebind_builder(ts_value_builder(), TSValue::StorageOwnership::External);
+        try {
+            construct(memory);
+            input.set_storage(memory, ownership);
+            input.attach_storage(ts_value_memory(memory));
+        } catch (...) {
+            input.clear_storage_handle();
+            input.m_builder = nullptr;
+            input.detach_storage();
+            input.reset_binding();
+            throw;
+        }
+    }
+
+    void TSInputBuilder::construct_input(TSInput &input) const
+    {
+        input.clear_storage();
+        input.reset_binding();
+        input.m_builder = nullptr;
+        input.clear_storage_handle();
+
+        void *memory = allocate();
+        try {
+            construct_input(input, memory, MemoryOwnership::Owned);
+        } catch (...) {
+            deallocate(memory);
+            throw;
+        }
+    }
+
+    void TSInputBuilder::copy_construct_input(TSInput &input, const TSInput &other, void *memory, MemoryOwnership ownership) const
+    {
+        if (other.m_builder != this || !compatible_with(other.builder())) {
+            throw std::invalid_argument("TSInputBuilder::copy_construct_input requires matching builder");
+        }
+
+        assert(memory != nullptr);
+        assert(input.m_builder == nullptr);
+        assert(input.storage_memory() == nullptr);
+
+        input.m_builder = this;
+        input.rebind_builder(ts_value_builder(), TSValue::StorageOwnership::External);
+        try {
+            copy_construct(memory, other.storage_memory(), other.builder());
+            input.set_storage(memory, ownership);
+            input.attach_storage(ts_value_memory(memory));
+        } catch (...) {
+            input.clear_storage_handle();
+            input.m_builder = nullptr;
+            input.detach_storage();
+            input.reset_binding();
+            throw;
+        }
+    }
+
+    void TSInputBuilder::copy_construct_input(TSInput &input, const TSInput &other) const
+    {
+        input.clear_storage();
+        input.reset_binding();
+        input.m_builder = nullptr;
+        input.clear_storage_handle();
+
+        void *memory = allocate();
+        try {
+            copy_construct_input(input, other, memory, MemoryOwnership::Owned);
+        } catch (...) {
+            deallocate(memory);
+            throw;
+        }
+    }
+
+    void TSInputBuilder::move_construct_input(TSInput &input, TSInput &other) const
+    {
+        if (other.m_builder != this || !compatible_with(other.builder())) {
+            throw std::invalid_argument("TSInputBuilder::move_construct_input requires matching builder");
+        }
+
+        input.clear_storage();
+        input.reset_binding();
+        input.m_builder = this;
+        input.rebind_builder(ts_value_builder(), TSValue::StorageOwnership::External);
+        input.m_storage = other.m_storage;
+        if (input.storage_memory() != nullptr) { input.attach_storage(ts_value_memory(input.storage_memory())); }
+
+        other.m_builder = nullptr;
+        other.clear_storage_handle();
+        other.detach_storage();
+        other.reset_binding();
+    }
+
+    void TSInputBuilder::destruct_input(TSInput &input) const noexcept
+    {
+        if (input.m_builder != this || input.storage_memory() == nullptr) { return; }
+        void *memory = input.storage_memory();
+        const bool owns_storage = input.owns_storage();
+        destruct(memory);
+        if (owns_storage) { deallocate(memory); }
+        input.clear_storage_handle();
+        input.m_builder = nullptr;
+        input.detach_storage();
+        input.reset_binding();
+    }
+
     const TSInputBuilder *TSInputBuilderFactory::builder_for(const TSInputConstructionPlan &construction_plan)
     {
         const TSInputConstructionSlot &root = construction_plan.root();

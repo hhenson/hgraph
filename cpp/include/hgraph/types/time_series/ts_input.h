@@ -5,6 +5,7 @@
 #include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/value/value.h>
+#include <hgraph/util/tagged_ptr.h>
 
 namespace hgraph {
 
@@ -44,6 +45,14 @@ namespace hgraph {
  * tracks binding and activation state for its local view of that structure.
  */
 struct HGRAPH_EXPORT TSInput : TSValue {
+    /**
+     * Construct an unbound input placeholder.
+     *
+     * This is intended for delayed builder-driven construction during node
+     * instantiation.
+     */
+    TSInput() noexcept = default;
+
     /**
      * Construct an input endpoint.
      *
@@ -85,17 +94,35 @@ protected:
     [[nodiscard]] View active_state();
 
 private:
+    friend struct TSInputBuilder;
+
     [[nodiscard]] const TSInputBuilder &builder() const noexcept { return *m_builder; }
-    [[nodiscard]] void *storage_memory() noexcept { return m_storage; }
-    [[nodiscard]] const void *storage_memory() const noexcept { return m_storage; }
+    [[nodiscard]] void *storage_memory() noexcept { return m_storage.ptr(); }
+    [[nodiscard]] const void *storage_memory() const noexcept { return m_storage.ptr(); }
     [[nodiscard]] void *active_memory() noexcept { return builder().active_memory(storage_memory()); }
     [[nodiscard]] const void *active_memory() const noexcept { return builder().active_memory(storage_memory()); }
+    void set_storage(void *memory, TSInputBuilder::MemoryOwnership ownership) noexcept
+    {
+        m_storage.set(memory, storage_ownership_tag(ownership));
+    }
+    void clear_storage_handle() noexcept { m_storage.clear(); }
+    [[nodiscard]] bool owns_storage() const noexcept
+    {
+        return m_storage.has_tag(storage_ownership_tag(TSInputBuilder::MemoryOwnership::Owned));
+    }
+
+    using StoragePtr = erased_tagged_ptr<alignof(void *), 1>;
+    [[nodiscard]] static constexpr typename StoragePtr::storage_type
+        storage_ownership_tag(TSInputBuilder::MemoryOwnership ownership) noexcept
+    {
+        return static_cast<typename StoragePtr::storage_type>(ownership);
+    }
 
     void allocate_and_construct();
     void clear_storage() noexcept;
 
     const TSInputBuilder *m_builder{nullptr};
-    void *m_storage{nullptr};
+    StoragePtr m_storage;
 };
 
 }  // namespace hgraph

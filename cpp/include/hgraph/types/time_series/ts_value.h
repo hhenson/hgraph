@@ -4,6 +4,7 @@
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_value_builder.h>
+#include <hgraph/util/tagged_ptr.h>
 
 #include <functional>
 
@@ -33,6 +34,15 @@ namespace hgraph {
  */
 struct HGRAPH_EXPORT TSValue {
     /**
+     * Construct an unbound time-series value placeholder.
+     *
+     * This is intended for delayed builder-driven construction, for example
+     * when a node owns `TSValue` storage as a member and the node builder
+     * later binds and constructs that storage in place.
+     */
+    TSValue() noexcept = default;
+
+    /**
      * Construct time-series value storage.
      *
      * Time-series value storage is schema-bound. The supplied time-series
@@ -49,22 +59,14 @@ struct HGRAPH_EXPORT TSValue {
 protected:
     enum class StorageOwnership : uint8_t
     {
-        Owned,
         External,
+        Owned = 1,
     };
-
-    /**
-     * Bind this `TSValue` surface to an externally managed storage region.
-     *
-     * This is used by composite endpoint builders such as `TSInputBuilder`
-     * that own a larger allocation containing a `TSValue` sub-region.
-     */
-    TSValue(const TSMeta &schema, const TSValueBuilder &builder, StorageOwnership storage_ownership) noexcept;
 
     /**
      * Return the logical time-series schema satisfied by this storage.
      */
-    [[nodiscard]] const TSMeta &schema() const noexcept { return m_schema.get(); }
+    [[nodiscard]] const TSMeta &schema() const noexcept { return builder().schema(); }
 
     /**
      * Return the stored endpoint value as a read-only erased view.
@@ -162,6 +164,7 @@ protected:
      */
     [[nodiscard]] TSViewContext view_context() noexcept
     {
+        if (m_builder == nullptr || storage_memory() == nullptr) { return TSViewContext::none(); }
         return TSViewContext{
             &schema(),
             &builder().value_builder().dispatch(),
@@ -180,6 +183,7 @@ protected:
     [[nodiscard]] LinkedTSContext linked_context() noexcept
     {
         const TSViewContext context = view_context();
+        if (!context.is_bound()) { return LinkedTSContext::none(); }
         return LinkedTSContext{
             context.schema,
             context.value_dispatch,
@@ -189,16 +193,24 @@ protected:
         };
     }
 
-    void attach_storage(void *storage) noexcept { m_storage = storage; }
-    void detach_storage() noexcept { m_storage = nullptr; }
-    void rebind_builder(const TSMeta &schema, const TSValueBuilder &builder, StorageOwnership storage_ownership) noexcept
+    void attach_storage(void *storage) noexcept { m_storage.set_ptr(storage); }
+    void detach_storage() noexcept { m_storage.set_ptr(nullptr); }
+    void rebind_builder(const TSValueBuilder &builder, StorageOwnership storage_ownership) noexcept
     {
-        m_schema = schema;
         m_builder = &builder;
-        m_owns_storage = storage_ownership == StorageOwnership::Owned;
+        m_storage.set_tag(storage_ownership_tag(storage_ownership));
+    }
+
+    void reset_binding() noexcept
+    {
+        m_builder = nullptr;
+        m_storage.clear();
     }
 
 private:
+    friend struct TSValueBuilder;
+    friend struct TSInputBuilder;
+
     /**
      * Return the conceptual root time-series state for this stored value.
      *
@@ -213,29 +225,43 @@ private:
     }
 
     [[nodiscard]] const TSValueBuilder &builder() const noexcept { return *m_builder; }
-    [[nodiscard]] void *storage_memory() noexcept { return m_storage; }
-    [[nodiscard]] const void *storage_memory() const noexcept { return m_storage; }
+    [[nodiscard]] void *storage_memory() noexcept { return m_storage.ptr(); }
+    [[nodiscard]] const void *storage_memory() const noexcept { return m_storage.ptr(); }
     [[nodiscard]] void *value_memory() noexcept { return builder().value_memory(storage_memory()); }
     [[nodiscard]] const void *value_memory() const noexcept { return builder().value_memory(storage_memory()); }
     [[nodiscard]] void *ts_memory() noexcept { return builder().ts_memory(storage_memory()); }
     [[nodiscard]] const void *ts_memory() const noexcept { return builder().ts_memory(storage_memory()); }
     [[nodiscard]] TimeSeriesStateV &state_variant() noexcept { return *static_cast<TimeSeriesStateV *>(ts_memory()); }
     [[nodiscard]] const TimeSeriesStateV &state_variant() const noexcept { return *static_cast<const TimeSeriesStateV *>(ts_memory()); }
+    [[nodiscard]] bool owns_storage() const noexcept
+    {
+        return m_storage.has_tag(storage_ownership_tag(StorageOwnership::Owned));
+    }
+
+    using StoragePtr = erased_tagged_ptr<alignof(void *), 1>;
+    [[nodiscard]] static constexpr typename StoragePtr::storage_type storage_ownership_tag(StorageOwnership ownership) noexcept
+    {
+        return static_cast<typename StoragePtr::storage_type>(ownership);
+    }
 
     void allocate_and_construct();
     void clear_storage() noexcept;
 
+    /**
+     * The builder is the authoritative metadata handle for a bound `TSValue`.
+     *
+     * This cannot be recovered from schema alone because embedded `TSValue`
+     * regions, such as those inside `TSInput`, may use plan-specialized
+     * builders with different TS state layout and lifecycle behavior while
+     * still representing the same logical schema.
+     */
     const TSValueBuilder *m_builder{nullptr};
     /**
      * One combined allocation containing the value region followed by the TS
-     * extension region.
+     * extension region. Bit 0 carries whether this handle owns destruction and
+     * deallocation of that storage.
      */
-    void *                m_storage{nullptr};
-    /**
-     * Logical time-series schema describing the combined value and TS state.
-     */
-    std::reference_wrapper<const TSMeta> m_schema;
-    bool m_owns_storage{true};
+    StoragePtr m_storage;
 };
 
 }  // namespace hgraph

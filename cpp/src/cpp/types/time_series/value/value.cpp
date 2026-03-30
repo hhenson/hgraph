@@ -14,9 +14,8 @@ namespace hgraph
     }
 
     Value::Value(const value::TypeMeta &schema, MutationTracking tracking)
-        : m_builder(&ValueBuilderFactory::checked_builder_for(&schema, tracking))
     {
-        allocate_and_construct();
+        ValueBuilderFactory::checked_builder_for(&schema, tracking).construct_value(*this);
     }
 
     Value::Value(const View &view, MutationTracking tracking)
@@ -28,37 +27,13 @@ namespace hgraph
     }
 
     Value::Value(const Value &other)
-        : m_builder(other.m_builder)
     {
-        if (m_builder == nullptr) { return; }
-        if (!other.has_value()) { return; }
-
-        if (builder().stores_inline_in_value_handle()) {
-            builder().copy_construct(storage_memory(), other.storage_memory(), other.builder());
-        } else {
-            m_storage.heap_memory = builder().allocate();
-            try {
-                builder().copy_construct(m_storage.heap_memory, other.storage_memory(), other.builder());
-            } catch (...) {
-                builder().deallocate(m_storage.heap_memory);
-                m_storage.heap_memory = nullptr;
-                throw;
-            }
-        }
+        if (other.m_builder != nullptr) { other.builder().copy_construct_value(*this, other); }
     }
 
     Value::Value(Value &&other) noexcept
-        : m_builder(other.m_builder)
     {
-        if (m_builder == nullptr) { return; }
-        if (!other.has_value()) { return; }
-
-        if (builder().stores_inline_in_value_handle()) {
-            builder().move_construct(storage_memory(), other.storage_memory(), other.builder());
-        } else {
-            m_storage.heap_memory = other.m_storage.heap_memory;
-            other.m_storage.heap_memory = nullptr;
-        }
+        if (other.m_builder != nullptr) { other.builder().move_construct_value(*this, other); }
     }
 
     Value &Value::operator=(const Value &other)
@@ -311,33 +286,13 @@ namespace hgraph
     void Value::allocate_and_construct()
     {
         if (m_builder == nullptr) { throw std::runtime_error("Cannot materialize a schema-less Value"); }
-        if (builder().stores_inline_in_value_handle()) {
-            builder().construct(storage_memory());
-            return;
-        }
-
-        m_storage.heap_memory = builder().allocate();
-        try {
-            builder().construct(m_storage.heap_memory);
-        } catch (...) {
-            builder().deallocate(m_storage.heap_memory);
-            m_storage.heap_memory = nullptr;
-            throw;
-        }
+        builder().construct_value(*this);
     }
 
     void Value::clear_storage() noexcept
     {
         if (m_builder == nullptr) { return; }
-        if (!has_value()) { return; }
-
-        if (builder().requires_destruct()) {
-            builder().destruct(storage_memory());
-        }
-        if (builder().requires_deallocate() && !builder().stores_inline_in_value_handle()) {
-            builder().deallocate(m_storage.heap_memory);
-            m_storage.heap_memory = nullptr;
-        }
+        builder().destruct_value(*this);
     }
 
     void *Value::storage_memory() noexcept

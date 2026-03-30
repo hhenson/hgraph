@@ -245,6 +245,8 @@ namespace hgraph
         void reset();
 
       private:
+        friend struct ValueBuilder;
+
         union Storage
         {
             void                                     *heap_memory;

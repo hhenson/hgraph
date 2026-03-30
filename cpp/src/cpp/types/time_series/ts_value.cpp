@@ -12,36 +12,18 @@ namespace hgraph
     }  // namespace
 
     TSValue::TSValue(const TSMeta &schema)
-        : TSValue(schema, TSValueBuilderFactory::checked_builder_for(schema), StorageOwnership::Owned)
     {
-        allocate_and_construct();
-    }
-
-    TSValue::TSValue(const TSMeta &schema, const TSValueBuilder &builder, StorageOwnership storage_ownership) noexcept
-        : m_builder(&builder), m_schema(schema), m_owns_storage(storage_ownership == StorageOwnership::Owned)
-    {
+        TSValueBuilderFactory::checked_builder_for(schema).construct_value(*this);
     }
 
     TSValue::TSValue(const TSValue &other)
-        : m_builder(other.m_builder), m_schema(other.m_schema)
     {
-        if (m_builder == nullptr) { return; }
-
-        m_storage = builder().allocate();
-        try {
-            builder().copy_construct(m_storage, other.storage_memory(), other.builder());
-        } catch (...) {
-            builder().deallocate(m_storage);
-            m_storage = nullptr;
-            throw;
-        }
+        if (other.m_builder != nullptr) { other.builder().copy_construct_value(*this, other); }
     }
 
     TSValue::TSValue(TSValue &&other) noexcept
-        : m_builder(other.m_builder), m_storage(other.m_storage), m_schema(other.m_schema), m_owns_storage(other.m_owns_storage)
     {
-        other.m_builder = nullptr;
-        other.m_storage = nullptr;
+        if (other.m_builder != nullptr) { other.builder().move_construct_value(*this, other); }
     }
 
     TSValue &TSValue::operator=(const TSValue &other)
@@ -50,20 +32,20 @@ namespace hgraph
 
         if (other.m_builder == nullptr) {
             clear_storage();
-            m_builder = nullptr;
+            reset_binding();
             return *this;
         }
 
         if (m_builder == nullptr) {
             m_builder = other.m_builder;
-            m_schema = other.m_schema;
-            m_storage = builder().allocate();
+            m_storage.set_tag(storage_ownership_tag(StorageOwnership::Owned));
+            void *memory = builder().allocate();
             try {
-                builder().copy_construct(m_storage, other.storage_memory(), other.builder());
+                builder().copy_construct(memory, other.storage_memory(), other.builder());
+                attach_storage(memory);
             } catch (...) {
-                builder().deallocate(m_storage);
-                m_storage = nullptr;
-                m_builder = nullptr;
+                builder().deallocate(memory);
+                reset_binding();
                 throw;
             }
             return *this;
@@ -83,8 +65,7 @@ namespace hgraph
 
         clear_storage();
         m_builder = other.m_builder;
-        m_schema = other.m_schema;
-        m_storage = replacement;
+        m_storage.set(replacement, storage_ownership_tag(StorageOwnership::Owned));
         return *this;
     }
 
@@ -95,11 +76,8 @@ namespace hgraph
         clear_storage();
         m_builder = other.m_builder;
         m_storage = other.m_storage;
-        m_schema = other.m_schema;
-        m_owns_storage = other.m_owns_storage;
 
-        other.m_builder = nullptr;
-        other.m_storage = nullptr;
+        other.reset_binding();
         return *this;
     }
 
@@ -110,14 +88,15 @@ namespace hgraph
 
     View TSValue::value() const noexcept
     {
-        return m_builder != nullptr ? View{&builder().value_builder().dispatch(), const_cast<void *>(value_memory()), value_schema_of(builder())}
-                                    : View::invalid_for(schema().value_type);
+        return m_builder != nullptr
+                   ? View{&builder().value_builder().dispatch(), const_cast<void *>(value_memory()), value_schema_of(builder())}
+                   : View::invalid_for(nullptr);
     }
 
     View TSValue::value() noexcept
     {
         return m_builder != nullptr ? View{&builder().value_builder().dispatch(), value_memory(), value_schema_of(builder())}
-                                    : View::invalid_for(schema().value_type);
+                                    : View::invalid_for(nullptr);
     }
 
     AtomicView TSValue::atomic_value() const
@@ -172,25 +151,12 @@ namespace hgraph
 
     void TSValue::allocate_and_construct()
     {
-        m_storage = builder().allocate();
-        try {
-            builder().construct(m_storage);
-        } catch (...) {
-            builder().deallocate(m_storage);
-            m_storage = nullptr;
-            throw;
-        }
+        builder().construct_value(*this);
     }
 
     void TSValue::clear_storage() noexcept
     {
-        if (m_builder == nullptr || m_storage == nullptr) { return; }
-        if (!m_owns_storage) {
-            m_storage = nullptr;
-            return;
-        }
-        builder().destruct(m_storage);
-        builder().deallocate(m_storage);
-        m_storage = nullptr;
+        if (m_builder == nullptr || storage_memory() == nullptr) { return; }
+        builder().destruct_value(*this);
     }
 }  // namespace hgraph

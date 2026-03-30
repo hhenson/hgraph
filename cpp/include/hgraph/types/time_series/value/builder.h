@@ -13,6 +13,8 @@
 
 namespace hgraph
 {
+    struct Value;
+
     namespace detail
     {
 
@@ -98,6 +100,11 @@ namespace hgraph
         [[nodiscard]] bool                        requires_deallocate() const noexcept;
         [[nodiscard]] bool                        stores_inline_in_value_handle() const noexcept;
         [[nodiscard]] const detail::ViewDispatch &dispatch() const noexcept;
+        [[nodiscard]] Value                       make_value() const;
+        void                                      construct_value(Value &value) const;
+        void                                      copy_construct_value(Value &value, const Value &other) const;
+        void                                      move_construct_value(Value &value, Value &other) const;
+        void                                      destruct_value(Value &value) const noexcept;
 
         // Provide a default allocator to allocate memory.
         // This step can be skipped if allocation is performed externally
