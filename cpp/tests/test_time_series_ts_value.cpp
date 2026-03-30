@@ -12,6 +12,7 @@
 #include <hgraph/types/value/type_registry.h>
 
 #include <algorithm>
+#include <chrono>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -41,14 +42,25 @@ namespace hgraph
         {
             using TSOutput::TSOutput;
             using TSValue::atomic_value;
+            using TSValue::dict_delta_value;
+            using TSValue::dict_value;
+            using TSValue::list_value;
             using TSValue::view_context;
         };
 
         struct ExposedTSInput : TSInput
         {
             using TSInput::TSInput;
+            using TSInput::active_state;
             using TSInput::view;
             using TSValue::view_context;
+        };
+
+        struct RecordingNotifiable : Notifiable
+        {
+            void notify(engine_time_t et) override { notifications.push_back(et); }
+
+            std::vector<engine_time_t> notifications;
         };
 
         [[nodiscard]] TSInputConstructionPlan single_link_plan(const TSMeta *input_schema,
@@ -71,9 +83,45 @@ namespace hgraph
             return TSOutputBuilderFactory::checked_builder_for(schema);
         }
 
+        [[nodiscard]] engine_time_t tick(int offset)
+        {
+            return MIN_DT + std::chrono::microseconds{offset};
+        }
+
         const BaseState &as_base_state(void *state)
         {
             return *static_cast<BaseState *>(state);
+        }
+
+        [[nodiscard]] BaseState *state_of(TimeSeriesStateV &state)
+        {
+            return std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, state);
+        }
+
+        [[nodiscard]] BaseState *child_state(BaseCollectionState &state, size_t index)
+        {
+            if (index >= state.child_states.size() || state.child_states[index] == nullptr) { return nullptr; }
+            return state_of(*state.child_states[index]);
+        }
+
+        [[nodiscard]] TargetLinkState &linked_field(ExposedTSInput &input, size_t field_index = 0)
+        {
+            auto *root_state = static_cast<TSBState *>(input.view_context().ts_state);
+            REQUIRE(root_state != nullptr);
+            REQUIRE(field_index < root_state->child_states.size());
+            REQUIRE(root_state->child_states[field_index] != nullptr);
+            REQUIRE(std::holds_alternative<TargetLinkState>(*root_state->child_states[field_index]));
+            return std::get<TargetLinkState>(*root_state->child_states[field_index]);
+        }
+
+        [[nodiscard]] size_t find_live_dict_slot(ExposedTSOutput &output, const Value &key)
+        {
+            const auto delta = output.dict_delta_value();
+            for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
+                if (!delta.slot_occupied(slot) || delta.slot_removed(slot)) { continue; }
+                if (delta.key_at_slot(slot).equals(key.view())) { return slot; }
+            }
+            return SIZE_MAX;
         }
     }  // namespace test_detail
 }  // namespace hgraph
@@ -560,4 +608,195 @@ TEST_CASE("TSInput construction plan compiler builds link terminals from edge pa
     REQUIRE(nested_state.child_states[0] != nullptr);
     CHECK(std::holds_alternative<hgraph::TargetLinkState>(*nested_state.child_states[0]));
     CHECK(nested_state.child_states[1] == nullptr);
+}
+
+TEST_CASE("TSInput leaf activation subscribes and unsubscribes through the target-link boundary", "[ts_input][active]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *input_schema = ts_registry.tsb({{"ts", scalar_ts}}, "InputBundle");
+    const auto plan = hgraph::test_detail::single_link_plan(input_schema, 0);
+
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(scalar_ts)};
+    hgraph::test_detail::ExposedTSInput input{hgraph::test_detail::builder_for(plan)};
+    input.view().as_bundle()[0].bind_output(output.view());
+
+    auto &link_state = hgraph::test_detail::linked_field(input);
+    hgraph::test_detail::RecordingNotifiable recorder;
+    link_state.scheduling_notifier.set_target(&recorder);
+
+    auto *output_state = static_cast<hgraph::BaseState *>(output.view_context().ts_state);
+    REQUIRE(output_state != nullptr);
+    CHECK(link_state.subscribers.empty());
+
+    auto leaf_view = input.view().as_bundle()[0];
+
+    CHECK_FALSE(leaf_view.active());
+    leaf_view.make_active();
+    CHECK(leaf_view.active());
+    CHECK(link_state.subscribers.size() == 1);
+
+    output.atomic_value().set(1.5f);
+    output_state->mark_modified(hgraph::test_detail::tick(1));
+    CHECK(recorder.notifications == std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(1)});
+
+    leaf_view.make_passive();
+    CHECK_FALSE(leaf_view.active());
+    CHECK(link_state.subscribers.empty());
+
+    output.atomic_value().set(2.5f);
+    output_state->mark_modified(hgraph::test_detail::tick(2));
+    CHECK(recorder.notifications == std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(1)});
+}
+
+TEST_CASE("TSInput collection activation on a bound list is hierarchical", "[ts_input][active]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *list_ts = ts_registry.tsl(scalar_ts, 2);
+    const auto *input_schema = ts_registry.tsb({{"ts", list_ts}}, "InputBundle");
+    const auto plan = hgraph::test_detail::single_link_plan(input_schema, 0);
+
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(list_ts)};
+    {
+        auto mutation = output.list_value().begin_mutation();
+        mutation.setting(0, hgraph::Value{1.0f}.view());
+        mutation.setting(1, hgraph::Value{2.0f}.view());
+    }
+
+    hgraph::test_detail::ExposedTSInput input{hgraph::test_detail::builder_for(plan)};
+    input.view().as_bundle()[0].bind_output(output.view());
+
+    auto &link_state = hgraph::test_detail::linked_field(input);
+    auto *list_state = static_cast<hgraph::TSLState *>(output.view_context().ts_state);
+    REQUIRE(list_state != nullptr);
+
+    static_cast<void>(output.view().as_list()[0]);
+    static_cast<void>(output.view().as_list()[1]);
+
+    auto *first_child_state = hgraph::test_detail::child_state(*list_state, 0);
+    auto *second_child_state = hgraph::test_detail::child_state(*list_state, 1);
+    REQUIRE(first_child_state != nullptr);
+    REQUIRE(second_child_state != nullptr);
+
+    SECTION("an active list root is notified by any child modification") {
+        hgraph::test_detail::RecordingNotifiable recorder;
+        link_state.scheduling_notifier.set_target(&recorder);
+
+        auto list_view = input.view().as_bundle()[0];
+
+        CHECK_FALSE(list_view.active());
+        list_view.make_active();
+        CHECK(list_view.active());
+        CHECK(link_state.subscribers.size() == 1);
+
+        first_child_state->mark_modified(hgraph::test_detail::tick(11));
+        second_child_state->mark_modified(hgraph::test_detail::tick(12));
+        CHECK(recorder.notifications ==
+              std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(11), hgraph::test_detail::tick(12)});
+
+        list_view.make_passive();
+        CHECK_FALSE(list_view.active());
+        CHECK(link_state.subscribers.empty());
+
+        second_child_state->mark_modified(hgraph::test_detail::tick(13));
+        CHECK(recorder.notifications ==
+              std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(11), hgraph::test_detail::tick(12)});
+    }
+
+    SECTION("an active list element is notified only by that element") {
+        hgraph::test_detail::RecordingNotifiable recorder;
+        link_state.scheduling_notifier.set_target(&recorder);
+
+        auto element_view = input.view().as_bundle()[0].as_list()[1];
+
+        CHECK_FALSE(element_view.active());
+        element_view.make_active();
+        CHECK(element_view.active());
+
+        first_child_state->mark_modified(hgraph::test_detail::tick(21));
+        CHECK(recorder.notifications.empty());
+
+        second_child_state->mark_modified(hgraph::test_detail::tick(22));
+        CHECK(recorder.notifications == std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(22)});
+
+        list_state->mark_modified(hgraph::test_detail::tick(23));
+        CHECK(recorder.notifications == std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(22)});
+
+        element_view.make_passive();
+        CHECK_FALSE(element_view.active());
+
+        second_child_state->mark_modified(hgraph::test_detail::tick(24));
+        CHECK(recorder.notifications == std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(22)});
+    }
+}
+
+TEST_CASE("TSInput dict-key activation survives a simple remove and re-add of the same key", "[ts_input][active]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *str_type = value_registry.register_type<std::string>("str");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *dict_ts = ts_registry.tsd(str_type, scalar_ts);
+    const auto *input_schema = ts_registry.tsb({{"ts", dict_ts}}, "InputBundle");
+    const auto plan = hgraph::test_detail::single_link_plan(input_schema, 0);
+
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(dict_ts)};
+    hgraph::test_detail::ExposedTSInput input{hgraph::test_detail::builder_for(plan)};
+    input.view().as_bundle()[0].bind_output(output.view());
+
+    const hgraph::Value key{std::string{"k"}};
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.setting(key.view(), hgraph::Value{1.0f}.view());
+    }
+
+    static_cast<void>(output.view().as_dict().at(key.view()));
+
+    auto *dict_state = static_cast<hgraph::TSDState *>(output.view_context().ts_state);
+    REQUIRE(dict_state != nullptr);
+
+    const size_t initial_slot = hgraph::test_detail::find_live_dict_slot(output, key);
+    REQUIRE(initial_slot != SIZE_MAX);
+    auto *initial_child_state = hgraph::test_detail::child_state(*dict_state, initial_slot);
+    REQUIRE(initial_child_state != nullptr);
+
+    auto &link_state = hgraph::test_detail::linked_field(input);
+    hgraph::test_detail::RecordingNotifiable recorder;
+    link_state.scheduling_notifier.set_target(&recorder);
+
+    auto key_view = input.view().as_bundle()[0].as_dict().at(key.view());
+
+    key_view.make_active();
+    initial_child_state->mark_modified(hgraph::test_detail::tick(31));
+    CHECK(recorder.notifications == std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(31)});
+
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.removing(key.view());
+    }
+
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.setting(key.view(), hgraph::Value{2.0f}.view());
+    }
+
+    static_cast<void>(output.view().as_dict().at(key.view()));
+
+    const size_t rebound_slot = hgraph::test_detail::find_live_dict_slot(output, key);
+    REQUIRE(rebound_slot != SIZE_MAX);
+    auto *rebound_child_state = hgraph::test_detail::child_state(*dict_state, rebound_slot);
+    REQUIRE(rebound_child_state != nullptr);
+
+    rebound_child_state->mark_modified(hgraph::test_detail::tick(32));
+    CHECK(recorder.notifications ==
+          std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(31), hgraph::test_detail::tick(32)});
 }

@@ -36,6 +36,54 @@ namespace hgraph
         if (subscriber != nullptr) { subscribers.erase(subscriber); }
     }
 
+    LinkedTSContext *BaseState::linked_target() noexcept
+    {
+        return const_cast<LinkedTSContext *>(const_cast<const BaseState *>(this)->linked_target());
+    }
+
+    const LinkedTSContext *BaseState::linked_target() const noexcept
+    {
+        switch (storage_kind) {
+            case TSStorageKind::Native:
+                return nullptr;
+
+            case TSStorageKind::TargetLink:
+                return &static_cast<const TargetLinkState *>(this)->target;
+
+            case TSStorageKind::RefLink:
+                return &static_cast<const RefLinkState *>(this)->bound_link.target;
+        }
+
+        return nullptr;
+    }
+
+    BaseState *BaseState::resolved_state() noexcept
+    {
+        return const_cast<BaseState *>(const_cast<const BaseState *>(this)->resolved_state());
+    }
+
+    const BaseState *BaseState::resolved_state() const noexcept
+    {
+        if (const LinkedTSContext *target = linked_target(); target != nullptr) { return target->ts_state; }
+        return this;
+    }
+
+    Notifiable *BaseState::boundary_notifier(Notifiable *fallback) noexcept
+    {
+        switch (storage_kind) {
+            case TSStorageKind::Native:
+                return fallback;
+
+            case TSStorageKind::TargetLink:
+                return &static_cast<TargetLinkState *>(this)->scheduling_notifier;
+
+            case TSStorageKind::RefLink:
+                return &static_cast<RefLinkState *>(this)->bound_link.scheduling_notifier;
+        }
+
+        return fallback;
+    }
+
     void BaseState::mark_modified(engine_time_t modified_time) noexcept {
         last_modified_time = modified_time;
 

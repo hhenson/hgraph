@@ -3,6 +3,7 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/time_series_state.h>
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/time_series/value/view.h>
 
 #include <string_view>
@@ -79,7 +80,7 @@ namespace hgraph
              * slot-backed collections such as maps it is the backing storage
              * slot rather than the nth live element.
              */
-            [[nodiscard]] virtual TSViewContext child_at(const TSViewContext &context, size_t index) const noexcept = 0;
+            [[nodiscard]] virtual TSViewContext child_at(const TSViewContext &context, size_t index) const = 0;
         };
 
         /**
@@ -89,7 +90,7 @@ namespace hgraph
         {
             [[nodiscard]] const TSFieldDispatch *as_fields() const noexcept override { return this; }
             [[nodiscard]] virtual TSViewContext child_field(const TSViewContext &context,
-                                                            std::string_view name) const noexcept                   = 0;
+                                                            std::string_view name) const = 0;
             [[nodiscard]] virtual std::string_view child_name(size_t index) const noexcept                           = 0;
         };
 
@@ -99,7 +100,7 @@ namespace hgraph
         struct TSKeyDispatch : TSCollectionDispatch
         {
             [[nodiscard]] const TSKeyDispatch *as_keys() const noexcept override { return this; }
-            [[nodiscard]] virtual TSViewContext child_key(const TSViewContext &context, const View &key) const noexcept = 0;
+            [[nodiscard]] virtual TSViewContext child_key(const TSViewContext &context, const View &key) const = 0;
         };
     }  // namespace detail
 
@@ -120,12 +121,28 @@ namespace hgraph
      */
     struct TSViewContext : TSContext
     {
-        using TSContext::TSContext;
+        TSViewContext() noexcept
+            : active_state(View::invalid_for(nullptr))
+        {
+        }
 
-        constexpr TSViewContext() noexcept = default;
-        constexpr TSViewContext(const TSContext &context) noexcept : TSContext(context) {}
+        TSViewContext(const TSMeta *schema_,
+                      const detail::ViewDispatch *value_dispatch_,
+                      const detail::TSDispatch *ts_dispatch_,
+                      void *value_data_,
+                      BaseState *ts_state_) noexcept
+            : TSContext(schema_, value_dispatch_, ts_dispatch_, value_data_, ts_state_),
+              active_state(View::invalid_for(nullptr))
+        {
+        }
 
-        [[nodiscard]] static constexpr TSViewContext none() noexcept { return {}; }
+        TSViewContext(const TSContext &context) noexcept
+            : TSContext(context),
+              active_state(View::invalid_for(nullptr))
+        {
+        }
+
+        [[nodiscard]] static TSViewContext none() noexcept { return {}; }
 
         /**
          * Materialize the value-layer view for this logical TS position.
@@ -153,18 +170,7 @@ namespace hgraph
                 resolved_context.value_data = target.value_data;
             };
 
-            switch (state->storage_kind) {
-                case TSStorageKind::Native:
-                    break;
-
-                case TSStorageKind::TargetLink:
-                    apply_target(static_cast<const TargetLinkState *>(ts_state)->target);
-                    break;
-
-                case TSStorageKind::RefLink:
-                    apply_target(static_cast<const RefLinkState *>(ts_state)->bound_link.target);
-                    break;
-            }
+            if (const LinkedTSContext *target = state->linked_target(); target != nullptr) { apply_target(*target); }
 
             return resolved_context;
         }
@@ -178,6 +184,9 @@ namespace hgraph
             }
             return View{resolved_context.value_dispatch, resolved_context.value_data, value_schema};
         }
+
+        View active_state;
+        Notifiable *scheduling_notifier{nullptr};
     };
 
     /**
@@ -397,8 +406,8 @@ namespace hgraph
         BaseCollectionView(const TSView<TView> &other) noexcept : TSView<TView>(other) {}
 
         [[nodiscard]] size_t size() const noexcept;
-        [[nodiscard]] TView at(size_t index) const noexcept;
-        [[nodiscard]] TView operator[](size_t index) const noexcept;
+        [[nodiscard]] TView at(size_t index) const;
+        [[nodiscard]] TView operator[](size_t index) const;
 
       protected:
         [[nodiscard]] const detail::TSCollectionDispatch *collection_dispatch() const noexcept;
@@ -422,7 +431,7 @@ namespace hgraph
     {
         using BaseCollectionView<TView>::BaseCollectionView;
 
-        [[nodiscard]] TView field(std::string_view name) const noexcept;
+        [[nodiscard]] TView field(std::string_view name) const;
         [[nodiscard]] Range<std::string_view> keys() const noexcept;
         [[nodiscard]] Range<TView> values() const noexcept;
         [[nodiscard]] KeyValueRange<std::string_view, TView> items() const noexcept;
@@ -440,8 +449,8 @@ namespace hgraph
         using BaseCollectionView<TView>::at;
         using BaseCollectionView<TView>::operator[];
 
-        [[nodiscard]] TView at(const View &key) const noexcept;
-        [[nodiscard]] TView operator[](const View &key) const noexcept;
+        [[nodiscard]] TView at(const View &key) const;
+        [[nodiscard]] TView operator[](const View &key) const;
         [[nodiscard]] Range<View> keys() const noexcept;
         [[nodiscard]] Range<TView> values() const noexcept;
         [[nodiscard]] KeyValueRange<View, TView> items() const noexcept;
@@ -503,6 +512,7 @@ namespace hgraph
         {
             return delta.slot_occupied(slot) && !delta.slot_removed(slot);
         }
+
     }  // namespace detail
 
     template <typename TView>
@@ -513,7 +523,7 @@ namespace hgraph
     }
 
     template <typename TView>
-    TView BaseCollectionView<TView>::at(size_t index) const noexcept
+    TView BaseCollectionView<TView>::at(size_t index) const
     {
         const auto *dispatch = collection_dispatch();
         if (dispatch == nullptr) { return TView{TSViewContext::none(), this->m_context, this->m_evaluation_time}; }
@@ -523,7 +533,7 @@ namespace hgraph
     }
 
     template <typename TView>
-    TView BaseCollectionView<TView>::operator[](size_t index) const noexcept
+    TView BaseCollectionView<TView>::operator[](size_t index) const
     {
         return at(index);
     }
@@ -602,7 +612,7 @@ namespace hgraph
     }
 
     template <typename TView>
-    TView TSBView<TView>::field(std::string_view name) const noexcept
+    TView TSBView<TView>::field(std::string_view name) const
     {
         const auto *field_dispatch = this->field_dispatch();
         if (field_dispatch == nullptr) { return TView{TSViewContext::none(), this->m_context, this->m_evaluation_time}; }
@@ -686,7 +696,7 @@ namespace hgraph
     }
 
     template <typename TView>
-    TView TSDView<TView>::at(const View &key) const noexcept
+    TView TSDView<TView>::at(const View &key) const
     {
         const auto *key_dispatch = this->key_dispatch();
         const View map_value = this->value();
@@ -702,7 +712,7 @@ namespace hgraph
     }
 
     template <typename TView>
-    TView TSDView<TView>::operator[](const View &key) const noexcept
+    TView TSDView<TView>::operator[](const View &key) const
     {
         return at(key);
     }

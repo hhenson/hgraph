@@ -74,7 +74,7 @@ struct HGRAPH_EXPORT TSInput : TSValue {
      * view, matching the Python wiring model where `__getitem__` selects the
      * slot to bind.
      */
-    [[nodiscard]] TSInputView view() noexcept;
+    [[nodiscard]] TSInputView view();
 
 protected:
     /**

@@ -24,6 +24,8 @@ namespace hgraph
     struct RefLinkState;
     struct SignalState;
     struct BaseState;
+    struct TSContext;
+    using LinkedTSContext = TSContext;
 
     namespace detail
     {
@@ -92,6 +94,32 @@ namespace hgraph
          * this state node.
          */
         void unsubscribe(Notifiable *subscriber) noexcept;
+
+        /**
+         * Return the bound target context when this state is link-backed.
+         *
+         * Native storage positions return `nullptr`.
+         */
+        [[nodiscard]] LinkedTSContext *linked_target() noexcept;
+        [[nodiscard]] const LinkedTSContext *linked_target() const noexcept;
+
+        /**
+         * Return the runtime state node that represents this logical position.
+         *
+         * Native storage resolves to `this`. Link-backed storage resolves to
+         * the currently bound target state when bound, otherwise `nullptr`.
+         */
+        [[nodiscard]] BaseState *resolved_state() noexcept;
+        [[nodiscard]] const BaseState *resolved_state() const noexcept;
+
+        /**
+         * Return the notifier boundary to use when traversing into this child.
+         *
+         * Native storage inherits the supplied fallback notifier. Link-backed
+         * storage exposes the scheduling notifier associated with the binding
+         * boundary.
+         */
+        [[nodiscard]] Notifiable *boundary_notifier(Notifiable *fallback) noexcept;
 
         /**
          * Mark this state as modified for the supplied engine time, notify any
@@ -169,8 +197,6 @@ namespace hgraph
      * delegate for the shape it represents while keeping its own storage for
      * binding and notification mechanics.
      */
-    using LinkedTSContext = TSContext;
-
     struct HGRAPH_EXPORT BaseCollectionState : BaseState
     {
         BaseCollectionState() = default;

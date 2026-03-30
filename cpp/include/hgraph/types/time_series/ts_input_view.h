@@ -30,7 +30,7 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
      */
     TSInputView(TSViewContext context,
                 TSViewContext parent = TSViewContext::none(),
-                engine_time_t evaluation_time = MIN_DT) noexcept;
+                engine_time_t evaluation_time = MIN_DT);
 
     /**
      * Construct an input view from the path-local active-state payload.
@@ -48,7 +48,7 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
      * each linked branch schedules independently.
      */
     explicit TSInputView(View active_state, BaseState *state,
-                         Notifiable *scheduling_notifier) noexcept;
+                         Notifiable *scheduling_notifier);
 
     virtual ~TSInputView() = default;
 
@@ -111,7 +111,7 @@ protected:
  */
 struct HGRAPH_EXPORT TSInputCollectionView : TSInputView {
     explicit TSInputCollectionView(View active_state, BaseState *state,
-                                   Notifiable *scheduling_notifier) noexcept;
+                                   Notifiable *scheduling_notifier);
 
     void make_active() override;
     void make_passive() override;

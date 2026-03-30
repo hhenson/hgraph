@@ -51,9 +51,11 @@ namespace hgraph
         clear_storage();
     }
 
-    TSInputView TSInput::view() noexcept
+    TSInputView TSInput::view()
     {
-        return TSInputView{view_context()};
+        TSViewContext context{view_context()};
+        context.active_state = active_state();
+        return TSInputView{context};
     }
 
     View TSInput::active_state() const

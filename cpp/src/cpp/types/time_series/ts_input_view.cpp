@@ -6,18 +6,50 @@
 
 namespace hgraph
 {
+    namespace
+    {
+        [[nodiscard]] bool *local_active_flag(View &active_state) noexcept
+        {
+            if (!active_state.has_value()) { return nullptr; }
+            if (active_state.schema() == value::scalar_type_meta<bool>()) {
+                return active_state.as_atomic().try_as<bool>();
+            }
+            return active_state.as_tuple().at(0).as_atomic().try_as<bool>();
+        }
+
+        [[nodiscard]] const bool *local_active_flag(const View &active_state) noexcept
+        {
+            if (!active_state.has_value()) { return nullptr; }
+            if (active_state.schema() == value::scalar_type_meta<bool>()) {
+                return active_state.as_atomic().try_as<bool>();
+            }
+            return active_state.as_tuple().at(0).as_atomic().try_as<bool>();
+        }
+    }  // namespace
+
     TSInputView::TSInputView(TSViewContext context,
                              TSViewContext parent,
-                             engine_time_t evaluation_time) noexcept :
-        TSView<TSInputView>(context, parent, evaluation_time), m_state(context.ts_state)
-    {}
+                             engine_time_t evaluation_time) :
+        TSView<TSInputView>(context, parent, evaluation_time),
+        m_active_state(context.active_state),
+        m_state(context.ts_state),
+        m_scheduling_notifier(context.scheduling_notifier)
+    {
+        if (context.schema != nullptr && context.ts_state != nullptr && !m_active_state.has_value()) {
+            throw std::logic_error("TSInputView requires an active-state payload for every valid input position");
+        }
+    }
 
-    TSInputView::TSInputView(View active_state, BaseState *state, Notifiable *scheduling_notifier) noexcept :
+    TSInputView::TSInputView(View active_state, BaseState *state, Notifiable *scheduling_notifier) :
         m_active_state(active_state), m_state(state), m_scheduling_notifier(scheduling_notifier)
-    {}
+    {
+        if (state != nullptr && !m_active_state.has_value()) {
+            throw std::logic_error("TSInputView requires a non-empty active-state payload when bound to TS state");
+        }
+    }
 
     TSInputCollectionView::TSInputCollectionView(View active_state, BaseState *state,
-                                                 Notifiable *scheduling_notifier) noexcept :
+                                                 Notifiable *scheduling_notifier) :
         TSInputView(active_state, state, scheduling_notifier)
     {}
 
@@ -91,7 +123,7 @@ namespace hgraph
 
     void TSInputView::make_active()
     {
-        if (bool *flag = m_active_state.as_atomic().try_as<bool>(); flag != nullptr) {
+        if (bool *flag = local_active_flag(m_active_state); flag != nullptr) {
             if (!*flag) {
                 *flag = true;
                 subscribe_scheduling_notifier();
@@ -101,7 +133,7 @@ namespace hgraph
 
     void TSInputView::make_passive()
     {
-        if (bool *flag = m_active_state.as_atomic().try_as<bool>(); flag != nullptr) {
+        if (bool *flag = local_active_flag(m_active_state); flag != nullptr) {
             if (*flag) {
                 *flag = false;
                 unsubscribe_scheduling_notifier();
@@ -111,49 +143,22 @@ namespace hgraph
 
     bool TSInputView::active() const
     {
-        if (const bool *flag = m_active_state.as_atomic().try_as<bool>(); flag != nullptr) { return *flag; }
+        if (const bool *flag = local_active_flag(m_active_state); flag != nullptr) { return *flag; }
         return false;
     }
 
     void TSInputCollectionView::make_active()
     {
-        // TODO: Restore collection-head activation once the new time-series
-        // value view exposes tuple navigation and mutable child access.
-        //
-        // Intended logic:
-        // if (bool *flag = m_active_state.as_tuple().at(0).try_as<bool>(); flag != nullptr) {
-        //     if (!*flag) {
-        //         *flag = true;
-        //         subscribe_scheduling_notifier();
-        //     }
-        // }
-        throw std::logic_error("TSInputCollectionView::make_active requires tuple navigation on the new View");
+        TSInputView::make_active();
     }
 
     void TSInputCollectionView::make_passive()
     {
-        // TODO: Restore collection-head activation once the new time-series
-        // value view exposes tuple navigation and mutable child access.
-        //
-        // Intended logic:
-        // if (bool *flag = m_active_state.as_tuple().at(0).try_as<bool>(); flag != nullptr) {
-        //     if (*flag) {
-        //         *flag = false;
-        //         unsubscribe_scheduling_notifier();
-        //     }
-        // }
-        throw std::logic_error("TSInputCollectionView::make_passive requires tuple navigation on the new View");
+        TSInputView::make_passive();
     }
 
     bool TSInputCollectionView::active() const
     {
-        // TODO: Restore collection-head activation once the new time-series
-        // value view exposes tuple navigation for const views.
-        //
-        // Intended logic:
-        // if (const bool *flag = m_active_state.as_tuple().at(0).try_as<bool>(); flag != nullptr) {
-        //     return *flag;
-        // }
-        throw std::logic_error("TSInputCollectionView::active requires tuple navigation on the new View");
+        return TSInputView::active();
     }
 }  // namespace hgraph

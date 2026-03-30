@@ -135,12 +135,9 @@ namespace hgraph
                                                             void *native_value_data) noexcept
         {
             BaseState *local_state = state_address(slot);
-            if (const TimeSeriesStateV *state = const_state_value(slot); state != nullptr) {
-                if (const auto *link = std::get_if<TargetLinkState>(state)) {
-                    return linked_child_context(link->target, local_state, schema, value_dispatch, ts_dispatch);
-                }
-                if (const auto *link = std::get_if<RefLinkState>(state)) {
-                    return linked_child_context(link->bound_link.target, local_state, schema, value_dispatch, ts_dispatch);
+            if (local_state != nullptr) {
+                if (const LinkedTSContext *target = local_state->linked_target(); target != nullptr) {
+                    return linked_child_context(*target, local_state, schema, value_dispatch, ts_dispatch);
                 }
             }
 
@@ -151,6 +148,32 @@ namespace hgraph
                 native_value_data,
                 local_state,
             };
+        }
+
+        [[nodiscard]] Notifiable *child_scheduling_notifier(const TSViewContext &parent, BaseState *child_state) noexcept
+        {
+            Notifiable *notifier = parent.scheduling_notifier;
+            return child_state != nullptr ? child_state->boundary_notifier(notifier) : notifier;
+        }
+
+        template <typename TActiveResolver>
+        void populate_input_child_context(TSViewContext &child,
+                                          const TSViewContext &parent,
+                                          TActiveResolver &&active_resolver)
+        {
+            child.scheduling_notifier = child_scheduling_notifier(parent, child.ts_state);
+            if (parent.active_state.has_value()) { child.active_state = std::forward<TActiveResolver>(active_resolver)(); }
+        }
+
+        [[nodiscard]] View ensure_dict_child_active_state(View parent_active_state, const View &key)
+        {
+            MapView child_map = parent_active_state.as_tuple().at(1).as_map();
+            if (!child_map.contains(key)) {
+                Value child_active{child_map.value_schema()};
+                auto mutation = child_map.begin_mutation();
+                mutation.setting(key, child_active.view());
+            }
+            return child_map.at(key);
         }
 
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
@@ -378,19 +401,25 @@ namespace hgraph
             }
         }
 
+        [[nodiscard]] BaseState *resolved_collection_state(TSViewContext context) noexcept
+        {
+            BaseState *state = context.ts_state;
+            return state != nullptr ? state->resolved_state() : nullptr;
+        }
+
         [[nodiscard]] TSLState *list_state(TSViewContext context) noexcept
         {
-            return static_cast<TSLState *>(context.ts_state);
+            return static_cast<TSLState *>(resolved_collection_state(context));
         }
 
         [[nodiscard]] TSBState *bundle_state(TSViewContext context) noexcept
         {
-            return static_cast<TSBState *>(context.ts_state);
+            return static_cast<TSBState *>(resolved_collection_state(context));
         }
 
         [[nodiscard]] TSDState *dict_state(TSViewContext context) noexcept
         {
-            return static_cast<TSDState *>(context.ts_state);
+            return static_cast<TSDState *>(resolved_collection_state(context));
         }
 
         struct LeafTSDispatch : detail::TSDispatch {};
@@ -411,7 +440,7 @@ namespace hgraph
                 return context.value().as_list().size();
             }
 
-            [[nodiscard]] TSViewContext child_at(const TSViewContext &context, size_t index) const noexcept override
+            [[nodiscard]] TSViewContext child_at(const TSViewContext &context, size_t index) const override
             {
                 ListView list = context.value().as_list();
                 if (index >= list.size()) { return TSViewContext::none(); }
@@ -421,11 +450,13 @@ namespace hgraph
                 ensure_child_state(*state, index, m_element_schema.get());
 
                 View child_value = list.at(index);
-                return child_context_from_slot(state->child_states[index],
-                                               m_element_schema.get(),
-                                               m_element_value_dispatch.get(),
-                                               m_element_ts_dispatch.get(),
-                                               RawViewAccess::data_of(child_value));
+                TSViewContext child = child_context_from_slot(state->child_states[index],
+                                                              m_element_schema.get(),
+                                                              m_element_value_dispatch.get(),
+                                                              m_element_ts_dispatch.get(),
+                                                              RawViewAccess::data_of(child_value));
+                populate_input_child_context(child, context, [&] { return context.active_state.as_tuple().at(1).as_list().at(index); });
+                return child;
             }
 
           private:
@@ -452,7 +483,7 @@ namespace hgraph
                 return m_fields.size();
             }
 
-            [[nodiscard]] TSViewContext child_at(const TSViewContext &context, size_t index) const noexcept override
+            [[nodiscard]] TSViewContext child_at(const TSViewContext &context, size_t index) const override
             {
                 if (index >= m_fields.size()) { return TSViewContext::none(); }
 
@@ -461,14 +492,16 @@ namespace hgraph
                 ensure_child_state(*state, index, m_fields[index].schema.get());
 
                 View child_value = context.value().as_bundle().at(index);
-                return child_context_from_slot(state->child_states[index],
-                                               m_fields[index].schema.get(),
-                                               m_fields[index].value_dispatch.get(),
-                                               m_fields[index].ts_dispatch.get(),
-                                               RawViewAccess::data_of(child_value));
+                TSViewContext child = child_context_from_slot(state->child_states[index],
+                                                              m_fields[index].schema.get(),
+                                                              m_fields[index].value_dispatch.get(),
+                                                              m_fields[index].ts_dispatch.get(),
+                                                              RawViewAccess::data_of(child_value));
+                populate_input_child_context(child, context, [&] { return context.active_state.as_tuple().at(index + 1); });
+                return child;
             }
 
-            [[nodiscard]] TSViewContext child_field(const TSViewContext &context, std::string_view name) const noexcept override
+            [[nodiscard]] TSViewContext child_field(const TSViewContext &context, std::string_view name) const override
             {
                 for (size_t index = 0; index < m_fields.size(); ++index) {
                     if (m_fields[index].name == name) { return child_at(context, index); }
@@ -501,14 +534,14 @@ namespace hgraph
                 return context.value().as_map().size();
             }
 
-            [[nodiscard]] TSViewContext child_at(const TSViewContext &context, size_t index) const noexcept override
+            [[nodiscard]] TSViewContext child_at(const TSViewContext &context, size_t index) const override
             {
                 MapDeltaView delta = context.value().as_map().delta();
                 if (index >= delta.slot_capacity() || !delta.slot_occupied(index)) { return TSViewContext::none(); }
                 return child_at_slot(context, delta, index);
             }
 
-            [[nodiscard]] TSViewContext child_key(const TSViewContext &context, const View &key) const noexcept override
+            [[nodiscard]] TSViewContext child_key(const TSViewContext &context, const View &key) const override
             {
                 RawMapAccess map{context.value()};
                 const auto *dispatch = map.map_dispatch();
@@ -523,7 +556,7 @@ namespace hgraph
           private:
             [[nodiscard]] TSViewContext child_at_slot(const TSViewContext &context,
                                                       const MapDeltaView &delta,
-                                                      size_t slot) const noexcept
+                                                      size_t slot) const
             {
                 TSDState *state = dict_state(context);
                 if (state == nullptr) { return TSViewContext::none(); }
@@ -531,11 +564,13 @@ namespace hgraph
                 const View key = delta.key_at_slot(slot);
                 ensure_child_state(*state, slot, m_value_schema.get(), key.hash());
 
-                return child_context_from_slot(state->child_states[slot],
-                                               m_value_schema.get(),
-                                               m_value_dispatch.get(),
-                                               m_value_ts_dispatch.get(),
-                                               RawViewAccess::data_of(delta.value_at_slot(slot)));
+                TSViewContext child = child_context_from_slot(state->child_states[slot],
+                                                              m_value_schema.get(),
+                                                              m_value_dispatch.get(),
+                                                              m_value_ts_dispatch.get(),
+                                                              RawViewAccess::data_of(delta.value_at_slot(slot)));
+                populate_input_child_context(child, context, [&] { return ensure_dict_child_active_state(context.active_state, key); });
+                return child;
             }
 
             std::reference_wrapper<const TSMeta>               m_value_schema;
