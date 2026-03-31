@@ -799,3 +799,45 @@ TEST_CASE("TSInput dict-key activation survives a simple remove and re-add of th
     CHECK(recorder.notifications ==
           std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(31), hgraph::test_detail::tick(32)});
 }
+
+TEST_CASE("TSInput make_active during evaluation notifies immediately if state already modified", "[ts_input][active]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *input_schema = ts_registry.tsb({{"ts", scalar_ts}}, "InputBundle");
+    const auto plan = hgraph::test_detail::single_link_plan(input_schema, 0);
+
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(scalar_ts)};
+    hgraph::test_detail::ExposedTSInput input{hgraph::test_detail::builder_for(plan)};
+    input.view().as_bundle()[0].bind_output(output.view());
+
+    auto *output_state = static_cast<hgraph::BaseState *>(output.view_context().ts_state);
+    REQUIRE(output_state != nullptr);
+
+    // Mark the output as modified at tick(5) before activation.
+    output_state->mark_modified(hgraph::test_detail::tick(5));
+
+    hgraph::test_detail::RecordingNotifiable recorder;
+
+    SECTION("no initial notification when evaluation_time is MIN_DT (wiring phase)") {
+        auto leaf_view = input.view(&recorder).as_bundle()[0];
+        leaf_view.make_active();
+        CHECK(recorder.notifications.empty());
+    }
+
+    SECTION("initial notification when evaluation_time matches modified time") {
+        auto leaf_view = input.view(&recorder, hgraph::test_detail::tick(5)).as_bundle()[0];
+        leaf_view.make_active();
+        REQUIRE(recorder.notifications.size() == 1);
+        CHECK(recorder.notifications[0] == hgraph::test_detail::tick(5));
+    }
+
+    SECTION("no initial notification when evaluation_time is after modified time") {
+        auto leaf_view = input.view(&recorder, hgraph::test_detail::tick(6)).as_bundle()[0];
+        leaf_view.make_active();
+        CHECK(recorder.notifications.empty());
+    }
+}

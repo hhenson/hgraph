@@ -61,7 +61,8 @@ struct HGRAPH_EXPORT TSInput : TSValue {
      *        via BaseState::boundary_notifier(). May be nullptr when no
      *        scheduling is required (e.g. during wiring-only traversal).
      */
-    [[nodiscard]] TSInputView view(Notifiable *scheduling_notifier = nullptr);
+    [[nodiscard]] TSInputView view(Notifiable *scheduling_notifier = nullptr,
+                                    engine_time_t evaluation_time = MIN_DT);
 
 private:
     friend struct TSInputBuilder;
