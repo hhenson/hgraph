@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include <hgraph/types/time_series/value/state.h>
+#include <hgraph/types/time_series/value/builder.h>
 #include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/value/type_registry.h>
 
@@ -135,8 +135,8 @@ TEST_CASE("Atomic builders cache lifecycle traits for the resolved state", "[tim
 
     // Pointer-sized trivial atomics are stored directly in the `Value` handle,
     // so they require neither destruction nor separate allocation.
-    CHECK_FALSE(integer_builder.requires_destroy());
-    CHECK(string_builder.requires_destroy());
+    CHECK_FALSE(integer_builder.requires_destruct());
+    CHECK(string_builder.requires_destruct());
 
     CHECK_FALSE(integer_builder.requires_deallocate());
     CHECK(string_builder.requires_deallocate());

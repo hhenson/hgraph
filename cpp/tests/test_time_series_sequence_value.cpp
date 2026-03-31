@@ -1,6 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include <hgraph/types/time_series/value/state.h>
+#include <hgraph/types/time_series/value/builder.h>
 #include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/value/type_registry.h>
 
