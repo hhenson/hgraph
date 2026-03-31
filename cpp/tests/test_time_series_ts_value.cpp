@@ -800,6 +800,85 @@ TEST_CASE("TSInput dict-key activation survives a simple remove and re-add of th
           std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(31), hgraph::test_detail::tick(32)});
 }
 
+TEST_CASE("TSInput linked TSD key re-add notifies when state already modified at current tick", "[ts_input][active]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *str_type = value_registry.register_type<std::string>("str");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *dict_ts = ts_registry.tsd(str_type, scalar_ts);
+    const auto *input_schema = ts_registry.tsb({{"ts", dict_ts}}, "InputBundle");
+    const auto plan = hgraph::test_detail::single_link_plan(input_schema, 0);
+
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(dict_ts)};
+    hgraph::test_detail::ExposedTSInput input{hgraph::test_detail::builder_for(plan)};
+    input.view().as_bundle()[0].bind_output(output.view());
+
+    const hgraph::Value key{std::string{"k"}};
+
+    // Add key and navigate so the slot is materialized.
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.setting(key.view(), hgraph::Value{1.0f}.view());
+    }
+    static_cast<void>(output.view().as_dict().at(key.view()));
+
+    auto *dict_state = static_cast<hgraph::TSDState *>(output.view_context().ts_state);
+    REQUIRE(dict_state != nullptr);
+
+    const size_t initial_slot = hgraph::test_detail::find_live_dict_slot(output, key);
+    REQUIRE(initial_slot != SIZE_MAX);
+
+    hgraph::test_detail::RecordingNotifiable recorder;
+    const auto eval_time = hgraph::test_detail::tick(40);
+
+    // Activate the key at evaluation time so initial-notification logic is live.
+    auto key_view = input.view(&recorder, eval_time).as_bundle()[0].as_dict().at(key.view());
+    key_view.make_active();
+
+    // The output child is not modified at the current tick, so no initial notification.
+    CHECK(recorder.notifications.empty());
+
+    // Now mark modified, confirm we receive the notification.
+    auto *child_state = hgraph::test_detail::child_state(*dict_state, initial_slot);
+    REQUIRE(child_state != nullptr);
+    child_state->mark_modified(eval_time);
+    REQUIRE(recorder.notifications.size() == 1);
+    CHECK(recorder.notifications[0] == eval_time);
+
+    // Remove the key — evicts the active trie subtree to pending.
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.removing(key.view());
+    }
+
+    // Re-add the key and mark the new slot as already modified at the
+    // current evaluation tick BEFORE the input navigates to it.
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.setting(key.view(), hgraph::Value{3.0f}.view());
+    }
+    static_cast<void>(output.view().as_dict().at(key.view()));
+
+    const size_t rebound_slot = hgraph::test_detail::find_live_dict_slot(output, key);
+    REQUIRE(rebound_slot != SIZE_MAX);
+    auto *rebound_child_state = hgraph::test_detail::child_state(*dict_state, rebound_slot);
+    REQUIRE(rebound_child_state != nullptr);
+    rebound_child_state->mark_modified(eval_time);
+
+    // Navigate the input to the rebound key — this should resolve_pending
+    // and, since the trie subtree was preserved with locally_active, the
+    // subscription should be re-established. The state is already modified
+    // at the current tick, so we expect an immediate notification.
+    auto rebound_view = input.view(&recorder, eval_time).as_bundle()[0].as_dict().at(key.view());
+
+    // We should have received the initial notification for the rebound slot.
+    CHECK(recorder.notifications.size() == 2);
+    CHECK(recorder.notifications[1] == eval_time);
+}
+
 TEST_CASE("TSInput make_active during evaluation notifies immediately if state already modified", "[ts_input][active]")
 {
     auto &value_registry = hgraph::value::TypeRegistry::instance();
