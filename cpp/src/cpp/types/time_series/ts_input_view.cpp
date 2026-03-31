@@ -106,10 +106,20 @@ namespace hgraph
         // ensures the correct TSD-level trie node is registered regardless
         // of how deep the activation point is.
 
-        // TODO: Initial notification — if the bound state is already modified
-        // at or after the current evaluation time, schedule the node immediately.
-        // This is required for correctness when resolve_pending resubscribes
-        // against a new slot that already has valid data.
+        // If we're in an active evaluation cycle and the bound state was
+        // already modified at or after the current evaluation time, notify
+        // the scheduling notifier immediately so the owning node is
+        // scheduled for this tick.  This covers the case where
+        // resolve_pending resubscribes against a slot that already has
+        // valid data.  During wiring (evaluation_time == MIN_DT) no
+        // initial notification is needed.
+        if (m_evaluation_time > MIN_DT &&
+            m_scheduling_notifier != nullptr && m_state != nullptr) {
+            const BaseState *resolved = m_state->resolved_state();
+            if (resolved != nullptr && resolved->last_modified_time == m_evaluation_time) {
+                m_scheduling_notifier->notify(resolved->last_modified_time);
+            }
+        }
     }
 
     void TSInputView::make_passive()
