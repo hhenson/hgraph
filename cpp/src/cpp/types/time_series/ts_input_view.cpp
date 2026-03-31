@@ -3,7 +3,6 @@
 #include <hgraph/types/time_series/ts_output_view.h>
 
 #include <stdexcept>
-#include <vector>
 
 namespace hgraph
 {
@@ -85,59 +84,16 @@ namespace hgraph
         if (m_state != nullptr && m_scheduling_notifier != nullptr) { m_state->unsubscribe(m_scheduling_notifier); }
     }
 
-    namespace
-    {
-        /**
-         * Walk the BaseState parent chain to collect the slot path from root
-         * to the current state. Returns the path in root-to-leaf order.
-         */
-        [[nodiscard]] std::vector<size_t> collect_slot_path(const BaseState *state) noexcept
-        {
-            std::vector<size_t> path;
-            const BaseState *current = state;
-            while (current != nullptr) {
-                path.push_back(current->index);
-                const BaseState *next = nullptr;
-                hgraph::visit(
-                    current->parent,
-                    [&next](auto *ptr) {
-                        using T = std::remove_pointer_t<decltype(ptr)>;
-                        if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> ||
-                                      std::same_as<T, TSBState> || std::same_as<T, TargetLinkState>) {
-                            next = ptr;
-                        }
-                    },
-                    [] {});
-                current = next;
-            }
-            // Reverse to get root-to-leaf order.
-            std::reverse(path.begin(), path.end());
-            return path;
-        }
-
-        /**
-         * Ensure the trie path from root to the given slot path exists,
-         * returning the leaf node.
-         */
-        ActiveTrieNode &ensure_trie_path(ActiveTrie &trie, const std::vector<size_t> &slot_path)
-        {
-            ActiveTrieNode *node = &trie.ensure_root();
-            for (const size_t slot : slot_path) {
-                node = &node->ensure_child(slot);
-            }
-            return *node;
-        }
-    }  // namespace
-
     void TSInputView::make_active()
     {
         // Already active?
         if (m_active_pos.node != nullptr && m_active_pos.node->locally_active) { return; }
 
-        // Ensure trie node exists on the path.
-        if (m_active_pos.node == nullptr && m_active_pos.trie != nullptr && m_state != nullptr) {
-            const auto path = collect_slot_path(m_state);
-            m_active_pos.node = &ensure_trie_path(*m_active_pos.trie, path);
+        // Ensure trie node exists by reconstructing the input-side slot
+        // path from the BaseState parent chain (using link_crossings to
+        // bridge TargetLinkState boundaries).
+        if (m_active_pos.node == nullptr && m_active_pos.trie != nullptr) {
+            ensure_trie_path(m_active_pos, m_state);
         }
 
         if (m_active_pos.node == nullptr) { return; }

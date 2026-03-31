@@ -1,4 +1,9 @@
 #include <hgraph/types/time_series/active_trie.h>
+#include <hgraph/types/time_series/time_series_state.h>
+#include <hgraph/types/time_series/ts_input.h>
+
+#include <algorithm>
+#include <vector>
 
 namespace hgraph
 {
@@ -105,6 +110,74 @@ namespace hgraph
         ActiveTrie copy;
         if (root) { copy.root = root->deep_copy(); }
         return copy;
+    }
+
+    // -- ensure_trie_path --
+
+    ActiveTrieNode *ensure_trie_path(ActiveTriePosition &pos, BaseState *state)
+    {
+        if (pos.node != nullptr) { return pos.node; }
+        if (pos.trie == nullptr || state == nullptr) { return nullptr; }
+
+        // Walk the BaseState parent chain collecting slot indices.
+        // Link crossings are appended in navigation order (root-to-leaf),
+        // so walking leaf-to-root encounters them in reverse order.
+        std::vector<size_t> slots;
+        BaseState *cur = state;
+        auto crossing_it = pos.link_crossings.rbegin();
+
+        while (cur != nullptr) {
+            bool is_root = false;
+            BaseState *next = nullptr;
+
+            hgraph::visit(
+                cur->parent,
+                [&](auto *p) {
+                    using T = std::remove_pointer_t<decltype(p)>;
+                    if constexpr (std::same_as<T, TSInput>) {
+                        is_root = true;
+                    } else if constexpr (!std::same_as<T, TSOutput>) {
+                        next = static_cast<BaseState *>(p);
+                    }
+                },
+                [] {});
+
+            if (is_root) { break; }
+
+            slots.push_back(cur->index);
+
+            // If we've reached the output-side state a link targets,
+            // jump back to the input-side TargetLinkState and continue.
+            if (crossing_it != pos.link_crossings.rend() &&
+                crossing_it->output_root == cur) {
+                slots.push_back(crossing_it->link_state->index);
+                // The link's parent is always a collection state (TSB/TSL/TSD),
+                // never TSInput directly, so we can resume walking unconditionally.
+                next = nullptr;
+                hgraph::visit(
+                    crossing_it->link_state->parent,
+                    [&](auto *p) {
+                        using T = std::remove_pointer_t<decltype(p)>;
+                        if constexpr (!std::same_as<T, TSInput> && !std::same_as<T, TSOutput>) {
+                            next = static_cast<BaseState *>(p);
+                        }
+                    },
+                    [] {});
+                ++crossing_it;
+            }
+
+            if (next == nullptr) { break; }
+            cur = next;
+        }
+
+        // Reverse to get root-to-leaf order, then create trie nodes.
+        std::ranges::reverse(slots);
+        ActiveTrieNode *node = &pos.trie->ensure_root();
+        for (const size_t slot : slots) {
+            node = &node->ensure_child(slot);
+        }
+        pos.node = node;
+        return node;
     }
 
 }  // namespace hgraph

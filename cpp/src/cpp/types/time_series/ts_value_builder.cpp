@@ -184,6 +184,20 @@ namespace hgraph
             child.active_pos.node = parent.active_pos.node
                 ? parent.active_pos.node->child_at(child_slot)
                 : nullptr;
+
+            // Inherit link crossings from parent (typically empty).
+            child.active_pos.link_crossings = parent.active_pos.link_crossings;
+
+            // If this child IS a TargetLinkState, record the crossing so
+            // descendants can reconstruct the input-side path.
+            if (child.ts_state != nullptr &&
+                child.ts_state->storage_kind == TSStorageKind::TargetLink) {
+                if (const LinkedTSContext *target = child.ts_state->linked_target();
+                    target != nullptr && target->ts_state != nullptr) {
+                    child.active_pos.link_crossings.push_back(
+                        LinkCrossing{target->ts_state, child.ts_state});
+                }
+            }
         }
 
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }

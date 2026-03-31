@@ -7,8 +7,11 @@
 #include <functional>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 namespace hgraph {
+
+struct BaseState;
 
 /**
  * A single node in the sparse active-state trie.
@@ -108,15 +111,45 @@ struct HGRAPH_EXPORT ActiveTrie {
 };
 
 /**
+ * Records a single link-boundary crossing encountered during input-side
+ * navigation.  When the BaseState parent chain is walked to reconstruct
+ * the input-side slot path, a crossing tells the walk to jump from the
+ * output-side root back to the input-side TargetLinkState.
+ */
+struct LinkCrossing {
+    BaseState *output_root;  ///< Output-side BaseState the TargetLinkState's target points to.
+    BaseState *link_state;   ///< The TargetLinkState itself (input-side parent + index).
+};
+
+/**
  * Lightweight position within the active trie, carried in TSViewContext
  * during input view navigation.
  *
- * A null node means the current path is not active. A non-null node means
- * this level (or a descendant) has active state.
+ * A null `node` means the current path has no active state in the trie
+ * yet.  A non-null `node` means this level (or a descendant) has active
+ * state.
+ *
+ * When `make_active` is called at a position whose `node` is null, the
+ * path from the current BaseState back to the TSInput root is
+ * reconstructed by walking BaseState::parent.  The `link_crossings`
+ * vector records TargetLinkState boundaries so the walk can jump from
+ * the output-side parent chain back to the input side.  This vector is
+ * typically empty (no links) or has 1 entry, and only grows when a new
+ * link boundary is crossed — not at every child navigation level.
  */
 struct ActiveTriePosition {
-    ActiveTrie     *trie{nullptr};
-    ActiveTrieNode *node{nullptr};
+    ActiveTrie                    *trie{nullptr};
+    ActiveTrieNode                *node{nullptr};
+    std::vector<LinkCrossing>      link_crossings;
 };
+
+/**
+ * Reconstruct the input-side slot path from @p state back to the
+ * TSInput root (using link_crossings to bridge TargetLinkState
+ * boundaries), then create trie nodes along that path.
+ *
+ * Returns the trie node at the leaf, or nullptr if pos has no trie.
+ */
+HGRAPH_EXPORT ActiveTrieNode *ensure_trie_path(ActiveTriePosition &pos, BaseState *state);
 
 }  // namespace hgraph
