@@ -1,0 +1,272 @@
+#include <hgraph/types/time_series/ts_output_builder.h>
+#include <hgraph/types/v2/node_builder.h>
+
+#include <algorithm>
+#include <cstddef>
+#include <cstring>
+#include <memory>
+#include <new>
+#include <stdexcept>
+
+namespace hgraph::v2
+{
+    namespace
+    {
+        [[nodiscard]] constexpr size_t align_up(size_t value, size_t alignment) noexcept
+        {
+            if (alignment == 0) { return value; }
+            const size_t remainder = value % alignment;
+            return remainder == 0 ? value : value + (alignment - remainder);
+        }
+
+        struct ResolvedNodeBuilders
+        {
+            const TSInputBuilder *input_builder{nullptr};
+            const TSOutputBuilder *output_builder{nullptr};
+        };
+
+        struct NodeMemoryLayout
+        {
+            size_t total_size{0};
+            size_t alignment{alignof(Node)};
+            size_t spec_offset{0};
+            size_t runtime_data_offset{0};
+            size_t label_offset{0};
+            size_t active_slots_offset{0};
+            size_t valid_slots_offset{0};
+            size_t all_valid_slots_offset{0};
+            size_t input_object_offset{0};
+            size_t input_storage_offset{0};
+            size_t output_object_offset{0};
+            size_t output_storage_offset{0};
+        };
+
+        [[nodiscard]] ResolvedNodeBuilders resolve_builders(const TSMeta *input_schema,
+                                                            const TSMeta *output_schema,
+                                                            const std::vector<TSInputConstructionEdge> &inbound_edges)
+        {
+            ResolvedNodeBuilders builders;
+
+            if (input_schema != nullptr) {
+                const TSInputConstructionPlan plan = TSInputConstructionPlanCompiler::compile(*input_schema, inbound_edges);
+                builders.input_builder = &TSInputBuilderFactory::checked_builder_for(plan);
+            } else if (!inbound_edges.empty()) {
+                throw std::invalid_argument("v2 nodes without an input schema cannot accept inbound edges");
+            }
+
+            if (output_schema != nullptr) { builders.output_builder = &TSOutputBuilderFactory::checked_builder_for(output_schema); }
+
+            return builders;
+        }
+
+        [[nodiscard]] NodeMemoryLayout describe_layout(std::string_view label,
+                                                       std::span<const size_t> active_inputs,
+                                                       std::span<const size_t> valid_inputs,
+                                                       std::span<const size_t> all_valid_inputs,
+                                                       const ResolvedNodeBuilders &builders) noexcept
+        {
+            NodeMemoryLayout layout;
+            layout.alignment = std::max(alignof(Node), alignof(BuiltNodeSpec));
+
+            size_t offset = sizeof(Node);
+            offset = align_up(offset, alignof(BuiltNodeSpec));
+            layout.spec_offset = offset;
+            offset += sizeof(BuiltNodeSpec);
+
+            layout.alignment = std::max(layout.alignment, alignof(detail::StaticNodeRuntimeData));
+            offset = align_up(offset, alignof(detail::StaticNodeRuntimeData));
+            layout.runtime_data_offset = offset;
+            offset += sizeof(detail::StaticNodeRuntimeData);
+
+            if (!label.empty()) {
+                layout.label_offset = offset;
+                offset += label.size();
+            }
+
+            layout.alignment = std::max(layout.alignment, alignof(size_t));
+            offset = align_up(offset, alignof(size_t));
+            layout.active_slots_offset = offset;
+            offset += sizeof(size_t) * active_inputs.size();
+
+            offset = align_up(offset, alignof(size_t));
+            layout.valid_slots_offset = offset;
+            offset += sizeof(size_t) * valid_inputs.size();
+
+            offset = align_up(offset, alignof(size_t));
+            layout.all_valid_slots_offset = offset;
+            offset += sizeof(size_t) * all_valid_inputs.size();
+
+            if (builders.input_builder != nullptr) {
+                layout.alignment = std::max(layout.alignment, alignof(TSInput));
+                offset = align_up(offset, alignof(TSInput));
+                layout.input_object_offset = offset;
+                offset += sizeof(TSInput);
+
+                layout.alignment = std::max(layout.alignment, builders.input_builder->alignment());
+                offset = align_up(offset, builders.input_builder->alignment());
+                layout.input_storage_offset = offset;
+                offset += builders.input_builder->size();
+            }
+
+            if (builders.output_builder != nullptr) {
+                layout.alignment = std::max(layout.alignment, alignof(TSOutput));
+                offset = align_up(offset, alignof(TSOutput));
+                layout.output_object_offset = offset;
+                offset += sizeof(TSOutput);
+
+                layout.alignment = std::max(layout.alignment, builders.output_builder->alignment());
+                offset = align_up(offset, builders.output_builder->alignment());
+                layout.output_storage_offset = offset;
+                offset += builders.output_builder->size();
+            }
+
+            layout.total_size = offset;
+            return layout;
+        }
+
+        [[nodiscard]] std::span<const size_t> materialize_slots(std::byte *base,
+                                                                std::span<const size_t> source,
+                                                                size_t slots_offset)
+        {
+            if (source.empty()) { return {}; }
+
+            auto *slots = reinterpret_cast<size_t *>(base + slots_offset);
+            std::copy(source.begin(), source.end(), slots);
+            return {slots, source.size()};
+        }
+
+        void destruct_static_node(Node &node) noexcept
+        {
+            const BuiltNodeSpec &spec = node.spec();
+            auto &runtime_data = detail::runtime_data<detail::StaticNodeRuntimeData>(node);
+
+            if (runtime_data.output != nullptr) { runtime_data.output->~TSOutput(); }
+            if (runtime_data.input != nullptr) { runtime_data.input->~TSInput(); }
+
+            std::destroy_at(const_cast<BuiltNodeSpec *>(&spec));
+            std::destroy_at(&runtime_data);
+        }
+    }  // namespace
+
+    NodeBuilder &NodeBuilder::label(std::string value)
+    {
+        m_label = std::move(value);
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::input_schema(const TSMeta *value)
+    {
+        m_input_schema = value;
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::output_schema(const TSMeta *value)
+    {
+        m_output_schema = value;
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::active_input(size_t slot)
+    {
+        m_active_inputs.emplace_back(slot);
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::valid_input(size_t slot)
+    {
+        m_valid_inputs.emplace_back(slot);
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::all_valid_input(size_t slot)
+    {
+        m_all_valid_inputs.emplace_back(slot);
+        return *this;
+    }
+
+    size_t NodeBuilder::size(const std::vector<TSInputConstructionEdge> &inbound_edges) const
+    {
+        if (m_runtime_ops == nullptr) {
+            throw std::invalid_argument("v2 node builder requires an implementation to be set");
+        }
+        const auto builders = resolve_builders(m_input_schema, m_output_schema, inbound_edges);
+        return describe_layout(m_label, m_active_inputs, m_valid_inputs, m_all_valid_inputs, builders).total_size;
+    }
+
+    size_t NodeBuilder::alignment(const std::vector<TSInputConstructionEdge> &inbound_edges) const
+    {
+        if (m_runtime_ops == nullptr) {
+            throw std::invalid_argument("v2 node builder requires an implementation to be set");
+        }
+        const auto builders = resolve_builders(m_input_schema, m_output_schema, inbound_edges);
+        return describe_layout(m_label, m_active_inputs, m_valid_inputs, m_all_valid_inputs, builders).alignment;
+    }
+
+    Node *NodeBuilder::construct_at(void *memory,
+                                    int64_t node_index,
+                                    const std::vector<TSInputConstructionEdge> &inbound_edges) const
+    {
+        if (memory == nullptr) { throw std::invalid_argument("v2 node builder requires non-null construction memory"); }
+        if (m_runtime_ops == nullptr) {
+            throw std::invalid_argument("v2 node builder requires an implementation to be set");
+        }
+
+        const auto builders = resolve_builders(m_input_schema, m_output_schema, inbound_edges);
+        const auto layout = describe_layout(m_label, m_active_inputs, m_valid_inputs, m_all_valid_inputs, builders);
+        auto *base = static_cast<std::byte *>(memory);
+
+        std::string_view label_view;
+        if (!m_label.empty()) {
+            auto *label_ptr = reinterpret_cast<char *>(base + layout.label_offset);
+            std::memcpy(label_ptr, m_label.data(), m_label.size());
+            label_view = std::string_view{label_ptr, m_label.size()};
+        }
+
+        const auto active_inputs = materialize_slots(base, m_active_inputs, layout.active_slots_offset);
+        const auto valid_inputs = materialize_slots(base, m_valid_inputs, layout.valid_slots_offset);
+        const auto all_valid_inputs = materialize_slots(base, m_all_valid_inputs, layout.all_valid_slots_offset);
+
+        TSInput *input = nullptr;
+        TSOutput *output = nullptr;
+
+        try {
+            if (builders.input_builder != nullptr) {
+                input = new (base + layout.input_object_offset) TSInput{};
+                builders.input_builder->construct_input(
+                    *input, base + layout.input_storage_offset, TSInputBuilder::MemoryOwnership::External);
+            }
+
+            if (builders.output_builder != nullptr) {
+                output = new (base + layout.output_object_offset) TSOutput{};
+                builders.output_builder->construct_output(
+                    *output, base + layout.output_storage_offset, TSOutputBuilder::MemoryOwnership::External);
+            }
+
+            auto *runtime_data = new (base + layout.runtime_data_offset) detail::StaticNodeRuntimeData{input, output};
+
+            auto *spec = new (base + layout.spec_offset) BuiltNodeSpec{
+                m_runtime_ops,
+                &destruct_static_node,
+                layout.runtime_data_offset,
+                label_view,
+                m_input_schema,
+                m_output_schema,
+                active_inputs,
+                valid_inputs,
+                all_valid_inputs,
+            };
+
+            static_cast<void>(runtime_data);
+            return new (memory) Node(node_index, spec);
+        } catch (...) {
+            if (output != nullptr) { output->~TSOutput(); }
+            if (input != nullptr) { input->~TSInput(); }
+            throw;
+        }
+    }
+
+    void NodeBuilder::destruct_at(Node &node) const noexcept
+    {
+        node.destruct();
+    }
+}  // namespace hgraph::v2

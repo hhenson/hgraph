@@ -12,8 +12,45 @@
 #include <hgraph/nodes/context_node.h>
 #include <hgraph/nodes/python_generator_node.h>
 #include <hgraph/nodes/push_queue_node.h>
+#include <hgraph/types/v2/python_export.h>
+
+namespace
+{
+    using namespace hgraph::v2;
+
+    struct StaticSumNode
+    {
+        StaticSumNode() = delete;
+        ~StaticSumNode() = delete;
+
+        static constexpr auto name = "static_sum";
+
+        static void eval(In<"lhs", TS<int>> lhs, In<"rhs", TS<int>> rhs, Out<TS<int>> out)
+        {
+            out.set(lhs.value() + rhs.value());
+        }
+    };
+
+    struct StaticPolicyNode
+    {
+        StaticPolicyNode() = delete;
+        ~StaticPolicyNode() = delete;
+
+        static constexpr auto name = "static_policy";
+
+        static void eval(In<"lhs", TS<int>> lhs,
+                         In<"rhs", TS<int>, InputActivity::Passive, InputValidity::Unchecked> rhs,
+                         In<"strict", TS<int>, InputActivity::Active, InputValidity::AllValid> strict,
+                         Out<TS<int>> out)
+        {
+            out.set(lhs.value() + rhs.value() + strict.value());
+        }
+    };
+}
 
 void export_nodes(nb::module_ &m) {
     using namespace hgraph;
-
+    auto v2 = m.def_submodule("v2", "Experimental v2 static node exports");
+    hgraph::v2::export_compute_node<StaticSumNode>(v2);
+    hgraph::v2::export_compute_node<StaticPolicyNode>(v2);
 }

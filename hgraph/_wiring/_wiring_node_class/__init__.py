@@ -1,6 +1,7 @@
 from hgraph._wiring._wiring_node_class._adaptor_impl_node_class import *
 from hgraph._wiring._wiring_node_class._adaptor_node_class import *
 from hgraph._wiring._wiring_node_class._component_node_class import *
+from hgraph._wiring._wiring_node_class._cpp_static_wiring_node_class import *
 from hgraph._wiring._wiring_node_class._graph_wiring_node_class import *
 from hgraph._wiring._wiring_node_class._map_wiring_node import *
 from hgraph._wiring._wiring_node_class._mesh_wiring_node import *

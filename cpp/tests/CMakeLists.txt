@@ -208,11 +208,115 @@ endif ()
 target_compile_features(hgraph_time_series_value_tests PRIVATE cxx_std_23)
 target_compile_definitions(hgraph_time_series_value_tests PRIVATE HGRAPH_DISABLE_TS_REFERENCE_ATOMIC=1)
 
+add_executable(hgraph_v2_tests
+    test_types_v2_graph.cpp
+    ../src/cpp/types/v2/node.cpp
+    ../src/cpp/types/v2/node_builder.cpp
+    ../src/cpp/types/v2/graph.cpp
+    ../src/cpp/types/v2/graph_builder.cpp
+    ../src/cpp/types/time_series/value/atomic.cpp
+    ../src/cpp/types/time_series/value/associative.cpp
+    ../src/cpp/types/time_series/value/list.cpp
+    ../src/cpp/types/time_series/value/record.cpp
+    ../src/cpp/types/time_series/value/sequence.cpp
+    ../src/cpp/types/time_series/value/builder.cpp
+    ../src/cpp/types/time_series/value/value.cpp
+    ../src/cpp/types/time_series/ts_value_builder.cpp
+    ../src/cpp/types/time_series/ts_value.cpp
+    ../src/cpp/types/time_series/ts_input_builder.cpp
+    ../src/cpp/types/time_series/ts_input.cpp
+    ../src/cpp/types/time_series/ts_input_view.cpp
+    ../src/cpp/types/time_series/ts_output.cpp
+    ../src/cpp/types/time_series/ts_output_builder.cpp
+    ../src/cpp/types/time_series/time_series_state.cpp
+    ../src/cpp/types/time_series/active_trie.cpp
+    ../src/cpp/types/time_series/ts_type_registry.cpp
+    ../src/cpp/types/value/type_meta_bindings.cpp
+    ../src/cpp/types/value/type_registry.cpp
+)
+
+target_include_directories(hgraph_v2_tests PRIVATE
+    ../include
+    ${CMAKE_BINARY_DIR}/generated
+)
+
+if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/_deps/ddvisitor-src/include")
+    target_include_directories(hgraph_v2_tests PRIVATE
+        "${HGRAPH_ROOT_BUILD_DIR}/_deps/ddvisitor-src/include"
+    )
+endif ()
+
+if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/_deps/tpack-src/include")
+    target_include_directories(hgraph_v2_tests PRIVATE
+        "${HGRAPH_ROOT_BUILD_DIR}/_deps/tpack-src/include"
+    )
+endif ()
+
+if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/_deps/dynamic_bitset-src/include")
+    target_include_directories(hgraph_v2_tests PRIVATE
+        "${HGRAPH_ROOT_BUILD_DIR}/_deps/dynamic_bitset-src/include"
+    )
+endif ()
+
+if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/_deps/nanoarrow-src/src")
+    target_include_directories(hgraph_v2_tests PRIVATE
+        "${HGRAPH_ROOT_BUILD_DIR}/_deps/nanoarrow-src/src"
+    )
+endif ()
+
+if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/_deps/nanoarrow-build/src")
+    target_include_directories(hgraph_v2_tests PRIVATE
+        "${HGRAPH_ROOT_BUILD_DIR}/_deps/nanoarrow-build/src"
+    )
+endif ()
+
+target_link_libraries(hgraph_v2_tests PRIVATE
+    Catch2::Catch2WithMain
+    ${HGRAPH_TEST_FMT_TARGET}
+)
+
+if (TARGET Python::Python)
+    target_link_libraries(hgraph_v2_tests PRIVATE Python::Python)
+elseif (TARGET Python::Module)
+    target_link_libraries(hgraph_v2_tests PRIVATE Python::Module)
+endif ()
+
+if (TARGET nanobind::headers)
+    target_link_libraries(hgraph_v2_tests PRIVATE nanobind::headers)
+endif ()
+
+if (TARGET Threads::Threads)
+    target_link_libraries(hgraph_v2_tests PRIVATE Threads::Threads)
+endif ()
+
+if (TARGET nanobind-static)
+    target_link_libraries(hgraph_v2_tests PRIVATE nanobind-static)
+endif ()
+
+if (TARGET tpack)
+    target_link_libraries(hgraph_v2_tests PRIVATE tpack)
+elseif (TARGET tpack::tpack)
+    target_link_libraries(hgraph_v2_tests PRIVATE tpack::tpack)
+endif ()
+
+target_compile_features(hgraph_v2_tests PRIVATE cxx_std_23)
+target_compile_definitions(hgraph_v2_tests PRIVATE HGRAPH_DISABLE_TS_REFERENCE_ATOMIC=1)
+execute_process(
+    COMMAND "${Python_EXECUTABLE}" -c "import sys; print(sys.base_prefix)"
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    OUTPUT_VARIABLE HGRAPH_TEST_PYTHON_HOME
+)
+target_compile_definitions(hgraph_v2_tests PRIVATE
+    HGRAPH_TEST_PYTHON_EXECUTABLE="${Python_EXECUTABLE}"
+    HGRAPH_TEST_PYTHON_HOME="${HGRAPH_TEST_PYTHON_HOME}"
+)
+
 # Register tests with CTest
 include(CTest)
 include(Catch)
 catch_discover_tests(hgraph_visitor_tests)
 catch_discover_tests(hgraph_time_series_value_tests)
+catch_discover_tests(hgraph_v2_tests)
 
 # Optional: Add custom target to run tests
 add_custom_target(run_visitor_tests
