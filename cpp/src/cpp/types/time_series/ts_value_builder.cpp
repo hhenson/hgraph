@@ -464,6 +464,27 @@ namespace hgraph
                 return context.value().as_list().size();
             }
 
+            [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
+            {
+                ListView list = context.value().as_list();
+                TSLState *state = list_state(context);
+                if (state == nullptr) { return false; }
+
+                for (size_t index = 0; index < list.size(); ++index) {
+                    ensure_child_state(*state, index, m_element_schema.get());
+                    View child_value = list.at(index);
+                    TSViewContext child = child_context_from_slot(state->child_states[index],
+                                                                  m_element_schema.get(),
+                                                                  m_element_value_dispatch.get(),
+                                                                  m_element_ts_dispatch.get(),
+                                                                  RawViewAccess::data_of(child_value));
+                    populate_input_child_context(child, context, index);
+                    if (!m_element_ts_dispatch.get().all_valid(child)) { return false; }
+                }
+
+                return true;
+            }
+
             [[nodiscard]] TSViewContext child_at(const TSViewContext &context, size_t index) const override
             {
                 ListView list = context.value().as_list();
@@ -505,6 +526,26 @@ namespace hgraph
             {
                 static_cast<void>(context);
                 return m_fields.size();
+            }
+
+            [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
+            {
+                TSBState *state = bundle_state(context);
+                if (state == nullptr) { return false; }
+
+                for (size_t index = 0; index < m_fields.size(); ++index) {
+                    ensure_child_state(*state, index, m_fields[index].schema.get());
+                    View child_value = context.value().as_bundle().at(index);
+                    TSViewContext child = child_context_from_slot(state->child_states[index],
+                                                                  m_fields[index].schema.get(),
+                                                                  m_fields[index].value_dispatch.get(),
+                                                                  m_fields[index].ts_dispatch.get(),
+                                                                  RawViewAccess::data_of(child_value));
+                    populate_input_child_context(child, context, index);
+                    if (!m_fields[index].ts_dispatch.get().all_valid(child)) { return false; }
+                }
+
+                return true;
             }
 
             [[nodiscard]] TSViewContext child_at(const TSViewContext &context, size_t index) const override
@@ -556,6 +597,17 @@ namespace hgraph
             [[nodiscard]] size_t size(const TSViewContext &context) const noexcept override
             {
                 return context.value().as_map().size();
+            }
+
+            [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
+            {
+                MapDeltaView delta = context.value().as_map().delta();
+                for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
+                    if (!detail::dict_slot_is_live(delta, slot)) { continue; }
+                    if (!m_value_ts_dispatch.get().all_valid(child_at_slot(context, delta, slot))) { return false; }
+                }
+
+                return true;
             }
 
             [[nodiscard]] TSViewContext child_at(const TSViewContext &context, size_t index) const override

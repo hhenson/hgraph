@@ -62,6 +62,8 @@ namespace hgraph
         struct TSDispatch
         {
             virtual ~TSDispatch() = default;
+            [[nodiscard]] virtual bool valid(const TSViewContext &context) const noexcept;
+            [[nodiscard]] virtual bool all_valid(const TSViewContext &context) const noexcept;
             [[nodiscard]] virtual const TSCollectionDispatch *as_collection() const noexcept { return nullptr; }
         };
 
@@ -259,16 +261,24 @@ namespace hgraph
          * TS validity follows the sentinel carried by the TS extension region:
          * `MIN_DT` means the logical time-series position has no value.
          */
-        [[nodiscard]] bool valid() const noexcept { return last_modified_time() != MIN_DT; }
+        [[nodiscard]] bool valid() const noexcept
+        {
+            const auto *dispatch = ts_dispatch();
+            return dispatch != nullptr ? dispatch->valid(m_context) : false;
+        }
 
         /**
          * Return whether this view and its required descendants are valid.
          *
-         * The collection-specific recursive validity rules will be layered on
-         * later. For the current root-oriented integration step, this uses the
-         * same sentinel rule as `valid()`.
+         * The collection-specific recursive validity rules are implemented by
+         * the collection view refinements. Leaf views follow the same sentinel
+         * rule as `valid()`.
          */
-        [[nodiscard]] bool all_valid() const noexcept { return valid(); }
+        [[nodiscard]] bool all_valid() const noexcept
+        {
+            const auto *dispatch = ts_dispatch();
+            return dispatch != nullptr ? dispatch->all_valid(m_context) : false;
+        }
 
         /**
          * Return the last modification time associated to this view.
@@ -510,6 +520,16 @@ namespace hgraph
         }
 
     }  // namespace detail
+
+    inline bool detail::TSDispatch::valid(const TSViewContext &context) const noexcept
+    {
+        return context.ts_state != nullptr && context.ts_state->last_modified_time != MIN_DT;
+    }
+
+    inline bool detail::TSDispatch::all_valid(const TSViewContext &context) const noexcept
+    {
+        return valid(context);
+    }
 
     template <typename TView>
     size_t BaseCollectionView<TView>::size() const noexcept

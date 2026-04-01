@@ -122,6 +122,13 @@ namespace hgraph
             }
             return SIZE_MAX;
         }
+
+        void mark_output_view_modified(const TSOutputView &view, engine_time_t modified_time)
+        {
+            LinkedTSContext context = view.linked_context();
+            REQUIRE(context.ts_state != nullptr);
+            context.ts_state->mark_modified(modified_time);
+        }
     }  // namespace test_detail
 }  // namespace hgraph
 
@@ -328,6 +335,72 @@ TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[t
         }
         std::sort(items.begin(), items.end());
         CHECK((items == std::vector<std::pair<std::string, int>>{{"b", 2}}));
+    }
+}
+
+TEST_CASE("TS collection views report recursive all_valid state", "[ts_view][ts_value]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *str_type = value_registry.register_type<std::string>("str");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+
+    SECTION("bundle all_valid requires every child to be valid") {
+        const auto *bundle_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Pair");
+        hgraph::test_detail::ExposedTSValue value{*bundle_schema};
+
+        hgraph::TSOutputView root{value.view_context()};
+        auto bundle = root.as_bundle();
+        auto lhs = bundle.field("lhs");
+        auto rhs = bundle.field("rhs");
+
+        CHECK_FALSE(bundle.all_valid());
+
+        lhs.value().set_scalar(11);
+        hgraph::test_detail::mark_output_view_modified(lhs, hgraph::test_detail::tick(1));
+        CHECK_FALSE(bundle.all_valid());
+
+        rhs.value().set_scalar(13);
+        hgraph::test_detail::mark_output_view_modified(rhs, hgraph::test_detail::tick(2));
+        CHECK(bundle.all_valid());
+    }
+
+    SECTION("list all_valid requires every element to be valid") {
+        hgraph::test_detail::ExposedTSValue value{*ts_registry.tsl(scalar_ts, 2)};
+
+        hgraph::TSOutputView root{value.view_context()};
+        auto list = root.as_list();
+        auto first = list[0];
+        auto second = list[1];
+
+        CHECK_FALSE(list.all_valid());
+
+        first.value().set_scalar(7);
+        hgraph::test_detail::mark_output_view_modified(first, hgraph::test_detail::tick(3));
+        CHECK_FALSE(list.all_valid());
+
+        second.value().set_scalar(13);
+        hgraph::test_detail::mark_output_view_modified(second, hgraph::test_detail::tick(4));
+        CHECK(list.all_valid());
+    }
+
+    SECTION("dict all_valid follows live child validity") {
+        hgraph::test_detail::ExposedTSValue value{*ts_registry.tsd(str_type, scalar_ts)};
+        const hgraph::Value key{std::string{"a"}};
+
+        hgraph::TSOutputView root{value.view_context()};
+        auto dict = root.as_dict();
+
+        CHECK(dict.all_valid());
+
+        value.dict_value().begin_mutation().setting(key.view(), hgraph::Value{1}.view());
+        auto child = dict.at(key.view());
+        CHECK_FALSE(dict.all_valid());
+
+        hgraph::test_detail::mark_output_view_modified(child, hgraph::test_detail::tick(5));
+        CHECK(dict.all_valid());
     }
 }
 
