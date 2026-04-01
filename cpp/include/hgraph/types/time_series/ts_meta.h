@@ -19,7 +19,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <utility>
 
 namespace nb = nanobind;
@@ -262,13 +261,47 @@ private:
     }
 
     void move_data_from(TSMeta&& other) noexcept {
-        if (other.kind == TSKind::TSB) {
-            new (&data.tsb) TSBData{std::move(other.data.tsb)};
-        } else {
-            // All other KindData variants are trivially copyable
-            std::memcpy(&data, &other.data, sizeof(KindData));
+        switch (other.kind) {
+            case TSKind::TSValue:
+            case TSKind::SIGNAL:
+                new (&data.empty) EmptyData{};
+                break;
+
+            case TSKind::TSS:
+                new (&data.empty) EmptyData{};
+                break;
+
+            case TSKind::TSD:
+                new (&data.tsd) TSDData{other.data.tsd};
+                break;
+
+            case TSKind::TSL:
+                new (&data.tsl) TSLData{other.data.tsl};
+                break;
+
+            case TSKind::TSW:
+                new (&data.tsw) TSWData{other.data.tsw};
+                break;
+
+            case TSKind::TSB:
+                new (&data.tsb) TSBData{std::move(other.data.tsb)};
+                break;
+
+            case TSKind::REF:
+                new (&data.ref) REFData{other.data.ref};
+                break;
         }
-        other.kind = TSKind::SIGNAL;  // Prevent double-destroy of TSBData
+
+        reset_moved_from(other);
+    }
+
+    static void reset_moved_from(TSMeta& other) noexcept {
+        if (other.kind == TSKind::TSB) {
+            other.data.tsb.~TSBData();
+        }
+        new (&other.data.empty) EmptyData{};
+        other.kind = TSKind::SIGNAL;
+        other.value_type = nullptr;
     }
 };
 

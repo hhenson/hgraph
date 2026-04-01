@@ -48,7 +48,7 @@ struct HGRAPH_EXPORT TSOutput : TSValue {
      */
     [[nodiscard]] LinkedTSContext linked_context() noexcept { return TSValue::linked_context(); }
 
-    [[nodiscard]] TSOutputView view();
+    [[nodiscard]] TSOutputView view(engine_time_t evaluation_time = MIN_DT);
 
 protected:
     /**

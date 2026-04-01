@@ -58,9 +58,9 @@ namespace hgraph::v2
         }
 
         template <typename TImplementation>
-        static nb::object export_compute_node(nb::module_ &m, std::string_view name = {})
+        static void export_compute_node(nb::module_ &m, std::string_view name = {})
         {
-            return v2::export_compute_node<TImplementation>(m, name);
+            v2::export_compute_node<TImplementation>(m, name);
         }
 
         [[nodiscard]] size_t size(const std::vector<TSInputConstructionEdge> &inbound_edges) const;

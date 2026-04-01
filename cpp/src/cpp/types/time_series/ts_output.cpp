@@ -5,6 +5,33 @@
 
 namespace hgraph
 {
+    namespace detail
+    {
+        namespace
+        {
+            struct DefaultTSOutputViewOps final : TSOutputViewOps
+            {
+                [[nodiscard]] LinkedTSContext linked_context(const TSViewContext &context) const noexcept override
+                {
+                    const TSViewContext resolved = context.resolved();
+                    return LinkedTSContext{
+                        resolved.schema,
+                        resolved.value_dispatch,
+                        resolved.ts_dispatch,
+                        resolved.value_data,
+                        context.ts_state,
+                    };
+                }
+            };
+        }  // namespace
+
+        const TSOutputViewOps &default_output_view_ops() noexcept
+        {
+            static DefaultTSOutputViewOps ops;
+            return ops;
+        }
+    }  // namespace detail
+
     TSOutput::TSOutput(const TSOutputBuilder &builder)
     {
         builder.construct_output(*this);
@@ -46,10 +73,11 @@ namespace hgraph
         clear_storage();
     }
 
-    TSOutputView TSOutput::view()
+    TSOutputView TSOutput::view(engine_time_t evaluation_time)
     {
-        const TSViewContext context = view_context();
-        return TSOutputView{context};
+        TSViewContext context = view_context();
+        context.output_view_ops = &detail::default_output_view_ops();
+        return TSOutputView{context, TSViewContext::none(), evaluation_time};
     }
 
     TSValue *TSOutput::find_alternative(const TSMeta *schema) noexcept

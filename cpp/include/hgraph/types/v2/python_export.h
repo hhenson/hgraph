@@ -43,11 +43,10 @@ namespace hgraph::v2
     }
 
     template <typename TImplementation>
-    [[nodiscard]] nb::object export_compute_node(nb::module_ &m, std::string_view name = {})
+    void export_compute_node(nb::module_ &m, std::string_view name = {})
     {
         nb::object node = make_compute_wiring_node<TImplementation>(name);
         const std::string exported_name = detail::node_name_or<TImplementation>(name);
         m.attr(exported_name.c_str()) = node;
-        return node;
     }
 }  // namespace hgraph::v2

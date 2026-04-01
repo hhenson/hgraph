@@ -16,6 +16,8 @@ namespace hgraph
 
     struct TSInput;
     struct TSOutput;
+    struct TSInputView;
+    struct TSOutputView;
 
     template <typename TView>
     struct TSView;
@@ -48,6 +50,10 @@ namespace hgraph
         struct TSCollectionDispatch;
         struct TSFieldDispatch;
         struct TSKeyDispatch;
+        struct TSSetDispatch;
+        struct TSWindowDispatch;
+        struct TSInputViewOps;
+        struct TSOutputViewOps;
 
         /**
          * Behavior-only dispatch over a logical TS position.
@@ -62,9 +68,13 @@ namespace hgraph
         struct TSDispatch
         {
             virtual ~TSDispatch() = default;
+            [[nodiscard]] virtual View delta_value(const TSViewContext &context) const noexcept;
+            [[nodiscard]] virtual engine_time_t last_modified_time(const TSViewContext &context) const noexcept;
             [[nodiscard]] virtual bool valid(const TSViewContext &context) const noexcept;
             [[nodiscard]] virtual bool all_valid(const TSViewContext &context) const noexcept;
             [[nodiscard]] virtual const TSCollectionDispatch *as_collection() const noexcept { return nullptr; }
+            [[nodiscard]] virtual const TSSetDispatch *as_set() const noexcept { return nullptr; }
+            [[nodiscard]] virtual const TSWindowDispatch *as_window() const noexcept { return nullptr; }
         };
 
         /**
@@ -76,6 +86,7 @@ namespace hgraph
             [[nodiscard]] virtual const TSFieldDispatch *as_fields() const noexcept { return nullptr; }
             [[nodiscard]] virtual const TSKeyDispatch *as_keys() const noexcept { return nullptr; }
             [[nodiscard]] virtual size_t size(const TSViewContext &context) const noexcept                           = 0;
+            [[nodiscard]] virtual bool child_modified(const TSViewContext &context, size_t index) const noexcept    = 0;
             /**
              * Resolve a child by schema-defined slot.
              *
@@ -104,7 +115,49 @@ namespace hgraph
         {
             [[nodiscard]] const TSKeyDispatch *as_keys() const noexcept override { return this; }
             [[nodiscard]] virtual TSViewContext child_key(const TSViewContext &context, const View &key) const = 0;
+            [[nodiscard]] virtual size_t iteration_limit(const TSViewContext &context) const noexcept = 0;
+            [[nodiscard]] virtual bool slot_is_live(const TSViewContext &context, size_t slot) const noexcept = 0;
+            [[nodiscard]] virtual View key_at_slot(const TSViewContext &context, size_t slot) const = 0;
         };
+
+        struct TSSetDispatch : TSDispatch
+        {
+            [[nodiscard]] const TSSetDispatch *as_set() const noexcept override { return this; }
+            [[nodiscard]] virtual size_t size(const TSViewContext &context) const noexcept = 0;
+            [[nodiscard]] virtual bool empty(const TSViewContext &context) const noexcept = 0;
+            [[nodiscard]] virtual Range<View> values(const TSViewContext &context) const noexcept = 0;
+            [[nodiscard]] virtual Range<View> added_values(const TSViewContext &context) const noexcept = 0;
+            [[nodiscard]] virtual Range<View> removed_values(const TSViewContext &context) const noexcept = 0;
+        };
+
+        struct TSWindowDispatch : TSDispatch
+        {
+            [[nodiscard]] const TSWindowDispatch *as_window() const noexcept override { return this; }
+            [[nodiscard]] virtual size_t size(const TSViewContext &context) const noexcept = 0;
+            [[nodiscard]] virtual Range<View> values(const TSViewContext &context) const noexcept = 0;
+            [[nodiscard]] virtual Range<engine_time_t> value_times(const TSViewContext &context) const noexcept = 0;
+        };
+
+        struct TSInputViewOps
+        {
+            virtual ~TSInputViewOps() = default;
+            virtual void bind_output(TSViewContext &context,
+                                     const TSViewContext &parent_context,
+                                     engine_time_t evaluation_time,
+                                     const TSOutputView &output) const = 0;
+            virtual void make_active(TSViewContext &context, engine_time_t evaluation_time) const = 0;
+            virtual void make_passive(TSViewContext &context, engine_time_t evaluation_time) const = 0;
+            [[nodiscard]] virtual bool active(const TSViewContext &context) const noexcept = 0;
+        };
+
+        struct TSOutputViewOps
+        {
+            virtual ~TSOutputViewOps() = default;
+            [[nodiscard]] virtual LinkedTSContext linked_context(const TSViewContext &context) const noexcept = 0;
+        };
+
+        [[nodiscard]] HGRAPH_EXPORT const TSInputViewOps &default_input_view_ops() noexcept;
+        [[nodiscard]] HGRAPH_EXPORT const TSOutputViewOps &default_output_view_ops() noexcept;
     }  // namespace detail
 
     /**
@@ -185,6 +238,8 @@ namespace hgraph
 
         ActiveTriePosition active_pos;
         Notifiable *scheduling_notifier{nullptr};
+        const detail::TSInputViewOps *input_view_ops{nullptr};
+        const detail::TSOutputViewOps *output_view_ops{nullptr};
     };
 
     /**
@@ -239,13 +294,14 @@ namespace hgraph
 
         /**
          * Return the current delta value for this view.
-         *
-         * Collection-specific delta surfaces are still exposed through
-         * `TSValue`-side helpers. Until TS collection view navigation is
-         * completed, the generic TS view returns its current value surface
-         * here.
          */
-        [[nodiscard]] View delta_value() const noexcept { return value(); }
+        [[nodiscard]] View delta_value() const noexcept
+        {
+            const auto *dispatch = ts_dispatch();
+            const auto *resolved_schema = schema();
+            const auto *value_schema = resolved_schema != nullptr ? resolved_schema->value_type : nullptr;
+            return dispatch != nullptr ? dispatch->delta_value(m_context) : View::invalid_for(value_schema);
+        }
 
         /**
          * Return whether this view was modified in the current engine cycle.
@@ -285,10 +341,8 @@ namespace hgraph
          */
         [[nodiscard]] engine_time_t last_modified_time() const noexcept
         {
-            if (const BaseState *state = m_context.ts_state; state != nullptr) {
-                return state->last_modified_time;
-            }
-            return MIN_DT;
+            const auto *dispatch = ts_dispatch();
+            return dispatch != nullptr ? dispatch->last_modified_time(m_context) : MIN_DT;
         }
 
         /**
@@ -478,7 +532,7 @@ namespace hgraph
         [[nodiscard]] Range<View> values() const noexcept;
         [[nodiscard]] Range<View> added_values() const noexcept;
         [[nodiscard]] Range<View> removed_values() const noexcept;
-        [[nodiscard]] TView is_empty() const noexcept;
+        [[nodiscard]] bool empty() const noexcept;
     };
 
     template <typename TView>
@@ -508,12 +562,6 @@ namespace hgraph
             return static_cast<const BaseCollectionState *>(state);
         }
 
-        [[nodiscard]] inline bool child_is_modified(const BaseState *state, size_t index) noexcept
-        {
-            const auto *collection = collection_state(state);
-            return collection != nullptr && collection->modified_children.contains(index);
-        }
-
         [[nodiscard]] inline bool dict_slot_is_live(const MapDeltaView &delta, size_t slot) noexcept
         {
             return delta.slot_occupied(slot) && !delta.slot_removed(slot);
@@ -521,9 +569,19 @@ namespace hgraph
 
     }  // namespace detail
 
+    inline View detail::TSDispatch::delta_value(const TSViewContext &context) const noexcept
+    {
+        return context.value();
+    }
+
+    inline engine_time_t detail::TSDispatch::last_modified_time(const TSViewContext &context) const noexcept
+    {
+        return context.ts_state != nullptr ? context.ts_state->last_modified_time : MIN_DT;
+    }
+
     inline bool detail::TSDispatch::valid(const TSViewContext &context) const noexcept
     {
-        return context.ts_state != nullptr && context.ts_state->last_modified_time != MIN_DT;
+        return last_modified_time(context) != MIN_DT;
     }
 
     inline bool detail::TSDispatch::all_valid(const TSViewContext &context) const noexcept
@@ -585,9 +643,12 @@ namespace hgraph
     template <typename TView>
     Range<TView> TSLView<TView>::modified_values() const noexcept
     {
+        const auto *dispatch = this->collection_dispatch();
         return Range<TView>{this, this->size(),
                             [](const void *context, size_t index) {
-                                return detail::child_is_modified(static_cast<const TSLView *>(context)->ts_state(), index);
+                                const auto *self = static_cast<const TSLView *>(context);
+                                const auto *dispatch = self->collection_dispatch();
+                                return dispatch != nullptr && dispatch->child_modified(self->m_context, index);
                             },
                             [](const void *context, size_t index) {
                                 return static_cast<const TSLView *>(context)->at(index);
@@ -620,7 +681,9 @@ namespace hgraph
     {
         return KeyValueRange<size_t, TView>{this, this->size(),
                                             [](const void *context, size_t index) {
-                                                return detail::child_is_modified(static_cast<const TSLView *>(context)->ts_state(), index);
+                                                const auto *self = static_cast<const TSLView *>(context);
+                                                const auto *dispatch = self->collection_dispatch();
+                                                return dispatch != nullptr && dispatch->child_modified(self->m_context, index);
                                             },
                                             [](const void *context, size_t index) {
                                                 return std::pair<size_t, TView>{index, static_cast<const TSLView *>(context)->at(index)};
@@ -693,7 +756,9 @@ namespace hgraph
         const auto *field_dispatch = this->field_dispatch();
         return KeyValueRange<std::string_view, TView>{this, field_dispatch != nullptr ? this->size() : 0,
                                                       [](const void *context, size_t index) {
-                                                          return detail::child_is_modified(static_cast<const TSBView *>(context)->ts_state(), index);
+                                                          const auto *self = static_cast<const TSBView *>(context);
+                                                          const auto *dispatch = self->collection_dispatch();
+                                                          return dispatch != nullptr && dispatch->child_modified(self->m_context, index);
                                                       },
                                                       [](const void *context, size_t index) {
                                                           const auto *self = static_cast<const TSBView *>(context);
@@ -743,41 +808,48 @@ namespace hgraph
     template <typename TView>
     Range<View> TSDView<TView>::keys() const noexcept
     {
-        return Range<View>{this, this->value().as_map().delta().slot_capacity(),
+        const auto *dispatch = this->key_dispatch();
+        return Range<View>{this, dispatch != nullptr ? dispatch->iteration_limit(this->m_context) : 0,
                            [](const void *context, size_t slot) {
-                               const auto delta = static_cast<const TSDView *>(context)->value().as_map().delta();
-                               return detail::dict_slot_is_live(delta, slot);
+                               const auto *self = static_cast<const TSDView *>(context);
+                               const auto *dispatch = self->key_dispatch();
+                               return dispatch != nullptr && dispatch->slot_is_live(self->m_context, slot);
                            },
                            [](const void *context, size_t slot) {
-                               return static_cast<const TSDView *>(context)->value().as_map().delta().key_at_slot(slot);
+                               const auto *self = static_cast<const TSDView *>(context);
+                               return self->key_dispatch()->key_at_slot(self->m_context, slot);
                            }};
     }
 
     template <typename TView>
     Range<TView> TSDView<TView>::values() const noexcept
     {
-        return Range<TView>{this, this->value().as_map().delta().slot_capacity(),
+        const auto *dispatch = this->key_dispatch();
+        return Range<TView>{this, dispatch != nullptr ? dispatch->iteration_limit(this->m_context) : 0,
                             [](const void *context, size_t slot) {
-                                const auto delta = static_cast<const TSDView *>(context)->value().as_map().delta();
-                                return detail::dict_slot_is_live(delta, slot);
+                                const auto *self = static_cast<const TSDView *>(context);
+                                const auto *dispatch = self->key_dispatch();
+                                return dispatch != nullptr && dispatch->slot_is_live(self->m_context, slot);
                             },
                             [](const void *context, size_t slot) {
-                                const auto key = static_cast<const TSDView *>(context)->value().as_map().delta().key_at_slot(slot);
-                                return static_cast<const TSDView *>(context)->at(key);
+                                const auto *self = static_cast<const TSDView *>(context);
+                                return self->at(self->key_dispatch()->key_at_slot(self->m_context, slot));
                             }};
     }
 
     template <typename TView>
     KeyValueRange<View, TView> TSDView<TView>::items() const noexcept
     {
-        return KeyValueRange<View, TView>{this, this->value().as_map().delta().slot_capacity(),
+        const auto *dispatch = this->key_dispatch();
+        return KeyValueRange<View, TView>{this, dispatch != nullptr ? dispatch->iteration_limit(this->m_context) : 0,
                                           [](const void *context, size_t slot) {
-                                              const auto delta = static_cast<const TSDView *>(context)->value().as_map().delta();
-                                              return detail::dict_slot_is_live(delta, slot);
+                                              const auto *self = static_cast<const TSDView *>(context);
+                                              const auto *dispatch = self->key_dispatch();
+                                              return dispatch != nullptr && dispatch->slot_is_live(self->m_context, slot);
                                           },
                                           [](const void *context, size_t slot) {
                                               const auto *self = static_cast<const TSDView *>(context);
-                                              const View key = self->value().as_map().delta().key_at_slot(slot);
+                                              const View key = self->key_dispatch()->key_at_slot(self->m_context, slot);
                                               return std::pair<View, TView>{key, self->at(key)};
                                           }};
     }
@@ -785,16 +857,17 @@ namespace hgraph
     template <typename TView>
     KeyValueRange<View, TView> TSDView<TView>::valid_items() const noexcept
     {
-        return KeyValueRange<View, TView>{this, this->value().as_map().delta().slot_capacity(),
+        const auto *dispatch = this->key_dispatch();
+        return KeyValueRange<View, TView>{this, dispatch != nullptr ? dispatch->iteration_limit(this->m_context) : 0,
                                           [](const void *context, size_t slot) {
                                               const auto *self = static_cast<const TSDView *>(context);
-                                              const auto delta = self->value().as_map().delta();
-                                              if (!detail::dict_slot_is_live(delta, slot)) { return false; }
-                                              return self->at(delta.key_at_slot(slot)).valid();
+                                              const auto *dispatch = self->key_dispatch();
+                                              if (dispatch == nullptr || !dispatch->slot_is_live(self->m_context, slot)) { return false; }
+                                              return self->at(dispatch->key_at_slot(self->m_context, slot)).valid();
                                           },
                                           [](const void *context, size_t slot) {
                                               const auto *self = static_cast<const TSDView *>(context);
-                                              const View key = self->value().as_map().delta().key_at_slot(slot);
+                                              const View key = self->key_dispatch()->key_at_slot(self->m_context, slot);
                                               return std::pair<View, TView>{key, self->at(key)};
                                           }};
     }
@@ -802,16 +875,18 @@ namespace hgraph
     template <typename TView>
     KeyValueRange<View, TView> TSDView<TView>::modified_items() const noexcept
     {
-        return KeyValueRange<View, TView>{this, this->value().as_map().delta().slot_capacity(),
+        const auto *dispatch = this->key_dispatch();
+        return KeyValueRange<View, TView>{this, dispatch != nullptr ? dispatch->iteration_limit(this->m_context) : 0,
                                           [](const void *context, size_t slot) {
                                               const auto *self = static_cast<const TSDView *>(context);
-                                              const auto delta = self->value().as_map().delta();
-                                              return detail::dict_slot_is_live(delta, slot) &&
-                                                     detail::child_is_modified(self->ts_state(), slot);
+                                              const auto *dispatch = self->key_dispatch();
+                                              return dispatch != nullptr &&
+                                                     dispatch->slot_is_live(self->m_context, slot) &&
+                                                     dispatch->child_modified(self->m_context, slot);
                                           },
                                           [](const void *context, size_t slot) {
                                               const auto *self = static_cast<const TSDView *>(context);
-                                              const View key = self->value().as_map().delta().key_at_slot(slot);
+                                              const View key = self->key_dispatch()->key_at_slot(self->m_context, slot);
                                               return std::pair<View, TView>{key, self->at(key)};
                                           }};
     }
@@ -819,52 +894,66 @@ namespace hgraph
     template <typename TView>
     size_t TSSView<TView>::size() const noexcept
     {
-        return this->value().as_set().size();
+        const auto *dispatch = this->ts_dispatch();
+        const auto *set_dispatch = dispatch != nullptr ? dispatch->as_set() : nullptr;
+        return set_dispatch != nullptr ? set_dispatch->size(this->m_context) : 0;
     }
 
     template <typename TView>
     Range<View> TSSView<TView>::values() const noexcept
     {
-        return this->value().as_set().values();
+        const auto *dispatch = this->ts_dispatch();
+        const auto *set_dispatch = dispatch != nullptr ? dispatch->as_set() : nullptr;
+        return set_dispatch != nullptr ? set_dispatch->values(this->m_context) : Range<View>{nullptr, 0, nullptr, nullptr};
     }
 
     template <typename TView>
     Range<View> TSSView<TView>::added_values() const noexcept
     {
-        return this->value().as_set().delta().added();
+        const auto *dispatch = this->ts_dispatch();
+        const auto *set_dispatch = dispatch != nullptr ? dispatch->as_set() : nullptr;
+        return set_dispatch != nullptr ? set_dispatch->added_values(this->m_context) : Range<View>{nullptr, 0, nullptr, nullptr};
     }
 
     template <typename TView>
     Range<View> TSSView<TView>::removed_values() const noexcept
     {
-        return this->value().as_set().delta().removed();
+        const auto *dispatch = this->ts_dispatch();
+        const auto *set_dispatch = dispatch != nullptr ? dispatch->as_set() : nullptr;
+        return set_dispatch != nullptr ? set_dispatch->removed_values(this->m_context) : Range<View>{nullptr, 0, nullptr, nullptr};
     }
 
     template <typename TView>
-    TView TSSView<TView>::is_empty() const noexcept
+    bool TSSView<TView>::empty() const noexcept
     {
-        return TView{};
+        const auto *dispatch = this->ts_dispatch();
+        const auto *set_dispatch = dispatch != nullptr ? dispatch->as_set() : nullptr;
+        return set_dispatch == nullptr || set_dispatch->empty(this->m_context);
     }
 
     template <typename TView>
     size_t TSWView<TView>::size() const noexcept
     {
-        return this->value().as_cyclic_buffer().size();
+        const auto *dispatch = this->ts_dispatch();
+        const auto *window_dispatch = dispatch != nullptr ? dispatch->as_window() : nullptr;
+        return window_dispatch != nullptr ? window_dispatch->size(this->m_context) : 0;
     }
 
     template <typename TView>
     Range<View> TSWView<TView>::values() const noexcept
     {
-        return Range<View>{this, this->size(), nullptr,
-                           [](const void *context, size_t index) {
-                               return static_cast<const TSWView *>(context)->value().as_cyclic_buffer().at(index);
-                           }};
+        const auto *dispatch = this->ts_dispatch();
+        const auto *window_dispatch = dispatch != nullptr ? dispatch->as_window() : nullptr;
+        return window_dispatch != nullptr ? window_dispatch->values(this->m_context) : Range<View>{nullptr, 0, nullptr, nullptr};
     }
 
     template <typename TView>
     Range<engine_time_t> TSWView<TView>::value_times() const noexcept
     {
-        return Range<engine_time_t>{nullptr, 0, nullptr, nullptr};
+        const auto *dispatch = this->ts_dispatch();
+        const auto *window_dispatch = dispatch != nullptr ? dispatch->as_window() : nullptr;
+        return window_dispatch != nullptr ? window_dispatch->value_times(this->m_context)
+                                          : Range<engine_time_t>{nullptr, 0, nullptr, nullptr};
     }
 
 }  // namespace hgraph

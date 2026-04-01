@@ -160,9 +160,9 @@ namespace hgraph::v2
             return TSInputView{TSViewContext::none(), TSViewContext::none(), evaluation_time};
         }
 
-        [[nodiscard]] inline TSOutputView invalid_output_view()
+        [[nodiscard]] inline TSOutputView invalid_output_view(engine_time_t evaluation_time)
         {
-            return TSOutputView{};
+            return TSOutputView{TSViewContext::none(), TSViewContext::none(), evaluation_time};
         }
 
         template <typename T>
@@ -193,10 +193,10 @@ namespace hgraph::v2
             return runtime_data<StaticNodeRuntimeData>(node).input->view(&node, evaluation_time);
         }
 
-        [[nodiscard]] inline TSOutputView default_output_view(Node &node, engine_time_t)
+        [[nodiscard]] inline TSOutputView default_output_view(Node &node, engine_time_t evaluation_time)
         {
-            if (!default_has_output(node)) { return invalid_output_view(); }
-            return runtime_data<StaticNodeRuntimeData>(node).output->view();
+            if (!default_has_output(node)) { return invalid_output_view(evaluation_time); }
+            return runtime_data<StaticNodeRuntimeData>(node).output->view(evaluation_time);
         }
 
         [[nodiscard]] inline std::string default_runtime_label(const Node &node)

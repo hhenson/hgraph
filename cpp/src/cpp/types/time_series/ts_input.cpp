@@ -59,6 +59,7 @@ namespace hgraph
         TSViewContext context{view_context()};
         context.active_pos = ActiveTriePosition{&m_active_trie, m_active_trie.root_node()};
         context.scheduling_notifier = scheduling_notifier;
+        context.input_view_ops = &detail::default_input_view_ops();
         return TSInputView{context, TSViewContext::none(), evaluation_time};
     }
 

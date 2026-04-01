@@ -186,6 +186,8 @@ TEST_CASE("v2 graph wires scalar sources into a compute node with validity gatin
 
     hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 2, hgraph::v2::test_detail::tick(1));
     CHECK(graph.scheduled_time(2) == hgraph::v2::test_detail::tick(1));
+    CHECK(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(1)).modified());
+    CHECK_FALSE(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(2)).modified());
 
     graph.evaluate(hgraph::v2::test_detail::tick(1));
     CHECK(graph.node_at(2).output_view().value().as_atomic().as<int>() == 0);
@@ -195,6 +197,7 @@ TEST_CASE("v2 graph wires scalar sources into a compute node with validity gatin
 
     graph.evaluate(hgraph::v2::test_detail::tick(2));
     CHECK(graph.node_at(2).output_view().value().as_atomic().as<int>() == 5);
+    CHECK(graph.node_at(2).output_view(hgraph::v2::test_detail::tick(2)).modified());
     CHECK(graph.scheduled_time(2) == hgraph::MIN_DT);
 }
 

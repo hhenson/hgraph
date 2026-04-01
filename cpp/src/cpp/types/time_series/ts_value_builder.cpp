@@ -180,6 +180,8 @@ namespace hgraph
                                           size_t child_slot)
         {
             child.scheduling_notifier = child_scheduling_notifier(parent, child.ts_state);
+            child.input_view_ops = parent.input_view_ops;
+            child.output_view_ops = parent.output_view_ops;
             child.active_pos.trie = parent.active_pos.trie;
             child.active_pos.node = parent.active_pos.node
                 ? parent.active_pos.node->child_at(child_slot)
@@ -446,6 +448,11 @@ namespace hgraph
             return static_cast<TSDState *>(resolved_collection_state(context));
         }
 
+        [[nodiscard]] bool child_modified(const BaseCollectionState *state, size_t index) noexcept
+        {
+            return state != nullptr && state->modified_children.contains(index);
+        }
+
         struct LeafTSDispatch : detail::TSDispatch {};
 
         struct ListTSDispatch : detail::TSCollectionDispatch
@@ -462,6 +469,16 @@ namespace hgraph
             [[nodiscard]] size_t size(const TSViewContext &context) const noexcept override
             {
                 return context.value().as_list().size();
+            }
+
+            [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override
+            {
+                return context.value().as_list().delta();
+            }
+
+            [[nodiscard]] bool child_modified(const TSViewContext &context, size_t index) const noexcept override
+            {
+                return hgraph::child_modified(list_state(context), index);
             }
 
             [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
@@ -526,6 +543,16 @@ namespace hgraph
             {
                 static_cast<void>(context);
                 return m_fields.size();
+            }
+
+            [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override
+            {
+                return context.value().as_bundle().delta();
+            }
+
+            [[nodiscard]] bool child_modified(const TSViewContext &context, size_t index) const noexcept override
+            {
+                return hgraph::child_modified(bundle_state(context), index);
             }
 
             [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
@@ -599,6 +626,16 @@ namespace hgraph
                 return context.value().as_map().size();
             }
 
+            [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override
+            {
+                return context.value().as_map().delta();
+            }
+
+            [[nodiscard]] bool child_modified(const TSViewContext &context, size_t index) const noexcept override
+            {
+                return hgraph::child_modified(dict_state(context), index);
+            }
+
             [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
             {
                 MapDeltaView delta = context.value().as_map().delta();
@@ -627,6 +664,24 @@ namespace hgraph
                 MapDeltaView delta = map.delta();
                 if (!detail::dict_slot_is_live(delta, slot)) { return TSViewContext::none(); }
                 return child_at_slot(context, delta, slot);
+            }
+
+            [[nodiscard]] size_t iteration_limit(const TSViewContext &context) const noexcept override
+            {
+                return context.value().as_map().delta().slot_capacity();
+            }
+
+            [[nodiscard]] bool slot_is_live(const TSViewContext &context, size_t slot) const noexcept override
+            {
+                MapDeltaView delta = context.value().as_map().delta();
+                return slot < delta.slot_capacity() && detail::dict_slot_is_live(delta, slot);
+            }
+
+            [[nodiscard]] View key_at_slot(const TSViewContext &context, size_t slot) const override
+            {
+                MapDeltaView delta = context.value().as_map().delta();
+                return slot < delta.slot_capacity() ? delta.key_at_slot(slot)
+                                                    : View::invalid_for(context.value().as_map().key_schema());
             }
 
           private:
@@ -710,6 +765,61 @@ namespace hgraph
             std::reference_wrapper<const detail::TSDispatch>   m_value_ts_dispatch;
         };
 
+        struct SetTSDispatch final : detail::TSSetDispatch
+        {
+            [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override
+            {
+                return context.value().as_set().delta();
+            }
+
+            [[nodiscard]] size_t size(const TSViewContext &context) const noexcept override
+            {
+                return context.value().as_set().size();
+            }
+
+            [[nodiscard]] bool empty(const TSViewContext &context) const noexcept override
+            {
+                return context.value().as_set().empty();
+            }
+
+            [[nodiscard]] Range<View> values(const TSViewContext &context) const noexcept override
+            {
+                return context.value().as_set().values();
+            }
+
+            [[nodiscard]] Range<View> added_values(const TSViewContext &context) const noexcept override
+            {
+                return context.value().as_set().delta().added();
+            }
+
+            [[nodiscard]] Range<View> removed_values(const TSViewContext &context) const noexcept override
+            {
+                return context.value().as_set().delta().removed();
+            }
+        };
+
+        struct WindowTSDispatch final : detail::TSWindowDispatch
+        {
+            [[nodiscard]] size_t size(const TSViewContext &context) const noexcept override
+            {
+                return context.value().as_cyclic_buffer().size();
+            }
+
+            [[nodiscard]] Range<View> values(const TSViewContext &context) const noexcept override
+            {
+                return Range<View>{&context, size(context), nullptr,
+                                   [](const void *opaque, size_t index) {
+                                       const auto &context = *static_cast<const TSViewContext *>(opaque);
+                                       return context.value().as_cyclic_buffer().at(index);
+                                   }};
+            }
+
+            [[nodiscard]] Range<engine_time_t> value_times(const TSViewContext &) const noexcept override
+            {
+                return Range<engine_time_t>{nullptr, 0, nullptr, nullptr};
+            }
+        };
+
         [[nodiscard]] const detail::TSDispatch &checked_dispatch_for(const TSMeta &schema)
         {
             static std::unordered_map<const TSMeta *, std::unique_ptr<detail::TSDispatch>> cache;
@@ -721,11 +831,17 @@ namespace hgraph
             std::unique_ptr<detail::TSDispatch> dispatch;
             switch (schema.kind) {
                 case TSKind::TSValue:
-                case TSKind::TSS:
-                case TSKind::TSW:
                 case TSKind::REF:
                 case TSKind::SIGNAL:
                     dispatch = std::make_unique<LeafTSDispatch>();
+                    break;
+
+                case TSKind::TSS:
+                    dispatch = std::make_unique<SetTSDispatch>();
+                    break;
+
+                case TSKind::TSW:
+                    dispatch = std::make_unique<WindowTSDispatch>();
                     break;
 
                 case TSKind::TSL:

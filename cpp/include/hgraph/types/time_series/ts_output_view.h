@@ -14,10 +14,6 @@ namespace hgraph {
 struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
     using TSView<TSOutputView>::TSView;
 
-    TSOutputView(TSViewContext context, TSViewContext parent = TSViewContext::none()) noexcept :
-        TSView<TSOutputView>(context, parent)
-    {}
-
     /**
      * Construct an output view.
      *
@@ -31,6 +27,10 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
      */
     [[nodiscard]] LinkedTSContext linked_context() const noexcept
     {
+        if (this->m_context.output_view_ops != nullptr) {
+            return this->m_context.output_view_ops->linked_context(this->m_context);
+        }
+
         const TSViewContext resolved = this->m_context.resolved();
         return LinkedTSContext{
             resolved.schema,

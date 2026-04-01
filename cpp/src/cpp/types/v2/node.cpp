@@ -128,7 +128,7 @@ namespace hgraph::v2
     TSOutputView Node::output_view(engine_time_t evaluation_time)
     {
         if (m_spec == nullptr || m_spec->runtime_ops == nullptr || m_spec->runtime_ops->output_view == nullptr) {
-            return detail::invalid_output_view();
+            return detail::invalid_output_view(evaluation_time);
         }
         return m_spec->runtime_ops->output_view(*this, evaluation_time);
     }

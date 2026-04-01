@@ -42,9 +42,11 @@ namespace hgraph
         {
             using TSOutput::TSOutput;
             using TSValue::atomic_value;
+            using TSValue::bundle_value;
             using TSValue::dict_delta_value;
             using TSValue::dict_value;
             using TSValue::list_value;
+            using TSValue::set_value;
             using TSValue::view_context;
         };
 
@@ -401,6 +403,69 @@ TEST_CASE("TS collection views report recursive all_valid state", "[ts_view][ts_
 
         hgraph::test_detail::mark_output_view_modified(child, hgraph::test_detail::tick(5));
         CHECK(dict.all_valid());
+    }
+}
+
+TEST_CASE("TS collection views expose collection delta through root delta_value", "[ts_view][ts_value]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *str_type = value_registry.register_type<std::string>("str");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+
+    SECTION("bundle root delta_value returns bundle delta state") {
+        const auto *bundle_ts = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Pair");
+        hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(bundle_ts)};
+
+        auto mutation = output.bundle_value().begin_mutation();
+        mutation.setting_field("lhs", hgraph::Value{7}.view());
+
+        const hgraph::BundleDeltaView delta{output.view().delta_value()};
+        std::vector<std::string_view> updated_keys;
+        for (std::string_view key : delta.updated_keys()) { updated_keys.push_back(key); }
+        CHECK(updated_keys == std::vector<std::string_view>{"lhs"});
+    }
+
+    SECTION("list root delta_value returns list delta state") {
+        const auto *list_ts = ts_registry.tsl(scalar_ts, 2);
+        hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(list_ts)};
+
+        auto mutation = output.list_value().begin_mutation();
+        mutation.setting(1, hgraph::Value{11}.view());
+
+        const hgraph::ListDeltaView delta{output.view().delta_value()};
+        std::vector<size_t> updated_indices;
+        for (size_t index : delta.updated_indices()) { updated_indices.push_back(index); }
+        CHECK(updated_indices == std::vector<size_t>{1});
+    }
+
+    SECTION("dict root delta_value returns map delta state") {
+        const auto *dict_ts = ts_registry.tsd(str_type, scalar_ts);
+        hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(dict_ts)};
+        const hgraph::Value key{std::string{"k"}};
+
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.setting(key.view(), hgraph::Value{13}.view());
+
+        const hgraph::MapDeltaView delta{output.view().delta_value()};
+        std::vector<std::string> added_keys;
+        for (const hgraph::View &added_key : delta.added_keys()) { added_keys.push_back(added_key.as_atomic().as<std::string>()); }
+        CHECK(added_keys == std::vector<std::string>{"k"});
+    }
+
+    SECTION("set root delta_value returns set delta state") {
+        const auto *set_ts = ts_registry.tss(int_type);
+        hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(set_ts)};
+
+        auto mutation = output.set_value().begin_mutation();
+        CHECK(mutation.add(hgraph::Value{17}.view()));
+
+        const hgraph::SetDeltaView delta{output.view().delta_value()};
+        std::vector<int> added_values;
+        for (const hgraph::View &added_value : delta.added()) { added_values.push_back(added_value.as_atomic().as<int>()); }
+        CHECK(added_values == std::vector<int>{17});
     }
 }
 
