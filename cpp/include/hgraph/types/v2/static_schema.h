@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/v2/evaluation_clock.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
@@ -37,6 +38,7 @@ namespace hgraph::v2
 
     inline constexpr fixed_string default_state_name{"_state"};
     inline constexpr fixed_string default_recordable_state_name{"_recordable_state"};
+    inline constexpr fixed_string default_clock_name{"_clock"};
 
     template <typename TValue>
     struct TS

@@ -17,6 +17,12 @@ namespace hgraph::v2
         return node.graph();
     }
 
+    EvaluationClock detail::arg_provider<EvaluationClock>::get(Node &node, engine_time_t)
+    {
+        if (node.graph() == nullptr) { throw std::logic_error("Node implementation requested EvaluationClock but node is not attached"); }
+        return node.graph()->evaluation_clock();
+    }
+
     TSInputView detail::arg_provider<TSInputView>::get(Node &node, engine_time_t evaluation_time)
     {
         return node.input_view(evaluation_time);

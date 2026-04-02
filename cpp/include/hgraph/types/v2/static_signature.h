@@ -84,6 +84,28 @@ namespace hgraph::v2
             }
         };
 
+        template <typename T>
+        struct injectable_selector_traits;
+
+        template <>
+        struct injectable_selector_traits<EvaluationClock>
+        {
+            [[nodiscard]] static std::string name()
+            {
+                return std::string{default_clock_name.sv()};
+            }
+
+            [[nodiscard]] static nb::object py_type()
+            {
+                return nb::module_::import_("hgraph").attr("EvaluationClock");
+            }
+
+            [[nodiscard]] static const char *enum_name() noexcept
+            {
+                return "CLOCK";
+            }
+        };
+
         template <typename T, typename = void>
         struct start_args_tuple_or_empty
         {
@@ -113,6 +135,22 @@ namespace hgraph::v2
 
         template <typename T>
         using stop_args_tuple_or_empty_t = typename stop_args_tuple_or_empty<T>::type;
+
+        template <typename T>
+        struct is_injectable_selector : std::false_type
+        {};
+
+        template <>
+        struct is_injectable_selector<EvaluationClock> : std::true_type
+        {};
+
+        template <typename T>
+        struct is_evaluation_clock_selector : std::false_type
+        {};
+
+        template <>
+        struct is_evaluation_clock_selector<EvaluationClock> : std::true_type
+        {};
 
         template <typename TArgsTuple, template <typename> class TPredicate, size_t... I>
         [[nodiscard]] constexpr size_t selector_count_impl(std::index_sequence<I...>)
@@ -370,6 +408,8 @@ namespace hgraph::v2
                         names.push_back(state_selector_traits<arg_type>::name());
                     } else if constexpr (is_recordable_state_selector<arg_type>::value) {
                         names.push_back(recordable_state_selector_traits<arg_type>::name());
+                    } else if constexpr (is_injectable_selector<arg_type>::value) {
+                        names.push_back(injectable_selector_traits<arg_type>::name());
                     }
                 }(),
                 ...);
@@ -444,6 +484,9 @@ namespace hgraph::v2
             } else if constexpr (is_recordable_state_selector<TNamedArg>::value) {
                 input_types[recordable_state_selector_traits<TNamedArg>::name().c_str()] =
                     parse_type(recordable_state_descriptor<typename recordable_state_selector_traits<TNamedArg>::schema>::py_type(context));
+            } else if constexpr (is_injectable_selector<TNamedArg>::value) {
+                input_types[injectable_selector_traits<TNamedArg>::name().c_str()] =
+                    parse_type(injectable_selector_traits<TNamedArg>::py_type());
             }
         }
 
@@ -520,6 +563,27 @@ namespace hgraph::v2
             }
         }
 
+        template <typename TNamedArg>
+        void append_optional_injectable_argument_name(std::vector<std::string> &names)
+        {
+            if constexpr (!std::is_void_v<TNamedArg>) {
+                const std::string name = injectable_selector_traits<TNamedArg>::name();
+                if (std::find(names.begin(), names.end(), name) == names.end()) { names.push_back(name); }
+            }
+        }
+
+        template <typename TNamedArg>
+        void append_optional_injectable_python_input_type(nb::dict &input_types, PythonTypeVarContext &context)
+        {
+            if constexpr (!std::is_void_v<TNamedArg>) {
+                const std::string name = injectable_selector_traits<TNamedArg>::name();
+                if (PyMapping_HasKeyString(input_types.ptr(), name.c_str()) != 1) {
+                    nb::object parse_type = hgraph_module().attr("HgTypeMetaData").attr("parse_type");
+                    append_python_input_type<TNamedArg>(input_types, parse_type, context);
+                }
+            }
+        }
+
         template <typename TArgsTuple, size_t... I>
         [[nodiscard]] nb::object python_output_type_impl(PythonTypeVarContext &context, std::index_sequence<I...>)
         {
@@ -577,7 +641,15 @@ namespace hgraph::v2
             }
         }
 
-        template <bool HasState, bool HasRecordableState>
+        template <typename TNamedArg>
+        void append_optional_injectable_default(nb::dict &defaults)
+        {
+            if constexpr (!std::is_void_v<TNamedArg>) {
+                defaults[injectable_selector_traits<TNamedArg>::name().c_str()] = nb::none();
+            }
+        }
+
+        template <bool HasState, bool HasRecordableState, bool HasClock>
         [[nodiscard]] nb::object python_injectables()
         {
             nb::object enum_type = nb::module_::import_("hgraph._runtime._node").attr("InjectableTypesEnum");
@@ -586,6 +658,7 @@ namespace hgraph::v2
             if constexpr (HasRecordableState) {
                 value = nb::steal<nb::object>(PyNumber_Or(value.ptr(), enum_type.attr("RECORDABLE_STATE").ptr()));
             }
+            if constexpr (HasClock) { value = nb::steal<nb::object>(PyNumber_Or(value.ptr(), enum_type.attr("CLOCK").ptr())); }
             return value;
         }
     }  // namespace detail
@@ -613,6 +686,11 @@ namespace hgraph::v2
         using recordable_state_arg =
             detail::first_non_void_t<eval_recordable_state_arg, start_recordable_state_arg, stop_recordable_state_arg>;
 
+        using eval_clock_arg = detail::first_matching_tuple_type<eval_args_tuple, detail::is_evaluation_clock_selector>;
+        using start_clock_arg = detail::first_matching_tuple_type<start_args_tuple, detail::is_evaluation_clock_selector>;
+        using stop_clock_arg = detail::first_matching_tuple_type<stop_args_tuple, detail::is_evaluation_clock_selector>;
+        using clock_arg = detail::first_non_void_t<eval_clock_arg, start_clock_arg, stop_clock_arg>;
+
       public:
         static_assert(std::is_same_v<typename eval_traits::return_type, void>, "Static node eval hooks must return void");
         static_assert(detail::output_selector_count<eval_args_tuple>() <= 1, "Static compute nodes support at most one Out<...> parameter");
@@ -634,6 +712,12 @@ namespace hgraph::v2
                       "RecordableState<...> must match across eval/stop");
         static_assert(detail::compatible_optional_selector_types<start_recordable_state_arg, stop_recordable_state_arg>(),
                       "RecordableState<...> must match across start/stop");
+        static_assert(detail::selector_count<eval_args_tuple, detail::is_evaluation_clock_selector>() <= 1,
+                      "Static node eval supports at most one EvaluationClock parameter");
+        static_assert(detail::selector_count<start_args_tuple, detail::is_evaluation_clock_selector>() <= 1,
+                      "Static node start supports at most one EvaluationClock parameter");
+        static_assert(detail::selector_count<stop_args_tuple, detail::is_evaluation_clock_selector>() <= 1,
+                      "Static node stop supports at most one EvaluationClock parameter");
 
         [[nodiscard]] static std::vector<std::string> input_names()
         {
@@ -645,6 +729,7 @@ namespace hgraph::v2
             auto names = detail::argument_names<eval_args_tuple>();
             detail::append_optional_argument_name<state_arg>(names);
             detail::append_optional_argument_name<recordable_state_arg>(names);
+            detail::append_optional_injectable_argument_name<clock_arg>(names);
             return names;
         }
 
@@ -696,6 +781,11 @@ namespace hgraph::v2
             return !std::is_void_v<recordable_state_arg>;
         }
 
+        [[nodiscard]] static constexpr bool has_clock()
+        {
+            return !std::is_void_v<clock_arg>;
+        }
+
         [[nodiscard]] static const value::TypeMeta *state_schema()
         {
             if constexpr (has_state()) {
@@ -727,9 +817,11 @@ namespace hgraph::v2
             auto input_types = detail::python_input_types<eval_args_tuple>(type_var_context);
             detail::append_optional_python_input_type<state_arg>(input_types, type_var_context);
             detail::append_optional_python_input_type<recordable_state_arg>(input_types, type_var_context);
+            detail::append_optional_injectable_python_input_type<clock_arg>(input_types, type_var_context);
             nb::dict defaults;
             detail::append_optional_default<state_arg>(defaults);
             detail::append_optional_default<recordable_state_arg>(defaults);
+            detail::append_optional_injectable_default<clock_arg>(defaults);
 
             nb::dict kwargs;
             kwargs["node_type"] = nb::module_::import_("hgraph._wiring._wiring_node_signature").attr("WiringNodeType").attr("COMPUTE_NODE");
@@ -745,7 +837,7 @@ namespace hgraph::v2
             kwargs["context_inputs"] = nb::none();
             kwargs["unresolved_args"] = detail::input_names_to_frozenset(unresolved_args);
             kwargs["time_series_args"] = detail::input_names_to_frozenset(input_names());
-            kwargs["injectables"] = detail::python_injectables<has_state(), has_recordable_state()>();
+            kwargs["injectables"] = detail::python_injectables<has_state(), has_recordable_state(), has_clock()>();
 
             return detail::py_call(
                 nb::module_::import_("hgraph._wiring._wiring_node_signature").attr("WiringNodeSignature"),

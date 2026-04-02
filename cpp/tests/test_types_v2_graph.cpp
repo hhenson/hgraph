@@ -143,9 +143,50 @@ namespace hgraph::v2::test_detail
         }
     };
 
+    struct ClockCaptureNode
+    {
+        ClockCaptureNode() = delete;
+        ~ClockCaptureNode() = delete;
+
+        static inline engine_time_t seen_evaluation_time{MIN_DT};
+        static inline engine_time_t seen_next_cycle_time{MIN_DT};
+        static inline bool saw_now_at_or_after_evaluation_time{false};
+        static inline bool saw_non_negative_cycle_time{false};
+
+        static void reset()
+        {
+            seen_evaluation_time = MIN_DT;
+            seen_next_cycle_time = MIN_DT;
+            saw_now_at_or_after_evaluation_time = false;
+            saw_non_negative_cycle_time = false;
+        }
+
+        static void eval(In<"lhs", TS<int>> lhs, EvaluationClock clock, Out<TS<int>> out)
+        {
+            seen_evaluation_time = clock.evaluation_time();
+            seen_next_cycle_time = clock.next_cycle_evaluation_time();
+            saw_now_at_or_after_evaluation_time = clock.now() >= clock.evaluation_time();
+            saw_non_negative_cycle_time = clock.cycle_time() >= engine_time_delta_t::zero();
+            out.set(lhs.value());
+        }
+    };
+
     [[nodiscard]] engine_time_t tick(int offset)
     {
         return MIN_DT + std::chrono::microseconds{offset};
+    }
+
+    [[nodiscard]] EvaluationEngine make_engine(GraphBuilder graph_builder,
+                                               engine_time_t start_time,
+                                               engine_time_t end_time = MAX_DT,
+                                               EvaluationMode evaluation_mode = EvaluationMode::SIMULATION)
+    {
+        return EvaluationEngineBuilder{}
+            .graph_builder(std::move(graph_builder))
+            .evaluation_mode(evaluation_mode)
+            .start_time(start_time)
+            .end_time(end_time)
+            .build();
     }
 
     [[nodiscard]] const TSMeta *child_schema_at(const TSMeta &schema, int64_t slot)
@@ -249,7 +290,8 @@ TEST_CASE("v2 graph wires scalar sources into a compute node with validity gatin
         .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 2, .input_path = {0}})
         .add_edge(hgraph::v2::Edge{.src_node = 1, .dst_node = 2, .input_path = {1}});
 
-    auto graph = builder.make_graph();
+    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto &graph = engine.graph();
     graph.start();
 
     hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 2, hgraph::v2::test_detail::tick(1));
@@ -286,7 +328,8 @@ TEST_CASE("v2 graph binds bundle output child paths into nested input paths", "[
         .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {0}, .dst_node = 1, .input_path = {0, 0}})
         .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {1}, .dst_node = 1, .input_path = {0, 1}});
 
-    auto graph = builder.make_graph();
+    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto &graph = engine.graph();
     graph.start();
 
     hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0}, 7, hgraph::v2::test_detail::tick(11));
@@ -311,7 +354,8 @@ TEST_CASE("v2 nodes support typed local state", "[v2][graph][state]")
         .add_node(hgraph::v2::NodeBuilder{}.label("sum").implementation<hgraph::v2::test_detail::SumWithTypedState>())
         .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
 
-    auto graph = builder.make_graph();
+    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto &graph = engine.graph();
     graph.start();
 
     hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 5, hgraph::v2::test_detail::tick(31));
@@ -337,7 +381,8 @@ TEST_CASE("v2 nodes support recordable state", "[v2][graph][state]")
         .add_node(hgraph::v2::NodeBuilder{}.label("previous").implementation<hgraph::v2::test_detail::PreviousValueFromRecordableState>())
         .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
 
-    auto graph = builder.make_graph();
+    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto &graph = engine.graph();
     graph.start();
 
     hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 11, hgraph::v2::test_detail::tick(41));
@@ -347,6 +392,62 @@ TEST_CASE("v2 nodes support recordable state", "[v2][graph][state]")
     hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 13, hgraph::v2::test_detail::tick(42));
     graph.evaluate(hgraph::v2::test_detail::tick(42));
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 11);
+}
+
+TEST_CASE("v2 nodes support evaluation clock injection", "[v2][graph][clock]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+
+    hgraph::v2::test_detail::ClockCaptureNode::reset();
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("clock_capture").implementation<hgraph::v2::test_detail::ClockCaptureNode>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+
+    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 7, hgraph::v2::test_detail::tick(51));
+    graph.evaluate(hgraph::v2::test_detail::tick(51));
+
+    CHECK(hgraph::v2::test_detail::ClockCaptureNode::seen_evaluation_time == hgraph::v2::test_detail::tick(51));
+    CHECK(hgraph::v2::test_detail::ClockCaptureNode::seen_next_cycle_time == hgraph::v2::test_detail::tick(51) + hgraph::MIN_TD);
+    CHECK(hgraph::v2::test_detail::ClockCaptureNode::saw_now_at_or_after_evaluation_time);
+    CHECK(hgraph::v2::test_detail::ClockCaptureNode::saw_non_negative_cycle_time);
+}
+
+TEST_CASE("v2 evaluation engine builder produces a runnable simulation engine", "[v2][engine]")
+{
+    hgraph::v2::GraphBuilder builder;
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(60), hgraph::v2::test_detail::tick(70));
+    auto api = engine.graph().evaluation_engine_api();
+
+    int before_count = 0;
+    int after_count = 0;
+
+    api.add_before_evaluation_notification([&] { ++before_count; });
+    api.add_after_evaluation_notification([&] {
+        ++after_count;
+        if (after_count == 1) { api.add_after_evaluation_notification([&] { ++after_count; }); }
+    });
+
+    CHECK(engine.evaluation_mode() == hgraph::v2::EvaluationMode::SIMULATION);
+    CHECK(engine.start_time() == hgraph::v2::test_detail::tick(60));
+    CHECK(engine.end_time() == hgraph::v2::test_detail::tick(70));
+    CHECK(engine.graph().engine_evaluation_clock().evaluation_time() == hgraph::v2::test_detail::tick(60));
+
+    engine.run();
+    CHECK(before_count == 1);
+    CHECK(after_count == 2);
+    CHECK(engine.graph().engine_evaluation_clock().evaluation_time() == hgraph::v2::test_detail::tick(71));
 }
 
 TEST_CASE("v2 static node signatures export Python wiring metadata", "[v2][python]")
@@ -412,4 +513,20 @@ TEST_CASE("v2 static node signatures export state injectables", "[v2][python][si
     CHECK(recordable_args == std::vector<std::string>{"lhs", "_recordable_state"});
     CHECK(nb::cast<bool>(state_signature.attr("uses_state")));
     CHECK(nb::cast<bool>(recordable_signature.attr("uses_recordable_state")));
+}
+
+TEST_CASE("v2 static node signatures export evaluation clock injectables", "[v2][python][signature]")
+{
+    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+
+    using signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::ClockCaptureNode>;
+
+    CHECK(signature::has_clock());
+
+    nb::gil_scoped_acquire guard;
+    nb::object wiring_signature = signature::wiring_signature();
+    const auto args = nb::cast<std::vector<std::string>>(wiring_signature.attr("args"));
+
+    CHECK(args == std::vector<std::string>{"lhs", "_clock"});
+    CHECK(nb::cast<bool>(wiring_signature.attr("uses_clock")));
 }

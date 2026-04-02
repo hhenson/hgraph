@@ -136,3 +136,11 @@ def test_cpp_static_compute_node_exports_recordable_state_builder():
     cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, CppStaticNodeBuilder)]
     assert len(cpp_builders) == 1
     assert cpp_builders[0].recordable_state_builder is not None
+
+
+def test_cpp_static_compute_node_exports_evaluation_clock_metadata():
+    static_clock = _hgraph.v2.static_clock
+
+    assert isinstance(static_clock, BaseWiringNodeClass)
+    assert static_clock.signature.args == ("lhs", "_clock")
+    assert static_clock.signature.uses_clock

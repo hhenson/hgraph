@@ -210,6 +210,7 @@ target_compile_definitions(hgraph_time_series_value_tests PRIVATE HGRAPH_DISABLE
 
 add_executable(hgraph_v2_tests
     test_types_v2_graph.cpp
+    ../src/cpp/types/v2/evaluation_engine.cpp
     ../src/cpp/types/v2/node.cpp
     ../src/cpp/types/v2/node_builder.cpp
     ../src/cpp/types/v2/graph.cpp

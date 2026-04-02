@@ -101,6 +101,20 @@ namespace
             state.mark_modified(last);
         }
     };
+
+    struct StaticClockNode
+    {
+        StaticClockNode() = delete;
+        ~StaticClockNode() = delete;
+
+        static constexpr auto name = "static_clock";
+
+        static void eval(In<"lhs", TS<int>> lhs, EvaluationClock clock, Out<TS<int>> out)
+        {
+            static_cast<void>(clock);
+            out.set(lhs.value());
+        }
+    };
 }
 
 void export_nodes(nb::module_ &m) {
@@ -111,4 +125,5 @@ void export_nodes(nb::module_ &m) {
     hgraph::v2::export_compute_node<StaticGetItemNode>(v2);
     hgraph::v2::export_compute_node<StaticTypedStateNode>(v2);
     hgraph::v2::export_compute_node<StaticRecordableStateNode>(v2);
+    hgraph::v2::export_compute_node<StaticClockNode>(v2);
 }

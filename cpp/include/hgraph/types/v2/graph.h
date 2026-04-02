@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/v2/evaluation_engine.h>
 #include <hgraph/types/v2/node.h>
 
 #include <cstddef>
@@ -31,7 +32,10 @@ namespace hgraph::v2
         {
             return {reinterpret_cast<const NodeEntry *>(m_storage), m_node_count};
         }
-        [[nodiscard]] engine_time_t evaluation_time() const noexcept { return m_evaluation_time; }
+        [[nodiscard]] EvaluationEngineApi evaluation_engine_api() const noexcept;
+        [[nodiscard]] EvaluationClock evaluation_clock() const noexcept;
+        [[nodiscard]] EngineEvaluationClock engine_evaluation_clock() const noexcept;
+        [[nodiscard]] engine_time_t evaluation_time() const noexcept;
         [[nodiscard]] engine_time_t scheduled_time(size_t index) const;
         [[nodiscard]] Node &node_at(size_t index);
         [[nodiscard]] const Node &node_at(size_t index) const;
@@ -43,7 +47,9 @@ namespace hgraph::v2
 
       private:
         friend struct GraphBuilder;
+        friend class EvaluationEngineBuilder;
 
+        void set_evaluation_runtime(EvaluationRuntime evaluation_runtime);
         void adopt_storage(void *storage,
                            size_t storage_alignment,
                            size_t node_count) noexcept;
@@ -53,9 +59,9 @@ namespace hgraph::v2
         [[nodiscard]] const NodeEntry *entry_storage() const noexcept;
 
         size_t m_node_count{0};
-        engine_time_t m_evaluation_time{MIN_DT};
         bool m_started{false};
         size_t m_storage_alignment{alignof(std::max_align_t)};
+        EvaluationRuntime m_evaluation_runtime{};
         void *m_storage{nullptr};
     };
 }  // namespace hgraph::v2

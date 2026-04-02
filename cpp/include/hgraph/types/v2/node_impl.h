@@ -118,6 +118,12 @@ namespace hgraph::v2
         };
 
         template <>
+        struct arg_provider<EvaluationClock>
+        {
+            static EvaluationClock get(Node &node, engine_time_t);
+        };
+
+        template <>
         struct arg_provider<TSInputView>
         {
             static TSInputView get(Node &node, engine_time_t evaluation_time);
