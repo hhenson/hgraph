@@ -163,6 +163,32 @@ namespace hgraph::v2
             return all_valid_input_names_impl<TArgsTuple>(std::make_index_sequence<std::tuple_size_v<TArgsTuple>>{});
         }
 
+        template <typename TArgsTuple, size_t... I>
+        [[nodiscard]] std::vector<std::string> unresolved_input_names_impl(std::index_sequence<I...>)
+        {
+            std::vector<std::string> names;
+            names.reserve(sizeof...(I));
+
+            (
+                [&] {
+                    using arg_type = std::remove_cvref_t<std::tuple_element_t<I, TArgsTuple>>;
+                    if constexpr (is_input_selector<arg_type>::value) {
+                        if constexpr (!schema_descriptor<typename input_selector_traits<arg_type>::schema>::is_concrete()) {
+                            names.push_back(input_selector_traits<arg_type>::name());
+                        }
+                    }
+                }(),
+                ...);
+
+            return names;
+        }
+
+        template <typename TArgsTuple>
+        [[nodiscard]] std::vector<std::string> unresolved_input_names()
+        {
+            return unresolved_input_names_impl<TArgsTuple>(std::make_index_sequence<std::tuple_size_v<TArgsTuple>>{});
+        }
+
         [[nodiscard]] inline nb::object names_as_frozenset_or_none(const std::vector<std::string> &names)
         {
             return names.empty() ? nb::none() : input_names_to_frozenset(names);
@@ -252,31 +278,34 @@ namespace hgraph::v2
         }
 
         template <typename TArgsTuple, size_t... I>
-        void append_python_input_types(nb::dict &input_types, const nb::object &parse_type, std::index_sequence<I...>)
+        void append_python_input_types(nb::dict &input_types,
+                                       const nb::object &parse_type,
+                                       PythonTypeVarContext &context,
+                                       std::index_sequence<I...>)
         {
             (
                 [&] {
                     using arg_type = std::remove_cvref_t<std::tuple_element_t<I, TArgsTuple>>;
                     if constexpr (is_input_selector<arg_type>::value) {
                         input_types[input_selector_traits<arg_type>::name().c_str()] =
-                            parse_type(schema_descriptor<typename input_selector_traits<arg_type>::schema>::py_type());
+                            parse_type(schema_descriptor<typename input_selector_traits<arg_type>::schema>::py_type(context));
                     }
                 }(),
                 ...);
         }
 
         template <typename TArgsTuple>
-        [[nodiscard]] nb::dict python_input_types()
+        [[nodiscard]] nb::dict python_input_types(PythonTypeVarContext &context)
         {
             nb::object parse_type = hgraph_module().attr("HgTypeMetaData").attr("parse_type");
             nb::dict input_types;
             append_python_input_types<TArgsTuple>(
-                input_types, parse_type, std::make_index_sequence<std::tuple_size_v<TArgsTuple>>{});
+                input_types, parse_type, context, std::make_index_sequence<std::tuple_size_v<TArgsTuple>>{});
             return input_types;
         }
 
         template <typename TArgsTuple, size_t... I>
-        [[nodiscard]] nb::object python_output_type_impl(std::index_sequence<I...>)
+        [[nodiscard]] nb::object python_output_type_impl(PythonTypeVarContext &context, std::index_sequence<I...>)
         {
             nb::object parse_type = hgraph_module().attr("HgTimeSeriesTypeMetaData").attr("parse_type");
             nb::object output_type = nb::none();
@@ -285,7 +314,8 @@ namespace hgraph::v2
                 [&] {
                     using arg_type = std::remove_cvref_t<std::tuple_element_t<I, TArgsTuple>>;
                     if constexpr (is_output_selector<arg_type>::value) {
-                        output_type = parse_type(schema_descriptor<typename output_selector_traits<arg_type>::schema>::py_type());
+                        output_type =
+                            parse_type(schema_descriptor<typename output_selector_traits<arg_type>::schema>::py_type(context));
                     }
                 }(),
                 ...);
@@ -294,9 +324,9 @@ namespace hgraph::v2
         }
 
         template <typename TArgsTuple>
-        [[nodiscard]] nb::object python_output_type()
+        [[nodiscard]] nb::object python_output_type(PythonTypeVarContext &context)
         {
-            return python_output_type_impl<TArgsTuple>(std::make_index_sequence<std::tuple_size_v<TArgsTuple>>{});
+            return python_output_type_impl<TArgsTuple>(context, std::make_index_sequence<std::tuple_size_v<TArgsTuple>>{});
         }
 
         [[nodiscard]] inline nb::object make_source_code_details()
@@ -348,10 +378,18 @@ namespace hgraph::v2
             return detail::all_valid_input_names<eval_args_tuple>();
         }
 
+        [[nodiscard]] static std::vector<std::string> unresolved_input_names()
+        {
+            return detail::unresolved_input_names<eval_args_tuple>();
+        }
+
         [[nodiscard]] static const TSMeta *input_schema(std::string_view name = {})
         {
             const auto fields = detail::input_fields<eval_args_tuple>();
             if (fields.empty()) { return nullptr; }
+            for (const auto &[_, schema] : fields) {
+                if (schema == nullptr) { return nullptr; }
+            }
             return TSTypeRegistry::instance().tsb(fields, detail::node_name_or<TImplementation>(name) + ".inputs");
         }
 
@@ -364,6 +402,8 @@ namespace hgraph::v2
         {
             const std::string node_name = detail::node_name_or<TImplementation>(name);
             const std::vector<std::string> args = input_names();
+            const std::vector<std::string> unresolved_args = unresolved_input_names();
+            detail::PythonTypeVarContext type_var_context;
 
             nb::list arg_list;
             for (const auto &arg : args) { arg_list.append(arg); }
@@ -373,14 +413,14 @@ namespace hgraph::v2
             kwargs["name"] = node_name;
             kwargs["args"] = detail::list_to_tuple(arg_list);
             kwargs["defaults"] = detail::make_empty_frozendict();
-            kwargs["input_types"] = detail::make_frozendict(detail::python_input_types<eval_args_tuple>());
-            kwargs["output_type"] = detail::python_output_type<eval_args_tuple>();
+            kwargs["input_types"] = detail::make_frozendict(detail::python_input_types<eval_args_tuple>(type_var_context));
+            kwargs["output_type"] = detail::python_output_type<eval_args_tuple>(type_var_context);
             kwargs["src_location"] = detail::make_source_code_details();
             kwargs["active_inputs"] = detail::names_as_frozenset_or_none(active_input_names());
             kwargs["valid_inputs"] = detail::names_as_frozenset_or_none(valid_input_names());
             kwargs["all_valid_inputs"] = detail::names_as_frozenset_or_none(all_valid_input_names());
             kwargs["context_inputs"] = nb::none();
-            kwargs["unresolved_args"] = detail::input_names_to_frozenset(std::vector<std::string>{});
+            kwargs["unresolved_args"] = detail::input_names_to_frozenset(unresolved_args);
             kwargs["time_series_args"] = detail::input_names_to_frozenset(args);
 
             return detail::py_call(

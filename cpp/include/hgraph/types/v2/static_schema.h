@@ -10,7 +10,9 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace hgraph::v2
 {
@@ -78,6 +80,18 @@ namespace hgraph::v2
     template <typename... TFields>
     struct TSB
     {};
+
+    template <fixed_string Name, typename... TConstraints>
+    struct ScalarVar
+    {
+        static constexpr auto name = Name;
+    };
+
+    template <fixed_string Name, typename... TConstraints>
+    struct TsVar
+    {
+        static constexpr auto name = Name;
+    };
 
     // TODO: The reflected C++ signature now carries selector-level
     // activity/validity policy metadata. We still need to extend the static
@@ -176,6 +190,16 @@ namespace hgraph::v2
 
             [[nodiscard]] static input_view_type input_view(TSInputView view) { return view.as_signal(); }
             [[nodiscard]] static output_view_type output_view(TSOutputView view) { return view.as_signal(); }
+        };
+
+        template <fixed_string Name, typename... TConstraints>
+        struct schema_view_traits<TsVar<Name, TConstraints...>>
+        {
+            using input_view_type = TSInputView;
+            using output_view_type = TSOutputView;
+
+            [[nodiscard]] static input_view_type input_view(TSInputView view) { return view; }
+            [[nodiscard]] static output_view_type output_view(TSOutputView view) { return view; }
         };
     }  // namespace detail
 
@@ -314,6 +338,25 @@ namespace hgraph::v2
             return nb::module_::import_("hgraph");
         }
 
+        struct PythonTypeVarContext
+        {
+            nb::object typing{nb::module_::import_("typing")};
+            std::unordered_map<std::string, nb::object> scalar_type_vars;
+            std::unordered_map<std::string, nb::object> ts_type_vars;
+
+            void ensure_unique_name(std::string_view name, bool time_series) const
+            {
+                const std::string key{name};
+                if (time_series) {
+                    if (scalar_type_vars.contains(key)) {
+                        throw std::logic_error("C++ static schema reuses the same type variable name for scalar and time-series roles");
+                    }
+                } else if (ts_type_vars.contains(key)) {
+                    throw std::logic_error("C++ static schema reuses the same type variable name for scalar and time-series roles");
+                }
+            }
+        };
+
         template <typename T>
         [[nodiscard]] inline nb::object python_scalar_type()
         {
@@ -336,106 +379,234 @@ namespace hgraph::v2
             }
         }
 
+        template <typename TScalar>
+        struct scalar_descriptor
+        {
+            [[nodiscard]] static constexpr bool is_concrete() { return true; }
+
+            [[nodiscard]] static const value::TypeMeta *type_meta()
+            {
+                return value::scalar_type_meta<TScalar>();
+            }
+
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &)
+            {
+                return python_scalar_type<TScalar>();
+            }
+        };
+
+        template <fixed_string Name, typename... TConstraints>
+        struct scalar_descriptor<ScalarVar<Name, TConstraints...>>
+        {
+            [[nodiscard]] static constexpr bool is_concrete() { return false; }
+
+            [[nodiscard]] static const value::TypeMeta *type_meta()
+            {
+                return nullptr;
+            }
+
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &context)
+            {
+                const std::string key{Name.sv()};
+                context.ensure_unique_name(key, false);
+
+                if (const auto it = context.scalar_type_vars.find(key); it != context.scalar_type_vars.end()) {
+                    return it->second;
+                }
+
+                nb::object type_var = [&]() -> nb::object {
+                    if constexpr (sizeof...(TConstraints) == 0) {
+                        nb::dict kwargs;
+                        kwargs["bound"] = nb::module_::import_("builtins").attr("object");
+                        return py_call(context.typing.attr("TypeVar"), nb::make_tuple(key), kwargs);
+                    } else if constexpr (sizeof...(TConstraints) == 1) {
+                        nb::dict kwargs;
+                        kwargs["bound"] = scalar_descriptor<std::tuple_element_t<0, std::tuple<TConstraints...>>>::py_type(context);
+                        return py_call(
+                            context.typing.attr("TypeVar"),
+                            nb::make_tuple(key),
+                            kwargs);
+                    } else {
+                        return py_call(context.typing.attr("TypeVar"), nb::make_tuple(key, scalar_descriptor<TConstraints>::py_type(context)...));
+                    }
+                }();
+
+                auto [it, _] = context.scalar_type_vars.emplace(key, type_var);
+                return it->second;
+            }
+        };
+
         template <typename TSchema>
         struct schema_descriptor
         {
+            [[nodiscard]] static constexpr bool is_concrete() { return false; }
+
             static const TSMeta *ts_meta()
+            {
+                static_assert(schema_always_false_v<TSchema>, "Unsupported static time-series schema");
+            }
+
+            static nb::object py_type(PythonTypeVarContext &)
             {
                 static_assert(schema_always_false_v<TSchema>, "Unsupported static time-series schema");
             }
 
             static nb::object py_type()
             {
-                static_assert(schema_always_false_v<TSchema>, "Unsupported static time-series schema");
+                PythonTypeVarContext context;
+                return py_type(context);
             }
         };
 
         template <typename TValue>
         struct schema_descriptor<TS<TValue>>
         {
+            [[nodiscard]] static constexpr bool is_concrete() { return scalar_descriptor<TValue>::is_concrete(); }
+
             [[nodiscard]] static const TSMeta *ts_meta()
             {
-                return TSTypeRegistry::instance().ts(value::scalar_type_meta<TValue>());
+                const value::TypeMeta *scalar_meta = scalar_descriptor<TValue>::type_meta();
+                return scalar_meta != nullptr ? TSTypeRegistry::instance().ts(scalar_meta) : nullptr;
             }
 
-            [[nodiscard]] static nb::object py_type()
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &context)
             {
-                return py_getitem(hgraph_module().attr("TS"), python_scalar_type<TValue>());
+                return py_getitem(hgraph_module().attr("TS"), scalar_descriptor<TValue>::py_type(context));
             }
         };
 
         template <typename TValue>
         struct schema_descriptor<TSS<TValue>>
         {
+            [[nodiscard]] static constexpr bool is_concrete() { return scalar_descriptor<TValue>::is_concrete(); }
+
             [[nodiscard]] static const TSMeta *ts_meta()
             {
-                return TSTypeRegistry::instance().tss(value::scalar_type_meta<TValue>());
+                const value::TypeMeta *scalar_meta = scalar_descriptor<TValue>::type_meta();
+                return scalar_meta != nullptr ? TSTypeRegistry::instance().tss(scalar_meta) : nullptr;
             }
 
-            [[nodiscard]] static nb::object py_type()
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &context)
             {
-                return py_getitem(hgraph_module().attr("TSS"), python_scalar_type<TValue>());
+                return py_getitem(hgraph_module().attr("TSS"), scalar_descriptor<TValue>::py_type(context));
             }
         };
 
         template <typename TKey, typename TValueSchema>
         struct schema_descriptor<TSD<TKey, TValueSchema>>
         {
-            [[nodiscard]] static const TSMeta *ts_meta()
+            [[nodiscard]] static constexpr bool is_concrete()
             {
-                return TSTypeRegistry::instance().tsd(value::scalar_type_meta<TKey>(), schema_descriptor<TValueSchema>::ts_meta());
+                return scalar_descriptor<TKey>::is_concrete() && schema_descriptor<TValueSchema>::is_concrete();
             }
 
-            [[nodiscard]] static nb::object py_type()
+            [[nodiscard]] static const TSMeta *ts_meta()
             {
-                return py_getitem(
-                    hgraph_module().attr("TSD"),
-                    nb::make_tuple(python_scalar_type<TKey>(), schema_descriptor<TValueSchema>::py_type()));
+                const value::TypeMeta *key_meta = scalar_descriptor<TKey>::type_meta();
+                const TSMeta *value_meta = schema_descriptor<TValueSchema>::ts_meta();
+                return key_meta != nullptr && value_meta != nullptr ? TSTypeRegistry::instance().tsd(key_meta, value_meta) : nullptr;
+            }
+
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &context)
+            {
+                return py_getitem(hgraph_module().attr("TSD"),
+                                  nb::make_tuple(scalar_descriptor<TKey>::py_type(context),
+                                                 schema_descriptor<TValueSchema>::py_type(context)));
             }
         };
 
         template <typename TElementSchema, size_t FixedSize>
         struct schema_descriptor<TSL<TElementSchema, FixedSize>>
         {
+            [[nodiscard]] static constexpr bool is_concrete() { return schema_descriptor<TElementSchema>::is_concrete(); }
+
             [[nodiscard]] static const TSMeta *ts_meta()
             {
-                return TSTypeRegistry::instance().tsl(schema_descriptor<TElementSchema>::ts_meta(), FixedSize);
+                const TSMeta *element_meta = schema_descriptor<TElementSchema>::ts_meta();
+                return element_meta != nullptr ? TSTypeRegistry::instance().tsl(element_meta, FixedSize) : nullptr;
             }
 
-            [[nodiscard]] static nb::object py_type()
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &context)
             {
                 nb::object size_type = FixedSize == 0
                                            ? hgraph_module().attr("Size")
                                            : py_getitem(hgraph_module().attr("Size"), nb::int_(FixedSize));
-                return py_getitem(hgraph_module().attr("TSL"), nb::make_tuple(schema_descriptor<TElementSchema>::py_type(), size_type));
+                return py_getitem(hgraph_module().attr("TSL"), nb::make_tuple(schema_descriptor<TElementSchema>::py_type(context), size_type));
             }
         };
 
         template <typename TSchema>
         struct schema_descriptor<REF<TSchema>>
         {
+            [[nodiscard]] static constexpr bool is_concrete() { return schema_descriptor<TSchema>::is_concrete(); }
+
             [[nodiscard]] static const TSMeta *ts_meta()
             {
-                return TSTypeRegistry::instance().ref(schema_descriptor<TSchema>::ts_meta());
+                const TSMeta *target_meta = schema_descriptor<TSchema>::ts_meta();
+                return target_meta != nullptr ? TSTypeRegistry::instance().ref(target_meta) : nullptr;
             }
 
-            [[nodiscard]] static nb::object py_type()
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &context)
             {
-                return py_getitem(hgraph_module().attr("REF"), schema_descriptor<TSchema>::py_type());
+                return py_getitem(hgraph_module().attr("REF"), schema_descriptor<TSchema>::py_type(context));
             }
         };
 
         template <>
         struct schema_descriptor<SIGNAL>
         {
+            [[nodiscard]] static constexpr bool is_concrete() { return true; }
+
             [[nodiscard]] static const TSMeta *ts_meta()
             {
                 return TSTypeRegistry::instance().signal();
             }
 
-            [[nodiscard]] static nb::object py_type()
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &)
             {
                 return hgraph_module().attr("SIGNAL");
+            }
+        };
+
+        template <fixed_string Name, typename... TConstraints>
+        struct schema_descriptor<TsVar<Name, TConstraints...>>
+        {
+            [[nodiscard]] static constexpr bool is_concrete() { return false; }
+
+            [[nodiscard]] static const TSMeta *ts_meta()
+            {
+                return nullptr;
+            }
+
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &context)
+            {
+                const std::string key{Name.sv()};
+                context.ensure_unique_name(key, true);
+
+                if (const auto it = context.ts_type_vars.find(key); it != context.ts_type_vars.end()) {
+                    return it->second;
+                }
+
+                nb::object type_var = [&]() -> nb::object {
+                    if constexpr (sizeof...(TConstraints) == 0) {
+                        nb::dict kwargs;
+                        kwargs["bound"] = hgraph_module().attr("TimeSeries");
+                        return py_call(context.typing.attr("TypeVar"), nb::make_tuple(key), kwargs);
+                    } else if constexpr (sizeof...(TConstraints) == 1) {
+                        nb::dict kwargs;
+                        kwargs["bound"] =
+                            schema_descriptor<std::tuple_element_t<0, std::tuple<TConstraints...>>>::py_type(context);
+                        return py_call(
+                            context.typing.attr("TypeVar"),
+                            nb::make_tuple(key),
+                            kwargs);
+                    } else {
+                        return py_call(context.typing.attr("TypeVar"), nb::make_tuple(key, schema_descriptor<TConstraints>::py_type(context)...));
+                    }
+                }();
+
+                auto [it, _] = context.ts_type_vars.emplace(key, type_var);
+                return it->second;
             }
         };
 
@@ -452,9 +623,14 @@ namespace hgraph::v2
                 return std::string{Name.sv()};
             }
 
-            [[nodiscard]] static nb::object py_type()
+            [[nodiscard]] static constexpr bool is_concrete()
             {
-                return schema_descriptor<TSchema>::py_type();
+                return schema_descriptor<TSchema>::is_concrete();
+            }
+
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &context)
+            {
+                return schema_descriptor<TSchema>::py_type(context);
             }
 
             [[nodiscard]] static const TSMeta *ts_meta()
@@ -466,6 +642,11 @@ namespace hgraph::v2
         template <typename... TFields>
         struct schema_descriptor<TSB<TFields...>>
         {
+            [[nodiscard]] static constexpr bool is_concrete()
+            {
+                return (field_descriptor<TFields>::is_concrete() && ...);
+            }
+
             [[nodiscard]] static std::string bundle_name()
             {
                 std::string out{"TSB["};
@@ -477,19 +658,23 @@ namespace hgraph::v2
 
             [[nodiscard]] static const TSMeta *ts_meta()
             {
-                static const TSMeta *meta = [] {
-                    std::vector<std::pair<std::string, const TSMeta *>> fields;
-                    fields.reserve(sizeof...(TFields));
-                    (fields.emplace_back(field_descriptor<TFields>::name(), field_descriptor<TFields>::ts_meta()), ...);
-                    return TSTypeRegistry::instance().tsb(fields, bundle_name());
-                }();
-                return meta;
+                if constexpr (is_concrete()) {
+                    static const TSMeta *meta = [] {
+                        std::vector<std::pair<std::string, const TSMeta *>> fields;
+                        fields.reserve(sizeof...(TFields));
+                        (fields.emplace_back(field_descriptor<TFields>::name(), field_descriptor<TFields>::ts_meta()), ...);
+                        return TSTypeRegistry::instance().tsb(fields, bundle_name());
+                    }();
+                    return meta;
+                } else {
+                    return nullptr;
+                }
             }
 
-            [[nodiscard]] static nb::object py_type()
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &context)
             {
                 nb::dict kwargs;
-                ((kwargs[field_descriptor<TFields>::name().c_str()] = field_descriptor<TFields>::py_type()), ...);
+                ((kwargs[field_descriptor<TFields>::name().c_str()] = field_descriptor<TFields>::py_type(context)), ...);
                 nb::object schema = py_call(hgraph_module().attr("ts_schema"), nb::tuple(), kwargs);
                 return py_getitem(hgraph_module().attr("TSB"), schema);
             }

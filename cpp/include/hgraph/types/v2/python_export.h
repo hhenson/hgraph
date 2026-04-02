@@ -5,20 +5,60 @@
 
 #include <string>
 #include <string_view>
+#include <unordered_set>
+#include <vector>
 
 namespace hgraph::v2
 {
+    namespace detail
+    {
+        [[nodiscard]] inline const TSMeta *cpp_ts_meta_or_none(nb::handle meta)
+        {
+            if (meta.is_none()) { return nullptr; }
+
+            nb::object cpp_type = nb::borrow(meta).attr("cpp_type");
+            if (cpp_type.is_none()) { return nullptr; }
+            return nb::cast<const TSMeta *>(cpp_type);
+        }
+
+        [[nodiscard]] inline const TSMeta *resolved_input_schema(nb::handle resolved_wiring_signature,
+                                                                 std::string_view default_name)
+        {
+            std::vector<std::pair<std::string, const TSMeta *>> fields;
+            const std::vector<std::string> args = nb::cast<std::vector<std::string>>(nb::borrow(resolved_wiring_signature).attr("args"));
+            const std::unordered_set<std::string> time_series_args =
+                nb::cast<std::unordered_set<std::string>>(nb::borrow(resolved_wiring_signature).attr("time_series_args"));
+            nb::object input_types = nb::borrow(resolved_wiring_signature).attr("input_types");
+
+            fields.reserve(args.size());
+            for (const auto &arg : args) {
+                if (!time_series_args.contains(arg)) { continue; }
+                const TSMeta *schema = cpp_ts_meta_or_none(py_getitem(input_types, nb::str(arg.c_str())));
+                if (schema == nullptr) { return nullptr; }
+                fields.emplace_back(arg, schema);
+            }
+
+            if (fields.empty()) { return nullptr; }
+            return TSTypeRegistry::instance().tsb(fields, std::string{default_name} + ".inputs");
+        }
+
+        [[nodiscard]] inline const TSMeta *resolved_output_schema(nb::handle resolved_wiring_signature)
+        {
+            return cpp_ts_meta_or_none(nb::borrow(resolved_wiring_signature).attr("output_type"));
+        }
+    }  // namespace detail
+
     template <typename TImplementation>
     [[nodiscard]] nb::object make_compute_wiring_node(std::string_view name = {})
     {
         const std::string node_name = detail::node_name_or<TImplementation>(name);
-        const TSMeta *input_schema = StaticNodeSignature<TImplementation>::input_schema(node_name);
-        const TSMeta *output_schema = StaticNodeSignature<TImplementation>::output_schema();
 
         nb::object builder_factory = nb::cpp_function(
-            [node_name, input_schema, output_schema](nb::handle, nb::handle node_signature, nb::handle scalars) -> nb::object {
+            [node_name](nb::handle resolved_wiring_signature, nb::handle node_signature, nb::handle scalars) -> nb::object {
                 nb::object builder_cls =
                     nb::module_::import_("hgraph._wiring._wiring_node_class._cpp_static_wiring_node_class").attr("CppStaticNodeBuilder");
+                const TSMeta *input_schema = detail::resolved_input_schema(resolved_wiring_signature, node_name);
+                const TSMeta *output_schema = detail::resolved_output_schema(resolved_wiring_signature);
 
                 nb::dict kwargs;
                 kwargs["signature"] = nb::borrow(node_signature);

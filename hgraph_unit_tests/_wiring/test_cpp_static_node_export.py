@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 
 import hgraph._hgraph as _hgraph
-from hgraph import TS, generator, graph, sink_node
+from hgraph import TS, TSD, const, generator, graph, sink_node
 from hgraph._builder._graph_builder import GraphBuilderFactory
 from hgraph._wiring._graph_builder import wire_graph
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
@@ -73,3 +73,30 @@ def test_cpp_static_compute_node_wires_into_python_graph_builder():
 
     assert input_edges == {(0,), (1,)}
     assert len(output_edges) == 1
+
+
+def test_cpp_static_generic_compute_node_exports_linked_type_vars_and_resolves_on_wiring():
+    static_get_item = _hgraph.v2.static_get_item
+
+    assert isinstance(static_get_item, BaseWiringNodeClass)
+    assert static_get_item.signature.signature == "static_get_item(ts: TSD[K, V], key: TS[K]) -> V"
+    assert static_get_item.signature.unresolved_args == frozenset(("ts", "key"))
+
+    @sink_node
+    def sink_str(ts: TS[str]):
+        pass
+
+    @graph
+    def g():
+        sink_str(static_get_item(const({1: "one"}, TSD[int, TS[str]]), const(1)))
+
+    with use_python_graph_builder(), WiringNodeInstanceContext():
+        graph_builder = wire_graph(g)
+
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, CppStaticNodeBuilder)]
+    assert len(cpp_builders) == 1
+
+    cpp_builder = cpp_builders[0]
+    assert cpp_builder.signature.signature == "static_get_item(ts: TSD[int, TS[str]], key: TS[int]) -> TS[str]"
+    assert cpp_builder.input_schema is not None
+    assert cpp_builder.output_schema is not None

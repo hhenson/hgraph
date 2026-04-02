@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace hgraph::v2::test_detail
 {
@@ -80,6 +81,24 @@ namespace hgraph::v2::test_detail
                          Out<TS<int>> out)
         {
             out.set(lhs.value() + rhs.value() + strict.value());
+        }
+    };
+
+    struct GenericGetItemNode
+    {
+        GenericGetItemNode() = delete;
+        ~GenericGetItemNode() = delete;
+
+        static constexpr auto name = "generic_get_item";
+
+        using K = ScalarVar<"K">;
+        using V = TsVar<"V">;
+
+        static void eval(In<"ts", TSD<K, V>> ts, In<"key", TS<K>> key, Out<V> out)
+        {
+            static_cast<void>(ts);
+            static_cast<void>(key);
+            static_cast<void>(out);
         }
     };
 
@@ -257,4 +276,23 @@ TEST_CASE("v2 static node signatures derive selector policies from In metadata",
     CHECK(signature::active_input_names() == std::vector<std::string>{"lhs", "strict"});
     CHECK(signature::valid_input_names() == std::vector<std::string>{"lhs"});
     CHECK(signature::all_valid_input_names() == std::vector<std::string>{"strict"});
+}
+
+TEST_CASE("v2 static node signatures export linked template type variables", "[v2][python][signature]")
+{
+    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+
+    using signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::GenericGetItemNode>;
+
+    CHECK(signature::input_schema() == nullptr);
+    CHECK(signature::output_schema() == nullptr);
+    CHECK(signature::unresolved_input_names() == std::vector<std::string>{"ts", "key"});
+
+    nb::gil_scoped_acquire guard;
+    nb::object wiring_signature = signature::wiring_signature();
+    const auto unresolved_args = nb::cast<std::unordered_set<std::string>>(wiring_signature.attr("unresolved_args"));
+
+    CHECK(nb::cast<std::string>(wiring_signature.attr("signature")) == "generic_get_item(ts: TSD[K, V], key: TS[K]) -> V");
+    CHECK(unresolved_args.contains("ts"));
+    CHECK(unresolved_args.contains("key"));
 }

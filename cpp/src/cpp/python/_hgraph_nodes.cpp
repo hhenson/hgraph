@@ -46,6 +46,24 @@ namespace
             out.set(lhs.value() + rhs.value() + strict.value());
         }
     };
+
+    struct StaticGetItemNode
+    {
+        StaticGetItemNode() = delete;
+        ~StaticGetItemNode() = delete;
+
+        static constexpr auto name = "static_get_item";
+
+        using K = ScalarVar<"K">;
+        using V = TsVar<"V">;
+
+        static void eval(In<"ts", TSD<K, V>> ts, In<"key", TS<K>> key, Out<V> out)
+        {
+            static_cast<void>(ts);
+            static_cast<void>(key);
+            static_cast<void>(out);
+        }
+    };
 }
 
 void export_nodes(nb::module_ &m) {
@@ -53,4 +71,5 @@ void export_nodes(nb::module_ &m) {
     auto v2 = m.def_submodule("v2", "Experimental v2 static node exports");
     hgraph::v2::export_compute_node<StaticSumNode>(v2);
     hgraph::v2::export_compute_node<StaticPolicyNode>(v2);
+    hgraph::v2::export_compute_node<StaticGetItemNode>(v2);
 }
