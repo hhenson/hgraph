@@ -23,6 +23,8 @@ namespace hgraph::v2
         {
             const TSInputBuilder *input_builder{nullptr};
             const TSOutputBuilder *output_builder{nullptr};
+            const ValueBuilder *state_builder{nullptr};
+            const TSOutputBuilder *recordable_state_builder{nullptr};
         };
 
         struct NodeMemoryLayout
@@ -39,10 +41,17 @@ namespace hgraph::v2
             size_t input_storage_offset{0};
             size_t output_object_offset{0};
             size_t output_storage_offset{0};
+            size_t state_storage_offset{0};
+            size_t recordable_state_object_offset{0};
+            size_t recordable_state_storage_offset{0};
         };
 
         [[nodiscard]] ResolvedNodeBuilders resolve_builders(const TSMeta *input_schema,
                                                             const TSMeta *output_schema,
+                                                            bool has_state,
+                                                            const value::TypeMeta *state_schema,
+                                                            bool has_recordable_state,
+                                                            const TSMeta *recordable_state_schema,
                                                             const std::vector<TSInputConstructionEdge> &inbound_edges)
         {
             ResolvedNodeBuilders builders;
@@ -55,6 +64,18 @@ namespace hgraph::v2
             }
 
             if (output_schema != nullptr) { builders.output_builder = &TSOutputBuilderFactory::checked_builder_for(output_schema); }
+            if (has_state && state_schema == nullptr) {
+                throw std::invalid_argument("v2 nodes with typed State<...> require a resolved value schema");
+            }
+            if (has_state && state_schema != nullptr) {
+                builders.state_builder = &ValueBuilderFactory::checked_builder_for(state_schema);
+            }
+            if (has_recordable_state && recordable_state_schema == nullptr) {
+                throw std::invalid_argument("v2 nodes with RecordableState<...> require a resolved time-series schema");
+            }
+            if (recordable_state_schema != nullptr) {
+                builders.recordable_state_builder = &TSOutputBuilderFactory::checked_builder_for(recordable_state_schema);
+            }
 
             return builders;
         }
@@ -63,6 +84,7 @@ namespace hgraph::v2
                                                        std::span<const size_t> active_inputs,
                                                        std::span<const size_t> valid_inputs,
                                                        std::span<const size_t> all_valid_inputs,
+                                                       bool has_state,
                                                        const ResolvedNodeBuilders &builders) noexcept
         {
             NodeMemoryLayout layout;
@@ -77,6 +99,13 @@ namespace hgraph::v2
             offset = align_up(offset, alignof(detail::StaticNodeRuntimeData));
             layout.runtime_data_offset = offset;
             offset += sizeof(detail::StaticNodeRuntimeData);
+
+            if (builders.state_builder != nullptr) {
+                layout.alignment = std::max(layout.alignment, builders.state_builder->alignment());
+                offset = align_up(offset, builders.state_builder->alignment());
+                layout.state_storage_offset = offset;
+                offset += builders.state_builder->size();
+            }
 
             if (!label.empty()) {
                 layout.label_offset = offset;
@@ -120,6 +149,18 @@ namespace hgraph::v2
                 offset += builders.output_builder->size();
             }
 
+            if (builders.recordable_state_builder != nullptr) {
+                layout.alignment = std::max(layout.alignment, alignof(TSOutput));
+                offset = align_up(offset, alignof(TSOutput));
+                layout.recordable_state_object_offset = offset;
+                offset += sizeof(TSOutput);
+
+                layout.alignment = std::max(layout.alignment, builders.recordable_state_builder->alignment());
+                offset = align_up(offset, builders.recordable_state_builder->alignment());
+                layout.recordable_state_storage_offset = offset;
+                offset += builders.recordable_state_builder->size();
+            }
+
             layout.total_size = offset;
             return layout;
         }
@@ -140,6 +181,10 @@ namespace hgraph::v2
             const BuiltNodeSpec &spec = node.spec();
             auto &runtime_data = detail::runtime_data<detail::StaticNodeRuntimeData>(node);
 
+            if (runtime_data.recordable_state != nullptr) { runtime_data.recordable_state->~TSOutput(); }
+            if (runtime_data.state_builder != nullptr && runtime_data.state_memory != nullptr) {
+                runtime_data.state_builder->destruct(runtime_data.state_memory);
+            }
             if (runtime_data.output != nullptr) { runtime_data.output->~TSOutput(); }
             if (runtime_data.input != nullptr) { runtime_data.input->~TSInput(); }
 
@@ -189,8 +234,17 @@ namespace hgraph::v2
         if (m_runtime_ops == nullptr) {
             throw std::invalid_argument("v2 node builder requires an implementation to be set");
         }
-        const auto builders = resolve_builders(m_input_schema, m_output_schema, inbound_edges);
-        return describe_layout(m_label, m_active_inputs, m_valid_inputs, m_all_valid_inputs, builders).total_size;
+        const auto builders = resolve_builders(
+            m_input_schema,
+            m_output_schema,
+            m_has_state,
+            m_state_schema,
+            m_has_recordable_state,
+            m_recordable_state_schema,
+            inbound_edges);
+        return describe_layout(
+                   m_label, m_active_inputs, m_valid_inputs, m_all_valid_inputs, m_has_state, builders)
+            .total_size;
     }
 
     size_t NodeBuilder::alignment(const std::vector<TSInputConstructionEdge> &inbound_edges) const
@@ -198,8 +252,17 @@ namespace hgraph::v2
         if (m_runtime_ops == nullptr) {
             throw std::invalid_argument("v2 node builder requires an implementation to be set");
         }
-        const auto builders = resolve_builders(m_input_schema, m_output_schema, inbound_edges);
-        return describe_layout(m_label, m_active_inputs, m_valid_inputs, m_all_valid_inputs, builders).alignment;
+        const auto builders = resolve_builders(
+            m_input_schema,
+            m_output_schema,
+            m_has_state,
+            m_state_schema,
+            m_has_recordable_state,
+            m_recordable_state_schema,
+            inbound_edges);
+        return describe_layout(
+                   m_label, m_active_inputs, m_valid_inputs, m_all_valid_inputs, m_has_state, builders)
+            .alignment;
     }
 
     Node *NodeBuilder::construct_at(void *memory,
@@ -211,8 +274,16 @@ namespace hgraph::v2
             throw std::invalid_argument("v2 node builder requires an implementation to be set");
         }
 
-        const auto builders = resolve_builders(m_input_schema, m_output_schema, inbound_edges);
-        const auto layout = describe_layout(m_label, m_active_inputs, m_valid_inputs, m_all_valid_inputs, builders);
+        const auto builders = resolve_builders(
+            m_input_schema,
+            m_output_schema,
+            m_has_state,
+            m_state_schema,
+            m_has_recordable_state,
+            m_recordable_state_schema,
+            inbound_edges);
+        const auto layout = describe_layout(
+            m_label, m_active_inputs, m_valid_inputs, m_all_valid_inputs, m_has_state, builders);
         auto *base = static_cast<std::byte *>(memory);
 
         std::string_view label_view;
@@ -228,6 +299,8 @@ namespace hgraph::v2
 
         TSInput *input = nullptr;
         TSOutput *output = nullptr;
+        void *state_memory = nullptr;
+        TSOutput *recordable_state = nullptr;
 
         try {
             if (builders.input_builder != nullptr) {
@@ -242,7 +315,21 @@ namespace hgraph::v2
                     *output, base + layout.output_storage_offset, TSOutputBuilder::MemoryOwnership::External);
             }
 
-            auto *runtime_data = new (base + layout.runtime_data_offset) detail::StaticNodeRuntimeData{input, output};
+            if (builders.state_builder != nullptr) {
+                state_memory = base + layout.state_storage_offset;
+                builders.state_builder->construct(state_memory);
+            }
+
+            if (builders.recordable_state_builder != nullptr) {
+                recordable_state = new (base + layout.recordable_state_object_offset) TSOutput{};
+                builders.recordable_state_builder->construct_output(
+                    *recordable_state,
+                    base + layout.recordable_state_storage_offset,
+                    TSOutputBuilder::MemoryOwnership::External);
+            }
+
+            auto *runtime_data = new (base + layout.runtime_data_offset)
+                detail::StaticNodeRuntimeData{input, output, builders.state_builder, state_memory, recordable_state};
 
             auto *spec = new (base + layout.spec_offset) BuiltNodeSpec{
                 m_runtime_ops,
@@ -259,6 +346,8 @@ namespace hgraph::v2
             static_cast<void>(runtime_data);
             return new (memory) Node(node_index, spec);
         } catch (...) {
+            if (recordable_state != nullptr) { recordable_state->~TSOutput(); }
+            if (builders.state_builder != nullptr && state_memory != nullptr) { builders.state_builder->destruct(state_memory); }
             if (output != nullptr) { output->~TSOutput(); }
             if (input != nullptr) { input->~TSInput(); }
             throw;

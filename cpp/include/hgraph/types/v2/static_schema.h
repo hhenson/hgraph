@@ -4,13 +4,13 @@
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/value/value.h>
 #include <hgraph/types/value/type_registry.h>
 
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -34,6 +34,9 @@ namespace hgraph::v2
 
     template <size_t N>
     fixed_string(const char (&)[N]) -> fixed_string<N>;
+
+    inline constexpr fixed_string default_state_name{"_state"};
+    inline constexpr fixed_string default_recordable_state_name{"_recordable_state"};
 
     template <typename TValue>
     struct TS
@@ -80,6 +83,12 @@ namespace hgraph::v2
     template <typename... TFields>
     struct TSB
     {};
+
+    template <typename TSchema, fixed_string Name = default_state_name>
+    class State;
+
+    template <typename TSchema, fixed_string Name = default_recordable_state_name>
+    class RecordableState;
 
     template <fixed_string Name, typename... TConstraints>
     struct ScalarVar
@@ -201,6 +210,15 @@ namespace hgraph::v2
             [[nodiscard]] static input_view_type input_view(TSInputView view) { return view; }
             [[nodiscard]] static output_view_type output_view(TSOutputView view) { return view; }
         };
+
+        inline void mark_ts_output_modified(const TSOutputView &view, engine_time_t evaluation_time)
+        {
+            LinkedTSContext context = view.linked_context();
+            if (context.ts_state == nullptr) {
+                throw std::logic_error("Output mutation requires a linked output state");
+            }
+            context.ts_state->mark_modified(evaluation_time);
+        }
     }  // namespace detail
 
     template <fixed_string Name,
@@ -301,15 +319,54 @@ namespace hgraph::v2
         template <typename T>
         void set(T &&value) const
         {
-            using TValueArg = std::remove_cvref_t<T>;
-            m_view.value().template set_scalar<TValueArg>(std::forward<T>(value));
-
-            LinkedTSContext context = m_view.linked_context();
-            if (context.ts_state == nullptr) {
-                throw std::logic_error("Out<TS<...>>::set requires an output state");
-            }
-            context.ts_state->mark_modified(m_evaluation_time);
+            m_view.value().set_scalar(std::forward<T>(value));
+            detail::mark_ts_output_modified(m_view, m_evaluation_time);
         }
+
+        operator const view_type &() const noexcept { return m_view; }
+
+      private:
+        view_type m_view;
+        engine_time_t m_evaluation_time{MIN_DT};
+    };
+
+    template <typename TSchema, fixed_string Name>
+    class State
+    {
+      public:
+        using schema = TSchema;
+        using view_type = View;
+        static constexpr auto name = Name;
+
+        explicit State(view_type view) : m_view(std::move(view)) {}
+
+        [[nodiscard]] view_type &view() noexcept { return m_view; }
+        [[nodiscard]] const view_type &view() const noexcept { return m_view; }
+
+        operator view_type &() noexcept { return m_view; }
+        operator const view_type &() const noexcept { return m_view; }
+
+      private:
+        view_type m_view;
+    };
+
+    template <typename TSchema, fixed_string Name>
+    class RecordableState
+    {
+      public:
+        using schema = TSchema;
+        using view_type = typename detail::schema_view_traits<TSchema>::output_view_type;
+        static constexpr auto name = Name;
+
+        RecordableState(TSOutputView view, engine_time_t evaluation_time)
+            : m_view(detail::schema_view_traits<TSchema>::output_view(std::move(view))), m_evaluation_time(evaluation_time)
+        {
+        }
+
+        [[nodiscard]] const view_type &view() const noexcept { return m_view; }
+        [[nodiscard]] engine_time_t evaluation_time() const noexcept { return m_evaluation_time; }
+
+        void mark_modified(const TSOutputView &view) const { detail::mark_ts_output_modified(view, m_evaluation_time); }
 
         operator const view_type &() const noexcept { return m_view; }
 
@@ -455,6 +512,62 @@ namespace hgraph::v2
             {
                 PythonTypeVarContext context;
                 return py_type(context);
+            }
+        };
+
+        template <typename TField>
+        struct field_descriptor;
+
+        template <typename TSchema>
+        struct state_descriptor
+        {
+            [[nodiscard]] static constexpr bool is_concrete() { return scalar_descriptor<TSchema>::is_concrete(); }
+
+            [[nodiscard]] static const value::TypeMeta *type_meta()
+            {
+                return scalar_descriptor<TSchema>::type_meta();
+            }
+
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &context)
+            {
+                return py_getitem(hgraph_module().attr("STATE"), scalar_descriptor<TSchema>::py_type(context));
+            }
+        };
+
+        template <typename TSchema>
+        struct recordable_state_schema_descriptor
+        {
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &context)
+            {
+                return schema_descriptor<TSchema>::py_type(context);
+            }
+        };
+
+        template <typename... TFields>
+        struct recordable_state_schema_descriptor<TSB<TFields...>>
+        {
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &context)
+            {
+                nb::dict kwargs;
+                ((kwargs[field_descriptor<TFields>::name().c_str()] = field_descriptor<TFields>::py_type(context)), ...);
+                return py_call(hgraph_module().attr("ts_schema"), nb::tuple(), kwargs);
+            }
+        };
+
+        template <typename TSchema>
+        struct recordable_state_descriptor
+        {
+            [[nodiscard]] static constexpr bool is_concrete() { return schema_descriptor<TSchema>::is_concrete(); }
+
+            [[nodiscard]] static const TSMeta *ts_meta()
+            {
+                return schema_descriptor<TSchema>::ts_meta();
+            }
+
+            [[nodiscard]] static nb::object py_type(PythonTypeVarContext &context)
+            {
+                return py_getitem(hgraph_module().attr("RECORDABLE_STATE"),
+                                  recordable_state_schema_descriptor<TSchema>::py_type(context));
             }
         };
 
@@ -694,6 +807,22 @@ namespace hgraph::v2
 
         template <typename TSchema>
         struct is_output_selector<Out<TSchema>> : std::true_type
+        {};
+
+        template <typename T>
+        struct is_state_selector : std::false_type
+        {};
+
+        template <typename TSchema, fixed_string Name>
+        struct is_state_selector<State<TSchema, Name>> : std::true_type
+        {};
+
+        template <typename T>
+        struct is_recordable_state_selector : std::false_type
+        {};
+
+        template <typename TSchema, fixed_string Name>
+        struct is_recordable_state_selector<RecordableState<TSchema, Name>> : std::true_type
         {};
     }  // namespace detail
 }  // namespace hgraph::v2

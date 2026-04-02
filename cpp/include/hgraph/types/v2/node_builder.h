@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/ts_input_builder.h>
+#include <hgraph/types/time_series/value/builder.h>
 #include <hgraph/types/v2/node_impl.h>
 #include <hgraph/types/v2/node.h>
 #include <hgraph/types/v2/python_export.h>
@@ -38,6 +39,14 @@ namespace hgraph::v2
 
             if (m_input_schema == nullptr) { m_input_schema = signature::input_schema(); }
             if (m_output_schema == nullptr) { m_output_schema = StaticNodeSignature<TImplementation>::output_schema(); }
+            if (!m_has_state && signature::has_state()) {
+                m_has_state = true;
+                m_state_schema = signature::state_schema();
+            }
+            if (!m_has_recordable_state && signature::has_recordable_state()) {
+                m_has_recordable_state = true;
+                m_recordable_state_schema = signature::recordable_state_schema();
+            }
 
             if (m_active_inputs.empty()) {
                 for (const auto &name : signature::active_input_names()) { m_active_inputs.push_back(slot_for_input_name(name)); }
@@ -87,6 +96,10 @@ namespace hgraph::v2
         std::string m_label;
         const TSMeta *m_input_schema{nullptr};
         const TSMeta *m_output_schema{nullptr};
+        bool m_has_state{false};
+        const value::TypeMeta *m_state_schema{nullptr};
+        bool m_has_recordable_state{false};
+        const TSMeta *m_recordable_state_schema{nullptr};
         std::vector<size_t> m_active_inputs;
         std::vector<size_t> m_valid_inputs;
         std::vector<size_t> m_all_valid_inputs;

@@ -100,3 +100,39 @@ def test_cpp_static_generic_compute_node_exports_linked_type_vars_and_resolves_o
     assert cpp_builder.signature.signature == "static_get_item(ts: TSD[int, TS[str]], key: TS[int]) -> TS[str]"
     assert cpp_builder.input_schema is not None
     assert cpp_builder.output_schema is not None
+
+
+def test_cpp_static_compute_node_exports_state_injectable_metadata():
+    static_typed_state = _hgraph.v2.static_typed_state
+
+    assert isinstance(static_typed_state, BaseWiringNodeClass)
+    assert static_typed_state.signature.args == ("lhs", "_state")
+    assert static_typed_state.signature.uses_state
+    assert not static_typed_state.signature.uses_recordable_state
+
+
+def test_cpp_static_compute_node_exports_recordable_state_builder():
+    static_recordable_state = _hgraph.v2.static_recordable_state
+
+    assert isinstance(static_recordable_state, BaseWiringNodeClass)
+    assert static_recordable_state.signature.args == ("lhs", "_recordable_state")
+    assert static_recordable_state.signature.uses_recordable_state
+
+    @generator
+    def src(value: int) -> TS[int]:
+        yield value
+
+    @sink_node
+    def sink(ts: TS[int]):
+        pass
+
+    @graph
+    def g():
+        sink(static_recordable_state(src(1)))
+
+    with use_python_graph_builder(), WiringNodeInstanceContext():
+        graph_builder = wire_graph(g)
+
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, CppStaticNodeBuilder)]
+    assert len(cpp_builders) == 1
+    assert cpp_builders[0].recordable_state_builder is not None

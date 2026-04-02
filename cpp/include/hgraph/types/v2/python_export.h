@@ -46,6 +46,20 @@ namespace hgraph::v2
         {
             return cpp_ts_meta_or_none(nb::borrow(resolved_wiring_signature).attr("output_type"));
         }
+
+        [[nodiscard]] inline nb::object resolved_recordable_state_builder_or_none(nb::handle resolved_wiring_signature)
+        {
+            if (!nb::cast<bool>(nb::borrow(resolved_wiring_signature).attr("uses_recordable_state"))) { return nb::none(); }
+
+            nb::object recordable_state = nb::borrow(resolved_wiring_signature).attr("recordable_state");
+            if (recordable_state.is_none()) { return nb::none(); }
+
+            nb::object tsb_type = recordable_state.attr("tsb_type");
+            if (tsb_type.is_none()) { return nb::none(); }
+
+            nb::object factory = hgraph_module().attr("TimeSeriesBuilderFactory").attr("instance")();
+            return factory.attr("make_output_builder")(tsb_type);
+        }
     }  // namespace detail
 
     template <typename TImplementation>
@@ -66,7 +80,7 @@ namespace hgraph::v2
                 kwargs["input_builder"] = nb::none();
                 kwargs["output_builder"] = nb::none();
                 kwargs["error_builder"] = nb::none();
-                kwargs["recordable_state_builder"] = nb::none();
+                kwargs["recordable_state_builder"] = detail::resolved_recordable_state_builder_or_none(resolved_wiring_signature);
                 kwargs["implementation_name"] = node_name;
                 kwargs["input_schema"] = input_schema != nullptr ? nb::cast(input_schema, nb::rv_policy::reference) : nb::none();
                 kwargs["output_schema"] = output_schema != nullptr ? nb::cast(output_schema, nb::rv_policy::reference) : nb::none();

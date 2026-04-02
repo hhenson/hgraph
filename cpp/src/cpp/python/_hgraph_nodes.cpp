@@ -64,6 +64,43 @@ namespace
             static_cast<void>(out);
         }
     };
+
+    struct StaticTypedStateNode
+    {
+        StaticTypedStateNode() = delete;
+        ~StaticTypedStateNode() = delete;
+
+        static constexpr auto name = "static_typed_state";
+
+        static void start(State<int> state)
+        {
+            state.view().set_scalar(0);
+        }
+
+        static void eval(In<"lhs", TS<int>> lhs, State<int> state, Out<TS<int>> out)
+        {
+            auto &sum = state.view().template checked_as<int>();
+            sum += lhs.value();
+            out.set(sum);
+        }
+    };
+
+    struct StaticRecordableStateNode
+    {
+        StaticRecordableStateNode() = delete;
+        ~StaticRecordableStateNode() = delete;
+
+        static constexpr auto name = "static_recordable_state";
+        using LocalState = TSB<Field<"last", TS<int>>>;
+
+        static void eval(In<"lhs", TS<int>> lhs, RecordableState<LocalState> state, Out<TS<int>> out)
+        {
+            auto last = state.view().field("last");
+            if (last.valid()) { out.set(last.value().as_atomic().as<int>()); }
+            last.value().set_scalar(lhs.value());
+            state.mark_modified(last);
+        }
+    };
 }
 
 void export_nodes(nb::module_ &m) {
@@ -72,4 +109,6 @@ void export_nodes(nb::module_ &m) {
     hgraph::v2::export_compute_node<StaticSumNode>(v2);
     hgraph::v2::export_compute_node<StaticPolicyNode>(v2);
     hgraph::v2::export_compute_node<StaticGetItemNode>(v2);
+    hgraph::v2::export_compute_node<StaticTypedStateNode>(v2);
+    hgraph::v2::export_compute_node<StaticRecordableStateNode>(v2);
 }

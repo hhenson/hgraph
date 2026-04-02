@@ -102,6 +102,47 @@ namespace hgraph::v2::test_detail
         }
     };
 
+    struct SumWithTypedState
+    {
+        SumWithTypedState() = delete;
+        ~SumWithTypedState() = delete;
+
+        static constexpr auto name = "typed_state_sum";
+
+        static void start(State<int> state)
+        {
+            state.view().set_scalar(0);
+        }
+
+        static void eval(In<"lhs", TS<int>> lhs, State<int> state, Out<TS<int>> out)
+        {
+            auto &sum = state.view().template checked_as<int>();
+            sum += lhs.value();
+            out.set(sum);
+        }
+    };
+
+    struct PreviousValueFromRecordableState
+    {
+        PreviousValueFromRecordableState() = delete;
+        ~PreviousValueFromRecordableState() = delete;
+
+        static constexpr auto name = "previous_value";
+        using LocalState = TSB<Field<"last", TS<int>>>;
+
+        static void eval(In<"lhs", TS<int>> lhs, RecordableState<LocalState> state, Out<TS<int>> out)
+        {
+            auto last = state.view().field("last");
+            if (last.valid()) {
+                out.set(last.value().as_atomic().as<int>());
+            } else {
+                out.set(-1);
+            }
+            last.value().set_scalar(lhs.value());
+            state.mark_modified(last);
+        }
+    };
+
     [[nodiscard]] engine_time_t tick(int offset)
     {
         return MIN_DT + std::chrono::microseconds{offset};
@@ -160,9 +201,8 @@ namespace hgraph::v2::test_detail
     template <typename T>
     void publish_scalar_output(Node &node, const Path &path, T &&value, engine_time_t modified_time)
     {
-        using TValue = std::remove_cvref_t<T>;
         auto output = traverse_output(node.output_view(modified_time), node.output_schema(), path);
-        output.value().template set_scalar<TValue>(std::forward<T>(value));
+        output.value().set_scalar(std::forward<T>(value));
 
         LinkedTSContext context = output.linked_context();
         if (context.ts_state == nullptr) { throw std::logic_error("v2 test output leaf has no state to mark modified"); }
@@ -257,6 +297,58 @@ TEST_CASE("v2 graph binds bundle output child paths into nested input paths", "[
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 20);
 }
 
+TEST_CASE("v2 nodes support typed local state", "[v2][graph][state]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("sum").implementation<hgraph::v2::test_detail::SumWithTypedState>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+
+    auto graph = builder.make_graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 5, hgraph::v2::test_detail::tick(31));
+    graph.evaluate(hgraph::v2::test_detail::tick(31));
+    CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 5);
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 7, hgraph::v2::test_detail::tick(32));
+    graph.evaluate(hgraph::v2::test_detail::tick(32));
+    CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 12);
+}
+
+TEST_CASE("v2 nodes support recordable state", "[v2][graph][state]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("previous").implementation<hgraph::v2::test_detail::PreviousValueFromRecordableState>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+
+    auto graph = builder.make_graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 11, hgraph::v2::test_detail::tick(41));
+    graph.evaluate(hgraph::v2::test_detail::tick(41));
+    CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == -1);
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 13, hgraph::v2::test_detail::tick(42));
+    graph.evaluate(hgraph::v2::test_detail::tick(42));
+    CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 11);
+}
+
 TEST_CASE("v2 static node signatures export Python wiring metadata", "[v2][python]")
 {
     hgraph::v2::test_detail::ensure_python_hgraph_importable();
@@ -295,4 +387,29 @@ TEST_CASE("v2 static node signatures export linked template type variables", "[v
     CHECK(nb::cast<std::string>(wiring_signature.attr("signature")) == "generic_get_item(ts: TSD[K, V], key: TS[K]) -> V");
     CHECK(unresolved_args.contains("ts"));
     CHECK(unresolved_args.contains("key"));
+}
+
+TEST_CASE("v2 static node signatures export state injectables", "[v2][python][signature]")
+{
+    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+
+    using typed_state_signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::SumWithTypedState>;
+    using recordable_state_signature =
+        hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::PreviousValueFromRecordableState>;
+
+    CHECK(typed_state_signature::has_state());
+    CHECK_FALSE(typed_state_signature::has_recordable_state());
+    CHECK(recordable_state_signature::has_recordable_state());
+
+    nb::gil_scoped_acquire guard;
+    nb::object state_signature = typed_state_signature::wiring_signature();
+    nb::object recordable_signature = recordable_state_signature::wiring_signature();
+
+    const auto state_args = nb::cast<std::vector<std::string>>(state_signature.attr("args"));
+    const auto recordable_args = nb::cast<std::vector<std::string>>(recordable_signature.attr("args"));
+
+    CHECK(state_args == std::vector<std::string>{"lhs", "_state"});
+    CHECK(recordable_args == std::vector<std::string>{"lhs", "_recordable_state"});
+    CHECK(nb::cast<bool>(state_signature.attr("uses_state")));
+    CHECK(nb::cast<bool>(recordable_signature.attr("uses_recordable_state")));
 }

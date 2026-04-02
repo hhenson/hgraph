@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/value/builder.h>
 #include <hgraph/types/v2/node.h>
 #include <hgraph/types/v2/static_schema.h>
 
@@ -22,7 +23,16 @@ namespace hgraph::v2
         {
             TSInput *input{nullptr};
             TSOutput *output{nullptr};
+            const ValueBuilder *state_builder{nullptr};
+            void *state_memory{nullptr};
+            TSOutput *recordable_state{nullptr};
         };
+
+        template <typename T>
+        [[nodiscard]] inline T &runtime_data(Node &node);
+
+        template <typename T>
+        [[nodiscard]] inline const T &runtime_data(const Node &node);
 
         template <typename T>
         inline constexpr bool always_false_v = false;
@@ -135,6 +145,33 @@ namespace hgraph::v2
             static Out<TSchema> get(Node &node, engine_time_t evaluation_time)
             {
                 return Out<TSchema>{output_view_for(node, evaluation_time), evaluation_time};
+            }
+        };
+
+        template <typename TSchema, fixed_string Name>
+        struct arg_provider<State<TSchema, Name>>
+        {
+            static State<TSchema, Name> get(Node &node, engine_time_t)
+            {
+                auto &runtime = runtime_data<StaticNodeRuntimeData>(node);
+                if (runtime.state_builder == nullptr || runtime.state_memory == nullptr) {
+                    throw std::logic_error("State<...> requested but no typed local state was constructed");
+                }
+                return State<TSchema, Name>{
+                    View{&runtime.state_builder->dispatch(), runtime.state_memory, &runtime.state_builder->schema()}};
+            }
+        };
+
+        template <typename TSchema, fixed_string Name>
+        struct arg_provider<RecordableState<TSchema, Name>>
+        {
+            static RecordableState<TSchema, Name> get(Node &node, engine_time_t evaluation_time)
+            {
+                auto &runtime = runtime_data<StaticNodeRuntimeData>(node);
+                if (runtime.recordable_state == nullptr) {
+                    throw std::logic_error("RecordableState<...> requested but no recordable state output was constructed");
+                }
+                return RecordableState<TSchema, Name>{runtime.recordable_state->view(evaluation_time), evaluation_time};
             }
         };
 
