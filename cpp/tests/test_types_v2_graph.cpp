@@ -12,6 +12,16 @@
 
 namespace hgraph::v2::test_detail
 {
+    using PairSchema = TSB<Field<"lhs", TS<int>>, Field<"rhs", TS<int>>>;
+    using DictSchema = TSD<int, TS<int>>;
+
+    static_assert(std::same_as<typename In<"pair", PairSchema>::view_type, TSBView<TSInputView>>);
+    static_assert(std::same_as<typename Out<PairSchema>::view_type, TSBView<TSOutputView>>);
+    static_assert(std::same_as<typename In<"dict", DictSchema>::view_type, TSDView<TSInputView>>);
+    static_assert(std::same_as<typename Out<DictSchema>::view_type, TSDView<TSOutputView>>);
+    static_assert(std::same_as<decltype(std::declval<const In<"lhs", TS<int>> &>().delta_value()), const int &>);
+    static_assert(std::same_as<decltype(std::declval<const In<"pair", PairSchema> &>().delta_value()), View>);
+
     struct NoopNode
     {
         NoopNode() = delete;
@@ -27,7 +37,7 @@ namespace hgraph::v2::test_detail
 
         static void eval(In<"lhs", TS<int>> lhs, In<"rhs", TS<int>> rhs, Out<TS<int>> out)
         {
-            out.set(lhs.value() + rhs.value());
+            out.set(lhs.delta_value() + rhs.delta_value());
         }
     };
 
@@ -36,13 +46,12 @@ namespace hgraph::v2::test_detail
         SumNestedPair() = delete;
         ~SumNestedPair() = delete;
 
-        using Pair = TSB<Field<"lhs", TS<int>>, Field<"rhs", TS<int>>>;
+        using Pair = PairSchema;
 
         static void eval(In<"pair", Pair, InputActivity::Passive, InputValidity::Unchecked> pair, Out<TS<int>> out)
         {
-            auto pair_view = pair.view().as_bundle();
-            const int lhs = pair_view.field("lhs").value().as_atomic().as<int>();
-            const int rhs = pair_view.field("rhs").value().as_atomic().as<int>();
+            const int lhs = pair.view().field("lhs").value().as_atomic().as<int>();
+            const int rhs = pair.view().field("rhs").value().as_atomic().as<int>();
             out.set(lhs + rhs);
         }
     };

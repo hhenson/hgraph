@@ -96,6 +96,89 @@ namespace hgraph::v2
         Unchecked,
     };
 
+    namespace detail
+    {
+        template <typename TSchema>
+        struct schema_view_traits
+        {
+            using input_view_type = TSInputView;
+            using output_view_type = TSOutputView;
+
+            [[nodiscard]] static input_view_type input_view(TSInputView view) { return view; }
+            [[nodiscard]] static output_view_type output_view(TSOutputView view) { return view; }
+        };
+
+        template <typename TValue>
+        struct schema_view_traits<TS<TValue>>
+        {
+            using input_view_type = TSInputView;
+            using output_view_type = TSOutputView;
+
+            [[nodiscard]] static input_view_type input_view(TSInputView view) { return view; }
+            [[nodiscard]] static output_view_type output_view(TSOutputView view) { return view; }
+        };
+
+        template <typename... TFields>
+        struct schema_view_traits<TSB<TFields...>>
+        {
+            using input_view_type = TSBView<TSInputView>;
+            using output_view_type = TSBView<TSOutputView>;
+
+            [[nodiscard]] static input_view_type input_view(TSInputView view) { return view.as_bundle(); }
+            [[nodiscard]] static output_view_type output_view(TSOutputView view) { return view.as_bundle(); }
+        };
+
+        template <typename TElementSchema, size_t FixedSize>
+        struct schema_view_traits<TSL<TElementSchema, FixedSize>>
+        {
+            using input_view_type = TSLView<TSInputView>;
+            using output_view_type = TSLView<TSOutputView>;
+
+            [[nodiscard]] static input_view_type input_view(TSInputView view) { return view.as_list(); }
+            [[nodiscard]] static output_view_type output_view(TSOutputView view) { return view.as_list(); }
+        };
+
+        template <typename TKey, typename TValueSchema>
+        struct schema_view_traits<TSD<TKey, TValueSchema>>
+        {
+            using input_view_type = TSDView<TSInputView>;
+            using output_view_type = TSDView<TSOutputView>;
+
+            [[nodiscard]] static input_view_type input_view(TSInputView view) { return view.as_dict(); }
+            [[nodiscard]] static output_view_type output_view(TSOutputView view) { return view.as_dict(); }
+        };
+
+        template <typename TValue>
+        struct schema_view_traits<TSS<TValue>>
+        {
+            using input_view_type = TSSView<TSInputView>;
+            using output_view_type = TSSView<TSOutputView>;
+
+            [[nodiscard]] static input_view_type input_view(TSInputView view) { return view.as_set(); }
+            [[nodiscard]] static output_view_type output_view(TSOutputView view) { return view.as_set(); }
+        };
+
+        template <typename TValueSchema>
+        struct schema_view_traits<REF<TValueSchema>>
+        {
+            using input_view_type = TSInputView;
+            using output_view_type = TSOutputView;
+
+            [[nodiscard]] static input_view_type input_view(TSInputView view) { return view; }
+            [[nodiscard]] static output_view_type output_view(TSOutputView view) { return view; }
+        };
+
+        template <>
+        struct schema_view_traits<SIGNAL>
+        {
+            using input_view_type = SignalView<TSInputView>;
+            using output_view_type = SignalView<TSOutputView>;
+
+            [[nodiscard]] static input_view_type input_view(TSInputView view) { return view.as_signal(); }
+            [[nodiscard]] static output_view_type output_view(TSOutputView view) { return view.as_signal(); }
+        };
+    }  // namespace detail
+
     template <fixed_string Name,
               typename TSchema,
               InputActivity Activity = InputActivity::Active,
@@ -104,21 +187,23 @@ namespace hgraph::v2
     {
       public:
         using schema = TSchema;
+        using view_type = typename detail::schema_view_traits<TSchema>::input_view_type;
         static constexpr auto name = Name;
         static constexpr auto activity = Activity;
         static constexpr auto validity = Validity;
 
-        explicit In(TSInputView view) : m_view(std::move(view)) {}
+        explicit In(TSInputView view) : m_view(detail::schema_view_traits<TSchema>::input_view(std::move(view))) {}
 
-        [[nodiscard]] const TSInputView &view() const noexcept { return m_view; }
+        [[nodiscard]] const view_type &view() const noexcept { return m_view; }
+        [[nodiscard]] View delta_value() const noexcept { return m_view.delta_value(); }
         [[nodiscard]] bool modified() const noexcept { return m_view.modified(); }
         [[nodiscard]] bool valid() const noexcept { return m_view.valid(); }
         [[nodiscard]] bool all_valid() const noexcept { return m_view.all_valid(); }
 
-        operator const TSInputView &() const noexcept { return m_view; }
+        operator const view_type &() const noexcept { return m_view; }
 
       protected:
-        TSInputView m_view;
+        view_type m_view;
     };
 
     template <fixed_string Name, typename TValue, InputActivity Activity, InputValidity Validity>
@@ -127,22 +212,27 @@ namespace hgraph::v2
       public:
         using schema = TS<TValue>;
         using value_type = TValue;
+        using view_type = TSInputView;
         static constexpr auto name = Name;
         static constexpr auto activity = Activity;
         static constexpr auto validity = Validity;
 
         explicit In(TSInputView view) : m_view(std::move(view)) {}
 
-        [[nodiscard]] const TSInputView &view() const noexcept { return m_view; }
+        [[nodiscard]] const view_type &view() const noexcept { return m_view; }
+        [[nodiscard]] const TValue &delta_value() const
+        {
+            return m_view.delta_value().as_atomic().template checked_as<TValue>();
+        }
         [[nodiscard]] bool modified() const noexcept { return m_view.modified(); }
         [[nodiscard]] bool valid() const noexcept { return m_view.valid(); }
         [[nodiscard]] bool all_valid() const noexcept { return m_view.all_valid(); }
         [[nodiscard]] const TValue &value() const { return m_view.value().as_atomic().template checked_as<TValue>(); }
 
-        operator const TSInputView &() const noexcept { return m_view; }
+        operator const view_type &() const noexcept { return m_view; }
 
       private:
-        TSInputView m_view;
+        view_type m_view;
     };
 
     template <typename TSchema>
@@ -150,19 +240,20 @@ namespace hgraph::v2
     {
       public:
         using schema = TSchema;
+        using view_type = typename detail::schema_view_traits<TSchema>::output_view_type;
 
         Out(TSOutputView view, engine_time_t evaluation_time)
-            : m_view(std::move(view)), m_evaluation_time(evaluation_time)
+            : m_view(detail::schema_view_traits<TSchema>::output_view(std::move(view))), m_evaluation_time(evaluation_time)
         {
         }
 
-        [[nodiscard]] const TSOutputView &view() const noexcept { return m_view; }
+        [[nodiscard]] const view_type &view() const noexcept { return m_view; }
         [[nodiscard]] engine_time_t evaluation_time() const noexcept { return m_evaluation_time; }
 
-        operator const TSOutputView &() const noexcept { return m_view; }
+        operator const view_type &() const noexcept { return m_view; }
 
       protected:
-        TSOutputView m_view;
+        view_type m_view;
         engine_time_t m_evaluation_time{MIN_DT};
     };
 
@@ -172,13 +263,14 @@ namespace hgraph::v2
       public:
         using schema = TS<TValue>;
         using value_type = TValue;
+        using view_type = TSOutputView;
 
         Out(TSOutputView view, engine_time_t evaluation_time)
             : m_view(std::move(view)), m_evaluation_time(evaluation_time)
         {
         }
 
-        [[nodiscard]] const TSOutputView &view() const noexcept { return m_view; }
+        [[nodiscard]] const view_type &view() const noexcept { return m_view; }
         [[nodiscard]] engine_time_t evaluation_time() const noexcept { return m_evaluation_time; }
         [[nodiscard]] const TValue *try_value() const { return m_view.value().as_atomic().template try_as<TValue>(); }
 
@@ -195,10 +287,10 @@ namespace hgraph::v2
             context.ts_state->mark_modified(m_evaluation_time);
         }
 
-        operator const TSOutputView &() const noexcept { return m_view; }
+        operator const view_type &() const noexcept { return m_view; }
 
       private:
-        TSOutputView m_view;
+        view_type m_view;
         engine_time_t m_evaluation_time{MIN_DT};
     };
 
