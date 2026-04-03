@@ -4,6 +4,7 @@
 #include <hgraph/types/time_series/value/builder.h>
 #include <hgraph/types/v2/node.h>
 #include <hgraph/types/v2/static_schema.h>
+#include <hgraph/types/value/value.h>
 
 #include <sstream>
 #include <stdexcept>
@@ -83,6 +84,9 @@ namespace hgraph::v2
 
         template <typename T>
         concept HasEval = requires { &T::eval; } && StaticHook<decltype(&T::eval)>;
+
+        template <typename T>
+        concept HasApplyMessage = requires { &T::apply_message; } && StaticHook<decltype(&T::apply_message)>;
 
         template <typename T>
         struct arg_provider
@@ -207,6 +211,69 @@ namespace hgraph::v2
             invoke_impl<Fn>(node, evaluation_time, std::make_index_sequence<std::tuple_size_v<typename traits::args_tuple>>{});
         }
 
+        template <typename T>
+        struct push_message_arg_provider
+        {
+            static decltype(auto) get(Node &node, engine_time_t evaluation_time, const value::Value &message)
+            {
+                using value_type = std::remove_cvref_t<T>;
+
+                if constexpr (std::is_same_v<value_type, value::Value> || std::is_same_v<value_type, Value>) {
+                    return value::Value::copy(message);
+                } else if constexpr (std::is_same_v<value_type, value::View> || std::is_same_v<value_type, View>) {
+                    return message.view();
+                } else if constexpr (std::is_same_v<value_type, value::AtomicView> || std::is_same_v<value_type, AtomicView>) {
+                    return message.atomic_view();
+                } else if constexpr (std::is_same_v<value_type, value::TupleView> || std::is_same_v<value_type, TupleView>) {
+                    return message.tuple_view();
+                } else if constexpr (std::is_same_v<value_type, value::BundleView> || std::is_same_v<value_type, BundleView>) {
+                    return message.bundle_view();
+                } else if constexpr (std::is_same_v<value_type, value::ListView> || std::is_same_v<value_type, ListView>) {
+                    return message.list_view();
+                } else if constexpr (std::is_same_v<value_type, value::SetView> || std::is_same_v<value_type, SetView>) {
+                    return message.set_view();
+                } else if constexpr (std::is_same_v<value_type, value::MapView> || std::is_same_v<value_type, MapView>) {
+                    return message.map_view();
+                } else if constexpr (std::is_same_v<value_type, value::CyclicBufferView> || std::is_same_v<value_type, CyclicBufferView>) {
+                    return message.cyclic_buffer_view();
+                } else if constexpr (std::is_same_v<value_type, value::QueueView> || std::is_same_v<value_type, QueueView>) {
+                    return message.queue_view();
+                } else if constexpr (is_input_selector<value_type>::value || is_output_selector<value_type>::value ||
+                                     is_state_selector<value_type>::value || is_recordable_state_selector<value_type>::value ||
+                                     std::is_same_v<value_type, Node> || std::is_same_v<value_type, Node *> ||
+                                     std::is_same_v<value_type, Graph> || std::is_same_v<value_type, Graph *> ||
+                                     std::is_same_v<value_type, engine_time_t> || std::is_same_v<value_type, EvaluationClock> ||
+                                     std::is_same_v<value_type, TSInputView> || std::is_same_v<value_type, TSOutputView>) {
+                    return arg_provider<value_type>::get(node, evaluation_time);
+                } else {
+                    return message.atomic_view().template checked_as<value_type>();
+                }
+            }
+        };
+
+        template <auto Fn, size_t... I>
+        [[nodiscard]] bool invoke_push_message_impl(Node &node,
+                                                    engine_time_t evaluation_time,
+                                                    const value::Value &message,
+                                                    std::index_sequence<I...>)
+        {
+            using traits = fn_traits<decltype(Fn)>;
+            using args_tuple = typename traits::args_tuple;
+
+            return static_cast<bool>(
+                Fn(push_message_arg_provider<std::tuple_element_t<I, args_tuple>>::get(node, evaluation_time, message)...));
+        }
+
+        template <auto Fn>
+        [[nodiscard]] bool invoke_push_message(Node &node, engine_time_t evaluation_time, const value::Value &message)
+        {
+            using traits = fn_traits<decltype(Fn)>;
+            static_assert(std::same_as<typename traits::return_type, bool>,
+                          "Static node apply_message hooks must return bool");
+            return invoke_push_message_impl<Fn>(
+                node, evaluation_time, message, std::make_index_sequence<std::tuple_size_v<typename traits::args_tuple>>{});
+        }
+
         [[nodiscard]] inline TSInputView invalid_input_view(engine_time_t evaluation_time)
         {
             return TSInputView{TSViewContext::none(), TSViewContext::none(), evaluation_time};
@@ -309,6 +376,15 @@ namespace hgraph::v2
                 if constexpr (HasEval<TImplementation>) { invoke<&TImplementation::eval>(node, evaluation_time); }
             }
 
+            static bool apply_push_message(Node &node, const value::Value &message, engine_time_t evaluation_time)
+            {
+                if constexpr (HasApplyMessage<TImplementation>) {
+                    return invoke_push_message<&TImplementation::apply_message>(node, evaluation_time, message);
+                } else {
+                    throw std::logic_error("v2 push-source nodes require a static bool apply_message(...) hook");
+                }
+            }
+
             static constexpr NodeRuntimeOps value{
                 &start,
                 &stop,
@@ -317,6 +393,7 @@ namespace hgraph::v2
                 &default_has_output,
                 &default_input_view,
                 &default_output_view,
+                &apply_push_message,
                 &default_runtime_label,
             };
         };

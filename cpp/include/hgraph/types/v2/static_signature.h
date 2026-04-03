@@ -20,6 +20,7 @@ namespace hgraph::v2
      * - concrete input / output / state schemas when available
      * - unresolved generic arguments when type variables are used
      * - activity and validity metadata for builder wiring
+     * - declared node type metadata such as pull/push source classification
      * - a Python WiringNodeSignature used by export_compute_node()
      *
      * The intent is that a single C++ definition remains the source of truth
@@ -640,6 +641,22 @@ namespace hgraph::v2
             return py_call(nb::module_::import_("frozendict").attr("frozendict"), nb::make_tuple(value));
         }
 
+        [[nodiscard]] inline nb::object python_wiring_node_type(NodeTypeEnum node_type)
+        {
+            nb::object wiring_node_type = nb::module_::import_("hgraph._wiring._wiring_node_signature").attr("WiringNodeType");
+            switch (node_type) {
+                case NodeTypeEnum::PUSH_SOURCE_NODE:
+                    return wiring_node_type.attr("PUSH_SOURCE_NODE");
+                case NodeTypeEnum::PULL_SOURCE_NODE:
+                    return wiring_node_type.attr("PULL_SOURCE_NODE");
+                case NodeTypeEnum::SINK_NODE:
+                    return wiring_node_type.attr("SINK_NODE");
+                case NodeTypeEnum::COMPUTE_NODE:
+                default:
+                    return wiring_node_type.attr("COMPUTE_NODE");
+            }
+        }
+
         template <typename TNamedArg>
         void append_optional_default(nb::dict &defaults)
         {
@@ -793,6 +810,15 @@ namespace hgraph::v2
             return detail::output_schema<eval_args_tuple>();
         }
 
+        [[nodiscard]] static constexpr NodeTypeEnum node_type()
+        {
+            if constexpr (requires { TImplementation::node_type; }) {
+                return TImplementation::node_type;
+            } else {
+                return NodeTypeEnum::COMPUTE_NODE;
+            }
+        }
+
         [[nodiscard]] static constexpr bool has_state()
         {
             return !std::is_void_v<state_arg>;
@@ -846,7 +872,7 @@ namespace hgraph::v2
             detail::append_optional_injectable_default<clock_arg>(defaults);
 
             nb::dict kwargs;
-            kwargs["node_type"] = nb::module_::import_("hgraph._wiring._wiring_node_signature").attr("WiringNodeType").attr("COMPUTE_NODE");
+            kwargs["node_type"] = detail::python_wiring_node_type(node_type());
             kwargs["name"] = node_name;
             kwargs["args"] = detail::list_to_tuple(arg_list);
             kwargs["defaults"] = detail::make_frozendict(defaults);

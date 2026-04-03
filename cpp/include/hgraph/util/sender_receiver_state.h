@@ -45,6 +45,7 @@ namespace hgraph {
         std::deque<value_type> queue;
         engine_evaluation_clock_ptr evaluation_clock{};
         bool _stopped{false};
+        bool _stopped_warning_emitted{false};
     };
 } // namespace hgraph
 

@@ -1,7 +1,18 @@
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/util/sender_receiver_state.h>
 
+#include <cstdio>
+
 namespace hgraph {
+    namespace {
+        void warn_ignored_enqueue(bool &warning_emitted) {
+            if (warning_emitted) { return; }
+
+            std::fprintf(stderr, "Warning: ignoring enqueue into a stopped receiver\n");
+            warning_emitted = true;
+        }
+    }
+
     void SenderReceiverState::set_evaluation_clock(engine_evaluation_clock_ptr clock) { evaluation_clock = clock; }
 
     void SenderReceiverState::operator()(value_type value) {
@@ -12,14 +23,20 @@ namespace hgraph {
     void SenderReceiverState::enqueue(value_type value) {
         // Replace `int` with the appropriate type.
         LockGuard guard(lock);
-        if (stopped()) { throw std::runtime_error("Cannot enqueue into a stopped receiver"); }
+        if (stopped()) {
+            warn_ignored_enqueue(_stopped_warning_emitted);
+            return;
+        }
         queue.push_back(std::move(value));
         if (evaluation_clock) { evaluation_clock->mark_push_node_requires_scheduling(); }
     }
 
     void SenderReceiverState::enqueue_front(value_type value) {
         LockGuard guard(lock);
-        if (stopped()) { throw std::runtime_error("Cannot enqueue into a stopped receiver"); }
+        if (stopped()) {
+            warn_ignored_enqueue(_stopped_warning_emitted);
+            return;
+        }
         queue.push_front(std::move(value));
     }
 

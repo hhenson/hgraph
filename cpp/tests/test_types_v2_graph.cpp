@@ -58,6 +58,60 @@ namespace hgraph::v2::test_detail
         }
     };
 
+    // Simple downstream compute node used by the push-source tests. It proves
+    // that once a push message is applied to node 0, the rest of the graph
+    // sees the result through the ordinary TS input/output path.
+    struct PassThroughInput
+    {
+        PassThroughInput() = delete;
+        ~PassThroughInput() = delete;
+
+        static void eval(In<"ts", TS<int>> ts, Out<TS<int>> out)
+        {
+            out.set(ts.value());
+        }
+    };
+
+    // Minimal push-source example.
+    //
+    // Push-source nodes receive external messages through the graph receiver:
+    //   receiver().enqueue({target_node_index, Value{payload}})
+    //
+    // The queued Value payload is decoded and passed to apply_message(...) as
+    // the typed `value` argument below. Returning false tells the graph that
+    // the node could not consume the message yet, so the same payload should be
+    // requeued and retried on the next push scheduling pass.
+    struct PushEchoNode
+    {
+        PushEchoNode() = delete;
+        ~PushEchoNode() = delete;
+
+        static void eval() {}
+
+        static bool apply_message(int value, Out<TS<int>> out)
+        {
+            if (value < 0) { return false; }
+            out.set(value);
+            return true;
+        }
+    };
+
+    // Minimal pull-source example. Unlike PushEchoNode, this node never
+    // receives work from receiver().enqueue(...); it only runs when the graph
+    // schedules it for a time-based evaluation.
+    struct PullTickNode
+    {
+        PullTickNode() = delete;
+        ~PullTickNode() = delete;
+
+        static constexpr auto node_type = NodeTypeEnum::PULL_SOURCE_NODE;
+
+        static void eval(Out<TS<int>> out)
+        {
+            out.set(42);
+        }
+    };
+
     struct ExportedSumNode
     {
         ExportedSumNode() = delete;
@@ -235,6 +289,7 @@ namespace hgraph::v2::test_detail
         int after_stop_graph{0};
         int before_stop_node{0};
         int after_stop_node{0};
+        int after_push_nodes_evaluation{0};
 
         void on_before_graph_evaluation(Graph &) override
         {
@@ -274,6 +329,11 @@ namespace hgraph::v2::test_detail
         void on_after_stop_node(Node &) override
         {
             ++after_stop_node;
+        }
+
+        void on_after_graph_push_nodes_evaluation(Graph &) override
+        {
+            ++after_push_nodes_evaluation;
         }
     };
 
@@ -478,6 +538,144 @@ TEST_CASE("v2 graph binds bundle output child paths into nested input paths", "[
     graph.schedule_node(1, hgraph::v2::test_detail::tick(11));
     graph.evaluate(hgraph::v2::test_detail::tick(11));
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 20);
+}
+
+TEST_CASE("v2 graph drains push source messages before normal scheduled evaluation", "[v2][graph][push]")
+{
+    using namespace std::chrono_literals;
+
+    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto start_time = hgraph::v2::test_detail::utc_now_tick();
+    hgraph::v2::test_detail::CountingObserver observer;
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}
+                      .label("push_source")
+                      .node_type(hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE)
+                      .output_schema(scalar_ts)
+                      .implementation<hgraph::v2::test_detail::PushEchoNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("sink").implementation<hgraph::v2::test_detail::PassThroughInput>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+
+    auto engine = hgraph::v2::EvaluationEngineBuilder{}
+                      .graph_builder(std::move(builder))
+                      .evaluation_mode(hgraph::v2::EvaluationMode::REAL_TIME)
+                      .start_time(start_time)
+                      .end_time(start_time + 1s)
+                      .add_life_cycle_observer(&observer)
+                      .build();
+    auto &graph = engine.graph();
+    graph.start();
+
+    {
+        nb::gil_scoped_acquire guard;
+        auto clock = graph.engine_evaluation_clock();
+        clock.update_next_scheduled_evaluation_time(hgraph::v2::test_detail::utc_now_tick() + 250ms);
+        // Queue one external message for push-source node 0. The payload is the
+        // integer that PushEchoNode::apply_message(...) receives as `value`.
+        graph.receiver().enqueue({0, hgraph::value::Value{7}});
+        clock.advance_to_next_scheduled_time();
+        const auto when = clock.evaluation_time();
+        graph.evaluate(when);
+    }
+
+    const auto when = graph.last_evaluation_time();
+
+    CHECK(graph.push_source_nodes_end() == 1);
+    CHECK(observer.after_push_nodes_evaluation == 1);
+    CHECK(graph.node_at(0).output_view(when).modified());
+    CHECK(graph.scheduled_time(1) == when);
+    CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 7);
+}
+
+TEST_CASE("v2 push source message application requeues failed messages", "[v2][graph][push]")
+{
+    using namespace std::chrono_literals;
+
+    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto start_time = hgraph::v2::test_detail::utc_now_tick();
+    hgraph::v2::test_detail::CountingObserver observer;
+
+    hgraph::v2::GraphBuilder builder;
+    builder.add_node(hgraph::v2::NodeBuilder{}
+                         .label("push_source")
+                         .node_type(hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE)
+                         .output_schema(scalar_ts)
+                         .implementation<hgraph::v2::test_detail::PushEchoNode>());
+
+    auto engine = hgraph::v2::EvaluationEngineBuilder{}
+                      .graph_builder(std::move(builder))
+                      .evaluation_mode(hgraph::v2::EvaluationMode::REAL_TIME)
+                      .start_time(start_time)
+                      .end_time(start_time + 1s)
+                      .add_life_cycle_observer(&observer)
+                      .build();
+    auto &graph = engine.graph();
+    graph.start();
+
+    {
+        nb::gil_scoped_acquire guard;
+        auto clock = graph.engine_evaluation_clock();
+        clock.update_next_scheduled_evaluation_time(hgraph::v2::test_detail::utc_now_tick() + 250ms);
+        // Negative values make PushEchoNode reject the message. The graph
+        // should preserve the same payload by requeueing it at the front.
+        graph.receiver().enqueue({0, hgraph::value::Value{-1}});
+        clock.advance_to_next_scheduled_time();
+        graph.evaluate(clock.evaluation_time());
+    }
+
+    CHECK(observer.after_push_nodes_evaluation == 1);
+    CHECK(static_cast<bool>(graph.receiver()));
+    CHECK(graph.engine_evaluation_clock().push_node_requires_scheduling());
+}
+
+TEST_CASE("v2 stopped receivers ignore enqueues instead of throwing", "[v2][graph][push]")
+{
+    hgraph::v2::SenderReceiverState receiver;
+    receiver.mark_stopped();
+
+    CHECK_NOTHROW(receiver.enqueue({0, hgraph::value::Value{7}}));
+    CHECK_NOTHROW(receiver.enqueue_front({0, hgraph::value::Value{11}}));
+    CHECK(receiver.stopped());
+    CHECK_FALSE(static_cast<bool>(receiver));
+    CHECK_FALSE(receiver.dequeue().has_value());
+}
+
+TEST_CASE("v2 pull source nodes remain on the normal scheduled evaluation path", "[v2][graph][source]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+
+    hgraph::v2::GraphBuilder builder;
+    builder.add_node(hgraph::v2::NodeBuilder{}
+                         .label("pull_source")
+                         .output_schema(scalar_ts)
+                         .implementation<hgraph::v2::test_detail::PullTickNode>());
+
+    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(240));
+    auto &graph = engine.graph();
+    graph.start();
+
+    CHECK(graph.push_source_nodes_end() == 0);
+    graph.schedule_node(0, hgraph::v2::test_detail::tick(241));
+    graph.evaluate(hgraph::v2::test_detail::tick(241));
+    CHECK(graph.node_at(0).output_view().value().as_atomic().as<int>() == 42);
 }
 
 TEST_CASE("v2 nodes support typed local state", "[v2][graph][state]")
@@ -765,6 +963,18 @@ TEST_CASE("v2 static node signatures export linked template type variables", "[v
     CHECK(nb::cast<std::string>(wiring_signature.attr("signature")) == "generic_get_item(ts: TSD[K, V], key: TS[K]) -> V");
     CHECK(unresolved_args.contains("ts"));
     CHECK(unresolved_args.contains("key"));
+}
+
+TEST_CASE("v2 static node signatures export declared node type metadata", "[v2][python][signature]")
+{
+    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+
+    nb::gil_scoped_acquire guard;
+    nb::object signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::PullTickNode>::wiring_signature();
+    nb::object expected =
+        nb::module_::import_("hgraph._wiring._wiring_node_signature").attr("WiringNodeType").attr("PULL_SOURCE_NODE");
+
+    CHECK(nb::cast<int>(signature.attr("node_type").attr("value")) == nb::cast<int>(expected.attr("value")));
 }
 
 TEST_CASE("v2 static node signatures export state injectables", "[v2][python][signature]")

@@ -76,6 +76,28 @@ namespace hgraph::v2
           private:
             std::exception_ptr m_first_exception;
         };
+
+        [[nodiscard]] int64_t compute_push_source_nodes_end(const NodeEntry *entries, size_t node_count)
+        {
+            bool seen_non_push = false;
+            int64_t push_source_nodes_end = static_cast<int64_t>(node_count);
+
+            for (size_t i = 0; i < node_count; ++i) {
+                const Node *node = entries[i].node;
+                if (node == nullptr) { continue; }
+
+                if (node->is_push_source_node()) {
+                    if (seen_non_push) {
+                        throw std::logic_error("v2 graph requires push source nodes to appear before all other nodes");
+                    }
+                } else if (!seen_non_push) {
+                    seen_non_push = true;
+                    push_source_nodes_end = static_cast<int64_t>(i);
+                }
+            }
+
+            return push_source_nodes_end;
+        }
     }  // namespace
 
     Graph::~Graph()
@@ -83,23 +105,31 @@ namespace hgraph::v2
         clear_storage();
     }
 
-    Graph::Graph(GraphEvaluationEngine evaluation_engine) noexcept : m_evaluation_engine(evaluation_engine) {}
+    Graph::Graph(GraphEvaluationEngine evaluation_engine) noexcept : m_evaluation_engine(evaluation_engine)
+    {
+        m_receiver.set_evaluation_clock(engine_evaluation_clock());
+    }
 
     Graph::Graph(Graph &&other) noexcept
         : m_node_count(other.m_node_count),
+          m_push_source_nodes_end(other.m_push_source_nodes_end),
           m_started(other.m_started),
           m_storage_alignment(other.m_storage_alignment),
           m_last_evaluation_time(other.m_last_evaluation_time),
+          m_receiver(std::move(other.m_receiver)),
           m_evaluation_engine(other.m_evaluation_engine),
           m_storage(other.m_storage)
     {
         other.m_node_count = 0;
+        other.m_push_source_nodes_end = 0;
         other.m_started = false;
         other.m_storage_alignment = alignof(std::max_align_t);
         other.m_last_evaluation_time = MIN_DT;
+        other.m_receiver = {};
         other.m_evaluation_engine = {};
         other.m_storage = nullptr;
         attach_nodes();
+        m_receiver.set_evaluation_clock(engine_evaluation_clock());
     }
 
     Graph &Graph::operator=(Graph &&other) noexcept
@@ -108,20 +138,25 @@ namespace hgraph::v2
             clear_storage();
 
             m_node_count = other.m_node_count;
+            m_push_source_nodes_end = other.m_push_source_nodes_end;
             m_started = other.m_started;
             m_storage_alignment = other.m_storage_alignment;
             m_last_evaluation_time = other.m_last_evaluation_time;
+            m_receiver = std::move(other.m_receiver);
             m_evaluation_engine = other.m_evaluation_engine;
             m_storage = other.m_storage;
 
             other.m_node_count = 0;
+            other.m_push_source_nodes_end = 0;
             other.m_started = false;
             other.m_storage_alignment = alignof(std::max_align_t);
             other.m_last_evaluation_time = MIN_DT;
+            other.m_receiver = {};
             other.m_evaluation_engine = {};
             other.m_storage = nullptr;
 
             attach_nodes();
+            m_receiver.set_evaluation_clock(engine_evaluation_clock());
         }
         return *this;
     }
@@ -151,6 +186,21 @@ namespace hgraph::v2
         return m_last_evaluation_time;
     }
 
+    int64_t Graph::push_source_nodes_end() const noexcept
+    {
+        return m_push_source_nodes_end;
+    }
+
+    SenderReceiverState &Graph::receiver() noexcept
+    {
+        return m_receiver;
+    }
+
+    const SenderReceiverState &Graph::receiver() const noexcept
+    {
+        return m_receiver;
+    }
+
     engine_time_t Graph::scheduled_time(size_t index) const
     {
         if (index >= m_node_count) { throw std::out_of_range("v2 graph schedule index is out of range"); }
@@ -161,11 +211,14 @@ namespace hgraph::v2
     {
         clear_storage();
         m_node_count = node_count;
+        m_push_source_nodes_end = 0;
         m_started = false;
         m_storage_alignment = storage_alignment;
         m_last_evaluation_time = MIN_DT;
         m_storage = storage;
         attach_nodes();
+        m_push_source_nodes_end = compute_push_source_nodes_end(entry_storage(), m_node_count);
+        m_receiver.set_evaluation_clock(engine_evaluation_clock());
     }
 
     void Graph::clear_storage() noexcept
@@ -187,9 +240,11 @@ namespace hgraph::v2
 
         ::operator delete(m_storage, std::align_val_t(m_storage_alignment));
         m_node_count = 0;
+        m_push_source_nodes_end = 0;
         m_started = false;
         m_storage_alignment = alignof(std::max_align_t);
         m_last_evaluation_time = MIN_DT;
+        m_receiver = {};
         m_evaluation_engine = {};
         m_storage = nullptr;
     }
@@ -266,7 +321,29 @@ namespace hgraph::v2
         m_evaluation_engine.notify_before_graph_evaluation(*this);
         auto after_graph_evaluation = UnwindCleanupGuard([&] { m_evaluation_engine.notify_after_graph_evaluation(*this); });
 
-        for (size_t index = 0; index < m_node_count; ++index) {
+        if (m_push_source_nodes_end > 0 && clock.push_node_requires_scheduling()) {
+            clock.reset_push_node_requires_scheduling();
+
+            while (auto value = receiver().dequeue()) {
+                auto &message = *value;
+                Node &node = node_at(static_cast<size_t>(message.target_node_index));
+                m_evaluation_engine.notify_before_node_evaluation(node);
+                auto after_node_evaluation =
+                    UnwindCleanupGuard([&] { m_evaluation_engine.notify_after_node_evaluation(node); });
+                const bool success = node.apply_push_message(message.payload, when);
+                after_node_evaluation.complete();
+
+                if (!success) {
+                    receiver().enqueue_front(std::move(message));
+                    clock.mark_push_node_requires_scheduling();
+                    break;
+                }
+            }
+
+            m_evaluation_engine.notify_after_push_nodes_evaluation(*this);
+        }
+
+        for (size_t index = static_cast<size_t>(m_push_source_nodes_end); index < m_node_count; ++index) {
             auto &entry = entry_storage()[index];
             if (entry.scheduled == when) {
                 m_evaluation_engine.notify_before_node_evaluation(*entry.node);

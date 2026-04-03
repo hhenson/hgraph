@@ -4,6 +4,7 @@
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/value/value.h>
 
 #include <span>
 #include <string>
@@ -22,6 +23,15 @@ namespace hgraph::v2
 
     struct HGRAPH_EXPORT Node;
 
+    /** Runtime node category, aligned with the existing Python/C++ node type names. */
+    enum class NodeTypeEnum
+    {
+        PUSH_SOURCE_NODE = 0,
+        PULL_SOURCE_NODE = 1,
+        COMPUTE_NODE = 2,
+        SINK_NODE = 3,
+    };
+
     /**
      * Runtime behavior for a family of node layouts.
      *
@@ -39,6 +49,7 @@ namespace hgraph::v2
         [[nodiscard]] bool (*has_output)(const Node &node) noexcept;
         [[nodiscard]] TSInputView (*input_view)(Node &node, engine_time_t evaluation_time);
         [[nodiscard]] TSOutputView (*output_view)(Node &node, engine_time_t evaluation_time);
+        [[nodiscard]] bool (*apply_push_message)(Node &node, const value::Value &message, engine_time_t evaluation_time);
         [[nodiscard]] std::string (*runtime_label)(const Node &node);
     };
 
@@ -56,6 +67,7 @@ namespace hgraph::v2
         size_t runtime_data_offset{0};
 
         std::string_view label;
+        NodeTypeEnum node_type{NodeTypeEnum::COMPUTE_NODE};
         const TSMeta *input_schema{nullptr};
         const TSMeta *output_schema{nullptr};
 
@@ -88,6 +100,11 @@ namespace hgraph::v2
         [[nodiscard]] int64_t node_index() const noexcept;
         [[nodiscard]] std::string_view label() const noexcept;
         [[nodiscard]] std::string runtime_label() const;
+        [[nodiscard]] NodeTypeEnum node_type() const noexcept;
+        /** Push sources are drained by Graph before the normal scheduled pass. */
+        [[nodiscard]] bool is_push_source_node() const noexcept;
+        /** Pull sources remain in the normal scheduled evaluation pass. */
+        [[nodiscard]] bool is_pull_source_node() const noexcept;
         [[nodiscard]] const TSMeta *input_schema() const noexcept;
         [[nodiscard]] const TSMeta *output_schema() const noexcept;
         [[nodiscard]] bool has_input() const noexcept;
@@ -109,6 +126,8 @@ namespace hgraph::v2
         void start(engine_time_t evaluation_time);
         void stop(engine_time_t evaluation_time);
         void eval(engine_time_t evaluation_time);
+        /** Apply one queued external message for a push source node. */
+        [[nodiscard]] bool apply_push_message(const value::Value &message, engine_time_t evaluation_time);
         void notify(engine_time_t et) override;
 
       private:

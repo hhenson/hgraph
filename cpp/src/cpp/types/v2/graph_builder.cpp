@@ -140,6 +140,23 @@ namespace hgraph::v2
             layout.total_size = offset;
             return layout;
         }
+
+        void validate_push_source_prefix(const NodeEntry *entries, size_t node_count)
+        {
+            bool seen_non_push = false;
+            for (size_t i = 0; i < node_count; ++i) {
+                const Node *node = entries[i].node;
+                if (node == nullptr) { continue; }
+
+                if (node->is_push_source_node()) {
+                    if (seen_non_push) {
+                        throw std::logic_error("v2 graph requires push source nodes to appear before all other nodes");
+                    }
+                } else {
+                    seen_non_push = true;
+                }
+            }
+        }
     }  // namespace
 
     GraphBuilder &GraphBuilder::add_node(NodeBuilder node_builder)
@@ -188,6 +205,7 @@ namespace hgraph::v2
                 ++constructed_nodes;
             }
 
+            validate_push_source_prefix(entries, m_node_builders.size());
             graph.adopt_storage(storage, layout.alignment, m_node_builders.size());
         } catch (...) {
             for (size_t i = constructed_nodes; i > 0; --i) { m_node_builders[i - 1].destruct_at(*entries[i - 1].node); }

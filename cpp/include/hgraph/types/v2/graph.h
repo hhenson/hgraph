@@ -3,6 +3,7 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/v2/evaluation_engine.h>
 #include <hgraph/types/v2/node.h>
+#include <hgraph/types/v2/sender_receiver_state.h>
 
 #include <cstddef>
 #include <span>
@@ -45,9 +46,14 @@ namespace hgraph::v2
         [[nodiscard]] EngineEvaluationClock engine_evaluation_clock() const noexcept;
         [[nodiscard]] engine_time_t evaluation_time() const noexcept;
         [[nodiscard]] engine_time_t last_evaluation_time() const noexcept;
+        /** Prefix length of nodes treated as push sources during evaluation. */
+        [[nodiscard]] int64_t push_source_nodes_end() const noexcept;
         [[nodiscard]] engine_time_t scheduled_time(size_t index) const;
         [[nodiscard]] Node &node_at(size_t index);
         [[nodiscard]] const Node &node_at(size_t index) const;
+        /** Queue used by push source nodes and external senders to hand messages to the graph. */
+        [[nodiscard]] SenderReceiverState &receiver() noexcept;
+        [[nodiscard]] const SenderReceiverState &receiver() const noexcept;
 
         void start();
         void stop();
@@ -67,9 +73,11 @@ namespace hgraph::v2
         [[nodiscard]] const NodeEntry *entry_storage() const noexcept;
 
         size_t m_node_count{0};
+        int64_t m_push_source_nodes_end{0};
         bool m_started{false};
         size_t m_storage_alignment{alignof(std::max_align_t)};
         engine_time_t m_last_evaluation_time{MIN_DT};
+        SenderReceiverState m_receiver;
         GraphEvaluationEngine m_evaluation_engine;
         void *m_storage{nullptr};
     };

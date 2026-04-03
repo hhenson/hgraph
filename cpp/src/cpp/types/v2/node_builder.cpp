@@ -205,6 +205,13 @@ namespace hgraph::v2
         return *this;
     }
 
+    NodeBuilder &NodeBuilder::node_type(NodeTypeEnum value)
+    {
+        m_node_type = value;
+        m_has_explicit_node_type = true;
+        return *this;
+    }
+
     NodeBuilder &NodeBuilder::input_schema(const TSMeta *value)
     {
         m_input_schema = value;
@@ -342,6 +349,7 @@ namespace hgraph::v2
                 &destruct_static_node,
                 layout.runtime_data_offset,
                 label_view,
+                m_node_type,
                 m_input_schema,
                 m_output_schema,
                 active_inputs,

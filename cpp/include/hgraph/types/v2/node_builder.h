@@ -30,6 +30,8 @@ namespace hgraph::v2
         NodeBuilder() = default;
 
         NodeBuilder &label(std::string value);
+        /** Override the reflected node type, e.g. push/pull source classification. */
+        NodeBuilder &node_type(NodeTypeEnum value);
         NodeBuilder &input_schema(const TSMeta *value);
         NodeBuilder &output_schema(const TSMeta *value);
         NodeBuilder &active_input(size_t slot);
@@ -47,6 +49,7 @@ namespace hgraph::v2
 
             using signature = StaticNodeSignature<TImplementation>;
 
+            if (!m_has_explicit_node_type) { m_node_type = signature::node_type(); }
             if (m_input_schema == nullptr) { m_input_schema = signature::input_schema(); }
             if (m_output_schema == nullptr) { m_output_schema = StaticNodeSignature<TImplementation>::output_schema(); }
             if (!m_has_state && signature::has_state()) {
@@ -104,6 +107,8 @@ namespace hgraph::v2
         }
 
         std::string m_label;
+        NodeTypeEnum m_node_type{NodeTypeEnum::COMPUTE_NODE};
+        bool m_has_explicit_node_type{false};
         const TSMeta *m_input_schema{nullptr};
         const TSMeta *m_output_schema{nullptr};
         bool m_has_state{false};
