@@ -280,8 +280,67 @@ namespace hgraph::v2::test_detail
         static void eval() {}
     };
 
+    struct StartThrowsNode
+    {
+        StartThrowsNode() = delete;
+        ~StartThrowsNode() = delete;
+
+        static inline int start_calls{0};
+        static inline int stop_calls{0};
+
+        static void reset()
+        {
+            start_calls = 0;
+            stop_calls = 0;
+        }
+
+        static void start()
+        {
+            ++start_calls;
+            throw std::runtime_error("v2 test start failure");
+        }
+
+        static void stop()
+        {
+            ++stop_calls;
+        }
+
+        static void eval() {}
+    };
+
+    struct StartTracksNode
+    {
+        StartTracksNode() = delete;
+        ~StartTracksNode() = delete;
+
+        static inline int start_calls{0};
+        static inline int stop_calls{0};
+
+        static void reset()
+        {
+            start_calls = 0;
+            stop_calls = 0;
+        }
+
+        static void start()
+        {
+            ++start_calls;
+        }
+
+        static void stop()
+        {
+            ++stop_calls;
+        }
+
+        static void eval() {}
+    };
+
     struct CountingObserver : EvaluationLifeCycleObserver
     {
+        int before_start_graph{0};
+        int after_start_graph{0};
+        int before_start_node{0};
+        int after_start_node{0};
         int before_graph_evaluation{0};
         int after_graph_evaluation{0};
         int before_node_evaluation{0};
@@ -291,6 +350,26 @@ namespace hgraph::v2::test_detail
         int before_stop_node{0};
         int after_stop_node{0};
         int after_push_nodes_evaluation{0};
+
+        void on_before_start_graph(Graph &) override
+        {
+            ++before_start_graph;
+        }
+
+        void on_after_start_graph(Graph &) override
+        {
+            ++after_start_graph;
+        }
+
+        void on_before_start_node(Node &) override
+        {
+            ++before_start_node;
+        }
+
+        void on_after_start_node(Node &) override
+        {
+            ++after_start_node;
+        }
 
         void on_before_graph_evaluation(Graph &) override
         {
@@ -914,6 +993,46 @@ TEST_CASE("v2 graph stop continues through node failures before rethrowing", "[v
     CHECK(observer.after_stop_graph == 1);
     CHECK(observer.before_stop_node == 2);
     CHECK(observer.after_stop_node == 2);
+}
+
+TEST_CASE("v2 graph start rolls back started nodes when startup fails", "[v2][graph][lifecycle]")
+{
+    hgraph::v2::test_detail::StartThrowsNode::reset();
+    hgraph::v2::test_detail::StartTracksNode::reset();
+    hgraph::v2::test_detail::CountingObserver observer;
+
+    {
+        hgraph::v2::GraphBuilder builder;
+        builder
+            .add_node(hgraph::v2::NodeBuilder{}.label("tracks_start").implementation<hgraph::v2::test_detail::StartTracksNode>())
+            .add_node(hgraph::v2::NodeBuilder{}.label("throws_on_start").implementation<hgraph::v2::test_detail::StartThrowsNode>());
+
+        auto engine = hgraph::v2::EvaluationEngineBuilder{}
+                          .graph_builder(std::move(builder))
+                          .start_time(hgraph::v2::test_detail::tick(140))
+                          .end_time(hgraph::v2::test_detail::tick(150))
+                          .add_life_cycle_observer(&observer)
+                          .build();
+        auto &graph = engine.graph();
+
+        CHECK_THROWS_AS(graph.start(), std::runtime_error);
+        CHECK_NOTHROW(graph.stop());
+        CHECK(hgraph::v2::test_detail::StartTracksNode::start_calls == 1);
+        CHECK(hgraph::v2::test_detail::StartTracksNode::stop_calls == 1);
+        CHECK(hgraph::v2::test_detail::StartThrowsNode::start_calls == 1);
+        CHECK(hgraph::v2::test_detail::StartThrowsNode::stop_calls == 0);
+        CHECK(observer.before_start_graph == 1);
+        CHECK(observer.after_start_graph == 0);
+        CHECK(observer.before_start_node == 2);
+        CHECK(observer.after_start_node == 1);
+        CHECK(observer.before_stop_graph == 1);
+        CHECK(observer.after_stop_graph == 1);
+        CHECK(observer.before_stop_node == 1);
+        CHECK(observer.after_stop_node == 1);
+    }
+
+    CHECK(hgraph::v2::test_detail::StartTracksNode::stop_calls == 1);
+    CHECK(hgraph::v2::test_detail::StartThrowsNode::stop_calls == 0);
 }
 
 TEST_CASE("v2 real-time engine clock advances to scheduled wall-clock time", "[v2][engine][realtime]")

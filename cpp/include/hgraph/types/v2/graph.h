@@ -66,6 +66,7 @@ namespace hgraph::v2
                            int64_t push_source_nodes_end) noexcept;
         void clear_storage() noexcept;
         void attach_nodes() noexcept;
+        void stop_nodes(size_t nodes_end);
         [[nodiscard]] NodeEntry *entry_storage() noexcept;
         [[nodiscard]] const NodeEntry *entry_storage() const noexcept;
 

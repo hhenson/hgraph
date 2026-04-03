@@ -37,7 +37,7 @@ namespace hgraph::v2
      *
      * Node itself is intentionally tiny and type-erased. The runtime ops know
      * how to interpret the node-local payload, expose input/output views, and
-     * drive the start/stop/eval lifecycle for that payload.
+     * invoke the node-family-specific start/stop/eval hooks.
      */
     struct HGRAPH_EXPORT NodeRuntimeOps
     {
@@ -129,8 +129,11 @@ namespace hgraph::v2
         /** Apply top-level valid/all_valid gating before calling eval. */
         [[nodiscard]] bool ready_to_eval(engine_time_t evaluation_time);
 
+        /** Apply generic start semantics and then invoke the bespoke start hook. */
         void start(engine_time_t evaluation_time);
+        /** Apply generic stop semantics and then invoke the bespoke stop hook. */
         void stop(engine_time_t evaluation_time);
+        /** Apply generic readiness gating and then invoke the bespoke eval hook. */
         void eval(engine_time_t evaluation_time);
         void notify(engine_time_t et) override;
 

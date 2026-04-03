@@ -1,11 +1,56 @@
 #include <hgraph/types/v2/graph.h>
 #include <hgraph/types/v2/node_impl.h>
 #include <hgraph/types/v2/node.h>
+#include <hgraph/util/scope.h>
 
 #include <stdexcept>
 
 namespace hgraph::v2
 {
+    namespace
+    {
+        void activate_active_inputs(Node &node, engine_time_t evaluation_time)
+        {
+            if (!node.has_input()) { return; }
+
+            const TSMeta *schema = node.input_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSB) {
+                throw std::logic_error("v2 top-level input selectors require a TSB root input schema");
+            }
+
+            size_t activated_inputs_end = 0;
+            auto rollback_activation = UnwindCleanupGuard([&] {
+                auto view = node.input_view(evaluation_time).as_bundle();
+                for (size_t i = activated_inputs_end; i > 0; --i) { view[node.spec().active_inputs[i - 1]].make_passive(); }
+            });
+
+            // For now selector activation is limited to top-level TSB fields.
+            // REF / alternative-view activation comes later.
+            auto view = node.input_view(evaluation_time).as_bundle();
+            for (const size_t slot : node.spec().active_inputs) {
+                if (slot >= schema->field_count()) { throw std::out_of_range("v2 input selector is out of range"); }
+                view[slot].make_active();
+                ++activated_inputs_end;
+            }
+        }
+
+        void deactivate_active_inputs(Node &node, engine_time_t evaluation_time)
+        {
+            if (!node.has_input()) { return; }
+
+            const TSMeta *schema = node.input_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSB) {
+                throw std::logic_error("v2 top-level input selectors require a TSB root input schema");
+            }
+
+            auto view = node.input_view(evaluation_time).as_bundle();
+            for (const size_t slot : node.spec().active_inputs) {
+                if (slot >= schema->field_count()) { throw std::out_of_range("v2 input selector is out of range"); }
+                view[slot].make_passive();
+            }
+        }
+    }  // namespace
+
     Graph &detail::arg_provider<Graph>::get(Node &node, engine_time_t)
     {
         if (node.graph() == nullptr) { throw std::logic_error("Node implementation requested Graph but node is not attached"); }
@@ -70,10 +115,7 @@ namespace hgraph::v2
 
     std::string Node::runtime_label() const
     {
-        if (m_spec != nullptr && m_spec->runtime_ops != nullptr && m_spec->runtime_ops->runtime_label != nullptr) {
-            return m_spec->runtime_ops->runtime_label(*this);
-        }
-        return {};
+        return spec().runtime_ops->runtime_label(*this);
     }
 
     NodeTypeEnum Node::node_type() const noexcept
@@ -103,14 +145,12 @@ namespace hgraph::v2
 
     bool Node::has_input() const noexcept
     {
-        return m_spec != nullptr && m_spec->runtime_ops != nullptr && m_spec->runtime_ops->has_input != nullptr &&
-               m_spec->runtime_ops->has_input(*this);
+        return spec().runtime_ops->has_input(*this);
     }
 
     bool Node::has_output() const noexcept
     {
-        return m_spec != nullptr && m_spec->runtime_ops != nullptr && m_spec->runtime_ops->has_output != nullptr &&
-               m_spec->runtime_ops->has_output(*this);
+        return spec().runtime_ops->has_output(*this);
     }
 
     bool Node::started() const noexcept
@@ -140,18 +180,12 @@ namespace hgraph::v2
 
     TSInputView Node::input_view(engine_time_t evaluation_time)
     {
-        if (m_spec == nullptr || m_spec->runtime_ops == nullptr || m_spec->runtime_ops->input_view == nullptr) {
-            return detail::invalid_input_view(evaluation_time);
-        }
-        return m_spec->runtime_ops->input_view(*this, evaluation_time);
+        return spec().runtime_ops->input_view(*this, evaluation_time);
     }
 
     TSOutputView Node::output_view(engine_time_t evaluation_time)
     {
-        if (m_spec == nullptr || m_spec->runtime_ops == nullptr || m_spec->runtime_ops->output_view == nullptr) {
-            return detail::invalid_output_view(evaluation_time);
-        }
-        return m_spec->runtime_ops->output_view(*this, evaluation_time);
+        return spec().runtime_ops->output_view(*this, evaluation_time);
     }
 
     const BuiltNodeSpec &Node::spec() const noexcept
@@ -177,20 +211,28 @@ namespace hgraph::v2
 
     void Node::start(engine_time_t evaluation_time)
     {
-        if (m_spec == nullptr || m_spec->runtime_ops == nullptr || m_spec->runtime_ops->start == nullptr) { return; }
-        m_spec->runtime_ops->start(*this, evaluation_time);
+        if (m_started) { return; }
+
+        activate_active_inputs(*this, evaluation_time);
+        auto rollback_start = UnwindCleanupGuard([&] { deactivate_active_inputs(*this, evaluation_time); });
+        spec().runtime_ops->start(*this, evaluation_time);
+        m_started = true;
     }
 
     void Node::stop(engine_time_t evaluation_time)
     {
-        if (m_spec == nullptr || m_spec->runtime_ops == nullptr || m_spec->runtime_ops->stop == nullptr) { return; }
-        m_spec->runtime_ops->stop(*this, evaluation_time);
+        if (!m_started) { return; }
+
+        auto mark_stopped = hgraph::make_scope_exit([&] { m_started = false; });
+        auto deactivate_inputs = UnwindCleanupGuard([&] { deactivate_active_inputs(*this, evaluation_time); });
+        spec().runtime_ops->stop(*this, evaluation_time);
+        deactivate_inputs.complete();
     }
 
     void Node::eval(engine_time_t evaluation_time)
     {
-        if (m_spec == nullptr || m_spec->runtime_ops == nullptr || m_spec->runtime_ops->eval == nullptr) { return; }
-        m_spec->runtime_ops->eval(*this, evaluation_time);
+        if (!ready_to_eval(evaluation_time)) { return; }
+        spec().runtime_ops->eval(*this, evaluation_time);
     }
 
     void Node::notify(engine_time_t et)

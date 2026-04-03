@@ -1,5 +1,6 @@
 #include <hgraph/types/time_series/ts_output_builder.h>
 #include <hgraph/types/v2/node_builder.h>
+#include <hgraph/util/scope.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -318,59 +319,63 @@ namespace hgraph::v2
         TSOutput *output = nullptr;
         void *state_memory = nullptr;
         TSOutput *recordable_state = nullptr;
-
-        try {
-            if (builders.input_builder != nullptr) {
-                input = new (base + layout.input_object_offset) TSInput{};
-                builders.input_builder->construct_input(
-                    *input, base + layout.input_storage_offset, TSInputBuilder::MemoryOwnership::External);
-            }
-
-            if (builders.output_builder != nullptr) {
-                output = new (base + layout.output_object_offset) TSOutput{};
-                builders.output_builder->construct_output(
-                    *output, base + layout.output_storage_offset, TSOutputBuilder::MemoryOwnership::External);
-            }
-
-            if (builders.state_builder != nullptr) {
-                state_memory = base + layout.state_storage_offset;
-                builders.state_builder->construct(state_memory);
-            }
-
-            if (builders.recordable_state_builder != nullptr) {
-                recordable_state = new (base + layout.recordable_state_object_offset) TSOutput{};
-                builders.recordable_state_builder->construct_output(
-                    *recordable_state,
-                    base + layout.recordable_state_storage_offset,
-                    TSOutputBuilder::MemoryOwnership::External);
-            }
-
-            auto *runtime_data = new (base + layout.runtime_data_offset)
-                detail::StaticNodeRuntimeData{input, output, builders.state_builder, state_memory, recordable_state};
-
-            auto *spec = new (base + layout.spec_offset) BuiltNodeSpec{
-                m_runtime_ops,
-                m_push_source_runtime_ops,
-                &destruct_static_node,
-                layout.runtime_data_offset,
-                label_view,
-                m_node_type,
-                m_input_schema,
-                m_output_schema,
-                active_inputs,
-                valid_inputs,
-                all_valid_inputs,
-            };
-
-            static_cast<void>(runtime_data);
-            return new (memory) Node(node_index, spec);
-        } catch (...) {
-            if (recordable_state != nullptr) { recordable_state->~TSOutput(); }
-            if (builders.state_builder != nullptr && state_memory != nullptr) { builders.state_builder->destruct(state_memory); }
-            if (output != nullptr) { output->~TSOutput(); }
+        auto cleanup_input = UnwindCleanupGuard([&] {
             if (input != nullptr) { input->~TSInput(); }
-            throw;
+        });
+        auto cleanup_output = UnwindCleanupGuard([&] {
+            if (output != nullptr) { output->~TSOutput(); }
+        });
+        auto cleanup_state = UnwindCleanupGuard([&] {
+            if (builders.state_builder != nullptr && state_memory != nullptr) { builders.state_builder->destruct(state_memory); }
+        });
+        auto cleanup_recordable_state = UnwindCleanupGuard([&] {
+            if (recordable_state != nullptr) { recordable_state->~TSOutput(); }
+        });
+
+        if (builders.input_builder != nullptr) {
+            input = new (base + layout.input_object_offset) TSInput{};
+            builders.input_builder->construct_input(
+                *input, base + layout.input_storage_offset, TSInputBuilder::MemoryOwnership::External);
         }
+
+        if (builders.output_builder != nullptr) {
+            output = new (base + layout.output_object_offset) TSOutput{};
+            builders.output_builder->construct_output(
+                *output, base + layout.output_storage_offset, TSOutputBuilder::MemoryOwnership::External);
+        }
+
+        if (builders.state_builder != nullptr) {
+            state_memory = base + layout.state_storage_offset;
+            builders.state_builder->construct(state_memory);
+        }
+
+        if (builders.recordable_state_builder != nullptr) {
+            recordable_state = new (base + layout.recordable_state_object_offset) TSOutput{};
+            builders.recordable_state_builder->construct_output(
+                *recordable_state,
+                base + layout.recordable_state_storage_offset,
+                TSOutputBuilder::MemoryOwnership::External);
+        }
+
+        auto *runtime_data = new (base + layout.runtime_data_offset)
+            detail::StaticNodeRuntimeData{input, output, builders.state_builder, state_memory, recordable_state};
+
+        auto *spec = new (base + layout.spec_offset) BuiltNodeSpec{
+            m_runtime_ops,
+            m_push_source_runtime_ops,
+            &destruct_static_node,
+            layout.runtime_data_offset,
+            label_view,
+            m_node_type,
+            m_input_schema,
+            m_output_schema,
+            active_inputs,
+            valid_inputs,
+            all_valid_inputs,
+        };
+
+        static_cast<void>(runtime_data);
+        return new (memory) Node(node_index, spec);
     }
 
     void NodeBuilder::destruct_at(Node &node) const noexcept

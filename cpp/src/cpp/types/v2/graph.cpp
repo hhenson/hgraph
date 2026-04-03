@@ -171,10 +171,14 @@ namespace hgraph::v2
         if (m_started) { return; }
 
         m_evaluation_engine.notify_before_start_graph(*this);
+        size_t rollback_nodes_end = 0;
+        auto rollback_started_nodes = UnwindCleanupGuard([&] { stop_nodes(rollback_nodes_end); });
+
         for (size_t i = 0; i < m_node_count; ++i) {
             auto &node = *entry_storage()[i].node;
             m_evaluation_engine.notify_before_start_node(node);
             node.start(evaluation_time());
+            rollback_nodes_end = i + 1;
             m_evaluation_engine.notify_after_start_node(node);
         }
         m_evaluation_engine.notify_after_start_graph(*this);
@@ -185,17 +189,26 @@ namespace hgraph::v2
     {
         if (!m_started) { return; }
 
+        auto mark_stopped = hgraph::make_scope_exit([&] { m_started = false; });
+        stop_nodes(m_node_count);
+    }
+
+    void Graph::stop_nodes(size_t nodes_end)
+    {
         m_evaluation_engine.notify_before_stop_graph(*this);
         FirstExceptionRecorder exceptions;
-        for (size_t i = 0; i < m_node_count; ++i) {
+        for (size_t i = 0; i < nodes_end; ++i) {
             auto &node = *entry_storage()[i].node;
-            exceptions.capture([&] { m_evaluation_engine.notify_before_stop_node(node); });
+            const bool was_started = node.started();
+            exceptions.capture([&] {
+                if (was_started) { m_evaluation_engine.notify_before_stop_node(node); }
+            });
             exceptions.capture([&] { node.stop(evaluation_time()); });
-            exceptions.capture([&] { m_evaluation_engine.notify_after_stop_node(node); });
+            exceptions.capture([&] {
+                if (was_started) { m_evaluation_engine.notify_after_stop_node(node); }
+            });
         }
         exceptions.capture([&] { m_evaluation_engine.notify_after_stop_graph(*this); });
-
-        m_started = false;
         exceptions.rethrow_if_any();
     }
 

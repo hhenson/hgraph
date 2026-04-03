@@ -332,47 +332,22 @@ namespace hgraph::v2
         {
             static void start(Node &node, engine_time_t evaluation_time)
             {
-                if (node.started()) { return; }
-
-                if (node.has_input()) {
-                    const TSMeta *schema = node.input_schema();
-                    if (schema == nullptr || schema->kind != TSKind::TSB) {
-                        throw std::logic_error("v2 top-level input selectors require a TSB root input schema");
-                    }
-                    // For now selector activation is limited to top-level TSB
-                    // fields. REF / alternative-view activation comes later.
-                    for (const size_t slot : node.spec().active_inputs) {
-                        if (slot >= schema->field_count()) { throw std::out_of_range("v2 input selector is out of range"); }
-                        node.input_view(evaluation_time).as_bundle()[slot].make_active();
-                    }
-                }
-
+                static_cast<void>(node);
+                static_cast<void>(evaluation_time);
                 if constexpr (HasStart<TImplementation>) { invoke<&TImplementation::start>(node, evaluation_time); }
-                node.set_started(true);
             }
 
             static void stop(Node &node, engine_time_t evaluation_time)
             {
-                if (!node.started()) { return; }
-
-                if (node.has_input()) {
-                    const TSMeta *schema = node.input_schema();
-                    if (schema == nullptr || schema->kind != TSKind::TSB) {
-                        throw std::logic_error("v2 top-level input selectors require a TSB root input schema");
-                    }
-                    for (const size_t slot : node.spec().active_inputs) {
-                        if (slot >= schema->field_count()) { throw std::out_of_range("v2 input selector is out of range"); }
-                        node.input_view(evaluation_time).as_bundle()[slot].make_passive();
-                    }
-                }
-
+                static_cast<void>(node);
+                static_cast<void>(evaluation_time);
                 if constexpr (HasStop<TImplementation>) { invoke<&TImplementation::stop>(node, evaluation_time); }
-                node.set_started(false);
             }
 
             static void eval(Node &node, engine_time_t evaluation_time)
             {
-                if (!node.ready_to_eval(evaluation_time)) { return; }
+                static_cast<void>(node);
+                static_cast<void>(evaluation_time);
                 if constexpr (HasEval<TImplementation>) { invoke<&TImplementation::eval>(node, evaluation_time); }
             }
 
