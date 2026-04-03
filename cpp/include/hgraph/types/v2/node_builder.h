@@ -80,6 +80,8 @@ namespace hgraph::v2
 
             m_has_push_message_hook = detail::HasApplyMessage<TImplementation>;
             m_runtime_ops = &detail::runtime_ops_for<TImplementation>::value;
+            m_push_source_runtime_ops =
+                detail::HasApplyMessage<TImplementation> ? &detail::runtime_ops_for<TImplementation>::push_source_value : nullptr;
             validate_push_source_contract();
             return *this;
         }
@@ -131,6 +133,7 @@ namespace hgraph::v2
         std::vector<size_t> m_valid_inputs;
         std::vector<size_t> m_all_valid_inputs;
         const NodeRuntimeOps *m_runtime_ops{nullptr};
+        const PushSourceNodeRuntimeOps *m_push_source_runtime_ops{nullptr};
         bool m_has_push_message_hook{false};
     };
 }  // namespace hgraph::v2

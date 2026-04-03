@@ -297,6 +297,28 @@ namespace hgraph::v2
             &ClockDispatch<TClockState>::evaluation_time_ptr_impl,
         };
 
+        template <EvaluationMode TMode>
+        struct PushMessageReceiverStorage
+        {
+            void initialise(EngineEvaluationClock) noexcept {}
+            [[nodiscard]] SenderReceiverState *receiver() noexcept { return nullptr; }
+            [[nodiscard]] const SenderReceiverState *receiver() const noexcept { return nullptr; }
+        };
+
+        template <>
+        struct PushMessageReceiverStorage<EvaluationMode::REAL_TIME>
+        {
+            void initialise(EngineEvaluationClock clock) noexcept
+            {
+                receiver_state.set_evaluation_clock(clock);
+            }
+
+            [[nodiscard]] SenderReceiverState *receiver() noexcept { return &receiver_state; }
+            [[nodiscard]] const SenderReceiverState *receiver() const noexcept { return &receiver_state; }
+
+            SenderReceiverState receiver_state;
+        };
+
         template <typename TClockState, EvaluationMode TMode>
         struct EvaluationEngineState
         {
@@ -307,6 +329,7 @@ namespace hgraph::v2
             std::vector<EvaluationLifeCycleObserver *> life_cycle_observers;
             std::vector<std::function<void()>> before_evaluation_notifications;
             std::vector<std::function<void()>> after_evaluation_notifications;
+            PushMessageReceiverStorage<TMode> push_message_receiver_storage;
             Graph graph;
 
             EvaluationEngineState(const GraphBuilder &graph_builder, engine_time_t start_time, engine_time_t end_time)
@@ -315,6 +338,7 @@ namespace hgraph::v2
                   end_time(end_time),
                   graph(graph_builder.make_graph({this, &k_engine_ops}))
             {
+                push_message_receiver_storage.initialise({&clock, &ClockDispatch<TClockState>::value});
             }
 
             [[nodiscard]] static EvaluationEngineState &state_from(void *impl)
@@ -498,6 +522,16 @@ namespace hgraph::v2
                 notify_observers(state_from(impl), [&](EvaluationLifeCycleObserver &observer) { observer.on_after_stop_graph(graph); });
             }
 
+            [[nodiscard]] static SenderReceiverState *push_message_receiver_impl(void *impl) noexcept
+            {
+                return state_from(impl).push_message_receiver_storage.receiver();
+            }
+
+            [[nodiscard]] static const SenderReceiverState *const_push_message_receiver_impl(const void *impl) noexcept
+            {
+                return state_from(impl).push_message_receiver_storage.receiver();
+            }
+
             [[nodiscard]] static Graph &graph_impl(void *impl)
             {
                 return state_from(impl).graph;
@@ -586,6 +620,8 @@ namespace hgraph::v2
             &EvaluationEngineState<TClockState, TMode>::notify_after_stop_node_impl,
             &EvaluationEngineState<TClockState, TMode>::notify_before_stop_graph_impl,
             &EvaluationEngineState<TClockState, TMode>::notify_after_stop_graph_impl,
+            &EvaluationEngineState<TClockState, TMode>::push_message_receiver_impl,
+            &EvaluationEngineState<TClockState, TMode>::const_push_message_receiver_impl,
             &EvaluationEngineState<TClockState, TMode>::run_impl,
             &EvaluationEngineState<TClockState, TMode>::destruct_impl,
         };

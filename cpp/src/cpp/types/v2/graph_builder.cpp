@@ -141,21 +141,29 @@ namespace hgraph::v2
             return layout;
         }
 
-        void validate_push_source_prefix(const NodeEntry *entries, size_t node_count)
+        [[nodiscard]] int64_t validate_push_source_nodes(const NodeEntry *entries, size_t node_count)
         {
             bool seen_non_push = false;
+            int64_t push_source_nodes_end = static_cast<int64_t>(node_count);
             for (size_t i = 0; i < node_count; ++i) {
                 const Node *node = entries[i].node;
                 if (node == nullptr) { continue; }
 
                 if (node->is_push_source_node()) {
+                    const auto *push_runtime_ops = node->spec().push_source_runtime_ops;
+                    if (push_runtime_ops == nullptr || push_runtime_ops->apply_message == nullptr) {
+                        throw std::logic_error("v2 graph builder encountered a push source node without a push message hook");
+                    }
                     if (seen_non_push) {
                         throw std::logic_error("v2 graph requires push source nodes to appear before all other nodes");
                     }
-                } else {
+                } else if (!seen_non_push) {
                     seen_non_push = true;
+                    push_source_nodes_end = static_cast<int64_t>(i);
                 }
             }
+
+            return push_source_nodes_end;
         }
     }  // namespace
 
@@ -205,8 +213,13 @@ namespace hgraph::v2
                 ++constructed_nodes;
             }
 
-            validate_push_source_prefix(entries, m_node_builders.size());
-            graph.adopt_storage(storage, layout.alignment, m_node_builders.size());
+            const int64_t push_source_nodes_end = validate_push_source_nodes(entries, m_node_builders.size());
+            auto *push_message_receiver =
+                push_source_nodes_end > 0 ? evaluation_engine.push_message_receiver() : nullptr;
+            if (push_source_nodes_end > 0 && push_message_receiver == nullptr) {
+                throw std::logic_error("v2 push-source graphs require an attached push-message receiver");
+            }
+            graph.adopt_storage(storage, layout.alignment, m_node_builders.size(), push_source_nodes_end, push_message_receiver);
         } catch (...) {
             for (size_t i = constructed_nodes; i > 0; --i) { m_node_builders[i - 1].destruct_at(*entries[i - 1].node); }
             ::operator delete(storage, std::align_val_t(layout.alignment));

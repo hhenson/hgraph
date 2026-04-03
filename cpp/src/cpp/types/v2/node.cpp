@@ -193,14 +193,6 @@ namespace hgraph::v2
         m_spec->runtime_ops->eval(*this, evaluation_time);
     }
 
-    bool Node::apply_push_message(const value::Value &message, engine_time_t evaluation_time)
-    {
-        if (m_spec == nullptr || m_spec->runtime_ops == nullptr || m_spec->runtime_ops->apply_push_message == nullptr) {
-            throw std::logic_error("v2 push-source node does not provide a push message application hook");
-        }
-        return m_spec->runtime_ops->apply_push_message(*this, message, evaluation_time);
-    }
-
     void Node::notify(engine_time_t et)
     {
         if (m_graph != nullptr) { m_graph->schedule_node(m_node_index, et); }

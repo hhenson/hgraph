@@ -74,8 +74,9 @@ namespace hgraph::v2::test_detail
 
     // Minimal push-source example.
     //
-    // Push-source nodes receive external messages through the graph receiver:
-    //   receiver().enqueue({target_node_index, Value{payload}})
+    // Push-source nodes receive external messages through the realtime engine's
+    // push-message receiver:
+    //   engine.push_message_receiver()->enqueue({target_node_index, Value{payload}})
     //
     // The queued Value payload is decoded and passed to apply_message(...) as
     // the typed `value` argument below. Returning false tells the graph that
@@ -97,8 +98,8 @@ namespace hgraph::v2::test_detail
     };
 
     // Minimal pull-source example. Unlike PushEchoNode, this node never
-    // receives work from receiver().enqueue(...); it only runs when the graph
-    // schedules it for a time-based evaluation.
+    // receives work from the realtime push-message receiver; it only runs when
+    // the graph schedules it for a time-based evaluation.
     struct PullTickNode
     {
         PullTickNode() = delete;
@@ -577,10 +578,12 @@ TEST_CASE("v2 graph drains push source messages before normal scheduled evaluati
     {
         nb::gil_scoped_acquire guard;
         auto clock = graph.engine_evaluation_clock();
+        auto *receiver = engine.push_message_receiver();
+        REQUIRE(receiver != nullptr);
         clock.update_next_scheduled_evaluation_time(hgraph::v2::test_detail::utc_now_tick() + 250ms);
         // Queue one external message for push-source node 0. The payload is the
         // integer that PushEchoNode::apply_message(...) receives as `value`.
-        graph.receiver().enqueue({0, hgraph::value::Value{7}});
+        receiver->enqueue({0, hgraph::value::Value{7}});
         clock.advance_to_next_scheduled_time();
         const auto when = clock.evaluation_time();
         graph.evaluate(when);
@@ -629,16 +632,18 @@ TEST_CASE("v2 push source message application requeues failed messages", "[v2][g
     {
         nb::gil_scoped_acquire guard;
         auto clock = graph.engine_evaluation_clock();
+        auto *receiver = engine.push_message_receiver();
+        REQUIRE(receiver != nullptr);
         clock.update_next_scheduled_evaluation_time(hgraph::v2::test_detail::utc_now_tick() + 250ms);
         // Negative values make PushEchoNode reject the message. The graph
         // should preserve the same payload by requeueing it at the front.
-        graph.receiver().enqueue({0, hgraph::value::Value{-1}});
+        receiver->enqueue({0, hgraph::value::Value{-1}});
         clock.advance_to_next_scheduled_time();
         graph.evaluate(clock.evaluation_time());
     }
 
     CHECK(observer.after_push_nodes_evaluation == 1);
-    CHECK(static_cast<bool>(graph.receiver()));
+    CHECK(static_cast<bool>(*engine.push_message_receiver()));
     CHECK(graph.engine_evaluation_clock().push_node_requires_scheduling());
 }
 
@@ -664,6 +669,31 @@ TEST_CASE("v2 node builder rejects push source implementations without apply_mes
     hgraph::v2::NodeBuilder impl_then_push_node;
     impl_then_push_node.implementation<hgraph::v2::test_detail::NoopNode>();
     CHECK_THROWS_AS(impl_then_push_node.node_type(hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE), std::logic_error);
+}
+
+TEST_CASE("v2 simulation engines reject push source graphs at build time", "[v2][engine][push]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+
+    hgraph::v2::GraphBuilder builder;
+    builder.add_node(hgraph::v2::NodeBuilder{}
+                         .label("push_source")
+                         .node_type(hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE)
+                         .output_schema(scalar_ts)
+                         .implementation<hgraph::v2::test_detail::PushEchoNode>());
+
+    CHECK_THROWS_AS(
+        hgraph::v2::EvaluationEngineBuilder{}
+            .graph_builder(std::move(builder))
+            .evaluation_mode(hgraph::v2::EvaluationMode::SIMULATION)
+            .start_time(hgraph::v2::test_detail::tick(0))
+            .end_time(hgraph::v2::test_detail::tick(1))
+            .build(),
+        std::logic_error);
 }
 
 TEST_CASE("v2 pull source nodes remain on the normal scheduled evaluation path", "[v2][graph][source]")

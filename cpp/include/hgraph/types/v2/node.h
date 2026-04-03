@@ -49,8 +49,13 @@ namespace hgraph::v2
         [[nodiscard]] bool (*has_output)(const Node &node) noexcept;
         [[nodiscard]] TSInputView (*input_view)(Node &node, engine_time_t evaluation_time);
         [[nodiscard]] TSOutputView (*output_view)(Node &node, engine_time_t evaluation_time);
-        [[nodiscard]] bool (*apply_push_message)(Node &node, const value::Value &message, engine_time_t evaluation_time);
         [[nodiscard]] std::string (*runtime_label)(const Node &node);
+    };
+
+    /** Runtime behavior used only by push-source node families. */
+    struct HGRAPH_EXPORT PushSourceNodeRuntimeOps
+    {
+        [[nodiscard]] bool (*apply_message)(Node &node, const value::Value &message, engine_time_t evaluation_time);
     };
 
     /**
@@ -63,6 +68,7 @@ namespace hgraph::v2
     struct HGRAPH_EXPORT BuiltNodeSpec
     {
         const NodeRuntimeOps *runtime_ops{nullptr};
+        const PushSourceNodeRuntimeOps *push_source_runtime_ops{nullptr};
         void (*destruct)(Node &node) noexcept{nullptr};
         size_t runtime_data_offset{0};
 
@@ -126,8 +132,6 @@ namespace hgraph::v2
         void start(engine_time_t evaluation_time);
         void stop(engine_time_t evaluation_time);
         void eval(engine_time_t evaluation_time);
-        /** Apply one queued external message for a push source node. */
-        [[nodiscard]] bool apply_push_message(const value::Value &message, engine_time_t evaluation_time);
         void notify(engine_time_t et) override;
 
       private:

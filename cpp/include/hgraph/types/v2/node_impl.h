@@ -385,6 +385,10 @@ namespace hgraph::v2
                 }
             }
 
+            static constexpr PushSourceNodeRuntimeOps push_source_value{
+                &apply_push_message,
+            };
+
             static constexpr NodeRuntimeOps value{
                 &start,
                 &stop,
@@ -393,7 +397,6 @@ namespace hgraph::v2
                 &default_has_output,
                 &default_input_view,
                 &default_output_view,
-                HasApplyMessage<TImplementation> ? &apply_push_message : nullptr,
                 &default_runtime_label,
             };
         };

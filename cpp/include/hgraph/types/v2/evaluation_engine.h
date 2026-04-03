@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/v2/evaluation_clock.h>
+#include <hgraph/types/v2/sender_receiver_state.h>
 
 #include <functional>
 #include <memory>
@@ -233,6 +234,8 @@ namespace hgraph::v2
         void (*notify_after_stop_node)(void *impl, Node &node);
         void (*notify_before_stop_graph)(void *impl, Graph &graph);
         void (*notify_after_stop_graph)(void *impl, Graph &graph);
+        [[nodiscard]] SenderReceiverState *(*push_message_receiver)(void *impl) noexcept;
+        [[nodiscard]] const SenderReceiverState *(*const_push_message_receiver)(const void *impl) noexcept;
         void (*run)(void *impl);
         void (*destruct)(void *impl) noexcept;
     };
@@ -279,6 +282,10 @@ namespace hgraph::v2
         void notify_after_stop_node(Node &node) const { ops().notify_after_stop_node(m_impl, node); }
         void notify_before_stop_graph(Graph &graph) const { ops().notify_before_stop_graph(m_impl, graph); }
         void notify_after_stop_graph(Graph &graph) const { ops().notify_after_stop_graph(m_impl, graph); }
+        [[nodiscard]] SenderReceiverState *push_message_receiver() const noexcept
+        {
+            return valid() ? m_ops->push_message_receiver(m_impl) : nullptr;
+        }
 
       private:
         [[nodiscard]] const EvaluationEngineOps &ops() const
@@ -342,6 +349,15 @@ namespace hgraph::v2
         [[nodiscard]] Graph &graph() { return ops().graph(m_impl); }
         /** Const access to the root graph owned by this engine. */
         [[nodiscard]] const Graph &graph() const { return ops().const_graph(m_impl); }
+        /** Real-time push receiver; null in simulation mode. */
+        [[nodiscard]] SenderReceiverState *push_message_receiver() noexcept
+        {
+            return valid() ? ops().push_message_receiver(m_impl) : nullptr;
+        }
+        [[nodiscard]] const SenderReceiverState *push_message_receiver() const noexcept
+        {
+            return valid() ? ops().const_push_message_receiver(m_impl) : nullptr;
+        }
 
         /**
          * Execute the evaluation loop.

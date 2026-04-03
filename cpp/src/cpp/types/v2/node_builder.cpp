@@ -350,6 +350,7 @@ namespace hgraph::v2
 
             auto *spec = new (base + layout.spec_offset) BuiltNodeSpec{
                 m_runtime_ops,
+                m_push_source_runtime_ops,
                 &destruct_static_node,
                 layout.runtime_data_offset,
                 label_view,
