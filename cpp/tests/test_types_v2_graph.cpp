@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <stdexcept>
+#include <thread>
 #include <unordered_set>
 
 namespace hgraph::v2::test_detail
@@ -176,6 +177,11 @@ namespace hgraph::v2::test_detail
         return MIN_DT + std::chrono::microseconds{offset};
     }
 
+    [[nodiscard]] engine_time_t utc_now_tick()
+    {
+        return std::chrono::time_point_cast<std::chrono::microseconds>(engine_clock::now());
+    }
+
     [[nodiscard]] EvaluationEngine make_engine(GraphBuilder graph_builder,
                                                engine_time_t start_time,
                                                engine_time_t end_time = MAX_DT,
@@ -255,15 +261,44 @@ namespace hgraph::v2::test_detail
         setenv("HGRAPH_USE_CPP", "0", 1);
 
         if (!Py_IsInitialized()) {
-#ifdef HGRAPH_TEST_PYTHON_EXECUTABLE
-            static wchar_t *python_executable = Py_DecodeLocale(HGRAPH_TEST_PYTHON_EXECUTABLE, nullptr);
-            static std::wstring python_home_storage = std::filesystem::path{HGRAPH_TEST_PYTHON_HOME}.wstring();
-            static wchar_t *python_home = python_home_storage.data();
+            PyConfig config;
+            PyConfig_InitPythonConfig(&config);
 
-            Py_SetProgramName(python_executable);
-            Py_SetPythonHome(python_home);
+            const auto throw_if_status_error = [&](PyStatus status, const char *action) {
+                if (!PyStatus_Exception(status)) { return; }
+
+                std::string message = action;
+                if (status.err_msg != nullptr) {
+                    message += ": ";
+                    message += status.err_msg;
+                }
+                PyConfig_Clear(&config);
+                throw std::runtime_error(message);
+            };
+
+#ifdef HGRAPH_TEST_PYTHON_EXECUTABLE
+            throw_if_status_error(
+                PyConfig_SetBytesString(&config, &config.program_name, HGRAPH_TEST_PYTHON_EXECUTABLE),
+                "failed to configure Python executable");
+
+            const auto python_home = std::filesystem::path{HGRAPH_TEST_PYTHON_HOME}.string();
+            throw_if_status_error(
+                PyConfig_SetBytesString(&config, &config.home, python_home.c_str()),
+                "failed to configure Python home");
 #endif
-            Py_Initialize();
+
+            const PyStatus status = Py_InitializeFromConfig(&config);
+            if (PyStatus_Exception(status)) {
+                std::string message = "failed to initialise Python";
+                if (status.err_msg != nullptr) {
+                    message += ": ";
+                    message += status.err_msg;
+                }
+                PyConfig_Clear(&config);
+                throw std::runtime_error(message);
+            }
+
+            PyConfig_Clear(&config);
         }
 
         nb::gil_scoped_acquire guard;
@@ -433,7 +468,10 @@ TEST_CASE("v2 evaluation engine builder produces a runnable simulation engine", 
     int before_count = 0;
     int after_count = 0;
 
-    api.add_before_evaluation_notification([&] { ++before_count; });
+    api.add_before_evaluation_notification([&] {
+        ++before_count;
+        if (before_count == 1) { api.add_before_evaluation_notification([&] { ++before_count; }); }
+    });
     api.add_after_evaluation_notification([&] {
         ++after_count;
         if (after_count == 1) { api.add_after_evaluation_notification([&] { ++after_count; }); }
@@ -445,9 +483,60 @@ TEST_CASE("v2 evaluation engine builder produces a runnable simulation engine", 
     CHECK(engine.graph().engine_evaluation_clock().evaluation_time() == hgraph::v2::test_detail::tick(60));
 
     engine.run();
-    CHECK(before_count == 1);
+    CHECK(before_count == 2);
     CHECK(after_count == 2);
     CHECK(engine.graph().engine_evaluation_clock().evaluation_time() == hgraph::v2::test_detail::tick(71));
+}
+
+TEST_CASE("v2 real-time engine clock advances to scheduled wall-clock time", "[v2][engine][realtime]")
+{
+    using namespace std::chrono_literals;
+
+    hgraph::v2::GraphBuilder builder;
+    const auto start_time = hgraph::v2::test_detail::utc_now_tick();
+    auto engine = hgraph::v2::test_detail::make_engine(
+        std::move(builder), start_time, start_time + 500ms, hgraph::v2::EvaluationMode::REAL_TIME);
+
+    auto clock = engine.graph().engine_evaluation_clock();
+    const auto scheduled_time = hgraph::v2::test_detail::utc_now_tick() + 30ms;
+
+    clock.update_next_scheduled_evaluation_time(scheduled_time);
+    clock.advance_to_next_scheduled_time();
+
+    const auto after = hgraph::v2::test_detail::utc_now_tick();
+    CHECK(clock.evaluation_time() >= scheduled_time);
+    CHECK(clock.evaluation_time() <= after);
+}
+
+TEST_CASE("v2 real-time engine clock wakes early when push scheduling is requested", "[v2][engine][realtime]")
+{
+    using namespace std::chrono_literals;
+
+    hgraph::v2::GraphBuilder builder;
+    const auto start_time = hgraph::v2::test_detail::utc_now_tick();
+    auto engine = hgraph::v2::test_detail::make_engine(
+        std::move(builder), start_time, start_time + 1s, hgraph::v2::EvaluationMode::REAL_TIME);
+
+    auto clock = engine.graph().engine_evaluation_clock();
+    const auto scheduled_time = hgraph::v2::test_detail::utc_now_tick() + 250ms;
+    clock.update_next_scheduled_evaluation_time(scheduled_time);
+
+    const auto before = hgraph::v2::test_detail::utc_now_tick();
+    std::thread notifier([clock] {
+        std::this_thread::sleep_for(std::chrono::milliseconds{20});
+        clock.mark_push_node_requires_scheduling();
+    });
+
+    clock.advance_to_next_scheduled_time();
+    notifier.join();
+
+    const auto after = hgraph::v2::test_detail::utc_now_tick();
+    CHECK(after < scheduled_time);
+    CHECK(clock.evaluation_time() < scheduled_time);
+    CHECK(clock.evaluation_time() >= before);
+    CHECK(clock.push_node_requires_scheduling());
+    clock.reset_push_node_requires_scheduling();
+    CHECK_FALSE(clock.push_node_requires_scheduling());
 }
 
 TEST_CASE("v2 static node signatures export Python wiring metadata", "[v2][python]")

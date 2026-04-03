@@ -142,6 +142,11 @@ namespace hgraph::v2
         /**
          * Register a one-shot callback to run before the next evaluation cycle.
          *
+         * Notifications are drained iteratively. If a callback registers more
+         * before-evaluation notifications while it is running, those
+         * additional callbacks are also executed before
+         * `notify_before_evaluation()` returns.
+         *
          * Example:
          *
          * @code
@@ -156,6 +161,18 @@ namespace hgraph::v2
         /**
          * Register a one-shot callback to run after the current evaluation
          * cycle completes.
+         *
+         * Like before-evaluation notifications, after-evaluation
+         * notifications are drained iteratively. If a callback registers more
+         * after-evaluation notifications while it is running, those
+         * additional callbacks are also executed before
+         * `notify_after_evaluation()` returns.
+         *
+         * Example:
+         *
+         * @code
+         * api.add_after_evaluation_notification([] { std::puts("after cycle"); });
+         * @endcode
          */
         void add_after_evaluation_notification(std::function<void()> fn) const
         {
