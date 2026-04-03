@@ -654,6 +654,18 @@ TEST_CASE("v2 stopped receivers ignore enqueues instead of throwing", "[v2][grap
     CHECK_FALSE(receiver.dequeue().has_value());
 }
 
+TEST_CASE("v2 node builder rejects push source implementations without apply_message", "[v2][graph][push]")
+{
+    hgraph::v2::NodeBuilder push_node_then_impl;
+    CHECK_THROWS_AS(
+        push_node_then_impl.node_type(hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE).implementation<hgraph::v2::test_detail::NoopNode>(),
+        std::logic_error);
+
+    hgraph::v2::NodeBuilder impl_then_push_node;
+    impl_then_push_node.implementation<hgraph::v2::test_detail::NoopNode>();
+    CHECK_THROWS_AS(impl_then_push_node.node_type(hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE), std::logic_error);
+}
+
 TEST_CASE("v2 pull source nodes remain on the normal scheduled evaluation path", "[v2][graph][source]")
 {
     auto &value_registry = hgraph::value::TypeRegistry::instance();

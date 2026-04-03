@@ -393,7 +393,7 @@ namespace hgraph::v2
                 &default_has_output,
                 &default_input_view,
                 &default_output_view,
-                &apply_push_message,
+                HasApplyMessage<TImplementation> ? &apply_push_message : nullptr,
                 &default_runtime_label,
             };
         };

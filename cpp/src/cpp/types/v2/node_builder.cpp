@@ -209,6 +209,7 @@ namespace hgraph::v2
     {
         m_node_type = value;
         m_has_explicit_node_type = true;
+        validate_push_source_contract();
         return *this;
     }
 
@@ -247,6 +248,7 @@ namespace hgraph::v2
         if (m_runtime_ops == nullptr) {
             throw std::invalid_argument("v2 node builder requires an implementation to be set");
         }
+        validate_push_source_contract();
         const auto builders = resolve_builders(
             m_input_schema,
             m_output_schema,
@@ -265,6 +267,7 @@ namespace hgraph::v2
         if (m_runtime_ops == nullptr) {
             throw std::invalid_argument("v2 node builder requires an implementation to be set");
         }
+        validate_push_source_contract();
         const auto builders = resolve_builders(
             m_input_schema,
             m_output_schema,
@@ -286,6 +289,7 @@ namespace hgraph::v2
         if (m_runtime_ops == nullptr) {
             throw std::invalid_argument("v2 node builder requires an implementation to be set");
         }
+        validate_push_source_contract();
 
         const auto builders = resolve_builders(
             m_input_schema,

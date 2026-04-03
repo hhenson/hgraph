@@ -48,6 +48,9 @@ namespace hgraph::v2
             static_assert(!std::is_polymorphic_v<TImplementation>, "Node implementations must not be polymorphic");
 
             using signature = StaticNodeSignature<TImplementation>;
+            static_assert(
+                signature::node_type() != NodeTypeEnum::PUSH_SOURCE_NODE || detail::HasApplyMessage<TImplementation>,
+                "v2 push source nodes require a static bool apply_message(...) hook");
 
             if (!m_has_explicit_node_type) { m_node_type = signature::node_type(); }
             if (m_input_schema == nullptr) { m_input_schema = signature::input_schema(); }
@@ -75,7 +78,9 @@ namespace hgraph::v2
                 }
             }
 
+            m_has_push_message_hook = detail::HasApplyMessage<TImplementation>;
             m_runtime_ops = &detail::runtime_ops_for<TImplementation>::value;
+            validate_push_source_contract();
             return *this;
         }
 
@@ -93,6 +98,13 @@ namespace hgraph::v2
         void destruct_at(Node &node) const noexcept;
 
       private:
+        void validate_push_source_contract() const
+        {
+            if (m_node_type == NodeTypeEnum::PUSH_SOURCE_NODE && m_runtime_ops != nullptr && !m_has_push_message_hook) {
+                throw std::logic_error("v2 push source nodes require a static bool apply_message(...) hook");
+            }
+        }
+
         [[nodiscard]] size_t slot_for_input_name(std::string_view name) const
         {
             if (m_input_schema == nullptr || m_input_schema->kind != TSKind::TSB) {
@@ -119,5 +131,6 @@ namespace hgraph::v2
         std::vector<size_t> m_valid_inputs;
         std::vector<size_t> m_all_valid_inputs;
         const NodeRuntimeOps *m_runtime_ops{nullptr};
+        bool m_has_push_message_hook{false};
     };
 }  // namespace hgraph::v2
