@@ -151,10 +151,6 @@ namespace hgraph::v2
                 if (node == nullptr) { continue; }
 
                 if (node->is_push_source_node()) {
-                    const auto *push_runtime_ops = node->spec().push_source_runtime_ops;
-                    if (push_runtime_ops == nullptr || push_runtime_ops->apply_message == nullptr) {
-                        throw std::logic_error("v2 graph builder encountered a push source node without a push message hook");
-                    }
                     if (seen_non_push) {
                         throw std::logic_error("v2 graph requires push source nodes to appear before all other nodes");
                     }

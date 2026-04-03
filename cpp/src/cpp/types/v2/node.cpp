@@ -3,6 +3,7 @@
 #include <hgraph/types/v2/node.h>
 #include <hgraph/util/scope.h>
 
+#include <cassert>
 #include <stdexcept>
 
 namespace hgraph::v2
@@ -91,6 +92,9 @@ namespace hgraph::v2
     Node::Node(int64_t node_index, const BuiltNodeSpec *spec) noexcept
         : m_spec(spec), m_node_index(node_index)
     {
+        assert(m_spec != nullptr);
+        assert(m_spec->runtime_ops != nullptr);
+        assert(m_spec->destruct != nullptr);
     }
 
     void Node::set_graph(Graph *graph) noexcept
@@ -110,7 +114,7 @@ namespace hgraph::v2
 
     std::string_view Node::label() const noexcept
     {
-        return m_spec != nullptr ? m_spec->label : std::string_view{};
+        return spec().label;
     }
 
     std::string Node::runtime_label() const
@@ -120,7 +124,7 @@ namespace hgraph::v2
 
     NodeTypeEnum Node::node_type() const noexcept
     {
-        return m_spec != nullptr ? m_spec->node_type : NodeTypeEnum::COMPUTE_NODE;
+        return spec().node_type;
     }
 
     bool Node::is_push_source_node() const noexcept
@@ -135,12 +139,12 @@ namespace hgraph::v2
 
     const TSMeta *Node::input_schema() const noexcept
     {
-        return m_spec != nullptr ? m_spec->input_schema : nullptr;
+        return spec().input_schema;
     }
 
     const TSMeta *Node::output_schema() const noexcept
     {
-        return m_spec != nullptr ? m_spec->output_schema : nullptr;
+        return spec().output_schema;
     }
 
     bool Node::has_input() const noexcept
@@ -170,12 +174,12 @@ namespace hgraph::v2
 
     void *Node::data() noexcept
     {
-        return m_spec != nullptr ? reinterpret_cast<std::byte *>(this) + m_spec->runtime_data_offset : nullptr;
+        return reinterpret_cast<std::byte *>(this) + spec().runtime_data_offset;
     }
 
     const void *Node::data() const noexcept
     {
-        return m_spec != nullptr ? reinterpret_cast<const std::byte *>(this) + m_spec->runtime_data_offset : nullptr;
+        return reinterpret_cast<const std::byte *>(this) + spec().runtime_data_offset;
     }
 
     TSInputView Node::input_view(engine_time_t evaluation_time)
@@ -190,6 +194,7 @@ namespace hgraph::v2
 
     const BuiltNodeSpec &Node::spec() const noexcept
     {
+        assert(m_spec != nullptr);
         return *m_spec;
     }
 
@@ -242,7 +247,7 @@ namespace hgraph::v2
 
     void Node::destruct() noexcept
     {
-        if (m_spec != nullptr && m_spec->destruct != nullptr) { m_spec->destruct(*this); }
+        spec().destruct(*this);
         this->~Node();
     }
 
