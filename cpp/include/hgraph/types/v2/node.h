@@ -22,6 +22,13 @@ namespace hgraph::v2
 
     struct HGRAPH_EXPORT Node;
 
+    /**
+     * Runtime behavior for a family of node layouts.
+     *
+     * Node itself is intentionally tiny and type-erased. The runtime ops know
+     * how to interpret the node-local payload, expose input/output views, and
+     * drive the start/stop/eval lifecycle for that payload.
+     */
     struct HGRAPH_EXPORT NodeRuntimeOps
     {
         void (*start)(Node &node, engine_time_t evaluation_time);
@@ -35,6 +42,13 @@ namespace hgraph::v2
         [[nodiscard]] std::string (*runtime_label)(const Node &node);
     };
 
+    /**
+     * Immutable per-node build product embedded in the node's slab chunk.
+     *
+     * The spec describes the node-local payload layout and carries the static
+     * metadata needed by the runtime. It is produced by NodeBuilder and then
+     * read by the type-erased Node at evaluation time.
+     */
     struct HGRAPH_EXPORT BuiltNodeSpec
     {
         const NodeRuntimeOps *runtime_ops{nullptr};
@@ -50,6 +64,14 @@ namespace hgraph::v2
         std::span<const size_t> all_valid_inputs{};
     };
 
+    /**
+     * Type-erased runtime node.
+     *
+     * A Node is placement-constructed at the start of a variable-sized chunk
+     * owned by Graph. The rest of the chunk stores the BuiltNodeSpec and any
+     * node-family-specific payload such as TSInput, TSOutput, local state, and
+     * copied selector metadata.
+     */
     struct HGRAPH_EXPORT Node : Notifiable
     {
         Node(int64_t node_index, const BuiltNodeSpec *spec) noexcept;
@@ -76,10 +98,12 @@ namespace hgraph::v2
         [[nodiscard]] void *data() noexcept;
         [[nodiscard]] const void *data() const noexcept;
 
+        /** View access is delegated to the node family via NodeRuntimeOps. */
         [[nodiscard]] TSInputView input_view(engine_time_t evaluation_time = MIN_DT);
         [[nodiscard]] TSOutputView output_view(engine_time_t evaluation_time = MIN_DT);
         [[nodiscard]] const BuiltNodeSpec &spec() const noexcept;
 
+        /** Apply top-level valid/all_valid gating before calling eval. */
         [[nodiscard]] bool ready_to_eval(engine_time_t evaluation_time);
 
         void start(engine_time_t evaluation_time);

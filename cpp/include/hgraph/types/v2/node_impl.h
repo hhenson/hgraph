@@ -19,6 +19,12 @@ namespace hgraph::v2
 
     namespace detail
     {
+        /**
+         * Runtime payload for the default static node family.
+         *
+         * This payload is embedded in the node's slab chunk immediately after
+         * the BuiltNodeSpec and is interpreted through NodeRuntimeOps.
+         */
         struct StaticNodeRuntimeData
         {
             TSInput *input{nullptr};
@@ -187,6 +193,9 @@ namespace hgraph::v2
             using traits = fn_traits<decltype(Fn)>;
             using args_tuple = typename traits::args_tuple;
 
+            // Injection is by parameter type, not position. The static hook
+            // only asks for the values it needs and the runtime synthesizes
+            // them from the current Node and evaluation time.
             Fn(arg_provider<std::remove_cvref_t<std::tuple_element_t<I, args_tuple>>>::get(node, evaluation_time)...);
         }
 
@@ -263,6 +272,8 @@ namespace hgraph::v2
                     if (schema == nullptr || schema->kind != TSKind::TSB) {
                         throw std::logic_error("v2 top-level input selectors require a TSB root input schema");
                     }
+                    // For now selector activation is limited to top-level TSB
+                    // fields. REF / alternative-view activation comes later.
                     for (const size_t slot : node.spec().active_inputs) {
                         if (slot >= schema->field_count()) { throw std::out_of_range("v2 input selector is out of range"); }
                         node.input_view(evaluation_time).as_bundle()[slot].make_active();

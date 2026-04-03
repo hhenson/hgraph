@@ -17,6 +17,14 @@
 
 namespace hgraph::v2
 {
+    /**
+     * Fluent builder for a single runtime node chunk.
+     *
+     * NodeBuilder resolves the static implementation metadata, computes the
+     * memory layout for one node, and placement-constructs the final chunk:
+     * Node header, BuiltNodeSpec, node-local runtime payload, TS endpoints,
+     * typed state, and copied selector metadata.
+     */
     struct HGRAPH_EXPORT NodeBuilder
     {
         NodeBuilder() = default;
@@ -31,6 +39,8 @@ namespace hgraph::v2
         template <typename TImplementation>
         NodeBuilder &implementation()
         {
+            // Static implementations are pure compile-time descriptors. They
+            // are never instantiated and must not carry runtime state.
             static_assert(std::is_class_v<TImplementation>, "Node implementations must be struct/class types");
             static_assert(std::is_empty_v<TImplementation>, "Node implementations must be stateless");
             static_assert(!std::is_polymorphic_v<TImplementation>, "Node implementations must not be polymorphic");

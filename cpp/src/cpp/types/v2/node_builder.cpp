@@ -90,6 +90,10 @@ namespace hgraph::v2
             NodeMemoryLayout layout;
             layout.alignment = std::max(alignof(Node), alignof(BuiltNodeSpec));
 
+            // Each node occupies one contiguous chunk. The chunk starts with
+            // the type-erased Node header and then packs the spec, runtime
+            // payload, optional local state, copied selector metadata, and TS
+            // endpoint objects/storage.
             size_t offset = sizeof(Node);
             offset = align_up(offset, alignof(BuiltNodeSpec));
             layout.spec_offset = offset;
@@ -181,6 +185,8 @@ namespace hgraph::v2
             const BuiltNodeSpec &spec = node.spec();
             auto &runtime_data = detail::runtime_data<detail::StaticNodeRuntimeData>(node);
 
+            // Destruct in reverse construction order for the objects we placed
+            // into the node chunk manually.
             if (runtime_data.recordable_state != nullptr) { runtime_data.recordable_state->~TSOutput(); }
             if (runtime_data.state_builder != nullptr && runtime_data.state_memory != nullptr) {
                 runtime_data.state_builder->destruct(runtime_data.state_memory);

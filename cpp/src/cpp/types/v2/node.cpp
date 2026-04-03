@@ -148,6 +148,7 @@ namespace hgraph::v2
     {
         if (!has_input()) { return true; }
 
+        // The selector metadata currently addresses top-level TSB slots only.
         for (const size_t slot : spec().valid_inputs) {
             if (!resolve_input_slot(slot, evaluation_time).valid()) { return false; }
         }

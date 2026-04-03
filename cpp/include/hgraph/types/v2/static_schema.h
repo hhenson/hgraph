@@ -17,6 +17,34 @@
 
 namespace hgraph::v2
 {
+    /**
+     * Compile-time schema vocabulary for the v2 static node model.
+     *
+     * A node implementation describes its contract entirely through the
+     * signatures of static start/stop/eval hooks. The schema types in this
+     * header are the C++ equivalent of the Python wiring annotations:
+     *
+     * @code
+     * struct SumNode
+     * {
+     *     static constexpr auto name = "sum";
+     *
+     *     static void eval(
+     *         In<"lhs", TS<int>> lhs,
+     *         In<"rhs", TS<int>> rhs,
+     *         Out<TS<int>> out)
+     *     {
+     *         out.set(lhs.value() + rhs.value());
+     *     }
+     * };
+     * @endcode
+     *
+     * The same type information is used for three things:
+     * - selecting the injected view type seen by the implementation
+     * - deriving runtime schemas for TSInput / TSOutput / local state
+     * - exporting a matching Python wiring signature
+     */
+
     template <size_t N>
     struct fixed_string
     {
@@ -36,22 +64,26 @@ namespace hgraph::v2
     template <size_t N>
     fixed_string(const char (&)[N]) -> fixed_string<N>;
 
+    // Default Python-facing argument names for non-time-series injectables.
     inline constexpr fixed_string default_state_name{"_state"};
     inline constexpr fixed_string default_recordable_state_name{"_recordable_state"};
     inline constexpr fixed_string default_clock_name{"_clock"};
 
+    /** Scalar time-series schema, equivalent to Python TS[T]. */
     template <typename TValue>
     struct TS
     {
         using value_type = TValue;
     };
 
+    /** Set time-series schema, equivalent to Python TSS[T]. */
     template <typename TValue>
     struct TSS
     {
         using value_type = TValue;
     };
 
+    /** Dict time-series schema, equivalent to Python TSD[K, V]. */
     template <typename TKey, typename TValueSchema>
     struct TSD
     {
@@ -59,6 +91,7 @@ namespace hgraph::v2
         using value_schema = TValueSchema;
     };
 
+    /** List time-series schema, equivalent to Python TSL[T, N?]. */
     template <typename TElementSchema, size_t FixedSize = 0>
     struct TSL
     {
@@ -66,15 +99,18 @@ namespace hgraph::v2
         static constexpr size_t fixed_size = FixedSize;
     };
 
+    /** REF schema placeholder. REF behavior is still a later v2 milestone. */
     template <typename TSchema>
     struct REF
     {
         using target_schema = TSchema;
     };
 
+    /** Signal schema marker. */
     struct SIGNAL
     {};
 
+    /** Named TSB field descriptor. */
     template <fixed_string Name, typename TSchema>
     struct Field
     {
@@ -82,6 +118,7 @@ namespace hgraph::v2
         static constexpr auto name = Name;
     };
 
+    /** Bundle time-series schema, equivalent to Python TSB[...] / ts_schema(...). */
     template <typename... TFields>
     struct TSB
     {};
@@ -105,9 +142,8 @@ namespace hgraph::v2
     };
 
     // TODO: The reflected C++ signature now carries selector-level
-    // activity/validity policy metadata. We still need to extend the static
-    // node model with node-level overloads, resolvers, and requires to reach
-    // feature parity with Python wiring.
+    // activity/validity policy metadata. We still need node-level overloads,
+    // resolvers, and requires to reach feature parity with Python wiring.
     enum class InputActivity
     {
         Active,
@@ -230,6 +266,14 @@ namespace hgraph::v2
     class In
     {
       public:
+        /**
+         * Named input selector.
+         *
+         * The schema controls both the runtime TSInputView shape injected into
+         * the implementation and the exported Python signature. Activity and
+         * validity policies are reflected into builder metadata so the runtime
+         * can activate and gate the appropriate top-level inputs.
+         */
         using schema = TSchema;
         using view_type = typename detail::schema_view_traits<TSchema>::input_view_type;
         static constexpr auto name = Name;
@@ -283,6 +327,12 @@ namespace hgraph::v2
     class Out
     {
       public:
+        /**
+         * Named output selector.
+         *
+         * Outputs wrap a TSOutputView plus the current evaluation time so a
+         * mutation can immediately mark the linked TS state modified.
+         */
         using schema = TSchema;
         using view_type = typename detail::schema_view_traits<TSchema>::output_view_type;
 
@@ -336,6 +386,7 @@ namespace hgraph::v2
     class State
     {
       public:
+        /** Typed node-local state stored inside the node's slab allocation. */
         using schema = TSchema;
         using view_type = View;
         static constexpr auto name = Name;
@@ -356,6 +407,12 @@ namespace hgraph::v2
     class RecordableState
     {
       public:
+        /**
+         * Recordable state backed by a local TSOutput.
+         *
+         * The wrapped output behaves like any other TS output view and must be
+         * marked modified explicitly when child leaves are updated.
+         */
         using schema = TSchema;
         using view_type = typename detail::schema_view_traits<TSchema>::output_view_type;
         static constexpr auto name = Name;

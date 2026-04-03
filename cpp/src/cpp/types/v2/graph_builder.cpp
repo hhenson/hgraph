@@ -124,6 +124,8 @@ namespace hgraph::v2
             GraphMemoryLayout layout;
             layout.node_offsets.reserve(node_builders.size());
 
+            // The graph allocation starts with NodeEntry[N] and is followed by
+            // one variable-sized chunk per node.
             size_t offset = sizeof(NodeEntry) * node_builders.size();
             layout.alignment = std::max(layout.alignment, alignof(NodeEntry));
 
@@ -191,6 +193,8 @@ namespace hgraph::v2
             throw;
         }
 
+        // Bind edges only after every node exists so TSInput construction can
+        // resolve inter-node references against stable Node addresses.
         for (const auto &edge : m_edges) {
             auto &src_node = graph.node_at(static_cast<size_t>(edge.src_node));
             auto &dst_node = graph.node_at(static_cast<size_t>(edge.dst_node));

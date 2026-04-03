@@ -8,6 +8,7 @@
 
 namespace hgraph::v2
 {
+    /** A directed binding from one node output path to one node input path. */
     struct HGRAPH_EXPORT Edge
     {
         int64_t src_node{-1};
@@ -16,6 +17,14 @@ namespace hgraph::v2
         Path input_path;
     };
 
+    /**
+     * Fluent builder for a graph-owned node slab.
+     *
+     * GraphBuilder groups inbound edges per destination node, asks each
+     * NodeBuilder for the size and alignment of its runtime chunk, allocates a
+     * single contiguous block, constructs all nodes into that block, and then
+     * binds edges through TSOutputView / TSInputView traversal.
+     */
     struct HGRAPH_EXPORT GraphBuilder
     {
         GraphBuilder() = default;

@@ -14,13 +14,15 @@ namespace hgraph::v2
         : m_node_count(other.m_node_count),
           m_started(other.m_started),
           m_storage_alignment(other.m_storage_alignment),
-          m_evaluation_runtime(other.m_evaluation_runtime),
+          m_evaluation_engine_impl(other.m_evaluation_engine_impl),
+          m_evaluation_engine_ops(other.m_evaluation_engine_ops),
           m_storage(other.m_storage)
     {
         other.m_node_count = 0;
         other.m_started = false;
         other.m_storage_alignment = alignof(std::max_align_t);
-        other.m_evaluation_runtime = {};
+        other.m_evaluation_engine_impl = nullptr;
+        other.m_evaluation_engine_ops = nullptr;
         other.m_storage = nullptr;
         attach_nodes();
     }
@@ -33,13 +35,15 @@ namespace hgraph::v2
             m_node_count = other.m_node_count;
             m_started = other.m_started;
             m_storage_alignment = other.m_storage_alignment;
-            m_evaluation_runtime = other.m_evaluation_runtime;
+            m_evaluation_engine_impl = other.m_evaluation_engine_impl;
+            m_evaluation_engine_ops = other.m_evaluation_engine_ops;
             m_storage = other.m_storage;
 
             other.m_node_count = 0;
             other.m_started = false;
             other.m_storage_alignment = alignof(std::max_align_t);
-            other.m_evaluation_runtime = {};
+            other.m_evaluation_engine_impl = nullptr;
+            other.m_evaluation_engine_ops = nullptr;
             other.m_storage = nullptr;
 
             attach_nodes();
@@ -49,7 +53,8 @@ namespace hgraph::v2
 
     EvaluationEngineApi Graph::evaluation_engine_api() const noexcept
     {
-        return m_evaluation_runtime ? m_evaluation_runtime.evaluation_engine_api() : EvaluationEngineApi{};
+        if (m_evaluation_engine_impl == nullptr || m_evaluation_engine_ops == nullptr) { return {}; }
+        return m_evaluation_engine_ops->evaluation_engine_api(m_evaluation_engine_impl);
     }
 
     EvaluationClock Graph::evaluation_clock() const noexcept
@@ -60,7 +65,8 @@ namespace hgraph::v2
 
     EngineEvaluationClock Graph::engine_evaluation_clock() const noexcept
     {
-        return m_evaluation_runtime ? m_evaluation_runtime.engine_evaluation_clock() : EngineEvaluationClock{};
+        if (m_evaluation_engine_impl == nullptr || m_evaluation_engine_ops == nullptr) { return {}; }
+        return m_evaluation_engine_ops->engine_evaluation_clock(m_evaluation_engine_impl);
     }
 
     engine_time_t Graph::evaluation_time() const noexcept
@@ -75,12 +81,13 @@ namespace hgraph::v2
         return entry_storage()[index].scheduled;
     }
 
-    void Graph::set_evaluation_runtime(EvaluationRuntime evaluation_runtime)
+    void Graph::set_evaluation_engine(void *evaluation_engine_impl, const EvaluationEngineOps *evaluation_engine_ops)
     {
-        if (m_evaluation_runtime && evaluation_runtime) {
-            throw std::runtime_error("Duplicate attempt to set evaluation runtime");
+        if (m_evaluation_engine_impl != nullptr && evaluation_engine_impl != nullptr) {
+            throw std::runtime_error("Duplicate attempt to set evaluation engine");
         }
-        m_evaluation_runtime = evaluation_runtime;
+        m_evaluation_engine_impl = evaluation_engine_impl;
+        m_evaluation_engine_ops = evaluation_engine_ops;
     }
 
     void Graph::adopt_storage(void *storage, size_t storage_alignment, size_t node_count) noexcept
@@ -114,7 +121,8 @@ namespace hgraph::v2
         m_node_count = 0;
         m_started = false;
         m_storage_alignment = alignof(std::max_align_t);
-        m_evaluation_runtime = {};
+        m_evaluation_engine_impl = nullptr;
+        m_evaluation_engine_ops = nullptr;
         m_storage = nullptr;
     }
 
@@ -152,14 +160,22 @@ namespace hgraph::v2
     {
         if (m_started) { return; }
 
-        if (m_evaluation_runtime) { m_evaluation_runtime.notify_before_start_graph(*this); }
+        if (m_evaluation_engine_impl != nullptr) {
+            m_evaluation_engine_ops->notify_before_start_graph(m_evaluation_engine_impl, *this);
+        }
         for (size_t i = 0; i < m_node_count; ++i) {
             auto &node = *entry_storage()[i].node;
-            if (m_evaluation_runtime) { m_evaluation_runtime.notify_before_start_node(node); }
+            if (m_evaluation_engine_impl != nullptr) {
+                m_evaluation_engine_ops->notify_before_start_node(m_evaluation_engine_impl, node);
+            }
             node.start(evaluation_time());
-            if (m_evaluation_runtime) { m_evaluation_runtime.notify_after_start_node(node); }
+            if (m_evaluation_engine_impl != nullptr) {
+                m_evaluation_engine_ops->notify_after_start_node(m_evaluation_engine_impl, node);
+            }
         }
-        if (m_evaluation_runtime) { m_evaluation_runtime.notify_after_start_graph(*this); }
+        if (m_evaluation_engine_impl != nullptr) {
+            m_evaluation_engine_ops->notify_after_start_graph(m_evaluation_engine_impl, *this);
+        }
         m_started = true;
     }
 
@@ -167,14 +183,22 @@ namespace hgraph::v2
     {
         if (!m_started) { return; }
 
-        if (m_evaluation_runtime) { m_evaluation_runtime.notify_before_stop_graph(*this); }
+        if (m_evaluation_engine_impl != nullptr) {
+            m_evaluation_engine_ops->notify_before_stop_graph(m_evaluation_engine_impl, *this);
+        }
         for (size_t i = 0; i < m_node_count; ++i) {
             auto &node = *entry_storage()[i].node;
-            if (m_evaluation_runtime) { m_evaluation_runtime.notify_before_stop_node(node); }
+            if (m_evaluation_engine_impl != nullptr) {
+                m_evaluation_engine_ops->notify_before_stop_node(m_evaluation_engine_impl, node);
+            }
             node.stop(evaluation_time());
-            if (m_evaluation_runtime) { m_evaluation_runtime.notify_after_stop_node(node); }
+            if (m_evaluation_engine_impl != nullptr) {
+                m_evaluation_engine_ops->notify_after_stop_node(m_evaluation_engine_impl, node);
+            }
         }
-        if (m_evaluation_runtime) { m_evaluation_runtime.notify_after_stop_graph(*this); }
+        if (m_evaluation_engine_impl != nullptr) {
+            m_evaluation_engine_ops->notify_after_stop_graph(m_evaluation_engine_impl, *this);
+        }
         m_started = false;
     }
 
@@ -184,21 +208,21 @@ namespace hgraph::v2
         if (!clock) { throw std::logic_error("v2 graph evaluation requires an attached evaluation engine"); }
 
         clock.set_evaluation_time(when);
-        m_evaluation_runtime.notify_before_graph_evaluation(*this);
+        m_evaluation_engine_ops->notify_before_graph_evaluation(m_evaluation_engine_impl, *this);
 
         for (size_t index = 0; index < m_node_count; ++index) {
             auto &entry = entry_storage()[index];
             if (entry.scheduled == when) {
-                m_evaluation_runtime.notify_before_node_evaluation(*entry.node);
+                m_evaluation_engine_ops->notify_before_node_evaluation(m_evaluation_engine_impl, *entry.node);
                 entry.scheduled = MIN_DT;
                 entry.node->eval(when);
-                m_evaluation_runtime.notify_after_node_evaluation(*entry.node);
+                m_evaluation_engine_ops->notify_after_node_evaluation(m_evaluation_engine_impl, *entry.node);
             } else if (entry.scheduled > when) {
                 clock.update_next_scheduled_evaluation_time(entry.scheduled);
             }
         }
 
-        m_evaluation_runtime.notify_after_graph_evaluation(*this);
+        m_evaluation_engine_ops->notify_after_graph_evaluation(m_evaluation_engine_impl, *this);
     }
 
     void Graph::schedule_node(int64_t node_index, engine_time_t when)

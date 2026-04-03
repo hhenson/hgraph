@@ -234,14 +234,13 @@ namespace hgraph::v2
                     throw std::runtime_error("v2 evaluation engine currently supports only simulation mode");
                 }
 
-                auto runtime = EvaluationRuntime{impl, &k_runtime_ops};
                 state.graph.start();
                 try {
                     while (state.clock.evaluation_time < state.end_time) {
-                        runtime.notify_before_evaluation();
+                        notify_before_evaluation_impl(impl);
                         state.graph.evaluate(state.clock.evaluation_time);
-                        runtime.notify_after_evaluation();
-                        runtime.advance_engine_time();
+                        notify_after_evaluation_impl(impl);
+                        advance_engine_time_impl(impl);
                     }
                 } catch (...) {
                     try {
@@ -343,7 +342,6 @@ namespace hgraph::v2
 
             static const EngineEvaluationClockOps k_clock_ops;
             static const EvaluationEngineApiOps k_api_ops;
-            static const EvaluationRuntimeOps k_runtime_ops;
             static const EvaluationEngineOps k_engine_ops;
         };
 
@@ -375,7 +373,12 @@ namespace hgraph::v2
             &SimulationEvaluationEngineState::remove_life_cycle_observer_impl,
         };
 
-        const EvaluationRuntimeOps SimulationEvaluationEngineState::k_runtime_ops{
+        const EvaluationEngineOps SimulationEvaluationEngineState::k_engine_ops{
+            &SimulationEvaluationEngineState::evaluation_mode_impl,
+            &SimulationEvaluationEngineState::start_time_impl,
+            &SimulationEvaluationEngineState::end_time_impl,
+            &SimulationEvaluationEngineState::graph_impl,
+            &SimulationEvaluationEngineState::const_graph_impl,
             &SimulationEvaluationEngineState::evaluation_engine_api_impl,
             &SimulationEvaluationEngineState::engine_evaluation_clock_impl,
             &SimulationEvaluationEngineState::notify_before_evaluation_impl,
@@ -394,14 +397,6 @@ namespace hgraph::v2
             &SimulationEvaluationEngineState::notify_after_stop_node_impl,
             &SimulationEvaluationEngineState::notify_before_stop_graph_impl,
             &SimulationEvaluationEngineState::notify_after_stop_graph_impl,
-        };
-
-        const EvaluationEngineOps SimulationEvaluationEngineState::k_engine_ops{
-            &SimulationEvaluationEngineState::evaluation_mode_impl,
-            &SimulationEvaluationEngineState::start_time_impl,
-            &SimulationEvaluationEngineState::end_time_impl,
-            &SimulationEvaluationEngineState::graph_impl,
-            &SimulationEvaluationEngineState::const_graph_impl,
             &SimulationEvaluationEngineState::run_impl,
             &SimulationEvaluationEngineState::destruct_impl,
         };
@@ -503,7 +498,7 @@ namespace hgraph::v2
         // Hold the state under temporary ownership until the runtime is attached and observer registration completes.
         auto state =
             std::make_unique<SimulationEvaluationEngineState>(m_graph_builder->make_graph(), m_evaluation_mode, m_start_time, m_end_time);
-        state->graph.set_evaluation_runtime({state.get(), &SimulationEvaluationEngineState::k_runtime_ops});
+        state->graph.set_evaluation_engine(state.get(), &SimulationEvaluationEngineState::k_engine_ops);
         for (auto *observer : m_life_cycle_observers) {
             SimulationEvaluationEngineState::add_life_cycle_observer_impl(state.get(), observer);
         }

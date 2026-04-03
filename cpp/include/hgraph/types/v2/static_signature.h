@@ -12,6 +12,20 @@
 
 namespace hgraph::v2
 {
+    /**
+     * Compile-time reflection for static node implementations.
+     *
+     * StaticNodeSignature<T> inspects T::start / T::stop / T::eval and turns
+     * the selector types found in those signatures into:
+     * - concrete input / output / state schemas when available
+     * - unresolved generic arguments when type variables are used
+     * - activity and validity metadata for builder wiring
+     * - a Python WiringNodeSignature used by export_compute_node()
+     *
+     * The intent is that a single C++ definition remains the source of truth
+     * for both runtime construction and Python wiring export.
+     */
+
     namespace detail
     {
         template <typename T>
@@ -663,6 +677,14 @@ namespace hgraph::v2
         }
     }  // namespace detail
 
+    /**
+     * Reflected signature for one static node implementation type.
+     *
+     * This is the bridge between the static_schema vocabulary and the runtime
+     * builders. Consumers typically use it indirectly through NodeBuilder or
+     * python_export, but it is also useful in tests to assert reflection and
+     * export behavior.
+     */
     template <typename TImplementation>
     struct StaticNodeSignature
     {

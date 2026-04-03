@@ -9,12 +9,20 @@
 
 namespace hgraph::v2
 {
+    /** Schedule entry pairing the next requested evaluation time with a node. */
     struct HGRAPH_EXPORT NodeEntry
     {
         engine_time_t scheduled{MIN_DT};
         Node *node{nullptr};
     };
 
+    /**
+     * Runtime graph owning the v2 node slab.
+     *
+     * Graph owns one contiguous storage block containing NodeEntry[N] followed
+     * by the variable-sized node chunks created by GraphBuilder. Evaluation is
+     * driven through an attached EvaluationEngine supplied by the owning runner.
+     */
     struct HGRAPH_EXPORT Graph
     {
         Graph() = default;
@@ -49,7 +57,7 @@ namespace hgraph::v2
         friend struct GraphBuilder;
         friend class EvaluationEngineBuilder;
 
-        void set_evaluation_runtime(EvaluationRuntime evaluation_runtime);
+        void set_evaluation_engine(void *evaluation_engine_impl, const EvaluationEngineOps *evaluation_engine_ops);
         void adopt_storage(void *storage,
                            size_t storage_alignment,
                            size_t node_count) noexcept;
@@ -61,7 +69,8 @@ namespace hgraph::v2
         size_t m_node_count{0};
         bool m_started{false};
         size_t m_storage_alignment{alignof(std::max_align_t)};
-        EvaluationRuntime m_evaluation_runtime{};
+        void *m_evaluation_engine_impl{nullptr};
+        const EvaluationEngineOps *m_evaluation_engine_ops{nullptr};
         void *m_storage{nullptr};
     };
 }  // namespace hgraph::v2

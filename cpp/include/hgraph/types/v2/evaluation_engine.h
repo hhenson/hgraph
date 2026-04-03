@@ -19,25 +19,59 @@ namespace hgraph::v2
         SIMULATION = 1,
     };
 
+    /**
+     * Observer interface for graph and node evaluation lifecycle events.
+     *
+     * These callbacks mirror the existing Python/runtime lifecycle observer
+     * semantics. They are intended for inspection, profiling, tracing, and
+     * debugging. Each additional observer adds cost to the evaluation loop, so
+     * they should be used deliberately.
+     *
+     * Example:
+     *
+     * @code
+     * struct TraceObserver : EvaluationLifeCycleObserver
+     * {
+     *     void on_before_node_evaluation(Node &node) override
+     *     {
+     *         std::cout << "evaluating " << node.runtime_label() << '\n';
+     *     }
+     * };
+     * @endcode
+     */
     struct HGRAPH_EXPORT EvaluationLifeCycleObserver
     {
         virtual ~EvaluationLifeCycleObserver() = default;
 
+        /** Called before the graph is started. */
         virtual void on_before_start_graph(Graph &) {}
+        /** Called after the graph is started. */
         virtual void on_after_start_graph(Graph &) {}
+        /** Called before a node is started. */
         virtual void on_before_start_node(Node &) {}
+        /** Called after a node is started. */
         virtual void on_after_start_node(Node &) {}
+        /** Called before the graph is evaluated. */
         virtual void on_before_graph_evaluation(Graph &) {}
+        /** Called after the graph is evaluated. */
         virtual void on_after_graph_evaluation(Graph &) {}
+        /** Called before a node is evaluated. */
         virtual void on_before_node_evaluation(Node &) {}
+        /** Called after a node is evaluated. */
         virtual void on_after_node_evaluation(Node &) {}
+        /** Called after the graph has evaluated all of its push nodes. */
         virtual void on_after_graph_push_nodes_evaluation(Graph &) {}
+        /** Called before a node is stopped. */
         virtual void on_before_stop_node(Node &) {}
+        /** Called after a node is stopped. */
         virtual void on_after_stop_node(Node &) {}
+        /** Called before the graph is stopped. */
         virtual void on_before_stop_graph(Graph &) {}
+        /** Called after the graph is stopped. */
         virtual void on_after_stop_graph(Graph &) {}
     };
 
+    /** Type-erased API exposed to nodes and graphs during evaluation. */
     struct HGRAPH_EXPORT EvaluationEngineApiOps
     {
         [[nodiscard]] EvaluationMode (*evaluation_mode)(const void *impl) noexcept;
@@ -52,33 +86,94 @@ namespace hgraph::v2
         void (*remove_life_cycle_observer)(void *impl, EvaluationLifeCycleObserver *observer);
     };
 
+    /**
+     * User-visible evaluation engine API.
+     *
+     * This facade exposes the same conceptual surface as the existing Python
+     * EvaluationEngineApi: execution mode, run bounds, the read-only evaluation
+     * clock, stop requests, one-shot evaluation notifications, and lifecycle
+     * observer registration.
+     *
+     * Example:
+     *
+     * @code
+     * EvaluationEngine engine = EvaluationEngineBuilder{}
+     *     .graph_builder(std::move(graph_builder))
+     *     .start_time(start_time)
+     *     .end_time(end_time)
+     *     .build();
+     *
+     * EvaluationEngineApi api = engine.graph().evaluation_engine_api();
+     * api.add_before_evaluation_notification([] { std::puts("before"); });
+     * api.request_engine_stop();
+     * @endcode
+     */
     class HGRAPH_EXPORT EvaluationEngineApi
     {
       public:
         EvaluationEngineApi() = default;
         EvaluationEngineApi(void *impl, const EvaluationEngineApiOps *ops) noexcept : m_impl(impl), m_ops(ops) {}
 
+        /** True when this facade is bound to concrete engine state. */
         [[nodiscard]] bool valid() const noexcept { return m_impl != nullptr && m_ops != nullptr; }
+        /** Convenience validity check for `if (api) { ... }` style usage. */
         explicit operator bool() const noexcept { return valid(); }
 
+        /** Current evaluation mode for the owning engine. */
         [[nodiscard]] EvaluationMode evaluation_mode() const noexcept { return ops().evaluation_mode(m_impl); }
+        /** Inclusive lower bound of the engine run. */
         [[nodiscard]] engine_time_t start_time() const noexcept { return ops().start_time(m_impl); }
+        /** Exclusive upper bound of the engine run. */
         [[nodiscard]] engine_time_t end_time() const noexcept { return ops().end_time(m_impl); }
+        /** Read-only clock view for the current evaluation cycle. */
         [[nodiscard]] EvaluationClock evaluation_clock() const { return ops().evaluation_clock(m_impl); }
+
+        /**
+         * Request that the engine stop after the current evaluation cycle.
+         *
+         * This does not interrupt the graph immediately; it is observed when
+         * the current cycle completes.
+         */
         void request_engine_stop() const { ops().request_engine_stop(m_impl); }
+
+        /** True when the engine has been asked to stop. */
         [[nodiscard]] bool is_stop_requested() const noexcept { return ops().is_stop_requested(m_impl); }
+
+        /**
+         * Register a one-shot callback to run before the next evaluation cycle.
+         *
+         * Example:
+         *
+         * @code
+         * api.add_before_evaluation_notification([] { std::puts("next cycle"); });
+         * @endcode
+         */
         void add_before_evaluation_notification(std::function<void()> fn) const
         {
             ops().add_before_evaluation_notification(m_impl, std::move(fn));
         }
+
+        /**
+         * Register a one-shot callback to run after the current evaluation
+         * cycle completes.
+         */
         void add_after_evaluation_notification(std::function<void()> fn) const
         {
             ops().add_after_evaluation_notification(m_impl, std::move(fn));
         }
+
+        /**
+         * Add a lifecycle observer.
+         *
+         * Events are delivered immediately and continue until the observer is
+         * removed.
+         */
         void add_life_cycle_observer(EvaluationLifeCycleObserver *observer) const
         {
             ops().add_life_cycle_observer(m_impl, observer);
         }
+
+        /** Remove a previously registered lifecycle observer immediately. */
         void remove_life_cycle_observer(EvaluationLifeCycleObserver *observer) const
         {
             ops().remove_life_cycle_observer(m_impl, observer);
@@ -95,8 +190,14 @@ namespace hgraph::v2
         const EvaluationEngineApiOps *m_ops{nullptr};
     };
 
-    struct HGRAPH_EXPORT EvaluationRuntimeOps
+    /** Public runner surface returned by EvaluationEngineBuilder::build(). */
+    struct HGRAPH_EXPORT EvaluationEngineOps
     {
+        [[nodiscard]] EvaluationMode (*evaluation_mode)(const void *impl) noexcept;
+        [[nodiscard]] engine_time_t (*start_time)(const void *impl) noexcept;
+        [[nodiscard]] engine_time_t (*end_time)(const void *impl) noexcept;
+        [[nodiscard]] Graph &(*graph)(void *impl);
+        [[nodiscard]] const Graph &(*const_graph)(const void *impl);
         [[nodiscard]] EvaluationEngineApi (*evaluation_engine_api)(void *impl) noexcept;
         [[nodiscard]] EngineEvaluationClock (*engine_evaluation_clock)(void *impl);
         void (*notify_before_evaluation)(void *impl);
@@ -115,16 +216,76 @@ namespace hgraph::v2
         void (*notify_after_stop_node)(void *impl, Node &node);
         void (*notify_before_stop_graph)(void *impl, Graph &graph);
         void (*notify_after_stop_graph)(void *impl, Graph &graph);
+        void (*run)(void *impl);
+        void (*destruct)(void *impl) noexcept;
     };
 
-    class HGRAPH_EXPORT EvaluationRuntime
+    /**
+     * Owning runnable evaluation engine.
+     *
+     * Unlike the internal runtime/API surfaces, this is the top-level object a
+     * caller builds and runs. It owns the concrete engine state and the root
+     * graph for the duration of the run.
+     *
+     * Example:
+     *
+     * @code
+     * EvaluationEngine engine = EvaluationEngineBuilder{}
+     *     .graph_builder(std::move(graph_builder))
+     *     .evaluation_mode(EvaluationMode::SIMULATION)
+     *     .start_time(start_time)
+     *     .end_time(end_time)
+     *     .build();
+     *
+     * engine.run();
+     * @endcode
+     */
+    class HGRAPH_EXPORT EvaluationEngine
     {
       public:
-        EvaluationRuntime() = default;
-        EvaluationRuntime(void *impl, const EvaluationRuntimeOps *ops) noexcept : m_impl(impl), m_ops(ops) {}
+        EvaluationEngine() = default;
+        ~EvaluationEngine();
+        EvaluationEngine(const EvaluationEngine &) = delete;
+        EvaluationEngine &operator=(const EvaluationEngine &) = delete;
+        EvaluationEngine(EvaluationEngine &&other) noexcept;
+        EvaluationEngine &operator=(EvaluationEngine &&other) noexcept;
 
+        /** True when this runner owns concrete engine state. */
         [[nodiscard]] bool valid() const noexcept { return m_impl != nullptr && m_ops != nullptr; }
+        /** Convenience validity check for `if (engine) { ... }` style usage. */
         explicit operator bool() const noexcept { return valid(); }
+
+        /** Current evaluation mode for this engine. */
+        [[nodiscard]] EvaluationMode evaluation_mode() const noexcept { return ops().evaluation_mode(m_impl); }
+        /** Inclusive lower bound of the run. */
+        [[nodiscard]] engine_time_t start_time() const noexcept { return ops().start_time(m_impl); }
+        /** Exclusive upper bound of the run. */
+        [[nodiscard]] engine_time_t end_time() const noexcept { return ops().end_time(m_impl); }
+
+        /**
+         * Access the root graph owned by this engine.
+         *
+         * This is typically used for inspection, testing, or to access the
+         * EvaluationEngineApi once the engine has been built.
+         */
+        [[nodiscard]] Graph &graph() { return ops().graph(m_impl); }
+        /** Const access to the root graph owned by this engine. */
+        [[nodiscard]] const Graph &graph() const { return ops().const_graph(m_impl); }
+
+        /**
+         * Execute the evaluation loop.
+         *
+         * In simulation mode this runs from start_time() until end_time() or
+         * until a stop request is observed. The exact mode semantics are
+         * provided by the concrete engine implementation.
+         */
+        void run() { ops().run(m_impl); }
+
+      private:
+        friend class EvaluationEngineBuilder;
+        friend struct Graph;
+
+        EvaluationEngine(void *impl, const EvaluationEngineOps *ops) noexcept : m_impl(impl), m_ops(ops) {}
 
         [[nodiscard]] EvaluationEngineApi evaluation_engine_api() const noexcept
         {
@@ -154,53 +315,6 @@ namespace hgraph::v2
         void notify_before_stop_graph(Graph &graph) const { ops().notify_before_stop_graph(m_impl, graph); }
         void notify_after_stop_graph(Graph &graph) const { ops().notify_after_stop_graph(m_impl, graph); }
 
-      private:
-        [[nodiscard]] const EvaluationRuntimeOps &ops() const
-        {
-            if (!valid()) { throw std::logic_error("v2 EvaluationRuntime is not bound to runtime state"); }
-            return *m_ops;
-        }
-
-        void *m_impl{nullptr};
-        const EvaluationRuntimeOps *m_ops{nullptr};
-    };
-
-    struct HGRAPH_EXPORT EvaluationEngineOps
-    {
-        [[nodiscard]] EvaluationMode (*evaluation_mode)(const void *impl) noexcept;
-        [[nodiscard]] engine_time_t (*start_time)(const void *impl) noexcept;
-        [[nodiscard]] engine_time_t (*end_time)(const void *impl) noexcept;
-        [[nodiscard]] Graph &(*graph)(void *impl);
-        [[nodiscard]] const Graph &(*const_graph)(const void *impl);
-        void (*run)(void *impl);
-        void (*destruct)(void *impl) noexcept;
-    };
-
-    class HGRAPH_EXPORT EvaluationEngine
-    {
-      public:
-        EvaluationEngine() = default;
-        ~EvaluationEngine();
-        EvaluationEngine(const EvaluationEngine &) = delete;
-        EvaluationEngine &operator=(const EvaluationEngine &) = delete;
-        EvaluationEngine(EvaluationEngine &&other) noexcept;
-        EvaluationEngine &operator=(EvaluationEngine &&other) noexcept;
-
-        [[nodiscard]] bool valid() const noexcept { return m_impl != nullptr && m_ops != nullptr; }
-        explicit operator bool() const noexcept { return valid(); }
-
-        [[nodiscard]] EvaluationMode evaluation_mode() const noexcept { return ops().evaluation_mode(m_impl); }
-        [[nodiscard]] engine_time_t start_time() const noexcept { return ops().start_time(m_impl); }
-        [[nodiscard]] engine_time_t end_time() const noexcept { return ops().end_time(m_impl); }
-        [[nodiscard]] Graph &graph() { return ops().graph(m_impl); }
-        [[nodiscard]] const Graph &graph() const { return ops().const_graph(m_impl); }
-        void run() { ops().run(m_impl); }
-
-      private:
-        friend class EvaluationEngineBuilder;
-
-        EvaluationEngine(void *impl, const EvaluationEngineOps *ops) noexcept : m_impl(impl), m_ops(ops) {}
-
         [[nodiscard]] const EvaluationEngineOps &ops() const
         {
             if (!valid()) { throw std::logic_error("v2 EvaluationEngine is not bound to runtime state"); }
@@ -213,6 +327,28 @@ namespace hgraph::v2
         const EvaluationEngineOps *m_ops{nullptr};
     };
 
+    /**
+     * Fluent builder for a runnable evaluation engine.
+     *
+     * Example:
+     *
+     * @code
+     * GraphBuilder graph_builder;
+     * graph_builder.add_node(...).add_node(...).add_edge(...);
+     *
+     * EvaluationEngine engine = EvaluationEngineBuilder{}
+     *     .graph_builder(std::move(graph_builder))
+     *     .evaluation_mode(EvaluationMode::SIMULATION)
+     *     .start_time(MIN_DT)
+     *     .end_time(MAX_DT)
+     *     .build();
+     *
+     * engine.run();
+     * @endcode
+     *
+     * The builder owns only configuration. The returned EvaluationEngine owns
+     * the built Graph plus the concrete clock / observer state needed to run it.
+     */
     class HGRAPH_EXPORT EvaluationEngineBuilder
     {
       public:

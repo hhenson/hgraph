@@ -62,6 +62,13 @@ namespace hgraph::v2
         }
     }  // namespace detail
 
+    /**
+     * Create a Python wiring node class from a static C++ implementation.
+     *
+     * The reflected StaticNodeSignature drives the exported Python signature,
+     * while the builder factory captures the resolved schemas chosen by Python
+     * wiring so the eventual runtime builder can construct matching C++ nodes.
+     */
     template <typename TImplementation>
     [[nodiscard]] nb::object make_compute_wiring_node(std::string_view name = {})
     {
@@ -96,6 +103,7 @@ namespace hgraph::v2
             nb::make_tuple(StaticNodeSignature<TImplementation>::wiring_signature(node_name), builder_factory));
     }
 
+    /** Export a static C++ compute node into a nanobind module. */
     template <typename TImplementation>
     void export_compute_node(nb::module_ &m, std::string_view name = {})
     {
