@@ -1,6 +1,7 @@
 #include <hgraph/types/v2/graph.h>
 #include <hgraph/util/scope.h>
 
+#include <cassert>
 #include <new>
 #include <stdexcept>
 #include <utility>
@@ -164,6 +165,14 @@ namespace hgraph::v2
     {
         if (index >= m_node_count) { throw std::out_of_range("v2 graph node index is out of range"); }
         return *entry_storage()[index].node;
+    }
+
+    PushSourceNodeRef Graph::push_source_node_at(size_t index)
+    {
+        auto &node = node_at(index);
+        assert(index < static_cast<size_t>(m_push_source_nodes_end));
+        assert(node.spec().push_source_runtime_ops != nullptr);
+        return PushSourceNodeRef{node, *node.spec().push_source_runtime_ops};
     }
 
     void Graph::start()

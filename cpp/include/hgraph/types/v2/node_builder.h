@@ -100,6 +100,14 @@ namespace hgraph::v2
         void destruct_at(Node &node) const noexcept;
 
       private:
+        friend struct GraphBuilder;
+
+        void validate_complete() const
+        {
+            if (m_runtime_ops == nullptr) { throw std::invalid_argument("v2 node builder requires an implementation to be set"); }
+            validate_push_source_contract();
+        }
+
         void validate_push_source_contract() const
         {
             if (m_node_type == NodeTypeEnum::PUSH_SOURCE_NODE && m_runtime_ops != nullptr && !m_has_push_message_hook) {

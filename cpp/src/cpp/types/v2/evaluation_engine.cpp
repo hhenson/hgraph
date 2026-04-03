@@ -467,12 +467,11 @@ namespace hgraph::v2
 
                     while (auto value = receiver->dequeue()) {
                         auto &message = *value;
-                        Node &node = graph.node_at(static_cast<size_t>(message.target_node_index));
-                        const auto *push_runtime_ops = node.spec().push_source_runtime_ops;
-                        notify_before_node_evaluation_impl(impl, node);
+                        auto push_node = graph.push_source_node_at(static_cast<size_t>(message.target_node_index));
+                        notify_before_node_evaluation_impl(impl, push_node.node);
                         auto after_node_evaluation =
-                            UnwindCleanupGuard([&] { notify_after_node_evaluation_impl(impl, node); });
-                        const bool success = push_runtime_ops->apply_message(node, message.payload, when);
+                            UnwindCleanupGuard([&] { notify_after_node_evaluation_impl(impl, push_node.node); });
+                        const bool success = push_node.runtime_ops.apply_message(push_node.node, message.payload, when);
                         after_node_evaluation.complete();
                         if (!success) {
                             receiver->enqueue_front(std::move(message));

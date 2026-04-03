@@ -107,7 +107,7 @@ namespace hgraph::v2
         [[nodiscard]] std::string_view label() const noexcept;
         [[nodiscard]] std::string runtime_label() const;
         [[nodiscard]] NodeTypeEnum node_type() const noexcept;
-        /** Push sources are drained by Graph before the normal scheduled pass. */
+        /** Push sources are drained by the realtime engine before the normal scheduled pass. */
         [[nodiscard]] bool is_push_source_node() const noexcept;
         /** Pull sources remain in the normal scheduled evaluation pass. */
         [[nodiscard]] bool is_pull_source_node() const noexcept;

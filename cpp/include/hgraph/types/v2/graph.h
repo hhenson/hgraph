@@ -16,6 +16,13 @@ namespace hgraph::v2
         Node *node{nullptr};
     };
 
+    /** Prevalidated push-source node reference used by the realtime push pass. */
+    struct HGRAPH_EXPORT PushSourceNodeRef
+    {
+        Node &node;
+        const PushSourceNodeRuntimeOps &runtime_ops;
+    };
+
     /**
      * Runtime graph owning the v2 node slab.
      *
@@ -50,6 +57,7 @@ namespace hgraph::v2
         [[nodiscard]] engine_time_t scheduled_time(size_t index) const;
         [[nodiscard]] Node &node_at(size_t index);
         [[nodiscard]] const Node &node_at(size_t index) const;
+        [[nodiscard]] PushSourceNodeRef push_source_node_at(size_t index);
 
         void start();
         void stop();

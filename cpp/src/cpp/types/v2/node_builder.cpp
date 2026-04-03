@@ -3,6 +3,7 @@
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
+#include <cassert>
 #include <cstddef>
 #include <cstring>
 #include <memory>
@@ -246,10 +247,9 @@ namespace hgraph::v2
 
     size_t NodeBuilder::size(const std::vector<TSInputConstructionEdge> &inbound_edges) const
     {
-        if (m_runtime_ops == nullptr) {
-            throw std::invalid_argument("v2 node builder requires an implementation to be set");
-        }
-        validate_push_source_contract();
+        assert(m_runtime_ops != nullptr);
+        assert(m_node_type != NodeTypeEnum::PUSH_SOURCE_NODE || m_has_push_message_hook);
+        assert(m_node_type != NodeTypeEnum::PUSH_SOURCE_NODE || m_push_source_runtime_ops != nullptr);
         const auto builders = resolve_builders(
             m_input_schema,
             m_output_schema,
@@ -265,10 +265,9 @@ namespace hgraph::v2
 
     size_t NodeBuilder::alignment(const std::vector<TSInputConstructionEdge> &inbound_edges) const
     {
-        if (m_runtime_ops == nullptr) {
-            throw std::invalid_argument("v2 node builder requires an implementation to be set");
-        }
-        validate_push_source_contract();
+        assert(m_runtime_ops != nullptr);
+        assert(m_node_type != NodeTypeEnum::PUSH_SOURCE_NODE || m_has_push_message_hook);
+        assert(m_node_type != NodeTypeEnum::PUSH_SOURCE_NODE || m_push_source_runtime_ops != nullptr);
         const auto builders = resolve_builders(
             m_input_schema,
             m_output_schema,
@@ -287,10 +286,9 @@ namespace hgraph::v2
                                     const std::vector<TSInputConstructionEdge> &inbound_edges) const
     {
         if (memory == nullptr) { throw std::invalid_argument("v2 node builder requires non-null construction memory"); }
-        if (m_runtime_ops == nullptr) {
-            throw std::invalid_argument("v2 node builder requires an implementation to be set");
-        }
-        validate_push_source_contract();
+        assert(m_runtime_ops != nullptr);
+        assert(m_node_type != NodeTypeEnum::PUSH_SOURCE_NODE || m_has_push_message_hook);
+        assert(m_node_type != NodeTypeEnum::PUSH_SOURCE_NODE || m_push_source_runtime_ops != nullptr);
 
         const auto builders = resolve_builders(
             m_input_schema,

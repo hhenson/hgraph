@@ -750,6 +750,12 @@ TEST_CASE("v2 node builder rejects push source implementations without apply_mes
     CHECK_THROWS_AS(impl_then_push_node.node_type(hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE), std::logic_error);
 }
 
+TEST_CASE("v2 graph builder rejects nodes without implementations when added", "[v2][graph][builder]")
+{
+    hgraph::v2::GraphBuilder builder;
+    CHECK_THROWS_AS(builder.add_node(hgraph::v2::NodeBuilder{}.label("incomplete")), std::invalid_argument);
+}
+
 TEST_CASE("v2 simulation engines reject push source graphs at build time", "[v2][engine][push]")
 {
     auto &value_registry = hgraph::value::TypeRegistry::instance();

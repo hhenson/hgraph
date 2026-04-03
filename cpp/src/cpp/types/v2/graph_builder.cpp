@@ -166,6 +166,7 @@ namespace hgraph::v2
 
     GraphBuilder &GraphBuilder::add_node(NodeBuilder node_builder)
     {
+        node_builder.validate_complete();
         m_node_builders.emplace_back(std::move(node_builder));
         return *this;
     }
