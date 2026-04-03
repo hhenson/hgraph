@@ -34,7 +34,7 @@ namespace hgraph::v2
 
         [[nodiscard]] size_t size() const;
         [[nodiscard]] size_t alignment() const;
-        [[nodiscard]] Graph make_graph() const;
+        [[nodiscard]] Graph make_graph(GraphEvaluationEngine evaluation_engine) const;
 
       private:
         std::vector<NodeBuilder> m_node_builders;

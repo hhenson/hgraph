@@ -9,11 +9,54 @@
 #include <condition_variable>
 #include <mutex>
 #include <stdexcept>
+#include <utility>
 
 namespace hgraph::v2
 {
     namespace
     {
+        // Runs a cleanup action exactly once. If complete() is not called and the
+        // scope exits due to exception unwinding, the cleanup is invoked from the
+        // destructor and any cleanup failure is suppressed. If complete() is
+        // called explicitly, cleanup failures are allowed to propagate normally.
+        template <typename TCleanup>
+        class UnwindCleanupGuard
+        {
+          public:
+            explicit UnwindCleanupGuard(TCleanup cleanup)
+                : m_cleanup(std::move(cleanup)), m_uncaught_exceptions(std::uncaught_exceptions())
+            {
+            }
+
+            UnwindCleanupGuard(const UnwindCleanupGuard &) = delete;
+            UnwindCleanupGuard &operator=(const UnwindCleanupGuard &) = delete;
+
+            void complete()
+            {
+                if (!m_active) { return; }
+                m_active = false;
+                m_cleanup();
+            }
+
+            ~UnwindCleanupGuard() noexcept
+            {
+                if (!m_active || std::uncaught_exceptions() <= m_uncaught_exceptions) { return; }
+
+                try {
+                    m_cleanup();
+                } catch (...) {
+                }
+            }
+
+          private:
+            TCleanup m_cleanup;
+            int m_uncaught_exceptions{0};
+            bool m_active{true};
+        };
+
+        template <typename TCleanup>
+        UnwindCleanupGuard(TCleanup) -> UnwindCleanupGuard<TCleanup>;
+
         struct BaseClockState
         {
             explicit BaseClockState(engine_time_t start_time)
@@ -266,8 +309,11 @@ namespace hgraph::v2
             std::vector<std::function<void()>> after_evaluation_notifications;
             Graph graph;
 
-            EvaluationEngineState(Graph graph, engine_time_t start_time, engine_time_t end_time)
-                : clock(start_time), start_time(start_time), end_time(end_time), graph(std::move(graph))
+            EvaluationEngineState(const GraphBuilder &graph_builder, engine_time_t start_time, engine_time_t end_time)
+                : clock(start_time),
+                  start_time(start_time),
+                  end_time(end_time),
+                  graph(graph_builder.make_graph({this, &k_engine_ops}))
             {
             }
 
@@ -473,22 +519,15 @@ namespace hgraph::v2
                 }
 
                 state.graph.start();
-                try {
-                    while (state.clock.evaluation_time() < state.end_time) {
-                        notify_before_evaluation_impl(impl);
-                        state.graph.evaluate(state.clock.evaluation_time());
-                        notify_after_evaluation_impl(impl);
-                        advance_engine_time_impl(impl);
-                    }
-                } catch (...) {
-                    try {
-                        state.graph.stop();
-                    } catch (...) {
-                    }
-                    throw;
+                auto stop_graph = UnwindCleanupGuard([&] { state.graph.stop(); });
+                while (state.clock.evaluation_time() < state.end_time) {
+                    notify_before_evaluation_impl(impl);
+                    state.graph.evaluate(state.clock.evaluation_time());
+                    notify_after_evaluation_impl(impl);
+                    advance_engine_time_impl(impl);
                 }
 
-                state.graph.stop();
+                stop_graph.complete();
             }
 
             static void destruct_impl(void *impl) noexcept
@@ -651,8 +690,7 @@ namespace hgraph::v2
         switch (m_evaluation_mode) {
             case EvaluationMode::SIMULATION: {
                 // Hold the state under temporary ownership until the engine is attached and observer registration completes.
-                auto state = std::make_unique<SimulationEvaluationEngineState>(m_graph_builder->make_graph(), m_start_time, m_end_time);
-                state->graph.set_evaluation_engine(state.get(), &SimulationEvaluationEngineState::k_engine_ops);
+                auto state = std::make_unique<SimulationEvaluationEngineState>(*m_graph_builder, m_start_time, m_end_time);
                 for (auto *observer : m_life_cycle_observers) {
                     SimulationEvaluationEngineState::add_life_cycle_observer_impl(state.get(), observer);
                 }
@@ -661,8 +699,7 @@ namespace hgraph::v2
 
             case EvaluationMode::REAL_TIME: {
                 // Hold the state under temporary ownership until the engine is attached and observer registration completes.
-                auto state = std::make_unique<RealTimeEvaluationEngineState>(m_graph_builder->make_graph(), m_start_time, m_end_time);
-                state->graph.set_evaluation_engine(state.get(), &RealTimeEvaluationEngineState::k_engine_ops);
+                auto state = std::make_unique<RealTimeEvaluationEngineState>(*m_graph_builder, m_start_time, m_end_time);
                 for (auto *observer : m_life_cycle_observers) {
                     RealTimeEvaluationEngineState::add_life_cycle_observer_impl(state.get(), observer);
                 }

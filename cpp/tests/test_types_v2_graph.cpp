@@ -172,6 +172,111 @@ namespace hgraph::v2::test_detail
         }
     };
 
+    struct ThrowOnEval
+    {
+        ThrowOnEval() = delete;
+        ~ThrowOnEval() = delete;
+
+        static void eval(In<"lhs", TS<int>> lhs)
+        {
+            static_cast<void>(lhs);
+            throw std::runtime_error("v2 test eval failure");
+        }
+    };
+
+    struct StopThrowsNode
+    {
+        StopThrowsNode() = delete;
+        ~StopThrowsNode() = delete;
+
+        static inline int stop_calls{0};
+
+        static void reset()
+        {
+            stop_calls = 0;
+        }
+
+        static void stop()
+        {
+            ++stop_calls;
+            throw std::runtime_error("v2 test stop failure");
+        }
+
+        static void eval() {}
+    };
+
+    struct StopTracksNode
+    {
+        StopTracksNode() = delete;
+        ~StopTracksNode() = delete;
+
+        static inline int stop_calls{0};
+
+        static void reset()
+        {
+            stop_calls = 0;
+        }
+
+        static void stop()
+        {
+            ++stop_calls;
+        }
+
+        static void eval() {}
+    };
+
+    struct CountingObserver : EvaluationLifeCycleObserver
+    {
+        int before_graph_evaluation{0};
+        int after_graph_evaluation{0};
+        int before_node_evaluation{0};
+        int after_node_evaluation{0};
+        int before_stop_graph{0};
+        int after_stop_graph{0};
+        int before_stop_node{0};
+        int after_stop_node{0};
+
+        void on_before_graph_evaluation(Graph &) override
+        {
+            ++before_graph_evaluation;
+        }
+
+        void on_after_graph_evaluation(Graph &) override
+        {
+            ++after_graph_evaluation;
+        }
+
+        void on_before_node_evaluation(Node &) override
+        {
+            ++before_node_evaluation;
+        }
+
+        void on_after_node_evaluation(Node &) override
+        {
+            ++after_node_evaluation;
+        }
+
+        void on_before_stop_graph(Graph &) override
+        {
+            ++before_stop_graph;
+        }
+
+        void on_after_stop_graph(Graph &) override
+        {
+            ++after_stop_graph;
+        }
+
+        void on_before_stop_node(Node &) override
+        {
+            ++before_stop_node;
+        }
+
+        void on_after_stop_node(Node &) override
+        {
+            ++after_stop_node;
+        }
+    };
+
     [[nodiscard]] engine_time_t tick(int offset)
     {
         return MIN_DT + std::chrono::microseconds{offset};
@@ -343,7 +448,7 @@ TEST_CASE("v2 graph wires scalar sources into a compute node with validity gatin
     graph.evaluate(hgraph::v2::test_detail::tick(2));
     CHECK(graph.node_at(2).output_view().value().as_atomic().as<int>() == 5);
     CHECK(graph.node_at(2).output_view(hgraph::v2::test_detail::tick(2)).modified());
-    CHECK(graph.scheduled_time(2) == hgraph::MIN_DT);
+    CHECK(graph.scheduled_time(2) == hgraph::v2::test_detail::tick(2));
 }
 
 TEST_CASE("v2 graph binds bundle output child paths into nested input paths", "[v2][graph]")
@@ -486,6 +591,89 @@ TEST_CASE("v2 evaluation engine builder produces a runnable simulation engine", 
     CHECK(before_count == 2);
     CHECK(after_count == 2);
     CHECK(engine.graph().engine_evaluation_clock().evaluation_time() == hgraph::v2::test_detail::tick(71));
+}
+
+TEST_CASE("v2 graph scheduling matches current graph overwrite rules", "[v2][graph][schedule]")
+{
+    hgraph::v2::GraphBuilder builder;
+    builder.add_node(hgraph::v2::NodeBuilder{}.label("node").implementation<hgraph::v2::test_detail::NoopNode>());
+
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(80), hgraph::v2::test_detail::tick(90));
+    auto &graph = engine.graph();
+
+    graph.schedule_node(0, hgraph::v2::test_detail::tick(80));
+    CHECK(graph.scheduled_time(0) == hgraph::v2::test_detail::tick(80));
+
+    graph.schedule_node(0, hgraph::v2::test_detail::tick(85));
+    CHECK(graph.scheduled_time(0) == hgraph::v2::test_detail::tick(85));
+
+    graph.schedule_node(0, hgraph::v2::test_detail::tick(88), true);
+    CHECK(graph.scheduled_time(0) == hgraph::v2::test_detail::tick(88));
+}
+
+TEST_CASE("v2 graph notifies after evaluation even when node evaluation throws", "[v2][graph][engine]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+
+    hgraph::v2::test_detail::CountingObserver observer;
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("throws").implementation<hgraph::v2::test_detail::ThrowOnEval>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+
+    auto engine = hgraph::v2::EvaluationEngineBuilder{}
+                      .graph_builder(std::move(builder))
+                      .start_time(hgraph::v2::test_detail::tick(100))
+                      .end_time(hgraph::v2::test_detail::tick(110))
+                      .add_life_cycle_observer(&observer)
+                      .build();
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 7, hgraph::v2::test_detail::tick(101));
+
+    CHECK_THROWS_AS(graph.evaluate(hgraph::v2::test_detail::tick(101)), std::runtime_error);
+    CHECK(graph.last_evaluation_time() == hgraph::v2::test_detail::tick(101));
+    CHECK(observer.before_graph_evaluation == 1);
+    CHECK(observer.after_graph_evaluation == 1);
+    CHECK(observer.before_node_evaluation == 1);
+    CHECK(observer.after_node_evaluation == 1);
+}
+
+TEST_CASE("v2 graph stop continues through node failures before rethrowing", "[v2][graph][lifecycle]")
+{
+    hgraph::v2::test_detail::StopThrowsNode::reset();
+    hgraph::v2::test_detail::StopTracksNode::reset();
+    hgraph::v2::test_detail::CountingObserver observer;
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("throws_on_stop").implementation<hgraph::v2::test_detail::StopThrowsNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("tracks_stop").implementation<hgraph::v2::test_detail::StopTracksNode>());
+
+    auto engine = hgraph::v2::EvaluationEngineBuilder{}
+                      .graph_builder(std::move(builder))
+                      .start_time(hgraph::v2::test_detail::tick(120))
+                      .end_time(hgraph::v2::test_detail::tick(130))
+                      .add_life_cycle_observer(&observer)
+                      .build();
+    auto &graph = engine.graph();
+    graph.start();
+
+    CHECK_THROWS_AS(graph.stop(), std::runtime_error);
+    CHECK(hgraph::v2::test_detail::StopThrowsNode::stop_calls == 1);
+    CHECK(hgraph::v2::test_detail::StopTracksNode::stop_calls == 1);
+    CHECK(observer.before_stop_graph == 1);
+    CHECK(observer.after_stop_graph == 1);
+    CHECK(observer.before_stop_node == 2);
+    CHECK(observer.after_stop_node == 2);
 }
 
 TEST_CASE("v2 real-time engine clock advances to scheduled wall-clock time", "[v2][engine][realtime]")

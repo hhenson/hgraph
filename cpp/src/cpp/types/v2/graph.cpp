@@ -1,28 +1,103 @@
 #include <hgraph/types/v2/graph.h>
 
+#include <exception>
 #include <new>
 #include <stdexcept>
+#include <utility>
 
 namespace hgraph::v2
 {
+    namespace
+    {
+        // Runs a cleanup action exactly once. If complete() is not called and the
+        // scope exits due to exception unwinding, the cleanup is invoked from the
+        // destructor and any cleanup failure is suppressed. If complete() is
+        // called explicitly, cleanup failures are allowed to propagate normally.
+        template <typename TCleanup>
+        class UnwindCleanupGuard
+        {
+          public:
+            explicit UnwindCleanupGuard(TCleanup cleanup)
+                : m_cleanup(std::move(cleanup)), m_uncaught_exceptions(std::uncaught_exceptions())
+            {
+            }
+
+            UnwindCleanupGuard(const UnwindCleanupGuard &) = delete;
+            UnwindCleanupGuard &operator=(const UnwindCleanupGuard &) = delete;
+
+            void complete()
+            {
+                if (!m_active) { return; }
+                m_active = false;
+                m_cleanup();
+            }
+
+            ~UnwindCleanupGuard() noexcept
+            {
+                if (!m_active || std::uncaught_exceptions() <= m_uncaught_exceptions) { return; }
+
+                try {
+                    m_cleanup();
+                } catch (...) {
+                }
+            }
+
+          private:
+            TCleanup m_cleanup;
+            int m_uncaught_exceptions{0};
+            bool m_active{true};
+        };
+
+        template <typename TCleanup>
+        UnwindCleanupGuard(TCleanup) -> UnwindCleanupGuard<TCleanup>;
+
+        // Collects the first exception seen across a sequence of best-effort
+        // cleanup operations while still allowing later operations to run. This
+        // mirrors the graph stop semantics where shutdown should continue and
+        // the first failure is rethrown once cleanup is complete.
+        class FirstExceptionRecorder
+        {
+          public:
+            template <typename TCallable>
+            void capture(TCallable &&callable) noexcept
+            {
+                try {
+                    std::forward<TCallable>(callable)();
+                } catch (...) {
+                    if (m_first_exception == nullptr) { m_first_exception = std::current_exception(); }
+                }
+            }
+
+            void rethrow_if_any() const
+            {
+                if (m_first_exception != nullptr) { std::rethrow_exception(m_first_exception); }
+            }
+
+          private:
+            std::exception_ptr m_first_exception;
+        };
+    }  // namespace
+
     Graph::~Graph()
     {
         clear_storage();
     }
 
+    Graph::Graph(GraphEvaluationEngine evaluation_engine) noexcept : m_evaluation_engine(evaluation_engine) {}
+
     Graph::Graph(Graph &&other) noexcept
         : m_node_count(other.m_node_count),
           m_started(other.m_started),
           m_storage_alignment(other.m_storage_alignment),
-          m_evaluation_engine_impl(other.m_evaluation_engine_impl),
-          m_evaluation_engine_ops(other.m_evaluation_engine_ops),
+          m_last_evaluation_time(other.m_last_evaluation_time),
+          m_evaluation_engine(other.m_evaluation_engine),
           m_storage(other.m_storage)
     {
         other.m_node_count = 0;
         other.m_started = false;
         other.m_storage_alignment = alignof(std::max_align_t);
-        other.m_evaluation_engine_impl = nullptr;
-        other.m_evaluation_engine_ops = nullptr;
+        other.m_last_evaluation_time = MIN_DT;
+        other.m_evaluation_engine = {};
         other.m_storage = nullptr;
         attach_nodes();
     }
@@ -35,15 +110,15 @@ namespace hgraph::v2
             m_node_count = other.m_node_count;
             m_started = other.m_started;
             m_storage_alignment = other.m_storage_alignment;
-            m_evaluation_engine_impl = other.m_evaluation_engine_impl;
-            m_evaluation_engine_ops = other.m_evaluation_engine_ops;
+            m_last_evaluation_time = other.m_last_evaluation_time;
+            m_evaluation_engine = other.m_evaluation_engine;
             m_storage = other.m_storage;
 
             other.m_node_count = 0;
             other.m_started = false;
             other.m_storage_alignment = alignof(std::max_align_t);
-            other.m_evaluation_engine_impl = nullptr;
-            other.m_evaluation_engine_ops = nullptr;
+            other.m_last_evaluation_time = MIN_DT;
+            other.m_evaluation_engine = {};
             other.m_storage = nullptr;
 
             attach_nodes();
@@ -53,26 +128,27 @@ namespace hgraph::v2
 
     EvaluationEngineApi Graph::evaluation_engine_api() const noexcept
     {
-        if (m_evaluation_engine_impl == nullptr || m_evaluation_engine_ops == nullptr) { return {}; }
-        return m_evaluation_engine_ops->evaluation_engine_api(m_evaluation_engine_impl);
+        return m_evaluation_engine.evaluation_engine_api();
     }
 
     EvaluationClock Graph::evaluation_clock() const noexcept
     {
-        const auto api = evaluation_engine_api();
-        return api ? api.evaluation_clock() : EvaluationClock{};
+        return evaluation_engine_api().evaluation_clock();
     }
 
     EngineEvaluationClock Graph::engine_evaluation_clock() const noexcept
     {
-        if (m_evaluation_engine_impl == nullptr || m_evaluation_engine_ops == nullptr) { return {}; }
-        return m_evaluation_engine_ops->engine_evaluation_clock(m_evaluation_engine_impl);
+        return m_evaluation_engine.engine_evaluation_clock();
     }
 
     engine_time_t Graph::evaluation_time() const noexcept
     {
-        const auto clock = engine_evaluation_clock();
-        return clock ? clock.evaluation_time() : MIN_DT;
+        return engine_evaluation_clock().evaluation_time();
+    }
+
+    engine_time_t Graph::last_evaluation_time() const noexcept
+    {
+        return m_last_evaluation_time;
     }
 
     engine_time_t Graph::scheduled_time(size_t index) const
@@ -81,21 +157,13 @@ namespace hgraph::v2
         return entry_storage()[index].scheduled;
     }
 
-    void Graph::set_evaluation_engine(void *evaluation_engine_impl, const EvaluationEngineOps *evaluation_engine_ops)
-    {
-        if (m_evaluation_engine_impl != nullptr && evaluation_engine_impl != nullptr) {
-            throw std::runtime_error("Duplicate attempt to set evaluation engine");
-        }
-        m_evaluation_engine_impl = evaluation_engine_impl;
-        m_evaluation_engine_ops = evaluation_engine_ops;
-    }
-
     void Graph::adopt_storage(void *storage, size_t storage_alignment, size_t node_count) noexcept
     {
         clear_storage();
         m_node_count = node_count;
         m_started = false;
         m_storage_alignment = storage_alignment;
+        m_last_evaluation_time = MIN_DT;
         m_storage = storage;
         attach_nodes();
     }
@@ -121,8 +189,8 @@ namespace hgraph::v2
         m_node_count = 0;
         m_started = false;
         m_storage_alignment = alignof(std::max_align_t);
-        m_evaluation_engine_impl = nullptr;
-        m_evaluation_engine_ops = nullptr;
+        m_last_evaluation_time = MIN_DT;
+        m_evaluation_engine = {};
         m_storage = nullptr;
     }
 
@@ -160,22 +228,14 @@ namespace hgraph::v2
     {
         if (m_started) { return; }
 
-        if (m_evaluation_engine_impl != nullptr) {
-            m_evaluation_engine_ops->notify_before_start_graph(m_evaluation_engine_impl, *this);
-        }
+        m_evaluation_engine.notify_before_start_graph(*this);
         for (size_t i = 0; i < m_node_count; ++i) {
             auto &node = *entry_storage()[i].node;
-            if (m_evaluation_engine_impl != nullptr) {
-                m_evaluation_engine_ops->notify_before_start_node(m_evaluation_engine_impl, node);
-            }
+            m_evaluation_engine.notify_before_start_node(node);
             node.start(evaluation_time());
-            if (m_evaluation_engine_impl != nullptr) {
-                m_evaluation_engine_ops->notify_after_start_node(m_evaluation_engine_impl, node);
-            }
+            m_evaluation_engine.notify_after_start_node(node);
         }
-        if (m_evaluation_engine_impl != nullptr) {
-            m_evaluation_engine_ops->notify_after_start_graph(m_evaluation_engine_impl, *this);
-        }
+        m_evaluation_engine.notify_after_start_graph(*this);
         m_started = true;
     }
 
@@ -183,64 +243,59 @@ namespace hgraph::v2
     {
         if (!m_started) { return; }
 
-        if (m_evaluation_engine_impl != nullptr) {
-            m_evaluation_engine_ops->notify_before_stop_graph(m_evaluation_engine_impl, *this);
-        }
+        m_evaluation_engine.notify_before_stop_graph(*this);
+        FirstExceptionRecorder exceptions;
         for (size_t i = 0; i < m_node_count; ++i) {
             auto &node = *entry_storage()[i].node;
-            if (m_evaluation_engine_impl != nullptr) {
-                m_evaluation_engine_ops->notify_before_stop_node(m_evaluation_engine_impl, node);
-            }
-            node.stop(evaluation_time());
-            if (m_evaluation_engine_impl != nullptr) {
-                m_evaluation_engine_ops->notify_after_stop_node(m_evaluation_engine_impl, node);
-            }
+            exceptions.capture([&] { m_evaluation_engine.notify_before_stop_node(node); });
+            exceptions.capture([&] { node.stop(evaluation_time()); });
+            exceptions.capture([&] { m_evaluation_engine.notify_after_stop_node(node); });
         }
-        if (m_evaluation_engine_impl != nullptr) {
-            m_evaluation_engine_ops->notify_after_stop_graph(m_evaluation_engine_impl, *this);
-        }
+        exceptions.capture([&] { m_evaluation_engine.notify_after_stop_graph(*this); });
+
         m_started = false;
+        exceptions.rethrow_if_any();
     }
 
     void Graph::evaluate(engine_time_t when)
     {
         const auto clock = engine_evaluation_clock();
-        if (!clock) { throw std::logic_error("v2 graph evaluation requires an attached evaluation engine"); }
 
         clock.set_evaluation_time(when);
-        m_evaluation_engine_ops->notify_before_graph_evaluation(m_evaluation_engine_impl, *this);
+        m_last_evaluation_time = when;
+        m_evaluation_engine.notify_before_graph_evaluation(*this);
+        auto after_graph_evaluation = UnwindCleanupGuard([&] { m_evaluation_engine.notify_after_graph_evaluation(*this); });
 
         for (size_t index = 0; index < m_node_count; ++index) {
             auto &entry = entry_storage()[index];
             if (entry.scheduled == when) {
-                m_evaluation_engine_ops->notify_before_node_evaluation(m_evaluation_engine_impl, *entry.node);
-                entry.scheduled = MIN_DT;
+                m_evaluation_engine.notify_before_node_evaluation(*entry.node);
+                auto after_node_evaluation =
+                    UnwindCleanupGuard([&] { m_evaluation_engine.notify_after_node_evaluation(*entry.node); });
                 entry.node->eval(when);
-                m_evaluation_engine_ops->notify_after_node_evaluation(m_evaluation_engine_impl, *entry.node);
+                after_node_evaluation.complete();
             } else if (entry.scheduled > when) {
                 clock.update_next_scheduled_evaluation_time(entry.scheduled);
             }
         }
 
-        m_evaluation_engine_ops->notify_after_graph_evaluation(m_evaluation_engine_impl, *this);
+        after_graph_evaluation.complete();
     }
 
-    void Graph::schedule_node(int64_t node_index, engine_time_t when)
+    void Graph::schedule_node(int64_t node_index, engine_time_t when, bool force_set)
     {
         if (node_index < 0 || static_cast<size_t>(node_index) >= m_node_count) {
             throw std::out_of_range("v2 graph schedule index is out of range");
         }
 
         const auto clock = engine_evaluation_clock();
-        if (!clock) { throw std::logic_error("v2 graph scheduling requires an attached evaluation engine"); }
-
         const engine_time_t current_time = clock.evaluation_time();
         if (current_time != MIN_DT && when < current_time) {
             throw std::runtime_error("v2 graph cannot schedule a node in the past");
         }
 
         engine_time_t &scheduled_time = entry_storage()[node_index].scheduled;
-        if (scheduled_time == MIN_DT || when < scheduled_time) { scheduled_time = when; }
+        if (force_set || scheduled_time <= current_time || when < scheduled_time) { scheduled_time = when; }
         clock.update_next_scheduled_evaluation_time(when);
     }
 }  // namespace hgraph::v2

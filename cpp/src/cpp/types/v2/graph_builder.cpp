@@ -166,12 +166,14 @@ namespace hgraph::v2
         return describe_layout(m_node_builders, inbound_edges).alignment;
     }
 
-    Graph GraphBuilder::make_graph() const
+    Graph GraphBuilder::make_graph(GraphEvaluationEngine evaluation_engine) const
     {
+        if (!evaluation_engine) { throw std::logic_error("v2 graph builder requires an attached evaluation engine"); }
+
         const auto inbound_edges = compile_inbound_edges(m_node_builders, m_edges);
         const auto layout = describe_layout(m_node_builders, inbound_edges);
 
-        Graph graph;
+        Graph graph(evaluation_engine);
         if (m_node_builders.empty()) { return graph; }
 
         void *storage = ::operator new(layout.total_size, std::align_val_t(layout.alignment));

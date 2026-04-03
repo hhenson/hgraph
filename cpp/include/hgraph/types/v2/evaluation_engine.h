@@ -238,6 +238,60 @@ namespace hgraph::v2
     };
 
     /**
+     * Non-owning graph-facing view of an attached evaluation engine.
+     *
+     * Graphs do not need the full owning EvaluationEngine runner surface. They
+     * only need a read-only engine API, the mutable engine clock, and the
+     * lifecycle/evaluation notifications that the current graph
+     * implementations call during start, evaluation, and stop.
+     */
+    class HGRAPH_EXPORT GraphEvaluationEngine
+    {
+      public:
+        GraphEvaluationEngine() = default;
+        GraphEvaluationEngine(void *impl, const EvaluationEngineOps *ops) noexcept : m_impl(impl), m_ops(ops) {}
+
+        [[nodiscard]] bool valid() const noexcept { return m_impl != nullptr && m_ops != nullptr; }
+        explicit operator bool() const noexcept { return valid(); }
+
+        [[nodiscard]] EvaluationEngineApi evaluation_engine_api() const noexcept
+        {
+            return valid() ? m_ops->evaluation_engine_api(m_impl) : EvaluationEngineApi{};
+        }
+        [[nodiscard]] EngineEvaluationClock engine_evaluation_clock() const
+        {
+            return ops().engine_evaluation_clock(m_impl);
+        }
+        [[nodiscard]] EvaluationClock evaluation_clock() const
+        {
+            return engine_evaluation_clock();
+        }
+        void notify_before_start_graph(Graph &graph) const { ops().notify_before_start_graph(m_impl, graph); }
+        void notify_after_start_graph(Graph &graph) const { ops().notify_after_start_graph(m_impl, graph); }
+        void notify_before_start_node(Node &node) const { ops().notify_before_start_node(m_impl, node); }
+        void notify_after_start_node(Node &node) const { ops().notify_after_start_node(m_impl, node); }
+        void notify_before_graph_evaluation(Graph &graph) const { ops().notify_before_graph_evaluation(m_impl, graph); }
+        void notify_after_graph_evaluation(Graph &graph) const { ops().notify_after_graph_evaluation(m_impl, graph); }
+        void notify_after_push_nodes_evaluation(Graph &graph) const { ops().notify_after_push_nodes_evaluation(m_impl, graph); }
+        void notify_before_node_evaluation(Node &node) const { ops().notify_before_node_evaluation(m_impl, node); }
+        void notify_after_node_evaluation(Node &node) const { ops().notify_after_node_evaluation(m_impl, node); }
+        void notify_before_stop_node(Node &node) const { ops().notify_before_stop_node(m_impl, node); }
+        void notify_after_stop_node(Node &node) const { ops().notify_after_stop_node(m_impl, node); }
+        void notify_before_stop_graph(Graph &graph) const { ops().notify_before_stop_graph(m_impl, graph); }
+        void notify_after_stop_graph(Graph &graph) const { ops().notify_after_stop_graph(m_impl, graph); }
+
+      private:
+        [[nodiscard]] const EvaluationEngineOps &ops() const
+        {
+            if (!valid()) { throw std::logic_error("v2 GraphEvaluationEngine is not bound to runtime state"); }
+            return *m_ops;
+        }
+
+        void *m_impl{nullptr};
+        const EvaluationEngineOps *m_ops{nullptr};
+    };
+
+    /**
      * Owning runnable evaluation engine.
      *
      * Unlike the internal runtime/API surfaces, this is the top-level object a
