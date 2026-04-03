@@ -1,4 +1,5 @@
 #include <hgraph/types/v2/graph_builder.h>
+#include <hgraph/util/scope.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -206,7 +207,12 @@ namespace hgraph::v2
         auto *entries = reinterpret_cast<NodeEntry *>(base);
         size_t constructed_nodes = 0;
 
-        try {
+        {
+            auto cleanup_storage = UnwindCleanupGuard([&] { ::operator delete(storage, std::align_val_t(layout.alignment)); });
+            auto cleanup_nodes = UnwindCleanupGuard([&] {
+                for (size_t i = constructed_nodes; i > 0; --i) { m_node_builders[i - 1].destruct_at(*entries[i - 1].node); }
+            });
+
             for (size_t i = 0; i < m_node_builders.size(); ++i) {
                 auto *node = m_node_builders[i].construct_at(base + layout.node_offsets[i], static_cast<int64_t>(i), inbound_edges[i]);
                 entries[i] = NodeEntry{MIN_DT, node};
@@ -214,16 +220,10 @@ namespace hgraph::v2
             }
 
             const int64_t push_source_nodes_end = validate_push_source_nodes(entries, m_node_builders.size());
-            auto *push_message_receiver =
-                push_source_nodes_end > 0 ? evaluation_engine.push_message_receiver() : nullptr;
-            if (push_source_nodes_end > 0 && push_message_receiver == nullptr) {
+            if (push_source_nodes_end > 0 && evaluation_engine.push_message_receiver() == nullptr) {
                 throw std::logic_error("v2 push-source graphs require an attached push-message receiver");
             }
-            graph.adopt_storage(storage, layout.alignment, m_node_builders.size(), push_source_nodes_end, push_message_receiver);
-        } catch (...) {
-            for (size_t i = constructed_nodes; i > 0; --i) { m_node_builders[i - 1].destruct_at(*entries[i - 1].node); }
-            ::operator delete(storage, std::align_val_t(layout.alignment));
-            throw;
+            graph.adopt_storage(storage, layout.alignment, m_node_builders.size(), push_source_nodes_end);
         }
 
         // Bind edges only after every node exists so TSInput construction can

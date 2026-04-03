@@ -1,84 +1,12 @@
 #include <hgraph/types/v2/graph.h>
+#include <hgraph/util/scope.h>
 
-#include <exception>
 #include <new>
 #include <stdexcept>
 #include <utility>
 
 namespace hgraph::v2
 {
-    namespace
-    {
-        // Runs a cleanup action exactly once. If complete() is not called and the
-        // scope exits due to exception unwinding, the cleanup is invoked from the
-        // destructor and any cleanup failure is suppressed. If complete() is
-        // called explicitly, cleanup failures are allowed to propagate normally.
-        template <typename TCleanup>
-        class UnwindCleanupGuard
-        {
-          public:
-            explicit UnwindCleanupGuard(TCleanup cleanup)
-                : m_cleanup(std::move(cleanup)), m_uncaught_exceptions(std::uncaught_exceptions())
-            {
-            }
-
-            UnwindCleanupGuard(const UnwindCleanupGuard &) = delete;
-            UnwindCleanupGuard &operator=(const UnwindCleanupGuard &) = delete;
-
-            void complete()
-            {
-                if (!m_active) { return; }
-                m_active = false;
-                m_cleanup();
-            }
-
-            ~UnwindCleanupGuard() noexcept
-            {
-                if (!m_active || std::uncaught_exceptions() <= m_uncaught_exceptions) { return; }
-
-                try {
-                    m_cleanup();
-                } catch (...) {
-                }
-            }
-
-          private:
-            TCleanup m_cleanup;
-            int m_uncaught_exceptions{0};
-            bool m_active{true};
-        };
-
-        template <typename TCleanup>
-        UnwindCleanupGuard(TCleanup) -> UnwindCleanupGuard<TCleanup>;
-
-        // Collects the first exception seen across a sequence of best-effort
-        // cleanup operations while still allowing later operations to run. This
-        // mirrors the graph stop semantics where shutdown should continue and
-        // the first failure is rethrown once cleanup is complete.
-        class FirstExceptionRecorder
-        {
-          public:
-            template <typename TCallable>
-            void capture(TCallable &&callable) noexcept
-            {
-                try {
-                    std::forward<TCallable>(callable)();
-                } catch (...) {
-                    if (m_first_exception == nullptr) { m_first_exception = std::current_exception(); }
-                }
-            }
-
-            void rethrow_if_any() const
-            {
-                if (m_first_exception != nullptr) { std::rethrow_exception(m_first_exception); }
-            }
-
-          private:
-            std::exception_ptr m_first_exception;
-        };
-
-    }  // namespace
-
     Graph::~Graph()
     {
         clear_storage();
@@ -94,7 +22,6 @@ namespace hgraph::v2
           m_started(other.m_started),
           m_storage_alignment(other.m_storage_alignment),
           m_last_evaluation_time(other.m_last_evaluation_time),
-          m_push_message_receiver(other.m_push_message_receiver),
           m_evaluation_engine(other.m_evaluation_engine),
           m_storage(other.m_storage)
     {
@@ -103,7 +30,6 @@ namespace hgraph::v2
         other.m_started = false;
         other.m_storage_alignment = alignof(std::max_align_t);
         other.m_last_evaluation_time = MIN_DT;
-        other.m_push_message_receiver = nullptr;
         other.m_evaluation_engine = {};
         other.m_storage = nullptr;
         attach_nodes();
@@ -119,7 +45,6 @@ namespace hgraph::v2
             m_started = other.m_started;
             m_storage_alignment = other.m_storage_alignment;
             m_last_evaluation_time = other.m_last_evaluation_time;
-            m_push_message_receiver = other.m_push_message_receiver;
             m_evaluation_engine = other.m_evaluation_engine;
             m_storage = other.m_storage;
 
@@ -128,7 +53,6 @@ namespace hgraph::v2
             other.m_started = false;
             other.m_storage_alignment = alignof(std::max_align_t);
             other.m_last_evaluation_time = MIN_DT;
-            other.m_push_message_receiver = nullptr;
             other.m_evaluation_engine = {};
             other.m_storage = nullptr;
 
@@ -173,11 +97,7 @@ namespace hgraph::v2
         return entry_storage()[index].scheduled;
     }
 
-    void Graph::adopt_storage(void *storage,
-                              size_t storage_alignment,
-                              size_t node_count,
-                              int64_t push_source_nodes_end,
-                              SenderReceiverState *push_message_receiver) noexcept
+    void Graph::adopt_storage(void *storage, size_t storage_alignment, size_t node_count, int64_t push_source_nodes_end) noexcept
     {
         clear_storage();
         m_node_count = node_count;
@@ -185,7 +105,6 @@ namespace hgraph::v2
         m_started = false;
         m_storage_alignment = storage_alignment;
         m_last_evaluation_time = MIN_DT;
-        m_push_message_receiver = push_message_receiver;
         m_storage = storage;
         attach_nodes();
     }
@@ -213,7 +132,6 @@ namespace hgraph::v2
         m_started = false;
         m_storage_alignment = alignof(std::max_align_t);
         m_last_evaluation_time = MIN_DT;
-        m_push_message_receiver = nullptr;
         m_evaluation_engine = {};
         m_storage = nullptr;
     }
@@ -290,28 +208,7 @@ namespace hgraph::v2
         m_evaluation_engine.notify_before_graph_evaluation(*this);
         auto after_graph_evaluation = UnwindCleanupGuard([&] { m_evaluation_engine.notify_after_graph_evaluation(*this); });
 
-        if (m_push_source_nodes_end > 0 && clock.push_node_requires_scheduling()) {
-            clock.reset_push_node_requires_scheduling();
-
-            while (auto value = m_push_message_receiver->dequeue()) {
-                auto &message = *value;
-                Node &node = node_at(static_cast<size_t>(message.target_node_index));
-                const auto *push_runtime_ops = node.spec().push_source_runtime_ops;
-                m_evaluation_engine.notify_before_node_evaluation(node);
-                auto after_node_evaluation =
-                    UnwindCleanupGuard([&] { m_evaluation_engine.notify_after_node_evaluation(node); });
-                const bool success = push_runtime_ops->apply_message(node, message.payload, when);
-                after_node_evaluation.complete();
-
-                if (!success) {
-                    m_push_message_receiver->enqueue_front(std::move(message));
-                    clock.mark_push_node_requires_scheduling();
-                    break;
-                }
-            }
-
-            m_evaluation_engine.notify_after_push_nodes_evaluation(*this);
-        }
+        m_evaluation_engine.evaluate_push_source_nodes(*this, when);
 
         for (size_t index = static_cast<size_t>(m_push_source_nodes_end); index < m_node_count; ++index) {
             auto &entry = entry_storage()[index];

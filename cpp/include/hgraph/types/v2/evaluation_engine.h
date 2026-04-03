@@ -228,6 +228,7 @@ namespace hgraph::v2
         void (*notify_before_graph_evaluation)(void *impl, Graph &graph);
         void (*notify_after_graph_evaluation)(void *impl, Graph &graph);
         void (*notify_after_push_nodes_evaluation)(void *impl, Graph &graph);
+        void (*evaluate_push_source_nodes)(void *impl, Graph &graph, engine_time_t when);
         void (*notify_before_node_evaluation)(void *impl, Node &node);
         void (*notify_after_node_evaluation)(void *impl, Node &node);
         void (*notify_before_stop_node)(void *impl, Node &node);
@@ -276,6 +277,10 @@ namespace hgraph::v2
         void notify_before_graph_evaluation(Graph &graph) const { ops().notify_before_graph_evaluation(m_impl, graph); }
         void notify_after_graph_evaluation(Graph &graph) const { ops().notify_after_graph_evaluation(m_impl, graph); }
         void notify_after_push_nodes_evaluation(Graph &graph) const { ops().notify_after_push_nodes_evaluation(m_impl, graph); }
+        void evaluate_push_source_nodes(Graph &graph, engine_time_t when) const
+        {
+            ops().evaluate_push_source_nodes(m_impl, graph, when);
+        }
         void notify_before_node_evaluation(Node &node) const { ops().notify_before_node_evaluation(m_impl, node); }
         void notify_after_node_evaluation(Node &node) const { ops().notify_after_node_evaluation(m_impl, node); }
         void notify_before_stop_node(Node &node) const { ops().notify_before_stop_node(m_impl, node); }

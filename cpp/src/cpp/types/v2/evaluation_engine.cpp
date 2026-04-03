@@ -1,5 +1,6 @@
 #include <hgraph/types/v2/evaluation_engine.h>
 
+#include <hgraph/util/scope.h>
 #include <hgraph/types/v2/graph.h>
 #include <hgraph/types/v2/graph_builder.h>
 #include <hgraph/types/v2/node.h>
@@ -15,48 +16,6 @@ namespace hgraph::v2
 {
     namespace
     {
-        // Runs a cleanup action exactly once. If complete() is not called and the
-        // scope exits due to exception unwinding, the cleanup is invoked from the
-        // destructor and any cleanup failure is suppressed. If complete() is
-        // called explicitly, cleanup failures are allowed to propagate normally.
-        template <typename TCleanup>
-        class UnwindCleanupGuard
-        {
-          public:
-            explicit UnwindCleanupGuard(TCleanup cleanup)
-                : m_cleanup(std::move(cleanup)), m_uncaught_exceptions(std::uncaught_exceptions())
-            {
-            }
-
-            UnwindCleanupGuard(const UnwindCleanupGuard &) = delete;
-            UnwindCleanupGuard &operator=(const UnwindCleanupGuard &) = delete;
-
-            void complete()
-            {
-                if (!m_active) { return; }
-                m_active = false;
-                m_cleanup();
-            }
-
-            ~UnwindCleanupGuard() noexcept
-            {
-                if (!m_active || std::uncaught_exceptions() <= m_uncaught_exceptions) { return; }
-
-                try {
-                    m_cleanup();
-                } catch (...) {
-                }
-            }
-
-          private:
-            TCleanup m_cleanup;
-            int m_uncaught_exceptions{0};
-            bool m_active{true};
-        };
-
-        template <typename TCleanup>
-        UnwindCleanupGuard(TCleanup) -> UnwindCleanupGuard<TCleanup>;
-
         struct BaseClockState
         {
             explicit BaseClockState(engine_time_t start_time)
@@ -492,6 +451,40 @@ namespace hgraph::v2
                                  [&](EvaluationLifeCycleObserver &observer) { observer.on_after_graph_push_nodes_evaluation(graph); });
             }
 
+            static void evaluate_push_source_nodes_impl(void *impl, Graph &graph, engine_time_t when)
+            {
+                if constexpr (TMode != EvaluationMode::REAL_TIME) {
+                    static_cast<void>(impl);
+                    static_cast<void>(graph);
+                    static_cast<void>(when);
+                    return;
+                } else {
+                    auto &state = state_from(impl);
+                    if (graph.push_source_nodes_end() <= 0 || !state.clock.push_node_requires_scheduling()) { return; }
+
+                    state.clock.reset_push_node_requires_scheduling();
+                    auto *receiver = state.push_message_receiver_storage.receiver();
+
+                    while (auto value = receiver->dequeue()) {
+                        auto &message = *value;
+                        Node &node = graph.node_at(static_cast<size_t>(message.target_node_index));
+                        const auto *push_runtime_ops = node.spec().push_source_runtime_ops;
+                        notify_before_node_evaluation_impl(impl, node);
+                        auto after_node_evaluation =
+                            UnwindCleanupGuard([&] { notify_after_node_evaluation_impl(impl, node); });
+                        const bool success = push_runtime_ops->apply_message(node, message.payload, when);
+                        after_node_evaluation.complete();
+                        if (!success) {
+                            receiver->enqueue_front(std::move(message));
+                            state.clock.mark_push_node_requires_scheduling();
+                            break;
+                        }
+                    }
+
+                    notify_after_push_nodes_evaluation_impl(impl, graph);
+                }
+            }
+
             static void notify_before_node_evaluation_impl(void *impl, Node &node)
             {
                 notify_observers(state_from(impl), [&](EvaluationLifeCycleObserver &observer) { observer.on_before_node_evaluation(node); });
@@ -614,6 +607,7 @@ namespace hgraph::v2
             &EvaluationEngineState<TClockState, TMode>::notify_before_graph_evaluation_impl,
             &EvaluationEngineState<TClockState, TMode>::notify_after_graph_evaluation_impl,
             &EvaluationEngineState<TClockState, TMode>::notify_after_push_nodes_evaluation_impl,
+            &EvaluationEngineState<TClockState, TMode>::evaluate_push_source_nodes_impl,
             &EvaluationEngineState<TClockState, TMode>::notify_before_node_evaluation_impl,
             &EvaluationEngineState<TClockState, TMode>::notify_after_node_evaluation_impl,
             &EvaluationEngineState<TClockState, TMode>::notify_before_stop_node_impl,

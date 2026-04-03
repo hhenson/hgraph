@@ -63,8 +63,7 @@ namespace hgraph::v2
         void adopt_storage(void *storage,
                            size_t storage_alignment,
                            size_t node_count,
-                           int64_t push_source_nodes_end,
-                           SenderReceiverState *push_message_receiver) noexcept;
+                           int64_t push_source_nodes_end) noexcept;
         void clear_storage() noexcept;
         void attach_nodes() noexcept;
         [[nodiscard]] NodeEntry *entry_storage() noexcept;
@@ -75,7 +74,6 @@ namespace hgraph::v2
         bool m_started{false};
         size_t m_storage_alignment{alignof(std::max_align_t)};
         engine_time_t m_last_evaluation_time{MIN_DT};
-        SenderReceiverState *m_push_message_receiver{nullptr};
         GraphEvaluationEngine m_evaluation_engine;
         void *m_storage{nullptr};
     };
