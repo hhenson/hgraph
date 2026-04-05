@@ -89,6 +89,37 @@ def test_v2_python_compute_nodes_run_with_core_injectables():
     assert compute_events[1]["previous"] == 2
 
 
+def test_v2_python_nodes_can_self_notify_during_start_without_declaring_scheduler():
+    compute_times = []
+    sink_values = []
+
+    @compute_node(active=(), valid=())
+    def py_start_notify(ts: TS[int], _clock: EvaluationClock = None, _node: Node = None, _state: STATE = None) -> TS[int]:
+        del ts
+        _state.calls = getattr(_state, "calls", 0) + 1
+        compute_times.append(_clock.evaluation_time)
+        return _state.calls
+
+    @py_start_notify.start
+    def py_start_notify_start(_clock: EvaluationClock = None, _node: Node = None):
+        _node.notify(_clock.evaluation_time + timedelta(milliseconds=5))
+
+    @sink_node
+    def py_sink(ts: TS[int]):
+        sink_values.append(ts.value)
+
+    @graph
+    def g():
+        py_sink(py_start_notify(v2_const(1)))
+
+    config = GraphConfiguration(end_time=timedelta(milliseconds=1))
+    with use_v2_python_node_builder():
+        evaluate_graph(g, config)
+
+    assert compute_times == [config.start_time]
+    assert sink_values == [1]
+
+
 def test_v2_python_recordable_state_is_available():
     seen = []
 

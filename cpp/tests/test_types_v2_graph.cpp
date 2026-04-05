@@ -378,6 +378,39 @@ namespace hgraph::v2::test_detail
         static void eval() {}
     };
 
+    // Mirrors the PythonContextStubSourceNode startup pattern: kick the node
+    // once during start so it runs in the initial evaluation cycle, without
+    // opting into full scheduler semantics.
+    struct StartupNotifyWithoutSchedulerNode
+    {
+        StartupNotifyWithoutSchedulerNode() = delete;
+        ~StartupNotifyWithoutSchedulerNode() = delete;
+
+        static inline int start_calls{0};
+        static inline int eval_calls{0};
+        static inline engine_time_t last_eval_time{MIN_DT};
+
+        static void reset()
+        {
+            start_calls = 0;
+            eval_calls = 0;
+            last_eval_time = MIN_DT;
+        }
+
+        static void start(Node &node, engine_time_t evaluation_time)
+        {
+            ++start_calls;
+            node.notify(evaluation_time + hgraph::MIN_TD * 5);
+        }
+
+        static void eval(EvaluationClock clock, Out<TS<int>> out)
+        {
+            ++eval_calls;
+            last_eval_time = clock.evaluation_time();
+            out.set(1);
+        }
+    };
+
     struct CountingObserver : EvaluationLifeCycleObserver
     {
         int before_start_graph{0};
@@ -1064,6 +1097,36 @@ TEST_CASE("v2 graph scheduling matches current graph overwrite rules", "[v2][gra
 
     graph.schedule_node(0, hgraph::v2::test_detail::tick(88), true);
     CHECK(graph.scheduled_time(0) == hgraph::v2::test_detail::tick(88));
+}
+
+TEST_CASE("v2 startup notify without a declared scheduler only schedules the startup cycle", "[v2][graph][schedule]")
+{
+    hgraph::v2::test_detail::StartupNotifyWithoutSchedulerNode::reset();
+
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+
+    hgraph::v2::GraphBuilder builder;
+    builder.add_node(
+        hgraph::v2::NodeBuilder{}.label("startup_notify").output_schema(scalar_ts).implementation<
+            hgraph::v2::test_detail::StartupNotifyWithoutSchedulerNode>());
+
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(300), hgraph::v2::test_detail::tick(301));
+    auto &graph = engine.graph();
+    graph.start();
+
+    CHECK(hgraph::v2::test_detail::StartupNotifyWithoutSchedulerNode::start_calls == 1);
+    CHECK(graph.scheduled_time(0) == hgraph::v2::test_detail::tick(300));
+
+    graph.evaluate(hgraph::v2::test_detail::tick(300));
+
+    CHECK(hgraph::v2::test_detail::StartupNotifyWithoutSchedulerNode::eval_calls == 1);
+    CHECK(hgraph::v2::test_detail::StartupNotifyWithoutSchedulerNode::last_eval_time == hgraph::v2::test_detail::tick(300));
+    CHECK(graph.node_at(0).output_view().value().as_atomic().as<int>() == 1);
 }
 
 TEST_CASE("v2 graph notifies after evaluation even when node evaluation throws", "[v2][graph][engine]")

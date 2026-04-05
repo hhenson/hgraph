@@ -442,7 +442,10 @@ namespace hgraph::v2
         } else if (uses_scheduler()) {
             scheduler().schedule(MIN_ST, std::string{"start"});
         } else {
-            m_graph->schedule_node(m_node_index, et);
+            // Undeclared startup notifications only support "evaluate me in the
+            // startup cycle". Any real future/tagged scheduling requires the
+            // node to opt into NodeScheduler explicitly.
+            m_graph->schedule_node(m_node_index, m_graph->evaluation_time());
         }
     }
 
