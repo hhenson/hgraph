@@ -1,12 +1,14 @@
 from contextlib import contextmanager
+from datetime import timedelta
 
 import hgraph._hgraph as _hgraph
-from hgraph import TS, TSD, const, generator, graph, sink_node
+import pytest
+
+from hgraph import TS, TSD, GraphConfiguration, const, evaluate_graph, generator, graph, sink_node
 from hgraph._builder._graph_builder import GraphBuilderFactory
 from hgraph._wiring._graph_builder import wire_graph
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
 from hgraph._wiring._wiring_node_class import BaseWiringNodeClass
-from hgraph._wiring._wiring_node_class._cpp_static_wiring_node_class import CppStaticNodeBuilder
 
 
 @contextmanager
@@ -57,7 +59,7 @@ def test_cpp_static_compute_node_wires_into_python_graph_builder():
     with use_python_graph_builder(), WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, CppStaticNodeBuilder)]
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
     assert len(cpp_builders) == 1
 
     cpp_builder = cpp_builders[0]
@@ -93,7 +95,7 @@ def test_cpp_static_generic_compute_node_exports_linked_type_vars_and_resolves_o
     with use_python_graph_builder(), WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, CppStaticNodeBuilder)]
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
     assert len(cpp_builders) == 1
 
     cpp_builder = cpp_builders[0]
@@ -133,7 +135,7 @@ def test_cpp_static_compute_node_exports_recordable_state_builder():
     with use_python_graph_builder(), WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, CppStaticNodeBuilder)]
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
     assert len(cpp_builders) == 1
     assert cpp_builders[0].recordable_state_builder is not None
 
@@ -144,3 +146,42 @@ def test_cpp_static_compute_node_exports_evaluation_clock_metadata():
     assert isinstance(static_clock, BaseWiringNodeClass)
     assert static_clock.signature.args == ("lhs", "_clock")
     assert static_clock.signature.uses_clock
+
+
+def test_cpp_static_mixed_graphs_fail_early_with_clear_v2_message():
+    static_sum = _hgraph.v2.static_sum
+
+    @generator
+    def src(value: int) -> TS[int]:
+        yield value
+
+    @sink_node
+    def sink(ts: TS[int]):
+        pass
+
+    @graph
+    def g():
+        sink(static_sum(src(1), src(2)))
+
+    with pytest.raises(NotImplementedError, match="mixed builder types are not supported yet"):
+        with WiringNodeInstanceContext():
+            wire_graph(g)
+
+
+def test_cpp_static_graphs_can_run_through_v2_runtime_path():
+    static_tick = _hgraph.v2.static_tick
+    static_sink = _hgraph.v2.static_sink
+
+    @graph
+    def g():
+        static_sink(static_tick())
+
+    with WiringNodeInstanceContext():
+        graph_builder = wire_graph(g)
+    assert isinstance(graph_builder, _hgraph.v2.GraphBuilder)
+
+    _hgraph.v2.reset_static_sink_state()
+    evaluate_graph(g, GraphConfiguration(end_time=timedelta(milliseconds=1)))
+
+    assert _hgraph.v2.static_sink_call_count() == 1
+    assert _hgraph.v2.static_sink_last_value() == 42

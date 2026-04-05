@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/v2/node_builder.h>
 #include <hgraph/types/v2/static_signature.h>
 
 #include <string>
@@ -75,25 +76,32 @@ namespace hgraph::v2
         const std::string node_name = detail::node_name_or<TImplementation>(name);
 
         nb::object builder_factory = nb::cpp_function(
-            [node_name](nb::handle resolved_wiring_signature, nb::handle node_signature, nb::handle scalars) -> nb::object {
-                nb::object builder_cls =
-                    nb::module_::import_("hgraph._wiring._wiring_node_class._cpp_static_wiring_node_class").attr("CppStaticNodeBuilder");
+            [node_name](nb::handle resolved_wiring_signature, nb::handle node_signature, nb::handle scalars) -> NodeBuilder {
                 const TSMeta *input_schema = detail::resolved_input_schema(resolved_wiring_signature, node_name);
                 const TSMeta *output_schema = detail::resolved_output_schema(resolved_wiring_signature);
+                const bool needs_resolved_schemas = !StaticNodeSignature<TImplementation>::unresolved_input_names().empty();
+                std::string runtime_label = node_name;
+                nb::object label = nb::borrow(node_signature).attr("label");
+                if (label.is_valid() && !label.is_none()) {
+                    const std::string resolved_label = nb::cast<std::string>(label);
+                    if (!resolved_label.empty()) { runtime_label = resolved_label; }
+                }
 
-                nb::dict kwargs;
-                kwargs["signature"] = nb::borrow(node_signature);
-                kwargs["scalars"] = nb::borrow(scalars);
-                kwargs["input_builder"] = nb::none();
-                kwargs["output_builder"] = nb::none();
-                kwargs["error_builder"] = nb::none();
-                kwargs["recordable_state_builder"] = detail::resolved_recordable_state_builder_or_none(resolved_wiring_signature);
-                kwargs["implementation_name"] = node_name;
-                kwargs["input_schema"] = input_schema != nullptr ? nb::cast(input_schema, nb::rv_policy::reference) : nb::none();
-                kwargs["output_schema"] = output_schema != nullptr ? nb::cast(output_schema, nb::rv_policy::reference) : nb::none();
-                kwargs["requires_resolved_schemas"] = !StaticNodeSignature<TImplementation>::unresolved_input_names().empty();
+                NodeBuilder builder;
+                if (needs_resolved_schemas && input_schema != nullptr) { builder.input_schema(input_schema); }
+                if (needs_resolved_schemas && output_schema != nullptr) { builder.output_schema(output_schema); }
+                builder.implementation<TImplementation>()
+                    .label(std::move(runtime_label))
+                    .python_signature(nb::borrow(node_signature))
+                    .python_scalars(nb::cast<nb::dict>(nb::borrow(scalars)))
+                    .python_input_builder(nb::none())
+                    .python_output_builder(nb::none())
+                    .python_error_builder(nb::none())
+                    .python_recordable_state_builder(detail::resolved_recordable_state_builder_or_none(resolved_wiring_signature))
+                    .implementation_name(node_name)
+                    .requires_resolved_schemas(needs_resolved_schemas);
 
-                return detail::py_call(builder_cls, nb::tuple(), kwargs);
+                return builder;
             });
 
         nb::object wiring_node_cls =
@@ -106,7 +114,7 @@ namespace hgraph::v2
 
     /** Export a static C++ compute node into a nanobind module. */
     template <typename TImplementation>
-    void export_compute_node(nb::module_ &m, std::string_view name = {})
+    void export_compute_node(nb::module_ &m, std::string_view name)
     {
         nb::object node = make_compute_wiring_node<TImplementation>(name);
         const std::string exported_name = detail::node_name_or<TImplementation>(name);

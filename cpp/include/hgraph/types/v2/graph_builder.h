@@ -15,6 +15,9 @@ namespace hgraph::v2
         Path output_path;
         int64_t dst_node{-1};
         Path input_path;
+
+        bool operator==(const Edge &other) const = default;
+        [[nodiscard]] bool operator<(const Edge &other) const noexcept;
     };
 
     /**
@@ -28,6 +31,7 @@ namespace hgraph::v2
     struct HGRAPH_EXPORT GraphBuilder
     {
         GraphBuilder() = default;
+        GraphBuilder(std::vector<NodeBuilder> node_builders, std::vector<Edge> edges);
 
         GraphBuilder &add_node(NodeBuilder node_builder);
         GraphBuilder &add_edge(Edge edge);
@@ -35,6 +39,8 @@ namespace hgraph::v2
         [[nodiscard]] size_t size() const;
         [[nodiscard]] size_t alignment() const;
         [[nodiscard]] Graph make_graph(GraphEvaluationEngine evaluation_engine) const;
+        [[nodiscard]] const std::vector<NodeBuilder> &node_builders() const noexcept { return m_node_builders; }
+        [[nodiscard]] const std::vector<Edge> &edges() const noexcept { return m_edges; }
 
       private:
         std::vector<NodeBuilder> m_node_builders;

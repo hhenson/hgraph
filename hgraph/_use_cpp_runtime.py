@@ -45,11 +45,23 @@ if is_feature_enabled("use_cpp"):
         hgraph.TimeSeriesReference._INSTANCE_OF = lambda obj: isinstance(obj, _hgraph.TimeSeriesReference)
 
         # Edge type
-        hgraph._builder._graph_builder.EDGE_TYPE = _hgraph.Edge
+        hgraph._builder._graph_builder.EDGE_TYPE = _hgraph.v2.Edge
 
 
         def _make_cpp_graph_builder(node_builders, edges):
-            """Convert Python Edge dataclass instances to C++ _hgraph.Edge"""
+            """Select the legacy C++ or experimental v2 graph builder path."""
+            v2_node_builders = [builder for builder in node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+            if v2_node_builders:
+                if len(v2_node_builders) != len(node_builders):
+                    unsupported_builder_types = sorted(
+                        {type(builder).__name__ for builder in node_builders if not isinstance(builder, _hgraph.v2.NodeBuilder)}
+                    )
+                    raise NotImplementedError(
+                        "v2 execution currently only supports graphs composed entirely of v2 C++ node builders; "
+                        f"mixed builder types are not supported yet: {unsupported_builder_types}"
+                    )
+                return _hgraph.v2.GraphBuilder(list(node_builders), list(edges))
+
             cpp_edges = []
             for e in edges:
                 try:
@@ -64,10 +76,20 @@ if is_feature_enabled("use_cpp"):
 
         # Register C++ GraphBuilder as a virtual subclass of Python GraphBuilder
         hgraph._builder._graph_builder.GraphBuilder.register(_hgraph.GraphBuilder)
+        hgraph._builder._graph_builder.GraphBuilder.register(_hgraph.v2.GraphBuilder)
+        hgraph._builder._node_builder.NodeBuilder.register(_hgraph.v2.NodeBuilder)
         hgraph.GraphBuilderFactory.declare(_make_cpp_graph_builder)
 
         def _make_cpp_graph_engine(graph_builder, run_mode, observers, cleanup_on_error = True):
-            """Create a C++ GraphEngine from a Python GraphBuilder"""
+            """Create a C++ graph engine for the selected builder family."""
+            if isinstance(graph_builder, _hgraph.v2.GraphBuilder):
+                return _hgraph.v2.GraphExecutor(
+                    graph_builder=graph_builder,
+                    run_mode=run_mode,
+                    observers=list(observers or ()),
+                    cleanup_on_error=cleanup_on_error,
+                )
+
             if hasattr(run_mode, "name"):
                 run_mode = _hgraph.EvaluationMode[run_mode.name]
             else:

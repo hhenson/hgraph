@@ -10,6 +10,26 @@ namespace hgraph::v2
 {
     namespace
     {
+        [[nodiscard]] bool has_python_scalars(const NodeBuilder &node_builder)
+        {
+            const nb::dict &scalars = node_builder.scalars();
+            return scalars.is_valid() && !scalars.is_none() && nb::len(scalars) > 0;
+        }
+
+        [[nodiscard]] std::string python_scalar_error_message(const NodeBuilder &node_builder)
+        {
+            std::vector<std::string> scalar_names;
+            scalar_names.reserve(static_cast<size_t>(nb::len(node_builder.scalars())));
+            for (auto item : node_builder.scalars()) {
+                scalar_names.push_back(nb::cast<std::string>(item.first));
+            }
+            std::sort(scalar_names.begin(), scalar_names.end());
+            return fmt::format(
+                "v2 Python execution does not yet support static node scalars; node '{}' has scalar inputs ({})",
+                node_builder.implementation_name(),
+                fmt::join(scalar_names, ", "));
+        }
+
         [[nodiscard]] constexpr size_t align_up(size_t value, size_t alignment) noexcept
         {
             if (alignment == 0) { return value; }
@@ -164,9 +184,27 @@ namespace hgraph::v2
         }
     }  // namespace
 
+    bool Edge::operator<(const Edge &other) const noexcept
+    {
+        if (src_node != other.src_node) { return src_node < other.src_node; }
+        if (output_path != other.output_path) { return output_path < other.output_path; }
+        if (dst_node != other.dst_node) { return dst_node < other.dst_node; }
+        return input_path < other.input_path;
+    }
+
+    GraphBuilder::GraphBuilder(std::vector<NodeBuilder> node_builders, std::vector<Edge> edges)
+    {
+        m_node_builders.reserve(node_builders.size());
+        m_edges.reserve(edges.size());
+
+        for (auto &node_builder : node_builders) { add_node(std::move(node_builder)); }
+        for (auto &edge : edges) { add_edge(std::move(edge)); }
+    }
+
     GraphBuilder &GraphBuilder::add_node(NodeBuilder node_builder)
     {
         node_builder.validate_complete();
+        if (has_python_scalars(node_builder)) { throw std::invalid_argument(python_scalar_error_message(node_builder)); }
         m_node_builders.emplace_back(std::move(node_builder));
         return *this;
     }

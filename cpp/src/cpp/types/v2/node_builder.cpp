@@ -207,6 +207,54 @@ namespace hgraph::v2
         return *this;
     }
 
+    NodeBuilder &NodeBuilder::python_signature(nb::object value)
+    {
+        m_python_signature = std::move(value);
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::python_scalars(nb::dict value)
+    {
+        m_python_scalars = std::move(value);
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::python_input_builder(nb::object value)
+    {
+        m_python_input_builder = std::move(value);
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::python_output_builder(nb::object value)
+    {
+        m_python_output_builder = std::move(value);
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::python_error_builder(nb::object value)
+    {
+        m_python_error_builder = std::move(value);
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::python_recordable_state_builder(nb::object value)
+    {
+        m_python_recordable_state_builder = std::move(value);
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::implementation_name(std::string value)
+    {
+        m_implementation_name = std::move(value);
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::requires_resolved_schemas(bool value) noexcept
+    {
+        m_requires_resolved_schemas = value;
+        return *this;
+    }
+
     NodeBuilder &NodeBuilder::node_type(NodeTypeEnum value)
     {
         m_node_type = value;

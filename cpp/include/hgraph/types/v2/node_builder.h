@@ -5,7 +5,6 @@
 #include <hgraph/types/time_series/value/builder.h>
 #include <hgraph/types/v2/node_impl.h>
 #include <hgraph/types/v2/node.h>
-#include <hgraph/types/v2/python_export.h>
 #include <hgraph/types/v2/static_signature.h>
 
 #include <cstddef>
@@ -17,6 +16,9 @@
 
 namespace hgraph::v2
 {
+    template <typename TImplementation>
+    void export_compute_node(nb::module_ &m, std::string_view name = {});
+
     /**
      * Fluent builder for a single runtime node chunk.
      *
@@ -30,13 +32,34 @@ namespace hgraph::v2
         NodeBuilder() = default;
 
         NodeBuilder &label(std::string value);
+        [[nodiscard]] std::string_view label() const noexcept { return m_label; }
         /** Override the reflected node type, e.g. push/pull source classification. */
         NodeBuilder &node_type(NodeTypeEnum value);
+        [[nodiscard]] NodeTypeEnum node_type() const noexcept { return m_node_type; }
         NodeBuilder &input_schema(const TSMeta *value);
+        [[nodiscard]] const TSMeta *input_schema() const noexcept { return m_input_schema; }
         NodeBuilder &output_schema(const TSMeta *value);
+        [[nodiscard]] const TSMeta *output_schema() const noexcept { return m_output_schema; }
         NodeBuilder &active_input(size_t slot);
         NodeBuilder &valid_input(size_t slot);
         NodeBuilder &all_valid_input(size_t slot);
+        NodeBuilder &python_signature(nb::object value);
+        NodeBuilder &python_scalars(nb::dict value);
+        NodeBuilder &python_input_builder(nb::object value);
+        NodeBuilder &python_output_builder(nb::object value);
+        NodeBuilder &python_error_builder(nb::object value);
+        NodeBuilder &python_recordable_state_builder(nb::object value);
+        NodeBuilder &implementation_name(std::string value);
+        NodeBuilder &requires_resolved_schemas(bool value) noexcept;
+
+        [[nodiscard]] const nb::object &signature() const noexcept { return m_python_signature; }
+        [[nodiscard]] const nb::dict &scalars() const noexcept { return m_python_scalars; }
+        [[nodiscard]] const nb::object &input_builder() const noexcept { return m_python_input_builder; }
+        [[nodiscard]] const nb::object &output_builder() const noexcept { return m_python_output_builder; }
+        [[nodiscard]] const nb::object &error_builder() const noexcept { return m_python_error_builder; }
+        [[nodiscard]] const nb::object &recordable_state_builder() const noexcept { return m_python_recordable_state_builder; }
+        [[nodiscard]] const std::string &implementation_name() const noexcept { return m_implementation_name; }
+        [[nodiscard]] bool requires_resolved_schemas() const noexcept { return m_requires_resolved_schemas; }
 
         template <typename TImplementation>
         NodeBuilder &implementation()
@@ -143,5 +166,13 @@ namespace hgraph::v2
         const NodeRuntimeOps *m_runtime_ops{nullptr};
         const PushSourceNodeRuntimeOps *m_push_source_runtime_ops{nullptr};
         bool m_has_push_message_hook{false};
+        nb::object m_python_signature;
+        nb::dict m_python_scalars;
+        nb::object m_python_input_builder;
+        nb::object m_python_output_builder;
+        nb::object m_python_error_builder;
+        nb::object m_python_recordable_state_builder;
+        std::string m_implementation_name;
+        bool m_requires_resolved_schemas{false};
     };
 }  // namespace hgraph::v2
