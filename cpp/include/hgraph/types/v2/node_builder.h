@@ -53,7 +53,7 @@ namespace hgraph::v2
         NodeBuilder &requires_resolved_schemas(bool value) noexcept;
 
         [[nodiscard]] const nb::object &signature() const noexcept { return m_python_signature; }
-        [[nodiscard]] const nb::dict &scalars() const noexcept { return m_python_scalars; }
+        [[nodiscard]] const nb::object &scalars() const noexcept { return m_python_scalars; }
         [[nodiscard]] const nb::object &input_builder() const noexcept { return m_python_input_builder; }
         [[nodiscard]] const nb::object &output_builder() const noexcept { return m_python_output_builder; }
         [[nodiscard]] const nb::object &error_builder() const noexcept { return m_python_error_builder; }
@@ -167,7 +167,7 @@ namespace hgraph::v2
         const PushSourceNodeRuntimeOps *m_push_source_runtime_ops{nullptr};
         bool m_has_push_message_hook{false};
         nb::object m_python_signature;
-        nb::dict m_python_scalars;
+        nb::object m_python_scalars;
         nb::object m_python_input_builder;
         nb::object m_python_output_builder;
         nb::object m_python_error_builder;

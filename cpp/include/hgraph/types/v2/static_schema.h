@@ -141,6 +141,46 @@ namespace hgraph::v2
         static constexpr auto name = Name;
     };
 
+    /**
+     * Named scalar argument injected from Python wiring scalars.
+     *
+     * This is intentionally separate from time-series selectors. The node
+     * implementation names the scalar explicitly so runtime injection can
+     * recover the corresponding entry from the captured Python scalar dict.
+     */
+    template <fixed_string Name, typename TValue>
+    class ScalarArg
+    {
+      public:
+        using value_type = TValue;
+        static constexpr auto name = Name;
+
+        explicit ScalarArg(TValue value) : m_value(std::move(value)) {}
+
+        [[nodiscard]] const TValue &value() const noexcept { return m_value; }
+        operator const TValue &() const noexcept { return m_value; }
+
+      private:
+        TValue m_value;
+    };
+
+    /** Named raw Python scalar argument injected without conversion. */
+    template <fixed_string Name>
+    class PythonScalarArg
+    {
+      public:
+        static constexpr auto name = Name;
+
+        explicit PythonScalarArg(nb::object value) : m_value(std::move(value)) {}
+
+        [[nodiscard]] const nb::object &value() const noexcept { return m_value; }
+        [[nodiscard]] const nb::object &object() const noexcept { return m_value; }
+        operator const nb::object &() const noexcept { return m_value; }
+
+      private:
+        nb::object m_value;
+    };
+
     // TODO: The reflected C++ signature now carries selector-level
     // activity/validity policy metadata. We still need node-level overloads,
     // resolvers, and requires to reach feature parity with Python wiring.

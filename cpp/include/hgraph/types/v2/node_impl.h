@@ -33,6 +33,7 @@ namespace hgraph::v2
             const ValueBuilder *state_builder{nullptr};
             void *state_memory{nullptr};
             TSOutput *recordable_state{nullptr};
+            nb::object python_scalars;
         };
 
         template <typename T>
@@ -96,6 +97,21 @@ namespace hgraph::v2
                 static_assert(always_false_v<T>, "Unsupported injected node implementation parameter");
             }
         };
+
+        [[nodiscard]] inline nb::object python_scalar_or_throw(Node &node, std::string_view name)
+        {
+            auto &runtime = runtime_data<StaticNodeRuntimeData>(node);
+            if (!runtime.python_scalars.is_valid()) {
+                throw std::logic_error("ScalarArg requested but the node was constructed without Python scalar metadata");
+            }
+
+            const nb::str key{name.data(), name.size()};
+            if (!PyMapping_HasKey(runtime.python_scalars.ptr(), key.ptr())) {
+                throw std::logic_error("ScalarArg requested a Python scalar that is not present in the captured wiring scalars");
+            }
+
+            return nb::borrow(py_getitem(runtime.python_scalars, key));
+        }
 
         template <>
         struct arg_provider<Node>
@@ -188,6 +204,24 @@ namespace hgraph::v2
                     throw std::logic_error("RecordableState<...> requested but no recordable state output was constructed");
                 }
                 return RecordableState<TSchema, Name>{runtime.recordable_state->view(evaluation_time), evaluation_time};
+            }
+        };
+
+        template <fixed_string Name, typename TValue>
+        struct arg_provider<ScalarArg<Name, TValue>>
+        {
+            static ScalarArg<Name, TValue> get(Node &node, engine_time_t)
+            {
+                return ScalarArg<Name, TValue>{nb::cast<TValue>(python_scalar_or_throw(node, Name.sv()))};
+            }
+        };
+
+        template <fixed_string Name>
+        struct arg_provider<PythonScalarArg<Name>>
+        {
+            static PythonScalarArg<Name> get(Node &node, engine_time_t)
+            {
+                return PythonScalarArg<Name>{python_scalar_or_throw(node, Name.sv())};
             }
         };
 

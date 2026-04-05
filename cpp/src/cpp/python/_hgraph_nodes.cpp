@@ -8,6 +8,7 @@
 #include <hgraph/nodes/try_except_node.h>
 #include <hgraph/nodes/non_associative_reduce_node.h>
 #include <hgraph/nodes/mesh_node.h>
+#include <hgraph/nodes/v2/basic_nodes.h>
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/nodes/context_node.h>
 #include <hgraph/nodes/python_generator_node.h>
@@ -185,9 +186,9 @@ namespace
         return value.is_valid() ? nb::borrow(value) : nb::none();
     }
 
-    [[nodiscard]] nb::dict dict_or_empty(const nb::dict &value)
+    [[nodiscard]] nb::dict dict_or_empty(const nb::object &value)
     {
-        if (value.is_valid()) { return value; }
+        if (value.is_valid() && !value.is_none()) { return nb::cast<nb::dict>(value); }
         return nb::dict();
     }
 
@@ -449,4 +450,12 @@ void export_nodes(nb::module_ &m) {
     hgraph::v2::export_compute_node<StaticClockNode>(v2);
     hgraph::v2::export_compute_node<StaticTickNode>(v2);
     hgraph::v2::export_compute_node<StaticSinkNode>(v2);
+    hgraph::v2::export_compute_node_from_python_impl<hgraph::nodes::v2::ConstNode>(
+        v2, "hgraph._impl._operators._time_series_conversion", "const_default", "const");
+    hgraph::v2::export_compute_node_from_python_impl<hgraph::nodes::v2::NothingNode>(
+        v2, "hgraph._impl._operators._graph_operators", "nothing_impl", "nothing");
+    hgraph::v2::export_compute_node_from_python_impl<hgraph::nodes::v2::NullSinkNode>(
+        v2, "hgraph._impl._operators._graph_operators", "null_sink_impl", "null_sink");
+    hgraph::v2::export_compute_node_from_python_impl<hgraph::nodes::v2::DebugPrintNode>(
+        v2, "hgraph._impl._operators._graph_operators", "debug_print_impl", "debug_print");
 }

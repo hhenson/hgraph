@@ -189,6 +189,12 @@ namespace hgraph::v2
 
             // Destruct in reverse construction order for the objects we placed
             // into the node chunk manually.
+            if (runtime_data.python_scalars.is_valid()) {
+                nb::gil_scoped_acquire guard;
+                std::destroy_at(&runtime_data.python_scalars);
+            } else {
+                std::destroy_at(&runtime_data.python_scalars);
+            }
             if (runtime_data.recordable_state != nullptr) { runtime_data.recordable_state->~TSOutput(); }
             if (runtime_data.state_builder != nullptr && runtime_data.state_memory != nullptr) {
                 runtime_data.state_builder->destruct(runtime_data.state_memory);
@@ -377,6 +383,14 @@ namespace hgraph::v2
         auto cleanup_recordable_state = UnwindCleanupGuard([&] {
             if (recordable_state != nullptr) { recordable_state->~TSOutput(); }
         });
+        detail::StaticNodeRuntimeData *runtime_data = nullptr;
+        auto cleanup_runtime_data = UnwindCleanupGuard([&] {
+            if (runtime_data != nullptr) { std::destroy_at(runtime_data); }
+        });
+        BuiltNodeSpec *spec = nullptr;
+        auto cleanup_spec = UnwindCleanupGuard([&] {
+            if (spec != nullptr) { std::destroy_at(spec); }
+        });
 
         if (builders.input_builder != nullptr) {
             input = new (base + layout.input_object_offset) TSInput{};
@@ -403,10 +417,17 @@ namespace hgraph::v2
                 TSOutputBuilder::MemoryOwnership::External);
         }
 
-        auto *runtime_data = new (base + layout.runtime_data_offset)
-            detail::StaticNodeRuntimeData{input, output, builders.state_builder, state_memory, recordable_state};
+        runtime_data = new (base + layout.runtime_data_offset)
+            detail::StaticNodeRuntimeData{input,
+                                          output,
+                                          builders.state_builder,
+                                          state_memory,
+                                          recordable_state,
+                                          m_python_scalars.is_valid()
+                                              ? nb::borrow(m_python_scalars)
+                                              : nb::object()};
 
-        auto *spec = new (base + layout.spec_offset) BuiltNodeSpec{
+        spec = new (base + layout.spec_offset) BuiltNodeSpec{
             m_runtime_ops,
             m_push_source_runtime_ops,
             &destruct_static_node,
@@ -420,8 +441,10 @@ namespace hgraph::v2
             all_valid_inputs,
         };
 
-        static_cast<void>(runtime_data);
-        return new (memory) Node(node_index, spec);
+        auto *node = new (memory) Node(node_index, spec);
+        cleanup_runtime_data.complete();
+        cleanup_spec.complete();
+        return node;
     }
 
     void NodeBuilder::destruct_at(Node &node) const noexcept

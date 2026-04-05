@@ -53,12 +53,10 @@ if is_feature_enabled("use_cpp"):
             v2_node_builders = [builder for builder in node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
             if v2_node_builders:
                 if len(v2_node_builders) != len(node_builders):
-                    unsupported_builder_types = sorted(
-                        {type(builder).__name__ for builder in node_builders if not isinstance(builder, _hgraph.v2.NodeBuilder)}
-                    )
+                    v2_builder_names = sorted({builder.implementation_name for builder in v2_node_builders})
                     raise NotImplementedError(
-                        "v2 execution currently only supports graphs composed entirely of v2 C++ node builders; "
-                        f"mixed builder types are not supported yet: {unsupported_builder_types}"
+                        "v2 execution does not support mixed graphs yet; all nodes in the graph must use v2 builders "
+                        f"once any v2 node is selected: {v2_builder_names}"
                     )
                 return _hgraph.v2.GraphBuilder(list(node_builders), list(edges))
 

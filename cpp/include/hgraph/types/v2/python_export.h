@@ -48,6 +48,15 @@ namespace hgraph::v2
             return cpp_ts_meta_or_none(nb::borrow(resolved_wiring_signature).attr("output_type"));
         }
 
+        [[nodiscard]] inline nb::dict python_scalars_dict(nb::handle scalars)
+        {
+            if (scalars.is_none()) { return nb::dict(); }
+
+            nb::object value = nb::borrow(scalars);
+            if (nb::isinstance<nb::dict>(value)) { return nb::cast<nb::dict>(value); }
+            return nb::cast<nb::dict>(py_call(nb::module_::import_("builtins").attr("dict"), nb::make_tuple(value)));
+        }
+
         [[nodiscard]] inline nb::object resolved_recordable_state_builder_or_none(nb::handle resolved_wiring_signature)
         {
             if (!nb::cast<bool>(nb::borrow(resolved_wiring_signature).attr("uses_recordable_state"))) { return nb::none(); }
@@ -60,6 +69,60 @@ namespace hgraph::v2
 
             nb::object factory = hgraph_module().attr("TimeSeriesBuilderFactory").attr("instance")();
             return factory.attr("make_output_builder")(tsb_type);
+        }
+
+        [[nodiscard]] inline std::vector<std::string> names_from_frozenset_or_default(
+            nb::handle resolved_wiring_signature,
+            const char *attribute_name,
+            bool default_to_all_time_series_args)
+        {
+            nb::object names_obj = nb::borrow(resolved_wiring_signature).attr(attribute_name);
+            if (!names_obj.is_none()) {
+                std::vector<std::string> names;
+                names.reserve(static_cast<size_t>(nb::len(names_obj)));
+                for (auto item : names_obj) { names.push_back(nb::cast<std::string>(item)); }
+                return names;
+            }
+            if (!default_to_all_time_series_args) { return {}; }
+            nb::object time_series_args = nb::borrow(resolved_wiring_signature).attr("time_series_args");
+            std::vector<std::string> names;
+            names.reserve(static_cast<size_t>(nb::len(time_series_args)));
+            for (auto item : time_series_args) { names.push_back(nb::cast<std::string>(item)); }
+            return names;
+        }
+
+        inline void apply_selector_policies(NodeBuilder &builder,
+                                            nb::handle resolved_wiring_signature,
+                                            const TSMeta *input_schema)
+        {
+            if (input_schema == nullptr) { return; }
+
+            auto apply_slots = [&](const char *attribute_name, bool default_to_all_time_series_args, auto add_slot) {
+                for (const auto &name : names_from_frozenset_or_default(
+                         resolved_wiring_signature, attribute_name, default_to_all_time_series_args)) {
+                    for (size_t slot = 0; slot < input_schema->field_count(); ++slot) {
+                        if (input_schema->fields()[slot].name == name) {
+                            add_slot(slot);
+                            break;
+                        }
+                    }
+                }
+            };
+
+            apply_slots("active_inputs", true, [&](size_t slot) { builder.active_input(slot); });
+            apply_slots("valid_inputs", true, [&](size_t slot) { builder.valid_input(slot); });
+            apply_slots("all_valid_inputs", false, [&](size_t slot) { builder.all_valid_input(slot); });
+        }
+
+        [[nodiscard]] inline std::string runtime_label_or(nb::handle node_signature, std::string_view default_name)
+        {
+            std::string runtime_label{default_name};
+            nb::object label = nb::borrow(node_signature).attr("label");
+            if (label.is_valid() && !label.is_none()) {
+                const std::string resolved_label = nb::cast<std::string>(label);
+                if (!resolved_label.empty()) { runtime_label = resolved_label; }
+            }
+            return runtime_label;
         }
     }  // namespace detail
 
@@ -80,12 +143,7 @@ namespace hgraph::v2
                 const TSMeta *input_schema = detail::resolved_input_schema(resolved_wiring_signature, node_name);
                 const TSMeta *output_schema = detail::resolved_output_schema(resolved_wiring_signature);
                 const bool needs_resolved_schemas = !StaticNodeSignature<TImplementation>::unresolved_input_names().empty();
-                std::string runtime_label = node_name;
-                nb::object label = nb::borrow(node_signature).attr("label");
-                if (label.is_valid() && !label.is_none()) {
-                    const std::string resolved_label = nb::cast<std::string>(label);
-                    if (!resolved_label.empty()) { runtime_label = resolved_label; }
-                }
+                std::string runtime_label = detail::runtime_label_or(node_signature, node_name);
 
                 NodeBuilder builder;
                 if (needs_resolved_schemas && input_schema != nullptr) { builder.input_schema(input_schema); }
@@ -93,13 +151,14 @@ namespace hgraph::v2
                 builder.implementation<TImplementation>()
                     .label(std::move(runtime_label))
                     .python_signature(nb::borrow(node_signature))
-                    .python_scalars(nb::cast<nb::dict>(nb::borrow(scalars)))
+                    .python_scalars(detail::python_scalars_dict(scalars))
                     .python_input_builder(nb::none())
                     .python_output_builder(nb::none())
                     .python_error_builder(nb::none())
                     .python_recordable_state_builder(detail::resolved_recordable_state_builder_or_none(resolved_wiring_signature))
                     .implementation_name(node_name)
                     .requires_resolved_schemas(needs_resolved_schemas);
+                detail::apply_selector_policies(builder, resolved_wiring_signature, input_schema);
 
                 return builder;
             });
@@ -112,6 +171,54 @@ namespace hgraph::v2
             nb::make_tuple(StaticNodeSignature<TImplementation>::wiring_signature(node_name), builder_factory));
     }
 
+    /**
+     * Create a Python wiring node class from an existing Python wiring-node implementation signature.
+     *
+     * This is used for early v2 parity nodes where Python already defines the
+     * public contract, including scalar defaults and overload shape, but the
+     * runtime implementation is moved to a v2 C++ node.
+     */
+    template <typename TImplementation>
+    [[nodiscard]] nb::object make_compute_wiring_node_from_python_impl(
+        std::string_view python_module,
+        std::string_view python_symbol,
+        std::string_view exported_name = {})
+    {
+        const std::string node_name = detail::node_name_or<TImplementation>(exported_name);
+        nb::object python_signature =
+            nb::module_::import_(std::string{python_module}.c_str()).attr(std::string{python_symbol}.c_str()).attr("signature");
+
+        nb::object builder_factory = nb::cpp_function(
+            [node_name](nb::handle resolved_wiring_signature, nb::handle node_signature, nb::handle scalars) -> NodeBuilder {
+                const TSMeta *input_schema = detail::resolved_input_schema(resolved_wiring_signature, node_name);
+                const TSMeta *output_schema = detail::resolved_output_schema(resolved_wiring_signature);
+                std::string runtime_label = detail::runtime_label_or(node_signature, node_name);
+
+                NodeBuilder builder;
+                if (input_schema != nullptr) { builder.input_schema(input_schema); }
+                if (output_schema != nullptr) { builder.output_schema(output_schema); }
+
+                builder.implementation<TImplementation>()
+                    .label(std::move(runtime_label))
+                    .python_signature(nb::borrow(node_signature))
+                    .python_scalars(detail::python_scalars_dict(scalars))
+                    .python_input_builder(nb::none())
+                    .python_output_builder(nb::none())
+                    .python_error_builder(nb::none())
+                    .python_recordable_state_builder(detail::resolved_recordable_state_builder_or_none(resolved_wiring_signature))
+                    .implementation_name(node_name)
+                    .requires_resolved_schemas(true);
+                detail::apply_selector_policies(builder, resolved_wiring_signature, input_schema);
+
+                return builder;
+            });
+
+        nb::object wiring_node_cls =
+            nb::module_::import_("hgraph._wiring._wiring_node_class._cpp_static_wiring_node_class").attr("CppStaticWiringNodeClass");
+
+        return detail::py_call(wiring_node_cls, nb::make_tuple(python_signature, builder_factory));
+    }
+
     /** Export a static C++ compute node into a nanobind module. */
     template <typename TImplementation>
     void export_compute_node(nb::module_ &m, std::string_view name)
@@ -119,5 +226,16 @@ namespace hgraph::v2
         nb::object node = make_compute_wiring_node<TImplementation>(name);
         const std::string exported_name = detail::node_name_or<TImplementation>(name);
         m.attr(exported_name.c_str()) = node;
+    }
+
+    template <typename TImplementation>
+    void export_compute_node_from_python_impl(nb::module_ &m,
+                                              std::string_view python_module,
+                                              std::string_view python_symbol,
+                                              std::string_view exported_name)
+    {
+        nb::object node =
+            make_compute_wiring_node_from_python_impl<TImplementation>(python_module, python_symbol, exported_name);
+        m.attr(std::string{exported_name}.c_str()) = node;
     }
 }  // namespace hgraph::v2

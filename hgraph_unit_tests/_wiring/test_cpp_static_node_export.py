@@ -96,9 +96,7 @@ def test_cpp_static_generic_compute_node_exports_linked_type_vars_and_resolves_o
         graph_builder = wire_graph(g)
 
     cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
-    assert len(cpp_builders) == 1
-
-    cpp_builder = cpp_builders[0]
+    cpp_builder = next(builder for builder in cpp_builders if builder.implementation_name == "static_get_item")
     assert cpp_builder.signature.signature == "static_get_item(ts: TSD[int, TS[str]], key: TS[int]) -> TS[str]"
     assert cpp_builder.input_schema is not None
     assert cpp_builder.output_schema is not None
@@ -163,7 +161,7 @@ def test_cpp_static_mixed_graphs_fail_early_with_clear_v2_message():
     def g():
         sink(static_sum(src(1), src(2)))
 
-    with pytest.raises(NotImplementedError, match="mixed builder types are not supported yet"):
+    with pytest.raises(NotImplementedError, match="v2 execution does not support mixed graphs yet"):
         with WiringNodeInstanceContext():
             wire_graph(g)
 
