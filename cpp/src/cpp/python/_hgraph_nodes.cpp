@@ -228,40 +228,6 @@ namespace
         bool m_cleanup_on_error{true};
     };
 
-    NodeBuilder make_exported_static_node_builder(std::string_view implementation_name,
-                                                  std::string_view label,
-                                                  const TSMeta *input_schema,
-                                                  const TSMeta *output_schema)
-    {
-        auto make_builder = [&](auto impl_tag) {
-            using implementation_type = typename decltype(impl_tag)::type;
-
-            NodeBuilder builder;
-            if (!label.empty()) { builder.label(std::string{label}); }
-            if (input_schema != nullptr) { builder.input_schema(input_schema); }
-            if (output_schema != nullptr) { builder.output_schema(output_schema); }
-            builder.implementation<implementation_type>()
-                .implementation_name(std::string{implementation_name})
-                .requires_resolved_schemas(!StaticNodeSignature<implementation_type>::unresolved_input_names().empty());
-            return builder;
-        };
-
-        if (implementation_name == StaticSumNode::name) { return make_builder(std::type_identity<StaticSumNode>{}); }
-        if (implementation_name == StaticPolicyNode::name) { return make_builder(std::type_identity<StaticPolicyNode>{}); }
-        if (implementation_name == StaticGetItemNode::name) { return make_builder(std::type_identity<StaticGetItemNode>{}); }
-        if (implementation_name == StaticTypedStateNode::name) {
-            return make_builder(std::type_identity<StaticTypedStateNode>{});
-        }
-        if (implementation_name == StaticRecordableStateNode::name) {
-            return make_builder(std::type_identity<StaticRecordableStateNode>{});
-        }
-        if (implementation_name == StaticClockNode::name) { return make_builder(std::type_identity<StaticClockNode>{}); }
-        if (implementation_name == StaticTickNode::name) { return make_builder(std::type_identity<StaticTickNode>{}); }
-        if (implementation_name == StaticSinkNode::name) { return make_builder(std::type_identity<StaticSinkNode>{}); }
-
-        throw std::invalid_argument(
-            fmt::format("Unknown exported v2 static node implementation '{}'", implementation_name));
-    }
 }
 
 void export_nodes(nb::module_ &m) {
@@ -471,18 +437,6 @@ void export_nodes(nb::module_ &m) {
             nb::rv_policy::reference_internal)
         .def("build", &hgraph::v2::EvaluationEngineBuilder::build);
 
-    v2.def(
-        "make_static_node_builder",
-        [](std::string_view implementation_name,
-           std::string_view label,
-           const TSMeta *input_schema,
-           const TSMeta *output_schema) {
-            return make_exported_static_node_builder(implementation_name, label, input_schema, output_schema);
-        },
-        "implementation_name"_a,
-        "label"_a = std::string_view{},
-        "input_schema"_a.none() = nullptr,
-        "output_schema"_a.none() = nullptr);
     v2.def("reset_static_sink_state", &StaticSinkNode::reset);
     v2.def("static_sink_call_count", [] { return StaticSinkNode::call_count; });
     v2.def("static_sink_last_value", [] { return StaticSinkNode::last_value; });
