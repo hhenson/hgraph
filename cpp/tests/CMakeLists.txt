@@ -215,6 +215,7 @@ add_executable(hgraph_v2_tests
     ../src/cpp/types/v2/node_builder.cpp
     ../src/cpp/types/v2/graph.cpp
     ../src/cpp/types/v2/graph_builder.cpp
+    ../src/cpp/types/v2/python_node_support.cpp
     ../src/cpp/types/time_series/value/atomic.cpp
     ../src/cpp/types/time_series/value/associative.cpp
     ../src/cpp/types/time_series/value/list.cpp
@@ -232,6 +233,7 @@ add_executable(hgraph_v2_tests
     ../src/cpp/types/time_series/time_series_state.cpp
     ../src/cpp/types/time_series/active_trie.cpp
     ../src/cpp/types/time_series/ts_type_registry.cpp
+    ../src/cpp/types/traits.cpp
     ../src/cpp/types/value/type_meta_bindings.cpp
     ../src/cpp/types/value/type_registry.cpp
 )

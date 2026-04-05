@@ -150,6 +150,24 @@ namespace hgraph::v2
         };
 
         template <>
+        struct arg_provider<NodeScheduler>
+        {
+            static NodeScheduler &get(Node &node, engine_time_t)
+            {
+                return node.scheduler();
+            }
+        };
+
+        template <>
+        struct arg_provider<NodeScheduler *>
+        {
+            static NodeScheduler *get(Node &node, engine_time_t)
+            {
+                return &node.scheduler();
+            }
+        };
+
+        template <>
         struct arg_provider<TSInputView>
         {
             static TSInputView get(Node &node, engine_time_t evaluation_time);

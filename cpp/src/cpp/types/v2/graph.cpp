@@ -13,7 +13,8 @@ namespace hgraph::v2
         clear_storage();
     }
 
-    Graph::Graph(GraphEvaluationEngine evaluation_engine) noexcept : m_evaluation_engine(evaluation_engine)
+    Graph::Graph(GraphEvaluationEngine evaluation_engine) noexcept
+        : m_evaluation_engine(evaluation_engine)
     {
     }
 
@@ -24,6 +25,7 @@ namespace hgraph::v2
           m_storage_alignment(other.m_storage_alignment),
           m_last_evaluation_time(other.m_last_evaluation_time),
           m_evaluation_engine(other.m_evaluation_engine),
+          m_traits(std::move(other.m_traits)),
           m_storage(other.m_storage)
     {
         other.m_node_count = 0;
@@ -47,6 +49,7 @@ namespace hgraph::v2
             m_storage_alignment = other.m_storage_alignment;
             m_last_evaluation_time = other.m_last_evaluation_time;
             m_evaluation_engine = other.m_evaluation_engine;
+            m_traits = std::move(other.m_traits);
             m_storage = other.m_storage;
 
             other.m_node_count = 0;
@@ -70,6 +73,18 @@ namespace hgraph::v2
     EvaluationClock Graph::evaluation_clock() const noexcept
     {
         return evaluation_engine_api().evaluation_clock();
+    }
+
+    Traits &Graph::traits()
+    {
+        if (!m_traits) { m_traits = std::make_unique<Traits>(static_cast<const_traits_ptr>(nullptr)); }
+        return *m_traits;
+    }
+
+    const Traits &Graph::traits() const
+    {
+        if (!m_traits) { m_traits = std::make_unique<Traits>(static_cast<const_traits_ptr>(nullptr)); }
+        return *m_traits;
     }
 
     EngineEvaluationClock Graph::engine_evaluation_clock() const noexcept

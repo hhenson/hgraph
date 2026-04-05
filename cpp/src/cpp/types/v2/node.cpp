@@ -4,12 +4,36 @@
 #include <hgraph/util/scope.h>
 
 #include <cassert>
+#include <new>
 #include <stdexcept>
 
 namespace hgraph::v2
 {
     namespace
     {
+        [[nodiscard]] bool has_modified_active_input(Node &node, engine_time_t evaluation_time)
+        {
+            if (!node.has_input()) { return false; }
+
+            const TSMeta *schema = node.input_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSB) {
+                return node.input_view(evaluation_time).modified();
+            }
+
+            auto view = node.input_view(evaluation_time).as_bundle();
+            if (!node.spec().active_inputs.empty()) {
+                for (const size_t slot : node.spec().active_inputs) {
+                    if (slot < schema->field_count() && view[slot].modified()) { return true; }
+                }
+                return false;
+            }
+
+            for (size_t slot = 0; slot < schema->field_count(); ++slot) {
+                if (view[slot].modified()) { return true; }
+            }
+            return false;
+        }
+
         void activate_active_inputs(Node &node, engine_time_t evaluation_time)
         {
             if (!node.has_input()) { return; }
@@ -54,7 +78,7 @@ namespace hgraph::v2
 
     Graph &detail::arg_provider<Graph>::get(Node &node, engine_time_t)
     {
-        if (node.graph() == nullptr) { throw std::logic_error("Node implementation requested Graph but node is not attached"); }
+        assert(node.graph() != nullptr);
         return *node.graph();
     }
 
@@ -65,7 +89,7 @@ namespace hgraph::v2
 
     EvaluationClock detail::arg_provider<EvaluationClock>::get(Node &node, engine_time_t)
     {
-        if (node.graph() == nullptr) { throw std::logic_error("Node implementation requested EvaluationClock but node is not attached"); }
+        assert(node.graph() != nullptr);
         return node.graph()->evaluation_clock();
     }
 
@@ -87,6 +111,119 @@ namespace hgraph::v2
     TSOutputView output_view_for(Node &node, engine_time_t evaluation_time)
     {
         return node.output_view(evaluation_time);
+    }
+
+    engine_time_t NodeScheduler::next_scheduled_time() const noexcept
+    {
+        return !m_scheduled_events.empty() ? m_scheduled_events.begin()->first : MIN_DT;
+    }
+
+    bool NodeScheduler::requires_scheduling() const noexcept
+    {
+        return !m_scheduled_events.empty();
+    }
+
+    bool NodeScheduler::is_scheduled() const noexcept
+    {
+        return !m_scheduled_events.empty();
+    }
+
+    bool NodeScheduler::is_scheduled_now() const noexcept
+    {
+        return m_node != nullptr && m_node->graph() != nullptr && !m_scheduled_events.empty() &&
+               m_scheduled_events.begin()->first == m_node->graph()->evaluation_time();
+    }
+
+    bool NodeScheduler::has_tag(std::string_view tag) const
+    {
+        return m_tags.contains(std::string{tag});
+    }
+
+    engine_time_t NodeScheduler::pop_tag(std::string_view tag, engine_time_t default_time)
+    {
+        auto it = m_tags.find(std::string{tag});
+        if (it == m_tags.end()) { return default_time; }
+
+        const auto when = it->second;
+        m_scheduled_events.erase({when, it->first});
+        m_tags.erase(it);
+        return when;
+    }
+
+    void NodeScheduler::schedule(engine_time_t when, std::optional<std::string> tag, bool on_wall_clock)
+    {
+        if (on_wall_clock) { throw std::invalid_argument("v2 node schedulers do not yet support wall-clock alarms"); }
+
+        assert(m_node != nullptr);
+        assert(m_node->graph() != nullptr);
+
+        std::optional<engine_time_t> original_time;
+        const std::string tag_value = tag.value_or("");
+        if (tag.has_value()) {
+            auto it = m_tags.find(tag_value);
+            if (it != m_tags.end() && !m_scheduled_events.empty()) {
+                original_time = next_scheduled_time();
+                m_scheduled_events.erase({it->second, tag_value});
+            }
+        }
+
+        const bool is_started = m_node->started();
+        const engine_time_t now = is_started ? m_node->graph()->evaluation_time() : MIN_DT;
+        if (when <= now) { return; }
+
+        m_tags[tag_value] = when;
+        const engine_time_t current_first = !m_scheduled_events.empty() ? m_scheduled_events.begin()->first : MAX_DT;
+        m_scheduled_events.insert({when, tag_value});
+        const engine_time_t next = next_scheduled_time();
+        if (is_started && current_first > next) {
+            const bool force_set = original_time.has_value() && *original_time < when;
+            m_node->graph()->schedule_node(m_node->node_index(), next, force_set);
+        }
+    }
+
+    void NodeScheduler::schedule(engine_time_delta_t when, std::optional<std::string> tag, bool on_wall_clock)
+    {
+        assert(m_node != nullptr);
+        assert(m_node->graph() != nullptr);
+        const engine_time_t base = on_wall_clock ? m_node->graph()->evaluation_clock().now() : m_node->graph()->evaluation_time();
+        schedule(base + when, std::move(tag), on_wall_clock);
+    }
+
+    void NodeScheduler::un_schedule(const std::string &tag)
+    {
+        if (auto it = m_tags.find(tag); it != m_tags.end()) {
+            m_scheduled_events.erase({it->second, it->first});
+            m_tags.erase(it);
+        }
+    }
+
+    void NodeScheduler::un_schedule()
+    {
+        if (m_scheduled_events.empty()) { return; }
+        const auto ev = *m_scheduled_events.begin();
+        m_scheduled_events.erase(m_scheduled_events.begin());
+        m_tags.erase(ev.second);
+    }
+
+    void NodeScheduler::reset()
+    {
+        m_scheduled_events.clear();
+        m_tags.clear();
+    }
+
+    void NodeScheduler::advance()
+    {
+        if (m_node == nullptr || m_node->graph() == nullptr) { return; }
+
+        const engine_time_t until = m_node->graph()->evaluation_time();
+        while (!m_scheduled_events.empty() && m_scheduled_events.begin()->first <= until) {
+            m_tags.erase(m_scheduled_events.begin()->second);
+            m_scheduled_events.erase(m_scheduled_events.begin());
+        }
+
+        if (!m_scheduled_events.empty()) {
+            m_node->graph()->schedule_node(m_node->node_index(), m_scheduled_events.begin()->first);
+        }
     }
 
     Node::Node(int64_t node_index, const BuiltNodeSpec *spec) noexcept
@@ -162,6 +299,16 @@ namespace hgraph::v2
         return m_started;
     }
 
+    bool Node::uses_scheduler() const noexcept
+    {
+        return spec().uses_scheduler;
+    }
+
+    bool Node::has_scheduler() const noexcept
+    {
+        return uses_scheduler();
+    }
+
     engine_time_t Node::evaluation_time() const noexcept
     {
         return m_graph != nullptr ? m_graph->evaluation_time() : MIN_DT;
@@ -170,6 +317,26 @@ namespace hgraph::v2
     void Node::set_started(bool value) noexcept
     {
         m_started = value;
+    }
+
+    NodeScheduler &Node::scheduler()
+    {
+        auto *scheduler_state = scheduler_if_present();
+        assert(scheduler_state != nullptr);
+        return *scheduler_state;
+    }
+
+    NodeScheduler *Node::scheduler_if_present() noexcept
+    {
+        if (!uses_scheduler()) { return nullptr; }
+        return std::launder(reinterpret_cast<NodeScheduler *>(reinterpret_cast<std::byte *>(this) + spec().scheduler_offset));
+    }
+
+    const NodeScheduler *Node::scheduler_if_present() const noexcept
+    {
+        if (!uses_scheduler()) { return nullptr; }
+        return std::launder(
+            reinterpret_cast<const NodeScheduler *>(reinterpret_cast<const std::byte *>(this) + spec().scheduler_offset));
     }
 
     void *Node::data() noexcept
@@ -222,6 +389,20 @@ namespace hgraph::v2
         auto rollback_start = UnwindCleanupGuard([&] { deactivate_active_inputs(*this, evaluation_time); });
         spec().runtime_ops->start(*this, evaluation_time);
         m_started = true;
+        auto rollback_started = hgraph::make_scope_exit([&] {
+            m_started = false;
+            if (uses_scheduler()) { scheduler().reset(); }
+        });
+
+        if (uses_scheduler() && scheduler().is_scheduled()) {
+            if (scheduler().pop_tag("start", MIN_DT) != MIN_DT) {
+                notify(evaluation_time);
+            } else {
+                scheduler().advance();
+            }
+        }
+
+        rollback_started.release();
     }
 
     void Node::stop(engine_time_t evaluation_time)
@@ -229,6 +410,9 @@ namespace hgraph::v2
         if (!m_started) { return; }
 
         auto mark_stopped = hgraph::make_scope_exit([&] { m_started = false; });
+        auto reset_scheduler = hgraph::make_scope_exit([&] {
+            if (uses_scheduler()) { scheduler().reset(); }
+        });
         auto deactivate_inputs = UnwindCleanupGuard([&] { deactivate_active_inputs(*this, evaluation_time); });
         spec().runtime_ops->stop(*this, evaluation_time);
         deactivate_inputs.complete();
@@ -237,12 +421,29 @@ namespace hgraph::v2
     void Node::eval(engine_time_t evaluation_time)
     {
         if (!ready_to_eval(evaluation_time)) { return; }
+        const bool scheduled = uses_scheduler() && scheduler().is_scheduled_now();
+        if (uses_scheduler() && has_input() && !scheduled && !has_modified_active_input(*this, evaluation_time)) { return; }
         spec().runtime_ops->eval(*this, evaluation_time);
+
+        if (!uses_scheduler()) { return; }
+        if (scheduled) {
+            scheduler().advance();
+        } else if (scheduler().requires_scheduling() && m_graph != nullptr) {
+            m_graph->schedule_node(m_node_index, scheduler().next_scheduled_time());
+        }
     }
 
     void Node::notify(engine_time_t et)
     {
-        if (m_graph != nullptr) { m_graph->schedule_node(m_node_index, et); }
+        if (m_graph == nullptr) { return; }
+        if (m_started) {
+            const engine_time_t when = std::max(et, m_graph->evaluation_time());
+            m_graph->schedule_node(m_node_index, when);
+        } else if (uses_scheduler()) {
+            scheduler().schedule(MIN_ST, std::string{"start"});
+        } else {
+            m_graph->schedule_node(m_node_index, et);
+        }
     }
 
     void Node::destruct() noexcept

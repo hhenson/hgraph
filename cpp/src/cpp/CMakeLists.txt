@@ -129,6 +129,7 @@ set(HGRAPH_SOURCES
         types/v2/graph_builder.cpp
         types/v2/node.cpp
         types/v2/node_builder.cpp
+        types/v2/python_node_support.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp

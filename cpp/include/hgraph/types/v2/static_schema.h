@@ -67,6 +67,7 @@ namespace hgraph::v2
     // Default Python-facing argument names for non-time-series injectables.
     inline constexpr fixed_string default_state_name{"_state"};
     inline constexpr fixed_string default_recordable_state_name{"_recordable_state"};
+    inline constexpr fixed_string default_scheduler_name{"_scheduler"};
     inline constexpr fixed_string default_clock_name{"_clock"};
 
     /** Scalar time-series schema, equivalent to Python TS[T]. */

@@ -227,6 +227,49 @@ namespace hgraph::v2::test_detail
         }
     };
 
+    // Port of the simple scheduler test node from
+    // hgraph_unit_tests/_runtime/test_scheduler.py::my_scheduler.
+    struct SchedulerEchoNode
+    {
+        SchedulerEchoNode() = delete;
+        ~SchedulerEchoNode() = delete;
+
+        static constexpr auto name = "scheduler_echo";
+
+        static void eval(In<"ts", TS<int>> ts, NodeScheduler &scheduler, Out<TS<int>> out)
+        {
+            if (ts.modified()) {
+                scheduler.schedule(hgraph::MIN_TD * ts.value());
+                out.set(ts.value());
+            } else if (scheduler.is_scheduled_now()) {
+                out.set(-1);
+            }
+        }
+    };
+
+    // Port of the tagged scheduler test node from
+    // hgraph_unit_tests/_runtime/test_scheduler.py::schedule_bool.
+    struct TaggedSchedulerBoolNode
+    {
+        TaggedSchedulerBoolNode() = delete;
+        ~TaggedSchedulerBoolNode() = delete;
+
+        static constexpr auto name = "tagged_scheduler_bool";
+
+        static void eval(In<"ts", TS<bool>, InputActivity::Active, InputValidity::Unchecked> ts,
+                         In<"ts1", TS<int>> ts1,
+                         NodeScheduler &scheduler,
+                         Out<TS<bool>> out)
+        {
+            if (ts.modified() || ts1.modified()) {
+                scheduler.schedule(hgraph::MIN_TD * ts1.value(), std::string{"TAG"});
+                if (ts.modified()) { out.set(true); }
+            } else if (scheduler.is_scheduled_now()) {
+                out.set(false);
+            }
+        }
+    };
+
     struct ThrowOnEval
     {
         ThrowOnEval() = delete;
@@ -888,6 +931,92 @@ TEST_CASE("v2 nodes support evaluation clock injection", "[v2][graph][clock]")
     CHECK(hgraph::v2::test_detail::ClockCaptureNode::saw_non_negative_cycle_time);
 }
 
+TEST_CASE("v2 nodes support simple scheduler injection", "[v2][graph][scheduler]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("scheduler_echo").implementation<hgraph::v2::test_detail::SchedulerEchoNode>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+
+    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 2, hgraph::v2::test_detail::tick(1));
+    graph.evaluate(hgraph::v2::test_detail::tick(1));
+    CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 2);
+    CHECK(graph.scheduled_time(1) == hgraph::v2::test_detail::tick(3));
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 3, hgraph::v2::test_detail::tick(2));
+    graph.evaluate(hgraph::v2::test_detail::tick(2));
+    CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 3);
+    CHECK(graph.scheduled_time(1) == hgraph::v2::test_detail::tick(3));
+
+    graph.evaluate(hgraph::v2::test_detail::tick(3));
+    CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == -1);
+    CHECK(graph.scheduled_time(1) == hgraph::v2::test_detail::tick(5));
+
+    graph.evaluate(hgraph::v2::test_detail::tick(4));
+    CHECK_FALSE(graph.node_at(1).output_view(hgraph::v2::test_detail::tick(4)).modified());
+
+    graph.evaluate(hgraph::v2::test_detail::tick(5));
+    CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == -1);
+}
+
+TEST_CASE("v2 nodes support tagged scheduler injection", "[v2][graph][scheduler]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *bool_type = value_registry.register_type<bool>("bool");
+    const auto *scalar_int_ts = ts_registry.ts(int_type);
+    const auto *scalar_bool_ts = ts_registry.ts(bool_type);
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("bool_source").output_schema(scalar_bool_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("delay_source").output_schema(scalar_int_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("tagged_scheduler").implementation<hgraph::v2::test_detail::TaggedSchedulerBoolNode>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 2, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 1, .dst_node = 2, .input_path = {1}});
+
+    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 3, hgraph::v2::test_detail::tick(1));
+    graph.evaluate(hgraph::v2::test_detail::tick(1));
+    CHECK_FALSE(graph.node_at(2).output_view(hgraph::v2::test_detail::tick(1)).modified());
+    CHECK(graph.scheduled_time(2) == hgraph::v2::test_detail::tick(4));
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 5, hgraph::v2::test_detail::tick(2));
+    graph.evaluate(hgraph::v2::test_detail::tick(2));
+    CHECK_FALSE(graph.node_at(2).output_view(hgraph::v2::test_detail::tick(2)).modified());
+    CHECK(graph.scheduled_time(2) == hgraph::v2::test_detail::tick(7));
+
+    graph.evaluate(hgraph::v2::test_detail::tick(4));
+    CHECK_FALSE(graph.node_at(2).output_view(hgraph::v2::test_detail::tick(4)).modified());
+
+    graph.evaluate(hgraph::v2::test_detail::tick(7));
+    CHECK_FALSE(graph.node_at(2).output_view().value().as_atomic().as<bool>());
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, true, hgraph::v2::test_detail::tick(8));
+    graph.evaluate(hgraph::v2::test_detail::tick(8));
+    CHECK(graph.node_at(2).output_view().value().as_atomic().as<bool>());
+    CHECK(graph.scheduled_time(2) == hgraph::v2::test_detail::tick(13));
+
+    graph.evaluate(hgraph::v2::test_detail::tick(13));
+    CHECK_FALSE(graph.node_at(2).output_view().value().as_atomic().as<bool>());
+}
+
 TEST_CASE("v2 evaluation engine builder produces a runnable simulation engine", "[v2][engine]")
 {
     hgraph::v2::GraphBuilder builder;
@@ -1183,4 +1312,20 @@ TEST_CASE("v2 static node signatures export evaluation clock injectables", "[v2]
 
     CHECK(args == std::vector<std::string>{"lhs", "_clock"});
     CHECK(nb::cast<bool>(wiring_signature.attr("uses_clock")));
+}
+
+TEST_CASE("v2 static node signatures export node scheduler injectables", "[v2][python][signature]")
+{
+    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+
+    using signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::SchedulerEchoNode>;
+
+    CHECK(signature::has_scheduler());
+
+    nb::gil_scoped_acquire guard;
+    nb::object wiring_signature = signature::wiring_signature();
+    const auto args = nb::cast<std::vector<std::string>>(wiring_signature.attr("args"));
+
+    CHECK(args == std::vector<std::string>{"ts", "_scheduler"});
+    CHECK(nb::cast<bool>(wiring_signature.attr("uses_scheduler")));
 }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/v2/node.h>
 #include <hgraph/types/v2/static_schema.h>
 
 #include <algorithm>
@@ -121,6 +122,25 @@ namespace hgraph::v2
             }
         };
 
+        template <>
+        struct injectable_selector_traits<NodeScheduler>
+        {
+            [[nodiscard]] static std::string name()
+            {
+                return std::string{default_scheduler_name.sv()};
+            }
+
+            [[nodiscard]] static nb::object py_type()
+            {
+                return nb::module_::import_("hgraph").attr("SCHEDULER");
+            }
+
+            [[nodiscard]] static const char *enum_name() noexcept
+            {
+                return "SCHEDULER";
+            }
+        };
+
         template <typename T, typename = void>
         struct start_args_tuple_or_empty
         {
@@ -159,12 +179,24 @@ namespace hgraph::v2
         struct is_injectable_selector<EvaluationClock> : std::true_type
         {};
 
+        template <>
+        struct is_injectable_selector<NodeScheduler> : std::true_type
+        {};
+
         template <typename T>
         struct is_evaluation_clock_selector : std::false_type
         {};
 
         template <>
         struct is_evaluation_clock_selector<EvaluationClock> : std::true_type
+        {};
+
+        template <typename T>
+        struct is_node_scheduler_selector : std::false_type
+        {};
+
+        template <>
+        struct is_node_scheduler_selector<NodeScheduler> : std::true_type
         {};
 
         template <typename TArgsTuple, template <typename> class TPredicate, size_t... I>
@@ -680,7 +712,7 @@ namespace hgraph::v2
             }
         }
 
-        template <bool HasState, bool HasRecordableState, bool HasClock>
+        template <bool HasState, bool HasRecordableState, bool HasScheduler, bool HasClock>
         [[nodiscard]] nb::object python_injectables()
         {
             nb::object enum_type = nb::module_::import_("hgraph._runtime._node").attr("InjectableTypesEnum");
@@ -688,6 +720,9 @@ namespace hgraph::v2
             if constexpr (HasState) { value = nb::steal<nb::object>(PyNumber_Or(value.ptr(), enum_type.attr("STATE").ptr())); }
             if constexpr (HasRecordableState) {
                 value = nb::steal<nb::object>(PyNumber_Or(value.ptr(), enum_type.attr("RECORDABLE_STATE").ptr()));
+            }
+            if constexpr (HasScheduler) {
+                value = nb::steal<nb::object>(PyNumber_Or(value.ptr(), enum_type.attr("SCHEDULER").ptr()));
             }
             if constexpr (HasClock) { value = nb::steal<nb::object>(PyNumber_Or(value.ptr(), enum_type.attr("CLOCK").ptr())); }
             return value;
@@ -730,6 +765,11 @@ namespace hgraph::v2
         using stop_clock_arg = detail::first_matching_tuple_type<stop_args_tuple, detail::is_evaluation_clock_selector>;
         using clock_arg = detail::first_non_void_t<eval_clock_arg, start_clock_arg, stop_clock_arg>;
 
+        using eval_scheduler_arg = detail::first_matching_tuple_type<eval_args_tuple, detail::is_node_scheduler_selector>;
+        using start_scheduler_arg = detail::first_matching_tuple_type<start_args_tuple, detail::is_node_scheduler_selector>;
+        using stop_scheduler_arg = detail::first_matching_tuple_type<stop_args_tuple, detail::is_node_scheduler_selector>;
+        using scheduler_arg = detail::first_non_void_t<eval_scheduler_arg, start_scheduler_arg, stop_scheduler_arg>;
+
       public:
         static_assert(std::is_same_v<typename eval_traits::return_type, void>, "Static node eval hooks must return void");
         static_assert(detail::output_selector_count<eval_args_tuple>() <= 1, "Static compute nodes support at most one Out<...> parameter");
@@ -757,6 +797,12 @@ namespace hgraph::v2
                       "Static node start supports at most one EvaluationClock parameter");
         static_assert(detail::selector_count<stop_args_tuple, detail::is_evaluation_clock_selector>() <= 1,
                       "Static node stop supports at most one EvaluationClock parameter");
+        static_assert(detail::selector_count<eval_args_tuple, detail::is_node_scheduler_selector>() <= 1,
+                      "Static node eval supports at most one NodeScheduler parameter");
+        static_assert(detail::selector_count<start_args_tuple, detail::is_node_scheduler_selector>() <= 1,
+                      "Static node start supports at most one NodeScheduler parameter");
+        static_assert(detail::selector_count<stop_args_tuple, detail::is_node_scheduler_selector>() <= 1,
+                      "Static node stop supports at most one NodeScheduler parameter");
 
         [[nodiscard]] static std::vector<std::string> input_names()
         {
@@ -768,6 +814,7 @@ namespace hgraph::v2
             auto names = detail::argument_names<eval_args_tuple>();
             detail::append_optional_argument_name<state_arg>(names);
             detail::append_optional_argument_name<recordable_state_arg>(names);
+            detail::append_optional_injectable_argument_name<scheduler_arg>(names);
             detail::append_optional_injectable_argument_name<clock_arg>(names);
             return names;
         }
@@ -834,6 +881,11 @@ namespace hgraph::v2
             return !std::is_void_v<clock_arg>;
         }
 
+        [[nodiscard]] static constexpr bool has_scheduler()
+        {
+            return !std::is_void_v<scheduler_arg>;
+        }
+
         [[nodiscard]] static const value::TypeMeta *state_schema()
         {
             if constexpr (has_state()) {
@@ -865,10 +917,12 @@ namespace hgraph::v2
             auto input_types = detail::python_input_types<eval_args_tuple>(type_var_context);
             detail::append_optional_python_input_type<state_arg>(input_types, type_var_context);
             detail::append_optional_python_input_type<recordable_state_arg>(input_types, type_var_context);
+            detail::append_optional_injectable_python_input_type<scheduler_arg>(input_types, type_var_context);
             detail::append_optional_injectable_python_input_type<clock_arg>(input_types, type_var_context);
             nb::dict defaults;
             detail::append_optional_default<state_arg>(defaults);
             detail::append_optional_default<recordable_state_arg>(defaults);
+            detail::append_optional_injectable_default<scheduler_arg>(defaults);
             detail::append_optional_injectable_default<clock_arg>(defaults);
 
             nb::dict kwargs;
@@ -885,7 +939,8 @@ namespace hgraph::v2
             kwargs["context_inputs"] = nb::none();
             kwargs["unresolved_args"] = detail::input_names_to_frozenset(unresolved_args);
             kwargs["time_series_args"] = detail::input_names_to_frozenset(input_names());
-            kwargs["injectables"] = detail::python_injectables<has_state(), has_recordable_state(), has_clock()>();
+            kwargs["injectables"] =
+                detail::python_injectables<has_state(), has_recordable_state(), has_scheduler(), has_clock()>();
 
             return detail::py_call(
                 nb::module_::import_("hgraph._wiring._wiring_node_signature").attr("WiringNodeSignature"),

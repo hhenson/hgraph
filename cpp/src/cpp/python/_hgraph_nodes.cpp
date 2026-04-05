@@ -13,8 +13,10 @@
 #include <hgraph/nodes/context_node.h>
 #include <hgraph/nodes/python_generator_node.h>
 #include <hgraph/nodes/push_queue_node.h>
+#include <hgraph/types/node.h>
 #include <hgraph/types/v2/evaluation_engine.h>
 #include <hgraph/types/v2/graph_builder.h>
+#include <hgraph/types/v2/python_node_support.h>
 #include <hgraph/types/v2/python_export.h>
 
 namespace
@@ -22,6 +24,122 @@ namespace
     using hgraph::TSMeta;
     using hgraph::engine_time_t;
     using namespace hgraph::v2;
+
+    struct V2PythonNodeSignature
+    {
+        std::string name;
+        NodeTypeEnum node_type{NodeTypeEnum::COMPUTE_NODE};
+        std::vector<std::string> args;
+        nb::object time_series_inputs;
+        nb::object time_series_output;
+        nb::object scalars;
+        nb::object src_location;
+        nb::object active_inputs;
+        nb::object valid_inputs;
+        nb::object all_valid_inputs;
+        nb::object context_inputs;
+        nb::object injectable_inputs;
+        size_t injectables{0};
+        bool capture_exception{false};
+        int64_t trace_back_depth{1};
+        std::string wiring_path_name;
+        std::string label;
+        bool capture_values{false};
+        std::string record_replay_id;
+        bool has_nested_graphs{false};
+        nb::object recordable_state_arg;
+        nb::object recordable_state;
+        std::string signature_text;
+
+        [[nodiscard]] bool uses_scheduler() const noexcept
+        {
+            return (injectables & static_cast<size_t>(hgraph::InjectableTypesEnum::SCHEDULER)) != 0;
+        }
+
+        [[nodiscard]] bool uses_clock() const noexcept
+        {
+            return (injectables & static_cast<size_t>(hgraph::InjectableTypesEnum::CLOCK)) != 0;
+        }
+
+        [[nodiscard]] bool uses_engine() const noexcept
+        {
+            return (injectables & static_cast<size_t>(hgraph::InjectableTypesEnum::ENGINE_API)) != 0;
+        }
+
+        [[nodiscard]] bool uses_state() const noexcept
+        {
+            return (injectables & static_cast<size_t>(hgraph::InjectableTypesEnum::STATE)) != 0;
+        }
+
+        [[nodiscard]] bool uses_recordable_state() const noexcept
+        {
+            return (injectables & static_cast<size_t>(hgraph::InjectableTypesEnum::RECORDABLE_STATE)) != 0;
+        }
+
+        [[nodiscard]] bool uses_output_feedback() const noexcept
+        {
+            return (injectables & static_cast<size_t>(hgraph::InjectableTypesEnum::OUTPUT)) != 0;
+        }
+
+        [[nodiscard]] bool is_source_node() const noexcept
+        {
+            return node_type == NodeTypeEnum::PUSH_SOURCE_NODE || node_type == NodeTypeEnum::PULL_SOURCE_NODE;
+        }
+
+        [[nodiscard]] bool is_pull_source_node() const noexcept
+        {
+            return node_type == NodeTypeEnum::PULL_SOURCE_NODE;
+        }
+
+        [[nodiscard]] bool is_push_source_node() const noexcept
+        {
+            return node_type == NodeTypeEnum::PUSH_SOURCE_NODE;
+        }
+
+        [[nodiscard]] bool is_compute_node() const noexcept
+        {
+            return node_type == NodeTypeEnum::COMPUTE_NODE;
+        }
+
+        [[nodiscard]] bool is_sink_node() const noexcept
+        {
+            return node_type == NodeTypeEnum::SINK_NODE;
+        }
+
+        [[nodiscard]] bool is_recordable() const noexcept
+        {
+            return !record_replay_id.empty();
+        }
+
+        [[nodiscard]] nb::dict to_dict() const
+        {
+            nb::dict out;
+            out["name"] = name;
+            out["node_type"] = nb::cast(node_type);
+            out["args"] = nb::cast(args);
+            out["time_series_inputs"] = nb::borrow(time_series_inputs);
+            out["time_series_output"] = nb::borrow(time_series_output);
+            out["scalars"] = nb::borrow(scalars);
+            out["src_location"] = nb::borrow(src_location);
+            out["active_inputs"] = nb::borrow(active_inputs);
+            out["valid_inputs"] = nb::borrow(valid_inputs);
+            out["all_valid_inputs"] = nb::borrow(all_valid_inputs);
+            out["context_inputs"] = nb::borrow(context_inputs);
+            out["injectable_inputs"] = nb::borrow(injectable_inputs);
+            out["injectables"] = injectables;
+            out["capture_exception"] = capture_exception;
+            out["trace_back_depth"] = trace_back_depth;
+            out["wiring_path_name"] = wiring_path_name;
+            out["label"] = label;
+            out["capture_values"] = capture_values;
+            out["record_replay_id"] = record_replay_id;
+            out["has_nested_graphs"] = has_nested_graphs;
+            out["recordable_state_arg"] = nb::borrow(recordable_state_arg);
+            out["recordable_state"] = nb::borrow(recordable_state);
+            out["signature"] = signature_text;
+            return out;
+        }
+    };
 
     struct StaticSumNode
     {
@@ -192,6 +310,254 @@ namespace
         return nb::dict();
     }
 
+    [[nodiscard]] std::string string_or_empty(nb::handle value)
+    {
+        return value.is_none() ? std::string{} : nb::cast<std::string>(value);
+    }
+
+    [[nodiscard]] const TSMeta *cpp_ts_meta_or_none(nb::handle meta)
+    {
+        if (meta.is_none()) { return nullptr; }
+
+        nb::object cpp_type = nb::borrow(meta).attr("cpp_type");
+        if (cpp_type.is_none()) { return nullptr; }
+        return nb::cast<const TSMeta *>(cpp_type);
+    }
+
+    [[nodiscard]] const TSMeta *input_schema_from_node_signature(nb::handle node_signature)
+    {
+        nb::object input_types = nb::borrow(node_signature).attr("time_series_inputs");
+        if (input_types.is_none()) { return nullptr; }
+
+        std::vector<std::pair<std::string, const TSMeta *>> fields;
+        const std::vector<std::string> args = nb::cast<std::vector<std::string>>(nb::borrow(node_signature).attr("args"));
+        fields.reserve(args.size());
+        for (const auto &arg : args) {
+            if (!PyMapping_HasKey(input_types.ptr(), nb::str(arg.c_str()).ptr())) { continue; }
+            const TSMeta *schema =
+                cpp_ts_meta_or_none(nb::steal<nb::object>(PyObject_GetItem(input_types.ptr(), nb::str(arg.c_str()).ptr())));
+            if (schema == nullptr) { return nullptr; }
+            fields.emplace_back(arg, schema);
+        }
+
+        if (fields.empty()) { return nullptr; }
+        return hgraph::TSTypeRegistry::instance().tsb(fields, "python_v2.inputs");
+    }
+
+    [[nodiscard]] const TSMeta *output_schema_from_node_signature(nb::handle node_signature)
+    {
+        return cpp_ts_meta_or_none(nb::borrow(node_signature).attr("time_series_output"));
+    }
+
+    [[nodiscard]] const TSMeta *recordable_state_schema_from_node_signature(nb::handle node_signature)
+    {
+        if (!nb::cast<bool>(nb::borrow(node_signature).attr("uses_recordable_state"))) { return nullptr; }
+        nb::object recordable_state = nb::borrow(node_signature).attr("recordable_state");
+        if (recordable_state.is_none()) { return nullptr; }
+        return cpp_ts_meta_or_none(recordable_state.attr("tsb_type"));
+    }
+
+    [[nodiscard]] V2PythonNodeSignature make_v2_node_signature(nb::handle signature)
+    {
+        if (nb::isinstance<V2PythonNodeSignature>(signature)) { return nb::cast<V2PythonNodeSignature>(signature); }
+
+        nb::object node_signature = nb::borrow(signature);
+        return V2PythonNodeSignature{
+            .name = nb::cast<std::string>(node_signature.attr("name")),
+            .node_type = nb::cast<NodeTypeEnum>(node_signature.attr("node_type")),
+            .args = nb::cast<std::vector<std::string>>(node_signature.attr("args")),
+            .time_series_inputs = nb::borrow(node_signature.attr("time_series_inputs")),
+            .time_series_output = nb::borrow(node_signature.attr("time_series_output")),
+            .scalars = nb::borrow(node_signature.attr("scalars")),
+            .src_location = nb::borrow(node_signature.attr("src_location")),
+            .active_inputs = nb::borrow(node_signature.attr("active_inputs")),
+            .valid_inputs = nb::borrow(node_signature.attr("valid_inputs")),
+            .all_valid_inputs = nb::borrow(node_signature.attr("all_valid_inputs")),
+            .context_inputs = nb::borrow(node_signature.attr("context_inputs")),
+            .injectable_inputs = nb::borrow(node_signature.attr("injectable_inputs")),
+            .injectables = nb::cast<size_t>(node_signature.attr("injectables")),
+            .capture_exception = nb::cast<bool>(node_signature.attr("capture_exception")),
+            .trace_back_depth = nb::cast<int64_t>(node_signature.attr("trace_back_depth")),
+            .wiring_path_name = nb::cast<std::string>(node_signature.attr("wiring_path_name")),
+            .label = string_or_empty(node_signature.attr("label")),
+            .capture_values = nb::cast<bool>(node_signature.attr("capture_values")),
+            .record_replay_id = string_or_empty(node_signature.attr("record_replay_id")),
+            .has_nested_graphs = nb::cast<bool>(node_signature.attr("has_nested_graphs")),
+            .recordable_state_arg = nb::borrow(node_signature.attr("recordable_state_arg")),
+            .recordable_state = nb::borrow(node_signature.attr("recordable_state")),
+            .signature_text = nb::cast<std::string>(node_signature.attr("signature")),
+        };
+    }
+
+    void register_v2_node_signature(nb::module_ &v2)
+    {
+        nb::enum_<NodeTypeEnum>(v2, "NodeTypeEnum")
+            .value("PUSH_SOURCE_NODE", NodeTypeEnum::PUSH_SOURCE_NODE)
+            .value("PULL_SOURCE_NODE", NodeTypeEnum::PULL_SOURCE_NODE)
+            .value("COMPUTE_NODE", NodeTypeEnum::COMPUTE_NODE)
+            .value("SINK_NODE", NodeTypeEnum::SINK_NODE)
+            .export_values();
+
+        nb::class_<V2PythonNodeSignature>(v2, "NodeSignature")
+            .def("__init__",
+                 [](V2PythonNodeSignature *self, nb::kwargs kwargs) {
+                     new (self) V2PythonNodeSignature{
+                         .name = nb::cast<std::string>(kwargs["name"]),
+                         .node_type = nb::cast<NodeTypeEnum>(kwargs["node_type"]),
+                         .args = nb::cast<std::vector<std::string>>(kwargs["args"]),
+                         .time_series_inputs = nb::borrow(kwargs["time_series_inputs"]),
+                         .time_series_output = nb::borrow(kwargs["time_series_output"]),
+                         .scalars = nb::borrow(kwargs["scalars"]),
+                         .src_location = nb::borrow(kwargs["src_location"]),
+                         .active_inputs = nb::borrow(kwargs["active_inputs"]),
+                         .valid_inputs = nb::borrow(kwargs["valid_inputs"]),
+                         .all_valid_inputs = nb::borrow(kwargs["all_valid_inputs"]),
+                         .context_inputs = nb::borrow(kwargs["context_inputs"]),
+                         .injectable_inputs = nb::borrow(kwargs["injectable_inputs"]),
+                         .injectables = nb::cast<size_t>(kwargs["injectables"]),
+                         .capture_exception = nb::cast<bool>(kwargs["capture_exception"]),
+                         .trace_back_depth = nb::cast<int64_t>(kwargs["trace_back_depth"]),
+                         .wiring_path_name = nb::cast<std::string>(kwargs["wiring_path_name"]),
+                         .label = string_or_empty(kwargs["label"]),
+                         .capture_values = nb::cast<bool>(kwargs["capture_values"]),
+                         .record_replay_id = string_or_empty(kwargs["record_replay_id"]),
+                         .has_nested_graphs = nb::cast<bool>(kwargs["has_nested_graphs"]),
+                         .recordable_state_arg = kwargs.contains("recordable_state_arg")
+                             ? nb::borrow(kwargs["recordable_state_arg"])
+                             : nb::none(),
+                         .recordable_state = kwargs.contains("recordable_state") ? nb::borrow(kwargs["recordable_state"])
+                                                                                : nb::none(),
+                         .signature_text = kwargs.contains("signature") ? nb::cast<std::string>(kwargs["signature"])
+                                                                        : std::string{},
+                     };
+                 })
+            .def_prop_ro("name", [](const V2PythonNodeSignature &self) { return self.name; })
+            .def_prop_ro("node_type", [](const V2PythonNodeSignature &self) { return self.node_type; })
+            .def_prop_ro("args", [](const V2PythonNodeSignature &self) { return self.args; })
+            .def_prop_ro("time_series_inputs",
+                         [](const V2PythonNodeSignature &self) { return nb::borrow(self.time_series_inputs); })
+            .def_prop_ro("time_series_output",
+                         [](const V2PythonNodeSignature &self) { return nb::borrow(self.time_series_output); })
+            .def_prop_ro("scalars", [](const V2PythonNodeSignature &self) { return nb::borrow(self.scalars); })
+            .def_prop_ro("src_location", [](const V2PythonNodeSignature &self) { return nb::borrow(self.src_location); })
+            .def_prop_ro("active_inputs", [](const V2PythonNodeSignature &self) { return nb::borrow(self.active_inputs); })
+            .def_prop_ro("valid_inputs", [](const V2PythonNodeSignature &self) { return nb::borrow(self.valid_inputs); })
+            .def_prop_ro("all_valid_inputs",
+                         [](const V2PythonNodeSignature &self) { return nb::borrow(self.all_valid_inputs); })
+            .def_prop_ro("context_inputs", [](const V2PythonNodeSignature &self) { return nb::borrow(self.context_inputs); })
+            .def_prop_ro("injectable_inputs",
+                         [](const V2PythonNodeSignature &self) { return nb::borrow(self.injectable_inputs); })
+            .def_prop_ro("injectables", [](const V2PythonNodeSignature &self) { return self.injectables; })
+            .def_prop_ro("capture_exception", [](const V2PythonNodeSignature &self) { return self.capture_exception; })
+            .def_prop_ro("trace_back_depth", [](const V2PythonNodeSignature &self) { return self.trace_back_depth; })
+            .def_prop_ro("wiring_path_name", [](const V2PythonNodeSignature &self) { return self.wiring_path_name; })
+            .def_prop_ro("label", [](const V2PythonNodeSignature &self) { return self.label; })
+            .def_prop_ro("capture_values", [](const V2PythonNodeSignature &self) { return self.capture_values; })
+            .def_prop_ro("record_replay_id", [](const V2PythonNodeSignature &self) { return self.record_replay_id; })
+            .def_prop_ro("has_nested_graphs", [](const V2PythonNodeSignature &self) { return self.has_nested_graphs; })
+            .def_prop_ro("signature", [](const V2PythonNodeSignature &self) { return self.signature_text; })
+            .def_prop_ro("uses_scheduler", &V2PythonNodeSignature::uses_scheduler)
+            .def_prop_ro("uses_clock", &V2PythonNodeSignature::uses_clock)
+            .def_prop_ro("uses_engine", &V2PythonNodeSignature::uses_engine)
+            .def_prop_ro("uses_state", &V2PythonNodeSignature::uses_state)
+            .def_prop_ro("uses_recordable_state", &V2PythonNodeSignature::uses_recordable_state)
+            .def_prop_ro("uses_output_feedback", &V2PythonNodeSignature::uses_output_feedback)
+            .def_prop_ro("recordable_state_arg",
+                         [](const V2PythonNodeSignature &self) { return nb::borrow(self.recordable_state_arg); })
+            .def_prop_ro("recordable_state",
+                         [](const V2PythonNodeSignature &self) { return nb::borrow(self.recordable_state); })
+            .def_prop_ro("is_source_node", &V2PythonNodeSignature::is_source_node)
+            .def_prop_ro("is_pull_source_node", &V2PythonNodeSignature::is_pull_source_node)
+            .def_prop_ro("is_push_source_node", &V2PythonNodeSignature::is_push_source_node)
+            .def_prop_ro("is_compute_node", &V2PythonNodeSignature::is_compute_node)
+            .def_prop_ro("is_sink_node", &V2PythonNodeSignature::is_sink_node)
+            .def_prop_ro("is_recordable", &V2PythonNodeSignature::is_recordable)
+            .def("to_dict", &V2PythonNodeSignature::to_dict)
+            .def("__str__", [](const V2PythonNodeSignature &self) { return self.signature_text; })
+            .def("__repr__", [](const V2PythonNodeSignature &self) {
+                return fmt::format("v2.NodeSignature(name='{}', node_type={})", self.name, static_cast<int>(self.node_type));
+            });
+    }
+
+    void apply_selector_policies(NodeBuilder &builder, nb::handle node_signature, const TSMeta *input_schema)
+    {
+        if (input_schema == nullptr) { return; }
+
+        auto apply_names = [&](const char *attribute_name, bool default_to_all_inputs, auto add_slot) {
+            nb::object names_obj = nb::borrow(node_signature).attr(attribute_name);
+            std::vector<std::string> names;
+            if (!names_obj.is_none()) {
+                names.reserve(static_cast<size_t>(nb::len(names_obj)));
+                for (auto item : names_obj) { names.push_back(nb::cast<std::string>(item)); }
+            } else if (default_to_all_inputs) {
+                nb::object inputs = nb::borrow(node_signature).attr("time_series_inputs");
+                if (!inputs.is_none()) {
+                    for (auto item : inputs.attr("keys")()) { names.push_back(nb::cast<std::string>(item)); }
+                }
+            }
+
+            for (const auto &name : names) {
+                for (size_t slot = 0; slot < input_schema->field_count(); ++slot) {
+                    if (input_schema->fields()[slot].name == name) {
+                        add_slot(slot);
+                        break;
+                    }
+                }
+            }
+        };
+
+        apply_names("active_inputs", true, [&](size_t slot) { builder.active_input(slot); });
+        apply_names("valid_inputs", true, [&](size_t slot) { builder.valid_input(slot); });
+        apply_names("all_valid_inputs", false, [&](size_t slot) { builder.all_valid_input(slot); });
+    }
+
+    [[nodiscard]] NodeBuilder make_python_node_builder(nb::object signature,
+                                                       nb::dict scalars,
+                                                       nb::object input_builder,
+                                                       nb::object output_builder,
+                                                       nb::object error_builder,
+                                                       nb::object recordable_state_builder,
+                                                       nb::object eval_fn,
+                                                       nb::object start_fn,
+                                                       nb::object stop_fn)
+    {
+        if (nb::cast<bool>(signature.attr("capture_exception"))) {
+            throw std::invalid_argument("v2 Python-backed nodes do not yet support error capture outputs");
+        }
+        nb::object context_inputs = signature.attr("context_inputs");
+        if (!context_inputs.is_none() && nb::len(context_inputs) > 0) {
+            throw std::invalid_argument("v2 Python-backed nodes do not yet support context-manager inputs");
+        }
+
+        const NodeTypeEnum node_type = nb::cast<NodeTypeEnum>(signature.attr("node_type"));
+        if (node_type == NodeTypeEnum::PUSH_SOURCE_NODE) {
+            throw std::invalid_argument("v2 Python-backed nodes do not yet support push-source semantics");
+        }
+
+        const TSMeta *input_schema = input_schema_from_node_signature(signature);
+        const TSMeta *output_schema = output_schema_from_node_signature(signature);
+        const TSMeta *recordable_state_schema = recordable_state_schema_from_node_signature(signature);
+
+        NodeBuilder builder;
+        builder.node_type(node_type)
+            .python_signature(nb::borrow(signature))
+            .python_scalars(std::move(scalars))
+            .python_input_builder(std::move(input_builder))
+            .python_output_builder(std::move(output_builder))
+            .python_error_builder(std::move(error_builder))
+            .python_recordable_state_builder(std::move(recordable_state_builder))
+            .python_implementation(std::move(eval_fn), std::move(start_fn), std::move(stop_fn))
+            .implementation_name(nb::cast<std::string>(signature.attr("name")))
+            .uses_scheduler(nb::cast<bool>(signature.attr("uses_scheduler")))
+            .requires_resolved_schemas(true);
+
+        if (input_schema != nullptr) { builder.input_schema(input_schema); }
+        if (output_schema != nullptr) { builder.output_schema(output_schema); }
+        if (recordable_state_schema != nullptr) { builder.recordable_state_schema(recordable_state_schema); }
+        apply_selector_policies(builder, signature, input_schema);
+        return builder;
+    }
+
     struct V2GraphExecutor
     {
         V2GraphExecutor(GraphBuilder graph_builder, nb::object run_mode, std::vector<nb::object> observers, bool cleanup_on_error)
@@ -234,7 +600,22 @@ namespace
 void export_nodes(nb::module_ &m) {
     using namespace hgraph;
     auto v2 = m.def_submodule("v2", "Experimental v2 static node exports");
-    nb::class_<hgraph::v2::NodeBuilder>(v2, "NodeBuilder")
+    hgraph::v2::register_python_runtime_bindings(v2);
+    register_v2_node_signature(v2);
+    auto node_builder_cls = nb::class_<hgraph::v2::NodeBuilder>(v2, "NodeBuilder")
+        .def_static(
+            "python",
+            &make_python_node_builder,
+            "signature"_a,
+            "scalars"_a,
+            "input_builder"_a = nb::none(),
+            "output_builder"_a = nb::none(),
+            "error_builder"_a = nb::none(),
+            "recordable_state_builder"_a = nb::none(),
+            "eval_fn"_a,
+            "start_fn"_a = nb::none(),
+            "stop_fn"_a = nb::none())
+        .def_static("make_signature", &make_v2_node_signature, "signature"_a)
         .def(
             "make_instance",
             [](const hgraph::v2::NodeBuilder &self, nb::tuple owning_graph_id, int64_t node_ndx) -> nb::object {
@@ -282,10 +663,12 @@ void export_nodes(nb::module_ &m) {
             [](const hgraph::v2::NodeBuilder &self) {
                 return fmt::format("v2.NodeBuilder@{:p}[impl={}]", static_cast<const void *>(&self), self.implementation_name());
             })
-        .def("__str__",
+            .def("__str__",
              [](const hgraph::v2::NodeBuilder &self) {
                  return fmt::format("v2.NodeBuilder@{:p}[impl={}]", static_cast<const void *>(&self), self.implementation_name());
              });
+    node_builder_cls.attr("NODE_SIGNATURE") = v2.attr("NodeSignature");
+    node_builder_cls.attr("NODE_TYPE_ENUM") = v2.attr("NodeTypeEnum");
 
     nb::class_<hgraph::v2::Edge>(v2, "Edge")
         .def(

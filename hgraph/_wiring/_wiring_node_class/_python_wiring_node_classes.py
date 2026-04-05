@@ -15,6 +15,27 @@ if TYPE_CHECKING:
 __all__ = ("PythonWiringNodeClass", "PythonPushQueueWiringNodeClass", "PythonGeneratorWiringNodeClass")
 
 
+def _resolve_builder_factory(builder_class: Callable, node_signature: "NodeSignature") -> tuple[Callable, "NodeSignature"]:
+    signature_type = getattr(builder_class, "NODE_SIGNATURE", None)
+    node_type_enum = getattr(builder_class, "NODE_TYPE_ENUM", None)
+    if signature_type is not None and node_type_enum is not None and not isinstance(node_signature, signature_type):
+        signature_dict = dict(node_signature.to_dict())
+        for field_name in ("recordable_state_arg", "recordable_state", "signature"):
+            if hasattr(node_signature, field_name):
+                signature_dict[field_name] = getattr(node_signature, field_name)
+        node_type = signature_dict.get("node_type")
+        if node_type is not None and not isinstance(node_type, node_type_enum):
+            signature_dict["node_type"] = node_type_enum[getattr(node_type, "name")]
+        node_signature = signature_type(**signature_dict)
+
+    signature_factory = getattr(builder_class, "make_signature", None)
+    if signature_factory is not None:
+        node_signature = signature_factory(node_signature)
+
+    builder_factory = getattr(builder_class, "python", builder_class)
+    return builder_factory, node_signature
+
+
 class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
 
     def create_node_builder_instance(
@@ -33,7 +54,8 @@ class PythonGeneratorWiringNodeClass(BaseWiringNodeClass):
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
         output_type = node_signature.time_series_output
         assert output_type is not None, "PythonGeneratorWiringNodeClass must have a time series output"
-        return PythonGeneratorWiringNodeClass.BUILDER_CLASS(
+        builder_factory, node_signature = _resolve_builder_factory(PythonGeneratorWiringNodeClass.BUILDER_CLASS, node_signature)
+        return builder_factory(
             signature=node_signature,
             scalars=scalars,
             input_builder=None,
@@ -62,7 +84,8 @@ class PythonPushQueueWiringNodeClass(BaseWiringNodeClass):
         factory: TimeSeriesBuilderFactory = TimeSeriesBuilderFactory.instance()
         output_type = node_signature.time_series_output
         assert output_type is not None, "PythonPushQueueWiringNodeClass must have a time series output"
-        return PythonPushQueueWiringNodeClass.BUILDER_CLASS(
+        builder_factory, node_signature = _resolve_builder_factory(PythonPushQueueWiringNodeClass.BUILDER_CLASS, node_signature)
+        return builder_factory(
             signature=node_signature,
             scalars=scalars,
             input_builder=None,
@@ -119,7 +142,8 @@ class PythonWiringNodeClass(BaseWiringNodeClass):
             if recordable_state_builder is None:
                 raise CustomMessageWiringError("Recordable state injectable not found")
 
-        return PythonWiringNodeClass.BUILDER_CLASS(
+        builder_factory, node_signature = _resolve_builder_factory(PythonWiringNodeClass.BUILDER_CLASS, node_signature)
+        return builder_factory(
             signature=node_signature,
             scalars=scalars,
             input_builder=input_builder,

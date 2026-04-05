@@ -40,6 +40,7 @@ namespace hgraph::v2
         [[nodiscard]] const TSMeta *input_schema() const noexcept { return m_input_schema; }
         NodeBuilder &output_schema(const TSMeta *value);
         [[nodiscard]] const TSMeta *output_schema() const noexcept { return m_output_schema; }
+        NodeBuilder &recordable_state_schema(const TSMeta *value);
         NodeBuilder &active_input(size_t slot);
         NodeBuilder &valid_input(size_t slot);
         NodeBuilder &all_valid_input(size_t slot);
@@ -49,7 +50,9 @@ namespace hgraph::v2
         NodeBuilder &python_output_builder(nb::object value);
         NodeBuilder &python_error_builder(nb::object value);
         NodeBuilder &python_recordable_state_builder(nb::object value);
+        NodeBuilder &python_implementation(nb::object eval_fn, nb::object start_fn = nb::none(), nb::object stop_fn = nb::none());
         NodeBuilder &implementation_name(std::string value);
+        NodeBuilder &uses_scheduler(bool value) noexcept;
         NodeBuilder &requires_resolved_schemas(bool value) noexcept;
 
         [[nodiscard]] const nb::object &signature() const noexcept { return m_python_signature; }
@@ -86,6 +89,7 @@ namespace hgraph::v2
                 m_has_recordable_state = true;
                 m_recordable_state_schema = signature::recordable_state_schema();
             }
+            m_uses_scheduler = signature::has_scheduler();
 
             if (m_active_inputs.empty()) {
                 for (const auto &name : signature::active_input_names()) { m_active_inputs.push_back(slot_for_input_name(name)); }
@@ -102,9 +106,12 @@ namespace hgraph::v2
             }
 
             m_has_push_message_hook = detail::HasApplyMessage<TImplementation>;
+            m_runtime_family = RuntimeFamily::Static;
             m_runtime_ops = &detail::runtime_ops_for<TImplementation>::value;
             m_push_source_runtime_ops =
                 detail::HasApplyMessage<TImplementation> ? &detail::runtime_ops_for<TImplementation>::push_source_value : nullptr;
+            m_runtime_data_size = sizeof(detail::StaticNodeRuntimeData);
+            m_runtime_data_alignment = alignof(detail::StaticNodeRuntimeData);
             validate_push_source_contract();
             return *this;
         }
@@ -124,6 +131,13 @@ namespace hgraph::v2
 
       private:
         friend struct GraphBuilder;
+
+        enum class RuntimeFamily
+        {
+            None,
+            Static,
+            Python,
+        };
 
         void validate_complete() const
         {
@@ -160,18 +174,25 @@ namespace hgraph::v2
         const value::TypeMeta *m_state_schema{nullptr};
         bool m_has_recordable_state{false};
         const TSMeta *m_recordable_state_schema{nullptr};
+        bool m_uses_scheduler{false};
         std::vector<size_t> m_active_inputs;
         std::vector<size_t> m_valid_inputs;
         std::vector<size_t> m_all_valid_inputs;
+        RuntimeFamily m_runtime_family{RuntimeFamily::None};
         const NodeRuntimeOps *m_runtime_ops{nullptr};
         const PushSourceNodeRuntimeOps *m_push_source_runtime_ops{nullptr};
         bool m_has_push_message_hook{false};
+        size_t m_runtime_data_size{0};
+        size_t m_runtime_data_alignment{alignof(std::max_align_t)};
         nb::object m_python_signature;
         nb::object m_python_scalars;
         nb::object m_python_input_builder;
         nb::object m_python_output_builder;
         nb::object m_python_error_builder;
         nb::object m_python_recordable_state_builder;
+        nb::object m_python_eval_fn;
+        nb::object m_python_start_fn;
+        nb::object m_python_stop_fn;
         std::string m_implementation_name;
         bool m_requires_resolved_schemas{false};
     };

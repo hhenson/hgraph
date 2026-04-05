@@ -6,10 +6,13 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/value.h>
 
+#include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -22,6 +25,7 @@ namespace hgraph::v2
     using PathView = std::span<const int64_t>;
 
     struct HGRAPH_EXPORT Node;
+    struct HGRAPH_EXPORT NodeScheduler;
 
     /** Runtime node category, aligned with the existing Python/C++ node type names. */
     enum class NodeTypeEnum
@@ -70,7 +74,9 @@ namespace hgraph::v2
         const NodeRuntimeOps *runtime_ops{nullptr};
         const PushSourceNodeRuntimeOps *push_source_runtime_ops{nullptr};
         void (*destruct)(Node &node) noexcept{nullptr};
+        size_t scheduler_offset{0};
         size_t runtime_data_offset{0};
+        bool uses_scheduler{false};
 
         std::string_view label;
         NodeTypeEnum node_type{NodeTypeEnum::COMPUTE_NODE};
@@ -83,12 +89,49 @@ namespace hgraph::v2
     };
 
     /**
+     * Generic per-node scheduler state used by scheduler injectables.
+     *
+     * This is wrapper-owned node state, not runtime-family-specific payload.
+     * Both static nodes and Python-backed nodes use the same scheduling
+     * semantics through Node's generic start/eval/stop wrappers.
+     */
+    struct HGRAPH_EXPORT NodeScheduler
+    {
+        explicit NodeScheduler(Node *node) noexcept : m_node(node) {}
+
+        NodeScheduler(const NodeScheduler &) = delete;
+        NodeScheduler &operator=(const NodeScheduler &) = delete;
+        NodeScheduler(NodeScheduler &&) = default;
+        NodeScheduler &operator=(NodeScheduler &&) = default;
+        ~NodeScheduler() = default;
+
+        [[nodiscard]] engine_time_t next_scheduled_time() const noexcept;
+        [[nodiscard]] bool requires_scheduling() const noexcept;
+        [[nodiscard]] bool is_scheduled() const noexcept;
+        [[nodiscard]] bool is_scheduled_now() const noexcept;
+        [[nodiscard]] bool has_tag(std::string_view tag) const;
+        [[nodiscard]] engine_time_t pop_tag(std::string_view tag, engine_time_t default_time = MIN_DT);
+        void schedule(engine_time_t when, std::optional<std::string> tag = std::nullopt, bool on_wall_clock = false);
+        void schedule(engine_time_delta_t when, std::optional<std::string> tag = std::nullopt, bool on_wall_clock = false);
+        void un_schedule(const std::string &tag);
+        void un_schedule();
+        void reset();
+        void advance();
+
+      private:
+        Node *m_node{nullptr};
+        std::set<std::pair<engine_time_t, std::string>> m_scheduled_events;
+        std::unordered_map<std::string, engine_time_t> m_tags;
+    };
+
+    /**
      * Type-erased runtime node.
      *
      * A Node is placement-constructed at the start of a variable-sized chunk
      * owned by Graph. The rest of the chunk stores the BuiltNodeSpec and any
-     * node-family-specific payload such as TSInput, TSOutput, local state, and
-     * copied selector metadata.
+     * generic wrapper state such as NodeScheduler, plus node-family-specific
+     * payload such as TSInput, TSOutput, local state, and copied selector
+     * metadata.
      */
     struct HGRAPH_EXPORT Node : Notifiable
     {
@@ -116,8 +159,13 @@ namespace hgraph::v2
         [[nodiscard]] bool has_input() const noexcept;
         [[nodiscard]] bool has_output() const noexcept;
         [[nodiscard]] bool started() const noexcept;
+        [[nodiscard]] bool uses_scheduler() const noexcept;
+        [[nodiscard]] bool has_scheduler() const noexcept;
         [[nodiscard]] engine_time_t evaluation_time() const noexcept;
         void set_started(bool value) noexcept;
+        [[nodiscard]] NodeScheduler &scheduler();
+        [[nodiscard]] NodeScheduler *scheduler_if_present() noexcept;
+        [[nodiscard]] const NodeScheduler *scheduler_if_present() const noexcept;
         [[nodiscard]] void *data() noexcept;
         [[nodiscard]] const void *data() const noexcept;
 
