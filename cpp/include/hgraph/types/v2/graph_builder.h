@@ -24,9 +24,10 @@ namespace hgraph::v2
      * Fluent builder for a graph-owned node slab.
      *
      * GraphBuilder groups inbound edges per destination node, asks each
-     * NodeBuilder for the size and alignment of its runtime chunk, allocates a
-     * single contiguous block, constructs all nodes into that block, and then
-     * binds edges through TSOutputView / TSInputView traversal.
+     * concrete builder for the size and alignment of its runtime chunk,
+     * allocates a single contiguous block, constructs all nodes into that
+     * block, and then binds edges through TSOutputView / TSInputView
+     * traversal.
      */
     struct HGRAPH_EXPORT GraphBuilder
     {
@@ -39,7 +40,9 @@ namespace hgraph::v2
         [[nodiscard]] size_t size() const;
         [[nodiscard]] size_t alignment() const;
         [[nodiscard]] Graph make_graph(GraphEvaluationEngine evaluation_engine) const;
-        [[nodiscard]] const std::vector<NodeBuilder> &node_builders() const noexcept { return m_node_builders; }
+
+        [[nodiscard]] size_t node_builder_count() const noexcept { return m_node_builders.size(); }
+        [[nodiscard]] const NodeBuilder &node_builder_at(size_t index) const;
         [[nodiscard]] const std::vector<Edge> &edges() const noexcept { return m_edges; }
 
       private:

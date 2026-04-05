@@ -50,7 +50,8 @@ if is_feature_enabled("use_cpp"):
 
         def _make_cpp_graph_builder(node_builders, edges):
             """Select the legacy C++ or experimental v2 graph builder path."""
-            v2_node_builders = [builder for builder in node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+            v2_builder_types = (_hgraph.v2.NodeBuilder,)
+            v2_node_builders = [builder for builder in node_builders if isinstance(builder, v2_builder_types)]
             if v2_node_builders:
                 if len(v2_node_builders) != len(node_builders):
                     v2_builder_names = sorted({builder.implementation_name for builder in v2_node_builders})

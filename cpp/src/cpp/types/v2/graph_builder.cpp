@@ -92,14 +92,19 @@ namespace hgraph::v2
             return view;
         }
 
-        [[nodiscard]] std::vector<std::vector<TSInputConstructionEdge>>
-        compile_inbound_edges(const std::vector<NodeBuilder> &node_builders, const std::vector<Edge> &edges)
+        [[nodiscard]] size_t node_count(const GraphBuilder &builder) noexcept
         {
-            std::vector<std::vector<TSInputConstructionEdge>> inbound_edges(node_builders.size());
+            return builder.node_builder_count();
+        }
+
+        [[nodiscard]] std::vector<std::vector<TSInputConstructionEdge>>
+        compile_inbound_edges(const GraphBuilder &graph_builder, const std::vector<Edge> &edges)
+        {
+            std::vector<std::vector<TSInputConstructionEdge>> inbound_edges(node_count(graph_builder));
 
             for (const auto &edge : edges) {
-                if (edge.src_node < 0 || edge.dst_node < 0 || static_cast<size_t>(edge.src_node) >= node_builders.size() ||
-                    static_cast<size_t>(edge.dst_node) >= node_builders.size()) {
+                if (edge.src_node < 0 || edge.dst_node < 0 || static_cast<size_t>(edge.src_node) >= node_count(graph_builder) ||
+                    static_cast<size_t>(edge.dst_node) >= node_count(graph_builder)) {
                     throw std::out_of_range("v2 graph builder edge references an invalid node index");
                 }
 
@@ -119,23 +124,23 @@ namespace hgraph::v2
             std::vector<size_t> node_offsets;
         };
 
-        [[nodiscard]] GraphMemoryLayout describe_layout(const std::vector<NodeBuilder> &node_builders,
-                                                        const std::vector<std::vector<TSInputConstructionEdge>> &inbound_edges)
+        [[nodiscard]] GraphMemoryLayout describe_layout(
+            const GraphBuilder &graph_builder,
+            const std::vector<std::vector<TSInputConstructionEdge>> &inbound_edges)
         {
             GraphMemoryLayout layout;
-            layout.node_offsets.reserve(node_builders.size());
+            layout.node_offsets.reserve(node_count(graph_builder));
 
-            // The graph allocation starts with NodeEntry[N] and is followed by
-            // one variable-sized chunk per node.
-            size_t offset = sizeof(NodeEntry) * node_builders.size();
+            size_t offset = sizeof(NodeEntry) * node_count(graph_builder);
             layout.alignment = std::max(layout.alignment, alignof(NodeEntry));
 
-            for (size_t i = 0; i < node_builders.size(); ++i) {
-                const size_t node_alignment = node_builders[i].alignment(inbound_edges[i]);
+            for (size_t i = 0; i < node_count(graph_builder); ++i) {
+                const auto &node_builder = graph_builder.node_builder_at(i);
+                const size_t node_alignment = node_builder.alignment(inbound_edges[i]);
                 layout.alignment = std::max(layout.alignment, node_alignment);
                 offset = align_up(offset, node_alignment);
                 layout.node_offsets.push_back(offset);
-                offset += node_builders[i].size(inbound_edges[i]);
+                offset += node_builder.size(inbound_edges[i]);
             }
 
             layout.total_size = offset;
@@ -194,24 +199,30 @@ namespace hgraph::v2
         return *this;
     }
 
+    const NodeBuilder &GraphBuilder::node_builder_at(size_t index) const
+    {
+        if (index >= m_node_builders.size()) { throw std::out_of_range("v2 graph builder node builder index is out of range"); }
+        return m_node_builders[index];
+    }
+
     size_t GraphBuilder::size() const
     {
-        const auto inbound_edges = compile_inbound_edges(m_node_builders, m_edges);
-        return describe_layout(m_node_builders, inbound_edges).total_size;
+        const auto inbound_edges = compile_inbound_edges(*this, m_edges);
+        return describe_layout(*this, inbound_edges).total_size;
     }
 
     size_t GraphBuilder::alignment() const
     {
-        const auto inbound_edges = compile_inbound_edges(m_node_builders, m_edges);
-        return describe_layout(m_node_builders, inbound_edges).alignment;
+        const auto inbound_edges = compile_inbound_edges(*this, m_edges);
+        return describe_layout(*this, inbound_edges).alignment;
     }
 
     Graph GraphBuilder::make_graph(GraphEvaluationEngine evaluation_engine) const
     {
         if (!evaluation_engine) { throw std::logic_error("v2 graph builder requires an attached evaluation engine"); }
 
-        const auto inbound_edges = compile_inbound_edges(m_node_builders, m_edges);
-        const auto layout = describe_layout(m_node_builders, inbound_edges);
+        const auto inbound_edges = compile_inbound_edges(*this, m_edges);
+        const auto layout = describe_layout(*this, inbound_edges);
 
         Graph graph(evaluation_engine);
         if (m_node_builders.empty()) { return graph; }
@@ -224,11 +235,15 @@ namespace hgraph::v2
         {
             auto cleanup_storage = UnwindCleanupGuard([&] { ::operator delete(storage, std::align_val_t(layout.alignment)); });
             auto cleanup_nodes = UnwindCleanupGuard([&] {
-                for (size_t i = constructed_nodes; i > 0; --i) { m_node_builders[i - 1].destruct_at(*entries[i - 1].node); }
+                for (size_t i = constructed_nodes; i > 0; --i) {
+                    const size_t order_index = i - 1;
+                    node_builder_at(order_index).destruct_at(*entries[order_index].node);
+                }
             });
 
             for (size_t i = 0; i < m_node_builders.size(); ++i) {
-                auto *node = m_node_builders[i].construct_at(base + layout.node_offsets[i], static_cast<int64_t>(i), inbound_edges[i]);
+                auto *node =
+                    node_builder_at(i).construct_at(base + layout.node_offsets[i], static_cast<int64_t>(i), inbound_edges[i]);
                 entries[i] = NodeEntry{MIN_DT, node};
                 ++constructed_nodes;
             }
@@ -240,8 +255,6 @@ namespace hgraph::v2
             graph.adopt_storage(storage, layout.alignment, m_node_builders.size(), push_source_nodes_end);
         }
 
-        // Bind edges only after every node exists so TSInput construction can
-        // resolve inter-node references against stable Node addresses.
         for (const auto &edge : m_edges) {
             auto &src_node = graph.node_at(static_cast<size_t>(edge.src_node));
             auto &dst_node = graph.node_at(static_cast<size_t>(edge.dst_node));

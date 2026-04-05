@@ -479,7 +479,8 @@ namespace
             });
     }
 
-    void apply_selector_policies(NodeBuilder &builder, nb::handle node_signature, const TSMeta *input_schema)
+    template <typename TBuilder>
+    void apply_selector_policies(TBuilder &builder, nb::handle node_signature, const TSMeta *input_schema)
     {
         if (input_schema == nullptr) { return; }
 
@@ -602,6 +603,66 @@ void export_nodes(nb::module_ &m) {
     auto v2 = m.def_submodule("v2", "Experimental v2 static node exports");
     hgraph::v2::register_python_runtime_bindings(v2);
     register_v2_node_signature(v2);
+    auto bind_builder_common = [&](auto &cls, auto *builder_type_tag, std::string_view type_name) {
+        using builder_type = std::remove_pointer_t<decltype(builder_type_tag)>;
+        cls.def(
+               "make_instance",
+               [type_name](const builder_type &self, nb::tuple owning_graph_id, int64_t node_ndx) -> nb::object {
+                   static_cast<void>(self);
+                   static_cast<void>(owning_graph_id);
+                   static_cast<void>(node_ndx);
+                   throw std::logic_error(
+                       fmt::format("v2 {} only supports execution through _hgraph.v2.GraphBuilder and _hgraph.v2.GraphExecutor",
+                                   type_name));
+               },
+               "owning_graph_id"_a,
+               "node_ndx"_a)
+            .def("release_instance",
+                 [](const builder_type &self, nb::handle item) {
+                     static_cast<void>(self);
+                     static_cast<void>(item);
+                 },
+                 "item"_a)
+            .def_prop_ro("signature", [](const builder_type &self) { return object_or_none(self.signature()); })
+            .def_prop_ro("scalars", [](const builder_type &self) { return dict_or_empty(self.scalars()); })
+            .def_prop_ro("input_builder", [](const builder_type &self) { return object_or_none(self.input_builder()); })
+            .def_prop_ro("output_builder", [](const builder_type &self) { return object_or_none(self.output_builder()); })
+            .def_prop_ro("error_builder", [](const builder_type &self) { return object_or_none(self.error_builder()); })
+            .def_prop_ro(
+                "recordable_state_builder",
+                [](const builder_type &self) { return object_or_none(self.recordable_state_builder()); })
+            .def_prop_ro("implementation_name", [](const builder_type &self) { return self.implementation_name(); })
+            .def_prop_ro(
+                "input_schema",
+                [](const builder_type &self) -> nb::object {
+                    return self.input_schema() != nullptr ? nb::cast(self.input_schema(), nb::rv_policy::reference) : nb::none();
+                })
+            .def_prop_ro(
+                "output_schema",
+                [](const builder_type &self) -> nb::object {
+                    return self.output_schema() != nullptr ? nb::cast(self.output_schema(), nb::rv_policy::reference) : nb::none();
+                })
+            .def_prop_ro(
+                "requires_resolved_schemas",
+                [](const builder_type &self) { return self.requires_resolved_schemas(); })
+            .def("__repr__",
+                 [type_name](const builder_type &self) {
+                     return fmt::format(
+                         "v2.{}@{:p}[impl={}]",
+                         type_name,
+                         static_cast<const void *>(&self),
+                         self.implementation_name());
+                 })
+            .def("__str__",
+                 [type_name](const builder_type &self) {
+                     return fmt::format(
+                         "v2.{}@{:p}[impl={}]",
+                         type_name,
+                         static_cast<const void *>(&self),
+                         self.implementation_name());
+                 });
+    };
+
     auto node_builder_cls = nb::class_<hgraph::v2::NodeBuilder>(v2, "NodeBuilder")
         .def_static(
             "python",
@@ -615,58 +676,8 @@ void export_nodes(nb::module_ &m) {
             "eval_fn"_a,
             "start_fn"_a = nb::none(),
             "stop_fn"_a = nb::none())
-        .def_static("make_signature", &make_v2_node_signature, "signature"_a)
-        .def(
-            "make_instance",
-            [](const hgraph::v2::NodeBuilder &self, nb::tuple owning_graph_id, int64_t node_ndx) -> nb::object {
-                static_cast<void>(self);
-                static_cast<void>(owning_graph_id);
-                static_cast<void>(node_ndx);
-                throw std::logic_error(
-                    "v2 NodeBuilder only supports execution through _hgraph.v2.GraphBuilder and _hgraph.v2.GraphExecutor");
-            },
-            "owning_graph_id"_a,
-            "node_ndx"_a)
-        .def("release_instance",
-             [](const hgraph::v2::NodeBuilder &self, nb::handle item) {
-                 static_cast<void>(self);
-                 static_cast<void>(item);
-             },
-             "item"_a)
-        .def_prop_ro("signature", [](const hgraph::v2::NodeBuilder &self) { return object_or_none(self.signature()); })
-        .def_prop_ro("scalars", [](const hgraph::v2::NodeBuilder &self) { return dict_or_empty(self.scalars()); })
-        .def_prop_ro("input_builder",
-                     [](const hgraph::v2::NodeBuilder &self) { return object_or_none(self.input_builder()); })
-        .def_prop_ro("output_builder",
-                     [](const hgraph::v2::NodeBuilder &self) { return object_or_none(self.output_builder()); })
-        .def_prop_ro("error_builder",
-                     [](const hgraph::v2::NodeBuilder &self) { return object_or_none(self.error_builder()); })
-        .def_prop_ro(
-            "recordable_state_builder",
-            [](const hgraph::v2::NodeBuilder &self) { return object_or_none(self.recordable_state_builder()); })
-        .def_prop_ro("implementation_name", [](const hgraph::v2::NodeBuilder &self) { return self.implementation_name(); })
-        .def_prop_ro(
-            "input_schema",
-            [](const hgraph::v2::NodeBuilder &self) -> nb::object {
-                return self.input_schema() != nullptr ? nb::cast(self.input_schema(), nb::rv_policy::reference) : nb::none();
-            })
-        .def_prop_ro(
-            "output_schema",
-            [](const hgraph::v2::NodeBuilder &self) -> nb::object {
-                return self.output_schema() != nullptr ? nb::cast(self.output_schema(), nb::rv_policy::reference) : nb::none();
-            })
-        .def_prop_ro(
-            "requires_resolved_schemas",
-            [](const hgraph::v2::NodeBuilder &self) { return self.requires_resolved_schemas(); })
-        .def(
-            "__repr__",
-            [](const hgraph::v2::NodeBuilder &self) {
-                return fmt::format("v2.NodeBuilder@{:p}[impl={}]", static_cast<const void *>(&self), self.implementation_name());
-            })
-            .def("__str__",
-             [](const hgraph::v2::NodeBuilder &self) {
-                 return fmt::format("v2.NodeBuilder@{:p}[impl={}]", static_cast<const void *>(&self), self.implementation_name());
-             });
+        .def_static("make_signature", &make_v2_node_signature, "signature"_a);
+    bind_builder_common(node_builder_cls, static_cast<hgraph::v2::NodeBuilder *>(nullptr), "NodeBuilder");
     node_builder_cls.attr("NODE_SIGNATURE") = v2.attr("NodeSignature");
     node_builder_cls.attr("NODE_TYPE_ENUM") = v2.attr("NodeTypeEnum");
 
@@ -699,7 +710,22 @@ void export_nodes(nb::module_ &m) {
 
     nb::class_<hgraph::v2::GraphBuilder>(v2, "GraphBuilder")
         .def(nb::init<>())
-        .def(nb::init<std::vector<hgraph::v2::NodeBuilder>, std::vector<hgraph::v2::Edge>>(), "node_builders"_a, "edges"_a)
+        .def(
+            "__init__",
+            [](hgraph::v2::GraphBuilder *self, nb::iterable node_builders, std::vector<hgraph::v2::Edge> edges) {
+                new (self) hgraph::v2::GraphBuilder{};
+                for (auto item : node_builders) {
+                    nb::object builder = nb::borrow(item);
+                    if (nb::isinstance<hgraph::v2::NodeBuilder>(builder)) {
+                        self->add_node(nb::cast<hgraph::v2::NodeBuilder>(builder));
+                    } else {
+                        throw std::invalid_argument("v2 GraphBuilder expects v2 node builders");
+                    }
+                }
+                for (auto &edge : edges) { self->add_edge(std::move(edge)); }
+            },
+            "node_builders"_a,
+            "edges"_a)
         .def(
             "add_node",
             [](hgraph::v2::GraphBuilder &self, const hgraph::v2::NodeBuilder &node_builder) -> hgraph::v2::GraphBuilder & {
@@ -747,7 +773,17 @@ void export_nodes(nb::module_ &m) {
         .def_prop_ro("size", &hgraph::v2::GraphBuilder::size)
         .def_prop_ro("alignment", &hgraph::v2::GraphBuilder::alignment)
         .def_prop_ro("node_builders",
-                     [](const hgraph::v2::GraphBuilder &self) { return nb::tuple(nb::cast(self.node_builders())); })
+                     [](const hgraph::v2::GraphBuilder &self) {
+                         nb::tuple out = nb::steal<nb::tuple>(PyTuple_New(static_cast<Py_ssize_t>(self.node_builder_count())));
+                         for (size_t i = 0; i < self.node_builder_count(); ++i) {
+                             nb::object item = nb::cast(self.node_builder_at(i));
+                             PyTuple_SET_ITEM(
+                                 out.ptr(),
+                                 static_cast<Py_ssize_t>(i),
+                                 item.release().ptr());
+                         }
+                         return out;
+                     })
         .def_prop_ro("edges", [](const hgraph::v2::GraphBuilder &self) { return nb::tuple(nb::cast(self.edges())); })
         .def(
             "__repr__",
@@ -755,7 +791,7 @@ void export_nodes(nb::module_ &m) {
                 return fmt::format(
                     "v2.GraphBuilder@{:p}[nodes={}, edges={}]",
                     static_cast<const void *>(&self),
-                    self.node_builders().size(),
+                    self.node_builder_count(),
                     self.edges().size());
             })
         .def("__str__",
@@ -763,7 +799,7 @@ void export_nodes(nb::module_ &m) {
                  return fmt::format(
                      "v2.GraphBuilder@{:p}[nodes={}, edges={}]",
                      static_cast<const void *>(&self),
-                     self.node_builders().size(),
+                     self.node_builder_count(),
                      self.edges().size());
              });
 
