@@ -91,6 +91,7 @@ namespace hgraph::v2
                 kwargs["implementation_name"] = node_name;
                 kwargs["input_schema"] = input_schema != nullptr ? nb::cast(input_schema, nb::rv_policy::reference) : nb::none();
                 kwargs["output_schema"] = output_schema != nullptr ? nb::cast(output_schema, nb::rv_policy::reference) : nb::none();
+                kwargs["requires_resolved_schemas"] = !StaticNodeSignature<TImplementation>::unresolved_input_names().empty();
 
                 return detail::py_call(builder_cls, nb::tuple(), kwargs);
             });
