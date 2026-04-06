@@ -289,7 +289,11 @@ namespace hgraph
                     }
 
                 case TSKind::REF:
-                    initialize_ref_state(state.emplace<RefLinkState>(), parent, index);
+                    // Native REF storage is still a leaf carrying a
+                    // TimeSeriesReference scalar payload. RefLinkState is
+                    // reserved for TSOutput alternatives that dereference
+                    // REF -> TS.
+                    initialize_base_state(state.emplace<TSState>(), parent, index);
                     break;
 
                 case TSKind::SIGNAL:
@@ -411,10 +415,8 @@ namespace hgraph
 
                 case TSKind::REF:
                     {
-                        const auto &src_state = std::get<RefLinkState>(src);
-                        auto &dst_state = dst.emplace<RefLinkState>();
-                        initialize_ref_state(dst_state, parent, index, src_state.last_modified_time);
-                        dst_state.bound_link.last_modified_time = src_state.bound_link.last_modified_time;
+                        const auto &src_state = std::get<TSState>(src);
+                        initialize_base_state(dst.emplace<TSState>(), parent, index, src_state.last_modified_time);
                         break;
                     }
 

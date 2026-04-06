@@ -4,6 +4,7 @@
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/v2/graph_builder.h>
 #include <hgraph/types/v2/python_export.h>
+#include <hgraph/types/v2/ref.h>
 
 #include <chrono>
 #include <cstdlib>
@@ -408,6 +409,60 @@ namespace hgraph::v2::test_detail
             ++eval_calls;
             last_eval_time = clock.evaluation_time();
             out.set(1);
+        }
+    };
+
+    struct EmitEmptyRefNode
+    {
+        EmitEmptyRefNode() = delete;
+        ~EmitEmptyRefNode() = delete;
+
+        static void eval(In<"trigger", TS<bool>> trigger, Out<REF<TS<int>>> out)
+        {
+            static_cast<void>(trigger);
+            out.set(TimeSeriesReference::make());
+        }
+    };
+
+    struct RefPassthroughNode
+    {
+        RefPassthroughNode() = delete;
+        ~RefPassthroughNode() = delete;
+
+        static void eval(In<"ref", REF<TS<int>>> ref, Out<REF<TS<int>>> out)
+        {
+            out.set(ref.value());
+        }
+    };
+
+    struct WrapInputAsRefNode
+    {
+        WrapInputAsRefNode() = delete;
+        ~WrapInputAsRefNode() = delete;
+
+        static void eval(In<"source", TS<int>> source, Out<REF<TS<int>>> out)
+        {
+            out.set(hgraph::v2::TimeSeriesReference::make(source.view()));
+        }
+    };
+
+    struct RefStateProbeNode
+    {
+        RefStateProbeNode() = delete;
+        ~RefStateProbeNode() = delete;
+
+        static void eval(In<"ref", REF<TS<int>>> ref, Out<TS<int>> out)
+        {
+            const auto &value = ref.value();
+            if (!ref.valid()) {
+                out.set(-1);
+            } else if (value.is_empty()) {
+                out.set(1);
+            } else if (value.is_peered()) {
+                out.set(2);
+            } else {
+                out.set(3);
+            }
         }
     };
 
@@ -1127,6 +1182,180 @@ TEST_CASE("v2 startup notify without a declared scheduler only schedules the sta
     CHECK(hgraph::v2::test_detail::StartupNotifyWithoutSchedulerNode::eval_calls == 1);
     CHECK(hgraph::v2::test_detail::StartupNotifyWithoutSchedulerNode::last_eval_time == hgraph::v2::test_detail::tick(300));
     CHECK(graph.node_at(0).output_view().value().as_atomic().as<int>() == 1);
+}
+
+TEST_CASE("v2 static nodes can pass through REF values when wired as REF", "[v2][graph][ref]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *bool_type = value_registry.register_type<bool>("bool");
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_bool_ts = ts_registry.ts(bool_type);
+    const auto *scalar_int_ref_ts = ts_registry.ref(ts_registry.ts(int_type));
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("trigger").output_schema(scalar_bool_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("emit_empty_ref").implementation<hgraph::v2::test_detail::EmitEmptyRefNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("ref_passthrough").implementation<hgraph::v2::test_detail::RefPassthroughNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("ref_probe").implementation<hgraph::v2::test_detail::RefStateProbeNode>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 1, .dst_node = 2, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 2, .dst_node = 3, .input_path = {0}});
+
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(320), hgraph::v2::test_detail::tick(321));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, true, hgraph::v2::test_detail::tick(320));
+    graph.evaluate(hgraph::v2::test_detail::tick(320));
+
+    const auto &ref_value =
+        graph.node_at(2).output_view().value().as_atomic().template checked_as<hgraph::v2::TimeSeriesReference>();
+    CHECK(graph.node_at(2).output_schema() == scalar_int_ref_ts);
+    CHECK(ref_value.is_empty());
+    CHECK_FALSE(ref_value.is_valid());
+    CHECK(graph.node_at(3).output_view().value().as_atomic().as<int>() == 1);
+}
+
+TEST_CASE("v2 time-series references capture bound output targets through views", "[v2][graph][ref]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("sink").implementation<hgraph::v2::test_detail::PassThroughInput>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(330), hgraph::v2::test_detail::tick(331));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 17, hgraph::v2::test_detail::tick(330));
+
+    const auto output_ref = hgraph::v2::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(330)));
+    CHECK(output_ref.is_peered());
+    CHECK(output_ref.is_valid());
+    CHECK(output_ref.target_view(hgraph::v2::test_detail::tick(330)).value().as_atomic().as<int>() == 17);
+
+    const auto input_ref =
+        hgraph::v2::TimeSeriesReference::make(graph.node_at(1).input_view(hgraph::v2::test_detail::tick(330)).as_bundle()[0]);
+    CHECK(input_ref.is_peered());
+    CHECK(input_ref.is_valid());
+    CHECK(input_ref == output_ref);
+    CHECK(input_ref.target_view(hgraph::v2::test_detail::tick(330)).value().as_atomic().as<int>() == 17);
+}
+
+TEST_CASE("v2 time-series references made from REF inputs return the carried ref value", "[v2][graph][ref]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("wrap").implementation<hgraph::v2::test_detail::WrapInputAsRefNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("ref_passthrough").implementation<hgraph::v2::test_detail::RefPassthroughNode>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 1, .dst_node = 2, .input_path = {0}});
+
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(340), hgraph::v2::test_detail::tick(341));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 23, hgraph::v2::test_detail::tick(340));
+    graph.evaluate(hgraph::v2::test_detail::tick(340));
+
+    const auto &wrapped_ref =
+        graph.node_at(1).output_view().value().as_atomic().template checked_as<hgraph::v2::TimeSeriesReference>();
+    const auto ref_input =
+        hgraph::v2::TimeSeriesReference::make(graph.node_at(2).input_view(hgraph::v2::test_detail::tick(340)).as_bundle()[0]);
+
+    CHECK(wrapped_ref.is_peered());
+    CHECK(ref_input.is_peered());
+    CHECK(ref_input == wrapped_ref);
+    CHECK(ref_input.target_view(hgraph::v2::test_detail::tick(340)).value().as_atomic().as<int>() == 23);
+}
+
+TEST_CASE("v2 time-series references made from peered bundle inputs stay peered", "[v2][graph][ref]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto *pair_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Pair");
+    const auto *nested_input_schema = ts_registry.tsb({{"pair", pair_schema}}, "NestedInput");
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("pair_source").output_schema(pair_schema).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("sum").input_schema(nested_input_schema).implementation<hgraph::v2::test_detail::SumNestedPair>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(350), hgraph::v2::test_detail::tick(351));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0}, 41, hgraph::v2::test_detail::tick(350));
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {1}, 43, hgraph::v2::test_detail::tick(350));
+    graph.evaluate(hgraph::v2::test_detail::tick(350));
+
+    const auto pair_ref =
+        hgraph::v2::TimeSeriesReference::make(graph.node_at(1).input_view(hgraph::v2::test_detail::tick(350)).as_bundle()[0]);
+    CHECK(pair_ref.is_peered());
+    auto target = pair_ref.target_view(hgraph::v2::test_detail::tick(350)).as_bundle();
+    CHECK(target.field("lhs").value().as_atomic().as<int>() == 41);
+    CHECK(target.field("rhs").value().as_atomic().as<int>() == 43);
+}
+
+TEST_CASE("v2 time-series references made from non-peered bundle inputs become composite refs", "[v2][graph][ref]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto *pair_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Pair");
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("rhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("sum").input_schema(pair_schema).implementation<hgraph::v2::test_detail::SumNestedPair>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 2, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 1, .dst_node = 2, .input_path = {1}});
+
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(360), hgraph::v2::test_detail::tick(361));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 47, hgraph::v2::test_detail::tick(360));
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 53, hgraph::v2::test_detail::tick(360));
+    graph.evaluate(hgraph::v2::test_detail::tick(360));
+
+    const auto pair_ref =
+        hgraph::v2::TimeSeriesReference::make(graph.node_at(2).input_view(hgraph::v2::test_detail::tick(360)));
+    CHECK(pair_ref.is_non_peered());
+    REQUIRE(pair_ref.items().size() == 2);
+    CHECK(pair_ref[0].is_peered());
+    CHECK(pair_ref[1].is_peered());
+    CHECK(pair_ref[0].target_view(hgraph::v2::test_detail::tick(360)).value().as_atomic().as<int>() == 47);
+    CHECK(pair_ref[1].target_view(hgraph::v2::test_detail::tick(360)).value().as_atomic().as<int>() == 53);
 }
 
 TEST_CASE("v2 graph notifies after evaluation even when node evaluation throws", "[v2][graph][engine]")

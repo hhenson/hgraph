@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/v2/evaluation_clock.h>
+#include <hgraph/types/v2/ref.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
@@ -100,7 +101,7 @@ namespace hgraph::v2
         static constexpr size_t fixed_size = FixedSize;
     };
 
-    /** REF schema placeholder. REF behavior is still a later v2 milestone. */
+    /** REF schema marker for v2 time-series references. */
     template <typename TSchema>
     struct REF
     {
@@ -364,6 +365,38 @@ namespace hgraph::v2
         view_type m_view;
     };
 
+    template <fixed_string Name, typename TSchema, InputActivity Activity, InputValidity Validity>
+    class In<Name, REF<TSchema>, Activity, Validity>
+    {
+      public:
+        using schema = REF<TSchema>;
+        using value_type = v2::TimeSeriesReference;
+        using view_type = TSInputView;
+        static constexpr auto name = Name;
+        static constexpr auto activity = Activity;
+        static constexpr auto validity = Validity;
+
+        explicit In(TSInputView view) : m_view(std::move(view)) {}
+
+        [[nodiscard]] const view_type &view() const noexcept { return m_view; }
+        [[nodiscard]] const value_type &delta_value() const
+        {
+            return m_view.delta_value().as_atomic().template checked_as<value_type>();
+        }
+        [[nodiscard]] bool modified() const noexcept { return m_view.modified(); }
+        [[nodiscard]] bool valid() const noexcept { return m_view.valid(); }
+        [[nodiscard]] bool all_valid() const noexcept { return m_view.all_valid(); }
+        [[nodiscard]] const value_type &value() const
+        {
+            return m_view.value().as_atomic().template checked_as<value_type>();
+        }
+
+        operator const view_type &() const noexcept { return m_view; }
+
+      private:
+        view_type m_view;
+    };
+
     template <typename TSchema>
     class Out
     {
@@ -408,6 +441,37 @@ namespace hgraph::v2
         [[nodiscard]] const view_type &view() const noexcept { return m_view; }
         [[nodiscard]] engine_time_t evaluation_time() const noexcept { return m_evaluation_time; }
         [[nodiscard]] const TValue *try_value() const { return m_view.value().as_atomic().template try_as<TValue>(); }
+
+        template <typename T>
+        void set(T &&value) const
+        {
+            m_view.value().set_scalar(std::forward<T>(value));
+            detail::mark_ts_output_modified(m_view, m_evaluation_time);
+        }
+
+        operator const view_type &() const noexcept { return m_view; }
+
+      private:
+        view_type m_view;
+        engine_time_t m_evaluation_time{MIN_DT};
+    };
+
+    template <typename TSchema>
+    class Out<REF<TSchema>>
+    {
+      public:
+        using schema = REF<TSchema>;
+        using value_type = v2::TimeSeriesReference;
+        using view_type = TSOutputView;
+
+        Out(TSOutputView view, engine_time_t evaluation_time)
+            : m_view(std::move(view)), m_evaluation_time(evaluation_time)
+        {
+        }
+
+        [[nodiscard]] const view_type &view() const noexcept { return m_view; }
+        [[nodiscard]] engine_time_t evaluation_time() const noexcept { return m_evaluation_time; }
+        [[nodiscard]] const value_type *try_value() const { return m_view.value().as_atomic().template try_as<value_type>(); }
 
         template <typename T>
         void set(T &&value) const

@@ -216,6 +216,8 @@ add_executable(hgraph_v2_tests
     ../src/cpp/types/v2/graph.cpp
     ../src/cpp/types/v2/graph_builder.cpp
     ../src/cpp/types/v2/python_node_support.cpp
+    ../src/cpp/types/v2/ref.cpp
+    ../src/cpp/types/ref_value.cpp
     ../src/cpp/types/time_series/value/atomic.cpp
     ../src/cpp/types/time_series/value/associative.cpp
     ../src/cpp/types/time_series/value/list.cpp
@@ -303,7 +305,6 @@ elseif (TARGET tpack::tpack)
 endif ()
 
 target_compile_features(hgraph_v2_tests PRIVATE cxx_std_23)
-target_compile_definitions(hgraph_v2_tests PRIVATE HGRAPH_DISABLE_TS_REFERENCE_ATOMIC=1)
 execute_process(
     COMMAND "${Python_EXECUTABLE}" -c "import sys; print(sys.base_prefix)"
     OUTPUT_STRIP_TRAILING_WHITESPACE

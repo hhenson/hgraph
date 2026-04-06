@@ -293,6 +293,21 @@ namespace hgraph
         [[nodiscard]] View value() const noexcept { return m_context.value(); }
 
         /**
+         * Return the logical TS schema represented by this view.
+         */
+        [[nodiscard]] const TSMeta *ts_schema() const noexcept { return m_context.resolved().schema; }
+
+        /**
+         * Return the bound target for the represented link-backed position.
+         *
+         * Native storage positions return `nullptr`.
+         */
+        [[nodiscard]] const LinkedTSContext *linked_target() const noexcept
+        {
+            return m_context.ts_state != nullptr ? m_context.ts_state->linked_target() : nullptr;
+        }
+
+        /**
          * Return the current delta value for this view.
          */
         [[nodiscard]] View delta_value() const noexcept

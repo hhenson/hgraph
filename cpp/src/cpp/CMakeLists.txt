@@ -93,6 +93,7 @@ set(HGRAPH_SOURCES
         types/graph.cpp
         types/node.cpp
         types/ref.cpp
+        types/ref_value.cpp
         types/scalar_types.cpp
         types/schema_type.cpp
         types/time_series_type.cpp
@@ -130,6 +131,7 @@ set(HGRAPH_SOURCES
         types/v2/node.cpp
         types/v2/node_builder.cpp
         types/v2/python_node_support.cpp
+        types/v2/ref.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
