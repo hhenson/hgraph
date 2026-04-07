@@ -424,12 +424,59 @@ namespace hgraph
 
     /**
      * Storage carried by a reference-linked logical time-series position.
+     *
+     * A RefLinkState follows two moving pieces:
+     * - the REF-typed source position that stores the TimeSeriesReference value
+     * - the current dereferenced target that the REF points at
+     *
+     * This is only used inside TSOutput alternatives for REF -> TS
+     * dereferencing. Plain TSInput binding never uses RefLinkState.
      */
     struct HGRAPH_EXPORT RefLinkState : BaseState
     {
+        struct RefSourceNotifiable : Notifiable
+        {
+            explicit RefSourceNotifiable(RefLinkState *self) noexcept;
+
+            void notify(engine_time_t modified_time) override;
+
+            RefLinkState *self;
+        };
+
+        struct DereferencedTargetNotifiable : Notifiable
+        {
+            explicit DereferencedTargetNotifiable(RefLinkState *self) noexcept;
+
+            void notify(engine_time_t modified_time) override;
+
+            RefLinkState *self;
+        };
+
+        RefLinkState() noexcept;
+        ~RefLinkState();
+
+        RefLinkState(RefLinkState &&other) noexcept;
+        RefLinkState &operator=(RefLinkState &&other) noexcept;
+
+        RefLinkState(const RefLinkState &) = delete;
+        RefLinkState &operator=(const RefLinkState &) = delete;
+
+        void set_source(LinkedTSContext source_state) noexcept;
+        void reset_source() noexcept;
+
         [[nodiscard]] engine_time_t last_target_modified_time() const;
         [[nodiscard]] bool          is_sampled() const;
-        TargetLinkState             bound_link;
+        LinkedTSContext             source;  // Bound REF source slot.
+        RefSourceNotifiable         source_notifiable;
+        DereferencedTargetNotifiable target_notifiable;
+        TargetLinkState             bound_link;  // Current dereferenced target.
+
+      private:
+        void register_with_source() noexcept;
+        void unregister_from_source() noexcept;
+        void register_with_target() noexcept;
+        void unregister_from_target() noexcept;
+        void refresh_target(engine_time_t modified_time, bool propagate) noexcept;
     };
 
     /**

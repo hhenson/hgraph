@@ -196,10 +196,31 @@ namespace hgraph
             const auto *state = ts_state;
             if (state == nullptr) { return resolved_context; }
 
-            const auto apply_target = [&resolved_context](const LinkedTSContext &target) noexcept {
+            const auto apply_target = [&resolved_context](LinkedTSContext target) noexcept {
                 if (!target.is_bound()) {
                     resolved_context.value_data = nullptr;
                     return;
+                }
+
+                // Link-backed positions can chain: a REF->TS alternative is a
+                // local RefLinkState whose visible target may itself be another
+                // link-backed state. Follow that chain until we reach the live
+                // represented position or discover that one of the links is
+                // currently unbound.
+                while (target.ts_state != nullptr) {
+                    const LinkedTSContext *nested = target.ts_state->linked_target();
+                    if (nested == nullptr) { break; }
+
+                    if (!nested->is_bound()) {
+                        resolved_context.schema = target.schema != nullptr ? target.schema : resolved_context.schema;
+                        resolved_context.value_dispatch =
+                            target.value_dispatch != nullptr ? target.value_dispatch : resolved_context.value_dispatch;
+                        resolved_context.ts_dispatch = target.ts_dispatch != nullptr ? target.ts_dispatch : resolved_context.ts_dispatch;
+                        resolved_context.value_data = nullptr;
+                        return;
+                    }
+
+                    target = *nested;
                 }
 
                 resolved_context.schema = target.schema != nullptr ? target.schema : resolved_context.schema;
@@ -593,7 +614,7 @@ namespace hgraph
 
     inline bool detail::TSDispatch::valid(const TSViewContext &context) const noexcept
     {
-        return last_modified_time(context) != MIN_DT;
+        return last_modified_time(context) != MIN_DT && context.value().has_value();
     }
 
     inline bool detail::TSDispatch::all_valid(const TSViewContext &context) const noexcept

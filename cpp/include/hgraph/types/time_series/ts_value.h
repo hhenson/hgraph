@@ -224,7 +224,10 @@ protected:
         return std::visit([](const auto &state_value) -> const BaseState * { return &state_value; }, state_variant());
     }
 
-private:
+    [[nodiscard]] TimeSeriesStateV &state_variant() noexcept { return *static_cast<TimeSeriesStateV *>(ts_memory()); }
+    [[nodiscard]] const TimeSeriesStateV &state_variant() const noexcept { return *static_cast<const TimeSeriesStateV *>(ts_memory()); }
+
+  private:
     friend struct TSValueBuilder;
     friend struct TSInputBuilder;
     friend struct TSOutputBuilder;
@@ -236,8 +239,6 @@ private:
     [[nodiscard]] const void *value_memory() const noexcept { return builder().value_memory(storage_memory()); }
     [[nodiscard]] void *ts_memory() noexcept { return builder().ts_memory(storage_memory()); }
     [[nodiscard]] const void *ts_memory() const noexcept { return builder().ts_memory(storage_memory()); }
-    [[nodiscard]] TimeSeriesStateV &state_variant() noexcept { return *static_cast<TimeSeriesStateV *>(ts_memory()); }
-    [[nodiscard]] const TimeSeriesStateV &state_variant() const noexcept { return *static_cast<const TimeSeriesStateV *>(ts_memory()); }
     [[nodiscard]] bool owns_storage() const noexcept
     {
         return m_storage.has_tag(storage_ownership_tag(StorageOwnership::Owned));

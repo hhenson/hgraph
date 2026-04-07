@@ -1,5 +1,7 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/time_series_state.h>
+#include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/v2/ref.h>
 
 #include <type_traits>
 
@@ -25,6 +27,18 @@ namespace hgraph
         void with_target_state(const LinkedTSContext &target, TFn &&fn) noexcept
         {
             if (target.ts_state != nullptr) { std::forward<TFn>(fn)(target.ts_state); }
+        }
+
+        [[nodiscard]] LinkedTSContext dereferenced_target_from_source(const LinkedTSContext &source) noexcept
+        {
+            if (!source.is_bound() || source.schema == nullptr || source.schema->kind != TSKind::REF || source.value_dispatch == nullptr ||
+                source.value_data == nullptr) {
+                return LinkedTSContext::none();
+            }
+
+            const auto view = View{source.value_dispatch, source.value_data, source.schema->value_type}.as_atomic();
+            const auto *value = view.try_as<hgraph::v2::TimeSeriesReference>();
+            return value != nullptr && value->is_peered() ? value->target() : LinkedTSContext::none();
         }
     }  // namespace
 
@@ -244,5 +258,163 @@ namespace hgraph
     engine_time_t RefLinkState::last_target_modified_time() const { return bound_link.last_modified_time; }
 
     bool RefLinkState::is_sampled() const { return last_modified_time > last_target_modified_time(); }
+
+    RefLinkState::RefSourceNotifiable::RefSourceNotifiable(RefLinkState *self_) noexcept : self(self_) {}
+
+    void RefLinkState::RefSourceNotifiable::notify(engine_time_t modified_time)
+    {
+        // A REF source tick means the reference may now point somewhere else.
+        // Re-resolve the current target before propagating modification.
+        if (self != nullptr) { self->refresh_target(modified_time, true); }
+    }
+
+    RefLinkState::DereferencedTargetNotifiable::DereferencedTargetNotifiable(RefLinkState *self_) noexcept : self(self_) {}
+
+    void RefLinkState::DereferencedTargetNotifiable::notify(engine_time_t modified_time)
+    {
+        if (self != nullptr) {
+            // Target-side data changed without the REF itself rebinding. Keep
+            // the dereferenced target time in sync and propagate normally.
+            self->bound_link.last_modified_time = modified_time;
+            self->mark_modified(modified_time);
+        }
+    }
+
+    RefLinkState::RefLinkState() noexcept : source_notifiable(this), target_notifiable(this) {}
+
+    RefLinkState::~RefLinkState()
+    {
+        reset_source();
+    }
+
+    RefLinkState::RefLinkState(RefLinkState &&other) noexcept
+        : source_notifiable(this), target_notifiable(this)
+    {
+        parent = other.parent;
+        index = other.index;
+        last_modified_time = other.last_modified_time;
+        storage_kind = other.storage_kind;
+        subscribers = std::move(other.subscribers);
+
+        bound_link.parent = other.bound_link.parent;
+        bound_link.index = other.bound_link.index;
+        bound_link.last_modified_time = other.bound_link.last_modified_time;
+        bound_link.storage_kind = other.bound_link.storage_kind;
+        bound_link.subscribers = std::move(other.bound_link.subscribers);
+        bound_link.scheduling_notifier.set_target(other.bound_link.scheduling_notifier.get_target());
+
+        if (other.source.is_bound()) {
+            const LinkedTSContext bound_source = other.source;
+            other.unregister_from_source();
+            source = bound_source;
+            register_with_source();
+            other.source.clear();
+        }
+
+        if (other.bound_link.target.is_bound()) {
+            const LinkedTSContext bound_target = other.bound_link.target;
+            other.unregister_from_target();
+            bound_link.target = bound_target;
+            register_with_target();
+            other.bound_link.target.clear();
+        }
+
+        other.bound_link.scheduling_notifier.set_target(nullptr);
+    }
+
+    RefLinkState &RefLinkState::operator=(RefLinkState &&other) noexcept
+    {
+        if (this == &other) { return *this; }
+
+        reset_source();
+
+        parent = other.parent;
+        index = other.index;
+        last_modified_time = other.last_modified_time;
+        storage_kind = other.storage_kind;
+        subscribers = std::move(other.subscribers);
+
+        bound_link.parent = other.bound_link.parent;
+        bound_link.index = other.bound_link.index;
+        bound_link.last_modified_time = other.bound_link.last_modified_time;
+        bound_link.storage_kind = other.bound_link.storage_kind;
+        bound_link.subscribers = std::move(other.bound_link.subscribers);
+        bound_link.scheduling_notifier.set_target(other.bound_link.scheduling_notifier.get_target());
+
+        if (other.source.is_bound()) {
+            const LinkedTSContext bound_source = other.source;
+            other.unregister_from_source();
+            source = bound_source;
+            register_with_source();
+            other.source.clear();
+        }
+
+        if (other.bound_link.target.is_bound()) {
+            const LinkedTSContext bound_target = other.bound_link.target;
+            other.unregister_from_target();
+            bound_link.target = bound_target;
+            register_with_target();
+            other.bound_link.target.clear();
+        }
+
+        other.bound_link.scheduling_notifier.set_target(nullptr);
+        return *this;
+    }
+
+    void RefLinkState::set_source(LinkedTSContext source_state) noexcept
+    {
+        reset_source();
+        source = std::move(source_state);
+        register_with_source();
+        refresh_target(source.ts_state != nullptr ? source.ts_state->last_modified_time : MIN_DT, false);
+    }
+
+    void RefLinkState::reset_source() noexcept
+    {
+        unregister_from_source();
+        unregister_from_target();
+        source.clear();
+        bound_link.target.clear();
+        bound_link.last_modified_time = MIN_DT;
+    }
+
+    void RefLinkState::register_with_source() noexcept
+    {
+        with_target_state(source, [this](BaseState *ptr) { ptr->subscribe(&source_notifiable); });
+    }
+
+    void RefLinkState::unregister_from_source() noexcept
+    {
+        with_target_state(source, [this](BaseState *ptr) { ptr->unsubscribe(&source_notifiable); });
+    }
+
+    void RefLinkState::register_with_target() noexcept
+    {
+        with_target_state(bound_link.target, [this](BaseState *ptr) { ptr->subscribe(&target_notifiable); });
+    }
+
+    void RefLinkState::unregister_from_target() noexcept
+    {
+        with_target_state(bound_link.target, [this](BaseState *ptr) { ptr->unsubscribe(&target_notifiable); });
+    }
+
+    void RefLinkState::refresh_target(engine_time_t modified_time, bool propagate) noexcept
+    {
+        unregister_from_target();
+        bound_link.target = dereferenced_target_from_source(source);
+        bound_link.last_modified_time = bound_link.target.ts_state != nullptr ? bound_link.target.ts_state->last_modified_time : MIN_DT;
+        register_with_target();
+
+        if (propagate) {
+            // When the REF source itself changed, the dereferenced view is
+            // "sampled": consumers should observe this tick even if the new
+            // target has not changed yet.
+            mark_modified(modified_time);
+        } else {
+            // Initial binding should inherit the current target time without
+            // manufacturing a sampled modification.
+            last_modified_time = bound_link.last_modified_time;
+        }
+    }
 
 }  // namespace hgraph

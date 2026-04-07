@@ -81,6 +81,7 @@ namespace hgraph
                                   engine_time_t modified_time = MIN_DT) noexcept
         {
             initialize_base_state(state, parent, index, modified_time);
+            state.source.clear();
             initialize_base_state(state.bound_link, static_cast<TSOutput *>(nullptr), 0, MIN_DT);
             state.bound_link.target.clear();
             state.bound_link.scheduling_notifier.set_target(nullptr);
@@ -265,9 +266,9 @@ namespace hgraph
             if (const auto *src_state = std::get_if<RefLinkState>(&src)) {
                 auto &dst_state = dst.emplace<RefLinkState>();
                 initialize_ref_state(dst_state, parent, index, src_state->last_modified_time);
-                dst_state.bound_link.last_modified_time = src_state->bound_link.last_modified_time;
+                if (src_state->source.is_bound()) { dst_state.set_source(src_state->source); }
                 dst_state.bound_link.scheduling_notifier.set_target(src_state->bound_link.scheduling_notifier.get_target());
-                if (src_state->bound_link.target.is_bound()) { dst_state.bound_link.set_target(src_state->bound_link.target); }
+                dst_state.bound_link.last_modified_time = src_state->bound_link.last_modified_time;
                 return;
             }
 

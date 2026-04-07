@@ -14,6 +14,7 @@ namespace hgraph
     {
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSBState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
+        [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSDState &state) noexcept { return &state; }
 
         template <typename TState>
         void initialize_base_state(TState &state,
@@ -45,11 +46,37 @@ namespace hgraph
             parent_state.child_states[slot] = std::move(link_state);
         }
 
-        [[nodiscard]] bool supports_wrap_cast(const TSMeta &source_schema, const TSMeta &target_schema)
+        void initialize_ref_link_state(RefLinkState &state,
+                                       TimeSeriesStateParentPtr parent,
+                                       size_t index,
+                                       engine_time_t modified_time = MIN_DT) noexcept
+        {
+            initialize_base_state(state, parent, index, modified_time, TSStorageKind::RefLink);
+            state.source.clear();
+            initialize_base_state(state.bound_link, static_cast<TSOutput *>(nullptr), 0, MIN_DT, TSStorageKind::TargetLink);
+            state.bound_link.target.clear();
+            state.bound_link.scheduling_notifier.set_target(nullptr);
+        }
+
+        template <typename TCollectionState>
+        void install_ref_link(TCollectionState &parent_state, size_t slot, LinkedTSContext ref_source)
+        {
+            auto link_state = std::make_unique<TimeSeriesStateV>();
+            auto &typed_state = link_state->template emplace<RefLinkState>();
+            initialize_ref_link_state(typed_state, parent_ptr(parent_state), slot);
+            typed_state.set_source(std::move(ref_source));
+            parent_state.child_states[slot] = std::move(link_state);
+        }
+
+        [[nodiscard]] bool supports_alternative_cast(const TSMeta &source_schema, const TSMeta &target_schema)
         {
             if (&source_schema == &target_schema) { return true; }
 
+            // The two schema-changing cases supported so far are:
+            // - TS  -> REF : wrap as a TimeSeriesReference value
+            // - REF -> TS  : dereference through RefLinkState
             if (target_schema.kind == TSKind::REF) { return target_schema.element_ts() == &source_schema; }
+            if (source_schema.kind == TSKind::REF) { return source_schema.element_ts() == &target_schema; }
 
             if (source_schema.kind != target_schema.kind) { return false; }
 
@@ -60,13 +87,13 @@ namespace hgraph
                         const auto &source_field = source_schema.fields()[i];
                         const auto &target_field = target_schema.fields()[i];
                         if (std::string_view{source_field.name} != std::string_view{target_field.name}) { return false; }
-                        if (!supports_wrap_cast(*source_field.ts_type, *target_field.ts_type)) { return false; }
+                        if (!supports_alternative_cast(*source_field.ts_type, *target_field.ts_type)) { return false; }
                     }
                     return true;
 
                 case TSKind::TSL:
                     if (source_schema.fixed_size() == 0 || source_schema.fixed_size() != target_schema.fixed_size()) { return false; }
-                    return supports_wrap_cast(*source_schema.element_ts(), *target_schema.element_ts());
+                    return supports_alternative_cast(*source_schema.element_ts(), *target_schema.element_ts());
 
                 default:
                     return false;
@@ -123,7 +150,7 @@ namespace hgraph
             : TSValue(schema)
         {
             const TSMeta *source_schema = source.ts_schema();
-            if (source_schema == nullptr || !supports_wrap_cast(*source_schema, schema)) {
+            if (source_schema == nullptr || !supports_alternative_cast(*source_schema, schema)) {
                 throw std::invalid_argument("TSOutput alternative does not support the requested wrap cast");
             }
 
@@ -162,6 +189,43 @@ namespace hgraph
             std::unique_ptr<WrappedRefNotifier> notifier;
         };
 
+        void install_ref_link_for_target(const TSOutputView &target_view, const TSOutputView &source_view)
+        {
+            BaseState *target_state = target_view.linked_context().ts_state;
+            if (target_state == nullptr) {
+                throw std::logic_error("TSOutput alternative REF dereference requires a live target state");
+            }
+
+            const LinkedTSContext ref_source = source_view.linked_context();
+            bool replaced = false;
+            hgraph::visit(
+                target_state->parent,
+                [&](auto *parent_state) {
+                    using T = std::remove_pointer_t<decltype(parent_state)>;
+
+                    if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSBState> || std::same_as<T, TSDState>) {
+                        if (parent_state == nullptr) {
+                            throw std::logic_error("TSOutput alternative REF dereference requires a live parent collection");
+                        }
+                        install_ref_link(*parent_state, target_state->index, ref_source);
+                        replaced = true;
+                    }
+                },
+                [&] {
+                    // Root-level REF -> TS casts replace the alternative's
+                    // root state node itself rather than a collection child.
+                    auto &root_state = state_variant();
+                    auto &typed_state = root_state.template emplace<RefLinkState>();
+                    initialize_ref_link_state(typed_state, TimeSeriesStateParentPtr{}, 0);
+                    typed_state.set_source(ref_source);
+                    replaced = true;
+                });
+
+            if (!replaced) {
+                throw std::logic_error("TSOutput alternative REF dereference could not replace the target state");
+            }
+        }
+
         void configure_branch(const TSOutputView &target_view, const TSOutputView &source_view)
         {
             const TSMeta *target_schema = target_view.ts_schema();
@@ -174,6 +238,19 @@ namespace hgraph
             BaseState *source_state = source_view.linked_context().ts_state;
             if (target_state != nullptr) {
                 target_state->last_modified_time = source_state != nullptr ? source_state->last_modified_time : MIN_DT;
+            }
+
+            if (source_schema->kind == TSKind::REF) {
+                if (source_schema->element_ts() != target_schema) {
+                    throw std::invalid_argument("TSOutput alternative REF dereference requires matching dereferenced schema");
+                }
+
+                // REF -> TS does not copy target data into the alternative.
+                // Instead the alternative position becomes a RefLinkState that
+                // tracks the REF source and exposes the current dereferenced
+                // target through the normal TS view surface.
+                install_ref_link_for_target(target_view, source_view);
+                return;
             }
 
             if (target_schema->kind == TSKind::REF) {
@@ -300,7 +377,7 @@ namespace hgraph
         if (!source_context.is_bound()) { throw std::invalid_argument("TSOutput::bindable_view requires a bound source view"); }
         if (source_context.schema == schema) { return source; }
 
-        if (source_context.schema == nullptr || !supports_wrap_cast(*source_context.schema, *schema)) {
+        if (source_context.schema == nullptr || !supports_alternative_cast(*source_context.schema, *schema)) {
             throw std::invalid_argument("TSOutput::bindable_view does not support the requested schema cast");
         }
 
