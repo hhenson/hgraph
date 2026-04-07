@@ -57,10 +57,15 @@ namespace hgraph
     TSInputView TSInput::view(Notifiable *scheduling_notifier, engine_time_t evaluation_time)
     {
         TSViewContext context{view_context()};
-        context.active_pos = ActiveTriePosition{&m_active_trie, m_active_trie.root_node()};
-        context.scheduling_notifier = scheduling_notifier;
-        context.input_view_ops = &detail::default_input_view_ops();
-        return TSInputView{context, TSViewContext::none(), evaluation_time};
+        return TSInputView{
+            context,
+            TSViewContext::none(),
+            evaluation_time,
+            this,
+            ActiveTriePosition{&m_active_trie, m_active_trie.root_node()},
+            scheduling_notifier,
+            &detail::default_input_view_ops(),
+        };
     }
 
     void TSInput::allocate_and_construct()

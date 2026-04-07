@@ -1,4 +1,5 @@
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/active_trie.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_value_builder.h>
 #include <hgraph/types/time_series/ts_view.h>
@@ -148,58 +149,6 @@ namespace hgraph
                 native_value_data,
                 local_state,
             };
-        }
-
-        /**
-         * Resolve the scheduling notifier identity for a child position.
-         *
-         * When the child is a link-backed state (TargetLink/RefLink), the
-         * identity switches from the parent's notifier to the link's own
-         * SchedulingNotifier. This function also wires the link's forwarding
-         * target to the parent notifier so that notifications arriving at
-         * the link-local identity are forwarded to the owning node.
-         */
-        [[nodiscard]] Notifiable *child_scheduling_notifier(const TSViewContext &parent, BaseState *child_state) noexcept
-        {
-            Notifiable *parent_notifier = parent.scheduling_notifier;
-            if (child_state == nullptr) { return parent_notifier; }
-
-            Notifiable *child_notifier = child_state->boundary_notifier(parent_notifier);
-            if (child_notifier != parent_notifier && parent_notifier != nullptr) {
-                // The identity switched at a link boundary. Wire the
-                // forwarding target so the link-local SchedulingNotifier
-                // delivers notifications to the parent notifier (ultimately
-                // the owning Node).
-                static_cast<TargetLinkState::SchedulingNotifier *>(child_notifier)->set_target(parent_notifier);
-            }
-            return child_notifier;
-        }
-
-        void populate_input_child_context(TSViewContext &child,
-                                          const TSViewContext &parent,
-                                          size_t child_slot)
-        {
-            child.scheduling_notifier = child_scheduling_notifier(parent, child.ts_state);
-            child.input_view_ops = parent.input_view_ops;
-            child.output_view_ops = parent.output_view_ops;
-            child.active_pos.trie = parent.active_pos.trie;
-            child.active_pos.node = parent.active_pos.node
-                ? parent.active_pos.node->child_at(child_slot)
-                : nullptr;
-
-            // Inherit link crossings from parent (typically empty).
-            child.active_pos.link_crossings = parent.active_pos.link_crossings;
-
-            // If this child IS a TargetLinkState, record the crossing so
-            // descendants can reconstruct the input-side path.
-            if (child.ts_state != nullptr &&
-                child.ts_state->storage_kind == TSStorageKind::TargetLink) {
-                if (const LinkedTSContext *target = child.ts_state->linked_target();
-                    target != nullptr && target->ts_state != nullptr) {
-                    child.active_pos.link_crossings.push_back(
-                        LinkCrossing{target->ts_state, child.ts_state});
-                }
-            }
         }
 
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
@@ -497,7 +446,6 @@ namespace hgraph
                                                                   m_element_value_dispatch.get(),
                                                                   m_element_ts_dispatch.get(),
                                                                   RawViewAccess::data_of(child_value));
-                    populate_input_child_context(child, context, index);
                     if (!m_element_ts_dispatch.get().all_valid(child)) { return false; }
                 }
 
@@ -519,7 +467,6 @@ namespace hgraph
                                                               m_element_value_dispatch.get(),
                                                               m_element_ts_dispatch.get(),
                                                               RawViewAccess::data_of(child_value));
-                populate_input_child_context(child, context, index);
                 return child;
             }
 
@@ -570,7 +517,6 @@ namespace hgraph
                                                                   m_fields[index].value_dispatch.get(),
                                                                   m_fields[index].ts_dispatch.get(),
                                                                   RawViewAccess::data_of(child_value));
-                    populate_input_child_context(child, context, index);
                     if (!m_fields[index].ts_dispatch.get().all_valid(child)) { return false; }
                 }
 
@@ -591,7 +537,6 @@ namespace hgraph
                                                               m_fields[index].value_dispatch.get(),
                                                               m_fields[index].ts_dispatch.get(),
                                                               RawViewAccess::data_of(child_value));
-                populate_input_child_context(child, context, index);
                 return child;
             }
 
@@ -737,28 +682,6 @@ namespace hgraph
                                                               m_value_dispatch.get(),
                                                               m_value_ts_dispatch.get(),
                                                               RawViewAccess::data_of(delta.value_at_slot(slot)));
-                populate_input_child_context(child, context, slot);
-
-                // Ensure the trie child's slot_key is up to date so that
-                // evict_to_pending can store the correct key in the pending map.
-                if (child.active_pos.node != nullptr && !child.active_pos.node->slot_key) {
-                    child.active_pos.node->slot_key = std::make_unique<Value>(key);
-                }
-
-                // Register/unregister the parent trie node with the TSDState's
-                // active_tries registry. This is done during navigation so the
-                // correct TSD-level trie node is always associated regardless
-                // of activation depth.
-                if (ActiveTrieNode *parent_trie = context.active_pos.node; parent_trie != nullptr) {
-                    if (parent_trie->has_any_active() && child.scheduling_notifier != nullptr) {
-                        state->active_tries.emplace(child.scheduling_notifier, parent_trie);
-                    }
-                } else if (state != nullptr && child.scheduling_notifier != nullptr) {
-                    // Parent trie node is gone (all children passive + pruned),
-                    // ensure we're unregistered.
-                    state->active_tries.erase(child.scheduling_notifier);
-                }
-
                 return child;
             }
 

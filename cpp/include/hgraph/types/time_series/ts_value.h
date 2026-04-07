@@ -170,7 +170,7 @@ protected:
             &builder().value_builder().dispatch(),
             &builder().ts_dispatch(),
             value_memory(),
-            root_state()};
+            ts_root_state()};
     }
 
     /**
@@ -207,23 +207,27 @@ protected:
         m_storage.clear();
     }
 
+    /**
+     * Return the conceptual root time-series state for this stored value.
+     *
+     * Derived endpoint/runtime helpers use this when they need to propagate
+     * notifications into an owned derived representation such as an output
+     * alternative.
+     */
+    [[nodiscard]] BaseState *ts_root_state() noexcept
+    {
+        return std::visit([](auto &state_value) -> BaseState * { return &state_value; }, state_variant());
+    }
+
+    [[nodiscard]] const BaseState *ts_root_state() const noexcept
+    {
+        return std::visit([](const auto &state_value) -> const BaseState * { return &state_value; }, state_variant());
+    }
+
 private:
     friend struct TSValueBuilder;
     friend struct TSInputBuilder;
     friend struct TSOutputBuilder;
-
-    /**
-     * Return the conceptual root time-series state for this stored value.
-     *
-     * The current TS prototype still materialises the TS extension region as a
-     * `TimeSeriesStateV`. `TSViewContext` is the only TS-facing carrier that
-     * should expose that conceptual root, so this helper remains private and
-     * returns the raw state pointer directly.
-     */
-    [[nodiscard]] BaseState *root_state() noexcept
-    {
-        return std::visit([](auto &state_value) -> BaseState * { return &state_value; }, state_variant());
-    }
 
     [[nodiscard]] const TSValueBuilder &builder() const noexcept { return *m_builder; }
     [[nodiscard]] void *storage_memory() noexcept { return m_storage.ptr(); }

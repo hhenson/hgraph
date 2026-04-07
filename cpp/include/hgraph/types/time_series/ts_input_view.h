@@ -23,7 +23,21 @@ struct TSOutputView;
  * remains a thin endpoint-specific facade over the shared TS navigation model.
  */
 struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
-    using TSView<TSInputView>::TSView;
+    TSInputView() = default;
+    TSInputView(TSViewContext context,
+                TSViewContext parent,
+                engine_time_t evaluation_time,
+                TSInput *owning_input = nullptr,
+                ActiveTriePosition active_pos = {},
+                Notifiable *scheduling_notifier = nullptr,
+                const detail::TSInputViewOps *input_view_ops = nullptr) noexcept
+        : TSView<TSInputView>(context, parent, evaluation_time),
+          m_owning_input(owning_input),
+          m_active_pos(std::move(active_pos)),
+          m_scheduling_notifier(scheduling_notifier),
+          m_input_view_ops(input_view_ops)
+    {
+    }
 
     /**
      * Construct a navigable input view over TS storage.
@@ -66,6 +80,29 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
      * currently participating in active observation.
      */
     [[nodiscard]] bool active() const;
+
+    /**
+     * Internal helper used by collection wrappers to preserve input-specific
+     * runtime state when navigating to a child TS position.
+     */
+    [[nodiscard]] TSInputView make_child_view_impl(TSViewContext context,
+                                                   TSViewContext parent,
+                                                   engine_time_t evaluation_time) const;
+
+    [[nodiscard]] TSViewContext &context_mutable() noexcept { return this->m_context; }
+    [[nodiscard]] const TSViewContext &context_ref() const noexcept { return this->m_context; }
+    [[nodiscard]] const TSViewContext &parent_context_ref() const noexcept { return this->m_parent; }
+    [[nodiscard]] TSInput *owning_input() const noexcept { return m_owning_input; }
+    [[nodiscard]] ActiveTriePosition &active_position_mutable() noexcept { return m_active_pos; }
+    [[nodiscard]] const ActiveTriePosition &active_position() const noexcept { return m_active_pos; }
+    [[nodiscard]] Notifiable *scheduling_notifier() const noexcept { return m_scheduling_notifier; }
+    [[nodiscard]] const detail::TSInputViewOps *input_view_ops() const noexcept { return m_input_view_ops; }
+
+  private:
+    TSInput *m_owning_input{nullptr};
+    ActiveTriePosition m_active_pos;
+    Notifiable *m_scheduling_notifier{nullptr};
+    const detail::TSInputViewOps *m_input_view_ops{nullptr};
 };
 
 }  // namespace hgraph

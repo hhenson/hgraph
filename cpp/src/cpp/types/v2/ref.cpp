@@ -32,8 +32,7 @@ namespace hgraph::v2
         [[nodiscard]] TSOutputView view_from_target(const LinkedTSContext &target, engine_time_t evaluation_time)
         {
             TSViewContext context{target.schema, target.value_dispatch, target.ts_dispatch, target.value_data, target.ts_state};
-            context.output_view_ops = &detail::default_output_view_ops();
-            return TSOutputView{context, TSViewContext::none(), evaluation_time};
+            return TSOutputView{context, TSViewContext::none(), evaluation_time, nullptr, &detail::default_output_view_ops()};
         }
     }  // namespace
 
@@ -99,7 +98,7 @@ namespace hgraph::v2
     TSOutputView TimeSeriesReference::target_view(engine_time_t evaluation_time) const
     {
         const LinkedTSContext &bound_target = target();
-        if (!bound_target.is_bound()) { return TSOutputView{TSViewContext::none(), TSViewContext::none(), evaluation_time}; }
+        if (!bound_target.is_bound()) { return TSOutputView{TSViewContext::none(), TSViewContext::none(), evaluation_time, nullptr}; }
         return view_from_target(bound_target, evaluation_time);
     }
 

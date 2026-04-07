@@ -115,7 +115,7 @@ namespace hgraph
         try {
             copy_construct(memory, other.storage_memory(), other.builder());
             output.attach_storage(memory);
-            output.m_alternatives = other.m_alternatives;
+            output.m_alternatives.clear();
         } catch (...) {
             output.m_alternatives.clear();
             output.m_builder = nullptr;
@@ -153,7 +153,7 @@ namespace hgraph
         output.rebind_builder(ts_value_builder(),
                               other.owns_storage() ? TSValue::StorageOwnership::Owned : TSValue::StorageOwnership::External);
         output.m_storage = other.m_storage;
-        output.m_alternatives = std::move(other.m_alternatives);
+        output.m_alternatives.clear();
 
         other.m_builder = nullptr;
         other.m_alternatives.clear();

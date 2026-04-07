@@ -122,7 +122,7 @@ struct LinkCrossing {
 };
 
 /**
- * Lightweight position within the active trie, carried in TSViewContext
+ * Lightweight position within the active trie, carried by TSInputView
  * during input view navigation.
  *
  * A null `node` means the current path has no active state in the trie

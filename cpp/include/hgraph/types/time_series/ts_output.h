@@ -6,6 +6,7 @@
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/time_series/ts_value.h>
 
+#include <memory>
 #include <unordered_map>
 
 namespace hgraph {
@@ -50,40 +51,30 @@ struct HGRAPH_EXPORT TSOutput : TSValue {
 
     [[nodiscard]] TSOutputView view(engine_time_t evaluation_time = MIN_DT);
 
+    /**
+     * Return a bindable view matching the requested schema, creating an
+     * output-owned alternative representation when required.
+     */
+    [[nodiscard]] TSOutputView bindable_view(const TSOutputView &source, const TSMeta *schema);
+
 protected:
-    /**
-     * Return the registered alternative representations for this output.
-     */
-    [[nodiscard]] const std::unordered_map<const TSMeta *, TSValue> &alternatives() const noexcept { return m_alternatives; }
-
-    /**
-     * Locate an existing alternative representation for the supplied schema.
-     */
-    [[nodiscard]] TSValue *find_alternative(const TSMeta *schema) noexcept;
-
-    /**
-     * Locate an existing alternative representation for the supplied schema.
-     */
-    [[nodiscard]] const TSValue *find_alternative(const TSMeta *schema) const noexcept;
-
-    /**
-     * Create or return the alternative representation for the supplied schema.
-     */
-    [[nodiscard]] TSValue &ensure_alternative(const TSMeta *schema);
-
-    /**
-     * Remove any alternative representation for the supplied schema.
-     */
-    void remove_alternative(const TSMeta *schema) noexcept;
-
 private:
     friend struct TSOutputBuilder;
+
+    struct AlternativeOutput;
+    struct AlternativeOutputDeleter
+    {
+        void operator()(AlternativeOutput *value) const noexcept;
+    };
+
+    using AlternativePtr = std::unique_ptr<AlternativeOutput, AlternativeOutputDeleter>;
+    using AlternativeMap = std::unordered_map<const TSMeta *, AlternativePtr>;
 
     [[nodiscard]] const TSOutputBuilder &builder() const noexcept { return *m_builder; }
     void clear_storage() noexcept;
 
     const TSOutputBuilder *m_builder{nullptr};
-    std::unordered_map<const TSMeta *, TSValue> m_alternatives;
+    AlternativeMap m_alternatives;
 };
 
 }  // namespace hgraph
