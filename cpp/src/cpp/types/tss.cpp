@@ -11,12 +11,24 @@
 
 namespace hgraph
 {
+    namespace
+    {
+        [[nodiscard]] bool range_contains(const Range<value::View> &range, const value::View &value)
+        {
+            for (const auto item : range) {
+                if (item.equals(value)) { return true; }
+            }
+            return false;
+        }
+    }  // namespace
+
     // ========== TimeSeriesSetOutput Implementation ==========
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const node_ptr &parent, const value::TypeMeta* element_type)
         : TimeSeriesSet<BaseTimeSeriesOutput>(parent),
-          _storage(element_type),
+          _storage(element_type != nullptr ? value::TypeRegistry::instance().set(element_type).build() : nullptr),
           _element_type(element_type),
+          _set_schema(element_type != nullptr ? value::TypeRegistry::instance().set(element_type).build() : nullptr),
           _is_empty_ref_output{std::dynamic_pointer_cast<TimeSeriesValueOutput>(
               TimeSeriesValueOutputBuilder(value::scalar_type_meta<bool>()).make_instance(this))},
           _contains_ref_outputs{this,
@@ -27,12 +39,16 @@ namespace hgraph
                                     auto& ts_set = dynamic_cast<const TimeSeriesSetOutput&>(ts);
                                     ts_val.py_set_value(nb::cast(ts_set.contains(key)));
                                 },
-                                {}} {}
+                                {}}
+    {
+        if (_set_schema != nullptr) { _storage.reset(); }
+    }
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(time_series_output_ptr parent, const value::TypeMeta* element_type)
         : TimeSeriesSet<BaseTimeSeriesOutput>(parent),
-          _storage(element_type),
+          _storage(element_type != nullptr ? value::TypeRegistry::instance().set(element_type).build() : nullptr),
           _element_type(element_type),
+          _set_schema(element_type != nullptr ? value::TypeRegistry::instance().set(element_type).build() : nullptr),
           _is_empty_ref_output{std::dynamic_pointer_cast<TimeSeriesValueOutput>(
               TimeSeriesValueOutputBuilder(value::scalar_type_meta<bool>()).make_instance(this))},
           _contains_ref_outputs{this,
@@ -43,7 +59,77 @@ namespace hgraph
                                     auto& ts_set = dynamic_cast<const TimeSeriesSetOutput&>(ts);
                                     ts_val.py_set_value(nb::cast(ts_set.contains(key)));
                                 },
-                                {}} {}
+                                {}}
+    {
+        if (_set_schema != nullptr) { _storage.reset(); }
+    }
+
+    value::SetView TimeSeriesSetOutput::added_view() const
+    {
+        rebuild_delta_snapshot();
+        return _delta_snapshot.added();
+    }
+
+    value::SetView TimeSeriesSetOutput::removed_view() const
+    {
+        rebuild_delta_snapshot();
+        return _delta_snapshot.removed();
+    }
+
+    bool TimeSeriesSetOutput::was_added(const value::View& elem) const
+    {
+        return range_contains(delta_view().added(), elem);
+    }
+
+    bool TimeSeriesSetOutput::was_removed(const value::View& elem) const
+    {
+        return range_contains(delta_view().removed(), elem);
+    }
+
+    void TimeSeriesSetOutput::invalidate_delta_snapshot() const noexcept
+    {
+        _delta_snapshot_valid = false;
+    }
+
+    void TimeSeriesSetOutput::rebuild_delta_snapshot() const
+    {
+        if (_delta_snapshot_valid || _element_type == nullptr) { return; }
+
+        _delta_snapshot = value::SetDeltaValue(_element_type);
+        auto add_mutation = _delta_snapshot.added().begin_mutation();
+        for (const auto elem : delta_view().added()) { static_cast<void>(add_mutation.add(elem)); }
+
+        auto remove_mutation = _delta_snapshot.removed().begin_mutation();
+        for (const auto elem : delta_view().removed()) { static_cast<void>(remove_mutation.add(elem)); }
+
+        _delta_snapshot_valid = true;
+    }
+
+    void TimeSeriesSetOutput::clear_deltas()
+    {
+        if (_set_schema == nullptr) { return; }
+        auto mutation = value_view().begin_mutation();
+        static_cast<void>(mutation);
+        invalidate_delta_snapshot();
+    }
+
+    bool TimeSeriesSetOutput::has_added_delta() const
+    {
+        const auto delta = delta_view();
+        for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
+            if (delta.slot_occupied(slot) && delta.slot_added(slot)) { return true; }
+        }
+        return false;
+    }
+
+    bool TimeSeriesSetOutput::has_removed_delta() const
+    {
+        const auto delta = delta_view();
+        for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
+            if (delta.slot_occupied(slot) && delta.slot_removed(slot)) { return true; }
+        }
+        return false;
+    }
 
     time_series_value_output_s_ptr &TimeSeriesSetOutput::is_empty_output() {
         if (!_is_empty_ref_output->valid()) {
@@ -58,8 +144,10 @@ namespace hgraph
     }
 
     void TimeSeriesSetOutput::add(const value::View& elem) {
-        if (_storage.add(elem)) {
-            if (_storage.size() == 1) {
+        auto mutation = value_view().begin_mutation();
+        if (mutation.add(elem)) {
+            invalidate_delta_snapshot();
+            if (size() == 1) {
                 is_empty_output()->py_set_value(nb::cast(false));
             }
             _contains_ref_outputs.update(elem);
@@ -68,9 +156,11 @@ namespace hgraph
     }
 
     void TimeSeriesSetOutput::remove(const value::View& elem) {
-        if (_storage.remove(elem)) {
+        auto mutation = value_view().begin_mutation();
+        if (mutation.remove(elem)) {
+            invalidate_delta_snapshot();
             _contains_ref_outputs.update(elem);
-            if (_storage.empty()) {
+            if (empty()) {
                 is_empty_output()->py_set_value(nb::cast(true));
             }
             mark_modified();
@@ -83,29 +173,31 @@ namespace hgraph
         if (!_element_type || item.is_none()) return false;
         value::Value temp(_element_type);
         temp.from_python(item);
-        return _storage.contains(value::View(temp.view()));
+        return contains(value::View(temp.view()));
     }
 
     bool TimeSeriesSetOutput::py_was_added(const nb::object& item) const {
         if (!_element_type || item.is_none()) return false;
         value::Value temp(_element_type);
         temp.from_python(item);
-        return _storage.was_added(value::View(temp.view()));
+        return was_added(value::View(temp.view()));
     }
 
     bool TimeSeriesSetOutput::py_was_removed(const nb::object& item) const {
         if (!_element_type || item.is_none()) return false;
         value::Value temp(_element_type);
         temp.from_python(item);
-        return _storage.was_removed(value::View(temp.view()));
+        return was_removed(value::View(temp.view()));
     }
 
     void TimeSeriesSetOutput::py_add(const nb::object& item) {
         if (!_element_type || item.is_none()) return;
         value::Value temp(_element_type);
         temp.from_python(item);
-        if (_storage.add(value::View(temp.view()))) {
-            if (_storage.size() == 1) {
+        auto mutation = value_view().begin_mutation();
+        if (mutation.add(value::View(temp.view()))) {
+            invalidate_delta_snapshot();
+            if (size() == 1) {
                 is_empty_output()->py_set_value(nb::cast(false));
             }
             _contains_ref_outputs.update(item);
@@ -117,9 +209,11 @@ namespace hgraph
         if (!_element_type || item.is_none()) return;
         value::Value temp(_element_type);
         temp.from_python(item);
-        if (_storage.remove(value::View(temp.view()))) {
+        auto mutation = value_view().begin_mutation();
+        if (mutation.remove(value::View(temp.view()))) {
+            invalidate_delta_snapshot();
             _contains_ref_outputs.update(item);
-            if (_storage.empty()) {
+            if (empty()) {
                 is_empty_output()->py_set_value(nb::cast(true));
             }
             mark_modified();
@@ -127,15 +221,15 @@ namespace hgraph
     }
 
     nb::object TimeSeriesSetOutput::py_added() const {
-        return _storage.added().to_python();
+        return added_view().to_python();
     }
 
     nb::object TimeSeriesSetOutput::py_removed() const {
-        return _storage.removed().to_python();
+        return removed_view().to_python();
     }
 
     nb::object TimeSeriesSetOutput::py_value() const {
-        return _storage.value().to_python();
+        return value_view().to_python();
     }
 
     nb::object TimeSeriesSetOutput::py_delta_value() const {
@@ -228,7 +322,7 @@ namespace hgraph
             }
 
             // Items in current set but not in new - remove them
-            for (auto elem : _storage.value().values()) {
+            for (auto elem : value_view().values()) {
                 auto py_item = elem.to_python();
                 if (!fs.contains(py_item)) {
                     to_remove.append(py_item);
@@ -280,11 +374,13 @@ namespace hgraph
     void TimeSeriesSetOutput::clear() {
         // Update contains outputs for all elements before clearing
         if (_contains_ref_outputs) {
-            for (auto elem : _storage.value().values()) {
+            for (auto elem : value_view().values()) {
                 _contains_ref_outputs.update(elem.to_python());
             }
         }
-        _storage.clear();
+        auto mutation = value_view().begin_mutation();
+        mutation.clear();
+        invalidate_delta_snapshot();
         is_empty_output()->py_set_value(nb::cast(true));
         mark_modified();
     }
@@ -297,15 +393,15 @@ namespace hgraph
         nb::list to_remove;
 
         // Elements in other but not in this - add them
-        for (auto elem : other._storage.value().values()) {
-            if (!_storage.contains(elem)) {
+        for (auto elem : other.value_view().values()) {
+            if (!contains(elem)) {
                 to_add.append(elem.to_python());
             }
         }
 
         // Elements in this but not in other - remove them
-        for (auto elem : _storage.value().values()) {
-            if (!other._storage.contains(elem)) {
+        for (auto elem : value_view().values()) {
+            if (!other.contains(elem)) {
                 to_remove.append(elem.to_python());
             }
         }
@@ -329,13 +425,13 @@ namespace hgraph
 
         // Elements in other but not in this - add them
         for (auto elem : other.value_view().values()) {
-            if (!_storage.contains(elem)) {
+            if (!contains(elem)) {
                 to_add.append(elem.to_python());
             }
         }
 
         // Elements in this but not in other - remove them
-        for (auto elem : _storage.value().values()) {
+        for (auto elem : value_view().values()) {
             if (!other.contains(elem)) {
                 to_remove.append(elem.to_python());
             }
@@ -358,7 +454,7 @@ namespace hgraph
                 auto weak_self = weak_from_this();
                 owning_node()->graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
                     if (auto self = weak_self.lock()) {
-                        static_cast<TimeSeriesSetOutput*>(self.get())->_storage.clear_deltas();
+                        static_cast<TimeSeriesSetOutput*>(self.get())->clear_deltas();
                     }
                 });
             }
@@ -366,8 +462,9 @@ namespace hgraph
     }
 
     void TimeSeriesSetOutput::_reset_value() {
-        _storage.clear();
-        _storage.clear_deltas();
+        auto mutation = value_view().begin_mutation();
+        mutation.clear();
+        clear_deltas();
     }
 
     time_series_value_output_s_ptr TimeSeriesSetOutput::get_contains_output(const nb::object &item,
@@ -386,29 +483,12 @@ namespace hgraph
         _contains_ref_outputs.release(key_val.view(), static_cast<void*>(requester.ptr()));
     }
 
-    void TimeSeriesSetOutput::_post_modify() {
-        bool has_changes = _storage.has_delta();
-        bool needs_validation = !valid();
-        bool is_current_cycle = (last_modified_time() < owning_graph()->evaluation_time());
-        if ((has_changes || needs_validation) && is_current_cycle) {
-            mark_modified();
-            if (!_storage.added().empty() && is_empty_output()->valid() &&
-                is_empty_output()->value().template as<bool>()) {
-                is_empty_output()->py_set_value(nb::cast(false));
-            } else if (!_storage.removed().empty() && empty()) {
-                is_empty_output()->py_set_value(nb::cast(true));
-            }
-            // Update feature outputs for added/removed elements
-            _update_contains_refs();
-        }
-    }
-
     void TimeSeriesSetOutput::_update_contains_refs() {
         if (_contains_ref_outputs) {
-            for (auto elem : _storage.added().values()) {
+            for (auto elem : added_view().values()) {
                 _contains_ref_outputs.update(elem.to_python());
             }
-            for (auto elem : _storage.removed().values()) {
+            for (auto elem : removed_view().values()) {
                 _contains_ref_outputs.update(elem.to_python());
             }
         }

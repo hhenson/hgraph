@@ -393,7 +393,6 @@ set(HGRAPH_INCLUDES
         include/hgraph/python/reference_wrapper.h
         include/hgraph/types/value/indexed_view.h
         include/hgraph/types/value/set_delta_value.h
-        include/hgraph/types/value/tracked_set_storage.h
         include/hgraph/types/value/type_meta_bindings.h
         include/hgraph/types/value/type_meta.h
         include/hgraph/types/value/type_registry.h

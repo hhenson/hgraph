@@ -20,8 +20,10 @@ namespace hgraph::value {
 /**
  * @brief Value class representing set delta changes.
  *
- * Contains snapshots of added and removed elements from a TrackedSetStorage.
- * This is an owning value class (copies the delta sets).
+ * Contains owning snapshots of added and removed set elements.
+ *
+ * This is used when code needs stable materialized delta sets rather than the
+ * storage-backed `SetDeltaView` ranges exposed by the value layer.
  */
 struct SetDeltaValue {
     Value _added;

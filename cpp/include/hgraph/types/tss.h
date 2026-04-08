@@ -10,8 +10,8 @@
 #include <hgraph/types/feature_extension.h>
 #include <hgraph/types/base_time_series.h>
 #include <hgraph/types/ts.h>
-#include <hgraph/types/value/tracked_set_storage.h>
 #include <hgraph/types/value/set_delta_value.h>
+#include <hgraph/types/value/value.h>
 
 namespace hgraph {
 
@@ -34,7 +34,8 @@ namespace hgraph {
     /**
      * @brief Non-templated TimeSeriesSetOutput using Value-based storage.
      *
-     * This class stores set elements using the Value system with TrackedSetStorage.
+     * This class stores set elements using the value-layer delta-tracked set
+     * storage directly.
      * Element type is determined at runtime via TypeMeta*.
      *
      * API:
@@ -69,32 +70,32 @@ namespace hgraph {
         /**
          * @brief Get read-only view of current set value.
          */
-        [[nodiscard]] value::SetView value_view() const { return _storage.value(); }
+        [[nodiscard]] value::SetView value_view() const { return _storage.view().as_set(); }
 
         /**
          * @brief Get read-only view of added elements.
          */
-        [[nodiscard]] value::SetView added_view() const { return _storage.added(); }
+        [[nodiscard]] value::SetView added_view() const;
 
         /**
          * @brief Get read-only view of removed elements.
          */
-        [[nodiscard]] value::SetView removed_view() const { return _storage.removed(); }
+        [[nodiscard]] value::SetView removed_view() const;
 
         /**
          * @brief Check if element is in set using Value.
          */
-        [[nodiscard]] bool contains(const value::View& elem) const { return _storage.contains(elem); }
+        [[nodiscard]] bool contains(const value::View& elem) const { return value_view().contains(elem); }
 
         /**
          * @brief Check if element was added this cycle.
          */
-        [[nodiscard]] bool was_added(const value::View& elem) const { return _storage.was_added(elem); }
+        [[nodiscard]] bool was_added(const value::View& elem) const;
 
         /**
          * @brief Check if element was removed this cycle.
          */
-        [[nodiscard]] bool was_removed(const value::View& elem) const { return _storage.was_removed(elem); }
+        [[nodiscard]] bool was_removed(const value::View& elem) const;
 
         /**
          * @brief Add element using Value.
@@ -156,8 +157,8 @@ namespace hgraph {
         using TimeSeriesSet<BaseTimeSeriesOutput>::mark_modified;
         void mark_modified(engine_time_t modified_time) override;
 
-        [[nodiscard]] size_t size() const override { return _storage.size(); }
-        [[nodiscard]] bool empty() const override { return _storage.empty(); }
+        [[nodiscard]] size_t size() const override { return value_view().size(); }
+        [[nodiscard]] bool empty() const override { return value_view().empty(); }
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
             // Single comparison checks both type (Set) and direction (Output)
@@ -174,13 +175,22 @@ namespace hgraph {
         VISITOR_SUPPORT()
 
     private:
-        value::TrackedSetStorage _storage;
+        [[nodiscard]] SetDeltaView delta_view() const { return value_view().delta(); }
+        void invalidate_delta_snapshot() const noexcept;
+        void rebuild_delta_snapshot() const;
+        void clear_deltas();
+        [[nodiscard]] bool has_added_delta() const;
+        [[nodiscard]] bool has_removed_delta() const;
+
+        value::Value _storage;
         const value::TypeMeta* _element_type{nullptr};
+        const value::TypeMeta* _set_schema{nullptr};
+        mutable value::SetDeltaValue _delta_snapshot;
+        mutable bool _delta_snapshot_valid{false};
 
         time_series_value_output_s_ptr _is_empty_ref_output;
         FeatureOutputExtensionValue _contains_ref_outputs;
 
-        void _post_modify();
         void _update_contains_refs();
     };
 
