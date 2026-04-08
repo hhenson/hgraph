@@ -8,6 +8,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstring>
+#include <fmt/format.h>
 #include <memory>
 #include <new>
 #include <stdexcept>
@@ -77,6 +78,8 @@ namespace hgraph::v2
             nb::dict kwargs;
             nb::tuple start_parameter_names;
             nb::tuple stop_parameter_names;
+            nb::iterator generator;
+            nb::object next_value;
         };
 
         struct PythonNodeRuntimeData
@@ -306,6 +309,12 @@ namespace hgraph::v2
             nb::gil_scoped_acquire guard;
             auto &heap_state = *runtime_data.heap_state;
             heap_state.kwargs = make_python_node_kwargs(heap_state.python_signature, heap_state.python_scalars, heap_state.node_handle);
+            if (node.is_pull_source_node()) {
+                heap_state.generator = nb::cast<nb::iterator>(call_python_callable(heap_state.eval_fn, heap_state.kwargs));
+                heap_state.next_value = nb::object();
+                if (node.graph() != nullptr) { node.graph()->schedule_node(node.node_index(), node.evaluation_time()); }
+                return;
+            }
             static_cast<void>(
                 call_python_callable_with_subset(heap_state.start_fn, heap_state.kwargs, heap_state.start_parameter_names));
         }
@@ -324,6 +333,68 @@ namespace hgraph::v2
             auto &runtime_data = detail::runtime_data<PythonNodeRuntimeData>(node);
             nb::gil_scoped_acquire guard;
             auto &heap_state = *runtime_data.heap_state;
+
+            if (node.is_pull_source_node()) {
+                const engine_time_t evaluation_time = node.evaluation_time();
+                auto next_time = MIN_DT;
+                nb::object out;
+                const auto sentinel = nb::iterator::sentinel();
+
+                auto datetime = nb::module_::import_("datetime");
+                auto timedelta_type = datetime.attr("timedelta");
+                auto datetime_type = datetime.attr("datetime");
+
+                for (nb::iterator value = ++heap_state.generator; value != sentinel; ++value) {
+                    auto item = *value;
+                    if (value.is_none()) {
+                        out = nb::none();
+                        break;
+                    }
+
+                    auto time = nb::cast<nb::object>(item[0]);
+                    out = nb::cast<nb::object>(item[1]);
+                    if (nb::isinstance(time, timedelta_type)) {
+                        next_time = evaluation_time + nb::cast<engine_time_delta_t>(time);
+                    } else if (nb::isinstance(time, datetime_type)) {
+                        next_time = nb::cast<engine_time_t>(time);
+                    } else {
+                        throw std::runtime_error("Type of time value not recognised");
+                    }
+
+                    if (next_time >= evaluation_time && !out.is_none()) { break; }
+                }
+
+                if (next_time > MIN_DT && next_time <= evaluation_time) {
+                    if (heap_state.output_handle.is_valid() && !heap_state.output_handle.is_none() &&
+                        nb::cast<engine_time_t>(heap_state.output_handle.attr("last_modified_time")) == next_time) {
+                        throw std::runtime_error(
+                            fmt::format(
+                                "Duplicate time produced by generator: [{:%FT%T%z}] - {}",
+                                next_time,
+                                nb::str(out).c_str()));
+                    }
+                    if (!out.is_none() && heap_state.output_handle.is_valid() && !heap_state.output_handle.is_none()) {
+                        heap_state.output_handle.attr("apply_result")(out);
+                    }
+                    heap_state.next_value = nb::none();
+                    python_node_eval(node, evaluation_time);
+                    return;
+                }
+
+                if (heap_state.next_value.is_valid() && !heap_state.next_value.is_none()) {
+                    if (heap_state.output_handle.is_valid() && !heap_state.output_handle.is_none()) {
+                        heap_state.output_handle.attr("apply_result")(heap_state.next_value);
+                    }
+                    heap_state.next_value = nb::none();
+                }
+
+                if (next_time != MIN_DT) {
+                    heap_state.next_value = out;
+                    if (node.graph() != nullptr) { node.graph()->schedule_node(node.node_index(), next_time); }
+                }
+                return;
+            }
+
             nb::object out = call_python_callable(heap_state.eval_fn, heap_state.kwargs);
             if (!out.is_none() && runtime_data.output != nullptr && heap_state.output_handle.is_valid() &&
                 !heap_state.output_handle.is_none()) {
@@ -647,6 +718,8 @@ namespace hgraph::v2
                         nb::dict(),
                         nb::make_tuple(),
                         nb::make_tuple(),
+                        nb::iterator{},
+                        nb::object(),
                     };
                     runtime_data.heap_state->node_handle = make_python_node_handle(
                         runtime_data.heap_state->python_signature,
