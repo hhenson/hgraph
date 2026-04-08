@@ -146,10 +146,13 @@ namespace hgraph
 
             if (is_root) { break; }
 
-            slots.push_back(cur->index);
-
             // If we've reached the output-side state a link targets,
             // jump back to the input-side TargetLinkState and continue.
+            //
+            // The linked output root does not contribute its own slot to the
+            // input-side logical path: the TargetLinkState already occupies
+            // that position in the input trie. Children below the linked
+            // output therefore hang directly under the link boundary.
             if (crossing_it != pos.link_crossings.rend() &&
                 crossing_it->output_root == cur) {
                 slots.push_back(crossing_it->link_state->index);
@@ -166,6 +169,8 @@ namespace hgraph
                     },
                     [] {});
                 ++crossing_it;
+            } else {
+                slots.push_back(cur->index);
             }
 
             if (next == nullptr) { break; }

@@ -898,8 +898,6 @@ TEST_CASE("TSInput dict-key activation survives a simple remove and re-add of th
         mutation.setting(key.view(), hgraph::Value{1.0f}.view());
     }
 
-    static_cast<void>(output.view().as_dict().at(key.view()));
-
     auto *dict_state = static_cast<hgraph::TSDState *>(output.view_context().ts_state);
     REQUIRE(dict_state != nullptr);
 
@@ -927,8 +925,6 @@ TEST_CASE("TSInput dict-key activation survives a simple remove and re-add of th
         mutation.setting(key.view(), hgraph::Value{2.0f}.view());
     }
 
-    static_cast<void>(output.view().as_dict().at(key.view()));
-
     const size_t rebound_slot = hgraph::test_detail::find_live_dict_slot(output, key);
     REQUIRE(rebound_slot != SIZE_MAX);
     auto *rebound_child_state = hgraph::test_detail::child_state(*dict_state, rebound_slot);
@@ -937,6 +933,64 @@ TEST_CASE("TSInput dict-key activation survives a simple remove and re-add of th
     rebound_child_state->mark_modified(hgraph::test_detail::tick(32));
     CHECK(recorder.notifications ==
           std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(31), hgraph::test_detail::tick(32)});
+}
+
+TEST_CASE("TSD child state tracks slot reuse directly from mutations", "[ts_value][tsd]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *str_type = value_registry.register_type<std::string>("str");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *dict_ts = ts_registry.tsd(str_type, scalar_ts);
+
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(dict_ts)};
+    auto *dict_state = static_cast<hgraph::TSDState *>(output.view_context().ts_state);
+    REQUIRE(dict_state != nullptr);
+
+    const hgraph::Value key_a{std::string{"a"}};
+    const hgraph::Value key_b{std::string{"b"}};
+
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.setting(key_a.view(), hgraph::Value{1.0f}.view());
+    }
+
+    const size_t first_slot = hgraph::test_detail::find_live_dict_slot(output, key_a);
+    REQUIRE(first_slot != SIZE_MAX);
+    auto *first_child_state = hgraph::test_detail::child_state(*dict_state, first_slot);
+    REQUIRE(first_child_state != nullptr);
+
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.removing(key_a.view());
+    }
+
+    // Removed dict payloads remain retained by stable slot until the next
+    // outer mutation begins, so the TS child subtree is still present here.
+    CHECK(hgraph::test_detail::child_state(*dict_state, first_slot) == first_child_state);
+
+    {
+        auto mutation = output.dict_value().begin_mutation();
+    }
+
+    // Once the next mutation epoch begins, removed slots are physically
+    // released and the parallel TS child state must be torn down without any
+    // extra navigation step.
+    CHECK(hgraph::test_detail::child_state(*dict_state, first_slot) == nullptr);
+
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.setting(key_b.view(), hgraph::Value{2.0f}.view());
+    }
+
+    const size_t rebound_slot = hgraph::test_detail::find_live_dict_slot(output, key_b);
+    REQUIRE(rebound_slot != SIZE_MAX);
+    CHECK(rebound_slot == first_slot);
+
+    auto *rebound_child_state = hgraph::test_detail::child_state(*dict_state, rebound_slot);
+    REQUIRE(rebound_child_state != nullptr);
 }
 
 TEST_CASE("TSInput linked TSD key re-add notifies when state already modified at current tick", "[ts_input][active]")
@@ -962,7 +1016,6 @@ TEST_CASE("TSInput linked TSD key re-add notifies when state already modified at
         auto mutation = output.dict_value().begin_mutation();
         mutation.setting(key.view(), hgraph::Value{1.0f}.view());
     }
-    static_cast<void>(output.view().as_dict().at(key.view()));
 
     auto *dict_state = static_cast<hgraph::TSDState *>(output.view_context().ts_state);
     REQUIRE(dict_state != nullptr);
@@ -999,7 +1052,6 @@ TEST_CASE("TSInput linked TSD key re-add notifies when state already modified at
         auto mutation = output.dict_value().begin_mutation();
         mutation.setting(key.view(), hgraph::Value{3.0f}.view());
     }
-    static_cast<void>(output.view().as_dict().at(key.view()));
 
     const size_t rebound_slot = hgraph::test_detail::find_live_dict_slot(output, key);
     REQUIRE(rebound_slot != SIZE_MAX);

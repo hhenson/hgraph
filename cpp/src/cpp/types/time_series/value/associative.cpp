@@ -6,6 +6,7 @@
 #include <sul/dynamic_bitset.hpp>
 
 #include <algorithm>
+#include <cassert>
 #include <concepts>
 #include <memory>
 #include <mutex>
@@ -167,6 +168,10 @@ namespace hgraph
              * without the key being newly added in that same epoch.
              */
             sul::dynamic_bitset<> updated{};
+            /**
+             * Observers kept in lock-step with stable key-slot lifecycle.
+             */
+            std::vector<SlotObserver *> observers{};
             /**
              * Active mutation-scope depth for this container.
              *
@@ -1138,6 +1143,36 @@ namespace hgraph
                 return values_memory(data) + index * m_value_stride;
             }
 
+            void add_slot_observer(void *data, SlotObserver *observer) const override
+            {
+                if constexpr (tracks_deltas_v) {
+                    if (observer == nullptr) { return; }
+                    auto &observers = state(data)->observers;
+                    const auto it = std::find(observers.begin(), observers.end(), observer);
+                    assert(it == observers.end() && "slot observer registered twice");
+                    if (it == observers.end()) { observers.push_back(observer); }
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(observer);
+                }
+            }
+
+            void remove_slot_observer(void *data, SlotObserver *observer) const override
+            {
+                if constexpr (tracks_deltas_v) {
+                    if (observer == nullptr) { return; }
+                    auto &observers = state(data)->observers;
+                    const auto it = std::find(observers.begin(), observers.end(), observer);
+                    assert(it != observers.end() && "removing unregistered slot observer");
+                    if (it == observers.end()) { return; }
+                    if (it != observers.end() - 1) { *it = observers.back(); }
+                    observers.pop_back();
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(observer);
+                }
+            }
+
             [[nodiscard]] bool set_item(void *data, const void *key, const void *value) const override
             {
                 if (value == nullptr) {
@@ -1157,6 +1192,7 @@ namespace hgraph
                         }
                         key_dispatch().assign(key_data(data, slot), key);
                         value_dispatch().assign(value_data(data, slot), value);
+                        if (!was_live) { notify_insert(*state(data), slot); }
                         return !was_live;
                     } else {
                         value_dispatch().assign(value_data(data, slot), value);
@@ -1166,8 +1202,10 @@ namespace hgraph
 
                 if constexpr (tracks_deltas_v) {
                     if (key_state.free_list.empty()) {
+                        const size_t old_capacity = key_state.capacity;
                         reserve_exact(*state(data),
                                       std::max<size_t>(key_state.size + 1, std::max<size_t>(8, key_state.capacity * 2)));
+                        notify_capacity(*state(data), old_capacity);
                     }
                 } else {
                     if (key_state.size == key_state.capacity) {
@@ -1183,6 +1221,7 @@ namespace hgraph
                 // an uninitialised payload.
                 m_value_builder.get().construct(values_memory(data) + slot * m_value_stride);
                 value_dispatch().assign(value_data(data, slot), value);
+                if constexpr (tracks_deltas_v) { notify_insert(*state(data), slot); }
                 return insertion.inserted;
             }
 
@@ -1191,11 +1230,14 @@ namespace hgraph
                 const size_t slot = find(data, key);
                 if (slot == npos) { return false; }
                 if constexpr (tracks_deltas_v) {
-                    if (state(data)->keys.added.test(slot)) {
+                    const bool erased_immediately = state(data)->keys.added.test(slot);
+                    notify_remove(*state(data), slot);
+                    if (erased_immediately) {
                         destruct_value(values_memory(data) + slot * m_value_stride);
                     }
                     state(data)->updated.reset(slot);
                     m_keys.remove_slot(state(data)->keys, slot);
+                    if (erased_immediately) { notify_erase(*state(data), slot); }
                 } else {
                     remove_dense_slot(*state(data), slot);
                 }
@@ -1206,6 +1248,7 @@ namespace hgraph
             {
                 auto &map_keys = keys(data);
                 if constexpr (tracks_deltas_v) {
+                    notify_clear(*state(data));
                     for (size_t slot = 0; slot < map_keys.capacity; ++slot) {
                         if (!map_keys.alive.test(slot)) { continue; }
                         if (state(data)->keys.added.test(slot)) {
@@ -1223,7 +1266,13 @@ namespace hgraph
 
             void reserve(void *data, size_t capacity) const override
             {
-                reserve_exact(*state(data), capacity);
+                if constexpr (tracks_deltas_v) {
+                    const size_t old_capacity = state(data)->keys.capacity;
+                    reserve_exact(*state(data), capacity);
+                    notify_capacity(*state(data), old_capacity);
+                } else {
+                    reserve_exact(*state(data), capacity);
+                }
             }
 
             [[nodiscard]] size_t hash(const void *data) const override
@@ -1440,6 +1489,7 @@ namespace hgraph
 
                 std::construct_at(state(dst), std::move(*state(src)));
                 m_keys.rebind_index(state(dst)->keys);
+                if constexpr (tracks_deltas_v) { state(dst)->observers.clear(); }
                 state(src)->keys.elements = nullptr;
                 state(src)->keys.size = 0;
                 state(src)->keys.capacity = 0;
@@ -1455,12 +1505,72 @@ namespace hgraph
                     state(src)->keys.removed.clear();
                     state(src)->keys.mutation_depth = 0;
                     state(src)->updated.clear();
+                    state(src)->observers.clear();
                     state(src)->mutation_depth = 0;
                 }
             }
 
           private:
             static constexpr size_t npos = static_cast<size_t>(-1);
+
+            void notify_capacity(DeltaMapState &map, size_t old_capacity) const
+            {
+                if constexpr (tracks_deltas_v) {
+                    for (auto *observer : map.observers) {
+                        if (observer != nullptr) { observer->on_capacity(old_capacity, map.keys.capacity); }
+                    }
+                } else {
+                    static_cast<void>(map);
+                    static_cast<void>(old_capacity);
+                }
+            }
+
+            void notify_insert(DeltaMapState &map, size_t slot) const
+            {
+                if constexpr (tracks_deltas_v) {
+                    for (auto *observer : map.observers) {
+                        if (observer != nullptr) { observer->on_insert(slot); }
+                    }
+                } else {
+                    static_cast<void>(map);
+                    static_cast<void>(slot);
+                }
+            }
+
+            void notify_remove(DeltaMapState &map, size_t slot) const
+            {
+                if constexpr (tracks_deltas_v) {
+                    for (auto *observer : map.observers) {
+                        if (observer != nullptr) { observer->on_remove(slot); }
+                    }
+                } else {
+                    static_cast<void>(map);
+                    static_cast<void>(slot);
+                }
+            }
+
+            void notify_erase(DeltaMapState &map, size_t slot) const
+            {
+                if constexpr (tracks_deltas_v) {
+                    for (auto *observer : map.observers) {
+                        if (observer != nullptr) { observer->on_erase(slot); }
+                    }
+                } else {
+                    static_cast<void>(map);
+                    static_cast<void>(slot);
+                }
+            }
+
+            void notify_clear(DeltaMapState &map) const
+            {
+                if constexpr (tracks_deltas_v) {
+                    for (auto *observer : map.observers) {
+                        if (observer != nullptr) { observer->on_clear(); }
+                    }
+                } else {
+                    static_cast<void>(map);
+                }
+            }
 
             void remove_dense_slot(PlainMapState &map, size_t slot) const
             {
@@ -1596,6 +1706,7 @@ namespace hgraph
                     map.keys.removed.reset(slot);
                     map.updated.reset(slot);
                     map.keys.free_list.push_back(slot);
+                    notify_erase(map, slot);
                 }
                 map.keys.added.reset();
                 map.updated.reset();
@@ -1614,6 +1725,7 @@ namespace hgraph
 
             void hard_clear_impl(DeltaMapState &map) const noexcept
             {
+                notify_clear(map);
                 destruct_constructed_values(map);
                 m_keys.clear(map.keys);
                 map.updated.reset();

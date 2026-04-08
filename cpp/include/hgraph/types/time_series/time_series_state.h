@@ -3,6 +3,7 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/time_series/active_trie.h>
+#include <hgraph/types/time_series/value/slot_observer.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/tagged_ptr.h>
 
@@ -32,6 +33,7 @@ namespace hgraph
 
     namespace detail
     {
+        struct MapViewDispatch;
         struct TSDispatch;
         struct ViewDispatch;
     }  // namespace detail
@@ -257,19 +259,19 @@ namespace hgraph
     /**
      * State carried by a time-series dictionary.
      */
-    struct HGRAPH_EXPORT TSDState : BaseCollectionState
+    struct HGRAPH_EXPORT TSDState : BaseCollectionState, detail::SlotObserver
     {
-        /**
-         * Last observed key hash for each stable slot.
-         *
-         * This is used to detect slot reuse so the corresponding child state
-         * can be reset when a removed slot later holds a different key.
-         *
-         * Output-owned TSD alternatives rely on the same contract: structural
-         * replay happens in stable slot space, so a removed/reused slot must
-         * tear down the old child subtree before a new key can claim it.
-         */
-        std::vector<size_t> slot_key_hashes;
+        ~TSDState();
+
+        void bind_value_storage(const TSMeta &element_schema, const detail::MapViewDispatch &dispatch, void *value_data);
+        void unbind_value_storage() noexcept;
+        void sync_with_value_storage();
+
+        void on_capacity(size_t old_capacity, size_t new_capacity) override;
+        void on_insert(size_t slot) override;
+        void on_remove(size_t slot) override;
+        void on_erase(size_t slot) override;
+        void on_clear() override;
 
         /**
          * Active trie nodes from bound inputs, keyed by scheduling notifier.
@@ -285,6 +287,11 @@ namespace hgraph
          * resolved.
          */
         std::unordered_map<Notifiable *, ActiveTrieNode *> active_tries;
+
+        const TSMeta                  *element_schema{nullptr};
+        const detail::MapViewDispatch *map_dispatch{nullptr};
+        void                          *map_value_data{nullptr};
+        bool                           slot_observer_registered{false};
     };
 
     /**
@@ -427,6 +434,10 @@ namespace hgraph
         void register_with_target() noexcept;
         void unregister_from_target() noexcept;
     };
+
+    HGRAPH_EXPORT std::unique_ptr<TimeSeriesStateV> make_time_series_state_node(const TSMeta &schema,
+                                                                                 TimeSeriesStateParentPtr parent,
+                                                                                 size_t index);
 
     /**
      * Storage carried by a reference-linked logical time-series position.

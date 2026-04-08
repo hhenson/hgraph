@@ -184,6 +184,7 @@ namespace hgraph
                 void make_active(TSInputView &view) const override
                 {
                     TSViewContext &context = view.context_mutable();
+                    const TSViewContext &parent_context = view.parent_context_ref();
                     ActiveTriePosition &active_pos = view.active_position_mutable();
                     if (active_pos.node != nullptr && active_pos.node->locally_active) { return; }
 
@@ -193,9 +194,36 @@ namespace hgraph
 
                     if (active_pos.node == nullptr) { return; }
 
+                    if (parent_context.schema != nullptr && parent_context.schema->kind == TSKind::TSD && context.ts_state != nullptr &&
+                        !active_pos.node->slot_key) {
+                        const size_t slot = context.ts_state->index;
+                        MapDeltaView delta = parent_context.value().as_map().delta();
+                        if (slot < delta.slot_capacity() && delta.slot_occupied(slot)) {
+                            active_pos.node->slot_key = std::make_unique<Value>(delta.key_at_slot(slot));
+                        }
+                    }
+
                     active_pos.node->locally_active = true;
                     if (context.ts_state != nullptr && view.scheduling_notifier() != nullptr) {
                         context.ts_state->subscribe(view.scheduling_notifier());
+                    }
+
+                    if (parent_context.schema != nullptr && parent_context.schema->kind == TSKind::TSD &&
+                        view.scheduling_notifier() != nullptr) {
+                        auto *state = parent_context.ts_state != nullptr
+                                          ? static_cast<TSDState *>(parent_context.ts_state->resolved_state())
+                                          : nullptr;
+                        if (state != nullptr && active_pos.trie != nullptr) {
+                            ActiveTriePosition parent_pos;
+                            parent_pos.trie = active_pos.trie;
+                            parent_pos.boundary_root = active_pos.boundary_root;
+                            parent_pos.link_crossings = active_pos.link_crossings;
+                            BaseState *parent_state = parent_context.resolved().ts_state;
+                            if (ActiveTrieNode *parent_trie = ensure_trie_path(parent_pos, parent_state);
+                                parent_trie != nullptr && parent_trie->has_any_active()) {
+                                state->active_tries[view.scheduling_notifier()] = parent_trie;
+                            }
+                        }
                     }
 
                     if (view.evaluation_time() > MIN_DT && view.scheduling_notifier() != nullptr && context.ts_state != nullptr) {
@@ -209,12 +237,34 @@ namespace hgraph
                 void make_passive(TSInputView &view) const override
                 {
                     TSViewContext &context = view.context_mutable();
+                    const TSViewContext &parent_context = view.parent_context_ref();
                     ActiveTriePosition &active_pos = view.active_position_mutable();
                     if (active_pos.node == nullptr || !active_pos.node->locally_active) { return; }
 
                     active_pos.node->locally_active = false;
                     if (context.ts_state != nullptr && view.scheduling_notifier() != nullptr) {
                         context.ts_state->unsubscribe(view.scheduling_notifier());
+                    }
+
+                    if (parent_context.schema != nullptr && parent_context.schema->kind == TSKind::TSD &&
+                        view.scheduling_notifier() != nullptr) {
+                        auto *state = parent_context.ts_state != nullptr
+                                          ? static_cast<TSDState *>(parent_context.ts_state->resolved_state())
+                                          : nullptr;
+                        if (state != nullptr && active_pos.trie != nullptr) {
+                            ActiveTriePosition parent_pos;
+                            parent_pos.trie = active_pos.trie;
+                            parent_pos.boundary_root = active_pos.boundary_root;
+                            parent_pos.link_crossings = active_pos.link_crossings;
+                            BaseState *parent_state = parent_context.resolved().ts_state;
+                            if (ActiveTrieNode *parent_trie = ensure_trie_path(parent_pos, parent_state); parent_trie != nullptr) {
+                                if (parent_trie->has_any_active()) {
+                                    state->active_tries[view.scheduling_notifier()] = parent_trie;
+                                } else {
+                                    state->active_tries.erase(view.scheduling_notifier());
+                                }
+                            }
+                        }
                     }
 
                     if (!active_pos.node->has_any_active()) {

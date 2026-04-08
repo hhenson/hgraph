@@ -3,6 +3,7 @@
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_value_builder.h>
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/util/scope.h>
 
 #include <algorithm>
 #include <memory>
@@ -75,6 +76,22 @@ namespace hgraph
             state.modified_children.clear();
         }
 
+        void initialize_collection_state(TSDState &state,
+                                         TimeSeriesStateParentPtr parent,
+                                         size_t index,
+                                         engine_time_t modified_time = MIN_DT) noexcept
+        {
+            initialize_base_state(state, parent, index, modified_time);
+            state.reset_child_states();
+            state.child_states.clear();
+            state.modified_children.clear();
+            state.active_tries.clear();
+            state.element_schema = nullptr;
+            state.map_dispatch = nullptr;
+            state.map_value_data = nullptr;
+            state.slot_observer_registered = false;
+        }
+
         void initialize_ref_state(RefLinkState &state,
                                   TimeSeriesStateParentPtr parent,
                                   size_t index,
@@ -138,6 +155,12 @@ namespace hgraph
         {
             BaseState *local_state = state_address(slot);
             if (local_state != nullptr) {
+                if (schema.kind == TSKind::TSD && local_state->storage_kind == TSStorageKind::Native && native_value_data != nullptr) {
+                    static_cast<TSDState *>(local_state)->bind_value_storage(
+                        *schema.element_ts(),
+                        static_cast<const detail::MapViewDispatch &>(value_dispatch),
+                        native_value_data);
+                }
                 if (const LinkedTSContext *target = local_state->linked_target(); target != nullptr) {
                     return linked_child_context(*target, local_state, schema, value_dispatch, ts_dispatch);
                 }
@@ -165,7 +188,6 @@ namespace hgraph
         void ensure_child_slot_capacity(TSDState &state, size_t slot_count)
         {
             ensure_child_slot_capacity(static_cast<BaseCollectionState &>(state), slot_count);
-            if (state.slot_key_hashes.size() < slot_count) { state.slot_key_hashes.resize(slot_count, 0); }
         }
 
         void initialize_state_tree(TimeSeriesStateV &state, const TSMeta &schema, TimeSeriesStateParentPtr parent, size_t index);
@@ -187,19 +209,6 @@ namespace hgraph
                 initialize_state_tree(state, child_schema, parent_ptr(collection_state), slot);
             });
             install_child_state(collection_state, slot, std::move(child_state));
-        }
-
-        void ensure_child_state(TSDState &collection_state, size_t slot, const TSMeta &child_schema, size_t key_hash)
-        {
-            ensure_child_slot_capacity(collection_state, slot + 1);
-
-            if (state_value(collection_state.child_states[slot]) != nullptr && collection_state.slot_key_hashes[slot] == key_hash) { return; }
-
-            auto child_state = make_state_node([&](TimeSeriesStateV &state) {
-                initialize_state_tree(state, child_schema, parent_ptr(collection_state), slot);
-            });
-            install_child_state(collection_state, slot, std::move(child_state));
-            collection_state.slot_key_hashes[slot] = key_hash;
         }
 
         void initialize_state_tree(TimeSeriesStateV &state, const TSMeta &schema, TimeSeriesStateParentPtr parent, size_t index)
@@ -252,6 +261,116 @@ namespace hgraph
             }
         }
 
+        [[nodiscard]] TSViewContext child_context_for_dict_slot(TSDState &state, size_t slot)
+        {
+            if (state.element_schema == nullptr || state.map_dispatch == nullptr || state.map_value_data == nullptr ||
+                slot >= state.child_states.size() || state.child_states[slot] == nullptr) {
+                return TSViewContext::none();
+            }
+
+            const auto &child_builder = TSValueBuilderFactory::checked_builder_for(state.element_schema);
+            return child_context_from_slot(state.child_states[slot],
+                                           *state.element_schema,
+                                           child_builder.value_builder().dispatch(),
+                                           child_builder.ts_dispatch(),
+                                           state.map_dispatch->value_data(state.map_value_data, slot));
+        }
+
+        void replay_active_subtree(const TSViewContext &context, ActiveTrieNode *trie_node, Notifiable *notifier, bool subscribe)
+        {
+            if (!context.is_bound() || context.ts_state == nullptr || trie_node == nullptr || notifier == nullptr) { return; }
+
+            if (trie_node->locally_active) {
+                if (subscribe) {
+                    context.ts_state->subscribe(notifier);
+                } else {
+                    context.ts_state->unsubscribe(notifier);
+                }
+            }
+
+            if (trie_node->children.empty()) { return; }
+
+            const TSViewContext resolved = context.resolved();
+            const auto *collection = resolved.ts_dispatch != nullptr ? resolved.ts_dispatch->as_collection() : nullptr;
+            if (collection == nullptr) { return; }
+
+            for (const auto &[child_slot, child_trie] : trie_node->children) {
+                if (!child_trie) { continue; }
+
+                const TSViewContext child = collection->child_at(context, child_slot);
+                if (!child.is_bound()) { continue; }
+                replay_active_subtree(child, child_trie.get(), notifier, subscribe);
+            }
+        }
+
+        void unbind_dynamic_dict_states_recursive(TimeSeriesStateV &state)
+        {
+            std::visit(
+                [&](auto &typed_state) {
+                    using T = std::remove_cvref_t<decltype(typed_state)>;
+
+                    if constexpr (std::same_as<T, TSDState>) {
+                        typed_state.unbind_value_storage();
+                        for (auto &child : typed_state.child_states) {
+                            if (child != nullptr) { unbind_dynamic_dict_states_recursive(*child); }
+                        }
+                    } else if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSBState>) {
+                        for (auto &child : typed_state.child_states) {
+                            if (child != nullptr) { unbind_dynamic_dict_states_recursive(*child); }
+                        }
+                    }
+                },
+                state);
+        }
+
+        void bind_dynamic_dict_states_recursive(const TSMeta &schema, TimeSeriesStateV &state, void *value_data)
+        {
+            if (value_data == nullptr) { return; }
+
+            const auto &builder = TSValueBuilderFactory::checked_builder_for(schema);
+            View root_view{&builder.value_builder().dispatch(), value_data, schema.value_type};
+
+            std::visit(
+                [&](auto &typed_state) {
+                    using T = std::remove_cvref_t<decltype(typed_state)>;
+
+                    if constexpr (std::same_as<T, TSDState>) {
+                        typed_state.bind_value_storage(*schema.element_ts(),
+                                                       static_cast<const detail::MapViewDispatch &>(builder.value_builder().dispatch()),
+                                                       value_data);
+
+                        MapDeltaView delta = root_view.as_map().delta();
+                        for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
+                            if (!detail::dict_slot_is_live(delta, slot) || slot >= typed_state.child_states.size() ||
+                                typed_state.child_states[slot] == nullptr) {
+                                continue;
+                            }
+                            bind_dynamic_dict_states_recursive(*schema.element_ts(),
+                                                               *typed_state.child_states[slot],
+                                                               RawViewAccess::data_of(delta.value_at_slot(slot)));
+                        }
+                    } else if constexpr (std::same_as<T, TSBState>) {
+                        auto bundle = root_view.as_bundle();
+                        for (size_t index = 0; index < typed_state.child_states.size() && index < schema.field_count(); ++index) {
+                            if (typed_state.child_states[index] == nullptr) { continue; }
+                            bind_dynamic_dict_states_recursive(*schema.fields()[index].ts_type,
+                                                               *typed_state.child_states[index],
+                                                               RawViewAccess::data_of(bundle.at(index)));
+                        }
+                    } else if constexpr (std::same_as<T, TSLState>) {
+                        auto list = root_view.as_list();
+                        const size_t limit = std::min(typed_state.child_states.size(), list.size());
+                        for (size_t index = 0; index < limit; ++index) {
+                            if (typed_state.child_states[index] == nullptr || schema.element_ts() == nullptr) { continue; }
+                            bind_dynamic_dict_states_recursive(*schema.element_ts(),
+                                                               *typed_state.child_states[index],
+                                                               RawViewAccess::data_of(list.at(index)));
+                        }
+                    }
+                },
+                state);
+        }
+
         void clone_state_tree(TimeSeriesStateV &dst, const TimeSeriesStateV &src, const TSMeta &schema, TimeSeriesStateParentPtr parent, size_t index)
         {
             if (const auto *src_state = std::get_if<TargetLinkState>(&src)) {
@@ -296,7 +415,6 @@ namespace hgraph
                         auto &dst_state = dst.emplace<TSDState>();
                         initialize_collection_state(dst_state, parent, index, src_state.last_modified_time);
                         dst_state.modified_children = src_state.modified_children;
-                        dst_state.slot_key_hashes = src_state.slot_key_hashes;
                         ensure_child_slot_capacity(dst_state, src_state.child_states.size());
 
                         if (schema.element_ts() != nullptr) {
@@ -639,44 +757,7 @@ namespace hgraph
             {
                 TSDState *state = dict_state(context);
                 if (state == nullptr) { return TSViewContext::none(); }
-
-                const View key = delta.key_at_slot(slot);
-                const size_t key_hash = key.hash();
-
-                // Before ensure_child_state may destroy the old child state,
-                // check if any registered active tries have entries at this
-                // slot that need eviction due to slot reuse (hash mismatch).
-                const bool is_slot_reuse = slot < state->slot_key_hashes.size() &&
-                                           state->child_states.size() > slot &&
-                                           state->child_states[slot] != nullptr &&
-                                           state->slot_key_hashes[slot] != key_hash;
-
-                if (is_slot_reuse && !state->active_tries.empty()) {
-                    // The old key is stored on each trie child's slot_key
-                    // (set during make_active). evict_to_pending uses it.
-                    for (auto &[notifier, trie_node] : state->active_tries) {
-                        trie_node->evict_to_pending(slot);
-                    }
-                }
-
-                ensure_child_state(*state, slot, m_value_schema.get(), key_hash);
-
-                // After creating the new child state, check if any registered
-                // tries have pending entries for the new key.
-                if (!state->active_tries.empty()) {
-                    for (auto &[notifier, trie_node] : state->active_tries) {
-                        if (auto *resolved = trie_node->resolve_pending(key, slot)) {
-                            // Resubscribe locally_active nodes in the resolved
-                            // subtree to the new child state.
-                            if (resolved->locally_active) {
-                                auto *child_state_v = state_value(state->child_states[slot]);
-                                if (child_state_v != nullptr && notifier != nullptr) {
-                                    std::visit([notifier](auto &s) { s.subscribe(notifier); }, *child_state_v);
-                                }
-                            }
-                        }
-                    }
-                }
+                if (state->child_states.size() <= slot || state->child_states[slot] == nullptr) { return TSViewContext::none(); }
 
                 TSViewContext child = child_context_from_slot(state->child_states[slot],
                                                               m_value_schema.get(),
@@ -881,6 +962,110 @@ namespace hgraph
         }
     }  // namespace
 
+    std::unique_ptr<TimeSeriesStateV> make_time_series_state_node(const TSMeta &schema,
+                                                                  TimeSeriesStateParentPtr parent,
+                                                                  size_t index)
+    {
+        return make_state_node([&](TimeSeriesStateV &state) { initialize_state_tree(state, schema, parent, index); });
+    }
+
+    void TSDState::bind_value_storage(const TSMeta &element_schema_,
+                                      const detail::MapViewDispatch &dispatch,
+                                      void *value_data)
+    {
+        if (slot_observer_registered && element_schema == &element_schema_ && map_dispatch == &dispatch && map_value_data == value_data) {
+            return;
+        }
+
+        unbind_value_storage();
+        element_schema = &element_schema_;
+        map_dispatch = &dispatch;
+        map_value_data = value_data;
+        map_dispatch->add_slot_observer(map_value_data, this);
+        slot_observer_registered = true;
+        sync_with_value_storage();
+    }
+
+    void TSDState::unbind_value_storage() noexcept
+    {
+        if (slot_observer_registered && map_dispatch != nullptr && map_value_data != nullptr) {
+            map_dispatch->remove_slot_observer(map_value_data, this);
+        }
+
+        slot_observer_registered = false;
+        element_schema = nullptr;
+        map_dispatch = nullptr;
+        map_value_data = nullptr;
+    }
+
+    void TSDState::sync_with_value_storage()
+    {
+        if (map_dispatch == nullptr || map_value_data == nullptr) { return; }
+
+        on_capacity(child_states.size(), map_dispatch->slot_capacity(map_value_data));
+        const size_t slot_capacity = map_dispatch->slot_capacity(map_value_data);
+        for (size_t slot = 0; slot < slot_capacity; ++slot) {
+            const bool occupied = map_dispatch->slot_occupied(map_value_data, slot);
+            const bool removed = occupied && map_dispatch->slot_removed(map_value_data, slot);
+            if (occupied && !removed) {
+                on_insert(slot);
+            } else if (removed) {
+                on_remove(slot);
+            } else if (slot < child_states.size() && child_states[slot] != nullptr) {
+                on_erase(slot);
+            }
+        }
+    }
+
+    void TSDState::on_capacity(size_t old_capacity, size_t new_capacity)
+    {
+        static_cast<void>(old_capacity);
+        if (child_states.size() < new_capacity) { child_states.resize(new_capacity); }
+    }
+
+    void TSDState::on_insert(size_t slot)
+    {
+        if (element_schema == nullptr || map_dispatch == nullptr || map_value_data == nullptr) { return; }
+
+        if (child_states.size() < slot + 1) { child_states.resize(slot + 1); }
+        if (child_states[slot] == nullptr) {
+            child_states[slot] = make_time_series_state_node(*element_schema, this, slot);
+        }
+
+        const TSViewContext child = child_context_for_dict_slot(*this, slot);
+        if (!child.is_bound() || active_tries.empty()) { return; }
+
+        const View key{&map_dispatch->key_dispatch(), map_dispatch->key_data(map_value_data, slot), &map_dispatch->key_schema()};
+
+        for (auto &[notifier, trie_node] : active_tries) {
+            if (notifier == nullptr || trie_node == nullptr) { continue; }
+            if (auto *resolved = trie_node->resolve_pending(key, slot)) {
+                replay_active_subtree(child, resolved, notifier, true);
+            }
+        }
+    }
+
+    void TSDState::on_remove(size_t slot)
+    {
+        if (!active_tries.empty()) {
+            for (auto &[notifier, trie_node] : active_tries) {
+                static_cast<void>(notifier);
+                if (trie_node != nullptr) { trie_node->evict_to_pending(slot); }
+            }
+        }
+    }
+
+    void TSDState::on_erase(size_t slot)
+    {
+        if (slot < child_states.size()) { child_states[slot].reset(); }
+        modified_children.erase(slot);
+    }
+
+    void TSDState::on_clear()
+    {
+        for (size_t slot = 0; slot < child_states.size(); ++slot) { on_erase(slot); }
+    }
+
     TSValueBuilder::TSValueBuilder(const TSMeta &schema,
                                    const ValueBuilder &value_builder,
                                    const detail::TSBuilderOps &builder_ops,
@@ -908,14 +1093,12 @@ namespace hgraph
         value.rebind_builder(*this, TSValue::StorageOwnership::Owned);
 
         void *memory = allocate();
-        try {
-            construct(memory);
-            value.attach_storage(memory);
-        } catch (...) {
-            value.reset_binding();
-            deallocate(memory);
-            throw;
-        }
+        auto reset_binding = hgraph::make_scope_exit([&] { value.reset_binding(); });
+        auto cleanup_memory = hgraph::make_scope_exit([&] { deallocate(memory); });
+        construct(memory);
+        value.attach_storage(memory);
+        cleanup_memory.release();
+        reset_binding.release();
     }
 
     void TSValueBuilder::copy_construct_value(TSValue &value, const TSValue &other) const
@@ -929,14 +1112,12 @@ namespace hgraph
         value.rebind_builder(*this, TSValue::StorageOwnership::Owned);
 
         void *memory = allocate();
-        try {
-            copy_construct(memory, other.storage_memory(), other.builder());
-            value.attach_storage(memory);
-        } catch (...) {
-            value.reset_binding();
-            deallocate(memory);
-            throw;
-        }
+        auto reset_binding = hgraph::make_scope_exit([&] { value.reset_binding(); });
+        auto cleanup_memory = hgraph::make_scope_exit([&] { deallocate(memory); });
+        copy_construct(memory, other.storage_memory(), other.builder());
+        value.attach_storage(memory);
+        cleanup_memory.release();
+        reset_binding.release();
     }
 
     void TSValueBuilder::move_construct_value(TSValue &value, TSValue &other) const
@@ -977,16 +1158,15 @@ namespace hgraph
     void TSValueBuilder::construct(void *memory) const
     {
         value_builder().construct(value_memory(memory));
-        try {
-            m_builder_ops.get().construct(ts_memory(memory), schema());
-        } catch (...) {
-            value_builder().destruct(value_memory(memory));
-            throw;
-        }
+        auto cleanup_value = UnwindCleanupGuard([&] { value_builder().destruct(value_memory(memory)); });
+        m_builder_ops.get().construct(ts_memory(memory), schema());
+        auto cleanup_ts_state = UnwindCleanupGuard([&] { m_builder_ops.get().destruct(ts_memory(memory)); });
+        bind_dynamic_dict_states_recursive(schema(), *static_cast<TimeSeriesStateV *>(ts_memory(memory)), value_memory(memory));
     }
 
     void TSValueBuilder::destruct(void *memory) const noexcept
     {
+        unbind_dynamic_dict_states_recursive(*static_cast<TimeSeriesStateV *>(ts_memory(memory)));
         m_builder_ops.get().destruct(ts_memory(memory));
         value_builder().destruct(value_memory(memory));
     }
@@ -996,25 +1176,22 @@ namespace hgraph
         if (this != &src_builder) { throw std::invalid_argument("TSValue copy construction requires matching builder"); }
 
         value_builder().copy_construct(value_memory(dst), src_builder.value_memory(src), value_builder());
-        try {
-            m_builder_ops.get().copy_construct(ts_memory(dst), src_builder.ts_memory(src), schema());
-        } catch (...) {
-            value_builder().destruct(value_memory(dst));
-            throw;
-        }
+        auto cleanup_value = UnwindCleanupGuard([&] { value_builder().destruct(value_memory(dst)); });
+        m_builder_ops.get().copy_construct(ts_memory(dst), src_builder.ts_memory(src), schema());
+        auto cleanup_ts_state = UnwindCleanupGuard([&] { m_builder_ops.get().destruct(ts_memory(dst)); });
+        bind_dynamic_dict_states_recursive(schema(), *static_cast<TimeSeriesStateV *>(ts_memory(dst)), value_memory(dst));
     }
 
     void TSValueBuilder::move_construct(void *dst, void *src, const TSValueBuilder &src_builder) const
     {
         if (this != &src_builder) { throw std::invalid_argument("TSValue move construction requires matching builder"); }
 
+        unbind_dynamic_dict_states_recursive(*static_cast<TimeSeriesStateV *>(ts_memory(src)));
         value_builder().move_construct(value_memory(dst), src_builder.value_memory(src), value_builder());
-        try {
-            m_builder_ops.get().move_construct(ts_memory(dst), src_builder.ts_memory(src), schema());
-        } catch (...) {
-            value_builder().destruct(value_memory(dst));
-            throw;
-        }
+        auto cleanup_value = UnwindCleanupGuard([&] { value_builder().destruct(value_memory(dst)); });
+        m_builder_ops.get().move_construct(ts_memory(dst), src_builder.ts_memory(src), schema());
+        auto cleanup_ts_state = UnwindCleanupGuard([&] { m_builder_ops.get().destruct(ts_memory(dst)); });
+        bind_dynamic_dict_states_recursive(schema(), *static_cast<TimeSeriesStateV *>(ts_memory(dst)), value_memory(dst));
     }
 
     void *TSValueBuilder::value_memory(void *memory) const noexcept

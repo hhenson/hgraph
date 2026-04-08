@@ -192,6 +192,11 @@ namespace hgraph
         child_states.clear();
     }
 
+    TSDState::~TSDState()
+    {
+        unbind_value_storage();
+    }
+
     void TSSState::mark_added(size_t item_index, engine_time_t modified_time) noexcept {
         reset_change_sets_if_time_changed(modified_time);
         added_items.insert(item_index);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/value/slot_observer.h>
 #include <hgraph/types/time_series/value/tracking.h>
 #include <hgraph/types/time_series/value/view.h>
 
@@ -118,6 +119,8 @@ namespace hgraph
             [[nodiscard]] virtual const void *key_data(const void *data, size_t index) const = 0;
             [[nodiscard]] virtual void *value_data(void *data, size_t index) const = 0;
             [[nodiscard]] virtual const void *value_data(const void *data, size_t index) const = 0;
+            virtual void add_slot_observer(void *data, SlotObserver *observer) const = 0;
+            virtual void remove_slot_observer(void *data, SlotObserver *observer) const = 0;
             /**
              * Ensure the map can hold at least `capacity` live key/value pairs
              * without shrinking or allocating beyond the requested capacity.

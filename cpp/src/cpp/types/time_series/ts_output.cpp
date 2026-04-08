@@ -483,14 +483,12 @@ namespace hgraph
 
             // The stable slot is being vacated from the alternative map. Tear
             // down every owned subtree artifact first, then drop the child
-            // state and its remembered key hash so the next key can rebuild
-            // the slot from scratch.
+            // state so the slot can be rebuilt from the value-layer insert
+            // event if a key later reuses it.
             BaseState *child_root = base_state_of(*state.child_states[slot]);
             release_wrapped_ref_subscriptions(child_root);
             release_dynamic_dict_bindings(child_root);
-            state.child_states[slot].reset();
-            if (slot < state.slot_key_hashes.size()) { state.slot_key_hashes[slot] = 0; }
-            state.modified_children.erase(slot);
+            state.on_erase(slot);
         }
 
         void install_ref_link_for_target(const TSOutputView &target_view, const TSOutputView &source_view)
