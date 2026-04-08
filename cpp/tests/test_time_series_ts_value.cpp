@@ -1210,6 +1210,53 @@ TEST_CASE("TSOutput TSD REF alternatives follow key removal and reinsertion", "[
     CHECK(added_keys == std::vector<int>{1});
 }
 
+TEST_CASE("TSOutput TSD REF alternatives do not double-notify the root for child-only updates", "[ts_output][ref][tsd]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto *dict_ts = ts_registry.tsd(int_type, scalar_ts);
+    const auto *ref_dict_ts = ts_registry.tsd(int_type, ts_registry.ref(scalar_ts));
+    const hgraph::Value key{1};
+
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(dict_ts)};
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.setting(key.view(), hgraph::Value{10}.view());
+    }
+    hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(220)), hgraph::test_detail::tick(220));
+    {
+        // Clear the initial dict delta bookkeeping so the next tick exercises
+        // only child-state propagation, not a replay of the original insert.
+        auto mutation = output.dict_value().begin_mutation();
+        static_cast<void>(mutation);
+    }
+
+    const auto alternative = output.bindable_view(output.view(hgraph::test_detail::tick(220)), ref_dict_ts);
+    auto *alternative_root = alternative.linked_context().ts_state;
+    REQUIRE(alternative_root != nullptr);
+
+    hgraph::test_detail::RecordingNotifiable recorder;
+    alternative_root->subscribe(&recorder);
+
+    output.view(hgraph::test_detail::tick(221)).as_dict().at(key.view()).value().as_atomic().set(15);
+    hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(221)).as_dict().at(key.view()),
+                                                   hgraph::test_detail::tick(221));
+
+    const auto source_delta = output.dict_delta_value();
+    const size_t source_slot = hgraph::test_detail::find_live_dict_slot(output, key);
+    REQUIRE(source_slot != SIZE_MAX);
+    CHECK_FALSE(source_delta.slot_added(source_slot));
+    CHECK_FALSE(source_delta.slot_updated(source_slot));
+
+    const auto updated_ref =
+        alternative.as_dict().at(key.view()).value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+    CHECK(updated_ref.target_view(hgraph::test_detail::tick(221)).value().as_atomic().as<int>() == 15);
+    CHECK(recorder.notifications == std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(221)});
+}
+
 TEST_CASE("TSInput active dereferenced bundle child rehomes subscriptions when the REF retargets", "[ts_input][active][ref]")
 {
     auto &value_registry = hgraph::value::TypeRegistry::instance();

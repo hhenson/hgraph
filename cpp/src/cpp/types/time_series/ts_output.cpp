@@ -585,6 +585,7 @@ namespace hgraph
             auto target_map = target_root.value().as_map();
             auto target_dict = target_root.as_dict();
             auto mutation = target_map.begin_mutation();
+            bool map_value_changed = false;
 
             // TSD key flow:
             // 1. The source map delta is authoritative for structural changes.
@@ -612,6 +613,7 @@ namespace hgraph
                     clear_dynamic_child_slot(*target_root_state, existing_state->index);
                 }
                 static_cast<void>(mutation.remove(key));
+                map_value_changed = true;
             }
 
             for (size_t slot = 0; slot < source_delta.slot_capacity(); ++slot) {
@@ -628,12 +630,14 @@ namespace hgraph
                     // resolve a stable slot for install_dynamic_child().
                     Value placeholder{*target_root.ts_schema()->element_ts()->value_type};
                     mutation.set(key, placeholder.view());
+                    map_value_changed = true;
                 } else if (source_updated) {
                     // Preserve the existing alternative payload object while
                     // still surfacing the map-level delta for "this key
                     // changed". The child subtree carries the real wrapped or
                     // linked semantics.
                     mutation.set(key, target_child.value());
+                    map_value_changed = true;
                 }
 
                 if (!target_has_key) {
@@ -642,10 +646,12 @@ namespace hgraph
                 }
             }
 
-            if (!initializing) {
+            if (!initializing && map_value_changed) {
                 // The dynamic dict binding handles child-level validity and
-                // modification directly. Here we only need to publish that the
-                // alternative root itself changed this cycle.
+                // modification directly. Only publish a root-level change when
+                // replay actually changed the alternative map value. Pure
+                // child-state updates already flow through the installed
+                // subtree links and would otherwise notify the root twice.
                 if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
             }
         }
