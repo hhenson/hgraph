@@ -2340,6 +2340,13 @@ namespace hgraph
         return dispatch->slot_removed(data(), slot);
     }
 
+    bool MapDeltaView::slot_updated(size_t slot) const
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::slot_updated on invalid view"); }
+        return dispatch->slot_updated(data(), slot);
+    }
+
     View MapDeltaView::key_at_slot(size_t slot)
     {
         const auto *dispatch = map_dispatch();

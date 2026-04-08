@@ -585,14 +585,6 @@ namespace hgraph
             auto target_map = target_root.value().as_map();
             auto target_dict = target_root.as_dict();
             auto mutation = target_map.begin_mutation();
-            const auto source_slot_updated = [&](size_t slot) {
-                if (!source_delta.slot_occupied(slot)) { return false; }
-                const View slot_key = source_delta.key_at_slot(slot);
-                for (const View &updated_key : source_delta.updated_keys()) {
-                    if (updated_key.equals(slot_key)) { return true; }
-                }
-                return false;
-            };
 
             // TSD key flow:
             // 1. The source map delta is authoritative for structural changes.
@@ -628,7 +620,7 @@ namespace hgraph
                 const View key = source_delta.key_at_slot(slot);
                 TSOutputView target_child = target_dict.at(key);
                 const bool target_has_key = target_child.context_ref().is_bound();
-                const bool source_updated = initializing || source_delta.slot_added(slot) || source_slot_updated(slot);
+                const bool source_updated = initializing || source_delta.slot_added(slot) || source_delta.slot_updated(slot);
 
                 if (!target_has_key) {
                     // Insert the key into the alternative map before touching

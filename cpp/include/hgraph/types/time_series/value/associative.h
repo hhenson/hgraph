@@ -426,6 +426,7 @@ namespace hgraph
         [[nodiscard]] bool slot_occupied(size_t slot) const;
         [[nodiscard]] bool slot_added(size_t slot) const;
         [[nodiscard]] bool slot_removed(size_t slot) const;
+        [[nodiscard]] bool slot_updated(size_t slot) const;
         [[nodiscard]] View key_at_slot(size_t slot);
         [[nodiscard]] View key_at_slot(size_t slot) const;
         [[nodiscard]] View value_at_slot(size_t slot);
