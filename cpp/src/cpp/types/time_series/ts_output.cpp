@@ -82,7 +82,10 @@ namespace hgraph
             // - TS  -> REF : wrap as a TimeSeriesReference value
             // - REF -> TS  : dereference through RefLinkState
             if (target_schema.kind == TSKind::REF) { return target_schema.element_ts() == &source_schema; }
-            if (source_schema.kind == TSKind::REF) { return source_schema.element_ts() == &target_schema; }
+            if (source_schema.kind == TSKind::REF) {
+                return source_schema.element_ts() == &target_schema ||
+                       supports_alternative_cast(*source_schema.element_ts(), target_schema);
+            }
 
             if (source_schema.kind != target_schema.kind) { return false; }
 
@@ -421,13 +424,58 @@ namespace hgraph
                   source_context(source_view.linked_context())
             {
                 source_notifier.binding = this;
+                last_source_root_state = source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr;
+            }
+
+            DynamicDictBinding(AlternativeOutput *owner_,
+                               const TSOutputView &target_view,
+                               std::unique_ptr<TimeSeriesStateV> source_bridge_state_,
+                               LinkedTSContext source_context_) noexcept
+                : owner(owner_),
+                  target_context(target_view.context_ref()),
+                  source_context(std::move(source_context_)),
+                  source_bridge_state(std::move(source_bridge_state_))
+            {
+                source_notifier.binding = this;
+                last_source_root_state = source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr;
             }
 
             AlternativeOutput *owner{nullptr};
             TSViewContext target_context{TSViewContext::none()};
             LinkedTSContext source_context{};
+            std::unique_ptr<TimeSeriesStateV> source_bridge_state{};
+            BaseState *last_source_root_state{nullptr};
             SourceNotifier source_notifier{};
         };
+
+        [[nodiscard]] std::unique_ptr<DynamicDictBinding>
+        make_dereferenced_dynamic_dict_binding(const TSOutputView &target_view, const TSOutputView &ref_source_view)
+        {
+            const TSMeta *source_schema = ref_source_view.ts_schema();
+            if (source_schema == nullptr || source_schema->kind != TSKind::REF || source_schema->element_ts() == nullptr ||
+                source_schema->element_ts()->kind != TSKind::TSD) {
+                throw std::invalid_argument("TSOutput dereferenced dynamic dict binding requires REF[TSD[...]] source");
+            }
+
+            auto source_bridge_state = std::make_unique<TimeSeriesStateV>();
+            auto &bridge_state = source_bridge_state->template emplace<RefLinkState>();
+            initialize_ref_link_state(bridge_state, TimeSeriesStateParentPtr{}, 0);
+            bridge_state.set_source(ref_source_view.linked_context());
+
+            LinkedTSContext source_context{
+                source_schema->element_ts(),
+                nullptr,
+                nullptr,
+                nullptr,
+                base_state_of(*source_bridge_state),
+            };
+
+            return std::make_unique<DynamicDictBinding>(
+                this,
+                target_view,
+                std::move(source_bridge_state),
+                std::move(source_context));
+        }
 
         [[nodiscard]] TSOutputView output_view_for(const TSViewContext &context, engine_time_t evaluation_time = MIN_DT) const
         {
@@ -544,11 +592,23 @@ namespace hgraph
             auto target_dict = target_dict_view.as_dict();
             TSOutputView target_child = target_dict.at(key);
             BaseState *target_child_state = target_child.context_ref().ts_state;
+            auto &target_state = *static_cast<TSDState *>(target_dict_view.context_ref().ts_state);
+            if (target_child_state == nullptr) {
+                constexpr size_t no_slot = static_cast<size_t>(-1);
+                auto target_map = target_dict_view.value().as_map();
+                const auto target_delta = target_map.delta();
+                for (size_t slot = target_map.first_live_slot(); slot != no_slot; slot = target_map.next_live_slot(slot)) {
+                    if (!target_delta.key_at_slot(slot).equals(key)) { continue; }
+                    target_state.on_insert(slot);
+                    target_child = target_dict.at(key);
+                    target_child_state = target_child.context_ref().ts_state;
+                    break;
+                }
+            }
             if (target_child_state == nullptr) {
                 throw std::logic_error("TSOutput alternative dynamic dict child requires a live target state");
             }
 
-            auto &target_state = *static_cast<TSDState *>(target_dict_view.context_ref().ts_state);
             const size_t target_slot = target_child_state->index;
             const TSMeta *target_child_schema = target_child.ts_schema();
             const TSMeta *source_child_schema = source_child.ts_schema();
@@ -582,13 +642,44 @@ namespace hgraph
                 throw std::logic_error("TSOutput alternative dynamic dict sync requires a live target TSD state");
             }
 
-            const auto source_delta = source_root.value().as_map().delta();
-            const auto source_map = source_root.value().as_map();
+            const View source_value = source_root.value();
             auto target_map = target_root.value().as_map();
             auto target_dict = target_root.as_dict();
             auto mutation = target_map.begin_mutation();
             bool map_value_changed = false;
             constexpr size_t no_slot = static_cast<size_t>(-1);
+            const BaseState *current_source_root_state =
+                binding.source_context.ts_state != nullptr ? binding.source_context.ts_state->resolved_state() : nullptr;
+            const bool source_rebound = !initializing && current_source_root_state != binding.last_source_root_state;
+            const bool full_resync = initializing || source_rebound;
+
+            auto remove_target_key = [&](const View &key) {
+                TSOutputView existing_child = target_dict.at(key);
+                if (BaseState *existing_state = existing_child.context_ref().ts_state; existing_state != nullptr) {
+                    clear_dynamic_child_slot(*target_root_state, existing_state->index);
+                }
+                static_cast<void>(mutation.remove(key));
+                map_value_changed = true;
+            };
+
+            if (!source_value.has_value()) {
+                if (full_resync) {
+                    std::vector<Value> stale_keys;
+                    for (size_t slot = target_map.first_live_slot(); slot != no_slot; slot = target_map.next_live_slot(slot)) {
+                        stale_keys.emplace_back(target_map.delta().key_at_slot(slot));
+                    }
+                    for (const auto &key : stale_keys) { remove_target_key(key.view()); }
+                }
+
+                binding.last_source_root_state = const_cast<BaseState *>(current_source_root_state);
+                if (!initializing && map_value_changed) {
+                    if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
+                }
+                return;
+            }
+
+            const auto source_delta = source_value.as_map().delta();
+            const auto source_map = source_value.as_map();
 
             // TSD key flow:
             // 1. The source map delta is authoritative for structural changes.
@@ -604,24 +695,27 @@ namespace hgraph
 
             // Remove stale keys before replaying live slots so reused logical
             // positions tear down their old subtree subscriptions first.
-            for (size_t slot = source_delta.first_removed_slot(); slot != no_slot; slot = source_delta.next_removed_slot(slot)) {
-                const View key = source_delta.key_at_slot(slot);
-                TSOutputView existing_child = target_dict.at(key);
-                if (BaseState *existing_state = existing_child.context_ref().ts_state; existing_state != nullptr) {
-                    // Removing the value-layer key is not enough: the TS child
-                    // subtree for that key may carry link subscriptions and
-                    // nested alternative bookkeeping. Clear that first.
-                    clear_dynamic_child_slot(*target_root_state, existing_state->index);
+            if (full_resync) {
+                std::vector<Value> stale_keys;
+                for (size_t slot = target_map.first_live_slot(); slot != no_slot; slot = target_map.next_live_slot(slot)) {
+                    const View key = target_map.delta().key_at_slot(slot);
+                    if (!source_map.contains(key)) { stale_keys.emplace_back(key); }
                 }
-                static_cast<void>(mutation.remove(key));
-                map_value_changed = true;
+                for (const auto &key : stale_keys) { remove_target_key(key.view()); }
+            } else {
+                for (size_t slot = source_delta.first_removed_slot(); slot != no_slot; slot = source_delta.next_removed_slot(slot)) {
+                    remove_target_key(source_delta.key_at_slot(slot));
+                }
             }
 
             const bool has_added_slots = source_delta.first_added_slot() != no_slot;
             const bool has_updated_slots = source_delta.first_updated_slot() != no_slot;
-            if (!initializing && !map_value_changed && !has_added_slots && !has_updated_slots) { return; }
+            if (!full_resync && !map_value_changed && !has_added_slots && !has_updated_slots) {
+                binding.last_source_root_state = const_cast<BaseState *>(current_source_root_state);
+                return;
+            }
 
-            auto replay_live_slot = [&](size_t slot, bool source_updated) {
+            auto replay_live_slot = [&](size_t slot, bool source_updated, bool rebuild_child) {
                 const View key = source_delta.key_at_slot(slot);
                 TSOutputView target_child = target_dict.at(key);
                 const bool target_has_key = target_child.context_ref().is_bound();
@@ -642,25 +736,33 @@ namespace hgraph
                     map_value_changed = true;
                 }
 
-                if (!target_has_key) {
+                if (rebuild_child && target_has_key) {
+                    if (BaseState *existing_state = target_child.context_ref().ts_state; existing_state != nullptr) {
+                        clear_dynamic_child_slot(*target_root_state, existing_state->index);
+                    }
+                }
+
+                if (rebuild_child || !target_has_key) {
                     TSOutputView source_child = source_root.as_dict().at(key);
                     install_dynamic_child(target_root, key, source_child, modified_time, modified_time != MIN_DT && source_updated);
                 }
             };
 
-            if (initializing) {
+            if (full_resync) {
                 for (size_t slot = source_map.first_live_slot(); slot != no_slot; slot = source_map.next_live_slot(slot)) {
-                    replay_live_slot(slot, true);
+                    replay_live_slot(slot, true, true);
                 }
             } else {
                 for (size_t slot = source_delta.first_added_slot(); slot != no_slot; slot = source_delta.next_added_slot(slot)) {
-                    replay_live_slot(slot, true);
+                    replay_live_slot(slot, true, true);
                 }
                 for (size_t slot = source_delta.first_updated_slot(); slot != no_slot; slot = source_delta.next_updated_slot(slot)) {
                     if (source_delta.slot_added(slot)) { continue; }
-                    replay_live_slot(slot, true);
+                    replay_live_slot(slot, true, false);
                 }
             }
+
+            binding.last_source_root_state = const_cast<BaseState *>(current_source_root_state);
 
             if (!initializing && map_value_changed) {
                 // The dynamic dict binding handles child-level validity and
@@ -687,16 +789,35 @@ namespace hgraph
             }
 
             if (source_schema->kind == TSKind::REF) {
-                if (source_schema->element_ts() != target_schema) {
-                    throw std::invalid_argument("TSOutput alternative REF dereference requires matching dereferenced schema");
+                if (source_schema->element_ts() == target_schema) {
+                    // REF -> TS does not copy target data into the alternative.
+                    // Instead the alternative position becomes a RefLinkState that
+                    // tracks the REF source and exposes the current dereferenced
+                    // target through the normal TS view surface.
+                    install_ref_link_for_target(target_view, source_view);
+                    return;
                 }
 
-                // REF -> TS does not copy target data into the alternative.
-                // Instead the alternative position becomes a RefLinkState that
-                // tracks the REF source and exposes the current dereferenced
-                // target through the normal TS view surface.
-                install_ref_link_for_target(target_view, source_view);
-                return;
+                if (target_schema->kind == TSKind::TSD && source_schema->element_ts() != nullptr &&
+                    source_schema->element_ts()->kind == TSKind::TSD &&
+                    supports_alternative_cast(*source_schema->element_ts(), *target_schema)) {
+                    auto binding = make_dereferenced_dynamic_dict_binding(target_view, source_view);
+                    auto &binding_ref = *binding;
+                    auto unsubscribe_on_failure = make_scope_exit([&] {
+                        if (binding_ref.source_context.ts_state != nullptr) {
+                            binding_ref.source_context.ts_state->unsubscribe(&binding_ref.source_notifier);
+                        }
+                    });
+                    if (binding_ref.source_context.ts_state != nullptr) {
+                        binding_ref.source_context.ts_state->subscribe(&binding_ref.source_notifier);
+                    }
+                    sync_dynamic_dict(binding_ref, source_state != nullptr ? source_state->last_modified_time : MIN_DT, true);
+                    unsubscribe_on_failure.release();
+                    m_dynamic_dict_bindings.push_back(std::move(binding));
+                    return;
+                }
+
+                throw std::invalid_argument("TSOutput alternative REF dereference requires matching or recursively compatible schema");
             }
 
             if (target_schema->kind == TSKind::REF) {
