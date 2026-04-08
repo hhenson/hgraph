@@ -2,14 +2,15 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/v2/ref.h>
+#include <hgraph/util/scope.h>
 
 #include <algorithm>
-#include <list>
 #include <memory>
 #include <stdexcept>
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace hgraph
 {
@@ -359,8 +360,8 @@ namespace hgraph
         ~AlternativeOutput() override
         {
             for (auto &binding : m_dynamic_dict_bindings) {
-                if (binding.source_context.ts_state != nullptr) {
-                    binding.source_context.ts_state->unsubscribe(&binding.source_notifier);
+                if (binding != nullptr && binding->source_context.ts_state != nullptr) {
+                    binding->source_context.ts_state->unsubscribe(&binding->source_notifier);
                 }
             }
             for (auto &subscription : m_wrapped_ref_subscriptions) {
@@ -466,9 +467,9 @@ namespace hgraph
             if (subtree_root == nullptr) { return; }
 
             for (auto it = m_dynamic_dict_bindings.begin(); it != m_dynamic_dict_bindings.end();) {
-                if (it->target_context.ts_state != nullptr && is_descendant_state(it->target_context.ts_state, subtree_root)) {
-                    if (it->source_context.ts_state != nullptr) {
-                        it->source_context.ts_state->unsubscribe(&it->source_notifier);
+                if ((*it)->target_context.ts_state != nullptr && is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
+                    if ((*it)->source_context.ts_state != nullptr) {
+                        (*it)->source_context.ts_state->unsubscribe(&(*it)->source_notifier);
                     }
                     it = m_dynamic_dict_bindings.erase(it);
                 } else {
@@ -754,11 +755,19 @@ namespace hgraph
                         // construction. Instead of eagerly recursing every
                         // possible child, we subscribe to the source dict root
                         // and replay key-level structural changes on demand.
-                        auto &binding = m_dynamic_dict_bindings.emplace_back(this, target_view, source_view);
-                        if (binding.source_context.ts_state != nullptr) {
-                            binding.source_context.ts_state->subscribe(&binding.source_notifier);
+                        auto binding = std::make_unique<DynamicDictBinding>(this, target_view, source_view);
+                        auto &binding_ref = *binding;
+                        auto unsubscribe_on_failure = make_scope_exit([&] {
+                            if (binding_ref.source_context.ts_state != nullptr) {
+                                binding_ref.source_context.ts_state->unsubscribe(&binding_ref.source_notifier);
+                            }
+                        });
+                        if (binding_ref.source_context.ts_state != nullptr) {
+                            binding_ref.source_context.ts_state->subscribe(&binding_ref.source_notifier);
                         }
-                        sync_dynamic_dict(binding, source_state != nullptr ? source_state->last_modified_time : MIN_DT, true);
+                        sync_dynamic_dict(binding_ref, source_state != nullptr ? source_state->last_modified_time : MIN_DT, true);
+                        unsubscribe_on_failure.release();
+                        m_dynamic_dict_bindings.push_back(std::move(binding));
                         return;
                     }
 
@@ -768,7 +777,7 @@ namespace hgraph
         }
 
         std::vector<WrappedRefSubscription> m_wrapped_ref_subscriptions;
-        std::list<DynamicDictBinding> m_dynamic_dict_bindings;
+        std::vector<std::unique_ptr<DynamicDictBinding>> m_dynamic_dict_bindings;
     };
 
     TSOutput::TSOutput(const TSOutputBuilder &builder)
