@@ -1060,6 +1060,104 @@ TEST_CASE("TSInput make_active during evaluation notifies immediately if state a
     }
 }
 
+TEST_CASE("TSOutput wraps TSD values into cached REF alternatives", "[ts_output][ref][tsd]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto *dict_ts = ts_registry.tsd(int_type, scalar_ts);
+    const auto *ref_dict_ts = ts_registry.tsd(int_type, ts_registry.ref(scalar_ts));
+    const hgraph::Value key_one{1};
+    const hgraph::Value key_two{2};
+
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(dict_ts)};
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.setting(key_one.view(), hgraph::Value{10}.view());
+        mutation.setting(key_two.view(), hgraph::Value{20}.view());
+    }
+    hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(200)), hgraph::test_detail::tick(200));
+
+    const auto alternative_a = output.bindable_view(output.view(hgraph::test_detail::tick(200)), ref_dict_ts);
+    const auto alternative_b = output.bindable_view(output.view(hgraph::test_detail::tick(200)), ref_dict_ts);
+
+    CHECK(alternative_a.linked_context().ts_state == alternative_b.linked_context().ts_state);
+    CHECK(alternative_a.linked_context().value_data == alternative_b.linked_context().value_data);
+
+    auto wrapped_dict = alternative_a.as_dict();
+    const auto ref_one = wrapped_dict.at(key_one.view()).value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+    const auto ref_two = wrapped_dict.at(key_two.view()).value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+
+    CHECK(ref_one.is_peered());
+    CHECK(ref_two.is_peered());
+    CHECK(ref_one.target_view(hgraph::test_detail::tick(200)).value().as_atomic().as<int>() == 10);
+    CHECK(ref_two.target_view(hgraph::test_detail::tick(200)).value().as_atomic().as<int>() == 20);
+
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.setting(key_one.view(), hgraph::Value{15}.view());
+    }
+    hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(201)).as_dict().at(key_one.view()),
+                                                   hgraph::test_detail::tick(201));
+
+    const auto updated_ref =
+        alternative_a.as_dict().at(key_one.view()).value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+    CHECK(updated_ref.target_view(hgraph::test_detail::tick(201)).value().as_atomic().as<int>() == 15);
+
+    const hgraph::MapDeltaView delta{alternative_a.delta_value()};
+    std::vector<int> updated_keys;
+    for (const hgraph::View &key : delta.updated_keys()) { updated_keys.push_back(key.as_atomic().as<int>()); }
+    CHECK(updated_keys == std::vector<int>{1});
+}
+
+TEST_CASE("TSOutput TSD REF alternatives follow key removal and reinsertion", "[ts_output][ref][tsd]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto *dict_ts = ts_registry.tsd(int_type, scalar_ts);
+    const auto *ref_dict_ts = ts_registry.tsd(int_type, ts_registry.ref(scalar_ts));
+    const hgraph::Value key{1};
+
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(dict_ts)};
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.setting(key.view(), hgraph::Value{10}.view());
+    }
+    hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(210)), hgraph::test_detail::tick(210));
+
+    const auto alternative = output.bindable_view(output.view(hgraph::test_detail::tick(210)), ref_dict_ts);
+    REQUIRE(alternative.as_dict().at(key.view()).valid());
+
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.removing(key.view());
+    }
+    hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(211)), hgraph::test_detail::tick(211));
+
+    CHECK_FALSE(alternative.as_dict().at(key.view()).valid());
+
+    {
+        auto mutation = output.dict_value().begin_mutation();
+        mutation.setting(key.view(), hgraph::Value{30}.view());
+    }
+    hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(212)), hgraph::test_detail::tick(212));
+
+    const auto rebound_ref =
+        alternative.as_dict().at(key.view()).value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+    CHECK(rebound_ref.is_peered());
+    CHECK(rebound_ref.target_view(hgraph::test_detail::tick(212)).value().as_atomic().as<int>() == 30);
+
+    const hgraph::MapDeltaView delta{alternative.delta_value()};
+    std::vector<int> added_keys;
+    for (const hgraph::View &added_key : delta.added_keys()) { added_keys.push_back(added_key.as_atomic().as<int>()); }
+    CHECK(added_keys == std::vector<int>{1});
+}
+
 TEST_CASE("TSInput active dereferenced bundle child rehomes subscriptions when the REF retargets", "[ts_input][active][ref]")
 {
     auto &value_registry = hgraph::value::TypeRegistry::instance();

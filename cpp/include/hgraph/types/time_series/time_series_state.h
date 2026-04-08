@@ -264,6 +264,10 @@ namespace hgraph
          *
          * This is used to detect slot reuse so the corresponding child state
          * can be reset when a removed slot later holds a different key.
+         *
+         * Output-owned TSD alternatives rely on the same contract: structural
+         * replay happens in stable slot space, so a removed/reused slot must
+         * tear down the old child subtree before a new key can claim it.
          */
         std::vector<size_t> slot_key_hashes;
 
