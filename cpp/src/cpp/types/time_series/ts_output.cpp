@@ -583,10 +583,12 @@ namespace hgraph
             }
 
             const auto source_delta = source_root.value().as_map().delta();
+            const auto source_map = source_root.value().as_map();
             auto target_map = target_root.value().as_map();
             auto target_dict = target_root.as_dict();
             auto mutation = target_map.begin_mutation();
             bool map_value_changed = false;
+            constexpr size_t no_slot = static_cast<size_t>(-1);
 
             // TSD key flow:
             // 1. The source map delta is authoritative for structural changes.
@@ -602,9 +604,7 @@ namespace hgraph
 
             // Remove stale keys before replaying live slots so reused logical
             // positions tear down their old subtree subscriptions first.
-            for (size_t slot = 0; slot < source_delta.slot_capacity(); ++slot) {
-                if (!source_delta.slot_occupied(slot) || !source_delta.slot_removed(slot)) { continue; }
-
+            for (size_t slot = source_delta.first_removed_slot(); slot != no_slot; slot = source_delta.next_removed_slot(slot)) {
                 const View key = source_delta.key_at_slot(slot);
                 TSOutputView existing_child = target_dict.at(key);
                 if (BaseState *existing_state = existing_child.context_ref().ts_state; existing_state != nullptr) {
@@ -617,13 +617,14 @@ namespace hgraph
                 map_value_changed = true;
             }
 
-            for (size_t slot = 0; slot < source_delta.slot_capacity(); ++slot) {
-                if (!detail::dict_slot_is_live(source_delta, slot)) { continue; }
+            const bool has_added_slots = source_delta.first_added_slot() != no_slot;
+            const bool has_updated_slots = source_delta.first_updated_slot() != no_slot;
+            if (!initializing && !map_value_changed && !has_added_slots && !has_updated_slots) { return; }
 
+            auto replay_live_slot = [&](size_t slot, bool source_updated) {
                 const View key = source_delta.key_at_slot(slot);
                 TSOutputView target_child = target_dict.at(key);
                 const bool target_has_key = target_child.context_ref().is_bound();
-                const bool source_updated = initializing || source_delta.slot_added(slot) || source_delta.slot_updated(slot);
 
                 if (!target_has_key) {
                     // Insert the key into the alternative map before touching
@@ -644,6 +645,20 @@ namespace hgraph
                 if (!target_has_key) {
                     TSOutputView source_child = source_root.as_dict().at(key);
                     install_dynamic_child(target_root, key, source_child, modified_time, modified_time != MIN_DT && source_updated);
+                }
+            };
+
+            if (initializing) {
+                for (size_t slot = source_map.first_live_slot(); slot != no_slot; slot = source_map.next_live_slot(slot)) {
+                    replay_live_slot(slot, true);
+                }
+            } else {
+                for (size_t slot = source_delta.first_added_slot(); slot != no_slot; slot = source_delta.next_added_slot(slot)) {
+                    replay_live_slot(slot, true);
+                }
+                for (size_t slot = source_delta.first_updated_slot(); slot != no_slot; slot = source_delta.next_updated_slot(slot)) {
+                    if (source_delta.slot_added(slot)) { continue; }
+                    replay_live_slot(slot, true);
                 }
             }
 

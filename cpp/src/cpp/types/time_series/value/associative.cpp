@@ -21,7 +21,25 @@ namespace hgraph
 
     namespace detail
     {
+        namespace
+        {
+            constexpr size_t no_slot = static_cast<size_t>(-1);
 
+            template <typename TBitset>
+            [[nodiscard]] size_t first_set_slot(const TBitset &bitset) noexcept
+            {
+                const size_t slot = bitset.find_first();
+                return slot == TBitset::npos ? no_slot : slot;
+            }
+
+            template <typename TBitset>
+            [[nodiscard]] size_t next_set_slot(const TBitset &bitset, size_t slot) noexcept
+            {
+                if (slot == no_slot) { return first_set_slot(bitset); }
+                const size_t next = bitset.find_next(slot);
+                return next == TBitset::npos ? no_slot : next;
+            }
+        }  // namespace
         struct KeyStorageBase;
 
         struct SetKeyIndexHash
@@ -1048,6 +1066,26 @@ namespace hgraph
                 return m_keys.find_live_slot(keys(data), key);
             }
 
+            [[nodiscard]] size_t first_live_slot(const void *data) const noexcept override
+            {
+                const auto &key_state = keys(data);
+                if constexpr (tracks_deltas_v) {
+                    return first_set_slot(key_state.alive);
+                } else {
+                    return key_state.size == 0 ? no_slot : 0;
+                }
+            }
+
+            [[nodiscard]] size_t next_live_slot(const void *data, size_t slot) const noexcept override
+            {
+                const auto &key_state = keys(data);
+                if constexpr (tracks_deltas_v) {
+                    return next_set_slot(key_state.alive, slot);
+                } else {
+                    return slot + 1 < key_state.size ? slot + 1 : no_slot;
+                }
+            }
+
             [[nodiscard]] bool slot_occupied(const void *data, size_t slot) const noexcept override
             {
                 const auto &key_state = keys(data);
@@ -1088,6 +1126,69 @@ namespace hgraph
                     static_cast<void>(data);
                     static_cast<void>(slot);
                     return false;
+                }
+            }
+
+            [[nodiscard]] size_t first_added_slot(const void *data) const noexcept override
+            {
+                if constexpr (tracks_deltas_v) {
+                    return first_set_slot(state(data)->keys.added);
+                } else {
+                    static_cast<void>(data);
+                    return no_slot;
+                }
+            }
+
+            [[nodiscard]] size_t next_added_slot(const void *data, size_t slot) const noexcept override
+            {
+                if constexpr (tracks_deltas_v) {
+                    return next_set_slot(state(data)->keys.added, slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return no_slot;
+                }
+            }
+
+            [[nodiscard]] size_t first_removed_slot(const void *data) const noexcept override
+            {
+                if constexpr (tracks_deltas_v) {
+                    return first_set_slot(state(data)->keys.removed);
+                } else {
+                    static_cast<void>(data);
+                    return no_slot;
+                }
+            }
+
+            [[nodiscard]] size_t next_removed_slot(const void *data, size_t slot) const noexcept override
+            {
+                if constexpr (tracks_deltas_v) {
+                    return next_set_slot(state(data)->keys.removed, slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return no_slot;
+                }
+            }
+
+            [[nodiscard]] size_t first_updated_slot(const void *data) const noexcept override
+            {
+                if constexpr (tracks_deltas_v) {
+                    return first_set_slot(state(data)->updated);
+                } else {
+                    static_cast<void>(data);
+                    return no_slot;
+                }
+            }
+
+            [[nodiscard]] size_t next_updated_slot(const void *data, size_t slot) const noexcept override
+            {
+                if constexpr (tracks_deltas_v) {
+                    return next_set_slot(state(data)->updated, slot);
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    return no_slot;
                 }
             }
 
@@ -2244,6 +2345,20 @@ namespace hgraph
         return size() == 0;
     }
 
+    size_t MapView::first_live_slot() const
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::first_live_slot on invalid view"); }
+        return dispatch->first_live_slot(data());
+    }
+
+    size_t MapView::next_live_slot(size_t slot) const
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::next_live_slot on invalid view"); }
+        return dispatch->next_live_slot(data(), slot);
+    }
+
     MapDeltaView::MapDeltaView(const View &view)
         : View(view)
     {
@@ -2345,6 +2460,48 @@ namespace hgraph
         const auto *dispatch = map_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::slot_updated on invalid view"); }
         return dispatch->slot_updated(data(), slot);
+    }
+
+    size_t MapDeltaView::first_added_slot() const
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::first_added_slot on invalid view"); }
+        return dispatch->first_added_slot(data());
+    }
+
+    size_t MapDeltaView::next_added_slot(size_t slot) const
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::next_added_slot on invalid view"); }
+        return dispatch->next_added_slot(data(), slot);
+    }
+
+    size_t MapDeltaView::first_removed_slot() const
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::first_removed_slot on invalid view"); }
+        return dispatch->first_removed_slot(data());
+    }
+
+    size_t MapDeltaView::next_removed_slot(size_t slot) const
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::next_removed_slot on invalid view"); }
+        return dispatch->next_removed_slot(data(), slot);
+    }
+
+    size_t MapDeltaView::first_updated_slot() const
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::first_updated_slot on invalid view"); }
+        return dispatch->first_updated_slot(data());
+    }
+
+    size_t MapDeltaView::next_updated_slot(size_t slot) const
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapDeltaView::next_updated_slot on invalid view"); }
+        return dispatch->next_updated_slot(data(), slot);
     }
 
     View MapDeltaView::key_at_slot(size_t slot)
