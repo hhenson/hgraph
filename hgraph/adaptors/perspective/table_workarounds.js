@@ -299,6 +299,15 @@ function setupOnDemandViewer(g, view_config, table_config) {
     });
 }
 
+const colour_scheme_locks = {};
+function getColourSchemeLock(scheme) {
+    if (!colour_scheme_locks[scheme]) {
+        colour_scheme_locks[scheme] = new AsyncLock(scheme);
+    }
+    return colour_scheme_locks[scheme];
+}
+
+
 export async function installTableWorkarounds(mode, lockCallback) {
     await initViewSettings();
     await initColumnSettings();
@@ -530,7 +539,7 @@ export async function installTableWorkarounds(mode, lockCallback) {
     }
 
     for (const g of document.querySelectorAll(
-        "perspective-viewer perspective-viewer-d3fc-ybar")) {
+        "perspective-viewer perspective-viewer-d3fc-ybar, perspective-viewer perspective-viewer-d3fc-sunburst")) {
 
         // the mobile version of chrome/edge does not support shadow DOM
         const shadow = window.CSS?.supports && window.CSS?.supports("selector(:host-context(foo))");
@@ -554,59 +563,81 @@ export async function installTableWorkarounds(mode, lockCallback) {
 
         if ("chart_colours" in getWorkspaceTables() && viewSettings(view_config.title, "chart_colours")) {
             const chart_colours_table = getWorkspaceTables()["chart_colours"].table;
-            const view = await chart_colours_table.view({filter: [["view", "==", view_config.title]]});
-            const apply_colours = async () => {
-                const choices = await view.to_json();
-                const styles = g._settings.colorStyles;
-                const ids = {};
-                const values = new Array(styles.scheme.length).fill(null);
-                const values_to_index = {};
-                if (g._settings.data && g._settings.data.length > 0) {
-                    let i = 0;
-                    for (const key of Object.keys(g._settings.data[0])){
-                        if (key === '__ROW_PATH__') continue;
-                        const parts = key.split("|");
-                        values[i] = g._settings.mainValues.length <= 1 && parts.length > 1
-                            ? parts.slice(0, parts.length - 1).join("|")
-                            : key;
-                        values_to_index[values[i]] = i;
-                        i++;
+            const colour_scheme_name = viewSettings(view_config.title, "chart_colours");
+            await getColourSchemeLock(colour_scheme_name).enter();
+            try {
+                const view = await chart_colours_table.view({filter: [["view", "==", colour_scheme_name]]});
+                const apply_colours = async () => {
+                    const choices = await view.to_json();
+                    const styles = g._settings.colorStyles;
+                    const ids = {};
+                    const values = new Array(styles.scheme.length).fill(null); // values to map to colour (names of time series in ybar, categories in sunburst)
+                    const values_to_index = {};
+                    if (g._settings.data && g._settings.data.length > 0) {
+                        if (g.name == "Y Bar"){
+                            let i = 0;
+                            for (const key of Object.keys(g._settings.data[0])){
+                                if (key === '__ROW_PATH__') continue;
+                                const parts = key.split("|");
+                                values[i] = g._settings.mainValues.length <= 1 && parts.length > 1
+                                    ? parts.slice(0, parts.length - 1).join("|")
+                                    : key;
+                                values_to_index[values[i]] = i;
+                                i++;
+                            }
+                        } else if (g.name == "Sunburst") {
+                            const colour_col = g._settings.realValues[1]; // the second real value is used for colouring in sunburst
+                            let i = 0;
+                            for (const o of g._settings.data){
+                                if ('__ROW_PATH__' in o && o['__ROW_PATH__'].some((v) => v === null)) continue;
+                                values[i] = o[colour_col];
+                                values_to_index[values[i]] = i;
+                                i++;
+                            }
+                        }
                     }
-                }
-                for (const row of choices) {
-                    ids[row.value] = row._id;
-                    if (row.value in values_to_index) {
-                        styles.scheme[values_to_index[row.value]] = row.colour;
+                    for (const row of choices) {
+                        ids[row.value] = row._id;
+                        if (row.value in values_to_index) {
+                            styles.scheme[values_to_index[row.value]] = row.colour;
+                        }
                     }
-                }
-                for (const [v, i] of Object.entries(values_to_index)) {
-                    if (!(v in ids)) {
-                        ids[v] = Math.floor(Math.random() * 1_000_000_000) * -2 - 1;
+                    for (const v of values) {
+                        if (!(v in ids)) {
+                            ids[v] = Math.floor(Math.random() * 1_000_000_000) * -2 - 1;
+                        }
                     }
-                }
-                const update = Object.entries(values_to_index).map(([v, i]) => { 
-                    return {_id: ids[v], view: view_config.title, element: i, value: v, colour: styles.scheme[i]}; });
-                await chart_colours_table.update(update);
-                return values_to_index;
-            };
-            let values_to_index = await apply_colours();
-            await view.on_update(async () => {
-                setTimeout(async () => {
-                    const data = await view.to_json();
-                    for (const row of data) {
-                        g._settings.colorStyles.scheme[values_to_index[row.value]] = row.colour;
-                    }
-                    g._draw();
-                }, 100);
-            });
-            g.parentElement.addEventListener("perspective-config-update", async (event) => {
-                let c = 5;
-                const i = setInterval(async () => {
-                    values_to_index = await apply_colours();
-                    g._draw();
-                    if (--c < 0) clearInterval(i);
-                }, 100);
-            });
+                    const update = values.map((v) => { 
+                        return {_id: ids[v], view: colour_scheme_name, value: v, colour: styles.scheme[values_to_index[v]]}; });
+                    await chart_colours_table.update(update);
+                    return values_to_index;
+                };
+                let values_to_index = await apply_colours();
+                await view.on_update(async () => {
+                    setTimeout(async () => {
+                        const data = await view.to_json();
+                        for (const row of data) {
+                            g._settings.colorStyles.scheme[values_to_index[row.value]] = row.colour;
+                        }
+                        g._draw();
+                    }, 100);
+                });
+                g.parentElement.addEventListener("perspective-config-update", async (event) => {
+                    let c = 3;
+                    const i = setInterval(async () => {
+                        await getColourSchemeLock(colour_scheme_name).enter();
+                        try {
+                        values_to_index = await apply_colours();
+                        } finally {
+                            getColourSchemeLock(colour_scheme_name).exit();
+                        }
+                        g._draw();
+                        if (--c < 0) clearInterval(i);
+                    }, 10);
+                });
+            } finally {
+                getColourSchemeLock(colour_scheme_name).exit();
+            }
         }
 
         g._draw();
@@ -614,7 +645,7 @@ export async function installTableWorkarounds(mode, lockCallback) {
 }
 
 
-import {getWorkspaceTables, wait_for_table} from "./workspace_tables.js";
+import {getWorkspaceTables, wait_for_table, AsyncLock} from "./workspace_tables.js";
 
 async function col_values(table, td) {
     const meta = table.getMeta(td);
@@ -703,7 +734,11 @@ async function dropdown_editor(editor, element, table_, model_, table_config_) {
             datalist = document.createElement("table");
             datalist.id = "table-workarounds-dropdown";
             datalist.style.position = "absolute";
-            datalist.style.top = (element.getBoundingClientRect().bottom - table.getBoundingClientRect().top) + 'px';
+            if (table.getBoundingClientRect().bottom - element.getBoundingClientRect().bottom < 52){
+                datalist.style.bottom = (table.getBoundingClientRect().bottom - element.getBoundingClientRect().top) + 'px';
+            } else {
+                datalist.style.top = (element.getBoundingClientRect().bottom - table.getBoundingClientRect().top) + 'px';
+            }
             datalist.style.left = (element.getBoundingClientRect().left - table.getBoundingClientRect().left) + 'px';
             datalist.style.zIndex = "1000";
             datalist.style.backgroundColor = "white";
@@ -783,7 +818,7 @@ async function dropdown_editor(editor, element, table_, model_, table_config_) {
                 }
             }
         }
-        if (dropped) table.appendChild(datalist);
+        if (dropped) table.parentNode.appendChild(datalist);
         return [datalist, dropped];
     };
     const fold = () => {
@@ -1372,16 +1407,96 @@ class tooltip_info{
     static tooltip_ws_url = null;
 
     static update_timer = null;
+    static scrollbar_style_injected = false;
+
+    static inject_scrollbar_styles() {
+        if (tooltip_info.scrollbar_style_injected) return;
+        tooltip_info.scrollbar_style_injected = true;
+
+        const style = document.createElement('style');
+        style.textContent = `
+            #tooltip {
+                scrollbar-width: thin;
+                scrollbar-color: rgba(128, 128, 128, 0.6) transparent;
+            }
+
+            #tooltip::-webkit-scrollbar,
+            #tooltip::-webkit-scrollbar-corner {
+                background-color: transparent;
+                height: 12px;
+                width: 12px;
+            }
+
+            #tooltip::-webkit-scrollbar-thumb {
+                background-clip: content-box;
+                background: var(--icon--color);
+                border: 5.5px solid var(--plugin--background);
+                max-height: 50%;
+                max-width: 50%;
+                min-width: 10%;
+                min-height: 10%;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    static reposition_tooltip() {
+        if (!tooltip_info.tooltip) return;
+
+        const tdRect = tooltip_info.tooltip_trigger?.getBoundingClientRect();
+        if (!tdRect) return;
+
+        const tooltipRect = tooltip_info.tooltip.getBoundingClientRect();
+        const padding = 12;
+        const minHeight = 100;
+
+        let top = tdRect.bottom - padding;
+        let left = tdRect.right - padding;
+        let right = undefined;
+
+        // If tooltip goes off the right, restrict its width
+        if (left + tooltipRect.width > window.innerWidth - padding) {
+            right = padding;
+        }
+
+        let maxHeight = window.innerHeight - top - padding * 2;
+
+        // If not enough space below, try above
+        if (maxHeight < minHeight) {
+            const heightIfAbove = tdRect.top - padding * 2;
+            if (heightIfAbove > maxHeight) {
+                top = tdRect.top - tooltipRect.height - padding;
+                maxHeight = heightIfAbove;
+            }
+        }
+
+        if (top < padding) {
+            top = padding;
+            maxHeight = window.innerHeight - top - padding;
+        }
+
+        maxHeight = Math.max(minHeight, maxHeight);
+
+        tooltip_info.tooltip.style.top = top + 'px';
+        tooltip_info.tooltip.style.left = left + 'px';
+        if (right !== undefined) {
+            tooltip_info.tooltip.style.right = right + 'px';
+        } else {
+            tooltip_info.tooltip.style.right = '';
+        }
+        tooltip_info.tooltip.style.maxHeight = maxHeight + 'px';
+    }
 
     static show(table, td) {
         tooltip_info.clear();
+        tooltip_info.inject_scrollbar_styles();
 
         const style = window.getComputedStyle(td.parentElement);
         const style_2 = window.getComputedStyle(td);
         const tooltip = document.createElement("p");
-        tooltip.id = "tooltip"; 
+        tooltip.id = "tooltip";
         tooltip.className = "tooltip";
-        tooltip.style.position = "absolute";
+        tooltip.style.position = "fixed";
         tooltip.style.zIndex = "1000";
         tooltip.style.border = "1px solid grey";
         tooltip.style.padding = "5px";
@@ -1389,8 +1504,8 @@ class tooltip_info{
         tooltip.style.whiteSpace = "normal";
         tooltip.style.top = (td.getBoundingClientRect().bottom - 12) + 'px';
         tooltip.style.left = (td.getBoundingClientRect().right - 12) + 'px';
-        tooltip.style.overflow = "hidden";
-        tooltip.style.textOverflow = "ellipsis";
+        tooltip.style.overflow = "auto";
+        tooltip.style.maxWidth = "90vw";
         tooltip.style.backdropFilter = "blur(6px)";
         tooltip.style.boxShadow = "0 2px 5px rgba(0,0,0,0.2)";
         tooltip.style.fontSize = "12px";
@@ -1415,7 +1530,7 @@ class tooltip_info{
         pinContainer.style.top = "2px";
         pinContainer.style.right = "2px";
         pinContainer.style.cursor = "pointer";
-        
+
         // Create pin button
         const pinButton = document.createElement("div");
         pinButton.textContent = "🖈";
@@ -1425,7 +1540,7 @@ class tooltip_info{
         pinButton.style.padding = "2px";
         pinButton.title = "Pin tooltip";
         pinButton.dataset.pinned = "false";
-        
+
         // Pin/unpin behavior
         pinButton.addEventListener("click", (event) => {
             event.stopPropagation();
@@ -1435,21 +1550,28 @@ class tooltip_info{
             pinButton.title = isPinned ? "Pin tooltip" : "Unpin tooltip";
             pinButton.textContent = isPinned ? "🖈" : "✖";
         });
-        
+
         pinContainer.appendChild(pinButton);
         tooltip.appendChild(pinContainer);
         document.body.appendChild(tooltip);
 
+        // Store trigger element for repositioning when content changes
+        tooltip_info.tooltip_trigger = td;
+
         tooltip.addEventListener("mouseenter", () => {
             clearTimeout(tooltip_info.clear_timeout);
         });
-        
+
         tooltip.addEventListener("mouseleave", () => {
             if (tooltip_info.pinned) return;
             tooltip_info.clear();
         });
 
         tooltip_info.tooltip = tooltip;
+
+        // Reposition after initial render
+        setTimeout(() => tooltip_info.reposition_tooltip(), 0);
+
         return tooltip;
     }
 
@@ -1500,6 +1622,8 @@ class tooltip_info{
                                 container.style.display = "none";
                                 event.target.innerHTML = "+&nbsp;";
                             }
+                            // Reposition tooltip after tree expand/collapse
+                            setTimeout(() => tooltip_info.reposition_tooltip(), 0);
                         }
                     }
                 });
@@ -1530,12 +1654,15 @@ class tooltip_info{
         const loader = tooltip_info.tooltip.querySelector("#tooltip-loading");
         if (loader)
             loader.style.display = "none";
-        
+
         if (typeof text === "object") { // render json
             tooltip_info.render_json(tooltip_info.tooltip, text);
         } else {
             tooltip_info.tooltip.innerHTML = text;
         }
+
+        // Reposition after content update
+        setTimeout(() => tooltip_info.reposition_tooltip(), 0);
     }
 
     static async clear() {

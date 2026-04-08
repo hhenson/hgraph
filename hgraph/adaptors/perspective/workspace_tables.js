@@ -126,7 +126,7 @@ function safeClone(obj) {
     }
 }
 
-class AsyncLock {
+export class AsyncLock {
     static max_wait = 0;
     static max_lock = 0;
 
