@@ -1364,6 +1364,57 @@ TEST_CASE("v2 binds TS outputs to REF inputs through shared output alternatives"
     CHECK(graph.node_at(2).output_view().value().as_atomic().as<int>() == 23);
 }
 
+TEST_CASE("v2 child TS outputs share REF alternatives by logical position", "[v2][graph][ref]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto *scalar_ref_ts = ts_registry.ref(scalar_ts);
+    const auto *pair_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Pair");
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("pair_source").output_schema(pair_schema).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_probe_a").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_probe_b").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("rhs_probe").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {0}, .dst_node = 1, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {0}, .dst_node = 2, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {1}, .dst_node = 3, .input_path = {0}});
+
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(326), hgraph::v2::test_detail::tick(327));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0}, 11, hgraph::v2::test_detail::tick(326));
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {1}, 13, hgraph::v2::test_detail::tick(326));
+    graph.evaluate(hgraph::v2::test_detail::tick(326));
+
+    const auto lhs_input_a = graph.node_at(1).input_view(hgraph::v2::test_detail::tick(326)).as_bundle()[0];
+    const auto lhs_input_b = graph.node_at(2).input_view(hgraph::v2::test_detail::tick(326)).as_bundle()[0];
+    const auto rhs_input = graph.node_at(3).input_view(hgraph::v2::test_detail::tick(326)).as_bundle()[0];
+    const hgraph::LinkedTSContext *lhs_target_a = lhs_input_a.linked_target();
+    const hgraph::LinkedTSContext *lhs_target_b = lhs_input_b.linked_target();
+    const hgraph::LinkedTSContext *rhs_target = rhs_input.linked_target();
+
+    REQUIRE(lhs_target_a != nullptr);
+    REQUIRE(lhs_target_b != nullptr);
+    REQUIRE(rhs_target != nullptr);
+    CHECK(lhs_target_a->schema == scalar_ref_ts);
+    CHECK(lhs_target_b->schema == scalar_ref_ts);
+    CHECK(rhs_target->schema == scalar_ref_ts);
+    CHECK(lhs_target_a->ts_state == lhs_target_b->ts_state);
+    CHECK(lhs_target_a->value_data == lhs_target_b->value_data);
+    CHECK(rhs_target->ts_state != lhs_target_a->ts_state);
+    CHECK(rhs_target->value_data != lhs_target_a->value_data);
+    CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 11);
+    CHECK(graph.node_at(2).output_view().value().as_atomic().as<int>() == 11);
+    CHECK(graph.node_at(3).output_view().value().as_atomic().as<int>() == 13);
+}
+
 TEST_CASE("v2 binds mixed TSB wrap alternatives at the bundle boundary", "[v2][graph][ref]")
 {
     auto &value_registry = hgraph::value::TypeRegistry::instance();
@@ -1475,6 +1526,59 @@ TEST_CASE("v2 binds nested fixed TSL wrap alternatives recursively", "[v2][graph
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 15);
 }
 
+TEST_CASE("v2 nested child TS outputs share REF alternatives by logical position", "[v2][graph][ref]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto *scalar_ref_ts = ts_registry.ref(scalar_ts);
+    const auto *list_schema = ts_registry.tsl(scalar_ts, 2);
+    const auto *source_schema = ts_registry.tsb({{"items", list_schema}, {"tail", scalar_ts}}, "NestedList");
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("source").output_schema(source_schema).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("probe_a").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("probe_b").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("probe_c").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {0, 0}, .dst_node = 1, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {0, 0}, .dst_node = 2, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {0, 1}, .dst_node = 3, .input_path = {0}});
+
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(330), hgraph::v2::test_detail::tick(331));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0, 0}, 3, hgraph::v2::test_detail::tick(330));
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0, 1}, 5, hgraph::v2::test_detail::tick(330));
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {1}, 7, hgraph::v2::test_detail::tick(330));
+    graph.evaluate(hgraph::v2::test_detail::tick(330));
+
+    const auto input_a = graph.node_at(1).input_view(hgraph::v2::test_detail::tick(330)).as_bundle()[0];
+    const auto input_b = graph.node_at(2).input_view(hgraph::v2::test_detail::tick(330)).as_bundle()[0];
+    const auto input_c = graph.node_at(3).input_view(hgraph::v2::test_detail::tick(330)).as_bundle()[0];
+    const hgraph::LinkedTSContext *target_a = input_a.linked_target();
+    const hgraph::LinkedTSContext *target_b = input_b.linked_target();
+    const hgraph::LinkedTSContext *target_c = input_c.linked_target();
+
+    REQUIRE(target_a != nullptr);
+    REQUIRE(target_b != nullptr);
+    REQUIRE(target_c != nullptr);
+    CHECK(target_a->schema == scalar_ref_ts);
+    CHECK(target_b->schema == scalar_ref_ts);
+    CHECK(target_c->schema == scalar_ref_ts);
+    CHECK(target_a->ts_state == target_b->ts_state);
+    CHECK(target_a->value_data == target_b->value_data);
+    CHECK(target_c->ts_state != target_a->ts_state);
+    CHECK(target_c->value_data != target_a->value_data);
+    CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 3);
+    CHECK(graph.node_at(2).output_view().value().as_atomic().as<int>() == 3);
+    CHECK(graph.node_at(3).output_view().value().as_atomic().as<int>() == 5);
+}
+
 TEST_CASE("v2 binds REF outputs to TS inputs through dereference alternatives", "[v2][graph][ref]")
 {
     auto &value_registry = hgraph::value::TypeRegistry::instance();
@@ -1516,6 +1620,252 @@ TEST_CASE("v2 binds REF outputs to TS inputs through dereference alternatives", 
     graph.evaluate(hgraph::v2::test_detail::tick(332));
 
     CHECK(graph.node_at(3).output_view().value().as_atomic().as<int>() == 29);
+}
+
+TEST_CASE("v2 child REF outputs retarget through shared dereference alternatives", "[v2][graph][ref]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto *ref_scalar_ts = ts_registry.ref(scalar_ts);
+    const auto *ref_pair_schema = ts_registry.tsb({{"lhs", ref_scalar_ts}, {"rhs", ref_scalar_ts}}, "RefPair");
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("a").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("b").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("c").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("pair_ref_source").output_schema(ref_pair_schema).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_consumer_a").implementation<hgraph::v2::test_detail::PassThroughInput>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_consumer_b").implementation<hgraph::v2::test_detail::PassThroughInput>())
+        .add_edge(hgraph::v2::Edge{.src_node = 3, .output_path = {0}, .dst_node = 4, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 3, .output_path = {0}, .dst_node = 5, .input_path = {0}});
+
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(333), hgraph::v2::test_detail::tick(335));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 5, hgraph::v2::test_detail::tick(333));
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 7, hgraph::v2::test_detail::tick(334));
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(2), {}, 11, hgraph::v2::test_detail::tick(333));
+    hgraph::v2::test_detail::publish_scalar_output(
+        graph.node_at(3),
+        {0},
+        hgraph::v2::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(333))),
+        hgraph::v2::test_detail::tick(333));
+    hgraph::v2::test_detail::publish_scalar_output(
+        graph.node_at(3),
+        {1},
+        hgraph::v2::TimeSeriesReference::make(graph.node_at(2).output_view(hgraph::v2::test_detail::tick(333))),
+        hgraph::v2::test_detail::tick(333));
+    graph.evaluate(hgraph::v2::test_detail::tick(333));
+
+    const auto input_a_before = graph.node_at(4).input_view(hgraph::v2::test_detail::tick(333)).as_bundle()[0];
+    const auto input_b_before = graph.node_at(5).input_view(hgraph::v2::test_detail::tick(333)).as_bundle()[0];
+    const hgraph::LinkedTSContext *target_a_before = input_a_before.linked_target();
+    const hgraph::LinkedTSContext *target_b_before = input_b_before.linked_target();
+
+    REQUIRE(target_a_before != nullptr);
+    REQUIRE(target_b_before != nullptr);
+    CHECK(target_a_before->ts_state == target_b_before->ts_state);
+    CHECK(graph.node_at(4).output_view().value().as_atomic().as<int>() == 5);
+    CHECK(graph.node_at(5).output_view().value().as_atomic().as<int>() == 5);
+
+    hgraph::v2::test_detail::publish_scalar_output(
+        graph.node_at(3),
+        {0},
+        hgraph::v2::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::v2::test_detail::tick(334))),
+        hgraph::v2::test_detail::tick(334));
+    graph.evaluate(hgraph::v2::test_detail::tick(334));
+
+    const auto input_a_after = graph.node_at(4).input_view(hgraph::v2::test_detail::tick(334)).as_bundle()[0];
+    const auto input_b_after = graph.node_at(5).input_view(hgraph::v2::test_detail::tick(334)).as_bundle()[0];
+    const hgraph::LinkedTSContext *target_a_after = input_a_after.linked_target();
+    const hgraph::LinkedTSContext *target_b_after = input_b_after.linked_target();
+
+    REQUIRE(target_a_after != nullptr);
+    REQUIRE(target_b_after != nullptr);
+    CHECK(target_a_after->ts_state == target_a_before->ts_state);
+    CHECK(target_b_after->ts_state == target_b_before->ts_state);
+    CHECK(target_a_after->ts_state == target_b_after->ts_state);
+    CHECK(graph.node_at(4).output_view().value().as_atomic().as<int>() == 7);
+    CHECK(graph.node_at(5).output_view().value().as_atomic().as<int>() == 7);
+}
+
+TEST_CASE("v2 child REF outputs share TS alternatives by logical position", "[v2][graph][ref]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto *ref_scalar_ts = ts_registry.ref(scalar_ts);
+    const auto *ref_pair_schema = ts_registry.tsb({{"lhs", ref_scalar_ts}, {"rhs", ref_scalar_ts}}, "RefPair");
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("rhs").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("pair_ref_source").output_schema(ref_pair_schema).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_consumer_a").implementation<hgraph::v2::test_detail::PassThroughInput>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_consumer_b").implementation<hgraph::v2::test_detail::PassThroughInput>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("rhs_consumer").implementation<hgraph::v2::test_detail::PassThroughInput>())
+        .add_edge(hgraph::v2::Edge{.src_node = 2, .output_path = {0}, .dst_node = 3, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 2, .output_path = {0}, .dst_node = 4, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 2, .output_path = {1}, .dst_node = 5, .input_path = {0}});
+
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(332), hgraph::v2::test_detail::tick(333));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 5, hgraph::v2::test_detail::tick(332));
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 7, hgraph::v2::test_detail::tick(332));
+    hgraph::v2::test_detail::publish_scalar_output(
+        graph.node_at(2),
+        {0},
+        hgraph::v2::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(332))),
+        hgraph::v2::test_detail::tick(332));
+    hgraph::v2::test_detail::publish_scalar_output(
+        graph.node_at(2),
+        {1},
+        hgraph::v2::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::v2::test_detail::tick(332))),
+        hgraph::v2::test_detail::tick(332));
+    graph.evaluate(hgraph::v2::test_detail::tick(332));
+
+    const auto lhs_input_a = graph.node_at(3).input_view(hgraph::v2::test_detail::tick(332)).as_bundle()[0];
+    const auto lhs_input_b = graph.node_at(4).input_view(hgraph::v2::test_detail::tick(332)).as_bundle()[0];
+    const auto rhs_input = graph.node_at(5).input_view(hgraph::v2::test_detail::tick(332)).as_bundle()[0];
+    const hgraph::LinkedTSContext *lhs_target_a = lhs_input_a.linked_target();
+    const hgraph::LinkedTSContext *lhs_target_b = lhs_input_b.linked_target();
+    const hgraph::LinkedTSContext *rhs_target = rhs_input.linked_target();
+
+    REQUIRE(lhs_target_a != nullptr);
+    REQUIRE(lhs_target_b != nullptr);
+    REQUIRE(rhs_target != nullptr);
+    CHECK(lhs_target_a->schema == scalar_ts);
+    CHECK(lhs_target_b->schema == scalar_ts);
+    CHECK(rhs_target->schema == scalar_ts);
+    CHECK(lhs_target_a->ts_state == lhs_target_b->ts_state);
+    CHECK(rhs_target->ts_state != lhs_target_a->ts_state);
+    CHECK(graph.node_at(3).output_view().value().as_atomic().as<int>() == 5);
+    CHECK(graph.node_at(4).output_view().value().as_atomic().as<int>() == 5);
+    CHECK(graph.node_at(5).output_view().value().as_atomic().as<int>() == 7);
+}
+
+TEST_CASE("v2 nested child REF outputs share TS alternatives by logical position", "[v2][graph][ref]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto *ref_scalar_ts = ts_registry.ref(scalar_ts);
+    const auto *ref_list_schema = ts_registry.tsl(ref_scalar_ts, 2);
+    const auto *source_schema = ts_registry.tsb({{"items", ref_list_schema}, {"tail", ref_scalar_ts}}, "NestedRefList");
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("lhs").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("rhs").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("tail").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("nested_ref_source").output_schema(source_schema).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("probe_a").implementation<hgraph::v2::test_detail::PassThroughInput>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("probe_b").implementation<hgraph::v2::test_detail::PassThroughInput>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("probe_c").implementation<hgraph::v2::test_detail::PassThroughInput>())
+        .add_edge(hgraph::v2::Edge{.src_node = 3, .output_path = {0, 0}, .dst_node = 4, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 3, .output_path = {0, 0}, .dst_node = 5, .input_path = {0}})
+        .add_edge(hgraph::v2::Edge{.src_node = 3, .output_path = {0, 1}, .dst_node = 6, .input_path = {0}});
+
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(335), hgraph::v2::test_detail::tick(336));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 2, hgraph::v2::test_detail::tick(335));
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 4, hgraph::v2::test_detail::tick(335));
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(2), {}, 6, hgraph::v2::test_detail::tick(335));
+    hgraph::v2::test_detail::publish_scalar_output(
+        graph.node_at(3),
+        {0, 0},
+        hgraph::v2::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(335))),
+        hgraph::v2::test_detail::tick(335));
+    hgraph::v2::test_detail::publish_scalar_output(
+        graph.node_at(3),
+        {0, 1},
+        hgraph::v2::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::v2::test_detail::tick(335))),
+        hgraph::v2::test_detail::tick(335));
+    hgraph::v2::test_detail::publish_scalar_output(
+        graph.node_at(3),
+        {1},
+        hgraph::v2::TimeSeriesReference::make(graph.node_at(2).output_view(hgraph::v2::test_detail::tick(335))),
+        hgraph::v2::test_detail::tick(335));
+    graph.evaluate(hgraph::v2::test_detail::tick(335));
+
+    const auto input_a = graph.node_at(4).input_view(hgraph::v2::test_detail::tick(335)).as_bundle()[0];
+    const auto input_b = graph.node_at(5).input_view(hgraph::v2::test_detail::tick(335)).as_bundle()[0];
+    const auto input_c = graph.node_at(6).input_view(hgraph::v2::test_detail::tick(335)).as_bundle()[0];
+    const hgraph::LinkedTSContext *target_a = input_a.linked_target();
+    const hgraph::LinkedTSContext *target_b = input_b.linked_target();
+    const hgraph::LinkedTSContext *target_c = input_c.linked_target();
+
+    REQUIRE(target_a != nullptr);
+    REQUIRE(target_b != nullptr);
+    REQUIRE(target_c != nullptr);
+    CHECK(target_a->schema == scalar_ts);
+    CHECK(target_b->schema == scalar_ts);
+    CHECK(target_c->schema == scalar_ts);
+    CHECK(target_a->ts_state == target_b->ts_state);
+    CHECK(target_c->ts_state != target_a->ts_state);
+    CHECK(graph.node_at(4).output_view().value().as_atomic().as<int>() == 2);
+    CHECK(graph.node_at(5).output_view().value().as_atomic().as<int>() == 2);
+    CHECK(graph.node_at(6).output_view().value().as_atomic().as<int>() == 4);
+}
+
+TEST_CASE("v2 rooted alternatives can mix wrap and dereference conversions", "[v2][graph][ref]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *scalar_ts = ts_registry.ts(int_type);
+    const auto *ref_scalar_ts = ts_registry.ref(scalar_ts);
+    const auto *source_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", ref_scalar_ts}}, "WrapDerefSourcePair");
+
+    hgraph::v2::GraphBuilder builder;
+    builder
+        .add_node(hgraph::v2::NodeBuilder{}.label("rhs_target").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("source").output_schema(source_schema).implementation<hgraph::v2::test_detail::NoopNode>())
+        .add_node(hgraph::v2::NodeBuilder{}.label("consumer").implementation<hgraph::v2::test_detail::SumWrappedPair>())
+        .add_edge(hgraph::v2::Edge{.src_node = 1, .dst_node = 2, .input_path = {0}});
+
+    auto engine =
+        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(336), hgraph::v2::test_detail::tick(337));
+    auto &graph = engine.graph();
+    graph.start();
+
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 13, hgraph::v2::test_detail::tick(336));
+    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {0}, 11, hgraph::v2::test_detail::tick(336));
+    hgraph::v2::test_detail::publish_scalar_output(
+        graph.node_at(1),
+        {1},
+        hgraph::v2::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(336))),
+        hgraph::v2::test_detail::tick(336));
+    graph.evaluate(hgraph::v2::test_detail::tick(336));
+
+    auto pair_input = graph.node_at(2).input_view(hgraph::v2::test_detail::tick(336)).as_bundle()[0].as_bundle();
+    const auto lhs_ref = pair_input.field("lhs").value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+    const hgraph::LinkedTSContext *rhs_target = pair_input.field("rhs").linked_target();
+
+    CHECK(lhs_ref.is_peered());
+    CHECK(lhs_ref.target_view(hgraph::v2::test_detail::tick(336)).value().as_atomic().as<int>() == 11);
+    REQUIRE(rhs_target != nullptr);
+    CHECK(rhs_target->schema == scalar_ts);
+    CHECK(pair_input.field("rhs").value().as_atomic().as<int>() == 13);
+    CHECK(graph.node_at(2).output_view().value().as_atomic().as<int>() == 24);
 }
 
 TEST_CASE("v2 binds fixed-shape REF bundle outputs to TS bundle inputs", "[v2][graph][ref]")

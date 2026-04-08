@@ -1,7 +1,9 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/v2/ref.h>
 
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
 #include <string_view>
@@ -12,6 +14,8 @@ namespace hgraph
 {
     namespace
     {
+        using TSPath = std::vector<size_t>;
+
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSBState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSDState &state) noexcept { return &state; }
@@ -98,6 +102,166 @@ namespace hgraph
                 default:
                     return false;
             }
+        }
+
+        [[nodiscard]] const TSMeta *child_schema_at(const TSMeta &schema, size_t slot)
+        {
+            switch (schema.kind) {
+                case TSKind::TSB:
+                    if (slot >= schema.field_count()) { throw std::out_of_range("TSOutput alternative child slot is out of range for TSB"); }
+                    return schema.fields()[slot].ts_type;
+
+                case TSKind::TSL:
+                    if (schema.fixed_size() == 0) {
+                        throw std::invalid_argument("TSOutput alternatives do not yet support dynamic TSL path prefixes");
+                    }
+                    if (slot >= schema.fixed_size()) { throw std::out_of_range("TSOutput alternative child slot is out of range for TSL"); }
+                    return schema.element_ts();
+
+                default:
+                    throw std::invalid_argument("TSOutput alternative child navigation only supports TSB and fixed-size TSL");
+            }
+        }
+
+        [[nodiscard]] const BaseState *base_state_of(const TimeSeriesStateV &state) noexcept
+        {
+            return std::visit([](const auto &typed_state) -> const BaseState * { return &typed_state; }, state);
+        }
+
+        [[nodiscard]] bool find_state_path(const BaseState *state, const TSMeta *schema, const BaseState *target, TSPath &path)
+        {
+            if (state == nullptr || schema == nullptr) { return false; }
+            if (state == target) { return true; }
+
+            switch (schema->kind) {
+                case TSKind::TSB:
+                    {
+                        if (state->storage_kind != TSStorageKind::Native) { return false; }
+                        const auto &bundle_state = *static_cast<const TSBState *>(state);
+                        for (size_t i = 0; i < bundle_state.child_states.size(); ++i) {
+                            const auto &child = bundle_state.child_states[i];
+                            if (!child) { continue; }
+                            path.push_back(i);
+                            if (find_state_path(base_state_of(*child), child_schema_at(*schema, i), target, path)) { return true; }
+                            path.pop_back();
+                        }
+                        return false;
+                    }
+
+                case TSKind::TSL:
+                    {
+                        if (state->storage_kind != TSStorageKind::Native) { return false; }
+                        const auto &list_state = *static_cast<const TSLState *>(state);
+                        for (size_t i = 0; i < list_state.child_states.size(); ++i) {
+                            const auto &child = list_state.child_states[i];
+                            if (!child) { continue; }
+                            path.push_back(i);
+                            if (find_state_path(base_state_of(*child), child_schema_at(*schema, i), target, path)) { return true; }
+                            path.pop_back();
+                        }
+                        return false;
+                    }
+
+                case TSKind::TSD:
+                    throw std::invalid_argument("TSOutput alternatives do not yet support TSD child paths");
+
+                default:
+                    return false;
+            }
+        }
+
+        [[nodiscard]] TSPath source_path_from_root(const TSOutputView &root_view, const TSOutputView &source)
+        {
+            if (source.owning_output() != nullptr && source.owning_output() != root_view.owning_output()) {
+                throw std::logic_error("TSOutput alternative source view is not owned by the requested output");
+            }
+
+            TSPath path;
+            BaseState *target_state = source.context_ref().ts_state;
+            if (target_state == nullptr) { return path; }
+
+            if (!find_state_path(root_view.context_ref().ts_state, root_view.ts_schema(), target_state, path)) {
+                throw std::logic_error("TSOutput alternative source view is not reachable from the owning output root");
+            }
+            return path;
+        }
+
+        [[nodiscard]] const TSMeta *
+        replace_schema_at_path(const TSMeta &source_schema, const TSPath &path, size_t depth, const TSMeta &replacement_schema)
+        {
+            if (depth == path.size()) { return &replacement_schema; }
+
+            const size_t slot = path[depth];
+            auto &registry = TSTypeRegistry::instance();
+
+            switch (source_schema.kind) {
+                case TSKind::TSB:
+                    {
+                        if (slot >= source_schema.field_count()) {
+                            throw std::out_of_range("TSOutput alternative replacement path is out of range for TSB");
+                        }
+
+                        const TSMeta *updated_child =
+                            replace_schema_at_path(*source_schema.fields()[slot].ts_type, path, depth + 1, replacement_schema);
+                        if (updated_child == source_schema.fields()[slot].ts_type) { return &source_schema; }
+
+                        std::vector<std::pair<std::string, const TSMeta *>> fields;
+                        fields.reserve(source_schema.field_count());
+                        for (size_t i = 0; i < source_schema.field_count(); ++i) {
+                            fields.emplace_back(
+                                source_schema.fields()[i].name,
+                                i == slot ? updated_child : source_schema.fields()[i].ts_type);
+                        }
+
+                        return registry.tsb(
+                            fields,
+                            source_schema.bundle_name() != nullptr ? source_schema.bundle_name() : "",
+                            source_schema.python_type());
+                    }
+
+                case TSKind::TSL:
+                    {
+                        if (source_schema.fixed_size() == 0) {
+                            throw std::invalid_argument("TSOutput alternatives do not yet support dynamic TSL path prefixes");
+                        }
+                        if (slot >= source_schema.fixed_size()) {
+                            throw std::out_of_range("TSOutput alternative replacement path is out of range for TSL");
+                        }
+
+                        const TSMeta *updated_child =
+                            replace_schema_at_path(*source_schema.element_ts(), path, depth + 1, replacement_schema);
+                        return updated_child == source_schema.element_ts() ? &source_schema
+                                                                           : registry.tsl(updated_child, source_schema.fixed_size());
+                    }
+
+                default:
+                    throw std::invalid_argument("TSOutput alternative replacement paths only support TSB and fixed-size TSL");
+            }
+        }
+
+        [[nodiscard]] TSOutputView traverse_output_path(TSOutputView view, const TSMeta *schema, const TSPath &path)
+        {
+            const TSMeta *current_schema = schema;
+            for (const size_t slot : path) {
+                if (current_schema == nullptr) { throw std::invalid_argument("TSOutput alternative traversal requires a schema"); }
+
+                switch (current_schema->kind) {
+                    case TSKind::TSB:
+                        view = view.as_bundle()[slot];
+                        break;
+
+                    case TSKind::TSL:
+                        view = view.as_list()[slot];
+                        break;
+
+                    default:
+                        throw std::invalid_argument("TSOutput alternative traversal only supports TSB and fixed-size TSL");
+                }
+
+                current_schema = child_schema_at(*current_schema, slot);
+            }
+
+            return view;
         }
     }  // namespace
 
@@ -381,9 +545,22 @@ namespace hgraph
             throw std::invalid_argument("TSOutput::bindable_view does not support the requested schema cast");
         }
 
-        const auto [it, inserted] = m_alternatives.try_emplace(schema, nullptr);
-        if (inserted) { it->second.reset(new AlternativeOutput(source, *schema)); }
-        return it->second->view(this);
+        TSOutputView root_source = view(source.evaluation_time());
+        const TSPath source_path = source_path_from_root(root_source, source);
+        const TSMeta *root_source_schema = root_source.ts_schema();
+        if (root_source_schema == nullptr) { throw std::logic_error("TSOutput::bindable_view requires a rooted source schema"); }
+
+        // Alternatives are owned and cached at the output boundary. Child
+        // casts therefore rebuild a rooted target schema with only the
+        // requested subtree transformed, then project the requested child view
+        // back out of that rooted alternative.
+        const TSMeta *alternative_schema = replace_schema_at_path(*root_source_schema, source_path, 0, *schema);
+
+        const auto [it, inserted] = m_alternatives.try_emplace(alternative_schema, nullptr);
+        if (inserted) { it->second.reset(new AlternativeOutput(root_source, *alternative_schema)); }
+
+        TSOutputView alternative_view = it->second->view(this, source.evaluation_time());
+        return traverse_output_path(alternative_view, alternative_schema, source_path);
     }
 
     void TSOutput::clear_storage() noexcept
