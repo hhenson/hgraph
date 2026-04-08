@@ -2546,6 +2546,16 @@ namespace hgraph
         return dispatch->find(data(), data_of(key)) != static_cast<size_t>(-1);
     }
 
+    size_t MapView::find_slot(const View &key) const
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::find_slot on invalid view"); }
+        if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
+            throw std::runtime_error("MapView::find_slot requires a valid matching-schema key");
+        }
+        return dispatch->find(data(), data_of(key));
+    }
+
     View MapView::at(const View &key)
     {
         const auto *dispatch = map_dispatch();

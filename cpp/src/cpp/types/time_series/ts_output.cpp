@@ -444,7 +444,7 @@ namespace hgraph
             TSViewContext target_context{TSViewContext::none()};
             LinkedTSContext source_context{};
             std::unique_ptr<TimeSeriesStateV> source_bridge_state{};
-            BaseState *last_source_root_state{nullptr};
+            const BaseState *last_source_root_state{nullptr};
             SourceNotifier source_notifier{};
         };
 
@@ -487,6 +487,22 @@ namespace hgraph
             return output_view_for(
                 TSViewContext{context.schema, context.value_dispatch, context.ts_dispatch, context.value_data, context.ts_state},
                 evaluation_time);
+        }
+
+        void add_dynamic_dict_binding(std::unique_ptr<DynamicDictBinding> binding, engine_time_t initial_modified_time)
+        {
+            auto &binding_ref = *binding;
+            auto unsubscribe_on_failure = make_scope_exit([&] {
+                if (binding_ref.source_context.ts_state != nullptr) {
+                    binding_ref.source_context.ts_state->unsubscribe(&binding_ref.source_notifier);
+                }
+            });
+            if (binding_ref.source_context.ts_state != nullptr) {
+                binding_ref.source_context.ts_state->subscribe(&binding_ref.source_notifier);
+            }
+            sync_dynamic_dict(binding_ref, initial_modified_time, true);
+            unsubscribe_on_failure.release();
+            m_dynamic_dict_bindings.push_back(std::move(binding));
         }
 
         void release_wrapped_ref_subscriptions(const BaseState *subtree_root)
@@ -594,16 +610,18 @@ namespace hgraph
             BaseState *target_child_state = target_child.context_ref().ts_state;
             auto &target_state = *static_cast<TSDState *>(target_dict_view.context_ref().ts_state);
             if (target_child_state == nullptr) {
-                constexpr size_t no_slot = static_cast<size_t>(-1);
                 auto target_map = target_dict_view.value().as_map();
-                const auto target_delta = target_map.delta();
-                for (size_t slot = target_map.first_live_slot(); slot != no_slot; slot = target_map.next_live_slot(slot)) {
-                    if (!target_delta.key_at_slot(slot).equals(key)) { continue; }
-                    target_state.on_insert(slot);
-                    target_child = target_dict.at(key);
-                    target_child_state = target_child.context_ref().ts_state;
-                    break;
+                const size_t slot = target_map.find_slot(key);
+                if (slot == static_cast<size_t>(-1)) {
+                    throw std::logic_error("TSOutput alternative dynamic dict child key is missing from the target map");
                 }
+
+                // The value-layer insert owns key->slot assignment. If the TS
+                // child state has not been materialized yet, create it for the
+                // already-live slot before installing the child binding.
+                target_state.on_insert(slot);
+                target_child = target_dict.at(key);
+                target_child_state = target_child.context_ref().ts_state;
             }
             if (target_child_state == nullptr) {
                 throw std::logic_error("TSOutput alternative dynamic dict child requires a live target state");
@@ -671,7 +689,7 @@ namespace hgraph
                     for (const auto &key : stale_keys) { remove_target_key(key.view()); }
                 }
 
-                binding.last_source_root_state = const_cast<BaseState *>(current_source_root_state);
+                binding.last_source_root_state = current_source_root_state;
                 if (!initializing && map_value_changed) {
                     if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
                 }
@@ -711,14 +729,23 @@ namespace hgraph
             const bool has_added_slots = source_delta.first_added_slot() != no_slot;
             const bool has_updated_slots = source_delta.first_updated_slot() != no_slot;
             if (!full_resync && !map_value_changed && !has_added_slots && !has_updated_slots) {
-                binding.last_source_root_state = const_cast<BaseState *>(current_source_root_state);
+                binding.last_source_root_state = current_source_root_state;
                 return;
             }
 
             auto replay_live_slot = [&](size_t slot, bool source_updated, bool rebuild_child) {
                 const View key = source_delta.key_at_slot(slot);
+                TSOutputView source_child = source_root.as_dict().at(key);
                 TSOutputView target_child = target_dict.at(key);
                 const bool target_has_key = target_child.context_ref().is_bound();
+                const bool child_schema_differs = target_has_key && target_child.ts_schema() != source_child.ts_schema();
+
+                // Dict-level slot updates can replace the child payload for an
+                // existing key without changing the key itself. When the child
+                // subtree is an alternative (for example REF -> TS), that
+                // existing subtree must be rebuilt so it reflects the new
+                // source payload rather than continuing to project the old one.
+                if (source_updated && child_schema_differs) { rebuild_child = true; }
 
                 if (!target_has_key) {
                     // Insert the key into the alternative map before touching
@@ -726,13 +753,6 @@ namespace hgraph
                     // resolve a stable slot for install_dynamic_child().
                     Value placeholder{*target_root.ts_schema()->element_ts()->value_type};
                     mutation.set(key, placeholder.view());
-                    map_value_changed = true;
-                } else if (source_updated) {
-                    // Preserve the existing alternative payload object while
-                    // still surfacing the map-level delta for "this key
-                    // changed". The child subtree carries the real wrapped or
-                    // linked semantics.
-                    mutation.set(key, target_child.value());
                     map_value_changed = true;
                 }
 
@@ -743,8 +763,17 @@ namespace hgraph
                 }
 
                 if (rebuild_child || !target_has_key) {
-                    TSOutputView source_child = source_root.as_dict().at(key);
                     install_dynamic_child(target_root, key, source_child, modified_time, modified_time != MIN_DT && source_updated);
+                    target_child = target_dict.at(key);
+                }
+
+                if (source_updated && target_has_key) {
+                    // Preserve the current alternative payload object while
+                    // still surfacing the map-level delta for "this key
+                    // changed". If rebuilding was required above, refresh the
+                    // map payload after the new child subtree is in place.
+                    mutation.set(key, target_child.value());
+                    map_value_changed = true;
                 }
             };
 
@@ -762,7 +791,7 @@ namespace hgraph
                 }
             }
 
-            binding.last_source_root_state = const_cast<BaseState *>(current_source_root_state);
+            binding.last_source_root_state = current_source_root_state;
 
             if (!initializing && map_value_changed) {
                 // The dynamic dict binding handles child-level validity and
@@ -801,19 +830,9 @@ namespace hgraph
                 if (target_schema->kind == TSKind::TSD && source_schema->element_ts() != nullptr &&
                     source_schema->element_ts()->kind == TSKind::TSD &&
                     supports_alternative_cast(*source_schema->element_ts(), *target_schema)) {
-                    auto binding = make_dereferenced_dynamic_dict_binding(target_view, source_view);
-                    auto &binding_ref = *binding;
-                    auto unsubscribe_on_failure = make_scope_exit([&] {
-                        if (binding_ref.source_context.ts_state != nullptr) {
-                            binding_ref.source_context.ts_state->unsubscribe(&binding_ref.source_notifier);
-                        }
-                    });
-                    if (binding_ref.source_context.ts_state != nullptr) {
-                        binding_ref.source_context.ts_state->subscribe(&binding_ref.source_notifier);
-                    }
-                    sync_dynamic_dict(binding_ref, source_state != nullptr ? source_state->last_modified_time : MIN_DT, true);
-                    unsubscribe_on_failure.release();
-                    m_dynamic_dict_bindings.push_back(std::move(binding));
+                    add_dynamic_dict_binding(
+                        make_dereferenced_dynamic_dict_binding(target_view, source_view),
+                        source_state != nullptr ? source_state->last_modified_time : MIN_DT);
                     return;
                 }
 
@@ -891,19 +910,9 @@ namespace hgraph
                         // construction. Instead of eagerly recursing every
                         // possible child, we subscribe to the source dict root
                         // and replay key-level structural changes on demand.
-                        auto binding = std::make_unique<DynamicDictBinding>(this, target_view, source_view);
-                        auto &binding_ref = *binding;
-                        auto unsubscribe_on_failure = make_scope_exit([&] {
-                            if (binding_ref.source_context.ts_state != nullptr) {
-                                binding_ref.source_context.ts_state->unsubscribe(&binding_ref.source_notifier);
-                            }
-                        });
-                        if (binding_ref.source_context.ts_state != nullptr) {
-                            binding_ref.source_context.ts_state->subscribe(&binding_ref.source_notifier);
-                        }
-                        sync_dynamic_dict(binding_ref, source_state != nullptr ? source_state->last_modified_time : MIN_DT, true);
-                        unsubscribe_on_failure.release();
-                        m_dynamic_dict_bindings.push_back(std::move(binding));
+                        add_dynamic_dict_binding(
+                            std::make_unique<DynamicDictBinding>(this, target_view, source_view),
+                            source_state != nullptr ? source_state->last_modified_time : MIN_DT);
                         return;
                     }
 

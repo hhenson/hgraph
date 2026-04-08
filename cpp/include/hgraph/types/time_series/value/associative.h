@@ -389,6 +389,7 @@ namespace hgraph
         [[nodiscard]] const value::TypeMeta *value_schema() const;
         [[nodiscard]] size_t first_live_slot() const;
         [[nodiscard]] size_t next_live_slot(size_t slot) const;
+        [[nodiscard]] size_t find_slot(const View &key) const;
         [[nodiscard]] bool contains(const View &key) const;
         [[nodiscard]] View at(const View &key);
         [[nodiscard]] View at(const View &key) const;
