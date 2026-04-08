@@ -14,8 +14,29 @@ namespace hgraph
     {
         namespace
         {
-            [[nodiscard]] Notifiable *child_scheduling_notifier(Notifiable *parent_notifier, BaseState *child_state) noexcept
+            [[nodiscard]] RefLinkState *ref_link_boundary(const TSInputView &view) noexcept
             {
+                BaseState *state = view.context_ref().ts_state;
+                if (state == nullptr) { return nullptr; }
+
+                if (state->storage_kind == TSStorageKind::RefLink) { return static_cast<RefLinkState *>(state); }
+
+                if (state->storage_kind != TSStorageKind::TargetLink) { return nullptr; }
+                const LinkedTSContext *target = state->linked_target();
+                return target != nullptr && target->ts_state != nullptr && target->ts_state->storage_kind == TSStorageKind::RefLink
+                    ? static_cast<RefLinkState *>(target->ts_state)
+                    : nullptr;
+            }
+
+            [[nodiscard]] Notifiable *child_scheduling_notifier(const TSInputView &parent, BaseState *child_state) noexcept
+            {
+                Notifiable *parent_notifier = parent.scheduling_notifier();
+                if (RefLinkState *ref_link = ref_link_boundary(parent); ref_link != nullptr) {
+                    auto &attachment = ref_link->attachment_for(parent_notifier);
+                    attachment.forwarding_notifier.set_target(parent_notifier);
+                    return &attachment.forwarding_notifier;
+                }
+
                 if (child_state == nullptr) { return parent_notifier; }
 
                 Notifiable *child_notifier = child_state->boundary_notifier(parent_notifier);
@@ -27,11 +48,23 @@ namespace hgraph
 
             [[nodiscard]] ActiveTriePosition child_active_position(const TSInputView &parent, BaseState *child_state)
             {
+                if (RefLinkState *ref_link = ref_link_boundary(parent); ref_link != nullptr) {
+                    auto &attachment = ref_link->attachment_for(parent.scheduling_notifier());
+                    ActiveTriePosition child_pos;
+                    child_pos.trie = &attachment.active_trie;
+                    child_pos.boundary_root = ref_link->current_target_root_state();
+                    child_pos.node = attachment.active_trie.root_node();
+
+                    if (child_pos.node != nullptr && child_state != nullptr) { child_pos.node = child_pos.node->child_at(child_state->index); }
+                    return child_pos;
+                }
+
                 ActiveTriePosition child_pos;
                 child_pos.trie = parent.active_position().trie;
                 child_pos.node = parent.active_position().node != nullptr && child_state != nullptr
                     ? parent.active_position().node->child_at(child_state->index)
                     : nullptr;
+                child_pos.boundary_root = parent.active_position().boundary_root;
                 child_pos.link_crossings = parent.active_position().link_crossings;
 
                 if (child_state != nullptr && child_state->storage_kind == TSStorageKind::TargetLink) {
@@ -49,7 +82,7 @@ namespace hgraph
                 const TSViewContext &parent_context = parent.context_ref();
                 if (parent_context.schema == nullptr || parent_context.schema->kind != TSKind::TSD) { return; }
 
-                auto *state = static_cast<TSDState *>(parent_context.ts_state);
+                auto *state = parent_context.ts_state != nullptr ? static_cast<TSDState *>(parent_context.ts_state->resolved_state()) : nullptr;
                 BaseState *child_state = child.context_ref().ts_state;
                 if (state == nullptr || child_state == nullptr) { return; }
 
@@ -214,7 +247,7 @@ namespace hgraph
             evaluation_time,
             m_owning_input,
             detail::child_active_position(*this, context.ts_state),
-            detail::child_scheduling_notifier(m_scheduling_notifier, context.ts_state),
+            detail::child_scheduling_notifier(*this, context.ts_state),
             m_input_view_ops,
         };
         detail::update_dict_navigation_state(*this, child);

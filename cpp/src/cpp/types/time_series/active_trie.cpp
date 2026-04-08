@@ -127,6 +127,8 @@ namespace hgraph
         auto crossing_it = pos.link_crossings.rbegin();
 
         while (cur != nullptr) {
+            if (pos.boundary_root != nullptr && cur == pos.boundary_root) { break; }
+
             bool is_root = false;
             BaseState *next = nullptr;
 

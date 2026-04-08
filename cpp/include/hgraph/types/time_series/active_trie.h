@@ -140,6 +140,17 @@ struct LinkCrossing {
 struct ActiveTriePosition {
     ActiveTrie                    *trie{nullptr};
     ActiveTrieNode                *node{nullptr};
+    /**
+     * Optional output-side root that this trie is anchored to.
+     *
+     * When null, the trie is rooted at the owning TSInput and
+     * ensure_trie_path() reconstructs the full input-side logical path.
+     *
+     * When non-null, the trie is rooted at a bound output-side boundary
+     * (currently used for RefLink attachments). In that mode the reconstructed
+     * path stops at this state instead of walking all the way back to TSInput.
+     */
+    BaseState                     *boundary_root{nullptr};
     std::vector<LinkCrossing>      link_crossings;
 };
 

@@ -1,5 +1,6 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/time_series_state.h>
+#include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/v2/ref.h>
 
@@ -39,6 +40,42 @@ namespace hgraph
             const auto view = View{source.value_dispatch, source.value_data, source.schema->value_type}.as_atomic();
             const auto *value = view.try_as<hgraph::v2::TimeSeriesReference>();
             return value != nullptr && value->is_peered() ? value->target() : LinkedTSContext::none();
+        }
+
+        void replay_attachment_subtree(const LinkedTSContext &context,
+                                       ActiveTrieNode *trie_node,
+                                       Notifiable *notifier,
+                                       bool subscribe) noexcept
+        {
+            if (!context.is_bound() || context.ts_state == nullptr || trie_node == nullptr || notifier == nullptr) { return; }
+
+            if (trie_node->locally_active) {
+                if (subscribe) {
+                    context.ts_state->subscribe(notifier);
+                } else {
+                    context.ts_state->unsubscribe(notifier);
+                }
+            }
+
+            if (trie_node->children.empty()) { return; }
+
+            TSViewContext view_context{context.schema, context.value_dispatch, context.ts_dispatch, context.value_data, context.ts_state};
+            const TSViewContext resolved = view_context.resolved();
+            const auto *collection = resolved.ts_dispatch != nullptr ? resolved.ts_dispatch->as_collection() : nullptr;
+            if (collection == nullptr) { return; }
+
+            for (const auto &[slot, child_trie] : trie_node->children) {
+                if (!child_trie) { continue; }
+
+                const TSViewContext child = collection->child_at(view_context, slot);
+                if (!child.is_bound()) { continue; }
+
+                replay_attachment_subtree(
+                    LinkedTSContext{child.schema, child.value_dispatch, child.ts_dispatch, child.value_data, child.ts_state},
+                    child_trie.get(),
+                    notifier,
+                    subscribe);
+            }
         }
     }  // namespace
 
@@ -92,7 +129,11 @@ namespace hgraph
                 return &static_cast<TargetLinkState *>(this)->scheduling_notifier;
 
             case TSStorageKind::RefLink:
-                return &static_cast<RefLinkState *>(this)->bound_link.scheduling_notifier;
+                {
+                    auto &attachment = static_cast<RefLinkState *>(this)->attachment_for(fallback);
+                    attachment.forwarding_notifier.set_target(fallback);
+                    return &attachment.forwarding_notifier;
+                }
         }
 
         return fallback;
@@ -302,6 +343,7 @@ namespace hgraph
         bound_link.storage_kind = other.bound_link.storage_kind;
         bound_link.subscribers = std::move(other.bound_link.subscribers);
         bound_link.scheduling_notifier.set_target(other.bound_link.scheduling_notifier.get_target());
+        boundary_attachments = std::move(other.boundary_attachments);
 
         if (other.source.is_bound()) {
             const LinkedTSContext bound_source = other.source;
@@ -340,6 +382,7 @@ namespace hgraph
         bound_link.storage_kind = other.bound_link.storage_kind;
         bound_link.subscribers = std::move(other.bound_link.subscribers);
         bound_link.scheduling_notifier.set_target(other.bound_link.scheduling_notifier.get_target());
+        boundary_attachments = std::move(other.boundary_attachments);
 
         if (other.source.is_bound()) {
             const LinkedTSContext bound_source = other.source;
@@ -371,6 +414,7 @@ namespace hgraph
 
     void RefLinkState::reset_source() noexcept
     {
+        replay_boundary_attachments(false);
         unregister_from_source();
         unregister_from_target();
         source.clear();
@@ -398,12 +442,37 @@ namespace hgraph
         with_target_state(bound_link.target, [this](BaseState *ptr) { ptr->unsubscribe(&target_notifiable); });
     }
 
+    RefLinkState::BoundaryAttachment &RefLinkState::attachment_for(Notifiable *upstream_notifier) noexcept
+    {
+        auto [it, inserted] = boundary_attachments.try_emplace(upstream_notifier);
+        auto &attachment = it->second;
+        attachment.forwarding_notifier.set_target(upstream_notifier);
+        return attachment;
+    }
+
+    BaseState *RefLinkState::current_target_root_state() const noexcept
+    {
+        return bound_link.target.ts_state != nullptr ? bound_link.target.ts_state->resolved_state() : nullptr;
+    }
+
+    void RefLinkState::replay_boundary_attachments(bool subscribe) noexcept
+    {
+        if (!bound_link.target.is_bound()) { return; }
+
+        for (auto &[upstream_notifier, attachment] : boundary_attachments) {
+            attachment.forwarding_notifier.set_target(upstream_notifier);
+            replay_attachment_subtree(bound_link.target, attachment.active_trie.root_node(), &attachment.forwarding_notifier, subscribe);
+        }
+    }
+
     void RefLinkState::refresh_target(engine_time_t modified_time, bool propagate) noexcept
     {
+        replay_boundary_attachments(false);
         unregister_from_target();
         bound_link.target = dereferenced_target_from_source(source);
         bound_link.last_modified_time = bound_link.target.ts_state != nullptr ? bound_link.target.ts_state->last_modified_time : MIN_DT;
         register_with_target();
+        replay_boundary_attachments(true);
 
         if (propagate) {
             // When the REF source itself changed, the dereferenced view is

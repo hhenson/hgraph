@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/active_trie.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/tagged_ptr.h>
 
@@ -118,9 +119,8 @@ namespace hgraph
          * Return the notifier identity to use when traversing into this child.
          *
          * Native storage inherits the supplied fallback notifier (passthrough).
-         * Link-backed storage switches to the SchedulingNotifier owned by
-         * the TargetLinkState/RefLinkState and wires its forwarding target
-         * to @p fallback.
+         * Link-backed storage switches to a boundary-local SchedulingNotifier
+         * and wires its forwarding target to @p fallback.
          *
          * This identity switch is required because multiple TargetLinkStates
          * under the same non-peered collection may ultimately schedule the
@@ -129,7 +129,9 @@ namespace hgraph
          * (std::unordered_set<Notifiable*>), making independent
          * subscribe/unsubscribe impossible. Each TargetLinkState's
          * SchedulingNotifier provides a unique Notifiable address that
-         * forwards to the Node through its target pointer.
+         * forwards to the Node through its target pointer. RefLinkState uses
+         * the same pattern, but keyed per upstream boundary so multiple
+         * dereferenced consumers can coexist under one RefLink.
          */
         [[nodiscard]] Notifiable *boundary_notifier(Notifiable *fallback) noexcept;
 
@@ -434,6 +436,30 @@ namespace hgraph
      */
     struct HGRAPH_EXPORT RefLinkState : BaseState
     {
+        struct BoundaryAttachment
+        {
+            /**
+             * Boundary-local forwarding notifier subscribed on the current
+             * dereferenced target for one upstream boundary crossing.
+             *
+             * The map key stores the upstream notifier we ultimately forward
+             * to. This stored notifier is the unique local identity used when
+             * subscribing below the RefLink boundary, so multiple upstream
+             * consumers can coexist without collapsing onto the same
+             * subscriber pointer.
+             */
+            TargetLinkState::SchedulingNotifier forwarding_notifier;
+            /**
+             * Active subtree rooted at this RefLink boundary for the
+             * associated upstream notifier.
+             *
+             * This lets the RefLink rebuild live subscriptions when the
+             * reference retargets without needing to mirror the full input
+             * path above the boundary.
+             */
+            ActiveTrie                         active_trie;
+        };
+
         struct RefSourceNotifiable : Notifiable
         {
             explicit RefSourceNotifiable(RefLinkState *self) noexcept;
@@ -470,12 +496,21 @@ namespace hgraph
         RefSourceNotifiable         source_notifiable;
         DereferencedTargetNotifiable target_notifiable;
         TargetLinkState             bound_link;  // Current dereferenced target.
+        /**
+         * Boundary-local attachment state keyed by the upstream notifier to
+         * forward to.
+         */
+        std::unordered_map<Notifiable *, BoundaryAttachment> boundary_attachments;
+
+        [[nodiscard]] BoundaryAttachment &attachment_for(Notifiable *upstream_notifier) noexcept;
+        [[nodiscard]] BaseState *current_target_root_state() const noexcept;
 
       private:
         void register_with_source() noexcept;
         void unregister_from_source() noexcept;
         void register_with_target() noexcept;
         void unregister_from_target() noexcept;
+        void replay_boundary_attachments(bool subscribe) noexcept;
         void refresh_target(engine_time_t modified_time, bool propagate) noexcept;
     };
 

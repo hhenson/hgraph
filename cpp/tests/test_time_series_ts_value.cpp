@@ -10,6 +10,7 @@
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/value/type_registry.h>
+#include <hgraph/types/v2/ref.h>
 
 #include <algorithm>
 #include <chrono>
@@ -271,7 +272,7 @@ TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[t
             rhs.setting(1, hgraph::Value{13}.view());
         }
 
-        hgraph::TSOutputView root{value.view_context()};
+        hgraph::TSOutputView root{value.view_context(), hgraph::TSViewContext::none(), hgraph::MIN_DT};
         auto bundle_view = root.as_bundle();
 
         const auto lhs = bundle_view.field("lhs");
@@ -313,7 +314,7 @@ TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[t
             mutation.removing(hgraph::Value{std::string{"a"}}.view());
         }
 
-        hgraph::TSOutputView root{value.view_context()};
+        hgraph::TSOutputView root{value.view_context(), hgraph::TSViewContext::none(), hgraph::MIN_DT};
         auto dict_view = root.as_dict();
 
         const hgraph::Value key_b{std::string{"b"}};
@@ -353,7 +354,7 @@ TEST_CASE("TS collection views report recursive all_valid state", "[ts_view][ts_
         const auto *bundle_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Pair");
         hgraph::test_detail::ExposedTSValue value{*bundle_schema};
 
-        hgraph::TSOutputView root{value.view_context()};
+        hgraph::TSOutputView root{value.view_context(), hgraph::TSViewContext::none(), hgraph::MIN_DT};
         auto bundle = root.as_bundle();
         auto lhs = bundle.field("lhs");
         auto rhs = bundle.field("rhs");
@@ -372,7 +373,7 @@ TEST_CASE("TS collection views report recursive all_valid state", "[ts_view][ts_
     SECTION("list all_valid requires every element to be valid") {
         hgraph::test_detail::ExposedTSValue value{*ts_registry.tsl(scalar_ts, 2)};
 
-        hgraph::TSOutputView root{value.view_context()};
+        hgraph::TSOutputView root{value.view_context(), hgraph::TSViewContext::none(), hgraph::MIN_DT};
         auto list = root.as_list();
         auto first = list[0];
         auto second = list[1];
@@ -392,7 +393,7 @@ TEST_CASE("TS collection views report recursive all_valid state", "[ts_view][ts_
         hgraph::test_detail::ExposedTSValue value{*ts_registry.tsd(str_type, scalar_ts)};
         const hgraph::Value key{std::string{"a"}};
 
-        hgraph::TSOutputView root{value.view_context()};
+        hgraph::TSOutputView root{value.view_context(), hgraph::TSViewContext::none(), hgraph::MIN_DT};
         auto dict = root.as_dict();
 
         CHECK(dict.all_valid());
@@ -496,7 +497,7 @@ TEST_CASE("TSInput construction plans prebuild top-level target-link terminals",
     CHECK(link_state.target.schema == scalar_ts);
     CHECK(link_state.target.ts_state == static_cast<hgraph::BaseState *>(output.view_context().ts_state));
 
-    hgraph::TSOutputView input_root{input.view_context()};
+    hgraph::TSOutputView input_root{input.view_context(), hgraph::TSViewContext::none(), hgraph::MIN_DT};
     auto linked_leaf = input_root.as_bundle().field("ts");
     CHECK_FALSE(linked_leaf.valid());
 
@@ -539,7 +540,7 @@ TEST_CASE("TSInput target-link rebinding and teardown release old output subscri
         CHECK(first_state->subscribers.empty());
         CHECK(second_state->subscribers.size() == 1);
 
-        hgraph::TSOutputView input_root{input.view_context()};
+        hgraph::TSOutputView input_root{input.view_context(), hgraph::TSViewContext::none(), hgraph::MIN_DT};
         auto linked_leaf = input_root.as_bundle().field("ts");
         CHECK(linked_leaf.value().as_atomic().as<float>() == Catch::Approx(2.0f));
 
@@ -1057,4 +1058,132 @@ TEST_CASE("TSInput make_active during evaluation notifies immediately if state a
         leaf_view.make_active();
         CHECK(recorder.notifications.empty());
     }
+}
+
+TEST_CASE("TSInput active dereferenced bundle child rehomes subscriptions when the REF retargets", "[ts_input][active][ref]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *ref_scalar_ts = ts_registry.ref(scalar_ts);
+    const auto *pair_ts = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Pair");
+    const auto *ref_pair_ts = ts_registry.tsb({{"lhs", ref_scalar_ts}, {"rhs", ref_scalar_ts}}, "RefPair");
+    const auto *input_schema = ts_registry.tsb({{"ts", pair_ts}}, "InputBundle");
+    const auto plan = hgraph::test_detail::single_link_plan(input_schema, 0);
+
+    hgraph::test_detail::ExposedTSOutput first_lhs{hgraph::test_detail::output_builder_for(scalar_ts)};
+    hgraph::test_detail::ExposedTSOutput first_rhs{hgraph::test_detail::output_builder_for(scalar_ts)};
+    hgraph::test_detail::ExposedTSOutput rebound_lhs{hgraph::test_detail::output_builder_for(scalar_ts)};
+    hgraph::test_detail::ExposedTSOutput ref_output{hgraph::test_detail::output_builder_for(ref_pair_ts)};
+    hgraph::test_detail::ExposedTSInput input{hgraph::test_detail::builder_for(plan)};
+
+    first_lhs.atomic_value().set(1.0f);
+    first_rhs.atomic_value().set(2.0f);
+    rebound_lhs.atomic_value().set(3.0f);
+    hgraph::test_detail::mark_output_view_modified(first_lhs.view(), hgraph::test_detail::tick(50));
+    hgraph::test_detail::mark_output_view_modified(first_rhs.view(), hgraph::test_detail::tick(50));
+
+    {
+        auto mutation = ref_output.bundle_value().begin_mutation();
+        mutation.setting_field("lhs", hgraph::Value{hgraph::v2::TimeSeriesReference::make(first_lhs.view())}.view());
+        mutation.setting_field("rhs", hgraph::Value{hgraph::v2::TimeSeriesReference::make(first_rhs.view())}.view());
+    }
+
+    input.view().as_bundle()[0].bind_output(ref_output.view());
+
+    auto lhs_view = input.view().as_bundle()[0].as_bundle()[0];
+    auto rhs_view = input.view().as_bundle()[0].as_bundle()[1];
+    REQUIRE(lhs_view.valid());
+    REQUIRE(rhs_view.valid());
+
+    hgraph::test_detail::RecordingNotifiable recorder;
+    auto active_lhs = input.view(&recorder).as_bundle()[0].as_bundle()[0];
+    active_lhs.make_active();
+    REQUIRE(active_lhs.active());
+
+    hgraph::test_detail::mark_output_view_modified(first_lhs.view(), hgraph::test_detail::tick(51));
+    CHECK(recorder.notifications == std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(51)});
+
+    {
+        auto mutation = ref_output.bundle_value().begin_mutation();
+        mutation.setting_field("lhs", hgraph::Value{hgraph::v2::TimeSeriesReference::make(rebound_lhs.view())}.view());
+    }
+    hgraph::test_detail::mark_output_view_modified(ref_output.view().as_bundle()[0], hgraph::test_detail::tick(52));
+    CHECK(recorder.notifications ==
+          std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(51), hgraph::test_detail::tick(52)});
+
+    hgraph::test_detail::mark_output_view_modified(first_lhs.view(), hgraph::test_detail::tick(53));
+    CHECK(recorder.notifications ==
+          std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(51), hgraph::test_detail::tick(52)});
+
+    hgraph::test_detail::mark_output_view_modified(rebound_lhs.view(), hgraph::test_detail::tick(54));
+    CHECK(recorder.notifications ==
+          std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(51), hgraph::test_detail::tick(52),
+                                             hgraph::test_detail::tick(54)});
+}
+
+TEST_CASE("TSInput active dereferenced list element rehomes subscriptions when the REF retargets", "[ts_input][active][ref]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *float_type = value_registry.register_type<float>("float");
+    const auto *scalar_ts = ts_registry.ts(float_type);
+    const auto *ref_scalar_ts = ts_registry.ref(scalar_ts);
+    const auto *list_ts = ts_registry.tsl(scalar_ts, 2);
+    const auto *ref_list_ts = ts_registry.tsl(ref_scalar_ts, 2);
+    const auto *input_schema = ts_registry.tsb({{"ts", list_ts}}, "InputBundle");
+    const auto plan = hgraph::test_detail::single_link_plan(input_schema, 0);
+
+    hgraph::test_detail::ExposedTSOutput first_zero{hgraph::test_detail::output_builder_for(scalar_ts)};
+    hgraph::test_detail::ExposedTSOutput first_one{hgraph::test_detail::output_builder_for(scalar_ts)};
+    hgraph::test_detail::ExposedTSOutput rebound_one{hgraph::test_detail::output_builder_for(scalar_ts)};
+    hgraph::test_detail::ExposedTSOutput ref_output{hgraph::test_detail::output_builder_for(ref_list_ts)};
+    hgraph::test_detail::ExposedTSInput input{hgraph::test_detail::builder_for(plan)};
+
+    first_zero.atomic_value().set(4.0f);
+    first_one.atomic_value().set(5.0f);
+    rebound_one.atomic_value().set(6.0f);
+    hgraph::test_detail::mark_output_view_modified(first_zero.view(), hgraph::test_detail::tick(60));
+    hgraph::test_detail::mark_output_view_modified(first_one.view(), hgraph::test_detail::tick(60));
+
+    {
+        auto mutation = ref_output.list_value().begin_mutation();
+        mutation.setting(0, hgraph::Value{hgraph::v2::TimeSeriesReference::make(first_zero.view())}.view());
+        mutation.setting(1, hgraph::Value{hgraph::v2::TimeSeriesReference::make(first_one.view())}.view());
+    }
+
+    input.view().as_bundle()[0].bind_output(ref_output.view());
+
+    auto first_view = input.view().as_bundle()[0].as_list()[0];
+    auto second_view = input.view().as_bundle()[0].as_list()[1];
+    REQUIRE(first_view.valid());
+    REQUIRE(second_view.valid());
+
+    hgraph::test_detail::RecordingNotifiable recorder;
+    auto active_second = input.view(&recorder).as_bundle()[0].as_list()[1];
+    active_second.make_active();
+    REQUIRE(active_second.active());
+
+    hgraph::test_detail::mark_output_view_modified(first_one.view(), hgraph::test_detail::tick(61));
+    CHECK(recorder.notifications == std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(61)});
+
+    {
+        auto mutation = ref_output.list_value().begin_mutation();
+        mutation.setting(1, hgraph::Value{hgraph::v2::TimeSeriesReference::make(rebound_one.view())}.view());
+    }
+    hgraph::test_detail::mark_output_view_modified(ref_output.view().as_list()[1], hgraph::test_detail::tick(62));
+    CHECK(recorder.notifications ==
+          std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(61), hgraph::test_detail::tick(62)});
+
+    hgraph::test_detail::mark_output_view_modified(first_one.view(), hgraph::test_detail::tick(63));
+    CHECK(recorder.notifications ==
+          std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(61), hgraph::test_detail::tick(62)});
+
+    hgraph::test_detail::mark_output_view_modified(rebound_one.view(), hgraph::test_detail::tick(64));
+    CHECK(recorder.notifications ==
+          std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(61), hgraph::test_detail::tick(62),
+                                             hgraph::test_detail::tick(64)});
 }
