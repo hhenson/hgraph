@@ -132,25 +132,6 @@ namespace hgraph
             return state != nullptr ? state_address(state_ptr(*state)) : nullptr;
         }
 
-        void sync_native_child_state(const TSViewContext &parent_context,
-                                     const std::unique_ptr<TimeSeriesStateV> &slot,
-                                     bool child_has_value,
-                                     bool child_modified) noexcept
-        {
-            if (!child_has_value) { return; }
-
-            BaseState *child_state = state_address(slot);
-            if (child_state == nullptr || child_state->storage_kind != TSStorageKind::Native) { return; }
-
-            BaseState *parent_state = parent_context.ts_state;
-            if (parent_state == nullptr) { return; }
-
-            const engine_time_t parent_modified_time = parent_state->last_modified_time;
-            if (parent_modified_time == MIN_DT) { return; }
-
-            if (child_modified) { child_state->last_modified_time = parent_modified_time; }
-        }
-
         [[nodiscard]] bool list_slot_modified(const ListDeltaView &delta, size_t index) noexcept
         {
             for (const size_t updated_index : delta.updated_indices()) {
@@ -624,11 +605,6 @@ namespace hgraph
                 for (size_t index = 0; index < list.size(); ++index) {
                     ensure_child_state(*state, index, m_element_schema.get());
                     View child_value = list.at(index);
-                    sync_native_child_state(
-                        context,
-                        state->child_states[index],
-                        child_value.has_value(),
-                        child_modified(context, index));
                     TSViewContext child = child_context_from_slot(state->child_states[index],
                                                                   m_element_schema.get(),
                                                                   m_element_value_dispatch.get(),
@@ -650,11 +626,6 @@ namespace hgraph
                 ensure_child_state(*state, index, m_element_schema.get());
 
                 View child_value = list.at(index);
-                sync_native_child_state(
-                    context,
-                    state->child_states[index],
-                    child_value.has_value(),
-                    child_modified(context, index));
                 TSViewContext child = child_context_from_slot(state->child_states[index],
                                                               m_element_schema.get(),
                                                               m_element_value_dispatch.get(),
@@ -711,11 +682,6 @@ namespace hgraph
                 for (size_t index = 0; index < m_fields.size(); ++index) {
                     ensure_child_state(*state, index, m_fields[index].schema.get());
                     View child_value = context.value().as_bundle().at(index);
-                    sync_native_child_state(
-                        context,
-                        state->child_states[index],
-                        child_value.has_value(),
-                        child_modified(context, index));
                     TSViewContext child = child_context_from_slot(state->child_states[index],
                                                                   m_fields[index].schema.get(),
                                                                   m_fields[index].value_dispatch.get(),
@@ -736,11 +702,6 @@ namespace hgraph
                 ensure_child_state(*state, index, m_fields[index].schema.get());
 
                 View child_value = context.value().as_bundle().at(index);
-                sync_native_child_state(
-                    context,
-                    state->child_states[index],
-                    child_value.has_value(),
-                    child_modified(context, index));
                 TSViewContext child = child_context_from_slot(state->child_states[index],
                                                               m_fields[index].schema.get(),
                                                               m_fields[index].value_dispatch.get(),
@@ -856,11 +817,6 @@ namespace hgraph
                 if (state->child_states.size() <= slot || state->child_states[slot] == nullptr) { return TSViewContext::none(); }
 
                 const View child_value = delta.value_at_slot(slot);
-                sync_native_child_state(
-                    context,
-                    state->child_states[slot],
-                    child_value.has_value(),
-                    child_modified(context, slot));
                 TSViewContext child = child_context_from_slot(state->child_states[slot],
                                                               m_value_schema.get(),
                                                               m_value_dispatch.get(),
