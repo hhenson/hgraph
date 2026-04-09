@@ -21,25 +21,78 @@ namespace hgraph::v2
         {
             if (slot < 0) { throw std::out_of_range("v2 path navigation requires non-negative slots"); }
 
-            switch (schema.kind) {
+            const TSMeta *collection_schema = &schema;
+            if (schema.kind == TSKind::REF && schema.element_ts() != nullptr) { collection_schema = schema.element_ts(); }
+
+            switch (collection_schema->kind) {
                 case TSKind::TSB:
-                    if (static_cast<size_t>(slot) >= schema.field_count()) {
+                    if (static_cast<size_t>(slot) >= collection_schema->field_count()) {
                         throw std::out_of_range("v2 TSB path navigation is out of range");
                     }
-                    return schema.fields()[slot].ts_type;
+                    return collection_schema->fields()[slot].ts_type;
 
                 case TSKind::TSL:
-                    if (schema.fixed_size() == 0) {
+                    if (collection_schema->fixed_size() == 0) {
                         throw std::invalid_argument("v2 path navigation does not support dynamic TSL prefixes");
                     }
-                    if (static_cast<size_t>(slot) >= schema.fixed_size()) {
+                    if (static_cast<size_t>(slot) >= collection_schema->fixed_size()) {
                         throw std::out_of_range("v2 TSL path navigation is out of range");
                     }
-                    return schema.element_ts();
+                    return collection_schema->element_ts();
 
                 default:
                     throw std::invalid_argument("v2 path navigation only supports TSB and fixed-size TSL");
             }
+        }
+
+        [[nodiscard]] TSViewContext navigation_parent_context(const TSInputView &view) noexcept
+        {
+            return view.context_ref();
+        }
+
+        [[nodiscard]] BaseState *child_state_at(BaseState *state, const TSMeta &schema, int64_t slot)
+        {
+            if (state == nullptr) { return nullptr; }
+
+            const TSMeta *collection_schema = &schema;
+            if (schema.kind == TSKind::REF && schema.element_ts() != nullptr) { collection_schema = schema.element_ts(); }
+
+            switch (collection_schema->kind) {
+                case TSKind::TSB:
+                    {
+                        auto *bundle_state = static_cast<TSBState *>(state->resolved_state());
+                        if (bundle_state == nullptr || static_cast<size_t>(slot) >= bundle_state->child_states.size()) { return nullptr; }
+                        const auto &child = bundle_state->child_states[slot];
+                        return child != nullptr ? std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, *child) : nullptr;
+                    }
+
+                case TSKind::TSL:
+                    {
+                        auto *list_state = static_cast<TSLState *>(state->resolved_state());
+                        if (list_state == nullptr || static_cast<size_t>(slot) >= list_state->child_states.size()) { return nullptr; }
+                        const auto &child = list_state->child_states[slot];
+                        return child != nullptr ? std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, *child) : nullptr;
+                    }
+
+                default:
+                    throw std::invalid_argument("v2 input navigation only supports TSB and fixed-size TSL");
+            }
+        }
+
+        [[nodiscard]] TSInputView traverse_input_child(TSInputView view, const TSMeta &schema, int64_t slot)
+        {
+            BaseState *child_state = child_state_at(view.context_ref().ts_state, schema, slot);
+            if (child_state == nullptr) {
+                throw std::logic_error("v2 input navigation requires a planned child state for the selected path");
+            }
+
+            TSViewContext child_context;
+            child_context.schema = child_schema_at(schema, slot);
+            child_context.ts_state = child_state;
+            return view.make_child_view_impl(
+                child_context,
+                navigation_parent_context(view),
+                view.evaluation_time());
         }
 
         [[nodiscard]] TSInputView traverse_input(TSInputView view, const TSMeta *schema, PathView path)
@@ -47,20 +100,7 @@ namespace hgraph::v2
             const TSMeta *current_schema = schema;
             for (const int64_t slot : path) {
                 if (current_schema == nullptr) { throw std::invalid_argument("v2 input navigation requires a schema"); }
-
-                switch (current_schema->kind) {
-                    case TSKind::TSB:
-                        view = view.as_bundle()[slot];
-                        break;
-
-                    case TSKind::TSL:
-                        view = view.as_list()[slot];
-                        break;
-
-                    default:
-                        throw std::invalid_argument("v2 input navigation only supports TSB and fixed-size TSL");
-                }
-
+                view = traverse_input_child(view, *current_schema, slot);
                 current_schema = child_schema_at(*current_schema, slot);
             }
 
@@ -73,7 +113,12 @@ namespace hgraph::v2
             for (const int64_t slot : path) {
                 if (current_schema == nullptr) { throw std::invalid_argument("v2 output navigation requires a schema"); }
 
-                switch (current_schema->kind) {
+                const TSMeta *collection_schema = current_schema;
+                if (current_schema->kind == TSKind::REF && current_schema->element_ts() != nullptr) {
+                    collection_schema = current_schema->element_ts();
+                }
+
+                switch (collection_schema->kind) {
                     case TSKind::TSB:
                         view = view.as_bundle()[slot];
                         break;

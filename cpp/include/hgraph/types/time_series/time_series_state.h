@@ -241,6 +241,11 @@ namespace hgraph
          * engine cycle and is reset when the modification time advances.
          */
         std::unordered_set<size_t> modified_children;
+        /**
+         * When true, child updates only promote the collection once, preserving
+         * opaque REF[...] semantics while still keeping direct child links live.
+         */
+        bool suppress_repeated_child_notifications{false};
 
         void reset_child_states() noexcept;
 
@@ -511,6 +516,8 @@ namespace hgraph
         RefSourceNotifiable         source_notifiable;
         DereferencedTargetNotifiable target_notifiable;
         TargetLinkState             bound_link;  // Current dereferenced target.
+        Value                       previous_target_value;
+        engine_time_t               switch_modified_time{MIN_DT};
         /**
          * Boundary-local attachment state keyed by the upstream notifier to
          * forward to.

@@ -132,6 +132,49 @@ namespace hgraph
             return state != nullptr ? state_address(state_ptr(*state)) : nullptr;
         }
 
+        void sync_native_child_state(const TSViewContext &parent_context,
+                                     const std::unique_ptr<TimeSeriesStateV> &slot,
+                                     bool child_has_value,
+                                     bool child_modified) noexcept
+        {
+            if (!child_has_value) { return; }
+
+            BaseState *child_state = state_address(slot);
+            if (child_state == nullptr || child_state->storage_kind != TSStorageKind::Native) { return; }
+
+            BaseState *parent_state = parent_context.ts_state;
+            if (parent_state == nullptr) { return; }
+
+            const engine_time_t parent_modified_time = parent_state->last_modified_time;
+            if (parent_modified_time == MIN_DT) { return; }
+
+            if (child_modified) { child_state->last_modified_time = parent_modified_time; }
+        }
+
+        [[nodiscard]] bool list_slot_modified(const ListDeltaView &delta, size_t index) noexcept
+        {
+            for (const size_t updated_index : delta.updated_indices()) {
+                if (updated_index == index) { return true; }
+            }
+            for (const size_t added_index : delta.added_indices()) {
+                if (added_index == index) { return true; }
+            }
+            return false;
+        }
+
+        [[nodiscard]] bool bundle_slot_modified(const BundleDeltaView &delta, size_t index) noexcept
+        {
+            for (const size_t updated_index : delta.updated_indices()) {
+                if (updated_index == index) { return true; }
+            }
+            return false;
+        }
+
+        [[nodiscard]] bool dict_slot_modified(const MapDeltaView &delta, size_t index) noexcept
+        {
+            return index < delta.slot_capacity() && (delta.slot_added(index) || delta.slot_updated(index));
+        }
+
         [[nodiscard]] TSViewContext linked_child_context(const LinkedTSContext &target,
                                                          BaseState *local_state,
                                                          const TSMeta &schema,
@@ -323,19 +366,32 @@ namespace hgraph
                 state);
         }
 
+        [[nodiscard]] const TSMeta &binding_schema_for_state(const TSMeta &schema, const TimeSeriesStateV &state) noexcept
+        {
+            if (schema.kind != TSKind::REF || schema.element_ts() == nullptr) { return schema; }
+
+            if (std::holds_alternative<TSDState>(state) || std::holds_alternative<TSLState>(state) ||
+                std::holds_alternative<TSBState>(state)) {
+                return *schema.element_ts();
+            }
+
+            return schema;
+        }
+
         void bind_dynamic_dict_states_recursive(const TSMeta &schema, TimeSeriesStateV &state, void *value_data)
         {
             if (value_data == nullptr) { return; }
 
-            const auto &builder = TSValueBuilderFactory::checked_builder_for(schema);
-            View root_view{&builder.value_builder().dispatch(), value_data, schema.value_type};
+            const TSMeta &binding_schema = binding_schema_for_state(schema, state);
+            const auto &builder = TSValueBuilderFactory::checked_builder_for(binding_schema);
+            View root_view{&builder.value_builder().dispatch(), value_data, binding_schema.value_type};
 
             std::visit(
                 [&](auto &typed_state) {
                     using T = std::remove_cvref_t<decltype(typed_state)>;
 
                     if constexpr (std::same_as<T, TSDState>) {
-                        typed_state.bind_value_storage(*schema.element_ts(),
+                        typed_state.bind_value_storage(*binding_schema.element_ts(),
                                                        static_cast<const detail::MapViewDispatch &>(builder.value_builder().dispatch()),
                                                        value_data);
 
@@ -345,15 +401,17 @@ namespace hgraph
                                 typed_state.child_states[slot] == nullptr) {
                                 continue;
                             }
-                            bind_dynamic_dict_states_recursive(*schema.element_ts(),
+                            bind_dynamic_dict_states_recursive(*binding_schema.element_ts(),
                                                                *typed_state.child_states[slot],
                                                                RawViewAccess::data_of(delta.value_at_slot(slot)));
                         }
                     } else if constexpr (std::same_as<T, TSBState>) {
                         auto bundle = root_view.as_bundle();
-                        for (size_t index = 0; index < typed_state.child_states.size() && index < schema.field_count(); ++index) {
+                        for (size_t index = 0;
+                             index < typed_state.child_states.size() && index < binding_schema.field_count();
+                             ++index) {
                             if (typed_state.child_states[index] == nullptr) { continue; }
-                            bind_dynamic_dict_states_recursive(*schema.fields()[index].ts_type,
+                            bind_dynamic_dict_states_recursive(*binding_schema.fields()[index].ts_type,
                                                                *typed_state.child_states[index],
                                                                RawViewAccess::data_of(bundle.at(index)));
                         }
@@ -361,8 +419,8 @@ namespace hgraph
                         auto list = root_view.as_list();
                         const size_t limit = std::min(typed_state.child_states.size(), list.size());
                         for (size_t index = 0; index < limit; ++index) {
-                            if (typed_state.child_states[index] == nullptr || schema.element_ts() == nullptr) { continue; }
-                            bind_dynamic_dict_states_recursive(*schema.element_ts(),
+                            if (typed_state.child_states[index] == nullptr || binding_schema.element_ts() == nullptr) { continue; }
+                            bind_dynamic_dict_states_recursive(*binding_schema.element_ts(),
                                                                *typed_state.child_states[index],
                                                                RawViewAccess::data_of(list.at(index)));
                         }
@@ -548,7 +606,13 @@ namespace hgraph
 
             [[nodiscard]] bool child_modified(const TSViewContext &context, size_t index) const noexcept override
             {
-                return hgraph::child_modified(list_state(context), index);
+                if (context.ts_state != nullptr && context.ts_state->storage_kind == TSStorageKind::Native) {
+                    const auto *state = list_state(context);
+                    if (hgraph::child_modified(state, index)) { return true; }
+                }
+
+                const auto delta = context.value().as_list().delta();
+                return list_slot_modified(delta, index);
             }
 
             [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
@@ -560,6 +624,11 @@ namespace hgraph
                 for (size_t index = 0; index < list.size(); ++index) {
                     ensure_child_state(*state, index, m_element_schema.get());
                     View child_value = list.at(index);
+                    sync_native_child_state(
+                        context,
+                        state->child_states[index],
+                        child_value.has_value(),
+                        child_modified(context, index));
                     TSViewContext child = child_context_from_slot(state->child_states[index],
                                                                   m_element_schema.get(),
                                                                   m_element_value_dispatch.get(),
@@ -581,6 +650,11 @@ namespace hgraph
                 ensure_child_state(*state, index, m_element_schema.get());
 
                 View child_value = list.at(index);
+                sync_native_child_state(
+                    context,
+                    state->child_states[index],
+                    child_value.has_value(),
+                    child_modified(context, index));
                 TSViewContext child = child_context_from_slot(state->child_states[index],
                                                               m_element_schema.get(),
                                                               m_element_value_dispatch.get(),
@@ -620,7 +694,13 @@ namespace hgraph
 
             [[nodiscard]] bool child_modified(const TSViewContext &context, size_t index) const noexcept override
             {
-                return hgraph::child_modified(bundle_state(context), index);
+                if (context.ts_state != nullptr && context.ts_state->storage_kind == TSStorageKind::Native) {
+                    const auto *state = bundle_state(context);
+                    if (hgraph::child_modified(state, index)) { return true; }
+                }
+
+                const auto delta = context.value().as_bundle().delta();
+                return bundle_slot_modified(delta, index);
             }
 
             [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
@@ -631,6 +711,11 @@ namespace hgraph
                 for (size_t index = 0; index < m_fields.size(); ++index) {
                     ensure_child_state(*state, index, m_fields[index].schema.get());
                     View child_value = context.value().as_bundle().at(index);
+                    sync_native_child_state(
+                        context,
+                        state->child_states[index],
+                        child_value.has_value(),
+                        child_modified(context, index));
                     TSViewContext child = child_context_from_slot(state->child_states[index],
                                                                   m_fields[index].schema.get(),
                                                                   m_fields[index].value_dispatch.get(),
@@ -651,6 +736,11 @@ namespace hgraph
                 ensure_child_state(*state, index, m_fields[index].schema.get());
 
                 View child_value = context.value().as_bundle().at(index);
+                sync_native_child_state(
+                    context,
+                    state->child_states[index],
+                    child_value.has_value(),
+                    child_modified(context, index));
                 TSViewContext child = child_context_from_slot(state->child_states[index],
                                                               m_fields[index].schema.get(),
                                                               m_fields[index].value_dispatch.get(),
@@ -699,7 +789,13 @@ namespace hgraph
 
             [[nodiscard]] bool child_modified(const TSViewContext &context, size_t index) const noexcept override
             {
-                return hgraph::child_modified(dict_state(context), index);
+                if (context.ts_state != nullptr && context.ts_state->storage_kind == TSStorageKind::Native) {
+                    const auto *state = dict_state(context);
+                    if (hgraph::child_modified(state, index)) { return true; }
+                }
+
+                const auto delta = context.value().as_map().delta();
+                return dict_slot_modified(delta, index);
             }
 
             [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
@@ -759,11 +855,17 @@ namespace hgraph
                 if (state == nullptr) { return TSViewContext::none(); }
                 if (state->child_states.size() <= slot || state->child_states[slot] == nullptr) { return TSViewContext::none(); }
 
+                const View child_value = delta.value_at_slot(slot);
+                sync_native_child_state(
+                    context,
+                    state->child_states[slot],
+                    child_value.has_value(),
+                    child_modified(context, slot));
                 TSViewContext child = child_context_from_slot(state->child_states[slot],
                                                               m_value_schema.get(),
                                                               m_value_dispatch.get(),
                                                               m_value_ts_dispatch.get(),
-                                                              RawViewAccess::data_of(delta.value_at_slot(slot)));
+                                                              RawViewAccess::data_of(child_value));
                 return child;
             }
 
@@ -791,17 +893,47 @@ namespace hgraph
 
             [[nodiscard]] Range<View> values(const TSViewContext &context) const noexcept override
             {
-                return context.value().as_set().values();
+                return Range<View>{&context,
+                                   context.value().as_set().delta().slot_capacity(),
+                                   [](const void *opaque, size_t slot) {
+                                       const auto &context = *static_cast<const TSViewContext *>(opaque);
+                                       const auto delta = context.value().as_set().delta();
+                                       return delta.slot_occupied(slot) && !delta.slot_removed(slot);
+                                   },
+                                   [](const void *opaque, size_t slot) {
+                                       const auto &context = *static_cast<const TSViewContext *>(opaque);
+                                       return context.value().as_set().delta().at_slot(slot);
+                                   }};
             }
 
             [[nodiscard]] Range<View> added_values(const TSViewContext &context) const noexcept override
             {
-                return context.value().as_set().delta().added();
+                return Range<View>{&context,
+                                   context.value().as_set().delta().slot_capacity(),
+                                   [](const void *opaque, size_t slot) {
+                                       const auto &context = *static_cast<const TSViewContext *>(opaque);
+                                       const auto delta = context.value().as_set().delta();
+                                       return delta.slot_occupied(slot) && delta.slot_added(slot);
+                                   },
+                                   [](const void *opaque, size_t slot) {
+                                       const auto &context = *static_cast<const TSViewContext *>(opaque);
+                                       return context.value().as_set().delta().at_slot(slot);
+                                   }};
             }
 
             [[nodiscard]] Range<View> removed_values(const TSViewContext &context) const noexcept override
             {
-                return context.value().as_set().delta().removed();
+                return Range<View>{&context,
+                                   context.value().as_set().delta().slot_capacity(),
+                                   [](const void *opaque, size_t slot) {
+                                       const auto &context = *static_cast<const TSViewContext *>(opaque);
+                                       const auto delta = context.value().as_set().delta();
+                                       return delta.slot_occupied(slot) && delta.slot_removed(slot);
+                                   },
+                                   [](const void *opaque, size_t slot) {
+                                       const auto &context = *static_cast<const TSViewContext *>(opaque);
+                                       return context.value().as_set().delta().at_slot(slot);
+                                   }};
             }
         };
 

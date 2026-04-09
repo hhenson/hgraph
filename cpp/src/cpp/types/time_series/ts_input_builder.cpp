@@ -104,15 +104,18 @@ namespace hgraph
 
         [[nodiscard]] size_t child_slot_capacity(const TSMeta &schema)
         {
-            switch (schema.kind) {
+            const TSMeta *collection_schema = &schema;
+            if (schema.kind == TSKind::REF && schema.element_ts() != nullptr) { collection_schema = schema.element_ts(); }
+
+            switch (collection_schema->kind) {
                 case TSKind::TSB:
-                    return schema.field_count();
+                    return collection_schema->field_count();
 
                 case TSKind::TSL:
-                    if (schema.fixed_size() == 0) {
+                    if (collection_schema->fixed_size() == 0) {
                         throw std::invalid_argument("TSInput construction plans currently require fixed-size TSL prefixes");
                     }
-                    return schema.fixed_size();
+                    return collection_schema->fixed_size();
 
                 default:
                     throw std::invalid_argument("TSInput construction slots only support TSB and fixed-size TSL collections");
@@ -123,26 +126,29 @@ namespace hgraph
         {
             if (slot < 0) { throw std::out_of_range("TSInput construction plan paths must use non-negative slots"); }
 
-            switch (schema.kind) {
+            const TSMeta *collection_schema = &schema;
+            if (schema.kind == TSKind::REF && schema.element_ts() != nullptr) { collection_schema = schema.element_ts(); }
+
+            switch (collection_schema->kind) {
                 case TSKind::TSB:
-                    if (static_cast<size_t>(slot) >= schema.field_count()) {
+                    if (static_cast<size_t>(slot) >= collection_schema->field_count()) {
                         throw std::out_of_range("TSInput construction plan path is out of bounds for TSB");
                     }
                     {
-                        const TSMeta *child_schema = schema.fields()[slot].ts_type;
+                        const TSMeta *child_schema = collection_schema->fields()[slot].ts_type;
                         assert(child_schema != nullptr);
                         return child_schema;
                     }
 
                 case TSKind::TSL:
-                    if (schema.fixed_size() == 0) {
+                    if (collection_schema->fixed_size() == 0) {
                         throw std::invalid_argument("TSInput construction plan paths do not support dynamic TSL prefixes");
                     }
-                    if (static_cast<size_t>(slot) >= schema.fixed_size()) {
+                    if (static_cast<size_t>(slot) >= collection_schema->fixed_size()) {
                         throw std::out_of_range("TSInput construction plan path is out of bounds for TSL");
                     }
                     {
-                        const TSMeta *child_schema = schema.element_ts();
+                        const TSMeta *child_schema = collection_schema->element_ts();
                         assert(child_schema != nullptr);
                         return child_schema;
                     }
@@ -156,16 +162,19 @@ namespace hgraph
         {
             if (schema == nullptr) { throw std::invalid_argument("TSInput construction plan collection slots require a schema"); }
 
-            if (schema->kind != TSKind::TSB && schema->kind != TSKind::TSL) {
+            const TSMeta *collection_schema = schema;
+            if (schema->kind == TSKind::REF && schema->element_ts() != nullptr) { collection_schema = schema->element_ts(); }
+
+            if (collection_schema->kind != TSKind::TSB && collection_schema->kind != TSKind::TSL) {
                 throw std::invalid_argument("TSInput construction plan prefixes must be TSB or fixed-size TSL");
             }
 
             if (slot.kind() == TSInputSlotKind::Empty) {
-                slot = TSInputConstructionSlot::create_non_peered_collection(schema);
+                slot = TSInputConstructionSlot::create_non_peered_collection(collection_schema);
                 return;
             }
 
-            if (slot.kind() != TSInputSlotKind::NonPeeredCollection || slot.schema() != schema) {
+            if (slot.kind() != TSInputSlotKind::NonPeeredCollection || slot.schema() != collection_schema) {
                 throw std::invalid_argument("TSInput construction plan contains conflicting collection requirements");
             }
         }

@@ -114,8 +114,14 @@ namespace hgraph::v2
             ResolvedNodeBuilders builders;
 
             if (builder.input_schema() != nullptr) {
-                const TSInputConstructionPlan plan = TSInputConstructionPlanCompiler::compile(*builder.input_schema(), inbound_edges);
-                builders.input_builder = &TSInputBuilderFactory::checked_builder_for(plan);
+                try {
+                    const TSInputConstructionPlan plan = TSInputConstructionPlanCompiler::compile(*builder.input_schema(), inbound_edges);
+                    builders.input_builder = &TSInputBuilderFactory::checked_builder_for(plan);
+                } catch (const std::exception &e) {
+                    throw std::invalid_argument(fmt::format("v2 input builder resolution failed for node '{}': {}",
+                                                            builder.label(),
+                                                            e.what()));
+                }
             } else if (!inbound_edges.empty()) {
                 throw std::invalid_argument("v2 nodes without an input schema cannot accept inbound edges");
             }

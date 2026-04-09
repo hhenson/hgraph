@@ -8,7 +8,7 @@ from hgraph._types._scalar_type_meta_data import (
     HgScalarTypeMetaData,
 )
 from hgraph._types._scalar_types import CompoundScalar, compound_scalar
-from hgraph._types._type_meta_data import ParseError
+from hgraph._types._type_meta_data import ParseError, cpp_type_property
 from hgraph._types._typing_utils import class_or_instance_method
 
 try:
@@ -46,6 +46,11 @@ try:
         @property
         def is_resolved(self) -> bool:
             return self.schema.is_resolved
+
+        @cpp_type_property
+        def cpp_type(self, _hgraph):
+            # Frames travel through the C++ runtime as opaque Python objects.
+            return _hgraph.value.get_scalar_type_meta(pl.DataFrame)
 
         def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
             if self.is_resolved:
@@ -120,6 +125,11 @@ try:
         @property
         def is_resolved(self) -> bool:
             return self.value_tp.is_resolved
+
+        @cpp_type_property
+        def cpp_type(self, _hgraph):
+            # Series travel through the C++ runtime as opaque Python objects.
+            return _hgraph.value.get_scalar_type_meta(pl.Series)
 
         def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
             if self.is_resolved:

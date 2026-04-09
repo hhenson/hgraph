@@ -109,11 +109,16 @@ namespace hgraph
                 void bind_output(TSInputView &view, const TSOutputView &output) const override
                 {
                     TSViewContext &context = view.context_mutable();
-                    const TSViewContext &parent_context = view.parent_context_ref();
+                    TSViewContext parent_context = view.parent_context_ref();
                     static_cast<void>(view.evaluation_time());
                     BaseState *state = context.ts_state;
                     if (state == nullptr || parent_context.schema == nullptr) {
                         throw std::logic_error("TSInputView::bind_output requires a child view reached through TSL/TSB navigation");
+                    }
+
+                    const bool parent_is_ref = parent_context.schema->kind == TSKind::REF && parent_context.schema->element_ts() != nullptr;
+                    if (parent_is_ref) {
+                        parent_context.schema = parent_context.schema->element_ts();
                     }
 
                     const size_t slot = state->index;
@@ -164,6 +169,7 @@ namespace hgraph
                                 if (parent_state == nullptr) {
                                     throw std::logic_error("TSInputView::bind_output requires a live parent collection state");
                                 }
+                                if (parent_is_ref) { parent_state->suppress_repeated_child_notifications = true; }
                                 if (parent_state->child_states.size() <= slot || parent_state->child_states[slot] == nullptr ||
                                     !std::holds_alternative<TargetLinkState>(*parent_state->child_states[slot])) {
                                     throw std::logic_error("TSInputView::bind_output requires a prebuilt target-link terminal");

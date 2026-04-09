@@ -82,6 +82,9 @@ namespace hgraph
             // - TS  -> REF : wrap as a TimeSeriesReference value
             // - REF -> TS  : dereference through RefLinkState
             if (target_schema.kind == TSKind::REF) { return target_schema.element_ts() == &source_schema; }
+            if (target_schema.kind == TSKind::SIGNAL) {
+                return source_schema.kind == TSKind::TSValue && source_schema.value_type == target_schema.value_type;
+            }
             if (source_schema.kind == TSKind::REF) {
                 return source_schema.element_ts() == &target_schema ||
                        supports_alternative_cast(*source_schema.element_ts(), target_schema);
@@ -593,6 +596,24 @@ namespace hgraph
             }
         }
 
+        void install_signal_subscription(const TSOutputView &target_view, const TSOutputView &source_view)
+        {
+            BaseState *target_state = target_view.linked_context().ts_state;
+            BaseState *source_state = source_view.linked_context().ts_state;
+            if (target_state == nullptr) {
+                throw std::logic_error("TSOutput alternative SIGNAL cast requires a live target state");
+            }
+
+            // SIGNAL semantics only care that the source ticked; the carried
+            // value stays pinned to `True` for Python-facing reads.
+            target_view.value().as_atomic().set(true);
+
+            auto notifier = std::make_unique<WrappedRefNotifier>(target_state);
+            if (source_state != nullptr) { source_state->subscribe(notifier.get()); }
+            m_wrapped_ref_subscriptions.push_back(
+                WrappedRefSubscription{.source_state = source_state, .target_state = target_state, .notifier = std::move(notifier)});
+        }
+
         void install_dynamic_child(const TSOutputView &target_dict_view,
                                    const View &key,
                                    const TSOutputView &source_child,
@@ -837,6 +858,11 @@ namespace hgraph
                 }
 
                 throw std::invalid_argument("TSOutput alternative REF dereference requires matching or recursively compatible schema");
+            }
+
+            if (target_schema->kind == TSKind::SIGNAL) {
+                install_signal_subscription(target_view, source_view);
+                return;
             }
 
             if (target_schema->kind == TSKind::REF) {

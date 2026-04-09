@@ -42,6 +42,14 @@ namespace hgraph
             return value != nullptr && value->is_peered() ? value->target() : LinkedTSContext::none();
         }
 
+        [[nodiscard]] Value snapshot_target_value(const LinkedTSContext &target)
+        {
+            if (!target.is_bound() || target.schema == nullptr || target.value_dispatch == nullptr || target.value_data == nullptr) {
+                return {};
+            }
+            return View{target.value_dispatch, target.value_data, target.schema->value_type}.clone();
+        }
+
         void replay_attachment_subtree(const LinkedTSContext &context,
                                        ActiveTrieNode *trie_node,
                                        Notifiable *notifier,
@@ -152,6 +160,15 @@ namespace hgraph
     }
 
     void BaseCollectionState::child_modified(size_t child_index, engine_time_t modified_time) noexcept {
+        if (suppress_repeated_child_notifications) {
+            if (last_modified_time == MIN_DT) {
+                modified_children.clear();
+                modified_children.insert(child_index);
+                mark_modified(modified_time);
+            }
+            return;
+        }
+
         if (last_modified_time != modified_time) { modified_children.clear(); }
 
         modified_children.insert(child_index);
@@ -321,6 +338,10 @@ namespace hgraph
         if (self != nullptr) {
             // Target-side data changed without the REF itself rebinding. Keep
             // the dereferenced target time in sync and propagate normally.
+            if (self->switch_modified_time != modified_time) {
+                self->previous_target_value = {};
+                self->switch_modified_time = MIN_DT;
+            }
             self->bound_link.last_modified_time = modified_time;
             self->mark_modified(modified_time);
         }
@@ -348,6 +369,8 @@ namespace hgraph
         bound_link.storage_kind = other.bound_link.storage_kind;
         bound_link.subscribers = std::move(other.bound_link.subscribers);
         bound_link.scheduling_notifier.set_target(other.bound_link.scheduling_notifier.get_target());
+        previous_target_value = std::move(other.previous_target_value);
+        switch_modified_time = other.switch_modified_time;
         boundary_attachments = std::move(other.boundary_attachments);
 
         if (other.source.is_bound()) {
@@ -367,6 +390,8 @@ namespace hgraph
         }
 
         other.bound_link.scheduling_notifier.set_target(nullptr);
+        other.previous_target_value = {};
+        other.switch_modified_time = MIN_DT;
     }
 
     RefLinkState &RefLinkState::operator=(RefLinkState &&other) noexcept
@@ -387,6 +412,8 @@ namespace hgraph
         bound_link.storage_kind = other.bound_link.storage_kind;
         bound_link.subscribers = std::move(other.bound_link.subscribers);
         bound_link.scheduling_notifier.set_target(other.bound_link.scheduling_notifier.get_target());
+        previous_target_value = std::move(other.previous_target_value);
+        switch_modified_time = other.switch_modified_time;
         boundary_attachments = std::move(other.boundary_attachments);
 
         if (other.source.is_bound()) {
@@ -406,6 +433,8 @@ namespace hgraph
         }
 
         other.bound_link.scheduling_notifier.set_target(nullptr);
+        other.previous_target_value = {};
+        other.switch_modified_time = MIN_DT;
         return *this;
     }
 
@@ -425,6 +454,8 @@ namespace hgraph
         source.clear();
         bound_link.target.clear();
         bound_link.last_modified_time = MIN_DT;
+        previous_target_value = {};
+        switch_modified_time = MIN_DT;
     }
 
     void RefLinkState::register_with_source() noexcept
@@ -472,6 +503,7 @@ namespace hgraph
 
     void RefLinkState::refresh_target(engine_time_t modified_time, bool propagate) noexcept
     {
+        const LinkedTSContext previous_target = bound_link.target;
         replay_boundary_attachments(false);
         unregister_from_target();
         bound_link.target = dereferenced_target_from_source(source);
@@ -480,13 +512,27 @@ namespace hgraph
         replay_boundary_attachments(true);
 
         if (propagate) {
-            // When the REF source itself changed, the dereferenced view is
-            // "sampled": consumers should observe this tick even if the new
-            // target has not changed yet.
-            mark_modified(modified_time);
+            const bool target_changed = previous_target.ts_state != bound_link.target.ts_state ||
+                                        previous_target.schema != bound_link.target.schema ||
+                                        previous_target.value_data != bound_link.target.value_data;
+
+            // Restrict sampled REF propagation for now: ordinary Python code
+            // mostly treats refs as opaque handles, so a source-side tick that
+            // resolves to the same target should not manufacture a fresh delta.
+            if (target_changed) {
+                previous_target_value = snapshot_target_value(previous_target);
+                switch_modified_time = modified_time;
+                mark_modified(modified_time);
+            } else {
+                previous_target_value = {};
+                switch_modified_time = MIN_DT;
+                last_modified_time = bound_link.last_modified_time;
+            }
         } else {
             // Initial binding should inherit the current target time without
             // manufacturing a sampled modification.
+            previous_target_value = {};
+            switch_modified_time = MIN_DT;
             last_modified_time = bound_link.last_modified_time;
         }
     }
