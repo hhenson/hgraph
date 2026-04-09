@@ -3,8 +3,12 @@
 #include <hgraph/types/constants.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output_builder.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/time_series/ts_value_builder.h>
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/traits.h>
+#include <hgraph/types/value/type_meta.h>
 #include <hgraph/types/v2/evaluation_clock.h>
 #include <hgraph/types/v2/evaluation_engine.h>
 #include <hgraph/types/v2/graph.h>
@@ -15,14 +19,34 @@
 
 #include <algorithm>
 #include <cassert>
+#include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace hgraph::v2
 {
     namespace
     {
+        struct RawViewAccess : View
+        {
+            using View::data_of;
+        };
+
+        [[nodiscard]] const TSMeta *field_schema(const TSMeta *schema, std::string_view field_name) noexcept
+        {
+            if (schema == nullptr || schema->kind != TSKind::TSB) { return nullptr; }
+
+            for (size_t i = 0; i < schema->data.tsb.field_count; ++i) {
+                const auto &field = schema->data.tsb.fields[i];
+                if (field_name == field.name) { return field.ts_type; }
+            }
+
+            return nullptr;
+        }
+
         [[nodiscard]] Graph &graph_of(Node *node) noexcept
         {
             assert(node != nullptr);
@@ -36,11 +60,7 @@ namespace hgraph::v2
                 throw std::logic_error("v2 Python time-series bundle access requires a TSB schema");
             }
 
-            for (size_t i = 0; i < schema->data.tsb.field_count; ++i) {
-                const auto &field = schema->data.tsb.fields[i];
-                if (field_name == field.name) { return field.ts_type; }
-            }
-
+            if (const TSMeta *field = field_schema(schema, field_name); field != nullptr) { return field; }
             throw std::out_of_range("v2 Python time-series bundle field is out of range");
         }
 
@@ -66,17 +86,19 @@ namespace hgraph::v2
 
         void mark_output_modified(const TSOutputView &view, engine_time_t evaluation_time)
         {
-            LinkedTSContext context = view.linked_context();
-            if (context.ts_state == nullptr) {
-                throw std::logic_error("v2 Python output mutation requires a linked output state");
-            }
-            context.ts_state->mark_modified(evaluation_time);
+            mark_output_view_modified(view, evaluation_time);
         }
 
         [[nodiscard]] TSOutputView output_view_from_context(const LinkedTSContext &context, engine_time_t evaluation_time)
         {
             TSViewContext view_context{context.schema, context.value_dispatch, context.ts_dispatch, context.value_data, context.ts_state};
-            return TSOutputView{view_context, TSViewContext::none(), evaluation_time, nullptr, &detail::default_output_view_ops()};
+            return TSOutputView{
+                view_context,
+                TSViewContext::none(),
+                evaluation_time,
+                context.owning_output,
+                context.output_view_ops != nullptr ? context.output_view_ops : &detail::default_output_view_ops(),
+            };
         }
 
         [[nodiscard]] nb::object removed_type()
@@ -101,6 +123,37 @@ namespace hgraph::v2
             return state != nullptr && state->storage_kind == TSStorageKind::RefLink
                        ? static_cast<const RefLinkState *>(state)
                        : nullptr;
+        }
+
+        [[nodiscard]] const BaseState *parent_collection_state(const BaseState *state) noexcept
+        {
+            if (state == nullptr) { return nullptr; }
+
+            const BaseState *parent_state = nullptr;
+            hgraph::visit(
+                state->parent,
+                [&](const auto *parent) {
+                    using T = std::remove_pointer_t<decltype(parent)>;
+                    if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState>) {
+                        parent_state = parent;
+                    }
+                },
+                [] {});
+            return parent_state;
+        }
+
+        [[nodiscard]] engine_time_t effective_modified_time(const LinkedTSContext &context) noexcept
+        {
+            for (const BaseState *state = context.ts_state; state != nullptr; state = parent_collection_state(state)) {
+                if (state->last_modified_time != MIN_DT) { return state->last_modified_time; }
+            }
+            return MIN_DT;
+        }
+
+        [[nodiscard]] const TSMeta *ts_bool_schema()
+        {
+            static const TSMeta *schema = TSTypeRegistry::instance().ts(value::scalar_type_meta<bool>());
+            return schema;
         }
 
         class PythonTraitsHandle
@@ -256,6 +309,35 @@ namespace hgraph::v2
             NodeScheduler *m_scheduler{nullptr};
         };
 
+        struct PythonNodeHeapStateView
+        {
+            nb::object python_signature;
+            nb::object python_scalars;
+            nb::object eval_fn;
+            nb::object start_fn;
+            nb::object stop_fn;
+            nb::object node_handle;
+        };
+
+        struct PythonNodeRuntimeDataView
+        {
+            TSInput *input{nullptr};
+            TSOutput *output{nullptr};
+            TSOutput *recordable_state{nullptr};
+            PythonNodeHeapStateView *heap_state{nullptr};
+        };
+
+        [[nodiscard]] nb::object python_node_handle_for(Node *node)
+        {
+            if (node == nullptr) { return nb::none(); }
+            auto *runtime_data = static_cast<const PythonNodeRuntimeDataView *>(node->data());
+            if (runtime_data == nullptr || runtime_data->heap_state == nullptr ||
+                !runtime_data->heap_state->node_handle.is_valid()) {
+                return nb::none();
+            }
+            return nb::borrow(runtime_data->heap_state->node_handle);
+        }
+
         class PythonTimeSeriesHandle
         {
           public:
@@ -307,6 +389,78 @@ namespace hgraph::v2
                 }
             };
 
+            struct SetFeatureOutput final : Notifiable
+            {
+                explicit SetFeatureOutput(const LinkedTSContext &source_context,
+                                          engine_time_t initial_time,
+                                          std::optional<Value> item_key = std::nullopt)
+                    : output(TSOutputBuilderFactory::checked_builder_for(ts_bool_schema())),
+                      source(source_context),
+                      item(std::move(item_key))
+                {
+                    if (source.ts_state != nullptr) { source.ts_state->subscribe(this); }
+                    refresh(initial_time, true);
+                }
+
+                ~SetFeatureOutput() override
+                {
+                    if (source.ts_state != nullptr) { source.ts_state->unsubscribe(this); }
+                }
+
+                void notify(engine_time_t modified_time) override { refresh(modified_time, false); }
+
+                void refresh(engine_time_t evaluation_time, bool initialise)
+                {
+                    TSOutputView source_view = output_view_from_context(source, evaluation_time);
+                    const bool next_value = item.has_value()
+                                                ? source_view.value().as_set().contains(item->view())
+                                                : source_view.as_set().empty();
+
+                    if (initialised && next_value == current_value) { return; }
+
+                    TSOutputView output_view = output.view(evaluation_time);
+                    output_view.value().as_atomic().set(next_value);
+                    current_value = next_value;
+                    initialised = true;
+                    if (evaluation_time != MIN_DT || initialise) { mark_output_modified(output_view, evaluation_time); }
+                }
+
+                TSOutput                   output;
+                LinkedTSContext            source;
+                std::optional<Value>       item;
+                bool                       current_value{false};
+                bool                       initialised{false};
+            };
+
+            struct FeatureOutputs
+            {
+                struct ValueKeyHash
+                {
+                    [[nodiscard]] size_t operator()(const Value &value) const noexcept { return value.hash(); }
+                };
+
+                struct ValueKeyEqual
+                {
+                    [[nodiscard]] bool operator()(const Value &lhs, const Value &rhs) const noexcept { return lhs.equals(rhs); }
+                };
+
+                struct ContainsOutputEntry
+                {
+                    std::unique_ptr<SetFeatureOutput> output;
+                    std::unordered_set<const void *>  requesters;
+                };
+
+                struct RetiredContainsOutput
+                {
+                    std::unique_ptr<SetFeatureOutput> output;
+                    engine_time_t                     retired_at{MIN_DT};
+                };
+
+                std::unordered_map<Value, ContainsOutputEntry, ValueKeyHash, ValueKeyEqual> contains_outputs;
+                std::unique_ptr<SetFeatureOutput>                                       is_empty_output;
+                std::vector<RetiredContainsOutput>                                      retired_contains_outputs;
+            };
+
             PythonTimeSeriesHandle(Node *node,
                                    TSInput *input,
                                    TSOutput *output,
@@ -356,22 +510,52 @@ namespace hgraph::v2
 
             [[nodiscard]] bool modified() const
             {
+                if (m_input == nullptr && m_output == nullptr && m_bound_output.has_value()) {
+                    const engine_time_t when = effective_modified_time(*m_bound_output);
+                    return when != MIN_DT ? when == m_fixed_evaluation_time : current_value().has_value();
+                }
                 return m_input != nullptr ? input_view().modified() : output_view().modified();
             }
 
             [[nodiscard]] bool valid() const
             {
+                if (m_input == nullptr && m_output == nullptr && m_bound_output.has_value()) {
+                    return current_value().has_value();
+                }
                 return m_input != nullptr ? input_view().valid() : output_view().valid();
             }
 
             [[nodiscard]] bool all_valid() const
             {
+                if (m_input == nullptr && m_output == nullptr && m_bound_output.has_value()) {
+                    return current_value().has_value();
+                }
                 return m_input != nullptr ? input_view().all_valid() : output_view().all_valid();
             }
 
             [[nodiscard]] engine_time_t last_modified_time() const
             {
+                if (m_input == nullptr && m_output == nullptr && m_bound_output.has_value()) {
+                    return effective_modified_time(*m_bound_output);
+                }
                 return m_input != nullptr ? input_view().last_modified_time() : output_view().last_modified_time();
+            }
+
+            [[nodiscard]] nb::object owning_graph() const
+            {
+                nb::object node_handle = python_node_handle_for(m_node);
+                if (node_handle.is_valid() && !node_handle.is_none()) { return node_handle.attr("graph"); }
+                return m_node != nullptr ? nb::cast(PythonGraphHandle{m_node}) : nb::none();
+            }
+
+            [[nodiscard]] nb::object owning_node() const
+            {
+                return python_node_handle_for(m_node);
+            }
+
+            [[nodiscard]] bool has_owning_node() const noexcept
+            {
+                return m_node != nullptr;
             }
 
             [[nodiscard]] bool is_bundle() const noexcept
@@ -441,6 +625,90 @@ namespace hgraph::v2
                 if (is_list()) { return nb::cast(index(nb::cast<size_t>(key))); }
                 if (is_dict()) { return nb::cast(key_item(key)); }
                 throw std::logic_error("v2 Python time-series __getitem__ requires a bundle, list, or dict schema");
+            }
+
+            [[nodiscard]] nb::object get(const nb::handle &key, nb::object default_value = nb::none()) const
+            {
+                if (!is_dict()) { throw std::logic_error("v2 Python time-series get() requires a TSD schema"); }
+                const auto child = key_item(key);
+                return child.valid() ? nb::cast(child) : std::move(default_value);
+            }
+
+            [[nodiscard]] nb::object get_attr(const std::string &name) const
+            {
+                if (is_bundle() && field_schema(m_schema, name) != nullptr) { return nb::cast(field(name)); }
+
+                throw nb::attribute_error(
+                    fmt::format("'_PythonTimeSeriesHandle' object has no attribute '{}'", name).c_str());
+            }
+
+            [[nodiscard]] nb::object parent_input() const
+            {
+                if (m_input == nullptr || m_path_steps.empty()) { return nb::none(); }
+                return nb::cast(handle_with_prefix(m_path_steps.size() - 1));
+            }
+
+            [[nodiscard]] bool has_parent_input() const noexcept
+            {
+                return m_input != nullptr && !m_path_steps.empty();
+            }
+
+            [[nodiscard]] nb::object parent_output() const
+            {
+                if (!has_output_parent()) { return nb::none(); }
+                return nb::cast(handle_with_prefix(m_path_steps.size() - 1));
+            }
+
+            [[nodiscard]] bool has_parent_output() const noexcept
+            {
+                return has_output_parent();
+            }
+
+            [[nodiscard]] nb::object key_from_value(const PythonTimeSeriesHandle &value) const
+            {
+                if (!(is_bundle() || is_list() || is_dict())) { return nb::none(); }
+                if (!same_root(value)) { return nb::none(); }
+                if (value.m_path_steps.size() != m_path_steps.size() + 1) { return nb::none(); }
+                for (size_t i = 0; i < m_path_steps.size(); ++i) {
+                    if (!path_step_equal(m_path_steps[i], value.m_path_steps[i])) { return nb::none(); }
+                }
+
+                const PathStep &step = value.m_path_steps.back();
+                switch (step.kind) {
+                    case PathStep::Kind::Field: return nb::str(step.field_name.c_str());
+                    case PathStep::Kind::Index: return nb::int_(step.index);
+                    case PathStep::Kind::Key: return step.key.to_python();
+                }
+                return nb::none();
+            }
+
+            [[nodiscard]] size_t len() const
+            {
+                if (is_bundle()) { return m_schema->data.tsb.field_count; }
+                if (is_list()) { return m_input != nullptr ? input_view().as_list().size() : output_view().as_list().size(); }
+                if (is_dict()) { return m_input != nullptr ? input_view().as_dict().size() : output_view().as_dict().size(); }
+                if (is_set()) { return m_input != nullptr ? input_view().as_set().size() : output_view().as_set().size(); }
+                throw std::logic_error("v2 Python time-series __len__ requires a collection schema");
+            }
+
+            [[nodiscard]] bool contains(const nb::handle &item) const
+            {
+                if (is_bundle()) { return field_schema(m_schema, nb::cast<std::string>(item)) != nullptr; }
+                if (is_dict()) {
+                    const Value key_value = key_value_from_python(item);
+                    return m_input != nullptr ? input_view().value().as_map().contains(key_value.view())
+                                              : output_view().value().as_map().contains(key_value.view());
+                }
+                if (is_set()) {
+                    const value::TypeMeta *element_schema = current_value().as_set().element_schema();
+                    if (element_schema == nullptr) { return false; }
+                    Value value(*element_schema);
+                    value.reset();
+                    value.from_python(nb::borrow<nb::object>(item));
+                    return m_input != nullptr ? input_view().value().as_set().contains(value.view())
+                                              : output_view().value().as_set().contains(value.view());
+                }
+                throw std::logic_error("v2 Python time-series __contains__ requires a bundle, dict, or set schema");
             }
 
             [[nodiscard]] nb::tuple keys() const
@@ -520,28 +788,28 @@ namespace hgraph::v2
                 throw std::logic_error("v2 Python time-series values() requires a bundle, list, dict, or set schema");
             }
 
-            [[nodiscard]] nb::list added() const
+            [[nodiscard]] nb::set added() const
             {
                 if (!is_set()) { throw std::logic_error("v2 Python time-series added() requires a TSS schema"); }
 
-                nb::list result;
+                nb::set result;
                 if (m_input != nullptr) {
-                    for (const View &item : input_view().as_set().added_values()) { result.append(item.to_python()); }
+                    for (const View &item : input_view().as_set().added_values()) { result.add(item.to_python()); }
                 } else {
-                    for (const View &item : output_view().as_set().added_values()) { result.append(item.to_python()); }
+                    for (const View &item : output_view().as_set().added_values()) { result.add(item.to_python()); }
                 }
                 return result;
             }
 
-            [[nodiscard]] nb::list removed() const
+            [[nodiscard]] nb::set removed() const
             {
                 if (!is_set()) { throw std::logic_error("v2 Python time-series removed() requires a TSS schema"); }
 
-                nb::list result;
+                nb::set result;
                 if (m_input != nullptr) {
-                    for (const View &item : input_view().as_set().removed_values()) { result.append(item.to_python()); }
+                    for (const View &item : input_view().as_set().removed_values()) { result.add(item.to_python()); }
                 } else {
-                    for (const View &item : output_view().as_set().removed_values()) { result.append(item.to_python()); }
+                    for (const View &item : output_view().as_set().removed_values()) { result.add(item.to_python()); }
                 }
                 return result;
             }
@@ -585,6 +853,204 @@ namespace hgraph::v2
                     return result;
                 }
                 throw std::logic_error("v2 Python time-series items() requires a bundle, list, or dict schema");
+            }
+
+            [[nodiscard]] nb::tuple added_keys() const
+            {
+                if (!is_dict()) { throw std::logic_error("v2 Python time-series added_keys() requires a TSD schema"); }
+
+                const auto build_keys = [](const auto &view) {
+                    nb::list result;
+
+                    if (const auto *ref_state = switching_ref_state(view.context_ref());
+                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
+                        ref_state->previous_target_value.has_value()) {
+                        const auto current = view.value().as_map();
+                        const auto previous = ref_state->previous_target_value.view().as_map();
+                        constexpr size_t no_slot = static_cast<size_t>(-1);
+
+                        for (size_t slot = current.first_live_slot(); slot != no_slot; slot = current.next_live_slot(slot)) {
+                            const View key = current.delta().key_at_slot(slot);
+                            if (!previous.contains(key)) { result.append(key.to_python()); }
+                        }
+                        return nb::tuple(result);
+                    }
+
+                    MapDeltaView delta = view.delta_value().as_map().delta();
+                    for (size_t slot = delta.first_added_slot(); slot != static_cast<size_t>(-1); slot = delta.next_added_slot(slot)) {
+                        result.append(delta.key_at_slot(slot).to_python());
+                    }
+                    return nb::tuple(result);
+                };
+
+                return m_input != nullptr ? build_keys(input_view()) : build_keys(output_view());
+            }
+
+            [[nodiscard]] nb::tuple removed_keys() const
+            {
+                if (!is_dict()) { throw std::logic_error("v2 Python time-series removed_keys() requires a TSD schema"); }
+
+                const auto build_keys = [](const auto &view) {
+                    nb::list result;
+
+                    if (const auto *ref_state = switching_ref_state(view.context_ref());
+                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
+                        ref_state->previous_target_value.has_value()) {
+                        const auto current = view.value().as_map();
+                        const auto previous = ref_state->previous_target_value.view().as_map();
+                        constexpr size_t no_slot = static_cast<size_t>(-1);
+
+                        for (size_t slot = previous.first_live_slot(); slot != no_slot; slot = previous.next_live_slot(slot)) {
+                            const View key = previous.delta().key_at_slot(slot);
+                            if (!current.contains(key)) { result.append(key.to_python()); }
+                        }
+                        return nb::tuple(result);
+                    }
+
+                    MapDeltaView delta = view.delta_value().as_map().delta();
+                    for (size_t slot = delta.first_removed_slot(); slot != static_cast<size_t>(-1);
+                         slot = delta.next_removed_slot(slot)) {
+                        result.append(delta.key_at_slot(slot).to_python());
+                    }
+                    return nb::tuple(result);
+                };
+
+                return m_input != nullptr ? build_keys(input_view()) : build_keys(output_view());
+            }
+
+            [[nodiscard]] nb::list added_values() const
+            {
+                if (!is_dict()) { throw std::logic_error("v2 Python time-series added_values() requires a TSD schema"); }
+
+                const auto build_values = [this](const auto &view) {
+                    nb::list result;
+
+                    if (const auto *ref_state = switching_ref_state(view.context_ref());
+                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
+                        ref_state->previous_target_value.has_value()) {
+                        const auto current = view.value().as_map();
+                        const auto previous = ref_state->previous_target_value.view().as_map();
+                        constexpr size_t no_slot = static_cast<size_t>(-1);
+
+                        for (size_t slot = current.first_live_slot(); slot != no_slot; slot = current.next_live_slot(slot)) {
+                            const View key = current.delta().key_at_slot(slot);
+                            if (!previous.contains(key)) { result.append(nb::cast(dict_slot_item(view.context_ref(), slot))); }
+                        }
+                        return result;
+                    }
+
+                    MapDeltaView delta = view.delta_value().as_map().delta();
+                    for (size_t slot = delta.first_added_slot(); slot != static_cast<size_t>(-1); slot = delta.next_added_slot(slot)) {
+                        result.append(nb::cast(dict_slot_item(view.context_ref(), slot)));
+                    }
+                    return result;
+                };
+
+                return m_input != nullptr ? build_values(input_view()) : build_values(output_view());
+            }
+
+            [[nodiscard]] nb::list removed_values() const
+            {
+                if (!is_dict()) { throw std::logic_error("v2 Python time-series removed_values() requires a TSD schema"); }
+
+                const auto build_values = [this](const auto &view) {
+                    nb::list result;
+
+                    if (const auto *ref_state = switching_ref_state(view.context_ref());
+                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
+                        ref_state->previous_target_value.has_value()) {
+                        const auto current = view.value().as_map();
+                        const auto previous = ref_state->previous_target_value.view().as_map();
+                        constexpr size_t no_slot = static_cast<size_t>(-1);
+
+                        for (size_t slot = previous.first_live_slot(); slot != no_slot; slot = previous.next_live_slot(slot)) {
+                            const View key = previous.delta().key_at_slot(slot);
+                            if (!current.contains(key)) {
+                                result.append(nb::cast(detached_value_item(previous.at(key), value_schema_or_throw(m_schema))));
+                            }
+                        }
+                        return result;
+                    }
+
+                    MapDeltaView delta = view.delta_value().as_map().delta();
+                    for (size_t slot = delta.first_removed_slot(); slot != static_cast<size_t>(-1);
+                         slot = delta.next_removed_slot(slot)) {
+                        result.append(nb::cast(dict_slot_item(view.context_ref(), slot)));
+                    }
+                    return result;
+                };
+
+                return m_input != nullptr ? build_values(input_view()) : build_values(output_view());
+            }
+
+            [[nodiscard]] nb::list added_items() const
+            {
+                if (!is_dict()) { throw std::logic_error("v2 Python time-series added_items() requires a TSD schema"); }
+
+                const auto build_items = [this](const auto &view) {
+                    nb::list result;
+
+                    if (const auto *ref_state = switching_ref_state(view.context_ref());
+                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
+                        ref_state->previous_target_value.has_value()) {
+                        const auto current = view.value().as_map();
+                        const auto previous = ref_state->previous_target_value.view().as_map();
+                        constexpr size_t no_slot = static_cast<size_t>(-1);
+
+                        for (size_t slot = current.first_live_slot(); slot != no_slot; slot = current.next_live_slot(slot)) {
+                            const View key = current.delta().key_at_slot(slot);
+                            if (!previous.contains(key)) {
+                                result.append(nb::make_tuple(key.to_python(), nb::cast(dict_slot_item(view.context_ref(), slot))));
+                            }
+                        }
+                        return result;
+                    }
+
+                    MapDeltaView delta = view.delta_value().as_map().delta();
+                    for (size_t slot = delta.first_added_slot(); slot != static_cast<size_t>(-1); slot = delta.next_added_slot(slot)) {
+                        result.append(nb::make_tuple(delta.key_at_slot(slot).to_python(), nb::cast(dict_slot_item(view.context_ref(), slot))));
+                    }
+                    return result;
+                };
+
+                return m_input != nullptr ? build_items(input_view()) : build_items(output_view());
+            }
+
+            [[nodiscard]] nb::list removed_items() const
+            {
+                if (!is_dict()) { throw std::logic_error("v2 Python time-series removed_items() requires a TSD schema"); }
+
+                const auto build_items = [this](const auto &view) {
+                    nb::list result;
+
+                    if (const auto *ref_state = switching_ref_state(view.context_ref());
+                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
+                        ref_state->previous_target_value.has_value()) {
+                        const auto current = view.value().as_map();
+                        const auto previous = ref_state->previous_target_value.view().as_map();
+                        constexpr size_t no_slot = static_cast<size_t>(-1);
+
+                        for (size_t slot = previous.first_live_slot(); slot != no_slot; slot = previous.next_live_slot(slot)) {
+                            const View key = previous.delta().key_at_slot(slot);
+                            if (!current.contains(key)) {
+                                result.append(nb::make_tuple(
+                                    key.to_python(),
+                                    nb::cast(detached_value_item(previous.at(key), value_schema_or_throw(m_schema)))));
+                            }
+                        }
+                        return result;
+                    }
+
+                    MapDeltaView delta = view.delta_value().as_map().delta();
+                    for (size_t slot = delta.first_removed_slot(); slot != static_cast<size_t>(-1);
+                         slot = delta.next_removed_slot(slot)) {
+                        result.append(
+                            nb::make_tuple(delta.key_at_slot(slot).to_python(), nb::cast(dict_slot_item(view.context_ref(), slot))));
+                    }
+                    return result;
+                };
+
+                return m_input != nullptr ? build_items(input_view()) : build_items(output_view());
             }
 
             [[nodiscard]] nb::list valid_items() const
@@ -663,10 +1129,9 @@ namespace hgraph::v2
                 }
                 if (is_dict()) {
                     const auto append_modified_items = [this, &result](const auto &dict) {
-                        for (const auto &[key, value] : dict.items()) {
+                        for (const auto &[key, value] : dict.modified_items()) {
                             static_cast<void>(value);
-                            const auto child = key_item(key);
-                            if (child.modified()) { result.append(nb::make_tuple(key.to_python(), nb::cast(child))); }
+                            result.append(nb::make_tuple(key.to_python(), nb::cast(key_item(key))));
                         }
                     };
                     if (m_input != nullptr) {
@@ -707,6 +1172,173 @@ namespace hgraph::v2
                 return result;
             }
 
+            [[nodiscard]] PythonTimeSeriesHandle get_or_create(const nb::handle &key) const
+            {
+                if (!is_dict()) { throw std::logic_error("v2 Python time-series get_or_create() requires a TSD schema"); }
+                return key_item(key);
+            }
+
+            void create(const nb::handle &key) const
+            {
+                static_cast<void>(get_or_create(key));
+            }
+
+            void del_item(const nb::handle &key) const
+            {
+                if (!is_dict()) { throw std::logic_error("v2 Python time-series __delitem__ requires a TSD schema"); }
+                ensure_output();
+                const Value key_value = key_value_from_python(key);
+                auto view = output_view();
+                prepare_output_view_mutation(view, evaluation_time());
+                const bool removed = view.value().as_map().begin_mutation().remove(key_value.view());
+                if (!removed) { throw nb::key_error("TSD key not found"); }
+                mark_output_modified(view, evaluation_time());
+            }
+
+            [[nodiscard]] PythonTimeSeriesHandle get_ref(const nb::handle &key, nb::object requester = nb::none()) const
+            {
+                static_cast<void>(requester);
+                if (!is_dict()) { throw std::logic_error("v2 Python time-series get_ref() requires a TSD schema"); }
+                return key_item(key);
+            }
+
+            void release_ref(const nb::handle &key, nb::object requester = nb::none()) const
+            {
+                static_cast<void>(key);
+                static_cast<void>(requester);
+                if (!is_dict()) { throw std::logic_error("v2 Python time-series release_ref() requires a TSD schema"); }
+            }
+
+            void bind_output(const PythonTimeSeriesHandle &output) const
+            {
+                ensure_input();
+                if (is_reference() && !output.is_reference()) {
+                    bind_reference_value(output);
+                    return;
+                }
+                input_view().bind_output(output.output_view());
+            }
+
+            void un_bind_output(bool unbind_refs = false) const
+            {
+                static_cast<void>(unbind_refs);
+                ensure_input();
+
+                TSInputView view = input_view();
+                BaseState *state = view.context_ref().ts_state;
+                if (state == nullptr) {
+                    throw std::runtime_error("v2 Python time-series un_bind_output requires a live input state");
+                }
+
+                if (state->storage_kind == TSStorageKind::TargetLink) {
+                    static_cast<TargetLinkState *>(state)->reset_target();
+                }
+
+                if (is_reference()) {
+                    set_local_reference_value(view, TimeSeriesReference::make());
+                    state->last_modified_time = MIN_DT;
+                }
+            }
+
+            [[nodiscard]] bool bound() const
+            {
+                if (m_input == nullptr) { return false; }
+                TSInputView view = input_view();
+                if (const LinkedTSContext *target = view.linked_target(); target != nullptr) { return target->is_bound(); }
+                return detail::has_local_reference_binding(view.context_ref());
+            }
+
+            [[nodiscard]] bool has_peer() const
+            {
+                return bound();
+            }
+
+            [[nodiscard]] bool has_output() const
+            {
+                return bound();
+            }
+
+            [[nodiscard]] nb::object output() const
+            {
+                if (m_input == nullptr) { return nb::none(); }
+                if (const LinkedTSContext *target = input_view().linked_target(); target != nullptr && target->is_bound()) {
+                    return nb::cast(PythonTimeSeriesHandle{*target, effective_modified_time(*target)});
+                }
+                return nb::none();
+            }
+
+            [[nodiscard]] nb::object reference_output() const
+            {
+                return nb::none();
+            }
+
+            [[nodiscard]] PythonTimeSeriesHandle get_contains_output(const nb::handle &item, nb::object requester) const
+            {
+                if (!is_set()) { throw std::logic_error("v2 Python time-series get_contains_output() requires a TSS schema"); }
+                if (requester.is_none()) { throw std::logic_error("v2 Python time-series get_contains_output() requires a requester"); }
+
+                auto &features = ensure_feature_outputs();
+                prune_retired_feature_outputs(features);
+                const void *requester_key = requester.ptr();
+                const auto *item_schema = m_schema != nullptr && m_schema->value_type != nullptr ? m_schema->value_type->element_type : nullptr;
+                if (item_schema == nullptr) {
+                    throw std::logic_error("v2 Python time-series get_contains_output() requires a TSS element schema");
+                }
+
+                Value key_value(item_schema);
+                key_value.from_python(nb::borrow<nb::object>(item));
+                auto it = features.contains_outputs.find(key_value);
+                if (it == features.contains_outputs.end()) {
+                    Value stored_key(key_value);
+                    FeatureOutputs::ContainsOutputEntry entry{
+                        .output = std::make_unique<SetFeatureOutput>(output_context_for_features(), evaluation_time(), std::move(key_value)),
+                    };
+                    auto [inserted, success] = features.contains_outputs.emplace(std::move(stored_key), std::move(entry));
+                    static_cast<void>(success);
+                    it = inserted;
+                }
+                it->second.requesters.insert(requester_key);
+                return PythonTimeSeriesHandle{
+                    nullptr, nullptr, &it->second.output->output, ts_bool_schema(), {}, std::nullopt, evaluation_time()};
+            }
+
+            void release_contains_output(const nb::handle &item, nb::object requester) const
+            {
+                if (!is_set()) { throw std::logic_error("v2 Python time-series release_contains_output() requires a TSS schema"); }
+                if (requester.is_none()) { return; }
+
+                auto &features = ensure_feature_outputs();
+                prune_retired_feature_outputs(features);
+                const auto *item_schema = m_schema != nullptr && m_schema->value_type != nullptr ? m_schema->value_type->element_type : nullptr;
+                if (item_schema == nullptr) { return; }
+
+                Value key_value(item_schema);
+                key_value.from_python(nb::borrow<nb::object>(item));
+                auto it = features.contains_outputs.find(key_value);
+                if (it == features.contains_outputs.end()) { return; }
+
+                it->second.requesters.erase(requester.ptr());
+                if (it->second.requesters.empty()) {
+                    // Keep the old output alive until a later engine tick so a
+                    // same-tick ref retarget cannot alias back onto the same
+                    // raw state/value addresses.
+                    features.retired_contains_outputs.push_back(
+                        FeatureOutputs::RetiredContainsOutput{std::move(it->second.output), evaluation_time()});
+                    features.contains_outputs.erase(it);
+                }
+            }
+
+            [[nodiscard]] PythonTimeSeriesHandle is_empty_output() const
+            {
+                if (!is_set()) { throw std::logic_error("v2 Python time-series is_empty_output() requires a TSS schema"); }
+                auto &features = ensure_feature_outputs();
+                if (features.is_empty_output == nullptr) {
+                    features.is_empty_output = std::make_unique<SetFeatureOutput>(output_context_for_features(), evaluation_time());
+                }
+                return PythonTimeSeriesHandle{
+                    nullptr, nullptr, &features.is_empty_output->output, ts_bool_schema(), {}, std::nullopt, evaluation_time()};
+            }
+
             void make_active() const
             {
                 ensure_input();
@@ -734,6 +1366,10 @@ namespace hgraph::v2
             void set_value(nb::handle value) const
             {
                 ensure_output();
+                if (is_direct_dict_value() && !value.is_none()) {
+                    set_direct_dict_value(value);
+                    return;
+                }
                 auto view = output_view();
                 if (is_bundle() && !value.is_none()) {
                     set_bundle_value(value);
@@ -777,6 +1413,109 @@ namespace hgraph::v2
             [[nodiscard]] static nb::object remove_if_exists_sentinel()
             {
                 return get_remove_if_exists();
+            }
+
+            [[nodiscard]] PythonTimeSeriesHandle dict_slot_item(const TSViewContext &context, size_t slot) const
+            {
+                const auto *collection = context.ts_dispatch != nullptr ? context.ts_dispatch->as_collection() : nullptr;
+                const auto *dispatch = collection != nullptr ? collection->as_keys() : nullptr;
+                if (dispatch == nullptr) { return PythonTimeSeriesHandle{LinkedTSContext::none(), evaluation_time()}; }
+                return handle_from_context(dispatch->child_at(context, slot));
+            }
+
+            [[nodiscard]] Value key_value_from_python(const nb::handle &key) const
+            {
+                const value::TypeMeta *key_schema = m_schema != nullptr ? m_schema->key_type() : nullptr;
+                if (key_schema == nullptr) {
+                    throw std::logic_error("v2 Python dict access requires a key schema");
+                }
+
+                Value key_value(*key_schema);
+                key_value.reset();
+                key_value.from_python(nb::borrow<nb::object>(key));
+                return key_value;
+            }
+
+            [[nodiscard]] bool is_direct_dict_value() const noexcept
+            {
+                return !m_path_steps.empty() && m_path_steps.back().kind == PathStep::Kind::Key;
+            }
+
+            void set_direct_dict_value(nb::handle value) const
+            {
+                auto parent_view = output_view_prefix(m_path_steps.size() - 1);
+                if (parent_view.ts_schema() == nullptr || parent_view.ts_schema()->kind != TSKind::TSD) {
+                    throw std::logic_error("v2 Python dict child output mutation requires a TSD parent");
+                }
+                if (m_schema == nullptr || m_schema->value_type == nullptr) {
+                    throw std::logic_error("v2 Python dict child output mutation requires a value schema");
+                }
+
+                Value mapped_value(*m_schema->value_type);
+                mapped_value.reset();
+                mapped_value.from_python(nb::borrow<nb::object>(value));
+
+                prepare_output_view_mutation(parent_view, evaluation_time());
+                parent_view.value().as_map().begin_mutation().set(m_path_steps.back().key.view(), mapped_value.view());
+                mark_output_modified(parent_view, evaluation_time());
+            }
+
+            [[nodiscard]] PythonTimeSeriesHandle detached_value_item(const View &value, const TSMeta *schema) const
+            {
+                if (schema == nullptr || !value.has_value()) {
+                    return PythonTimeSeriesHandle{LinkedTSContext::none(), evaluation_time()};
+                }
+
+                const auto &builder = TSValueBuilderFactory::checked_builder_for(schema);
+                LinkedTSContext context{
+                    schema,
+                    &builder.value_builder().dispatch(),
+                    &builder.ts_dispatch(),
+                    RawViewAccess::data_of(value),
+                    nullptr,
+                };
+                return PythonTimeSeriesHandle{context, evaluation_time()};
+            }
+
+            [[nodiscard]] PythonTimeSeriesHandle handle_from_context(const TSViewContext &context) const
+            {
+                if (!context.is_bound()) { return PythonTimeSeriesHandle{LinkedTSContext::none(), evaluation_time()}; }
+                LinkedTSContext linked{
+                    context.schema,
+                    context.value_dispatch,
+                    context.ts_dispatch,
+                    context.value_data,
+                    context.ts_state,
+                };
+                return PythonTimeSeriesHandle{linked, evaluation_time()};
+            }
+
+            static void set_local_reference_value(const TSInputView &view, const TimeSeriesReference &value)
+            {
+                const TSViewContext &context = view.context_ref();
+                if (context.schema == nullptr || context.schema->kind != TSKind::REF || context.schema->value_type == nullptr ||
+                    context.value_dispatch == nullptr || context.value_data == nullptr) {
+                    throw std::runtime_error("v2 REF local binding requires native REF value storage");
+                }
+
+                View local_value{context.value_dispatch, context.value_data, context.schema->value_type};
+                local_value.as_atomic().set(value);
+            }
+
+            void bind_reference_value(const PythonTimeSeriesHandle &output) const
+            {
+                TSInputView view = input_view();
+                BaseState *state = view.context_ref().ts_state;
+                if (state == nullptr) {
+                    throw std::runtime_error("v2 REF bind_output requires a live input state");
+                }
+
+                if (state->storage_kind == TSStorageKind::TargetLink) {
+                    static_cast<TargetLinkState *>(state)->reset_target();
+                }
+
+                set_local_reference_value(view, TimeSeriesReference::make(output.output_view()));
+                state->mark_modified(evaluation_time());
             }
 
             void set_bundle_value(nb::handle value) const
@@ -848,6 +1587,7 @@ namespace hgraph::v2
 
                 auto item_attr = nb::getattr(value, "items", nb::none());
                 nb::iterator items = item_attr.is_none() ? nb::iter(value) : nb::iter(item_attr());
+                prepare_output_view_mutation(view, evaluation_time());
                 auto mutation = view.value().as_map().begin_mutation();
                 bool changed = false;
 
@@ -890,6 +1630,7 @@ namespace hgraph::v2
                     throw std::logic_error("v2 Python set output mutation requires an element schema");
                 }
 
+                prepare_output_view_mutation(view, evaluation_time());
                 auto mutation = set_view.begin_mutation();
                 bool changed = false;
 
@@ -932,7 +1673,8 @@ namespace hgraph::v2
                     for (const Value &item : replacement) {
                         if (!set_view.contains(item.view())) { changed = mutation.add(item.view()) || changed; }
                     }
-                } else if (nb::isinstance<nb::set>(value) || nb::isinstance<nb::list>(value) || nb::isinstance<nb::tuple>(value)) {
+                } else if (nb::isinstance<nb::set>(value) || nb::isinstance<nb::frozenset>(value) || nb::isinstance<nb::list>(value) ||
+                           nb::isinstance<nb::tuple>(value) || nb::isinstance<nb::dict>(value)) {
                     for (auto item : nb::iter(value)) {
                         nb::object item_object = nb::borrow<nb::object>(item);
                         if (nb::isinstance(item_object, removed_type())) {
@@ -1116,9 +1858,27 @@ namespace hgraph::v2
 
             [[nodiscard]] TSInputView input_view() const
             {
+                return input_view_prefix(m_path_steps.size());
+            }
+
+            [[nodiscard]] TSOutputView output_view() const
+            {
+                return output_view_prefix(m_path_steps.size());
+            }
+
+            [[nodiscard]] PythonTimeSeriesHandle handle_with_prefix(size_t step_count) const
+            {
+                std::vector<PathStep> path_steps(m_path_steps.begin(), m_path_steps.begin() + step_count);
+                return PythonTimeSeriesHandle{
+                    m_node, m_input, m_output, schema_for_prefix(step_count), std::move(path_steps), m_bound_output, m_fixed_evaluation_time};
+            }
+
+            [[nodiscard]] TSInputView input_view_prefix(size_t step_count) const
+            {
                 ensure_input();
                 auto view = m_input->view(m_node, evaluation_time());
-                for (const auto &step : m_path_steps) {
+                for (size_t i = 0; i < step_count; ++i) {
+                    const auto &step = m_path_steps[i];
                     switch (step.kind) {
                         case PathStep::Kind::Field: view = view.as_bundle().field(step.field_name); break;
                         case PathStep::Kind::Index: view = view.as_list().at(step.index); break;
@@ -1128,12 +1888,13 @@ namespace hgraph::v2
                 return view;
             }
 
-            [[nodiscard]] TSOutputView output_view() const
+            [[nodiscard]] TSOutputView output_view_prefix(size_t step_count) const
             {
                 ensure_output();
                 auto view =
                     m_output != nullptr ? m_output->view(evaluation_time()) : output_view_from_context(*m_bound_output, evaluation_time());
-                for (const auto &step : m_path_steps) {
+                for (size_t i = 0; i < step_count; ++i) {
+                    const auto &step = m_path_steps[i];
                     switch (step.kind) {
                         case PathStep::Kind::Field: view = view.as_bundle().field(step.field_name); break;
                         case PathStep::Kind::Index: view = view.as_list().at(step.index); break;
@@ -1151,6 +1912,92 @@ namespace hgraph::v2
             [[nodiscard]] View current_delta_value() const
             {
                 return m_input != nullptr ? input_view().delta_value() : output_view().delta_value();
+            }
+
+            [[nodiscard]] bool has_output_parent() const noexcept
+            {
+                return (m_output != nullptr || m_bound_output.has_value()) && !m_path_steps.empty();
+            }
+
+            [[nodiscard]] const TSMeta *root_schema() const
+            {
+                if (m_input != nullptr) { return input_view_prefix(0).ts_schema(); }
+                if (m_output != nullptr || m_bound_output.has_value()) { return output_view_prefix(0).ts_schema(); }
+                return m_schema;
+            }
+
+            [[nodiscard]] const TSMeta *schema_for_prefix(size_t step_count) const
+            {
+                const TSMeta *schema = root_schema();
+                for (size_t i = 0; i < step_count && schema != nullptr; ++i) {
+                    const auto &step = m_path_steps[i];
+                    switch (step.kind) {
+                        case PathStep::Kind::Field: schema = field_schema_or_throw(schema, step.field_name); break;
+                        case PathStep::Kind::Index: schema = index_schema_or_throw(schema, step.index); break;
+                        case PathStep::Kind::Key: schema = value_schema_or_throw(schema); break;
+                    }
+                }
+                return schema;
+            }
+
+            [[nodiscard]] bool same_root(const PythonTimeSeriesHandle &other) const noexcept
+            {
+                if (m_node != other.m_node || m_input != other.m_input || m_output != other.m_output) { return false; }
+                if (m_bound_output.has_value() != other.m_bound_output.has_value()) { return false; }
+                if (!m_bound_output.has_value()) { return true; }
+                return m_bound_output->ts_state == other.m_bound_output->ts_state &&
+                       m_bound_output->schema == other.m_bound_output->schema &&
+                       m_bound_output->value_data == other.m_bound_output->value_data &&
+                       m_bound_output->owning_output == other.m_bound_output->owning_output &&
+                       m_bound_output->output_view_ops == other.m_bound_output->output_view_ops;
+            }
+
+            [[nodiscard]] static bool path_step_equal(const PathStep &lhs, const PathStep &rhs)
+            {
+                if (lhs.kind != rhs.kind) { return false; }
+                switch (lhs.kind) {
+                    case PathStep::Kind::Field: return lhs.field_name == rhs.field_name;
+                    case PathStep::Kind::Index: return lhs.index == rhs.index;
+                    case PathStep::Kind::Key: return lhs.key.view() == rhs.key.view();
+                }
+                return false;
+            }
+
+            [[nodiscard]] FeatureOutputs &ensure_feature_outputs() const
+            {
+                if (m_feature_outputs == nullptr) { m_feature_outputs = shared_feature_outputs_for(output_context_for_features()); }
+                return *m_feature_outputs;
+            }
+
+            [[nodiscard]] LinkedTSContext output_context_for_features() const
+            {
+                if (m_output != nullptr || m_bound_output.has_value()) { return output_view().linked_context(); }
+                throw std::logic_error("v2 Python derived feature outputs require an output handle");
+            }
+
+            [[nodiscard]] static std::shared_ptr<FeatureOutputs> shared_feature_outputs_for(const LinkedTSContext &source)
+            {
+                static std::unordered_map<const BaseState *, std::weak_ptr<FeatureOutputs>> registry;
+
+                const BaseState *key = source.ts_state;
+                if (key == nullptr) { return std::make_shared<FeatureOutputs>(); }
+
+                auto &entry = registry[key];
+                if (auto shared = entry.lock()) { return shared; }
+
+                auto shared = std::make_shared<FeatureOutputs>();
+                entry = shared;
+                return shared;
+            }
+
+            void prune_retired_feature_outputs(FeatureOutputs &features) const
+            {
+                if (features.retired_contains_outputs.empty()) { return; }
+
+                const engine_time_t now = evaluation_time();
+                std::erase_if(
+                    features.retired_contains_outputs,
+                    [now](const FeatureOutputs::RetiredContainsOutput &entry) { return entry.retired_at < now; });
             }
 
             void ensure_input() const
@@ -1187,6 +2034,7 @@ namespace hgraph::v2
             const TSMeta *m_schema{nullptr};
             std::vector<PathStep> m_path_steps;
             std::optional<LinkedTSContext> m_bound_output;
+            mutable std::shared_ptr<FeatureOutputs> m_feature_outputs;
             engine_time_t m_fixed_evaluation_time{MIN_DT};
 
             friend struct V2PythonReferenceSupport;
@@ -1223,17 +2071,8 @@ namespace hgraph::v2
                     throw std::runtime_error("v2 TimeSeriesReference.bind_input requires an input handle");
                 }
 
-                TSInputView view = input_handle.input_view();
-                BaseState *state = view.context_ref().ts_state;
-                if (state == nullptr || state->storage_kind != TSStorageKind::TargetLink) {
-                    if (ref.is_empty()) { return; }
-                    throw std::runtime_error(
-                        "v2 TimeSeriesReference.bind_input only supports target-link inputs for now");
-                }
-
-                auto &link_state = *static_cast<TargetLinkState *>(state);
                 if (ref.is_empty()) {
-                    link_state.reset_target();
+                    input_handle.un_bind_output();
                     return;
                 }
 
@@ -1241,29 +2080,7 @@ namespace hgraph::v2
                     throw std::runtime_error("v2 TimeSeriesReference.bind_input only supports peered refs for now");
                 }
 
-                TSOutputView output = ref.target_view(input_handle.evaluation_time());
-                LinkedTSContext target = output.linked_context();
-                const TSMeta *target_schema = view.context_ref().schema;
-
-                if (target_schema == nullptr) {
-                    throw std::runtime_error("v2 TimeSeriesReference.bind_input requires a typed input schema");
-                }
-
-                if (target.schema != target_schema) {
-                    TSOutput *owning_output = output.owning_output();
-                    if (owning_output == nullptr) {
-                        throw std::runtime_error(
-                            "v2 TimeSeriesReference.bind_input requires a bindable owning output for schema casts");
-                    }
-                    output = owning_output->bindable_view(output, target_schema);
-                    target = output.linked_context();
-                }
-
-                if (target.schema != target_schema) {
-                    throw std::runtime_error("v2 TimeSeriesReference.bind_input could not match the input schema");
-                }
-
-                link_state.set_target(target);
+                input_handle.bind_output(PythonTimeSeriesHandle{ref.target(), input_handle.evaluation_time()});
             }
 
             [[nodiscard]] static nb::object output(const TimeSeriesReference &ref)
@@ -1271,7 +2088,8 @@ namespace hgraph::v2
                 if (!ref.is_peered()) { return nb::none(); }
 
                 const LinkedTSContext &target = ref.target();
-                const engine_time_t when = target.ts_state != nullptr ? target.ts_state->last_modified_time : MIN_DT;
+                engine_time_t when = effective_modified_time(target);
+                if (when == MIN_DT) { when = ref.observed_time(); }
                 return nb::cast(PythonTimeSeriesHandle{target, when});
             }
         };
@@ -1305,12 +2123,16 @@ namespace hgraph::v2
 
             [[nodiscard]] nb::tuple owning_graph_id() const
             {
+                if (m_graph.is_valid() && !m_graph.is_none()) { return nb::cast<nb::tuple>(m_graph.attr("graph_id")); }
                 return nb::tuple();
             }
 
             [[nodiscard]] nb::tuple node_id() const
             {
-                return nb::make_tuple(node_ndx());
+                nb::list out;
+                for (auto value : owning_graph_id()) { out.append(nb::borrow<nb::object>(value)); }
+                if (m_node != nullptr) { out.append(node_ndx()); }
+                return nb::tuple(out);
             }
 
             [[nodiscard]] nb::object signature() const
@@ -1622,11 +2444,21 @@ namespace hgraph::v2
         nb::class_<PythonTimeSeriesHandle>(m, "_PythonTimeSeriesHandle")
             .def("__bool__", &PythonTimeSeriesHandle::truthy)
             .def("__getitem__", &PythonTimeSeriesHandle::get_item, "key"_a)
-            .def("__getattr__", &PythonTimeSeriesHandle::get_item, "key"_a)
+            .def("__delitem__", &PythonTimeSeriesHandle::del_item, "key"_a)
+            .def("__getattr__", &PythonTimeSeriesHandle::get_attr, "key"_a)
+            .def("__contains__", &PythonTimeSeriesHandle::contains, "item"_a)
+            .def("__len__", &PythonTimeSeriesHandle::len)
             .def("__iter__",
                  [](const PythonTimeSeriesHandle &self) {
                      return self.is_list() || self.is_set() ? nb::iter(self.values()) : nb::iter(self.keys());
                  })
+            .def_prop_ro("owning_node", &PythonTimeSeriesHandle::owning_node)
+            .def_prop_ro("owning_graph", &PythonTimeSeriesHandle::owning_graph)
+            .def_prop_ro("has_owning_node", &PythonTimeSeriesHandle::has_owning_node)
+            .def_prop_ro("parent_input", &PythonTimeSeriesHandle::parent_input)
+            .def_prop_ro("has_parent_input", &PythonTimeSeriesHandle::has_parent_input)
+            .def_prop_ro("parent_output", &PythonTimeSeriesHandle::parent_output)
+            .def_prop_ro("has_parent_output", &PythonTimeSeriesHandle::has_parent_output)
             .def_prop_rw("value", &PythonTimeSeriesHandle::value, &PythonTimeSeriesHandle::set_value)
             .def_prop_ro("delta_value", &PythonTimeSeriesHandle::delta_value)
             .def_prop_ro("is_reference", &PythonTimeSeriesHandle::is_reference)
@@ -1634,6 +2466,22 @@ namespace hgraph::v2
             .def_prop_ro("valid", &PythonTimeSeriesHandle::valid)
             .def_prop_ro("all_valid", &PythonTimeSeriesHandle::all_valid)
             .def_prop_ro("last_modified_time", &PythonTimeSeriesHandle::last_modified_time)
+            .def("get", &PythonTimeSeriesHandle::get, "key"_a, "default"_a = nb::none())
+            .def("get_or_create", &PythonTimeSeriesHandle::get_or_create, "key"_a)
+            .def("create", &PythonTimeSeriesHandle::create, "key"_a)
+            .def("get_ref", &PythonTimeSeriesHandle::get_ref, "key"_a, "requester"_a = nb::none())
+            .def("release_ref", &PythonTimeSeriesHandle::release_ref, "key"_a, "requester"_a = nb::none())
+            .def("get_contains_output", &PythonTimeSeriesHandle::get_contains_output, "item"_a, "requester"_a)
+            .def("release_contains_output", &PythonTimeSeriesHandle::release_contains_output, "item"_a, "requester"_a)
+            .def("is_empty_output", &PythonTimeSeriesHandle::is_empty_output)
+            .def_prop_ro("bound", &PythonTimeSeriesHandle::bound)
+            .def_prop_ro("has_peer", &PythonTimeSeriesHandle::has_peer)
+            .def_prop_ro("has_output", &PythonTimeSeriesHandle::has_output)
+            .def_prop_ro("output", &PythonTimeSeriesHandle::output)
+            .def_prop_ro("reference_output", &PythonTimeSeriesHandle::reference_output)
+            .def("bind_output", &PythonTimeSeriesHandle::bind_output, "output"_a)
+            .def("un_bind_output", &PythonTimeSeriesHandle::un_bind_output, "unbind_refs"_a = false)
+            .def("key_from_value", &PythonTimeSeriesHandle::key_from_value, "value"_a)
             .def("keys", &PythonTimeSeriesHandle::keys)
             .def("valid_keys", &PythonTimeSeriesHandle::valid_keys)
             .def("modified_keys", &PythonTimeSeriesHandle::modified_keys)
@@ -1643,6 +2491,12 @@ namespace hgraph::v2
             .def("valid_values", &PythonTimeSeriesHandle::valid_values)
             .def("modified_values", &PythonTimeSeriesHandle::modified_values)
             .def("items", &PythonTimeSeriesHandle::items)
+            .def("added_keys", &PythonTimeSeriesHandle::added_keys)
+            .def("added_values", &PythonTimeSeriesHandle::added_values)
+            .def("added_items", &PythonTimeSeriesHandle::added_items)
+            .def("removed_keys", &PythonTimeSeriesHandle::removed_keys)
+            .def("removed_values", &PythonTimeSeriesHandle::removed_values)
+            .def("removed_items", &PythonTimeSeriesHandle::removed_items)
             .def("valid_items", &PythonTimeSeriesHandle::valid_items)
             .def("modified_items", &PythonTimeSeriesHandle::modified_items)
             .def("make_active", &PythonTimeSeriesHandle::make_active)

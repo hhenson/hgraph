@@ -625,10 +625,7 @@ namespace hgraph
 
             void begin_mutation(void *data) const override
             {
-                if constexpr (tracks_deltas_v) {
-                    SetState *set = state(data);
-                    if (set->mutation_depth++ == 0) { m_keys.release_removed(*set); }
-                }
+                if constexpr (tracks_deltas_v) { state(data)->mutation_depth++; }
             }
 
             void end_mutation(void *data) const override
@@ -742,6 +739,15 @@ namespace hgraph
                     while (set.size > 0) {
                         m_keys.remove_slot(set, set.size - 1);
                     }
+                }
+            }
+
+            void clear_delta_tracking(void *data) const override
+            {
+                if constexpr (tracks_deltas_v) {
+                    m_keys.release_removed(*state(data));
+                } else {
+                    static_cast<void>(data);
                 }
             }
 
@@ -1044,10 +1050,7 @@ namespace hgraph
 
             void begin_mutation(void *data) const override
             {
-                if constexpr (tracks_deltas_v) {
-                    MapState *map = state(data);
-                    if (map->mutation_depth++ == 0) { release_removed(*map); }
-                }
+                if constexpr (tracks_deltas_v) { state(data)->mutation_depth++; }
             }
 
             void end_mutation(void *data) const override
@@ -1362,6 +1365,15 @@ namespace hgraph
                     while (map_keys.size > 0) {
                         remove_dense_slot(*state(data), map_keys.size - 1);
                     }
+                }
+            }
+
+            void clear_delta_tracking(void *data) const override
+            {
+                if constexpr (tracks_deltas_v) {
+                    release_removed(*state(data));
+                } else {
+                    static_cast<void>(data);
                 }
             }
 
@@ -2176,6 +2188,13 @@ namespace hgraph
         return dispatch->contains(data(), data_of(value));
     }
 
+    void SetView::clear_delta_tracking()
+    {
+        const auto *dispatch = set_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("SetView::clear_delta_tracking on invalid view"); }
+        dispatch->clear_delta_tracking(data());
+    }
+
     SetMutationView::SetMutationView(SetView &view)
         : SetView(view)
     {
@@ -2544,6 +2563,13 @@ namespace hgraph
             throw std::runtime_error("MapView::contains requires a valid matching-schema key");
         }
         return dispatch->find(data(), data_of(key)) != static_cast<size_t>(-1);
+    }
+
+    void MapView::clear_delta_tracking()
+    {
+        const auto *dispatch = map_dispatch();
+        if (dispatch == nullptr) { throw std::runtime_error("MapView::clear_delta_tracking on invalid view"); }
+        dispatch->clear_delta_tracking(data());
     }
 
     size_t MapView::find_slot(const View &key) const

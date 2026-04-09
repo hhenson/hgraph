@@ -21,6 +21,42 @@ namespace hgraph
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSBState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSDState &state) noexcept { return &state; }
+        [[nodiscard]] BaseState *notification_state_of(const LinkedTSContext &context) noexcept
+        {
+            return context.notification_state != nullptr ? context.notification_state : context.ts_state;
+        }
+
+        struct RootRefValueNotifier final : Notifiable
+        {
+            explicit RootRefValueNotifier(TSOutput *owner_) noexcept : owner(owner_) {}
+
+            void notify(engine_time_t modified_time) override
+            {
+                if (owner == nullptr) { return; }
+                if (BaseState *root = owner->view(modified_time).context_ref().ts_state; root != nullptr) {
+                    root->mark_modified(modified_time);
+                }
+            }
+
+            TSOutput *owner{nullptr};
+        };
+
+        void collect_ref_target_states(const v2::TimeSeriesReference &ref,
+                                       std::unordered_set<BaseState *> &states) noexcept
+        {
+            switch (ref.kind()) {
+                case v2::TimeSeriesReference::Kind::EMPTY:
+                    return;
+
+                case v2::TimeSeriesReference::Kind::PEERED:
+                    if (BaseState *state = notification_state_of(ref.target()); state != nullptr) { states.insert(state); }
+                    return;
+
+                case v2::TimeSeriesReference::Kind::NON_PEERED:
+                    for (const auto &item : ref.items()) { collect_ref_target_states(item, states); }
+                    return;
+            }
+        }
 
         template <typename TState>
         void initialize_base_state(TState &state,
@@ -85,6 +121,9 @@ namespace hgraph
             if (target_schema.kind == TSKind::SIGNAL) {
                 return source_schema.kind == TSKind::TSValue && source_schema.value_type == target_schema.value_type;
             }
+            if (source_schema.kind == TSKind::TSD && target_schema.kind == TSKind::TSS) {
+                return TSTypeRegistry::instance().tss(source_schema.key_type()) == &target_schema;
+            }
             if (source_schema.kind == TSKind::REF) {
                 return source_schema.element_ts() == &target_schema ||
                        supports_alternative_cast(*source_schema.element_ts(), target_schema);
@@ -130,14 +169,12 @@ namespace hgraph
                     if (slot >= schema.fixed_size()) { throw std::out_of_range("TSOutput alternative child slot is out of range for TSL"); }
                     return schema.element_ts();
 
-                default:
-                    throw std::invalid_argument("TSOutput alternative child navigation only supports TSB and fixed-size TSL");
-            }
-        }
+                case TSKind::TSD:
+                    return schema.element_ts();
 
-        [[nodiscard]] const BaseState *base_state_of(const TimeSeriesStateV &state) noexcept
-        {
-            return std::visit([](const auto &typed_state) -> const BaseState * { return &typed_state; }, state);
+                default:
+                    throw std::invalid_argument("TSOutput alternative child navigation only supports TSB, fixed-size TSL, and TSD");
+            }
         }
 
         [[nodiscard]] BaseState *base_state_of(TimeSeriesStateV &state) noexcept
@@ -205,27 +242,22 @@ namespace hgraph
                     }
 
                 case TSKind::TSD:
-                    throw std::invalid_argument("TSOutput alternatives do not yet support TSD child paths");
+                    {
+                        if (state->storage_kind != TSStorageKind::Native) { return false; }
+                        const auto &dict_state = *static_cast<const TSDState *>(state);
+                        for (size_t i = 0; i < dict_state.child_states.size(); ++i) {
+                            const auto &child = dict_state.child_states[i];
+                            if (!child) { continue; }
+                            path.push_back(i);
+                            if (find_state_path(base_state_of(*child), child_schema_at(*schema, i), target, path)) { return true; }
+                            path.pop_back();
+                        }
+                        return false;
+                    }
 
                 default:
                     return false;
             }
-        }
-
-        [[nodiscard]] TSPath source_path_from_root(const TSOutputView &root_view, const TSOutputView &source)
-        {
-            if (source.owning_output() != nullptr && source.owning_output() != root_view.owning_output()) {
-                throw std::logic_error("TSOutput alternative source view is not owned by the requested output");
-            }
-
-            TSPath path;
-            BaseState *target_state = source.context_ref().ts_state;
-            if (target_state == nullptr) { return path; }
-
-            if (!find_state_path(root_view.context_ref().ts_state, root_view.ts_schema(), target_state, path)) {
-                throw std::logic_error("TSOutput alternative source view is not reachable from the owning output root");
-            }
-            return path;
         }
 
         [[nodiscard]] const TSMeta *
@@ -276,8 +308,16 @@ namespace hgraph
                                                                            : registry.tsl(updated_child, source_schema.fixed_size());
                     }
 
+                case TSKind::TSD:
+                    {
+                        const TSMeta *updated_child =
+                            replace_schema_at_path(*source_schema.element_ts(), path, depth + 1, replacement_schema);
+                        return updated_child == source_schema.element_ts() ? &source_schema
+                                                                           : registry.tsd(source_schema.key_type(), updated_child);
+                    }
+
                 default:
-                    throw std::invalid_argument("TSOutput alternative replacement paths only support TSB and fixed-size TSL");
+                    throw std::invalid_argument("TSOutput alternative replacement paths only support TSB, fixed-size TSL, and TSD");
             }
         }
 
@@ -296,8 +336,18 @@ namespace hgraph
                         view = view.as_list()[slot];
                         break;
 
+                    case TSKind::TSD:
+                        {
+                            const auto delta = view.value().as_map().delta();
+                            if (slot >= delta.slot_capacity() || !delta.slot_occupied(slot) || delta.slot_removed(slot)) {
+                                throw std::out_of_range("TSOutput alternative traversal slot is not live for TSD");
+                            }
+                            view = view.as_dict().at(delta.key_at_slot(slot));
+                            break;
+                        }
+
                     default:
-                        throw std::invalid_argument("TSOutput alternative traversal only supports TSB and fixed-size TSL");
+                        throw std::invalid_argument("TSOutput alternative traversal only supports TSB, fixed-size TSL, and TSD");
                 }
 
                 current_schema = child_schema_at(*current_schema, slot);
@@ -323,6 +373,8 @@ namespace hgraph
                         resolved.ts_dispatch,
                         resolved.value_data,
                         context.ts_state,
+                        view.owning_output(),
+                        view.output_view_ops(),
                     };
                 }
             };
@@ -337,6 +389,48 @@ namespace hgraph
 
     struct TSOutput::AlternativeOutput final : TSValue, Notifiable
     {
+        struct ViewOps final : detail::TSOutputViewOps
+        {
+            explicit ViewOps(AlternativeOutput *owner_) noexcept
+                : owner(owner_)
+            {
+            }
+
+            [[nodiscard]] LinkedTSContext linked_context(const TSOutputView &view) const noexcept override
+            {
+                const TSViewContext &context = view.context_ref();
+                const TSViewContext resolved = context.resolved();
+                if (owner != nullptr) {
+                    for (const auto &binding : owner->m_collection_ref_bindings) {
+                        if (binding != nullptr && binding->target_context.ts_state == context.ts_state &&
+                            binding->source_context.ts_state != nullptr) {
+                            return LinkedTSContext{
+                                resolved.schema,
+                                resolved.value_dispatch,
+                                resolved.ts_dispatch,
+                                resolved.value_data,
+                                context.ts_state,
+                                view.owning_output(),
+                                view.output_view_ops(),
+                                notification_state_of(binding->source_context),
+                            };
+                        }
+                    }
+                }
+                return LinkedTSContext{
+                    resolved.schema,
+                    resolved.value_dispatch,
+                    resolved.ts_dispatch,
+                    resolved.value_data,
+                    context.ts_state,
+                    view.owning_output(),
+                    view.output_view_ops(),
+                };
+            }
+
+            AlternativeOutput *owner{nullptr};
+        };
+
         struct WrappedRefNotifier final : Notifiable
         {
             explicit WrappedRefNotifier(BaseState *target_state_) noexcept
@@ -363,11 +457,31 @@ namespace hgraph
             configure_branch(view(nullptr), source);
         }
 
-        ~AlternativeOutput() override
+            ~AlternativeOutput() override
         {
             for (auto &binding : m_dynamic_dict_bindings) {
-                if (binding != nullptr && binding->source_context.ts_state != nullptr) {
-                    binding->source_context.ts_state->unsubscribe(&binding->source_notifier);
+                if (binding != nullptr) {
+                    if (BaseState *source_state = notification_state_of(binding->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&binding->source_notifier);
+                    }
+                }
+            }
+            for (auto &binding : m_dynamic_key_set_bindings) {
+                if (binding != nullptr) {
+                    if (BaseState *source_state = notification_state_of(binding->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&binding->source_notifier);
+                    }
+                }
+            }
+            for (auto &binding : m_collection_ref_bindings) {
+                if (binding != nullptr) {
+                    if (BaseState *source_state = notification_state_of(binding->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&binding->source_notifier);
+                    }
+                    for (BaseState *target_state : binding->target_subscription_states) {
+                        if (target_state != nullptr) { target_state->unsubscribe(&binding->target_notifier); }
+                    }
+                    binding->target_subscription_states.clear();
                 }
             }
             for (auto &subscription : m_wrapped_ref_subscriptions) {
@@ -385,12 +499,35 @@ namespace hgraph
         [[nodiscard]] TSOutputView view(TSOutput *owning_output, engine_time_t evaluation_time = MIN_DT)
         {
             TSViewContext context = view_context();
-            return TSOutputView{context, TSViewContext::none(), evaluation_time, owning_output, &detail::default_output_view_ops()};
+            return TSOutputView{context, TSViewContext::none(), evaluation_time, owning_output, &m_view_ops};
+        }
+
+        [[nodiscard]] TSOutputView bindable_view(TSOutput *owning_output, const TSOutputView &source, const TSMeta *schema)
+        {
+            TSOutputView root_source = view(owning_output, source.evaluation_time());
+            TSPath source_path;
+            BaseState *target_state = source.context_ref().ts_state;
+            if (target_state != nullptr &&
+                !find_state_path(root_source.context_ref().ts_state, root_source.ts_schema(), target_state, source_path)) {
+                throw std::logic_error("TSOutput alternative source view is not reachable from the alternative root");
+            }
+
+            const TSMeta *root_source_schema = root_source.ts_schema();
+            if (root_source_schema == nullptr) {
+                throw std::logic_error("TSOutput alternative bindable view requires a rooted source schema");
+            }
+
+            const TSMeta *alternative_schema = replace_schema_at_path(*root_source_schema, source_path, 0, *schema);
+            const auto [it, inserted] = m_alternatives.try_emplace(alternative_schema, nullptr);
+            if (inserted) { it->second.reset(new AlternativeOutput(root_source, *alternative_schema)); }
+
+            TSOutputView alternative_view = it->second->view(owning_output, source.evaluation_time());
+            return traverse_output_path(alternative_view, alternative_schema, source_path);
         }
 
         void notify(engine_time_t modified_time) override
         {
-            if (m_dynamic_dict_bindings.empty()) {
+            if (m_dynamic_dict_bindings.empty() && m_dynamic_key_set_bindings.empty() && m_collection_ref_bindings.empty()) {
                 if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
             }
         }
@@ -451,6 +588,93 @@ namespace hgraph
             SourceNotifier source_notifier{};
         };
 
+        struct DynamicKeySetBinding
+        {
+            struct SourceNotifier final : Notifiable
+            {
+                void notify(engine_time_t modified_time) override
+                {
+                    if (binding != nullptr && binding->owner != nullptr) {
+                        binding->owner->sync_dynamic_key_set(*binding, modified_time, false);
+                    }
+                }
+
+                DynamicKeySetBinding *binding{nullptr};
+            };
+
+            DynamicKeySetBinding(AlternativeOutput *owner_, const TSOutputView &target_view, const TSOutputView &source_view) noexcept
+                : owner(owner_),
+                  target_context(target_view.context_ref()),
+                  source_context(source_view.linked_context())
+            {
+                source_notifier.binding = this;
+                last_source_root_state = source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr;
+            }
+
+            DynamicKeySetBinding(AlternativeOutput *owner_,
+                                 const TSOutputView &target_view,
+                                 std::unique_ptr<TimeSeriesStateV> source_bridge_state_,
+                                 LinkedTSContext source_context_) noexcept
+                : owner(owner_),
+                  target_context(target_view.context_ref()),
+                  source_context(std::move(source_context_)),
+                  source_bridge_state(std::move(source_bridge_state_))
+            {
+                source_notifier.binding = this;
+                last_source_root_state = source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr;
+            }
+
+            AlternativeOutput *owner{nullptr};
+            TSViewContext target_context{TSViewContext::none()};
+            LinkedTSContext source_context{};
+            std::unique_ptr<TimeSeriesStateV> source_bridge_state{};
+            const BaseState *last_source_root_state{nullptr};
+            SourceNotifier source_notifier{};
+        };
+
+        struct CollectionRefBinding
+        {
+            struct SourceNotifier final : Notifiable
+            {
+                void notify(engine_time_t modified_time) override
+                {
+                    if (binding != nullptr && binding->owner != nullptr) {
+                        binding->owner->sync_collection_ref(*binding, modified_time, false);
+                    }
+                }
+
+                CollectionRefBinding *binding{nullptr};
+            };
+
+            struct TargetNotifier final : Notifiable
+            {
+                void notify(engine_time_t modified_time) override
+                {
+                    if (binding != nullptr && binding->owner != nullptr) {
+                        binding->owner->sync_collection_ref(*binding, modified_time, false);
+                    }
+                }
+
+                CollectionRefBinding *binding{nullptr};
+            };
+
+            CollectionRefBinding(AlternativeOutput *owner_, const TSOutputView &target_view, const TSOutputView &source_view) noexcept
+                : owner(owner_),
+                  target_context(target_view.context_ref()),
+                  source_context(source_view.linked_context())
+            {
+                source_notifier.binding = this;
+                target_notifier.binding = this;
+            }
+
+            AlternativeOutput *owner{nullptr};
+            TSViewContext target_context{TSViewContext::none()};
+            LinkedTSContext source_context{};
+            std::unordered_set<BaseState *> target_subscription_states{};
+            SourceNotifier source_notifier{};
+            TargetNotifier target_notifier{};
+        };
+
         [[nodiscard]] std::unique_ptr<DynamicDictBinding>
         make_dereferenced_dynamic_dict_binding(const TSOutputView &target_view, const TSOutputView &ref_source_view)
         {
@@ -480,6 +704,35 @@ namespace hgraph
                 std::move(source_context));
         }
 
+        [[nodiscard]] std::unique_ptr<DynamicKeySetBinding>
+        make_dereferenced_dynamic_key_set_binding(const TSOutputView &target_view, const TSOutputView &ref_source_view)
+        {
+            const TSMeta *source_schema = ref_source_view.ts_schema();
+            if (source_schema == nullptr || source_schema->kind != TSKind::REF || source_schema->element_ts() == nullptr ||
+                source_schema->element_ts()->kind != TSKind::TSD) {
+                throw std::invalid_argument("TSOutput dereferenced key-set binding requires REF[TSD[...]] source");
+            }
+
+            auto source_bridge_state = std::make_unique<TimeSeriesStateV>();
+            auto &bridge_state = source_bridge_state->template emplace<RefLinkState>();
+            initialize_ref_link_state(bridge_state, TimeSeriesStateParentPtr{}, 0);
+            bridge_state.set_source(ref_source_view.linked_context());
+
+            LinkedTSContext source_context{
+                source_schema->element_ts(),
+                nullptr,
+                nullptr,
+                nullptr,
+                base_state_of(*source_bridge_state),
+            };
+
+            return std::make_unique<DynamicKeySetBinding>(
+                this,
+                target_view,
+                std::move(source_bridge_state),
+                std::move(source_context));
+        }
+
         [[nodiscard]] TSOutputView output_view_for(const TSViewContext &context, engine_time_t evaluation_time = MIN_DT) const
         {
             return TSOutputView{context, TSViewContext::none(), evaluation_time, nullptr, &detail::default_output_view_ops()};
@@ -487,25 +740,65 @@ namespace hgraph
 
         [[nodiscard]] TSOutputView output_view_for(const LinkedTSContext &context, engine_time_t evaluation_time = MIN_DT) const
         {
-            return output_view_for(
+            return TSOutputView{
                 TSViewContext{context.schema, context.value_dispatch, context.ts_dispatch, context.value_data, context.ts_state},
-                evaluation_time);
+                TSViewContext::none(),
+                evaluation_time,
+                context.owning_output,
+                context.output_view_ops != nullptr ? context.output_view_ops : &detail::default_output_view_ops(),
+            };
         }
 
         void add_dynamic_dict_binding(std::unique_ptr<DynamicDictBinding> binding, engine_time_t initial_modified_time)
         {
             auto &binding_ref = *binding;
             auto unsubscribe_on_failure = make_scope_exit([&] {
-                if (binding_ref.source_context.ts_state != nullptr) {
-                    binding_ref.source_context.ts_state->unsubscribe(&binding_ref.source_notifier);
+                if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                    source_state->unsubscribe(&binding_ref.source_notifier);
                 }
             });
-            if (binding_ref.source_context.ts_state != nullptr) {
-                binding_ref.source_context.ts_state->subscribe(&binding_ref.source_notifier);
+            if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                source_state->subscribe(&binding_ref.source_notifier);
             }
             sync_dynamic_dict(binding_ref, initial_modified_time, true);
             unsubscribe_on_failure.release();
             m_dynamic_dict_bindings.push_back(std::move(binding));
+        }
+
+        void add_dynamic_key_set_binding(std::unique_ptr<DynamicKeySetBinding> binding, engine_time_t initial_modified_time)
+        {
+            auto &binding_ref = *binding;
+            auto unsubscribe_on_failure = make_scope_exit([&] {
+                if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                    source_state->unsubscribe(&binding_ref.source_notifier);
+                }
+            });
+            if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                source_state->subscribe(&binding_ref.source_notifier);
+            }
+            sync_dynamic_key_set(binding_ref, initial_modified_time, true);
+            unsubscribe_on_failure.release();
+            m_dynamic_key_set_bindings.push_back(std::move(binding));
+        }
+
+        void add_collection_ref_binding(std::unique_ptr<CollectionRefBinding> binding, engine_time_t initial_modified_time)
+        {
+            auto &binding_ref = *binding;
+            auto unsubscribe_on_failure = make_scope_exit([&] {
+                if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                    source_state->unsubscribe(&binding_ref.source_notifier);
+                }
+                for (BaseState *target_state : binding_ref.target_subscription_states) {
+                    if (target_state != nullptr) { target_state->unsubscribe(&binding_ref.target_notifier); }
+                }
+                binding_ref.target_subscription_states.clear();
+            });
+            if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                source_state->subscribe(&binding_ref.source_notifier);
+            }
+            sync_collection_ref(binding_ref, initial_modified_time, true);
+            unsubscribe_on_failure.release();
+            m_collection_ref_bindings.push_back(std::move(binding));
         }
 
         void release_wrapped_ref_subscriptions(const BaseState *subtree_root)
@@ -535,10 +828,46 @@ namespace hgraph
 
             for (auto it = m_dynamic_dict_bindings.begin(); it != m_dynamic_dict_bindings.end();) {
                 if ((*it)->target_context.ts_state != nullptr && is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
-                    if ((*it)->source_context.ts_state != nullptr) {
-                        (*it)->source_context.ts_state->unsubscribe(&(*it)->source_notifier);
+                    if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&(*it)->source_notifier);
                     }
                     it = m_dynamic_dict_bindings.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
+        void release_dynamic_key_set_bindings(const BaseState *subtree_root)
+        {
+            if (subtree_root == nullptr) { return; }
+
+            for (auto it = m_dynamic_key_set_bindings.begin(); it != m_dynamic_key_set_bindings.end();) {
+                if ((*it)->target_context.ts_state != nullptr && is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
+                    if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&(*it)->source_notifier);
+                    }
+                    it = m_dynamic_key_set_bindings.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
+        void release_collection_ref_bindings(const BaseState *subtree_root)
+        {
+            if (subtree_root == nullptr) { return; }
+
+            for (auto it = m_collection_ref_bindings.begin(); it != m_collection_ref_bindings.end();) {
+                if ((*it)->target_context.ts_state != nullptr && is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
+                    if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&(*it)->source_notifier);
+                    }
+                    for (BaseState *target_state : (*it)->target_subscription_states) {
+                        if (target_state != nullptr) { target_state->unsubscribe(&(*it)->target_notifier); }
+                    }
+                    (*it)->target_subscription_states.clear();
+                    it = m_collection_ref_bindings.erase(it);
                 } else {
                     ++it;
                 }
@@ -556,7 +885,332 @@ namespace hgraph
             BaseState *child_root = base_state_of(*state.child_states[slot]);
             release_wrapped_ref_subscriptions(child_root);
             release_dynamic_dict_bindings(child_root);
+            release_dynamic_key_set_bindings(child_root);
+            release_collection_ref_bindings(child_root);
             state.on_erase(slot);
+        }
+
+        template <typename TCollectionState>
+        void reset_fixed_child_slot(TCollectionState &state, size_t slot, const TSMeta &child_schema)
+        {
+            if (slot >= state.child_states.size()) {
+                throw std::out_of_range("TSOutput collection ref binding slot is out of range");
+            }
+
+            if (state.child_states[slot] != nullptr) {
+                BaseState *child_root = base_state_of(*state.child_states[slot]);
+                release_wrapped_ref_subscriptions(child_root);
+                release_dynamic_dict_bindings(child_root);
+                release_dynamic_key_set_bindings(child_root);
+                release_collection_ref_bindings(child_root);
+            }
+
+            state.child_states[slot] = make_time_series_state_node(child_schema, parent_ptr(state), slot);
+        }
+
+        template <typename TCollectionState, typename TCollectionView, typename TChildSchemaFn>
+        bool sync_fixed_collection_root_value(TCollectionState &target_state,
+                                              const TSOutputView &target_view,
+                                              const TCollectionView &target_collection,
+                                              engine_time_t modified_time,
+                                              size_t slot_count,
+                                              TChildSchemaFn &&child_schema_for_slot)
+        {
+            const bool new_tick = target_state.last_modified_time != modified_time;
+            if (new_tick) { target_state.modified_children.clear(); }
+
+            std::vector<size_t> changed_slots;
+            changed_slots.reserve(slot_count);
+
+            if constexpr (std::same_as<TCollectionState, TSBState>) {
+                auto mutation = target_view.value().as_bundle().begin_mutation();
+                auto current = target_view.value().as_bundle();
+                for (size_t slot = 0; slot < slot_count; ++slot) {
+                    const TSMeta *child_schema = child_schema_for_slot(slot);
+                    if (child_schema == nullptr || child_schema->value_type == nullptr) {
+                        throw std::logic_error("TSOutput collection ref binding requires target child value schemas");
+                    }
+
+                    const TSOutputView child = target_collection[slot];
+                    const View desired = child.valid() ? child.value() : View::invalid_for(child_schema->value_type);
+                    const View existing = current.at(slot);
+                    if (desired == existing) { continue; }
+
+                    mutation.set(slot, desired);
+                    changed_slots.push_back(slot);
+                }
+            } else if constexpr (std::same_as<TCollectionState, TSLState>) {
+                auto mutation = target_view.value().as_list().begin_mutation();
+                auto current = target_view.value().as_list();
+                for (size_t slot = 0; slot < slot_count; ++slot) {
+                    const TSMeta *child_schema = child_schema_for_slot(slot);
+                    if (child_schema == nullptr || child_schema->value_type == nullptr) {
+                        throw std::logic_error("TSOutput collection ref binding requires target child value schemas");
+                    }
+
+                    const TSOutputView child = target_collection[slot];
+                    const View desired = child.valid() ? child.value() : View::invalid_for(child_schema->value_type);
+                    const View existing = current.at(slot);
+                    if (desired == existing) { continue; }
+
+                    mutation.set(slot, desired);
+                    changed_slots.push_back(slot);
+                }
+            }
+
+            bool child_published = false;
+            for (const size_t slot : changed_slots) {
+                BaseState *child_state =
+                    slot < target_state.child_states.size() && target_state.child_states[slot] != nullptr
+                        ? base_state_of(*target_state.child_states[slot])
+                        : nullptr;
+
+                if (child_state != nullptr && child_state->last_modified_time != modified_time) {
+                    child_state->mark_modified(modified_time);
+                    child_published = true;
+                } else {
+                    target_state.modified_children.insert(slot);
+                }
+            }
+
+            if (!changed_slots.empty() && !child_published) {
+                if (new_tick) {
+                    target_state.mark_modified(modified_time);
+                } else {
+                    target_state.mark_modified_local(modified_time);
+                }
+            }
+            return !changed_slots.empty();
+        }
+
+        void sync_collection_ref_from_output(const TSOutputView &target_view, const TSOutputView &source_view)
+        {
+            const TSMeta *target_schema = target_view.ts_schema();
+            const TSMeta *source_schema = source_view.ts_schema();
+            if (target_schema == nullptr || source_schema == nullptr || target_schema->kind != source_schema->kind) {
+                throw std::invalid_argument("TSOutput collection ref binding requires matching source and target schemas");
+            }
+
+            switch (target_schema->kind) {
+                case TSKind::TSB:
+                    {
+                        auto &target_state = *static_cast<TSBState *>(target_view.context_ref().ts_state);
+                        auto target_bundle = target_view.as_bundle();
+                        auto source_bundle = source_view.as_bundle();
+                        for (size_t index = 0; index < target_schema->field_count(); ++index) {
+                            const TSMeta *child_schema = target_schema->fields()[index].ts_type;
+                            if (child_schema == nullptr) {
+                                throw std::logic_error("TSOutput collection ref binding requires target child schemas");
+                            }
+
+                            reset_fixed_child_slot(target_state, index, *child_schema);
+                            TSOutputView target_child = target_bundle[index];
+                            TSOutputView source_child = source_bundle[index];
+                            if (source_child.ts_schema() == child_schema) {
+                                install_target_link(target_state, index, source_child.linked_context());
+                            } else {
+                                configure_branch(target_child, source_child);
+                            }
+                        }
+                        static_cast<void>(sync_fixed_collection_root_value(
+                            target_state,
+                            target_view,
+                            target_bundle,
+                            source_view.last_modified_time(),
+                            target_schema->field_count(),
+                            [&](size_t slot) { return target_schema->fields()[slot].ts_type; }));
+                        return;
+                    }
+
+                case TSKind::TSL:
+                    {
+                        auto &target_state = *static_cast<TSLState *>(target_view.context_ref().ts_state);
+                        auto target_list = target_view.as_list();
+                        auto source_list = source_view.as_list();
+                        for (size_t index = 0; index < target_schema->fixed_size(); ++index) {
+                            const TSMeta *child_schema = target_schema->element_ts();
+                            if (child_schema == nullptr) {
+                                throw std::logic_error("TSOutput collection ref binding requires a target element schema");
+                            }
+
+                            reset_fixed_child_slot(target_state, index, *child_schema);
+                            TSOutputView target_child = target_list[index];
+                            TSOutputView source_child = source_list[index];
+                            if (source_child.ts_schema() == child_schema) {
+                                install_target_link(target_state, index, source_child.linked_context());
+                            } else {
+                                configure_branch(target_child, source_child);
+                            }
+                        }
+                        static_cast<void>(sync_fixed_collection_root_value(
+                            target_state,
+                            target_view,
+                            target_list,
+                            source_view.last_modified_time(),
+                            target_schema->fixed_size(),
+                            [&](size_t) { return target_schema->element_ts(); }));
+                        return;
+                    }
+
+                default:
+                    throw std::invalid_argument("TSOutput collection ref binding only supports TSB and fixed-size TSL");
+            }
+        }
+
+        void sync_collection_ref_from_value(const TSOutputView &target_view,
+                                            const v2::TimeSeriesReference &ref,
+                                            engine_time_t modified_time)
+        {
+            const TSMeta *target_schema = target_view.ts_schema();
+            if (target_schema == nullptr) {
+                throw std::invalid_argument("TSOutput collection ref binding requires a target schema");
+            }
+
+            switch (ref.kind()) {
+                case v2::TimeSeriesReference::Kind::EMPTY:
+                    {
+                        switch (target_schema->kind) {
+                            case TSKind::TSB:
+                                {
+                                    auto &target_state = *static_cast<TSBState *>(target_view.context_ref().ts_state);
+                                    if (target_state.last_modified_time != modified_time) { target_state.modified_children.clear(); }
+                                    for (size_t index = 0; index < target_schema->field_count(); ++index) {
+                                        const TSMeta *child_schema = target_schema->fields()[index].ts_type;
+                                        if (child_schema != nullptr) { reset_fixed_child_slot(target_state, index, *child_schema); }
+                                    }
+                                    break;
+                                }
+
+                            case TSKind::TSL:
+                                {
+                                    auto &target_state = *static_cast<TSLState *>(target_view.context_ref().ts_state);
+                                    if (target_state.last_modified_time != modified_time) { target_state.modified_children.clear(); }
+                                    for (size_t index = 0; index < target_schema->fixed_size(); ++index) {
+                                        const TSMeta *child_schema = target_schema->element_ts();
+                                        if (child_schema != nullptr) { reset_fixed_child_slot(target_state, index, *child_schema); }
+                                    }
+                                    break;
+                                }
+
+                            default:
+                                throw std::invalid_argument("TSOutput collection ref binding only supports TSB and fixed-size TSL");
+                        }
+                        static_cast<void>(modified_time);
+                        return;
+                    }
+
+                case v2::TimeSeriesReference::Kind::PEERED:
+                    sync_collection_ref_from_output(target_view, ref.target_view(modified_time));
+                    return;
+
+                case v2::TimeSeriesReference::Kind::NON_PEERED:
+                    {
+                        switch (target_schema->kind) {
+                            case TSKind::TSB:
+                                {
+                                    auto &target_state = *static_cast<TSBState *>(target_view.context_ref().ts_state);
+                                    auto target_bundle = target_view.as_bundle();
+                                    for (size_t index = 0; index < target_schema->field_count(); ++index) {
+                                        const TSMeta *child_schema = target_schema->fields()[index].ts_type;
+                                        if (child_schema == nullptr) {
+                                            throw std::logic_error("TSOutput collection ref binding requires target child schemas");
+                                        }
+
+                                        reset_fixed_child_slot(target_state, index, *child_schema);
+                                        if (index >= ref.items().size()) { continue; }
+
+                                        const auto &item = ref.items()[index];
+                                        if (item.is_empty()) { continue; }
+                                        if (item.is_peered()) {
+                                            install_target_link(target_state, index, item.target());
+                                        } else {
+                                            sync_collection_ref_from_value(target_bundle[index], item, modified_time);
+                                        }
+                                    }
+                                    static_cast<void>(sync_fixed_collection_root_value(
+                                        target_state,
+                                        target_view,
+                                        target_bundle,
+                                        modified_time,
+                                        target_schema->field_count(),
+                                        [&](size_t slot) { return target_schema->fields()[slot].ts_type; }));
+                                    return;
+                                }
+
+                            case TSKind::TSL:
+                                {
+                                    auto &target_state = *static_cast<TSLState *>(target_view.context_ref().ts_state);
+                                    auto target_list = target_view.as_list();
+                                    for (size_t index = 0; index < target_schema->fixed_size(); ++index) {
+                                        const TSMeta *child_schema = target_schema->element_ts();
+                                        if (child_schema == nullptr) {
+                                            throw std::logic_error("TSOutput collection ref binding requires a target element schema");
+                                        }
+
+                                        reset_fixed_child_slot(target_state, index, *child_schema);
+                                        if (index >= ref.items().size()) { continue; }
+
+                                        const auto &item = ref.items()[index];
+                                        if (item.is_empty()) { continue; }
+                                        if (item.is_peered()) {
+                                            install_target_link(target_state, index, item.target());
+                                        } else {
+                                            sync_collection_ref_from_value(target_list[index], item, modified_time);
+                                        }
+                                    }
+                                    static_cast<void>(sync_fixed_collection_root_value(
+                                        target_state,
+                                        target_view,
+                                        target_list,
+                                        modified_time,
+                                        target_schema->fixed_size(),
+                                        [&](size_t) { return target_schema->element_ts(); }));
+                                    return;
+                                }
+
+                            default:
+                                throw std::invalid_argument("TSOutput collection ref binding only supports TSB and fixed-size TSL");
+                        }
+                    }
+            }
+        }
+
+        void update_collection_ref_target_subscription(CollectionRefBinding &binding,
+                                                       const v2::TimeSeriesReference &ref) noexcept
+        {
+            std::unordered_set<BaseState *> next_target_states;
+            collect_ref_target_states(ref, next_target_states);
+            if (binding.target_subscription_states == next_target_states) { return; }
+
+            for (BaseState *target_state : binding.target_subscription_states) {
+                if (target_state != nullptr && !next_target_states.contains(target_state)) {
+                    target_state->unsubscribe(&binding.target_notifier);
+                }
+            }
+            for (BaseState *target_state : next_target_states) {
+                if (target_state != nullptr && !binding.target_subscription_states.contains(target_state)) {
+                    target_state->subscribe(&binding.target_notifier);
+                }
+            }
+            binding.target_subscription_states = std::move(next_target_states);
+        }
+
+        void sync_collection_ref(CollectionRefBinding &binding, engine_time_t modified_time, bool initializing)
+        {
+            TSOutputView target_view = output_view_for(binding.target_context, modified_time);
+            TSOutputView source_view = output_view_for(binding.source_context, modified_time);
+            const auto *ref = source_view.value().as_atomic().try_as<v2::TimeSeriesReference>();
+            if (ref == nullptr) {
+                throw std::logic_error("TSOutput collection ref binding requires a REF source value");
+            }
+
+            update_collection_ref_target_subscription(binding, *ref);
+            sync_collection_ref_from_value(target_view, *ref, modified_time);
+            if (initializing) {
+                if (BaseState *root = target_view.context_ref().ts_state; root != nullptr && root->last_modified_time == MIN_DT) {
+                    root->last_modified_time = modified_time;
+                }
+            }
         }
 
         void install_ref_link_for_target(const TSOutputView &target_view, const TSOutputView &source_view)
@@ -599,7 +1253,7 @@ namespace hgraph
         void install_signal_subscription(const TSOutputView &target_view, const TSOutputView &source_view)
         {
             BaseState *target_state = target_view.linked_context().ts_state;
-            BaseState *source_state = source_view.linked_context().ts_state;
+            BaseState *source_state = notification_state_of(source_view.linked_context());
             if (target_state == nullptr) {
                 throw std::logic_error("TSOutput alternative SIGNAL cast requires a live target state");
             }
@@ -684,6 +1338,9 @@ namespace hgraph
             const View source_value = source_root.value();
             auto target_map = target_root.value().as_map();
             auto target_dict = target_root.as_dict();
+            if (target_root_state->last_modified_time != modified_time) {
+                target_map.clear_delta_tracking();
+            }
             auto mutation = target_map.begin_mutation();
             bool map_value_changed = false;
             constexpr size_t no_slot = static_cast<size_t>(-1);
@@ -824,6 +1481,75 @@ namespace hgraph
             }
         }
 
+        void sync_dynamic_key_set(DynamicKeySetBinding &binding, engine_time_t modified_time, bool initializing)
+        {
+            TSOutputView target_root = output_view_for(binding.target_context, modified_time);
+            TSOutputView source_root = output_view_for(binding.source_context, modified_time);
+
+            auto *target_root_state = target_root.context_ref().ts_state;
+            if (target_root_state == nullptr) {
+                throw std::logic_error("TSOutput key-set sync requires a live target TSS state");
+            }
+
+            auto target_set = target_root.value().as_set();
+            if (target_root_state->last_modified_time != modified_time) {
+                target_set.clear_delta_tracking();
+            }
+            auto mutation = target_set.begin_mutation();
+            bool set_changed = false;
+            constexpr size_t no_slot = static_cast<size_t>(-1);
+            const BaseState *current_source_root_state =
+                binding.source_context.ts_state != nullptr ? binding.source_context.ts_state->resolved_state() : nullptr;
+            const bool source_rebound = !initializing && current_source_root_state != binding.last_source_root_state;
+            const bool full_resync = initializing || source_rebound;
+
+            auto remove_target_key = [&](const View &key) {
+                set_changed = mutation.remove(key) || set_changed;
+            };
+
+            const View source_value = source_root.value();
+            if (!source_value.has_value()) {
+                if (full_resync) {
+                    std::vector<Value> stale_keys;
+                    for (const View &key : target_set.values()) { stale_keys.emplace_back(key); }
+                    for (const auto &key : stale_keys) { remove_target_key(key.view()); }
+                }
+
+                binding.last_source_root_state = current_source_root_state;
+                if (!initializing && set_changed) {
+                    if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
+                }
+                return;
+            }
+
+            const auto source_map = source_value.as_map();
+            const auto source_delta = source_map.delta();
+
+            if (full_resync) {
+                std::vector<Value> stale_keys;
+                for (const View &key : target_set.values()) {
+                    if (!source_map.contains(key)) { stale_keys.emplace_back(key); }
+                }
+                for (const auto &key : stale_keys) { remove_target_key(key.view()); }
+
+                for (size_t slot = source_map.first_live_slot(); slot != no_slot; slot = source_map.next_live_slot(slot)) {
+                    set_changed = mutation.add(source_map.delta().key_at_slot(slot)) || set_changed;
+                }
+            } else {
+                for (size_t slot = source_delta.first_removed_slot(); slot != no_slot; slot = source_delta.next_removed_slot(slot)) {
+                    remove_target_key(source_delta.key_at_slot(slot));
+                }
+                for (size_t slot = source_delta.first_added_slot(); slot != no_slot; slot = source_delta.next_added_slot(slot)) {
+                    set_changed = mutation.add(source_delta.key_at_slot(slot)) || set_changed;
+                }
+            }
+
+            binding.last_source_root_state = current_source_root_state;
+            if (!initializing && set_changed) {
+                if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
+            }
+        }
+
         void configure_branch(const TSOutputView &target_view, const TSOutputView &source_view)
         {
             const TSMeta *target_schema = target_view.ts_schema();
@@ -833,18 +1559,25 @@ namespace hgraph
             }
 
             BaseState *target_state = target_view.linked_context().ts_state;
-            BaseState *source_state = source_view.linked_context().ts_state;
+            const LinkedTSContext source_context = source_view.linked_context();
+            BaseState *source_state = source_context.ts_state;
             if (target_state != nullptr) {
                 target_state->last_modified_time = source_state != nullptr ? source_state->last_modified_time : MIN_DT;
             }
 
             if (source_schema->kind == TSKind::REF) {
                 if (source_schema->element_ts() == target_schema) {
-                    // REF -> TS does not copy target data into the alternative.
-                    // Instead the alternative position becomes a RefLinkState that
-                    // tracks the REF source and exposes the current dereferenced
-                    // target through the normal TS view surface.
-                    install_ref_link_for_target(target_view, source_view);
+                    if (target_schema->kind == TSKind::TSB || target_schema->kind == TSKind::TSL) {
+                        add_collection_ref_binding(
+                            std::make_unique<CollectionRefBinding>(this, target_view, source_view),
+                            source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                    } else {
+                        // REF -> TS does not copy target data into the alternative.
+                        // Instead the alternative position becomes a RefLinkState that
+                        // tracks the REF source and exposes the current dereferenced
+                        // target through the normal TS view surface.
+                        install_ref_link_for_target(target_view, source_view);
+                    }
                     return;
                 }
 
@@ -853,6 +1586,15 @@ namespace hgraph
                     supports_alternative_cast(*source_schema->element_ts(), *target_schema)) {
                     add_dynamic_dict_binding(
                         make_dereferenced_dynamic_dict_binding(target_view, source_view),
+                        source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                    return;
+                }
+
+                if (target_schema->kind == TSKind::TSS && source_schema->element_ts() != nullptr &&
+                    source_schema->element_ts()->kind == TSKind::TSD &&
+                    supports_alternative_cast(*source_schema->element_ts(), *target_schema)) {
+                    add_dynamic_key_set_binding(
+                        make_dereferenced_dynamic_key_set_binding(target_view, source_view),
                         source_state != nullptr ? source_state->last_modified_time : MIN_DT);
                     return;
                 }
@@ -872,14 +1614,26 @@ namespace hgraph
 
                 target_view.value().as_atomic().set(hgraph::v2::TimeSeriesReference::make(source_view));
                 auto notifier = std::make_unique<WrappedRefNotifier>(target_state);
-                if (source_state != nullptr) { source_state->subscribe(notifier.get()); }
+                BaseState *source_notification_state = notification_state_of(source_context);
+                if (source_notification_state != nullptr) { source_notification_state->subscribe(notifier.get()); }
                 m_wrapped_ref_subscriptions.push_back(
-                    WrappedRefSubscription{.source_state = source_state, .target_state = target_state, .notifier = std::move(notifier)});
+                    WrappedRefSubscription{
+                        .source_state = source_notification_state,
+                        .target_state = target_state,
+                        .notifier = std::move(notifier),
+                    });
                 return;
             }
 
             if (target_schema == source_schema) {
                 throw std::logic_error("TSOutput alternative configuration should not recurse into schema-identical branches");
+            }
+
+            if (target_schema->kind == TSKind::TSS && source_schema->kind == TSKind::TSD) {
+                add_dynamic_key_set_binding(
+                    std::make_unique<DynamicKeySetBinding>(this, target_view, source_view),
+                    source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                return;
             }
 
             if (target_schema->kind != source_schema->kind) {
@@ -943,12 +1697,16 @@ namespace hgraph
                     }
 
                 default:
-                    throw std::invalid_argument("TSOutput alternatives only support collection wrap casts through TSB, TSL, and TSD");
+                    throw std::invalid_argument("TSOutput alternatives only support collection wrap casts through TSB, TSL, TSD, and TSS");
             }
         }
 
         std::vector<WrappedRefSubscription> m_wrapped_ref_subscriptions;
         std::vector<std::unique_ptr<DynamicDictBinding>> m_dynamic_dict_bindings;
+        std::vector<std::unique_ptr<DynamicKeySetBinding>> m_dynamic_key_set_bindings;
+        std::vector<std::unique_ptr<CollectionRefBinding>> m_collection_ref_bindings;
+        ViewOps m_view_ops{this};
+        AlternativeMap m_alternatives;
     };
 
     TSOutput::TSOutput(const TSOutputBuilder &builder)
@@ -956,14 +1714,66 @@ namespace hgraph
         builder.construct_output(*this);
     }
 
+    void prepare_output_view_mutation(const TSOutputView &view, engine_time_t evaluation_time)
+    {
+        LinkedTSContext context = view.linked_context();
+        if (context.ts_state == nullptr || context.schema == nullptr || context.value_dispatch == nullptr || context.value_data == nullptr) {
+            return;
+        }
+        if (context.ts_state->last_modified_time == evaluation_time) { return; }
+
+        View value{context.value_dispatch, context.value_data, context.schema->value_type};
+        switch (context.schema->kind) {
+            case TSKind::TSS:
+                value.as_set().clear_delta_tracking();
+                break;
+
+            case TSKind::TSD:
+                value.as_map().clear_delta_tracking();
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    void mark_output_view_modified(const TSOutputView &view, engine_time_t evaluation_time)
+    {
+        LinkedTSContext context = view.linked_context();
+        if (context.ts_state == nullptr) {
+            throw std::logic_error("mark_output_view_modified requires a linked output state");
+        }
+
+        if (context.schema != nullptr && context.schema->kind == TSKind::TSD && context.ts_state->storage_kind == TSStorageKind::Native &&
+            context.value_dispatch != nullptr && context.value_data != nullptr) {
+            auto &state = *static_cast<TSDState *>(context.ts_state);
+            state.bind_value_storage(
+                *context.schema->element_ts(),
+                static_cast<const detail::MapViewDispatch &>(*context.value_dispatch),
+                context.value_data);
+            if (state.publish_value_storage_delta(evaluation_time)) { return; }
+        }
+
+        if (TSOutput *owning_output = view.owning_output(); owning_output != nullptr) {
+            owning_output->sync_ref_target_subscriptions(evaluation_time);
+        }
+        context.ts_state->mark_modified(evaluation_time);
+    }
+
     TSOutput::TSOutput(const TSOutput &other)
     {
-        if (other.m_builder != nullptr) { other.builder().copy_construct_output(*this, other); }
+        if (other.m_builder != nullptr) {
+            other.builder().copy_construct_output(*this, other);
+            sync_ref_target_subscriptions(ts_root_state() != nullptr ? ts_root_state()->last_modified_time : MIN_DT);
+        }
     }
 
     TSOutput::TSOutput(TSOutput &&other) noexcept
     {
-        if (other.m_builder != nullptr) { other.builder().move_construct_output(*this, other); }
+        if (other.m_builder != nullptr) {
+            other.builder().move_construct_output(*this, other);
+            sync_ref_target_subscriptions(ts_root_state() != nullptr ? ts_root_state()->last_modified_time : MIN_DT);
+        }
     }
 
     TSOutput &TSOutput::operator=(const TSOutput &other)
@@ -984,6 +1794,7 @@ namespace hgraph
             return *this;
         }
         other.builder().move_construct_output(*this, other);
+        sync_ref_target_subscriptions(ts_root_state() != nullptr ? ts_root_state()->last_modified_time : MIN_DT);
         return *this;
     }
 
@@ -1010,8 +1821,23 @@ namespace hgraph
             throw std::invalid_argument("TSOutput::bindable_view does not support the requested schema cast");
         }
 
+        if (source.owning_output() != nullptr && source.owning_output() != this) {
+            throw std::logic_error("TSOutput alternative source view is not owned by the requested output");
+        }
+
+        if (const auto *ops = dynamic_cast<const AlternativeOutput::ViewOps *>(source.output_view_ops());
+            ops != nullptr && ops->owner != nullptr) {
+            return ops->owner->bindable_view(this, source, schema);
+        }
+
         TSOutputView root_source = view(source.evaluation_time());
-        const TSPath source_path = source_path_from_root(root_source, source);
+        TSPath source_path;
+        BaseState *target_state = source.context_ref().ts_state;
+        if (target_state != nullptr &&
+            !find_state_path(root_source.context_ref().ts_state, root_source.ts_schema(), target_state, source_path)) {
+            throw std::logic_error("TSOutput alternative source view is not reachable from the owning output root");
+        }
+
         const TSMeta *root_source_schema = root_source.ts_schema();
         if (root_source_schema == nullptr) { throw std::logic_error("TSOutput::bindable_view requires a rooted source schema"); }
 
@@ -1020,7 +1846,6 @@ namespace hgraph
         // requested subtree transformed, then project the requested child view
         // back out of that rooted alternative.
         const TSMeta *alternative_schema = replace_schema_at_path(*root_source_schema, source_path, 0, *schema);
-
         const auto [it, inserted] = m_alternatives.try_emplace(alternative_schema, nullptr);
         if (inserted) { it->second.reset(new AlternativeOutput(root_source, *alternative_schema)); }
 
@@ -1030,11 +1855,43 @@ namespace hgraph
 
     void TSOutput::clear_storage() noexcept
     {
+        clear_ref_target_subscriptions();
         if (m_builder == nullptr) {
             m_alternatives.clear();
             return;
         }
         builder().destruct_output(*this);
+    }
+
+    void TSOutput::clear_ref_target_subscriptions() noexcept
+    {
+        for (auto &subscription : m_ref_target_subscriptions) {
+            if (subscription.state != nullptr && subscription.notifier) {
+                subscription.state->unsubscribe(subscription.notifier.get());
+            }
+        }
+        m_ref_target_subscriptions.clear();
+    }
+
+    void TSOutput::sync_ref_target_subscriptions(engine_time_t evaluation_time)
+    {
+        clear_ref_target_subscriptions();
+
+        TSOutputView view = this->view(evaluation_time);
+        const TSMeta *schema = view.ts_schema();
+        if (schema == nullptr || schema->kind != TSKind::REF) { return; }
+
+        const auto *ref = view.value().as_atomic().try_as<v2::TimeSeriesReference>();
+        if (ref == nullptr) { return; }
+
+        std::unordered_set<BaseState *> target_states;
+        collect_ref_target_states(*ref, target_states);
+        for (BaseState *state : target_states) {
+            if (state == nullptr) { continue; }
+            auto notifier = std::make_unique<RootRefValueNotifier>(this);
+            state->subscribe(notifier.get());
+            m_ref_target_subscriptions.push_back(RefTargetSubscription{.state = state, .notifier = std::move(notifier)});
+        }
     }
 
     void TSOutput::AlternativeOutputDeleter::operator()(AlternativeOutput *value) const noexcept

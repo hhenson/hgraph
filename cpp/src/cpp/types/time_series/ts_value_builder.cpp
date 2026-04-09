@@ -3,6 +3,7 @@
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_value_builder.h>
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/v2/ref.h>
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
@@ -564,6 +565,24 @@ namespace hgraph
 
         struct LeafTSDispatch : detail::TSDispatch {};
 
+        struct ReferenceTSDispatch final : detail::TSDispatch
+        {
+            [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override
+            {
+                if (const Value *materialized = detail::materialized_reference_value(context); materialized != nullptr) {
+                    const auto *ref = materialized->view().as_atomic().try_as<v2::TimeSeriesReference>();
+                    return ref != nullptr && ref->is_valid();
+                }
+                return detail::TSDispatch::valid(context);
+            }
+
+            [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
+            {
+                if (detail::materialized_reference_value(context) != nullptr) { return detail::reference_all_valid(context); }
+                return detail::TSDispatch::all_valid(context);
+            }
+        };
+
         struct ListTSDispatch : detail::TSCollectionDispatch
         {
             ListTSDispatch(const TSMeta &element_schema,
@@ -926,9 +945,12 @@ namespace hgraph
             std::unique_ptr<detail::TSDispatch> dispatch;
             switch (schema.kind) {
                 case TSKind::TSValue:
-                case TSKind::REF:
                 case TSKind::SIGNAL:
                     dispatch = std::make_unique<LeafTSDispatch>();
+                    break;
+
+                case TSKind::REF:
+                    dispatch = std::make_unique<ReferenceTSDispatch>();
                     break;
 
                 case TSKind::TSS:
@@ -1103,6 +1125,31 @@ namespace hgraph
                 on_erase(slot);
             }
         }
+    }
+
+    bool TSDState::publish_value_storage_delta(engine_time_t modified_time) noexcept
+    {
+        if (map_dispatch == nullptr || map_value_data == nullptr) { return false; }
+
+        const size_t slot_capacity = map_dispatch->slot_capacity(map_value_data);
+        bool published_child_change = false;
+        for (size_t slot = 0; slot < slot_capacity; ++slot) {
+            if (!map_dispatch->slot_occupied(map_value_data, slot)) { continue; }
+            if (!map_dispatch->slot_added(map_value_data, slot) && !map_dispatch->slot_updated(map_value_data, slot) &&
+                !map_dispatch->slot_removed(map_value_data, slot)) {
+                continue;
+            }
+
+            if (slot >= child_states.size() || child_states[slot] == nullptr) { continue; }
+            if (BaseState *child_state =
+                    std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, *child_states[slot]);
+                child_state != nullptr) {
+                child_state->mark_modified(modified_time);
+                published_child_change = true;
+            }
+        }
+
+        return published_child_change;
     }
 
     void TSDState::on_capacity(size_t old_capacity, size_t new_capacity)

@@ -25,6 +25,7 @@ namespace hgraph::v2
         [[nodiscard]] bool is_peered() const noexcept { return m_kind == Kind::PEERED; }
         [[nodiscard]] bool is_non_peered() const noexcept { return m_kind == Kind::NON_PEERED; }
         [[nodiscard]] bool is_valid() const;
+        [[nodiscard]] engine_time_t observed_time() const noexcept { return m_observed_time; }
 
         [[nodiscard]] const LinkedTSContext &target() const;
         [[nodiscard]] TSOutputView target_view(engine_time_t evaluation_time = MIN_DT) const;
@@ -43,6 +44,7 @@ namespace hgraph::v2
 
       private:
         Kind m_kind{Kind::EMPTY};
+        engine_time_t m_observed_time{MIN_DT};
         std::variant<std::monostate, LinkedTSContext, std::vector<TimeSeriesReference>> m_storage;
     };
 

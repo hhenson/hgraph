@@ -1,15 +1,139 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/time_series_state.h>
+#include <hgraph/types/time_series/ts_value_builder.h>
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/v2/ref.h>
 
+#include <algorithm>
 #include <type_traits>
 
 namespace hgraph
 {
     namespace
     {
+        [[nodiscard]] BaseState *state_address(const std::unique_ptr<TimeSeriesStateV> &state) noexcept
+        {
+            return state != nullptr
+                       ? std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, *state)
+                       : nullptr;
+        }
+
+        [[nodiscard]] bool has_any_child_state(const BaseCollectionState &state) noexcept
+        {
+            return std::ranges::any_of(state.child_states, [](const auto &child) { return child != nullptr; });
+        }
+
+        [[nodiscard]] TimeSeriesStateV *owning_state_variant(BaseState *state) noexcept
+        {
+            if (state == nullptr) { return nullptr; }
+
+            TimeSeriesStateV *slot = nullptr;
+            hgraph::visit(
+                state->parent,
+                [&](auto *parent) {
+                    using T = std::remove_pointer_t<decltype(parent)>;
+                    if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState>) {
+                        if (parent != nullptr && state->index < parent->child_states.size() && parent->child_states[state->index] != nullptr &&
+                            state_address(parent->child_states[state->index]) == state) {
+                            slot = parent->child_states[state->index].get();
+                        }
+                    }
+                },
+                [] {});
+            return slot;
+        }
+
+        [[nodiscard]] TSOutputView output_view_from_target(const LinkedTSContext &target) noexcept
+        {
+            return TSOutputView{
+                TSViewContext{target.schema, target.value_dispatch, target.ts_dispatch, target.value_data, target.ts_state},
+                TSViewContext::none(),
+                target.ts_state != nullptr ? target.ts_state->last_modified_time : MIN_DT,
+                target.owning_output,
+                target.output_view_ops != nullptr ? target.output_view_ops : &detail::default_output_view_ops(),
+            };
+        }
+
+        [[nodiscard]] bool reference_value_all_valid(const v2::TimeSeriesReference &ref) noexcept
+        {
+            switch (ref.kind()) {
+                case v2::TimeSeriesReference::Kind::EMPTY:
+                    return false;
+
+                case v2::TimeSeriesReference::Kind::PEERED:
+                    return ref.target().is_bound() && ref.target_view().all_valid();
+
+                case v2::TimeSeriesReference::Kind::NON_PEERED:
+                    return !ref.items().empty() &&
+                           std::ranges::all_of(ref.items(), [](const auto &item) { return reference_value_all_valid(item); });
+            }
+
+            return false;
+        }
+
+        [[nodiscard]] v2::TimeSeriesReference materialize_local_reference(const TSMeta &schema, BaseState *state) noexcept
+        {
+            if (state == nullptr) { return v2::TimeSeriesReference::make(); }
+
+            if (const LinkedTSContext *target = state->linked_target(); target != nullptr && target->is_bound()) {
+                return v2::TimeSeriesReference::make(output_view_from_target(*target));
+            }
+
+            switch (schema.kind) {
+                case TSKind::TSB:
+                    {
+                        const auto &bundle_state = *static_cast<TSBState *>(state);
+                        std::vector<v2::TimeSeriesReference> items;
+                        items.reserve(schema.field_count());
+                        for (size_t index = 0; index < schema.field_count(); ++index) {
+                            const BaseState *child = index < bundle_state.child_states.size() ? state_address(bundle_state.child_states[index]) : nullptr;
+                            const TSMeta *child_schema = schema.fields()[index].ts_type;
+                            items.push_back(child_schema != nullptr
+                                                ? materialize_local_reference(*child_schema, const_cast<BaseState *>(child))
+                                                : v2::TimeSeriesReference::make());
+                        }
+                        return v2::TimeSeriesReference::make(std::move(items));
+                    }
+
+                case TSKind::TSL:
+                    {
+                        const auto &list_state = *static_cast<TSLState *>(state);
+                        std::vector<v2::TimeSeriesReference> items;
+                        items.reserve(schema.fixed_size());
+                        for (size_t index = 0; index < schema.fixed_size(); ++index) {
+                            const BaseState *child = index < list_state.child_states.size() ? state_address(list_state.child_states[index]) : nullptr;
+                            const TSMeta *child_schema = schema.element_ts();
+                            items.push_back(child_schema != nullptr
+                                                ? materialize_local_reference(*child_schema, const_cast<BaseState *>(child))
+                                                : v2::TimeSeriesReference::make());
+                        }
+                        return v2::TimeSeriesReference::make(std::move(items));
+                    }
+
+                default:
+                    return v2::TimeSeriesReference::make();
+            }
+        }
+
+        [[nodiscard]] BaseCollectionState *reference_collection_state(const TSMeta &schema, BaseState *state) noexcept
+        {
+            if (state == nullptr || schema.kind != TSKind::REF || schema.element_ts() == nullptr) { return nullptr; }
+
+            TimeSeriesStateV *slot = owning_state_variant(state);
+            if (slot == nullptr) { return nullptr; }
+
+            switch (schema.element_ts()->kind) {
+                case TSKind::TSB:
+                    return std::holds_alternative<TSBState>(*slot) ? static_cast<TSBState *>(state) : nullptr;
+
+                case TSKind::TSL:
+                    return std::holds_alternative<TSLState>(*slot) ? static_cast<TSLState *>(state) : nullptr;
+
+                default: return nullptr;
+            }
+        }
+
         void notify_parent_child_modified(TimeSeriesStateParentPtr parent, size_t child_index, engine_time_t modified_time) noexcept
         {
             hgraph::visit(
@@ -27,7 +151,8 @@ namespace hgraph
         template <typename TFn>
         void with_target_state(const LinkedTSContext &target, TFn &&fn) noexcept
         {
-            if (target.ts_state != nullptr) { std::forward<TFn>(fn)(target.ts_state); }
+            BaseState *state = target.notification_state != nullptr ? target.notification_state : target.ts_state;
+            if (state != nullptr) { std::forward<TFn>(fn)(state); }
         }
 
         [[nodiscard]] LinkedTSContext dereferenced_target_from_source(const LinkedTSContext &source) noexcept
@@ -155,8 +280,125 @@ namespace hgraph
         notify_parent_that_child_is_modified(modified_time);
     }
 
+    void BaseState::mark_modified_local(engine_time_t modified_time) noexcept {
+        last_modified_time = modified_time;
+
+        for (auto *subscriber : subscribers) { subscriber->notify(modified_time); }
+    }
+
     void BaseState::notify_parent_that_child_is_modified(engine_time_t modified_time) noexcept {
         notify_parent_child_modified(parent, index, modified_time);
+    }
+
+    bool detail::refresh_native_dict_child_context(TSViewContext &context) noexcept
+    {
+        BaseState *state = context.ts_state;
+        if (state == nullptr || state->storage_kind != TSStorageKind::Native) { return false; }
+
+        TSDState *parent_state = nullptr;
+        hgraph::visit(
+            state->parent,
+            [&](auto *parent) {
+                using T = std::remove_pointer_t<decltype(parent)>;
+                if constexpr (std::same_as<T, TSDState>) { parent_state = parent; }
+            },
+            [] {});
+        if (parent_state == nullptr) { return false; }
+
+        const size_t slot = state->index;
+        if (slot >= parent_state->child_states.size() || state_address(parent_state->child_states[slot]) != state ||
+            parent_state->map_dispatch == nullptr || parent_state->map_value_data == nullptr) {
+            if (context.schema != nullptr && context.schema->kind == TSKind::TSD) {
+                static_cast<TSDState *>(state)->unbind_value_storage();
+            }
+            context.value_data = nullptr;
+            return true;
+        }
+
+        const auto *dispatch = parent_state->map_dispatch;
+        const size_t slot_capacity = dispatch->slot_capacity(parent_state->map_value_data);
+        const bool occupied = slot < slot_capacity && dispatch->slot_occupied(parent_state->map_value_data, slot);
+        const bool removed = occupied && dispatch->slot_removed(parent_state->map_value_data, slot);
+        const bool live = occupied && !removed;
+        const bool slot_changed =
+            occupied && (dispatch->slot_added(parent_state->map_value_data, slot) ||
+                         dispatch->slot_updated(parent_state->map_value_data, slot) || removed);
+        if (parent_state->last_modified_time != MIN_DT && (slot_changed || (live && state->last_modified_time == MIN_DT))) {
+            state->last_modified_time = parent_state->last_modified_time;
+        }
+        if (!live) {
+            if (context.schema != nullptr && context.schema->kind == TSKind::TSD) {
+                static_cast<TSDState *>(state)->unbind_value_storage();
+            }
+            context.value_data = nullptr;
+            return true;
+        }
+
+        context.value_data = dispatch->value_data(parent_state->map_value_data, slot);
+        if (context.schema != nullptr && context.schema->kind == TSKind::TSD && context.value_data != nullptr) {
+            const auto &builder = TSValueBuilderFactory::checked_builder_for(*context.schema);
+            static_cast<TSDState *>(state)->bind_value_storage(
+                *context.schema->element_ts(),
+                static_cast<const detail::MapViewDispatch &>(builder.value_builder().dispatch()),
+                context.value_data);
+        }
+
+        return true;
+    }
+
+    bool detail::has_local_reference_binding(const TSViewContext &context) noexcept
+    {
+        if (context.schema == nullptr || context.schema->kind != TSKind::REF || context.schema->element_ts() == nullptr ||
+            context.ts_state == nullptr) {
+            return false;
+        }
+
+        if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr && target->is_bound()) { return true; }
+
+        BaseCollectionState *collection_state = reference_collection_state(*context.schema, context.ts_state);
+        return collection_state != nullptr && has_any_child_state(*collection_state);
+    }
+
+    const Value *detail::materialized_reference_value(const TSViewContext &context) noexcept
+    {
+        if (context.schema == nullptr || context.schema->kind != TSKind::REF || context.schema->element_ts() == nullptr ||
+            context.ts_state == nullptr) {
+            return nullptr;
+        }
+
+        if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr && target->is_bound()) { return nullptr; }
+
+        BaseCollectionState *collection_state = reference_collection_state(*context.schema, context.ts_state);
+        if (collection_state == nullptr || !has_any_child_state(*collection_state) || context.schema->value_type == nullptr) {
+            return nullptr;
+        }
+
+        if (!collection_state->materialized_reference_storage.has_value() ||
+            collection_state->materialized_reference_storage->schema() != context.schema->value_type) {
+            collection_state->materialized_reference_storage.emplace(*context.schema->value_type);
+        } else {
+            collection_state->materialized_reference_storage->reset();
+        }
+
+        collection_state->materialized_reference_storage->view().as_atomic().set(
+            materialize_local_reference(*context.schema->element_ts(), context.ts_state));
+        return &*collection_state->materialized_reference_storage;
+    }
+
+    bool detail::reference_all_valid(const TSViewContext &context) noexcept
+    {
+        if (context.schema == nullptr || context.schema->kind != TSKind::REF) { return false; }
+
+        if (const Value *materialized = materialized_reference_value(context); materialized != nullptr) {
+            if (const auto *ref = materialized->view().as_atomic().try_as<v2::TimeSeriesReference>()) {
+                return reference_value_all_valid(*ref);
+            }
+            return false;
+        }
+
+        View value = context.value();
+        if (const auto *ref = value.as_atomic().try_as<v2::TimeSeriesReference>()) { return reference_value_all_valid(*ref); }
+        return false;
     }
 
     void BaseCollectionState::child_modified(size_t child_index, engine_time_t modified_time) noexcept {
@@ -169,10 +411,13 @@ namespace hgraph
             return;
         }
 
-        if (last_modified_time != modified_time) { modified_children.clear(); }
-
+        if (last_modified_time != modified_time) {
+            modified_children.clear();
+            modified_children.insert(child_index);
+            mark_modified(modified_time);
+            return;
+        }
         modified_children.insert(child_index);
-        mark_modified(modified_time);
     }
 
     BaseCollectionState::~BaseCollectionState() = default;
@@ -180,10 +425,12 @@ namespace hgraph
     BaseCollectionState::BaseCollectionState(BaseCollectionState &&other) noexcept
         : BaseState(std::move(other)),
           child_states(std::move(other.child_states)),
-          modified_children(std::move(other.modified_children))
+          modified_children(std::move(other.modified_children)),
+          materialized_reference_storage(std::move(other.materialized_reference_storage))
     {
         other.child_states.clear();
         other.modified_children.clear();
+        other.materialized_reference_storage.reset();
     }
 
     BaseCollectionState &BaseCollectionState::operator=(BaseCollectionState &&other) noexcept
@@ -198,15 +445,18 @@ namespace hgraph
         subscribers = std::move(other.subscribers);
         child_states = std::move(other.child_states);
         modified_children = std::move(other.modified_children);
+        materialized_reference_storage = std::move(other.materialized_reference_storage);
 
         other.child_states.clear();
         other.modified_children.clear();
+        other.materialized_reference_storage.reset();
         return *this;
     }
 
     void BaseCollectionState::reset_child_states() noexcept
     {
         child_states.clear();
+        materialized_reference_storage.reset();
     }
 
     TSDState::~TSDState()

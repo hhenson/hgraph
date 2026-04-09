@@ -1,4 +1,5 @@
 #include <hgraph/types/v2/graph_builder.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
@@ -10,6 +11,8 @@ namespace hgraph::v2
 {
     namespace
     {
+        constexpr int64_t key_set_path = -3;
+
         [[nodiscard]] constexpr size_t align_up(size_t value, size_t alignment) noexcept
         {
             if (alignment == 0) { return value; }
@@ -19,10 +22,16 @@ namespace hgraph::v2
 
         [[nodiscard]] const TSMeta *child_schema_at(const TSMeta &schema, int64_t slot)
         {
-            if (slot < 0) { throw std::out_of_range("v2 path navigation requires non-negative slots"); }
-
             const TSMeta *collection_schema = &schema;
             if (schema.kind == TSKind::REF && schema.element_ts() != nullptr) { collection_schema = schema.element_ts(); }
+
+            if (slot == key_set_path) {
+                if (collection_schema->kind != TSKind::TSD) {
+                    throw std::invalid_argument("v2 key_set path navigation requires a TSD schema");
+                }
+                return TSTypeRegistry::instance().tss(collection_schema->key_type());
+            }
+            if (slot < 0) { throw std::out_of_range("v2 path navigation requires non-negative slots"); }
 
             switch (collection_schema->kind) {
                 case TSKind::TSB:
@@ -112,6 +121,17 @@ namespace hgraph::v2
             const TSMeta *current_schema = schema;
             for (const int64_t slot : path) {
                 if (current_schema == nullptr) { throw std::invalid_argument("v2 output navigation requires a schema"); }
+
+                if (slot == key_set_path) {
+                    const TSMeta *target_schema = child_schema_at(*current_schema, slot);
+                    TSOutput *owning_output = view.owning_output();
+                    if (owning_output == nullptr) {
+                        throw std::logic_error("v2 key_set output navigation requires an owning output endpoint");
+                    }
+                    view = owning_output->bindable_view(view, target_schema);
+                    current_schema = target_schema;
+                    continue;
+                }
 
                 const TSMeta *collection_schema = current_schema;
                 if (current_schema->kind == TSKind::REF && current_schema->element_ts() != nullptr) {

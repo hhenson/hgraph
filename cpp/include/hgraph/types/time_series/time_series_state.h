@@ -4,10 +4,12 @@
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/time_series/active_trie.h>
 #include <hgraph/types/time_series/value/slot_observer.h>
+#include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/tagged_ptr.h>
 
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -29,13 +31,19 @@ namespace hgraph
     struct SignalState;
     struct BaseState;
     struct TSContext;
+    struct TSViewContext;
     using LinkedTSContext = TSContext;
 
     namespace detail
     {
         struct MapViewDispatch;
         struct TSDispatch;
+        struct TSOutputViewOps;
         struct ViewDispatch;
+
+        [[nodiscard]] HGRAPH_EXPORT bool has_local_reference_binding(const TSViewContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT const Value *materialized_reference_value(const TSViewContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT bool reference_all_valid(const TSViewContext &context) noexcept;
     }  // namespace detail
 
     /**
@@ -147,6 +155,16 @@ namespace hgraph
         void mark_modified(engine_time_t modified_time) noexcept;
 
         /**
+         * Mark this state as modified for the supplied engine time and notify
+         * direct subscribers without propagating to the parent collection.
+         *
+         * This is used when the owning collection is already publishing its
+         * own structural tick, but dependent link-backed children still need
+         * to see the leaf/local position update.
+         */
+        void mark_modified_local(engine_time_t modified_time) noexcept;
+
+        /**
          * Notify the parent collection that one of its children has been
          * modified.
          *
@@ -157,6 +175,16 @@ namespace hgraph
          */
         void notify_parent_that_child_is_modified(engine_time_t modified_time) noexcept;
     };
+
+    namespace detail
+    {
+        /**
+         * Refresh a native child context that hangs off a slot-backed TSD
+         * parent so it resolves through the parent's current key->slot storage
+         * rather than a stale raw child pointer captured from a prior tick.
+         */
+        [[nodiscard]] HGRAPH_EXPORT bool refresh_native_dict_child_context(TSViewContext &context) noexcept;
+    }  // namespace detail
 
     /**
      * State carried by a scalar time-series.
@@ -180,12 +208,18 @@ namespace hgraph
                             const detail::ViewDispatch *value_dispatch_,
                             const detail::TSDispatch *ts_dispatch_,
                             void *value_data_,
-                            BaseState *ts_state_) noexcept
+                            BaseState *ts_state_,
+                            TSOutput *owning_output_ = nullptr,
+                            const detail::TSOutputViewOps *output_view_ops_ = nullptr,
+                            BaseState *notification_state_ = nullptr) noexcept
             : schema(schema_),
               value_dispatch(value_dispatch_),
               ts_dispatch(ts_dispatch_),
               value_data(value_data_),
-              ts_state(ts_state_)
+              ts_state(ts_state_),
+              owning_output(owning_output_),
+              output_view_ops(output_view_ops_),
+              notification_state(notification_state_ != nullptr ? notification_state_ : ts_state_)
         {
         }
 
@@ -203,6 +237,16 @@ namespace hgraph
         const detail::TSDispatch   *ts_dispatch{nullptr};
         void                       *value_data{nullptr};
         BaseState                  *ts_state{nullptr};
+        TSOutput                   *owning_output{nullptr};
+        const detail::TSOutputViewOps *output_view_ops{nullptr};
+        /**
+         * Runtime state used for direct notification/subscription wiring.
+         *
+         * This is usually the same as `ts_state`. Alternative output views
+         * can override it when the navigable view is local but wakeups must
+         * follow some upstream source/root instead.
+         */
+        BaseState                  *notification_state{nullptr};
     };
 
     /**
@@ -246,6 +290,11 @@ namespace hgraph
          * opaque REF[...] semantics while still keeping direct child links live.
          */
         bool suppress_repeated_child_notifications{false};
+        /**
+         * Scratch storage used when a logical REF[TSL/TSB] position is backed
+         * by a local child-binding tree instead of a direct peer target.
+         */
+        mutable std::optional<Value> materialized_reference_storage;
 
         void reset_child_states() noexcept;
 
@@ -271,6 +320,7 @@ namespace hgraph
         void bind_value_storage(const TSMeta &element_schema, const detail::MapViewDispatch &dispatch, void *value_data);
         void unbind_value_storage() noexcept;
         void sync_with_value_storage();
+        [[nodiscard]] bool publish_value_storage_delta(engine_time_t modified_time) noexcept;
 
         void on_capacity(size_t old_capacity, size_t new_capacity) override;
         void on_insert(size_t slot) override;

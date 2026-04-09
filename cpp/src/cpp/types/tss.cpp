@@ -20,6 +20,7 @@ namespace hgraph
             }
             return false;
         }
+
     }  // namespace
 
     // ========== TimeSeriesSetOutput Implementation ==========
@@ -108,8 +109,7 @@ namespace hgraph
     void TimeSeriesSetOutput::clear_deltas()
     {
         if (_set_schema == nullptr) { return; }
-        auto mutation = value_view().begin_mutation();
-        static_cast<void>(mutation);
+        value_view().clear_delta_tracking();
         invalidate_delta_snapshot();
     }
 
@@ -144,6 +144,13 @@ namespace hgraph
     }
 
     void TimeSeriesSetOutput::add(const value::View& elem) {
+        if (auto *node = owning_node(); node != nullptr) {
+            const engine_time_t evaluation_time = *node->cached_evaluation_time_ptr();
+            if (last_modified_time() != evaluation_time) {
+                value_view().clear_delta_tracking();
+                invalidate_delta_snapshot();
+            }
+        }
         auto mutation = value_view().begin_mutation();
         if (mutation.add(elem)) {
             invalidate_delta_snapshot();
@@ -156,6 +163,13 @@ namespace hgraph
     }
 
     void TimeSeriesSetOutput::remove(const value::View& elem) {
+        if (auto *node = owning_node(); node != nullptr) {
+            const engine_time_t evaluation_time = *node->cached_evaluation_time_ptr();
+            if (last_modified_time() != evaluation_time) {
+                value_view().clear_delta_tracking();
+                invalidate_delta_snapshot();
+            }
+        }
         auto mutation = value_view().begin_mutation();
         if (mutation.remove(elem)) {
             invalidate_delta_snapshot();
@@ -194,6 +208,13 @@ namespace hgraph
         if (!_element_type || item.is_none()) return;
         value::Value temp(_element_type);
         temp.from_python(item);
+        if (auto *node = owning_node(); node != nullptr) {
+            const engine_time_t evaluation_time = *node->cached_evaluation_time_ptr();
+            if (last_modified_time() != evaluation_time) {
+                value_view().clear_delta_tracking();
+                invalidate_delta_snapshot();
+            }
+        }
         auto mutation = value_view().begin_mutation();
         if (mutation.add(value::View(temp.view()))) {
             invalidate_delta_snapshot();
@@ -209,6 +230,13 @@ namespace hgraph
         if (!_element_type || item.is_none()) return;
         value::Value temp(_element_type);
         temp.from_python(item);
+        if (auto *node = owning_node(); node != nullptr) {
+            const engine_time_t evaluation_time = *node->cached_evaluation_time_ptr();
+            if (last_modified_time() != evaluation_time) {
+                value_view().clear_delta_tracking();
+                invalidate_delta_snapshot();
+            }
+        }
         auto mutation = value_view().begin_mutation();
         if (mutation.remove(value::View(temp.view()))) {
             invalidate_delta_snapshot();
@@ -372,6 +400,13 @@ namespace hgraph
     }
 
     void TimeSeriesSetOutput::clear() {
+        if (auto *node = owning_node(); node != nullptr) {
+            const engine_time_t evaluation_time = *node->cached_evaluation_time_ptr();
+            if (last_modified_time() != evaluation_time) {
+                value_view().clear_delta_tracking();
+                invalidate_delta_snapshot();
+            }
+        }
         // Update contains outputs for all elements before clearing
         if (_contains_ref_outputs) {
             for (auto elem : value_view().values()) {

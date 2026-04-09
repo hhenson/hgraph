@@ -38,6 +38,8 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
             resolved.ts_dispatch,
             resolved.value_data,
             this->m_context.ts_state,
+            m_owning_output,
+            m_output_view_ops,
         };
     }
 
@@ -45,6 +47,7 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
      * Return the owning output endpoint for this logical output position.
      */
     [[nodiscard]] TSOutput *owning_output() const noexcept { return m_owning_output; }
+    [[nodiscard]] const detail::TSOutputViewOps *output_view_ops() const noexcept { return m_output_view_ops; }
 
     [[nodiscard]] const TSViewContext &context_ref() const noexcept { return this->m_context; }
 

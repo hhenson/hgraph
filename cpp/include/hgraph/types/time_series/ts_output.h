@@ -7,6 +7,7 @@
 #include <hgraph/types/time_series/ts_value.h>
 
 #include <memory>
+#include <vector>
 #include <unordered_map>
 
 namespace hgraph {
@@ -60,8 +61,14 @@ struct HGRAPH_EXPORT TSOutput : TSValue {
 protected:
 private:
     friend struct TSOutputBuilder;
+    friend void mark_output_view_modified(const TSOutputView &view, engine_time_t evaluation_time);
 
     struct AlternativeOutput;
+    struct RefTargetSubscription
+    {
+        BaseState *state{nullptr};
+        std::unique_ptr<Notifiable> notifier;
+    };
     struct AlternativeOutputDeleter
     {
         void operator()(AlternativeOutput *value) const noexcept;
@@ -72,9 +79,27 @@ private:
 
     [[nodiscard]] const TSOutputBuilder &builder() const noexcept { return *m_builder; }
     void clear_storage() noexcept;
+    void clear_ref_target_subscriptions() noexcept;
+    void sync_ref_target_subscriptions(engine_time_t evaluation_time);
 
     const TSOutputBuilder *m_builder{nullptr};
     AlternativeMap m_alternatives;
+    std::vector<RefTargetSubscription> m_ref_target_subscriptions;
 };
+
+/**
+ * Prepare an output collection for mutation at the supplied evaluation time.
+ *
+ * This clears any stale delta bookkeeping from a prior engine tick before a
+ * new set/map mutation begins. Callers mutating TSS/TSD outputs should invoke
+ * this once before opening the mutation scope for the current tick.
+ */
+HGRAPH_EXPORT void prepare_output_view_mutation(const TSOutputView &view, engine_time_t evaluation_time);
+
+/**
+ * Publish a modification on an output view and keep any direct dynamic dict
+ * children synchronized with the same engine tick.
+ */
+HGRAPH_EXPORT void mark_output_view_modified(const TSOutputView &view, engine_time_t evaluation_time);
 
 }  // namespace hgraph

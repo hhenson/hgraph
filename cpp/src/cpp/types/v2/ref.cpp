@@ -12,7 +12,9 @@ namespace hgraph::v2
         [[nodiscard]] bool linked_context_equal(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept
         {
             return lhs.schema == rhs.schema && lhs.value_dispatch == rhs.value_dispatch && lhs.ts_dispatch == rhs.ts_dispatch &&
-                   lhs.value_data == rhs.value_data && lhs.ts_state == rhs.ts_state;
+                   lhs.value_data == rhs.value_data && lhs.ts_state == rhs.ts_state &&
+                   lhs.notification_state == rhs.notification_state &&
+                   lhs.owning_output == rhs.owning_output && lhs.output_view_ops == rhs.output_view_ops;
         }
 
         [[nodiscard]] size_t linked_context_hash(const LinkedTSContext &context) noexcept
@@ -26,13 +28,22 @@ namespace hgraph::v2
             mix(context.ts_dispatch);
             mix(context.value_data);
             mix(context.ts_state);
+            mix(context.notification_state);
+            mix(context.owning_output);
+            mix(context.output_view_ops);
             return seed;
         }
 
         [[nodiscard]] TSOutputView view_from_target(const LinkedTSContext &target, engine_time_t evaluation_time)
         {
             TSViewContext context{target.schema, target.value_dispatch, target.ts_dispatch, target.value_data, target.ts_state};
-            return TSOutputView{context, TSViewContext::none(), evaluation_time, nullptr, &detail::default_output_view_ops()};
+            return TSOutputView{
+                context,
+                TSViewContext::none(),
+                evaluation_time,
+                target.owning_output,
+                target.output_view_ops != nullptr ? target.output_view_ops : &detail::default_output_view_ops(),
+            };
         }
     }  // namespace
 
@@ -69,12 +80,12 @@ namespace hgraph::v2
     }
 
     TimeSeriesReference::TimeSeriesReference(LinkedTSContext target) noexcept
-        : m_kind(Kind::PEERED), m_storage(std::move(target))
+        : m_kind(Kind::PEERED), m_observed_time(MIN_DT), m_storage(std::move(target))
     {
     }
 
     TimeSeriesReference::TimeSeriesReference(std::vector<TimeSeriesReference> items)
-        : m_kind(Kind::NON_PEERED), m_storage(std::move(items))
+        : m_kind(Kind::NON_PEERED), m_observed_time(MIN_DT), m_storage(std::move(items))
     {
     }
 
@@ -154,7 +165,11 @@ namespace hgraph::v2
     TimeSeriesReference TimeSeriesReference::make(const TSOutputView &output)
     {
         LinkedTSContext context = output.linked_context();
-        return context.is_bound() ? TimeSeriesReference(std::move(context)) : make();
+        if (!context.is_bound()) { return make(); }
+
+        TimeSeriesReference ref{std::move(context)};
+        ref.m_observed_time = output.last_modified_time();
+        return ref;
     }
 
     TimeSeriesReference TimeSeriesReference::make(const TSInputView &input)
@@ -167,7 +182,9 @@ namespace hgraph::v2
                     {
                         const auto value = input.value();
                         if (!value.has_value()) { return make(); }
-                        return value.as_atomic().checked_as<TimeSeriesReference>();
+                        TimeSeriesReference ref = value.as_atomic().checked_as<TimeSeriesReference>();
+                        if (ref.observed_time() == MIN_DT) { ref.m_observed_time = input.last_modified_time(); }
+                        return ref;
                     }
 
                 case TSKind::TSB:
@@ -195,7 +212,11 @@ namespace hgraph::v2
                 case TSKind::TSW:
                 case TSKind::TSValue:
                 case TSKind::SIGNAL:
-                    if (target != nullptr && target->is_bound()) { return TimeSeriesReference(*target); }
+                    if (target != nullptr && target->is_bound()) {
+                        TimeSeriesReference ref{*target};
+                        ref.m_observed_time = input.last_modified_time();
+                        return ref;
+                    }
                     break;
             }
         }

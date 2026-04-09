@@ -1230,8 +1230,7 @@ TEST_CASE("TSOutput TSD REF alternatives do not double-notify the root for child
     {
         // Clear the initial dict delta bookkeeping so the next tick exercises
         // only child-state propagation, not a replay of the original insert.
-        auto mutation = output.dict_value().begin_mutation();
-        static_cast<void>(mutation);
+        output.dict_value().clear_delta_tracking();
     }
 
     const auto alternative = output.bindable_view(output.view(hgraph::test_detail::tick(220)), ref_dict_ts);

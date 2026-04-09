@@ -196,6 +196,10 @@ namespace hgraph
             const auto *state = ts_state;
             if (state == nullptr) { return resolved_context; }
 
+            if (state->storage_kind == TSStorageKind::Native) {
+                static_cast<void>(detail::refresh_native_dict_child_context(resolved_context));
+            }
+
             const auto apply_target = [&resolved_context](LinkedTSContext target) noexcept {
                 if (!target.is_bound()) {
                     resolved_context.value_data = nullptr;
@@ -223,11 +227,21 @@ namespace hgraph
                     target = *nested;
                 }
 
-                resolved_context.schema = target.schema != nullptr ? target.schema : resolved_context.schema;
-                resolved_context.value_dispatch =
-                    target.value_dispatch != nullptr ? target.value_dispatch : resolved_context.value_dispatch;
-                resolved_context.ts_dispatch = target.ts_dispatch != nullptr ? target.ts_dispatch : resolved_context.ts_dispatch;
-                resolved_context.value_data = target.value_data;
+                TSViewContext target_context{
+                    target.schema != nullptr ? target.schema : resolved_context.schema,
+                    target.value_dispatch != nullptr ? target.value_dispatch : resolved_context.value_dispatch,
+                    target.ts_dispatch != nullptr ? target.ts_dispatch : resolved_context.ts_dispatch,
+                    target.value_data,
+                    target.ts_state,
+                };
+                if (target.ts_state != nullptr && target.ts_state->storage_kind == TSStorageKind::Native) {
+                    static_cast<void>(detail::refresh_native_dict_child_context(target_context));
+                }
+
+                resolved_context.schema = target_context.schema;
+                resolved_context.value_dispatch = target_context.value_dispatch;
+                resolved_context.ts_dispatch = target_context.ts_dispatch;
+                resolved_context.value_data = target_context.value_data;
             };
 
             if (const LinkedTSContext *target = state->linked_target(); target != nullptr) { apply_target(*target); }
@@ -239,6 +253,9 @@ namespace hgraph
         {
             const TSViewContext resolved_context = resolved();
             const value::TypeMeta *value_schema = resolved_context.schema != nullptr ? resolved_context.schema->value_type : nullptr;
+            if (const Value *materialized = detail::materialized_reference_value(resolved_context); materialized != nullptr) {
+                return materialized->view();
+            }
             if (resolved_context.value_dispatch == nullptr || resolved_context.value_data == nullptr) {
                 return View::invalid_for(value_schema);
             }

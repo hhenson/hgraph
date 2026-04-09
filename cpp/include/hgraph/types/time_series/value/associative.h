@@ -39,12 +39,11 @@ namespace hgraph
         struct SetViewDispatch : ViewDispatch
         {
             /**
-             * Start a new mutation epoch.
+             * Enter a mutation scope.
              *
-             * Removed slots are released here so their payloads remain
-             * inspectable by slot id until the next mutation begins. Plain
-             * builders do not retain removed payloads, so this is a no-op for
-             * them.
+             * Delta tracking is cleared explicitly by higher runtime layers at
+             * evaluation-tick boundaries; entering a mutation scope only
+             * tracks nested mutation depth.
              */
             virtual void begin_mutation(void *data) const = 0;
             /**
@@ -74,6 +73,13 @@ namespace hgraph
             [[nodiscard]] virtual bool add(void *data, const void *element) const = 0;
             [[nodiscard]] virtual bool remove(void *data, const void *element) const = 0;
             virtual void clear(void *data) const = 0;
+            /**
+             * Clear retained delta bookkeeping for a new evaluation tick.
+             *
+             * Delta builders release removed payloads and reset added/removed
+             * journals here. Plain builders treat this as a no-op.
+             */
+            virtual void clear_delta_tracking(void *data) const = 0;
         };
 
         /**
@@ -92,12 +98,11 @@ namespace hgraph
         struct MapViewDispatch : ViewDispatch
         {
             /**
-             * Start a new mutation epoch.
+             * Enter a mutation scope.
              *
-             * Removed slots are released here so erased key/value payloads stay
-             * inspectable by slot id until the next mutation begins. Plain
-             * builders do not retain removed payloads, so this is a no-op for
-             * them.
+             * Delta tracking is cleared explicitly by higher runtime layers at
+             * evaluation-tick boundaries; entering a mutation scope only
+             * tracks nested mutation depth.
              */
             virtual void begin_mutation(void *data) const = 0;
             /**
@@ -137,6 +142,14 @@ namespace hgraph
             virtual bool set_item(void *data, const void *key, const void *value) const = 0;
             virtual bool remove(void *data, const void *key) const = 0;
             virtual void clear(void *data) const = 0;
+            /**
+             * Clear retained delta bookkeeping for a new evaluation tick.
+             *
+             * Delta builders release removed payloads and reset
+             * added/removed/updated journals here. Plain builders treat this
+             * as a no-op.
+             */
+            virtual void clear_delta_tracking(void *data) const = 0;
         };
 
         [[nodiscard]] HGRAPH_EXPORT const ValueBuilder *associative_builder_for(
@@ -177,6 +190,7 @@ namespace hgraph
          */
         [[nodiscard]] Range<View> values() const;
         [[nodiscard]] bool contains(const View &value) const;
+        void clear_delta_tracking();
 
       protected:
         /**
@@ -391,6 +405,7 @@ namespace hgraph
         [[nodiscard]] size_t next_live_slot(size_t slot) const;
         [[nodiscard]] size_t find_slot(const View &key) const;
         [[nodiscard]] bool contains(const View &key) const;
+        void clear_delta_tracking();
         [[nodiscard]] View at(const View &key);
         [[nodiscard]] View at(const View &key) const;
 

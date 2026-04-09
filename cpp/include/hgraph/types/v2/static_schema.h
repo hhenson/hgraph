@@ -293,11 +293,7 @@ namespace hgraph::v2
 
         inline void mark_ts_output_modified(const TSOutputView &view, engine_time_t evaluation_time)
         {
-            LinkedTSContext context = view.linked_context();
-            if (context.ts_state == nullptr) {
-                throw std::logic_error("Output mutation requires a linked output state");
-            }
-            context.ts_state->mark_modified(evaluation_time);
+            mark_output_view_modified(view, evaluation_time);
         }
     }  // namespace detail
 
