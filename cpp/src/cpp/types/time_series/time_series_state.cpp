@@ -370,7 +370,7 @@ namespace hgraph
         if (parent_state->last_modified_time != MIN_DT && (slot_changed || (live && state->last_modified_time == MIN_DT))) {
             state->last_modified_time = parent_state->last_modified_time;
         }
-        if (!live) {
+        if (!occupied) {
             if (context.schema != nullptr && context.schema->kind == TSKind::TSD) {
                 static_cast<TSDState *>(state)->unbind_value_storage();
             }
