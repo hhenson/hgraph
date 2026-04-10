@@ -189,16 +189,6 @@ namespace hgraph
         virtual ~TimeSeriesFeatureRegistry();
     };
 
-    namespace detail
-    {
-        /**
-         * Refresh a native child context that hangs off a slot-backed TSD
-         * parent so it resolves through the parent's current key->slot storage
-         * rather than a stale raw child pointer captured from a prior tick.
-         */
-        [[nodiscard]] HGRAPH_EXPORT bool refresh_native_dict_child_context(TSViewContext &context) noexcept;
-    }  // namespace detail
-
     /**
      * State carried by a scalar time-series.
      */
@@ -583,6 +573,14 @@ namespace hgraph
         RefSourceNotifiable         source_notifiable;
         DereferencedTargetNotifiable target_notifiable;
         TargetLinkState             bound_link;  // Current dereferenced target.
+        /**
+         * Whether ref-target switches should retain a previous-target snapshot.
+         *
+         * Ordinary sampled REF[TSD]/REF[TSS] semantics need this. Internal
+         * bridge-only ref links used by alternative replay can disable it when
+         * they already resync structurally and never consume the snapshot.
+         */
+        bool                        retain_transition_value{true};
         Value                       previous_target_value;
         engine_time_t               switch_modified_time{MIN_DT};
         /**

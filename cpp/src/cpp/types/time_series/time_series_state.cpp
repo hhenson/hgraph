@@ -177,9 +177,15 @@ namespace hgraph
                    lhs.owning_output == rhs.owning_output && lhs.output_view_ops == rhs.output_view_ops;
         }
 
+        [[nodiscard]] bool retains_previous_target_value(const LinkedTSContext &target) noexcept
+        {
+            return target.schema != nullptr && (target.schema->kind == TSKind::TSS || target.schema->kind == TSKind::TSD);
+        }
+
         [[nodiscard]] Value snapshot_target_value(const LinkedTSContext &target, engine_time_t modified_time = MIN_DT)
         {
-            if (!target.is_bound() || target.schema == nullptr || target.value_dispatch == nullptr || target.value_data == nullptr) {
+            if (!retains_previous_target_value(target) || !target.is_bound() || target.value_dispatch == nullptr ||
+                target.value_data == nullptr) {
                 return {};
             }
 
@@ -332,63 +338,6 @@ namespace hgraph
 
     void BaseState::notify_parent_that_child_is_modified(engine_time_t modified_time) noexcept {
         notify_parent_child_modified(parent, index, modified_time);
-    }
-
-    bool detail::refresh_native_dict_child_context(TSViewContext &context) noexcept
-    {
-        BaseState *state = context.ts_state;
-        if (state == nullptr || state->storage_kind != TSStorageKind::Native) { return false; }
-
-        TSDState *parent_state = nullptr;
-        hgraph::visit(
-            state->parent,
-            [&](auto *parent) {
-                using T = std::remove_pointer_t<decltype(parent)>;
-                if constexpr (std::same_as<T, TSDState>) { parent_state = parent; }
-            },
-            [] {});
-        if (parent_state == nullptr) { return false; }
-
-        const size_t slot = state->index;
-        if (slot >= parent_state->child_states.size() || state_address(parent_state->child_states[slot]) != state ||
-            parent_state->map_dispatch == nullptr || parent_state->map_value_data == nullptr) {
-            if (context.schema != nullptr && context.schema->kind == TSKind::TSD) {
-                static_cast<TSDState *>(state)->detach_value_storage();
-            }
-            context.value_data = nullptr;
-            return true;
-        }
-
-        const auto *dispatch = parent_state->map_dispatch;
-        const size_t slot_capacity = dispatch->slot_capacity(parent_state->map_value_data);
-        const bool occupied = slot < slot_capacity && dispatch->slot_occupied(parent_state->map_value_data, slot);
-        const bool removed = occupied && dispatch->slot_removed(parent_state->map_value_data, slot);
-        const bool live = occupied && !removed;
-        const bool slot_changed =
-            occupied && (dispatch->slot_added(parent_state->map_value_data, slot) ||
-                         dispatch->slot_updated(parent_state->map_value_data, slot) || removed);
-        if (parent_state->last_modified_time != MIN_DT && (slot_changed || (live && state->last_modified_time == MIN_DT))) {
-            state->last_modified_time = parent_state->last_modified_time;
-        }
-        if (!occupied) {
-            if (context.schema != nullptr && context.schema->kind == TSKind::TSD) {
-                static_cast<TSDState *>(state)->detach_value_storage();
-            }
-            context.value_data = nullptr;
-            return true;
-        }
-
-        context.value_data = dispatch->value_data(parent_state->map_value_data, slot);
-        if (context.schema != nullptr && context.schema->kind == TSKind::TSD && context.value_data != nullptr) {
-            const auto &builder = TSValueBuilderFactory::checked_builder_for(*context.schema);
-            static_cast<TSDState *>(state)->bind_value_storage(
-                *context.schema->element_ts(),
-                static_cast<const detail::MapViewDispatch &>(builder.value_builder().dispatch()),
-                context.value_data,
-                false);
-        }
-
-        return true;
     }
 
     bool detail::has_local_reference_binding(const TSViewContext &context) noexcept
@@ -668,6 +617,7 @@ namespace hgraph
         bound_link.storage_kind = other.bound_link.storage_kind;
         bound_link.subscribers = std::move(other.bound_link.subscribers);
         bound_link.scheduling_notifier.set_target(other.bound_link.scheduling_notifier.get_target());
+        retain_transition_value = other.retain_transition_value;
         previous_target_value = std::move(other.previous_target_value);
         switch_modified_time = other.switch_modified_time;
         boundary_attachments = std::move(other.boundary_attachments);
@@ -689,6 +639,7 @@ namespace hgraph
         }
 
         other.bound_link.scheduling_notifier.set_target(nullptr);
+        other.retain_transition_value = true;
         other.previous_target_value = {};
         other.switch_modified_time = MIN_DT;
     }
@@ -712,6 +663,7 @@ namespace hgraph
         bound_link.storage_kind = other.bound_link.storage_kind;
         bound_link.subscribers = std::move(other.bound_link.subscribers);
         bound_link.scheduling_notifier.set_target(other.bound_link.scheduling_notifier.get_target());
+        retain_transition_value = other.retain_transition_value;
         previous_target_value = std::move(other.previous_target_value);
         switch_modified_time = other.switch_modified_time;
         boundary_attachments = std::move(other.boundary_attachments);
@@ -733,6 +685,7 @@ namespace hgraph
         }
 
         other.bound_link.scheduling_notifier.set_target(nullptr);
+        other.retain_transition_value = true;
         other.previous_target_value = {};
         other.switch_modified_time = MIN_DT;
         return *this;
@@ -818,8 +771,9 @@ namespace hgraph
             // mostly treats refs as opaque handles, so a source-side tick that
             // resolves to the same target should not manufacture a fresh delta.
             if (target_changed) {
-                previous_target_value = snapshot_target_value(previous_target, modified_time);
-                switch_modified_time = modified_time;
+                previous_target_value =
+                    retain_transition_value ? snapshot_target_value(previous_target, modified_time) : Value{};
+                switch_modified_time = previous_target_value.has_value() ? modified_time : MIN_DT;
                 mark_modified(modified_time);
             } else {
                 previous_target_value = {};

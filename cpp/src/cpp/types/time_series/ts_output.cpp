@@ -301,6 +301,7 @@ namespace hgraph
             initialize_base_state(state.bound_link, static_cast<TSOutput *>(nullptr), 0, MIN_DT, TSStorageKind::TargetLink);
             state.bound_link.target.clear();
             state.bound_link.scheduling_notifier.set_target(nullptr);
+            state.retain_transition_value = true;
         }
 
         template <typename TCollectionState>
@@ -930,6 +931,7 @@ namespace hgraph
             auto source_bridge_state = std::make_unique<TimeSeriesStateV>();
             auto &bridge_state = source_bridge_state->template emplace<RefLinkState>();
             initialize_ref_link_state(bridge_state, TimeSeriesStateParentPtr{}, 0);
+            bridge_state.retain_transition_value = false;
             bridge_state.set_source(ref_source_view.linked_context());
 
             LinkedTSContext source_context{
@@ -959,6 +961,7 @@ namespace hgraph
             auto source_bridge_state = std::make_unique<TimeSeriesStateV>();
             auto &bridge_state = source_bridge_state->template emplace<RefLinkState>();
             initialize_ref_link_state(bridge_state, TimeSeriesStateParentPtr{}, 0);
+            bridge_state.retain_transition_value = false;
             bridge_state.set_source(ref_source_view.linked_context());
 
             LinkedTSContext source_context{

@@ -103,6 +103,7 @@ namespace hgraph
             initialize_base_state(state.bound_link, static_cast<TSOutput *>(nullptr), 0, MIN_DT);
             state.bound_link.target.clear();
             state.bound_link.scheduling_notifier.set_target(nullptr);
+            state.retain_transition_value = true;
             state.storage_kind = TSStorageKind::RefLink;
             state.bound_link.storage_kind = TSStorageKind::TargetLink;
         }

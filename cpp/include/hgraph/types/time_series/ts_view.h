@@ -196,10 +196,6 @@ namespace hgraph
             const auto *state = ts_state;
             if (state == nullptr) { return resolved_context; }
 
-            if (state->storage_kind == TSStorageKind::Native) {
-                static_cast<void>(detail::refresh_native_dict_child_context(resolved_context));
-            }
-
             const auto apply_target = [&resolved_context](LinkedTSContext target) noexcept {
                 if (!target.is_bound()) {
                     resolved_context.value_data = nullptr;
@@ -234,9 +230,6 @@ namespace hgraph
                     target.value_data,
                     target.ts_state,
                 };
-                if (target.ts_state != nullptr && target.ts_state->storage_kind == TSStorageKind::Native) {
-                    static_cast<void>(detail::refresh_native_dict_child_context(target_context));
-                }
 
                 resolved_context.schema = target_context.schema;
                 resolved_context.value_dispatch = target_context.value_dispatch;
