@@ -181,13 +181,6 @@ namespace hgraph
         {
             BaseState *local_state = state_address(slot);
             if (local_state != nullptr) {
-                if (schema.kind == TSKind::TSD && local_state->storage_kind == TSStorageKind::Native && native_value_data != nullptr) {
-                    static_cast<TSDState *>(local_state)->bind_value_storage(
-                        *schema.element_ts(),
-                        static_cast<const detail::MapViewDispatch &>(value_dispatch),
-                        native_value_data,
-                        false);
-                }
                 if (const LinkedTSContext *target = local_state->linked_target(); target != nullptr) {
                     return linked_child_context(*target, local_state, schema, value_dispatch, ts_dispatch);
                 }
@@ -258,7 +251,16 @@ namespace hgraph
                         auto &list_state = state.emplace<TSLState>();
                         initialize_collection_state(list_state, parent, index);
 
-                        if (schema.fixed_size() > 0) { ensure_child_slot_capacity(list_state, schema.fixed_size()); }
+                        const size_t fixed = schema.fixed_size();
+                        if (fixed > 0) {
+                            const TSMeta *elem = schema.element_ts();
+                            ensure_child_slot_capacity(list_state, fixed);
+                            if (elem != nullptr) {
+                                for (size_t i = 0; i < fixed; ++i) {
+                                    ensure_child_state(list_state, i, *elem);
+                                }
+                            }
+                        }
                         break;
                     }
 
@@ -270,7 +272,16 @@ namespace hgraph
                     {
                         auto &bundle_state = state.emplace<TSBState>();
                         initialize_collection_state(bundle_state, parent, index);
-                        ensure_child_slot_capacity(bundle_state, schema.field_count());
+                        const size_t field_count = schema.field_count();
+                        ensure_child_slot_capacity(bundle_state, field_count);
+                        const auto *fields = schema.fields();
+                        if (fields != nullptr) {
+                            for (size_t i = 0; i < field_count; ++i) {
+                                if (fields[i].ts_type != nullptr) {
+                                    ensure_child_state(bundle_state, i, *fields[i].ts_type);
+                                }
+                            }
+                        }
                         break;
                     }
 
@@ -296,11 +307,26 @@ namespace hgraph
             }
 
             const auto &child_builder = TSValueBuilderFactory::checked_builder_for(state.element_schema);
+            void *slot_value_data = state.map_dispatch->value_data(state.map_value_data, slot);
+
+            // Eagerly bind nested TSD children's value storage during mutation,
+            // rather than deferring to the read path.
+            if (state.element_schema->kind == TSKind::TSD && slot_value_data != nullptr) {
+                if (BaseState *child_state = state_address(state.child_states[slot]);
+                    child_state != nullptr && child_state->storage_kind == TSStorageKind::Native) {
+                    static_cast<TSDState *>(child_state)->bind_value_storage(
+                        *state.element_schema->element_ts(),
+                        static_cast<const detail::MapViewDispatch &>(child_builder.value_builder().dispatch()),
+                        slot_value_data,
+                        false);
+                }
+            }
+
             return child_context_from_slot(state.child_states[slot],
                                            *state.element_schema,
                                            child_builder.value_builder().dispatch(),
                                            child_builder.ts_dispatch(),
-                                           state.map_dispatch->value_data(state.map_value_data, slot));
+                                           slot_value_data);
         }
 
         void replay_active_subtree(const TSViewContext &context, ActiveTrieNode *trie_node, Notifiable *notifier, bool subscribe)
@@ -647,7 +673,7 @@ namespace hgraph
                 if (state == nullptr) { return false; }
 
                 for (size_t index = 0; index < list.size(); ++index) {
-                    ensure_child_state(*state, index, m_element_schema.get());
+                    if (index >= state->child_states.size() || state->child_states[index] == nullptr) { return false; }
                     View child_value = list.at(index);
                     TSViewContext child = child_context_from_slot(state->child_states[index],
                                                                   m_element_schema.get(),
@@ -667,7 +693,7 @@ namespace hgraph
 
                 TSLState *state = list_state(context);
                 if (state == nullptr) { return TSViewContext::none(); }
-                ensure_child_state(*state, index, m_element_schema.get());
+                if (index >= state->child_states.size() || state->child_states[index] == nullptr) { return TSViewContext::none(); }
 
                 View child_value = list.at(index);
                 TSViewContext child = child_context_from_slot(state->child_states[index],
@@ -724,7 +750,7 @@ namespace hgraph
                 if (state == nullptr) { return false; }
 
                 for (size_t index = 0; index < m_fields.size(); ++index) {
-                    ensure_child_state(*state, index, m_fields[index].schema.get());
+                    if (index >= state->child_states.size() || state->child_states[index] == nullptr) { return false; }
                     View child_value = context.value().as_bundle().at(index);
                     TSViewContext child = child_context_from_slot(state->child_states[index],
                                                                   m_fields[index].schema.get(),
@@ -743,7 +769,7 @@ namespace hgraph
 
                 TSBState *state = bundle_state(context);
                 if (state == nullptr) { return TSViewContext::none(); }
-                ensure_child_state(*state, index, m_fields[index].schema.get());
+                if (index >= state->child_states.size() || state->child_states[index] == nullptr) { return TSViewContext::none(); }
 
                 View child_value = context.value().as_bundle().at(index);
                 TSViewContext child = child_context_from_slot(state->child_states[index],
