@@ -20,6 +20,7 @@ namespace hgraph
     struct TSMeta;
     struct TSInput;
     struct TSOutput;
+    struct TimeSeriesFeatureRegistry;
     struct TSState;
     struct TSLState;
     struct TSDState;
@@ -95,6 +96,7 @@ namespace hgraph
         engine_time_t                    last_modified_time;
         TSStorageKind                    storage_kind{TSStorageKind::Native};
         std::unordered_set<Notifiable *> subscribers;
+        std::unique_ptr<TimeSeriesFeatureRegistry> feature_registry;
 
         /**
          * Register a subscriber for direct modification notifications from
@@ -174,6 +176,17 @@ namespace hgraph
          * will be added when the output-side state contract is defined.
          */
         void notify_parent_that_child_is_modified(engine_time_t modified_time) noexcept;
+    };
+
+    /**
+     * Lazy per-state registry for derived runtime surfaces.
+     *
+     * Feature outputs that logically belong to one TSS/TSD position should be
+     * owned by that position's state rather than by an outer output wrapper.
+     */
+    struct HGRAPH_EXPORT TimeSeriesFeatureRegistry
+    {
+        virtual ~TimeSeriesFeatureRegistry();
     };
 
     namespace detail

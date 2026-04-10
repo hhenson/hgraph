@@ -10,6 +10,8 @@
 
 namespace hgraph
 {
+    TimeSeriesFeatureRegistry::~TimeSeriesFeatureRegistry() = default;
+
     namespace
     {
         [[nodiscard]] BaseState *state_address(const std::unique_ptr<TimeSeriesStateV> &state) noexcept
@@ -485,6 +487,7 @@ namespace hgraph
         last_modified_time = other.last_modified_time;
         storage_kind = other.storage_kind;
         subscribers = std::move(other.subscribers);
+        feature_registry = std::move(other.feature_registry);
         child_states = std::move(other.child_states);
         modified_children = std::move(other.modified_children);
         materialized_reference_storage = std::move(other.materialized_reference_storage);
@@ -550,6 +553,7 @@ namespace hgraph
         last_modified_time = other.last_modified_time;
         storage_kind = other.storage_kind;
         subscribers = std::move(other.subscribers);
+        feature_registry = std::move(other.feature_registry);
         scheduling_notifier.set_target(other.scheduling_notifier.get_target());
 
         if (other.target.is_bound()) {
@@ -574,6 +578,7 @@ namespace hgraph
         last_modified_time = other.last_modified_time;
         storage_kind = other.storage_kind;
         subscribers = std::move(other.subscribers);
+        feature_registry = std::move(other.feature_registry);
         scheduling_notifier.set_target(other.scheduling_notifier.get_target());
 
         if (other.target.is_bound()) {
@@ -654,6 +659,7 @@ namespace hgraph
         last_modified_time = other.last_modified_time;
         storage_kind = other.storage_kind;
         subscribers = std::move(other.subscribers);
+        feature_registry = std::move(other.feature_registry);
 
         bound_link.parent = other.bound_link.parent;
         bound_link.index = other.bound_link.index;
@@ -697,6 +703,7 @@ namespace hgraph
         last_modified_time = other.last_modified_time;
         storage_kind = other.storage_kind;
         subscribers = std::move(other.subscribers);
+        feature_registry = std::move(other.feature_registry);
 
         bound_link.parent = other.bound_link.parent;
         bound_link.index = other.bound_link.index;

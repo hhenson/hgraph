@@ -58,34 +58,12 @@ struct HGRAPH_EXPORT TSOutput : TSValue {
      */
     [[nodiscard]] TSOutputView bindable_view(const TSOutputView &source, const TSMeta *schema);
 
-    /**
-     * Return an output-owned `TS[bool]` view that tracks membership of the
-     * supplied item in the referenced `TSS[...]` source.
-     */
-    [[nodiscard]] TSOutputView get_set_contains_output(const TSOutputView &source, const View &item, const void *requester);
-
-    /**
-     * Release one requester for a derived set-membership output.
-     */
-    void release_set_contains_output(const TSOutputView &source, const View &item, const void *requester);
-
-    /**
-     * Return an output-owned `TS[bool]` view that tracks whether the
-     * referenced `TSS[...]` source is empty.
-     */
-    [[nodiscard]] TSOutputView get_set_is_empty_output(const TSOutputView &source);
-
 protected:
 private:
     friend struct TSOutputBuilder;
     friend void mark_output_view_modified(const TSOutputView &view, engine_time_t evaluation_time);
 
     struct AlternativeOutput;
-    struct SetFeatureStore;
-    struct SetFeatureStoreDeleter
-    {
-        void operator()(SetFeatureStore *value) const noexcept;
-    };
     struct RefTargetSubscription
     {
         BaseState *state{nullptr};
@@ -107,7 +85,6 @@ private:
     const TSOutputBuilder *m_builder{nullptr};
     AlternativeMap m_alternatives;
     std::vector<RefTargetSubscription> m_ref_target_subscriptions;
-    std::unique_ptr<SetFeatureStore, SetFeatureStoreDeleter> m_set_feature_store;
 };
 
 /**

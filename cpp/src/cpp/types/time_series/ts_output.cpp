@@ -21,44 +21,6 @@ namespace hgraph
     {
         using TSPath = std::vector<size_t>;
 
-        [[nodiscard]] size_t hash_path(const TSPath &path) noexcept
-        {
-            size_t seed = 0;
-            for (const size_t slot : path) {
-                seed ^= std::hash<size_t>{}(slot) + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
-            }
-            return seed;
-        }
-
-        struct TSPathHash
-        {
-            [[nodiscard]] size_t operator()(const TSPath &path) const noexcept { return hash_path(path); }
-        };
-
-        struct SetFeatureKey
-        {
-            TSPath path{};
-            Value  item{};
-        };
-
-        struct SetFeatureKeyHash
-        {
-            [[nodiscard]] size_t operator()(const SetFeatureKey &key) const noexcept
-            {
-                size_t seed = hash_path(key.path);
-                seed ^= key.item.hash() + 0x9e3779b97f4a7c15ULL + (seed << 6U) + (seed >> 2U);
-                return seed;
-            }
-        };
-
-        struct SetFeatureKeyEqual
-        {
-            [[nodiscard]] bool operator()(const SetFeatureKey &lhs, const SetFeatureKey &rhs) const noexcept
-            {
-                return lhs.path == rhs.path && lhs.item.equals(rhs.item);
-            }
-        };
-
         [[nodiscard]] const char *safe_type_name(const value::TypeMeta *schema) noexcept
         {
             return schema != nullptr && schema->name != nullptr ? schema->name : "?";
@@ -151,15 +113,11 @@ namespace hgraph
 
         struct DerivedSetFeatureOutput final : Notifiable
         {
-            explicit DerivedSetFeatureOutput(const LinkedTSContext &root_context_,
-                                            const LinkedTSContext &source_context_,
-                                            TSPath source_path_,
+            explicit DerivedSetFeatureOutput(const LinkedTSContext &source_context_,
                                             engine_time_t initial_time,
                                             std::optional<Value> item_ = std::nullopt)
                 : output(TSOutputBuilderFactory::checked_builder_for(ts_bool_schema())),
-                  root_context(root_context_),
                   source_context(source_context_),
-                  source_path(std::move(source_path_)),
                   item(std::move(item_))
             {
                 if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->subscribe(this); }
@@ -178,9 +136,7 @@ namespace hgraph
                 bool next_value = !item.has_value();
 
                 try {
-                    TSOutputView root_view = output_view_from_context(root_context, evaluation_time);
-                    TSOutputView source_view =
-                        source_path.empty() ? root_view : traverse_output_path(root_view, root_view.ts_schema(), source_path);
+                    TSOutputView source_view = output_view_from_context(source_context, evaluation_time);
                     if (source_view.valid()) {
                         next_value = item.has_value()
                                          ? source_view.value().as_set().contains(item->view())
@@ -200,13 +156,93 @@ namespace hgraph
             }
 
             TSOutput               output;
-            LinkedTSContext        root_context;
             LinkedTSContext        source_context;
-            TSPath                 source_path;
             std::optional<Value>   item;
             bool                   current_value{false};
             bool                   initialised{false};
         };
+
+        struct ValueKeyHash
+        {
+            using is_transparent = void;
+
+            [[nodiscard]] size_t operator()(const Value &value) const noexcept { return value.hash(); }
+            [[nodiscard]] size_t operator()(const View &value) const noexcept { return value.hash(); }
+        };
+
+        struct ValueKeyEqual
+        {
+            using is_transparent = void;
+
+            [[nodiscard]] bool operator()(const Value &lhs, const Value &rhs) const noexcept { return lhs.equals(rhs); }
+            [[nodiscard]] bool operator()(const Value &lhs, const View &rhs) const noexcept { return lhs.equals(rhs); }
+            [[nodiscard]] bool operator()(const View &lhs, const Value &rhs) const noexcept { return rhs.equals(lhs); }
+            [[nodiscard]] bool operator()(const View &lhs, const View &rhs) const noexcept { return lhs.equals(rhs); }
+        };
+
+        [[nodiscard]] LinkedTSContext feature_source_context(const TSOutputView &view)
+        {
+            const TSViewContext resolved = view.context_ref().resolved();
+            BaseState *state = view.context_ref().ts_state != nullptr ? view.context_ref().ts_state->resolved_state() : nullptr;
+            if (state == nullptr || resolved.schema == nullptr || resolved.value_dispatch == nullptr || resolved.ts_dispatch == nullptr) {
+                throw std::invalid_argument("TSOutputView feature registration requires a resolved output position");
+            }
+
+            return LinkedTSContext{
+                resolved.schema,
+                resolved.value_dispatch,
+                resolved.ts_dispatch,
+                resolved.value_data,
+                state,
+                nullptr,
+                nullptr,
+                state,
+            };
+        }
+
+        struct CollectionFeatureRegistry final : TimeSeriesFeatureRegistry
+        {
+            [[nodiscard]] TSOutputView register_contains_output(const LinkedTSContext &source_context,
+                                                                engine_time_t evaluation_time,
+                                                                const View &item)
+            {
+                auto it = contains_outputs.find(item);
+                if (it == contains_outputs.end()) {
+                    Value key{item};
+                    auto [inserted, success] = contains_outputs.emplace(
+                        std::move(key),
+                        std::make_unique<DerivedSetFeatureOutput>(source_context, evaluation_time, Value(item)));
+                    static_cast<void>(success);
+                    it = inserted;
+                }
+                return it->second->output.view(evaluation_time);
+            }
+
+            void unregister_contains_output(const View &) const noexcept {}
+
+            [[nodiscard]] TSOutputView register_is_empty_output(const LinkedTSContext &source_context, engine_time_t evaluation_time)
+            {
+                if (is_empty_output == nullptr) {
+                    is_empty_output = std::make_unique<DerivedSetFeatureOutput>(source_context, evaluation_time);
+                }
+                return is_empty_output->output.view(evaluation_time);
+            }
+
+            void unregister_is_empty_output() const noexcept {}
+
+            std::unordered_map<Value, std::unique_ptr<DerivedSetFeatureOutput>, ValueKeyHash, ValueKeyEqual> contains_outputs;
+            std::unique_ptr<DerivedSetFeatureOutput>                                                         is_empty_output;
+        };
+
+        [[nodiscard]] CollectionFeatureRegistry &ensure_collection_feature_registry(BaseState &state)
+        {
+            if (state.feature_registry == nullptr) {
+                state.feature_registry = std::make_unique<CollectionFeatureRegistry>();
+            }
+            auto *registry = dynamic_cast<CollectionFeatureRegistry *>(state.feature_registry.get());
+            if (registry == nullptr) { throw std::logic_error("TSOutputView state feature registry has an unexpected type"); }
+            return *registry;
+        }
 
         void collect_ref_target_states(const v2::TimeSeriesReference &ref,
                                        std::unordered_set<BaseState *> &states) noexcept
@@ -525,129 +561,7 @@ namespace hgraph
             return view;
         }
 
-        [[nodiscard]] TSPath resolve_output_feature_path(const TSOutputView &root_source,
-                                                        const TSOutputView &source,
-                                                        std::string_view error_message)
-        {
-            TSPath source_path;
-            BaseState *target_state = source.context_ref().ts_state;
-            if (target_state != nullptr &&
-                !find_state_path(root_source.context_ref().ts_state, root_source.ts_schema(), target_state, source_path)) {
-                throw std::logic_error(std::string{error_message});
-            }
-            return source_path;
-        }
     }  // namespace
-
-    struct TSOutput::SetFeatureStore
-    {
-        struct ContainsOutputEntry
-        {
-            std::unique_ptr<DerivedSetFeatureOutput> output;
-            std::unordered_set<const void *>         requesters;
-        };
-
-        struct RetiredContainsOutput
-        {
-            std::unique_ptr<DerivedSetFeatureOutput> output;
-            engine_time_t                            retired_at{MIN_DT};
-        };
-
-        [[nodiscard]] TSOutputView get_contains_output(const LinkedTSContext &root_context,
-                                                       const LinkedTSContext &source_context,
-                                                       const TSPath &source_path,
-                                                       engine_time_t evaluation_time,
-                                                       const View &item,
-                                                       const void *requester);
-
-        void release_contains_output(const TSPath &source_path,
-                                     engine_time_t evaluation_time,
-                                     const View &item,
-                                     const void *requester);
-
-        [[nodiscard]] TSOutputView get_is_empty_output(const LinkedTSContext &root_context,
-                                                       const LinkedTSContext &source_context,
-                                                       const TSPath &source_path,
-                                                       engine_time_t evaluation_time);
-
-        void prune(engine_time_t now);
-
-        std::unordered_map<SetFeatureKey, ContainsOutputEntry, SetFeatureKeyHash, SetFeatureKeyEqual> contains_outputs;
-        std::unordered_map<TSPath, std::unique_ptr<DerivedSetFeatureOutput>, TSPathHash>              is_empty_outputs;
-        std::vector<RetiredContainsOutput>                                                             retired_contains_outputs;
-    };
-
-    void TSOutput::SetFeatureStoreDeleter::operator()(SetFeatureStore *value) const noexcept
-    {
-        delete value;
-    }
-
-    void TSOutput::SetFeatureStore::prune(engine_time_t now)
-    {
-        if (retired_contains_outputs.empty()) { return; }
-        std::erase_if(retired_contains_outputs, [now](const RetiredContainsOutput &entry) { return entry.retired_at < now; });
-    }
-
-    TSOutputView TSOutput::SetFeatureStore::get_contains_output(const LinkedTSContext &root_context,
-                                                                const LinkedTSContext &source_context,
-                                                                const TSPath &source_path,
-                                                                engine_time_t evaluation_time,
-                                                                const View &item,
-                                                                const void *requester)
-    {
-        prune(evaluation_time);
-
-        SetFeatureKey key{.path = source_path, .item = Value(item)};
-        auto it = contains_outputs.find(key);
-        if (it == contains_outputs.end()) {
-            auto [inserted, success] = contains_outputs.emplace(
-                SetFeatureKey{.path = source_path, .item = Value(item)},
-                ContainsOutputEntry{
-                    .output = std::make_unique<DerivedSetFeatureOutput>(
-                        root_context,
-                        source_context,
-                        source_path,
-                        evaluation_time,
-                        Value(item)),
-                });
-            static_cast<void>(success);
-            it = inserted;
-        }
-
-        if (requester != nullptr) { it->second.requesters.insert(requester); }
-        return it->second.output->output.view(evaluation_time);
-    }
-
-    void TSOutput::SetFeatureStore::release_contains_output(const TSPath &source_path,
-                                                            engine_time_t evaluation_time,
-                                                            const View &item,
-                                                            const void *requester)
-    {
-        if (requester == nullptr) { return; }
-
-        prune(evaluation_time);
-        SetFeatureKey key{.path = source_path, .item = Value(item)};
-        auto it = contains_outputs.find(key);
-        if (it == contains_outputs.end()) { return; }
-
-        it->second.requesters.erase(requester);
-        if (it->second.requesters.empty()) {
-            retired_contains_outputs.push_back(RetiredContainsOutput{std::move(it->second.output), evaluation_time});
-            contains_outputs.erase(it);
-        }
-    }
-
-    TSOutputView TSOutput::SetFeatureStore::get_is_empty_output(const LinkedTSContext &root_context,
-                                                                const LinkedTSContext &source_context,
-                                                                const TSPath &source_path,
-                                                                engine_time_t evaluation_time)
-    {
-        auto [it, inserted] = is_empty_outputs.try_emplace(source_path, nullptr);
-        if (inserted) {
-            it->second = std::make_unique<DerivedSetFeatureOutput>(root_context, source_context, source_path, evaluation_time);
-        }
-        return it->second->output.view(evaluation_time);
-    }
 
     namespace detail
     {
@@ -824,37 +738,6 @@ namespace hgraph
 
             TSOutputView alternative_view = it->second->view(owning_output, source.evaluation_time());
             return traverse_output_path(alternative_view, alternative_schema, source_path);
-        }
-
-        [[nodiscard]] TSOutputView get_set_contains_output(TSOutput *owning_output,
-                                                           const TSOutputView &source,
-                                                           const View &item,
-                                                           const void *requester)
-        {
-            TSOutputView root_source = view(owning_output, source.evaluation_time());
-            TSPath source_path =
-                resolve_output_feature_path(root_source, source, "TSOutput set feature source view is not reachable from the alternative root");
-            return m_set_feature_store.get_contains_output(
-                root_source.linked_context(), source.linked_context(), source_path, source.evaluation_time(), item, requester);
-        }
-
-        void release_set_contains_output(TSOutput *owning_output, const TSOutputView &source, const View &item, const void *requester)
-        {
-            if (requester == nullptr) { return; }
-
-            TSOutputView root_source = view(owning_output, source.evaluation_time());
-            TSPath source_path =
-                resolve_output_feature_path(root_source, source, "TSOutput set feature source view is not reachable from the alternative root");
-            m_set_feature_store.release_contains_output(source_path, source.evaluation_time(), item, requester);
-        }
-
-        [[nodiscard]] TSOutputView get_set_is_empty_output(TSOutput *owning_output, const TSOutputView &source)
-        {
-            TSOutputView root_source = view(owning_output, source.evaluation_time());
-            TSPath source_path =
-                resolve_output_feature_path(root_source, source, "TSOutput set feature source view is not reachable from the alternative root");
-            return m_set_feature_store.get_is_empty_output(
-                root_source.linked_context(), source.linked_context(), source_path, source.evaluation_time());
         }
 
         void notify(engine_time_t modified_time) override
@@ -2129,7 +2012,6 @@ namespace hgraph
         std::vector<std::unique_ptr<DynamicDictBinding>> m_dynamic_dict_bindings;
         std::vector<std::unique_ptr<DynamicKeySetBinding>> m_dynamic_key_set_bindings;
         std::vector<std::unique_ptr<CollectionRefBinding>> m_collection_ref_bindings;
-        SetFeatureStore m_set_feature_store;
         ViewOps m_view_ops{this};
         AlternativeMap m_alternatives;
     };
@@ -2236,6 +2118,50 @@ namespace hgraph
         return TSOutputView{context, TSViewContext::none(), evaluation_time, this, &detail::default_output_view_ops()};
     }
 
+    TSOutputView detail::register_set_contains_output(const TSOutputView &view, const View &item)
+    {
+        if (view.ts_schema() == nullptr || view.ts_schema()->kind != TSKind::TSS) {
+            throw std::invalid_argument("register_set_contains_output requires a TSS view");
+        }
+
+        LinkedTSContext source_context = feature_source_context(view);
+        auto &registry = ensure_collection_feature_registry(*source_context.ts_state);
+        return registry.register_contains_output(source_context, view.evaluation_time(), item);
+    }
+
+    void detail::unregister_set_contains_output(const TSOutputView &view, const View &item)
+    {
+        if (view.ts_schema() == nullptr || view.ts_schema()->kind != TSKind::TSS) { return; }
+
+        LinkedTSContext source_context = feature_source_context(view);
+        if (source_context.ts_state == nullptr || source_context.ts_state->feature_registry == nullptr) { return; }
+
+        auto *registry = dynamic_cast<CollectionFeatureRegistry *>(source_context.ts_state->feature_registry.get());
+        if (registry != nullptr) { registry->unregister_contains_output(item); }
+    }
+
+    TSOutputView detail::register_set_is_empty_output(const TSOutputView &view)
+    {
+        if (view.ts_schema() == nullptr || view.ts_schema()->kind != TSKind::TSS) {
+            throw std::invalid_argument("register_set_is_empty_output requires a TSS view");
+        }
+
+        LinkedTSContext source_context = feature_source_context(view);
+        auto &registry = ensure_collection_feature_registry(*source_context.ts_state);
+        return registry.register_is_empty_output(source_context, view.evaluation_time());
+    }
+
+    void detail::unregister_set_is_empty_output(const TSOutputView &view)
+    {
+        if (view.ts_schema() == nullptr || view.ts_schema()->kind != TSKind::TSS) { return; }
+
+        LinkedTSContext source_context = feature_source_context(view);
+        if (source_context.ts_state == nullptr || source_context.ts_state->feature_registry == nullptr) { return; }
+
+        auto *registry = dynamic_cast<CollectionFeatureRegistry *>(source_context.ts_state->feature_registry.get());
+        if (registry != nullptr) { registry->unregister_is_empty_output(); }
+    }
+
     TSOutputView TSOutput::bindable_view(const TSOutputView &source, const TSMeta *schema)
     {
         if (schema == nullptr) { throw std::invalid_argument("TSOutput::bindable_view requires a non-null target schema"); }
@@ -2283,81 +2209,9 @@ namespace hgraph
         return traverse_output_path(alternative_view, alternative_schema, source_path);
     }
 
-    TSOutputView TSOutput::get_set_contains_output(const TSOutputView &source, const View &item, const void *requester)
-    {
-        const LinkedTSContext source_context = source.linked_context();
-        if (!source_context.is_bound()) { throw std::invalid_argument("TSOutput::get_set_contains_output requires a bound source view"); }
-        if (source.ts_schema() == nullptr || source.ts_schema()->kind != TSKind::TSS) {
-            throw std::invalid_argument("TSOutput::get_set_contains_output requires a TSS source view");
-        }
-        if (source.owning_output() != nullptr && source.owning_output() != this) {
-            throw std::logic_error("TSOutput set feature source view is not owned by the requested output");
-        }
-
-        if (const auto *ops = dynamic_cast<const AlternativeOutput::ViewOps *>(source.output_view_ops());
-            ops != nullptr && ops->owner != nullptr) {
-            return ops->owner->get_set_contains_output(this, source, item, requester);
-        }
-
-        TSOutputView root_source = view(source.evaluation_time());
-        TSPath source_path =
-            resolve_output_feature_path(root_source, source, "TSOutput set feature source view is not reachable from the owning output root");
-
-        if (!m_set_feature_store) { m_set_feature_store.reset(new SetFeatureStore()); }
-        return m_set_feature_store->get_contains_output(
-            root_source.linked_context(), source_context, source_path, source.evaluation_time(), item, requester);
-    }
-
-    void TSOutput::release_set_contains_output(const TSOutputView &source, const View &item, const void *requester)
-    {
-        if (requester == nullptr || m_set_feature_store == nullptr) { return; }
-        const LinkedTSContext source_context = source.linked_context();
-        if (!source_context.is_bound()) { return; }
-        if (source.owning_output() != nullptr && source.owning_output() != this) {
-            throw std::logic_error("TSOutput set feature source view is not owned by the requested output");
-        }
-
-        if (const auto *ops = dynamic_cast<const AlternativeOutput::ViewOps *>(source.output_view_ops());
-            ops != nullptr && ops->owner != nullptr) {
-            ops->owner->release_set_contains_output(this, source, item, requester);
-            return;
-        }
-
-        TSOutputView root_source = view(source.evaluation_time());
-        TSPath source_path =
-            resolve_output_feature_path(root_source, source, "TSOutput set feature source view is not reachable from the owning output root");
-        m_set_feature_store->release_contains_output(source_path, source.evaluation_time(), item, requester);
-    }
-
-    TSOutputView TSOutput::get_set_is_empty_output(const TSOutputView &source)
-    {
-        const LinkedTSContext source_context = source.linked_context();
-        if (!source_context.is_bound()) { throw std::invalid_argument("TSOutput::get_set_is_empty_output requires a bound source view"); }
-        if (source.ts_schema() == nullptr || source.ts_schema()->kind != TSKind::TSS) {
-            throw std::invalid_argument("TSOutput::get_set_is_empty_output requires a TSS source view");
-        }
-        if (source.owning_output() != nullptr && source.owning_output() != this) {
-            throw std::logic_error("TSOutput set feature source view is not owned by the requested output");
-        }
-
-        if (const auto *ops = dynamic_cast<const AlternativeOutput::ViewOps *>(source.output_view_ops());
-            ops != nullptr && ops->owner != nullptr) {
-            return ops->owner->get_set_is_empty_output(this, source);
-        }
-
-        TSOutputView root_source = view(source.evaluation_time());
-        TSPath source_path =
-            resolve_output_feature_path(root_source, source, "TSOutput set feature source view is not reachable from the owning output root");
-
-        if (!m_set_feature_store) { m_set_feature_store.reset(new SetFeatureStore()); }
-        return m_set_feature_store->get_is_empty_output(
-            root_source.linked_context(), source_context, source_path, source.evaluation_time());
-    }
-
     void TSOutput::clear_storage() noexcept
     {
         clear_ref_target_subscriptions();
-        m_set_feature_store.reset();
         if (m_builder == nullptr) {
             m_alternatives.clear();
             return;

@@ -67,4 +67,41 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
     const detail::TSOutputViewOps *m_output_view_ops{nullptr};
 };
 
+namespace detail {
+
+[[nodiscard]] HGRAPH_EXPORT TSOutputView register_set_contains_output(const TSOutputView &view, const View &item);
+HGRAPH_EXPORT void unregister_set_contains_output(const TSOutputView &view, const View &item);
+[[nodiscard]] HGRAPH_EXPORT TSOutputView register_set_is_empty_output(const TSOutputView &view);
+HGRAPH_EXPORT void unregister_set_is_empty_output(const TSOutputView &view);
+
+}  // namespace detail
+
+template <typename TView>
+inline TSOutputView TSSView<TView>::register_contains_output(const View &item) const
+    requires std::same_as<TView, TSOutputView>
+{
+    return detail::register_set_contains_output(this->view_ref(), item);
+}
+
+template <typename TView>
+inline void TSSView<TView>::unregister_contains_output(const View &item) const
+    requires std::same_as<TView, TSOutputView>
+{
+    detail::unregister_set_contains_output(this->view_ref(), item);
+}
+
+template <typename TView>
+inline TSOutputView TSSView<TView>::register_is_empty_output() const
+    requires std::same_as<TView, TSOutputView>
+{
+    return detail::register_set_is_empty_output(this->view_ref());
+}
+
+template <typename TView>
+inline void TSSView<TView>::unregister_is_empty_output() const
+    requires std::same_as<TView, TSOutputView>
+{
+    detail::unregister_set_is_empty_output(this->view_ref());
+}
+
 }  // namespace hgraph

@@ -1210,10 +1210,6 @@ namespace hgraph::v2
                 if (requester.is_none()) { throw std::logic_error("v2 Python time-series get_contains_output() requires a requester"); }
 
                 TSOutputView view = output_view();
-                TSOutput *owning_output = view.owning_output();
-                if (owning_output == nullptr) {
-                    throw std::logic_error("v2 Python time-series get_contains_output() requires an owning output");
-                }
                 const auto *item_schema = m_schema != nullptr && m_schema->value_type != nullptr ? m_schema->value_type->element_type : nullptr;
                 if (item_schema == nullptr) {
                     throw std::logic_error("v2 Python time-series get_contains_output() requires a TSS element schema");
@@ -1222,7 +1218,7 @@ namespace hgraph::v2
                 Value key_value(item_schema);
                 key_value.from_python(nb::borrow<nb::object>(item));
                 return PythonTimeSeriesHandle{
-                    owning_output->get_set_contains_output(view, key_value.view(), requester.ptr()).linked_context(),
+                    view.as_set().register_contains_output(key_value.view()).linked_context(),
                     evaluation_time()};
             }
 
@@ -1232,25 +1228,19 @@ namespace hgraph::v2
                 if (requester.is_none()) { return; }
 
                 TSOutputView view = output_view();
-                TSOutput *owning_output = view.owning_output();
-                if (owning_output == nullptr) { return; }
                 const auto *item_schema = m_schema != nullptr && m_schema->value_type != nullptr ? m_schema->value_type->element_type : nullptr;
                 if (item_schema == nullptr) { return; }
 
                 Value key_value(item_schema);
                 key_value.from_python(nb::borrow<nb::object>(item));
-                owning_output->release_set_contains_output(view, key_value.view(), requester.ptr());
+                view.as_set().unregister_contains_output(key_value.view());
             }
 
             [[nodiscard]] PythonTimeSeriesHandle is_empty_output() const
             {
                 if (!is_set()) { throw std::logic_error("v2 Python time-series is_empty_output() requires a TSS schema"); }
                 TSOutputView view = output_view();
-                TSOutput *owning_output = view.owning_output();
-                if (owning_output == nullptr) {
-                    throw std::logic_error("v2 Python time-series is_empty_output() requires an owning output");
-                }
-                return PythonTimeSeriesHandle{owning_output->get_set_is_empty_output(view).linked_context(), evaluation_time()};
+                return PythonTimeSeriesHandle{view.as_set().register_is_empty_output().linked_context(), evaluation_time()};
             }
 
             void make_active() const

@@ -585,6 +585,11 @@ namespace hgraph
         [[nodiscard]] Range<View> added_values() const noexcept;
         [[nodiscard]] Range<View> removed_values() const noexcept;
         [[nodiscard]] bool empty() const noexcept;
+
+        [[nodiscard]] TSOutputView register_contains_output(const View &item) const requires std::same_as<TView, TSOutputView>;
+        void unregister_contains_output(const View &item) const requires std::same_as<TView, TSOutputView>;
+        [[nodiscard]] TSOutputView register_is_empty_output() const requires std::same_as<TView, TSOutputView>;
+        void unregister_is_empty_output() const requires std::same_as<TView, TSOutputView>;
     };
 
     template <typename TView>
