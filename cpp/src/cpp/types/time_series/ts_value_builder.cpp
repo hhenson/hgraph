@@ -256,7 +256,18 @@ namespace hgraph
                         auto &list_state = state.emplace<TSLState>();
                         initialize_collection_state(list_state, parent, index);
 
-                        if (schema.fixed_size() > 0) { ensure_child_slot_capacity(list_state, schema.fixed_size()); }
+                        if (schema.fixed_size() > 0) {
+                            ensure_child_slot_capacity(list_state, schema.fixed_size());
+                            if (schema.element_ts() != nullptr) {
+                                for (size_t i = 0; i < schema.fixed_size(); ++i) {
+                                    if (state_value(list_state.child_states[i]) == nullptr) {
+                                        list_state.child_states[i] = make_state_node([&](TimeSeriesStateV &child) {
+                                            initialize_state_tree(child, *schema.element_ts(), parent_ptr(list_state), i);
+                                        });
+                                    }
+                                }
+                            }
+                        }
                         break;
                     }
 
@@ -269,6 +280,13 @@ namespace hgraph
                         auto &bundle_state = state.emplace<TSBState>();
                         initialize_collection_state(bundle_state, parent, index);
                         ensure_child_slot_capacity(bundle_state, schema.field_count());
+                        for (size_t i = 0; i < schema.field_count(); ++i) {
+                            if (state_value(bundle_state.child_states[i]) == nullptr) {
+                                bundle_state.child_states[i] = make_state_node([&](TimeSeriesStateV &child) {
+                                    initialize_state_tree(child, *schema.fields()[i].ts_type, parent_ptr(bundle_state), i);
+                                });
+                            }
+                        }
                         break;
                     }
 
@@ -645,7 +663,7 @@ namespace hgraph
                 if (state == nullptr) { return false; }
 
                 for (size_t index = 0; index < list.size(); ++index) {
-                    ensure_child_state(*state, index, m_element_schema.get());
+                    if (index >= state->child_states.size() || state->child_states[index] == nullptr) { return false; }
                     View child_value = list.at(index);
                     TSViewContext child = child_context_from_slot(state->child_states[index],
                                                                   m_element_schema.get(),
@@ -665,7 +683,7 @@ namespace hgraph
 
                 TSLState *state = list_state(context);
                 if (state == nullptr) { return TSViewContext::none(); }
-                ensure_child_state(*state, index, m_element_schema.get());
+                if (index >= state->child_states.size() || state->child_states[index] == nullptr) { return TSViewContext::none(); }
 
                 View child_value = list.at(index);
                 TSViewContext child = child_context_from_slot(state->child_states[index],
@@ -722,7 +740,7 @@ namespace hgraph
                 if (state == nullptr) { return false; }
 
                 for (size_t index = 0; index < m_fields.size(); ++index) {
-                    ensure_child_state(*state, index, m_fields[index].schema.get());
+                    if (index >= state->child_states.size() || state->child_states[index] == nullptr) { return false; }
                     View child_value = context.value().as_bundle().at(index);
                     TSViewContext child = child_context_from_slot(state->child_states[index],
                                                                   m_fields[index].schema.get(),
@@ -741,7 +759,7 @@ namespace hgraph
 
                 TSBState *state = bundle_state(context);
                 if (state == nullptr) { return TSViewContext::none(); }
-                ensure_child_state(*state, index, m_fields[index].schema.get());
+                if (index >= state->child_states.size() || state->child_states[index] == nullptr) { return TSViewContext::none(); }
 
                 View child_value = context.value().as_bundle().at(index);
                 TSViewContext child = child_context_from_slot(state->child_states[index],
@@ -1236,6 +1254,11 @@ namespace hgraph
             if (notifier == nullptr || trie_node == nullptr) { continue; }
             if (auto *resolved = trie_node->resolve_pending(key, slot)) {
                 replay_active_subtree(child, resolved, notifier, true);
+            } else if (auto *existing = trie_node->child_at(slot); existing != nullptr && !existing->slot_key) {
+                // The active trie child was created before this slot was
+                // inserted (e.g. during make_active). Capture the key now
+                // so evict_to_pending can use it later.
+                existing->slot_key = std::make_unique<Value>(key);
             }
         }
     }

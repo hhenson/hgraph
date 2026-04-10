@@ -37,7 +37,7 @@ struct HGRAPH_EXPORT TSOutput : TSValue {
      *
      * This is intended for delayed builder-driven construction.
      */
-    TSOutput() noexcept = default;
+    TSOutput() noexcept;
     explicit TSOutput(const TSOutputBuilder &builder);
     TSOutput(const TSOutput &other);
     TSOutput(TSOutput &&other) noexcept;
@@ -53,25 +53,27 @@ struct HGRAPH_EXPORT TSOutput : TSValue {
     [[nodiscard]] TSOutputView view(engine_time_t evaluation_time = MIN_DT);
 
     /**
-     * Return output-owned auxiliary state keyed by an extension token.
-     *
-     * Derived runtime surfaces such as Python feature outputs should be
-     * owned by the logical output they are derived from rather than by
-     * transient handle wrappers.
-     */
-    template <typename T, typename Factory>
-    [[nodiscard]] std::shared_ptr<T> get_or_create_extension(const void *key, Factory &&factory)
-    {
-        auto &entry = m_extensions[key];
-        if (!entry) { entry = std::forward<Factory>(factory)(); }
-        return std::static_pointer_cast<T>(entry);
-    }
-
-    /**
      * Return a bindable view matching the requested schema, creating an
      * output-owned alternative representation when required.
      */
     [[nodiscard]] TSOutputView bindable_view(const TSOutputView &source, const TSMeta *schema);
+
+    /**
+     * Return an output-owned `TS[bool]` view that tracks membership of the
+     * supplied item in the referenced `TSS[...]` source.
+     */
+    [[nodiscard]] TSOutputView get_set_contains_output(const TSOutputView &source, const View &item, const void *requester);
+
+    /**
+     * Release one requester for a derived set-membership output.
+     */
+    void release_set_contains_output(const TSOutputView &source, const View &item, const void *requester);
+
+    /**
+     * Return an output-owned `TS[bool]` view that tracks whether the
+     * referenced `TSS[...]` source is empty.
+     */
+    [[nodiscard]] TSOutputView get_set_is_empty_output(const TSOutputView &source);
 
 protected:
 private:
@@ -79,6 +81,11 @@ private:
     friend void mark_output_view_modified(const TSOutputView &view, engine_time_t evaluation_time);
 
     struct AlternativeOutput;
+    struct SetFeatureStore;
+    struct SetFeatureStoreDeleter
+    {
+        void operator()(SetFeatureStore *value) const noexcept;
+    };
     struct RefTargetSubscription
     {
         BaseState *state{nullptr};
@@ -100,7 +107,7 @@ private:
     const TSOutputBuilder *m_builder{nullptr};
     AlternativeMap m_alternatives;
     std::vector<RefTargetSubscription> m_ref_target_subscriptions;
-    std::unordered_map<const void *, std::shared_ptr<void>> m_extensions;
+    std::unique_ptr<SetFeatureStore, SetFeatureStoreDeleter> m_set_feature_store;
 };
 
 /**

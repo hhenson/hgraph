@@ -89,17 +89,6 @@ namespace hgraph::v2
             mark_output_view_modified(view, evaluation_time);
         }
 
-        [[nodiscard]] BaseState *notification_state_of(const LinkedTSContext &context) noexcept
-        {
-            return context.notification_state != nullptr ? context.notification_state : context.ts_state;
-        }
-
-        [[nodiscard]] const void *feature_output_registry_key(const LinkedTSContext &context) noexcept
-        {
-            if (context.owning_output != nullptr) { return context.owning_output; }
-            return notification_state_of(context);
-        }
-
         [[nodiscard]] TSOutputView output_view_from_context(const LinkedTSContext &context, engine_time_t evaluation_time)
         {
             TSViewContext view_context{
@@ -169,12 +158,6 @@ namespace hgraph::v2
                 if (state->last_modified_time != MIN_DT) { return state->last_modified_time; }
             }
             return MIN_DT;
-        }
-
-        [[nodiscard]] const TSMeta *ts_bool_schema()
-        {
-            static const TSMeta *schema = TSTypeRegistry::instance().ts(value::scalar_type_meta<bool>());
-            return schema;
         }
 
         class PythonTraitsHandle
@@ -408,78 +391,6 @@ namespace hgraph::v2
                     step.key.from_python(nb::borrow<nb::object>(value));
                     return step;
                 }
-            };
-
-            struct SetFeatureOutput final : Notifiable
-            {
-                explicit SetFeatureOutput(const LinkedTSContext &source_context,
-                                          engine_time_t initial_time,
-                                          std::optional<Value> item_key = std::nullopt)
-                    : output(TSOutputBuilderFactory::checked_builder_for(ts_bool_schema())),
-                      source(source_context),
-                      item(std::move(item_key))
-                {
-                    if (BaseState *state = notification_state_of(source); state != nullptr) { state->subscribe(this); }
-                    refresh(initial_time, true);
-                }
-
-                ~SetFeatureOutput() override
-                {
-                    if (BaseState *state = notification_state_of(source); state != nullptr) { state->unsubscribe(this); }
-                }
-
-                void notify(engine_time_t modified_time) override { refresh(modified_time, false); }
-
-                void refresh(engine_time_t evaluation_time, bool initialise)
-                {
-                    TSOutputView source_view = output_view_from_context(source, evaluation_time);
-                    const bool next_value = item.has_value()
-                                                ? source_view.value().as_set().contains(item->view())
-                                                : source_view.as_set().empty();
-
-                    if (initialised && next_value == current_value) { return; }
-
-                    TSOutputView output_view = output.view(evaluation_time);
-                    output_view.value().as_atomic().set(next_value);
-                    current_value = next_value;
-                    initialised = true;
-                    if (evaluation_time != MIN_DT || initialise) { mark_output_modified(output_view, evaluation_time); }
-                }
-
-                TSOutput                   output;
-                LinkedTSContext            source;
-                std::optional<Value>       item;
-                bool                       current_value{false};
-                bool                       initialised{false};
-            };
-
-            struct FeatureOutputs
-            {
-                struct ValueKeyHash
-                {
-                    [[nodiscard]] size_t operator()(const Value &value) const noexcept { return value.hash(); }
-                };
-
-                struct ValueKeyEqual
-                {
-                    [[nodiscard]] bool operator()(const Value &lhs, const Value &rhs) const noexcept { return lhs.equals(rhs); }
-                };
-
-                struct ContainsOutputEntry
-                {
-                    std::unique_ptr<SetFeatureOutput> output;
-                    std::unordered_set<const void *>  requesters;
-                };
-
-                struct RetiredContainsOutput
-                {
-                    std::unique_ptr<SetFeatureOutput> output;
-                    engine_time_t                     retired_at{MIN_DT};
-                };
-
-                std::unordered_map<Value, ContainsOutputEntry, ValueKeyHash, ValueKeyEqual> contains_outputs;
-                std::unique_ptr<SetFeatureOutput>                                       is_empty_output;
-                std::vector<RetiredContainsOutput>                                      retired_contains_outputs;
             };
 
             PythonTimeSeriesHandle(Node *node,
@@ -1298,9 +1209,11 @@ namespace hgraph::v2
                 if (!is_set()) { throw std::logic_error("v2 Python time-series get_contains_output() requires a TSS schema"); }
                 if (requester.is_none()) { throw std::logic_error("v2 Python time-series get_contains_output() requires a requester"); }
 
-                auto &features = ensure_feature_outputs();
-                prune_retired_feature_outputs(features);
-                const void *requester_key = requester.ptr();
+                TSOutputView view = output_view();
+                TSOutput *owning_output = view.owning_output();
+                if (owning_output == nullptr) {
+                    throw std::logic_error("v2 Python time-series get_contains_output() requires an owning output");
+                }
                 const auto *item_schema = m_schema != nullptr && m_schema->value_type != nullptr ? m_schema->value_type->element_type : nullptr;
                 if (item_schema == nullptr) {
                     throw std::logic_error("v2 Python time-series get_contains_output() requires a TSS element schema");
@@ -1308,19 +1221,9 @@ namespace hgraph::v2
 
                 Value key_value(item_schema);
                 key_value.from_python(nb::borrow<nb::object>(item));
-                auto it = features.contains_outputs.find(key_value);
-                if (it == features.contains_outputs.end()) {
-                    Value stored_key(key_value);
-                    FeatureOutputs::ContainsOutputEntry entry{
-                        .output = std::make_unique<SetFeatureOutput>(output_context_for_features(), evaluation_time(), std::move(key_value)),
-                    };
-                    auto [inserted, success] = features.contains_outputs.emplace(std::move(stored_key), std::move(entry));
-                    static_cast<void>(success);
-                    it = inserted;
-                }
-                it->second.requesters.insert(requester_key);
                 return PythonTimeSeriesHandle{
-                    nullptr, nullptr, &it->second.output->output, ts_bool_schema(), {}, std::nullopt, evaluation_time()};
+                    owning_output->get_set_contains_output(view, key_value.view(), requester.ptr()).linked_context(),
+                    evaluation_time()};
             }
 
             void release_contains_output(const nb::handle &item, nb::object requester) const
@@ -1328,36 +1231,26 @@ namespace hgraph::v2
                 if (!is_set()) { throw std::logic_error("v2 Python time-series release_contains_output() requires a TSS schema"); }
                 if (requester.is_none()) { return; }
 
-                auto &features = ensure_feature_outputs();
-                prune_retired_feature_outputs(features);
+                TSOutputView view = output_view();
+                TSOutput *owning_output = view.owning_output();
+                if (owning_output == nullptr) { return; }
                 const auto *item_schema = m_schema != nullptr && m_schema->value_type != nullptr ? m_schema->value_type->element_type : nullptr;
                 if (item_schema == nullptr) { return; }
 
                 Value key_value(item_schema);
                 key_value.from_python(nb::borrow<nb::object>(item));
-                auto it = features.contains_outputs.find(key_value);
-                if (it == features.contains_outputs.end()) { return; }
-
-                it->second.requesters.erase(requester.ptr());
-                if (it->second.requesters.empty()) {
-                    // Keep the old output alive until a later engine tick so a
-                    // same-tick ref retarget cannot alias back onto the same
-                    // raw state/value addresses.
-                    features.retired_contains_outputs.push_back(
-                        FeatureOutputs::RetiredContainsOutput{std::move(it->second.output), evaluation_time()});
-                    features.contains_outputs.erase(it);
-                }
+                owning_output->release_set_contains_output(view, key_value.view(), requester.ptr());
             }
 
             [[nodiscard]] PythonTimeSeriesHandle is_empty_output() const
             {
                 if (!is_set()) { throw std::logic_error("v2 Python time-series is_empty_output() requires a TSS schema"); }
-                auto &features = ensure_feature_outputs();
-                if (features.is_empty_output == nullptr) {
-                    features.is_empty_output = std::make_unique<SetFeatureOutput>(output_context_for_features(), evaluation_time());
+                TSOutputView view = output_view();
+                TSOutput *owning_output = view.owning_output();
+                if (owning_output == nullptr) {
+                    throw std::logic_error("v2 Python time-series is_empty_output() requires an owning output");
                 }
-                return PythonTimeSeriesHandle{
-                    nullptr, nullptr, &features.is_empty_output->output, ts_bool_schema(), {}, std::nullopt, evaluation_time()};
+                return PythonTimeSeriesHandle{owning_output->get_set_is_empty_output(view).linked_context(), evaluation_time()};
             }
 
             void make_active() const
@@ -1967,48 +1860,6 @@ namespace hgraph::v2
                 return false;
             }
 
-            [[nodiscard]] FeatureOutputs &ensure_feature_outputs() const
-            {
-                if (m_feature_outputs == nullptr) { m_feature_outputs = shared_feature_outputs_for(output_context_for_features()); }
-                return *m_feature_outputs;
-            }
-
-            [[nodiscard]] LinkedTSContext output_context_for_features() const
-            {
-                if (m_output != nullptr || m_bound_output.has_value()) { return output_view().linked_context(); }
-                throw std::logic_error("v2 Python derived feature outputs require an output handle");
-            }
-
-            [[nodiscard]] static std::shared_ptr<FeatureOutputs> shared_feature_outputs_for(const LinkedTSContext &source)
-            {
-                static int feature_outputs_extension_key = 0;
-                if (source.owning_output != nullptr) {
-                    return source.owning_output->get_or_create_extension<FeatureOutputs>(
-                        &feature_outputs_extension_key, [] { return std::make_shared<FeatureOutputs>(); });
-                }
-
-                static auto *registry = new std::unordered_map<const void *, std::shared_ptr<FeatureOutputs>>();
-
-                const void *key = feature_output_registry_key(source);
-                if (key == nullptr) { return std::make_shared<FeatureOutputs>(); }
-
-                auto &entry = (*registry)[key];
-                if (entry != nullptr) { return entry; }
-
-                entry = std::make_shared<FeatureOutputs>();
-                return entry;
-            }
-
-            void prune_retired_feature_outputs(FeatureOutputs &features) const
-            {
-                if (features.retired_contains_outputs.empty()) { return; }
-
-                const engine_time_t now = evaluation_time();
-                std::erase_if(
-                    features.retired_contains_outputs,
-                    [now](const FeatureOutputs::RetiredContainsOutput &entry) { return entry.retired_at < now; });
-            }
-
             void ensure_input() const
             {
                 if (m_input == nullptr) { throw std::logic_error("v2 Python time-series handle is not an input"); }
@@ -2043,7 +1894,6 @@ namespace hgraph::v2
             const TSMeta *m_schema{nullptr};
             std::vector<PathStep> m_path_steps;
             std::optional<LinkedTSContext> m_bound_output;
-            mutable std::shared_ptr<FeatureOutputs> m_feature_outputs;
             engine_time_t m_fixed_evaluation_time{MIN_DT};
 
             friend struct V2PythonReferenceSupport;

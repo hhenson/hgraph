@@ -86,15 +86,6 @@ namespace hgraph
                 BaseState *child_state = child.context_ref().ts_state;
                 if (state == nullptr || child_state == nullptr) { return; }
 
-                const size_t slot = child_state->index;
-                MapDeltaView delta = parent.value().as_map().delta();
-                if (slot < delta.slot_capacity() && delta.slot_occupied(slot)) {
-                    if (ActiveTrieNode *child_node = child.active_position_mutable().node;
-                        child_node != nullptr && !child_node->slot_key) {
-                        child_node->slot_key = std::make_unique<Value>(delta.key_at_slot(slot));
-                    }
-                }
-
                 if (ActiveTrieNode *parent_trie = parent.active_position().node; parent_trie != nullptr) {
                     if (parent_trie->has_any_active() && child.scheduling_notifier() != nullptr) {
                         state->active_tries.emplace(child.scheduling_notifier(), parent_trie);
@@ -199,15 +190,6 @@ namespace hgraph
                     }
 
                     if (active_pos.node == nullptr) { return; }
-
-                    if (parent_context.schema != nullptr && parent_context.schema->kind == TSKind::TSD && context.ts_state != nullptr &&
-                        !active_pos.node->slot_key) {
-                        const size_t slot = context.ts_state->index;
-                        MapDeltaView delta = parent_context.value().as_map().delta();
-                        if (slot < delta.slot_capacity() && delta.slot_occupied(slot)) {
-                            active_pos.node->slot_key = std::make_unique<Value>(delta.key_at_slot(slot));
-                        }
-                    }
 
                     active_pos.node->locally_active = true;
                     if (context.ts_state != nullptr && view.scheduling_notifier() != nullptr) {
