@@ -25,6 +25,52 @@ namespace hgraph
         {
             constexpr size_t no_slot = static_cast<size_t>(-1);
 
+            struct AlignedByteDeleter
+            {
+                size_t alignment{alignof(std::max_align_t)};
+
+                void operator()(std::byte *storage) const noexcept
+                {
+                    if (storage != nullptr) { ::operator delete(storage, std::align_val_t{alignment}); }
+                }
+            };
+
+            struct StableValueBlock
+            {
+                using Storage = std::unique_ptr<std::byte, AlignedByteDeleter>;
+
+                Storage storage{};
+                size_t  first_slot{0};
+                size_t  slot_count{0};
+
+                [[nodiscard]] static StableValueBlock allocate(size_t first_slot,
+                                                               size_t slot_count,
+                                                               size_t stride,
+                                                               size_t alignment)
+                {
+                    StableValueBlock block;
+                    block.first_slot = first_slot;
+                    block.slot_count = slot_count;
+                    if (slot_count == 0) { return block; }
+                    block.storage = Storage(static_cast<std::byte *>(
+                                                ::operator new(slot_count * stride, std::align_val_t{alignment})),
+                                            AlignedByteDeleter{alignment});
+                    return block;
+                }
+
+                [[nodiscard]] std::byte *slot_data(size_t slot, size_t stride) const noexcept
+                {
+                    if (!storage || slot < first_slot || slot >= first_slot + slot_count) { return nullptr; }
+                    return storage.get() + (slot - first_slot) * stride;
+                }
+            };
+
+            struct StableValueStorage
+            {
+                std::vector<std::byte *> slots{};
+                std::vector<StableValueBlock> blocks{};
+            };
+
             template <typename TBitset>
             [[nodiscard]] size_t first_set_slot(const TBitset &bitset) noexcept
             {
@@ -175,12 +221,14 @@ namespace hgraph
              * accessible until the next outermost mutation begins.
              */
             DeltaSetState keys{};
-            std::byte    *values{nullptr};
             /**
-             * Whether `values` points into the root value allocation rather
-             * than a separately allocated heap buffer.
+             * Stable slot-addressable value payload storage.
+             *
+             * Each capacity growth appends a new heap-backed block and records
+             * the per-slot payload pointer in `slots`, so existing slot
+             * payload addresses remain stable across reserve/growth.
              */
-            bool          values_inline{false};
+            StableValueStorage values{};
             /**
              * Slots whose values were updated in the current mutation epoch
              * without the key being newly added in that same epoch.
@@ -1024,11 +1072,15 @@ namespace hgraph
 
             /**
              * Return the total root-allocation size required for the map header
-             * plus its schema-derived inline key and value buffers.
+             * plus its schema-derived inline buffers.
              */
             [[nodiscard]] size_t allocation_size() const noexcept
             {
-                return inline_capacity() == 0 ? sizeof(MapState) : inline_values_offset() + m_value_stride * inline_capacity();
+                if (inline_capacity() == 0) { return sizeof(MapState); }
+                if constexpr (tracks_deltas_v) {
+                    return header_size() + m_keys.stride() * inline_capacity();
+                }
+                return inline_values_offset() + m_value_stride * inline_capacity();
             }
 
             /**
@@ -1237,7 +1289,7 @@ namespace hgraph
                 } else if (index >= key_state.size) {
                     throw std::out_of_range("Map value index out of range");
                 }
-                return values_memory(data) + index * m_value_stride;
+                return value_memory(*state(data), index);
             }
 
             [[nodiscard]] const void *value_data(const void *data, size_t index) const override
@@ -1250,7 +1302,7 @@ namespace hgraph
                 } else if (index >= key_state.size) {
                     throw std::out_of_range("Map value index out of range");
                 }
-                return values_memory(data) + index * m_value_stride;
+                return value_memory(*state(data), index);
             }
 
             void add_slot_observer(void *data, SlotObserver *observer) const override
@@ -1329,7 +1381,7 @@ namespace hgraph
                 // payload exists. A newly allocated map slot therefore needs
                 // first-time value construction here, not reset/destruction of
                 // an uninitialised payload.
-                m_value_builder.get().construct(values_memory(data) + slot * m_value_stride);
+                m_value_builder.get().construct(value_memory(*state(data), slot));
                 value_dispatch().assign(value_data(data, slot), value);
                 if constexpr (tracks_deltas_v) { notify_insert(*state(data), slot); }
                 return insertion.inserted;
@@ -1343,7 +1395,7 @@ namespace hgraph
                     const bool erased_immediately = state(data)->keys.added.test(slot);
                     notify_remove(*state(data), slot);
                     if (erased_immediately) {
-                        destruct_value(values_memory(data) + slot * m_value_stride);
+                        destruct_value(value_memory(*state(data), slot));
                     }
                     state(data)->updated.reset(slot);
                     m_keys.remove_slot(state(data)->keys, slot);
@@ -1362,7 +1414,7 @@ namespace hgraph
                     for (size_t slot = 0; slot < map_keys.capacity; ++slot) {
                         if (!map_keys.alive.test(slot)) { continue; }
                         if (state(data)->keys.added.test(slot)) {
-                            destruct_value(values_memory(data) + slot * m_value_stride);
+                            destruct_value(value_memory(*state(data), slot));
                         }
                         state(data)->updated.reset(slot);
                         m_keys.remove_slot(state(data)->keys, slot);
@@ -1558,10 +1610,9 @@ namespace hgraph
                     state(memory)->keys.elements = inline_keys_memory(memory);
                     state(memory)->keys.capacity = capacity;
                     state(memory)->keys.elements_inline = true;
-                    state(memory)->values = inline_values_memory(memory);
-                    state(memory)->values_inline = true;
                     state(memory)->keys.index->reserve(capacity);
                     if constexpr (tracks_deltas_v) {
+                        reserve_value_storage(*state(memory), capacity);
                         state(memory)->keys.alive.resize(capacity);
                         state(memory)->keys.occupied.resize(capacity);
                         state(memory)->keys.added.resize(capacity);
@@ -1571,6 +1622,9 @@ namespace hgraph
                         for (size_t slot = capacity; slot > 0; --slot) {
                             state(memory)->keys.free_list.push_back(slot - 1);
                         }
+                    } else {
+                        state(memory)->values = inline_values_memory(memory);
+                        state(memory)->values_inline = true;
                     }
                 }
             }
@@ -1583,9 +1637,9 @@ namespace hgraph
                         ::operator delete(keys(memory).elements, std::align_val_t{m_key_builder.get().alignment()});
                     }
                 }
-                if (values_memory(memory) != nullptr) {
-                    if (!state(memory)->values_inline) {
-                        ::operator delete(values_memory(memory), std::align_val_t{m_value_builder.get().alignment()});
+                if constexpr (!tracks_deltas_v) {
+                    if (state(memory)->values != nullptr && !state(memory)->values_inline) {
+                        ::operator delete(state(memory)->values, std::align_val_t{m_value_builder.get().alignment()});
                     }
                 }
                 std::destroy_at(state(memory));
@@ -1599,7 +1653,14 @@ namespace hgraph
 
             void move_construct(void *dst, void *src) const
             {
-                if (state(src)->keys.elements_inline || state(src)->values_inline) {
+                const bool uses_inline_storage = [&]() noexcept {
+                    if constexpr (tracks_deltas_v) {
+                        return state(src)->keys.elements_inline;
+                    } else {
+                        return state(src)->keys.elements_inline || state(src)->values_inline;
+                    }
+                }();
+                if (uses_inline_storage) {
                     construct(dst);
                     assign(dst, src);
                     hard_clear(src);
@@ -1614,9 +1675,9 @@ namespace hgraph
                 state(src)->keys.capacity = 0;
                 state(src)->keys.elements_inline = false;
                 state(src)->keys.index.reset();
-                state(src)->values = nullptr;
-                state(src)->values_inline = false;
                 if constexpr (tracks_deltas_v) {
+                    state(src)->values.slots.clear();
+                    state(src)->values.blocks.clear();
                     state(src)->keys.alive.clear();
                     state(src)->keys.occupied.clear();
                     state(src)->keys.free_list.clear();
@@ -1626,6 +1687,9 @@ namespace hgraph
                     state(src)->updated.clear();
                     state(src)->observers.clear();
                     state(src)->mutation_depth = 0;
+                } else {
+                    state(src)->values = nullptr;
+                    state(src)->values_inline = false;
                 }
             }
 
@@ -1770,47 +1834,28 @@ namespace hgraph
             {
                 if (min_capacity <= map.keys.capacity) { return; }
 
+                std::vector<std::byte *> new_slots = map.values.slots;
                 const size_t new_capacity = min_capacity;
-                std::byte *new_values = static_cast<std::byte *>(
-                    ::operator new(new_capacity * m_value_stride, std::align_val_t{m_value_builder.get().alignment()}));
-
-                std::vector<size_t> moved_slots;
-                moved_slots.reserve(map.keys.capacity);
-                try {
-                    for (size_t slot = 0; slot < map.keys.capacity; ++slot) {
-                        if (!map.keys.occupied.test(slot)) { continue; }
-                        m_value_builder.get().move_construct(new_values + slot * m_value_stride,
-                                                             map.values + slot * m_value_stride,
-                                                             m_value_builder);
-                        moved_slots.push_back(slot);
-                    }
-                } catch (...) {
-                    for (const size_t slot : moved_slots) {
-                        destruct_value(new_values + slot * m_value_stride);
-                    }
-                    ::operator delete(new_values, std::align_val_t{m_value_builder.get().alignment()});
-                    throw;
+                const size_t old_capacity = map.keys.capacity;
+                new_slots.resize(new_capacity, nullptr);
+                map.values.blocks.reserve(map.values.blocks.size() + 1);
+                StableValueBlock new_block =
+                    StableValueBlock::allocate(old_capacity,
+                                               new_capacity - old_capacity,
+                                               m_value_stride,
+                                               m_value_builder.get().alignment());
+                for (size_t slot = old_capacity; slot < new_capacity; ++slot) {
+                    new_slots[slot] = new_block.slot_data(slot, m_value_stride);
                 }
 
                 try {
                     m_keys.reserve_exact(map.keys, new_capacity);
                 } catch (...) {
-                    for (const size_t slot : moved_slots) {
-                        destruct_value(new_values + slot * m_value_stride);
-                    }
-                    ::operator delete(new_values, std::align_val_t{m_value_builder.get().alignment()});
                     throw;
                 }
 
-                destruct_constructed_values(map);
-                if (map.values != nullptr) {
-                    if (!map.values_inline) {
-                        ::operator delete(map.values, std::align_val_t{m_value_builder.get().alignment()});
-                    }
-                }
-
-                map.values = new_values;
-                map.values_inline = false;
+                map.values.slots = std::move(new_slots);
+                if (new_block.slot_count != 0) { map.values.blocks.push_back(std::move(new_block)); }
                 map.updated.resize(new_capacity);
             }
 
@@ -1819,7 +1864,7 @@ namespace hgraph
                 for (size_t slot = 0; slot < map.keys.capacity; ++slot) {
                     if (!map.keys.removed.test(slot)) { continue; }
                     m_keys.destruct_payload(m_keys.slot_data(map.keys, slot));
-                    destruct_value(map.values + slot * m_value_stride);
+                    destruct_value(value_memory(map, slot));
                     map.keys.index->erase(slot);
                     map.keys.occupied.reset(slot);
                     map.keys.removed.reset(slot);
@@ -1863,7 +1908,7 @@ namespace hgraph
                 if (!m_value_requires_destruct) { return; }
                 for (size_t slot = 0; slot < map.keys.capacity; ++slot) {
                     if (map.keys.occupied.test(slot)) {
-                        m_value_builder.get().destruct(map.values + slot * m_value_stride);
+                        m_value_builder.get().destruct(value_memory(map, slot));
                     }
                 }
             }
@@ -1913,9 +1958,38 @@ namespace hgraph
 
             [[nodiscard]] const KeyState &keys(const void *memory) const noexcept { return state(memory)->keys; }
 
-            [[nodiscard]] std::byte *values_memory(void *memory) const noexcept { return state(memory)->values; }
+            void reserve_value_storage(DeltaMapState &map, size_t capacity) const
+            {
+                if (capacity == 0) { return; }
+                map.values.slots.resize(capacity, nullptr);
+                map.values.blocks.reserve(map.values.blocks.size() + 1);
+                StableValueBlock block =
+                    StableValueBlock::allocate(0, capacity, m_value_stride, m_value_builder.get().alignment());
+                for (size_t slot = 0; slot < capacity; ++slot) {
+                    map.values.slots[slot] = block.slot_data(slot, m_value_stride);
+                }
+                map.values.blocks.push_back(std::move(block));
+            }
 
-            [[nodiscard]] const std::byte *values_memory(const void *memory) const noexcept { return state(memory)->values; }
+            [[nodiscard]] void *value_memory(PlainMapState &map, size_t slot) const noexcept
+            {
+                return map.values + slot * m_value_stride;
+            }
+
+            [[nodiscard]] const void *value_memory(const PlainMapState &map, size_t slot) const noexcept
+            {
+                return map.values + slot * m_value_stride;
+            }
+
+            [[nodiscard]] void *value_memory(DeltaMapState &map, size_t slot) const noexcept
+            {
+                return slot < map.values.slots.size() ? map.values.slots[slot] : nullptr;
+            }
+
+            [[nodiscard]] const void *value_memory(const DeltaMapState &map, size_t slot) const noexcept
+            {
+                return slot < map.values.slots.size() ? map.values.slots[slot] : nullptr;
+            }
 
             std::reference_wrapper<const value::TypeMeta> m_schema;
             std::reference_wrapper<const ValueBuilder>    m_key_builder;

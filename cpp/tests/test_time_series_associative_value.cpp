@@ -6,6 +6,19 @@
 
 #include <vector>
 
+namespace
+{
+    struct ExposedValueView : hgraph::View
+    {
+        explicit ExposedValueView(const hgraph::View &view)
+            : hgraph::View(view)
+        {
+        }
+
+        using hgraph::View::data;
+    };
+}  // namespace
+
 TEST_CASE("Set values support add contains and remove")
 {
     auto &registry = hgraph::value::TypeRegistry::instance();
@@ -173,6 +186,46 @@ TEST_CASE("Map values retain removed key and value payloads by slot until reuse"
 
     auto mutation_map = map.begin_mutation();
     CHECK_FALSE(delta.slot_occupied(removed_slot));
+}
+
+TEST_CASE("Delta map value slot payload addresses stay stable across reserve")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+    const auto *schema =
+        registry.map(hgraph::value::scalar_type_meta<std::string>(), hgraph::value::scalar_type_meta<int32_t>()).build();
+
+    hgraph::Value value{*schema, hgraph::MutationTracking::Delta};
+    auto map = value.map_view();
+    auto delta = map.delta();
+
+    {
+        auto mutation = map.begin_mutation();
+        mutation.set(hgraph::value_for(std::string{"alpha"}).view(), hgraph::value_for(int32_t{42}).view());
+    }
+
+    size_t alpha_slot = static_cast<size_t>(-1);
+    for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
+        if (!delta.slot_occupied(slot)) { continue; }
+        if (delta.key_at_slot(slot).as_atomic().as<std::string>() == "alpha") {
+            alpha_slot = slot;
+            break;
+        }
+    }
+
+    REQUIRE(alpha_slot != static_cast<size_t>(-1));
+    const void *alpha_value_data = ExposedValueView{delta.value_at_slot(alpha_slot)}.data();
+
+    {
+        auto mutation = map.begin_mutation();
+        mutation.reserving(64);
+        for (int32_t i = 0; i < 16; ++i) {
+            mutation.setting(hgraph::value_for(std::string{"k" + std::to_string(i)}).view(),
+                             hgraph::value_for(i + 10).view());
+        }
+    }
+
+    CHECK(ExposedValueView{delta.value_at_slot(alpha_slot)}.data() == alpha_value_data);
+    CHECK(delta.value_at_slot(alpha_slot).as_atomic().as<int32_t>() == 42);
 }
 
 TEST_CASE("Set values handle larger churn without losing membership semantics")

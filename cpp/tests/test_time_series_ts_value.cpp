@@ -339,6 +339,82 @@ TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[t
         std::sort(items.begin(), items.end());
         CHECK((items == std::vector<std::pair<std::string, int>>{{"b", 2}}));
     }
+
+    SECTION("cached dict child views survive parent reserve") {
+        const auto *dict_schema = ts_registry.tsd(str_type, ts_registry.ts(int_type));
+        hgraph::test_detail::ExposedTSValue value{*dict_schema};
+        const hgraph::Value key_a{std::string{"a"}};
+
+        {
+            auto mutation = value.dict_value().begin_mutation();
+            mutation.setting(key_a.view(), hgraph::Value{1}.view());
+        }
+
+        hgraph::TSOutputView root{value.view_context(), hgraph::TSViewContext::none(), hgraph::MIN_DT};
+        const auto cached_child = root.as_dict().at(key_a.view());
+        REQUIRE(cached_child.value().as_atomic().as<int>() == 1);
+        const hgraph::BaseState *cached_state = cached_child.context_ref().ts_state;
+        const void             *cached_value_data = cached_child.context_ref().resolved().value_data;
+
+        {
+            auto mutation = value.dict_value().begin_mutation();
+            mutation.reserve(64);
+            for (int i = 0; i < 16; ++i) {
+                mutation.setting(hgraph::Value{std::string{"k" + std::to_string(i)}}.view(), hgraph::Value{i + 10}.view());
+            }
+        }
+
+        CHECK(cached_child.context_ref().ts_state == cached_state);
+        CHECK(cached_child.context_ref().resolved().value_data == cached_value_data);
+        CHECK(cached_child.value().as_atomic().as<int>() == 1);
+    }
+
+    SECTION("cached nested dict child views survive outer parent reserve") {
+        const auto *inner_dict_schema = ts_registry.tsd(str_type, ts_registry.ts(int_type));
+        const auto *outer_dict_schema = ts_registry.tsd(str_type, inner_dict_schema);
+        hgraph::test_detail::ExposedTSValue inner_value{*inner_dict_schema};
+        hgraph::test_detail::ExposedTSValue value{*outer_dict_schema};
+        const hgraph::Value outer_key{std::string{"outer"}};
+        const hgraph::Value inner_key{std::string{"leaf"}};
+
+        {
+            auto mutation = inner_value.dict_value().begin_mutation();
+            mutation.setting(inner_key.view(), hgraph::Value{7}.view());
+        }
+
+        {
+            auto mutation = value.dict_value().begin_mutation();
+            mutation.setting(outer_key.view(), inner_value.value());
+        }
+
+        hgraph::TSOutputView root{value.view_context(), hgraph::TSViewContext::none(), hgraph::MIN_DT};
+        const auto cached_outer_child = root.as_dict().at(outer_key.view());
+        const auto cached_inner_child = cached_outer_child.as_dict().at(inner_key.view());
+        REQUIRE(cached_outer_child.value().as_map().size() == 1);
+        REQUIRE(cached_inner_child.value().as_atomic().as<int>() == 7);
+        const hgraph::BaseState *cached_outer_state = cached_outer_child.context_ref().ts_state;
+        const hgraph::BaseState *cached_inner_state = cached_inner_child.context_ref().ts_state;
+        const void             *cached_outer_value_data = cached_outer_child.context_ref().resolved().value_data;
+        const void             *cached_inner_value_data = cached_inner_child.context_ref().resolved().value_data;
+
+        {
+            auto mutation = value.dict_value().begin_mutation();
+            mutation.reserve(64);
+            for (int i = 0; i < 16; ++i) {
+                hgraph::test_detail::ExposedTSValue extra_inner{*inner_dict_schema};
+                auto inner_mutation = extra_inner.dict_value().begin_mutation();
+                inner_mutation.setting(inner_key.view(), hgraph::Value{i}.view());
+                mutation.setting(hgraph::Value{std::string{"outer_" + std::to_string(i)}}.view(), extra_inner.value());
+            }
+        }
+
+        CHECK(cached_outer_child.context_ref().ts_state == cached_outer_state);
+        CHECK(cached_inner_child.context_ref().ts_state == cached_inner_state);
+        CHECK(cached_outer_child.context_ref().resolved().value_data == cached_outer_value_data);
+        CHECK(cached_inner_child.context_ref().resolved().value_data == cached_inner_value_data);
+        CHECK(cached_outer_child.value().as_map().size() == 1);
+        CHECK(cached_inner_child.value().as_atomic().as<int>() == 7);
+    }
 }
 
 TEST_CASE("TS collection views report recursive all_valid state", "[ts_view][ts_value]")

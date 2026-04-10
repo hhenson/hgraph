@@ -353,7 +353,7 @@ namespace hgraph
         if (slot >= parent_state->child_states.size() || state_address(parent_state->child_states[slot]) != state ||
             parent_state->map_dispatch == nullptr || parent_state->map_value_data == nullptr) {
             if (context.schema != nullptr && context.schema->kind == TSKind::TSD) {
-                static_cast<TSDState *>(state)->unbind_value_storage();
+                static_cast<TSDState *>(state)->detach_value_storage();
             }
             context.value_data = nullptr;
             return true;
@@ -372,7 +372,7 @@ namespace hgraph
         }
         if (!occupied) {
             if (context.schema != nullptr && context.schema->kind == TSKind::TSD) {
-                static_cast<TSDState *>(state)->unbind_value_storage();
+                static_cast<TSDState *>(state)->detach_value_storage();
             }
             context.value_data = nullptr;
             return true;
@@ -384,7 +384,8 @@ namespace hgraph
             static_cast<TSDState *>(state)->bind_value_storage(
                 *context.schema->element_ts(),
                 static_cast<const detail::MapViewDispatch &>(builder.value_builder().dispatch()),
-                context.value_data);
+                context.value_data,
+                false);
         }
 
         return true;

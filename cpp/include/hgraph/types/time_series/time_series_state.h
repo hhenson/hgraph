@@ -330,8 +330,12 @@ namespace hgraph
     {
         ~TSDState();
 
-        void bind_value_storage(const TSMeta &element_schema, const detail::MapViewDispatch &dispatch, void *value_data);
+        void bind_value_storage(const TSMeta &element_schema,
+                                const detail::MapViewDispatch &dispatch,
+                                void *value_data,
+                                bool current_storage_alive = true);
         void unbind_value_storage() noexcept;
+        void detach_value_storage() noexcept;
         void sync_with_value_storage();
         [[nodiscard]] bool publish_value_storage_delta(engine_time_t modified_time) noexcept;
 

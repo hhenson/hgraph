@@ -184,7 +184,8 @@ namespace hgraph
                     static_cast<TSDState *>(local_state)->bind_value_storage(
                         *schema.element_ts(),
                         static_cast<const detail::MapViewDispatch &>(value_dispatch),
-                        native_value_data);
+                        native_value_data,
+                        false);
                 }
                 if (const LinkedTSContext *target = local_state->linked_target(); target != nullptr) {
                     return linked_child_context(*target, local_state, schema, value_dispatch, ts_dispatch);
@@ -1141,13 +1142,18 @@ namespace hgraph
 
     void TSDState::bind_value_storage(const TSMeta &element_schema_,
                                       const detail::MapViewDispatch &dispatch,
-                                      void *value_data)
+                                      void *value_data,
+                                      bool current_storage_alive)
     {
         if (slot_observer_registered && element_schema == &element_schema_ && map_dispatch == &dispatch && map_value_data == value_data) {
             return;
         }
 
-        unbind_value_storage();
+        if (current_storage_alive) {
+            unbind_value_storage();
+        } else {
+            detach_value_storage();
+        }
         element_schema = &element_schema_;
         map_dispatch = &dispatch;
         map_value_data = value_data;
@@ -1162,6 +1168,11 @@ namespace hgraph
             map_dispatch->remove_slot_observer(map_value_data, this);
         }
 
+        detach_value_storage();
+    }
+
+    void TSDState::detach_value_storage() noexcept
+    {
         slot_observer_registered = false;
         element_schema = nullptr;
         map_dispatch = nullptr;
