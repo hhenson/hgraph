@@ -18,6 +18,43 @@ namespace hgraph
     {
         using TSPath = std::vector<size_t>;
 
+        [[nodiscard]] const char *safe_type_name(const value::TypeMeta *schema) noexcept
+        {
+            return schema != nullptr && schema->name != nullptr ? schema->name : "?";
+        }
+
+        [[nodiscard]] std::string schema_debug_name(const TSMeta *schema)
+        {
+            if (schema == nullptr) { return "<null>"; }
+
+            switch (schema->kind) {
+                case TSKind::TSValue:
+                    return fmt::format("TS[{}]", safe_type_name(schema->value_type));
+                case TSKind::TSS:
+                    return fmt::format("TSS[{}]",
+                                       schema->value_type != nullptr ? safe_type_name(schema->value_type->element_type) : "?");
+                case TSKind::TSD:
+                    return fmt::format("TSD[{}, {}]",
+                                       safe_type_name(schema->key_type()),
+                                       schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                case TSKind::TSL:
+                    return fmt::format("TSL[{}]",
+                                       schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                case TSKind::TSW:
+                    return fmt::format("TSW[{}]", safe_type_name(schema->value_type));
+                case TSKind::TSB:
+                    return fmt::format("TSB[{}]",
+                                       schema->data.tsb.bundle_name != nullptr ? schema->data.tsb.bundle_name : "?");
+                case TSKind::REF:
+                    return fmt::format("REF[{}]",
+                                       schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                case TSKind::SIGNAL:
+                    return "SIGNAL";
+            }
+
+            return "<?>";
+        }
+
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSBState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSDState &state) noexcept { return &state; }
@@ -128,6 +165,8 @@ namespace hgraph
                 return source_schema.element_ts() == &target_schema ||
                        supports_alternative_cast(*source_schema.element_ts(), target_schema);
             }
+
+            if (source_schema.kind == TSKind::TSValue && target_schema.kind == TSKind::TSValue) { return true; }
 
             if (source_schema.kind != target_schema.kind) { return false; }
 
@@ -375,6 +414,7 @@ namespace hgraph
                         context.ts_state,
                         view.owning_output(),
                         view.output_view_ops(),
+                        context.notification_state,
                     };
                 }
             };
@@ -425,6 +465,7 @@ namespace hgraph
                     context.ts_state,
                     view.owning_output(),
                     view.output_view_ops(),
+                    context.notification_state,
                 };
             }
 
@@ -460,6 +501,13 @@ namespace hgraph
             ~AlternativeOutput() override
         {
             for (auto &binding : m_dynamic_dict_bindings) {
+                if (binding != nullptr) {
+                    if (BaseState *source_state = notification_state_of(binding->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&binding->source_notifier);
+                    }
+                }
+            }
+            for (auto &binding : m_scalar_value_bindings) {
                 if (binding != nullptr) {
                     if (BaseState *source_state = notification_state_of(binding->source_context); source_state != nullptr) {
                         source_state->unsubscribe(&binding->source_notifier);
@@ -538,6 +586,34 @@ namespace hgraph
             BaseState *source_state{nullptr};
             BaseState *target_state{nullptr};
             std::unique_ptr<WrappedRefNotifier> notifier;
+        };
+
+        struct ScalarValueBinding
+        {
+            struct SourceNotifier final : Notifiable
+            {
+                void notify(engine_time_t modified_time) override
+                {
+                    if (binding != nullptr && binding->owner != nullptr) {
+                        binding->owner->sync_scalar_value(*binding, modified_time, false);
+                    }
+                }
+
+                ScalarValueBinding *binding{nullptr};
+            };
+
+            ScalarValueBinding(AlternativeOutput *owner_, const TSOutputView &target_view, const TSOutputView &source_view) noexcept
+                : owner(owner_),
+                  target_context(target_view.context_ref()),
+                  source_context(source_view.linked_context())
+            {
+                source_notifier.binding = this;
+            }
+
+            AlternativeOutput *owner{nullptr};
+            TSViewContext target_context{TSViewContext::none()};
+            LinkedTSContext source_context{};
+            SourceNotifier source_notifier{};
         };
 
         struct DynamicDictBinding
@@ -765,6 +841,22 @@ namespace hgraph
             m_dynamic_dict_bindings.push_back(std::move(binding));
         }
 
+        void add_scalar_value_binding(std::unique_ptr<ScalarValueBinding> binding, engine_time_t initial_modified_time)
+        {
+            auto &binding_ref = *binding;
+            auto unsubscribe_on_failure = make_scope_exit([&] {
+                if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                    source_state->unsubscribe(&binding_ref.source_notifier);
+                }
+            });
+            if (BaseState *source_state = notification_state_of(binding_ref.source_context); source_state != nullptr) {
+                source_state->subscribe(&binding_ref.source_notifier);
+            }
+            sync_scalar_value(binding_ref, initial_modified_time, true);
+            unsubscribe_on_failure.release();
+            m_scalar_value_bindings.push_back(std::move(binding));
+        }
+
         void add_dynamic_key_set_binding(std::unique_ptr<DynamicKeySetBinding> binding, engine_time_t initial_modified_time)
         {
             auto &binding_ref = *binding;
@@ -816,6 +908,22 @@ namespace hgraph
                         it->source_state->unsubscribe(it->notifier.get());
                     }
                     it = m_wrapped_ref_subscriptions.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+
+        void release_scalar_value_bindings(const BaseState *subtree_root)
+        {
+            if (subtree_root == nullptr) { return; }
+
+            for (auto it = m_scalar_value_bindings.begin(); it != m_scalar_value_bindings.end();) {
+                if ((*it)->target_context.ts_state != nullptr && is_descendant_state((*it)->target_context.ts_state, subtree_root)) {
+                    if (BaseState *source_state = notification_state_of((*it)->source_context); source_state != nullptr) {
+                        source_state->unsubscribe(&(*it)->source_notifier);
+                    }
+                    it = m_scalar_value_bindings.erase(it);
                 } else {
                     ++it;
                 }
@@ -884,6 +992,7 @@ namespace hgraph
             // event if a key later reuses it.
             BaseState *child_root = base_state_of(*state.child_states[slot]);
             release_wrapped_ref_subscriptions(child_root);
+            release_scalar_value_bindings(child_root);
             release_dynamic_dict_bindings(child_root);
             release_dynamic_key_set_bindings(child_root);
             release_collection_ref_bindings(child_root);
@@ -900,6 +1009,7 @@ namespace hgraph
             if (state.child_states[slot] != nullptr) {
                 BaseState *child_root = base_state_of(*state.child_states[slot]);
                 release_wrapped_ref_subscriptions(child_root);
+                release_scalar_value_bindings(child_root);
                 release_dynamic_dict_bindings(child_root);
                 release_dynamic_key_set_bindings(child_root);
                 release_collection_ref_bindings(child_root);
@@ -1193,6 +1303,28 @@ namespace hgraph
                 }
             }
             binding.target_subscription_states = std::move(next_target_states);
+        }
+
+        void sync_scalar_value(ScalarValueBinding &binding, engine_time_t modified_time, bool initializing)
+        {
+            TSOutputView target_view = output_view_for(binding.target_context, modified_time);
+            TSOutputView source_view = output_view_for(binding.source_context, modified_time);
+            BaseState *target_state = target_view.context_ref().ts_state;
+            if (target_state == nullptr) {
+                throw std::logic_error("TSOutput scalar cast binding requires a live target TS state");
+            }
+
+            if (!source_view.valid()) {
+                if (initializing) { target_state->last_modified_time = MIN_DT; }
+                return;
+            }
+
+            target_view.value().from_python(source_view.value().to_python());
+            if (initializing) {
+                target_state->last_modified_time = source_view.last_modified_time();
+            } else {
+                target_state->mark_modified(modified_time);
+            }
         }
 
         void sync_collection_ref(CollectionRefBinding &binding, engine_time_t modified_time, bool initializing)
@@ -1607,6 +1739,13 @@ namespace hgraph
                 return;
             }
 
+            if (target_schema->kind == TSKind::TSValue && source_schema->kind == TSKind::TSValue) {
+                add_scalar_value_binding(
+                    std::make_unique<ScalarValueBinding>(this, target_view, source_view),
+                    source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                return;
+            }
+
             if (target_schema->kind == TSKind::REF) {
                 if (target_schema->element_ts() != source_schema) {
                     throw std::invalid_argument("TSOutput alternative REF wrapping requires matching referenced schema");
@@ -1702,6 +1841,7 @@ namespace hgraph
         }
 
         std::vector<WrappedRefSubscription> m_wrapped_ref_subscriptions;
+        std::vector<std::unique_ptr<ScalarValueBinding>> m_scalar_value_bindings;
         std::vector<std::unique_ptr<DynamicDictBinding>> m_dynamic_dict_bindings;
         std::vector<std::unique_ptr<DynamicKeySetBinding>> m_dynamic_key_set_bindings;
         std::vector<std::unique_ptr<CollectionRefBinding>> m_collection_ref_bindings;
@@ -1818,7 +1958,10 @@ namespace hgraph
         if (source_context.schema == schema) { return source; }
 
         if (source_context.schema == nullptr || !supports_alternative_cast(*source_context.schema, *schema)) {
-            throw std::invalid_argument("TSOutput::bindable_view does not support the requested schema cast");
+            throw std::invalid_argument(
+                fmt::format("TSOutput::bindable_view does not support the requested schema cast: {} -> {}",
+                            schema_debug_name(source_context.schema),
+                            schema_debug_name(schema)));
         }
 
         if (source.owning_output() != nullptr && source.owning_output() != this) {

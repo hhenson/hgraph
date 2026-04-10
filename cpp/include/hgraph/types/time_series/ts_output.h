@@ -53,6 +53,21 @@ struct HGRAPH_EXPORT TSOutput : TSValue {
     [[nodiscard]] TSOutputView view(engine_time_t evaluation_time = MIN_DT);
 
     /**
+     * Return output-owned auxiliary state keyed by an extension token.
+     *
+     * Derived runtime surfaces such as Python feature outputs should be
+     * owned by the logical output they are derived from rather than by
+     * transient handle wrappers.
+     */
+    template <typename T, typename Factory>
+    [[nodiscard]] std::shared_ptr<T> get_or_create_extension(const void *key, Factory &&factory)
+    {
+        auto &entry = m_extensions[key];
+        if (!entry) { entry = std::forward<Factory>(factory)(); }
+        return std::static_pointer_cast<T>(entry);
+    }
+
+    /**
      * Return a bindable view matching the requested schema, creating an
      * output-owned alternative representation when required.
      */
@@ -85,6 +100,7 @@ private:
     const TSOutputBuilder *m_builder{nullptr};
     AlternativeMap m_alternatives;
     std::vector<RefTargetSubscription> m_ref_target_subscriptions;
+    std::unordered_map<const void *, std::shared_ptr<void>> m_extensions;
 };
 
 /**

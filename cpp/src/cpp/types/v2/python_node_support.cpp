@@ -89,9 +89,30 @@ namespace hgraph::v2
             mark_output_view_modified(view, evaluation_time);
         }
 
+        [[nodiscard]] BaseState *notification_state_of(const LinkedTSContext &context) noexcept
+        {
+            return context.notification_state != nullptr ? context.notification_state : context.ts_state;
+        }
+
+        [[nodiscard]] const void *feature_output_registry_key(const LinkedTSContext &context) noexcept
+        {
+            if (context.owning_output != nullptr) { return context.owning_output; }
+            return notification_state_of(context);
+        }
+
         [[nodiscard]] TSOutputView output_view_from_context(const LinkedTSContext &context, engine_time_t evaluation_time)
         {
-            TSViewContext view_context{context.schema, context.value_dispatch, context.ts_dispatch, context.value_data, context.ts_state};
+            TSViewContext view_context{
+                TSContext{
+                    context.schema,
+                    context.value_dispatch,
+                    context.ts_dispatch,
+                    context.value_data,
+                    context.ts_state,
+                    context.owning_output,
+                    context.output_view_ops,
+                    context.notification_state,
+                }};
             return TSOutputView{
                 view_context,
                 TSViewContext::none(),
@@ -398,13 +419,13 @@ namespace hgraph::v2
                       source(source_context),
                       item(std::move(item_key))
                 {
-                    if (source.ts_state != nullptr) { source.ts_state->subscribe(this); }
+                    if (BaseState *state = notification_state_of(source); state != nullptr) { state->subscribe(this); }
                     refresh(initial_time, true);
                 }
 
                 ~SetFeatureOutput() override
                 {
-                    if (source.ts_state != nullptr) { source.ts_state->unsubscribe(this); }
+                    if (BaseState *state = notification_state_of(source); state != nullptr) { state->unsubscribe(this); }
                 }
 
                 void notify(engine_time_t modified_time) override { refresh(modified_time, false); }
@@ -1262,7 +1283,7 @@ namespace hgraph::v2
             {
                 if (m_input == nullptr) { return nb::none(); }
                 if (const LinkedTSContext *target = input_view().linked_target(); target != nullptr && target->is_bound()) {
-                    return nb::cast(PythonTimeSeriesHandle{*target, effective_modified_time(*target)});
+                    return nb::cast(PythonTimeSeriesHandle{*target, evaluation_time()});
                 }
                 return nb::none();
             }
@@ -1829,23 +1850,6 @@ namespace hgraph::v2
             [[nodiscard]] nb::object set_python_delta_value() const
             {
                 const auto build_delta = [](const auto &view) {
-                    if (const auto *ref_state = switching_ref_state(view.context_ref());
-                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
-                        ref_state->previous_target_value.has_value()) {
-                        nb::list added_values;
-                        nb::list removed_values;
-                        const auto current = view.value().as_set();
-                        const auto previous = ref_state->previous_target_value.view().as_set();
-
-                        for (const View &item : current.values()) {
-                            if (!previous.contains(item)) { added_values.append(item.to_python()); }
-                        }
-                        for (const View &item : previous.values()) {
-                            if (!current.contains(item)) { removed_values.append(item.to_python()); }
-                        }
-                        return set_delta_builder()(added_values, removed_values);
-                    }
-
                     nb::list added_values;
                     nb::list removed_values;
                     for (const View &item : view.as_set().added_values()) { added_values.append(item.to_python()); }
@@ -1977,17 +1981,22 @@ namespace hgraph::v2
 
             [[nodiscard]] static std::shared_ptr<FeatureOutputs> shared_feature_outputs_for(const LinkedTSContext &source)
             {
-                static std::unordered_map<const BaseState *, std::weak_ptr<FeatureOutputs>> registry;
+                static int feature_outputs_extension_key = 0;
+                if (source.owning_output != nullptr) {
+                    return source.owning_output->get_or_create_extension<FeatureOutputs>(
+                        &feature_outputs_extension_key, [] { return std::make_shared<FeatureOutputs>(); });
+                }
 
-                const BaseState *key = source.ts_state;
+                static auto *registry = new std::unordered_map<const void *, std::shared_ptr<FeatureOutputs>>();
+
+                const void *key = feature_output_registry_key(source);
                 if (key == nullptr) { return std::make_shared<FeatureOutputs>(); }
 
-                auto &entry = registry[key];
-                if (auto shared = entry.lock()) { return shared; }
+                auto &entry = (*registry)[key];
+                if (entry != nullptr) { return entry; }
 
-                auto shared = std::make_shared<FeatureOutputs>();
-                entry = shared;
-                return shared;
+                entry = std::make_shared<FeatureOutputs>();
+                return entry;
             }
 
             void prune_retired_feature_outputs(FeatureOutputs &features) const

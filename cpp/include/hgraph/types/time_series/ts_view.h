@@ -964,6 +964,7 @@ namespace hgraph
     template <typename TView>
     Range<View> TSSView<TView>::added_values() const noexcept
     {
+        if (!this->view_ref().modified()) { return Range<View>{nullptr, 0, nullptr, nullptr}; }
         const auto *dispatch = this->view_ref().context_ref().resolved().ts_dispatch;
         const auto *set_dispatch = dispatch != nullptr ? dispatch->as_set() : nullptr;
         return set_dispatch != nullptr ? set_dispatch->added_values(this->view_ref().context_ref())
@@ -973,6 +974,7 @@ namespace hgraph
     template <typename TView>
     Range<View> TSSView<TView>::removed_values() const noexcept
     {
+        if (!this->view_ref().modified()) { return Range<View>{nullptr, 0, nullptr, nullptr}; }
         const auto *dispatch = this->view_ref().context_ref().resolved().ts_dispatch;
         const auto *set_dispatch = dispatch != nullptr ? dispatch->as_set() : nullptr;
         return set_dispatch != nullptr ? set_dispatch->removed_values(this->view_ref().context_ref())

@@ -167,12 +167,54 @@ namespace hgraph
             return value != nullptr && value->is_peered() ? value->target() : LinkedTSContext::none();
         }
 
-        [[nodiscard]] Value snapshot_target_value(const LinkedTSContext &target)
+        [[nodiscard]] bool linked_context_equal(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept
+        {
+            return lhs.schema == rhs.schema && lhs.value_dispatch == rhs.value_dispatch && lhs.ts_dispatch == rhs.ts_dispatch &&
+                   lhs.value_data == rhs.value_data && lhs.ts_state == rhs.ts_state &&
+                   lhs.notification_state == rhs.notification_state &&
+                   lhs.owning_output == rhs.owning_output && lhs.output_view_ops == rhs.output_view_ops;
+        }
+
+        [[nodiscard]] Value snapshot_target_value(const LinkedTSContext &target, engine_time_t modified_time = MIN_DT)
         {
             if (!target.is_bound() || target.schema == nullptr || target.value_dispatch == nullptr || target.value_data == nullptr) {
                 return {};
             }
-            return View{target.value_dispatch, target.value_data, target.schema->value_type}.clone();
+
+            View current{target.value_dispatch, target.value_data, target.schema->value_type};
+            Value snapshot = current.clone();
+
+            if (target.schema->kind == TSKind::TSS) {
+                auto current_set = current.as_set();
+                BaseState *target_state = target.notification_state != nullptr ? target.notification_state : target.ts_state;
+                if (modified_time == MIN_DT || target_state == nullptr || target_state->last_modified_time != modified_time) {
+                    return snapshot;
+                }
+
+                const auto current_delta = current_set.delta();
+                bool has_delta = false;
+                for (const View &item : current_delta.added()) {
+                    static_cast<void>(item);
+                    has_delta = true;
+                    break;
+                }
+                if (!has_delta) {
+                    for (const View &item : current_delta.removed()) {
+                        static_cast<void>(item);
+                        has_delta = true;
+                        break;
+                    }
+                }
+                if (!has_delta) { return snapshot; }
+
+                auto snapshot_set = snapshot.view().as_set();
+                auto mutation = snapshot_set.begin_mutation();
+                for (const View &item : current_delta.added()) { static_cast<void>(mutation.remove(item)); }
+                for (const View &item : current_delta.removed()) { static_cast<void>(mutation.add(item)); }
+                snapshot_set.clear_delta_tracking();
+            }
+
+            return snapshot;
         }
 
         void replay_attachment_subtree(const LinkedTSContext &context,
@@ -762,15 +804,13 @@ namespace hgraph
         replay_boundary_attachments(true);
 
         if (propagate) {
-            const bool target_changed = previous_target.ts_state != bound_link.target.ts_state ||
-                                        previous_target.schema != bound_link.target.schema ||
-                                        previous_target.value_data != bound_link.target.value_data;
+            const bool target_changed = !linked_context_equal(previous_target, bound_link.target);
 
             // Restrict sampled REF propagation for now: ordinary Python code
             // mostly treats refs as opaque handles, so a source-side tick that
             // resolves to the same target should not manufacture a fresh delta.
             if (target_changed) {
-                previous_target_value = snapshot_target_value(previous_target);
+                previous_target_value = snapshot_target_value(previous_target, modified_time);
                 switch_modified_time = modified_time;
                 mark_modified(modified_time);
             } else {

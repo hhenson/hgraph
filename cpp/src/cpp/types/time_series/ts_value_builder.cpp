@@ -563,22 +563,45 @@ namespace hgraph
             return state != nullptr && state->modified_children.contains(index);
         }
 
+        [[nodiscard]] const RefLinkState *switching_ref_state(const TSViewContext &context) noexcept
+        {
+            const BaseState *state = context.ts_state;
+            while (state != nullptr && state->storage_kind == TSStorageKind::TargetLink) {
+                const LinkedTSContext *target = state->linked_target();
+                state = target != nullptr ? target->ts_state : nullptr;
+            }
+
+            return state != nullptr && state->storage_kind == TSStorageKind::RefLink
+                       ? static_cast<const RefLinkState *>(state)
+                       : nullptr;
+        }
+
+        [[nodiscard]] const RefLinkState *switching_set_ref_state(const TSViewContext &context) noexcept
+        {
+            const auto *ref_state = switching_ref_state(context);
+            if (ref_state == nullptr || ref_state->switch_modified_time == MIN_DT || !ref_state->previous_target_value.has_value()) {
+                return nullptr;
+            }
+
+            return ref_state->previous_target_value.schema() != nullptr &&
+                           ref_state->previous_target_value.schema()->kind == value::TypeKind::Set
+                       ? ref_state
+                       : nullptr;
+        }
+
         struct LeafTSDispatch : detail::TSDispatch {};
 
         struct ReferenceTSDispatch final : detail::TSDispatch
         {
             [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override
             {
-                if (const Value *materialized = detail::materialized_reference_value(context); materialized != nullptr) {
-                    const auto *ref = materialized->view().as_atomic().try_as<v2::TimeSeriesReference>();
-                    return ref != nullptr && ref->is_valid();
-                }
+                if (detail::materialized_reference_value(context) != nullptr) { return context.value().has_value(); }
                 return detail::TSDispatch::valid(context);
             }
 
             [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
             {
-                if (detail::materialized_reference_value(context) != nullptr) { return detail::reference_all_valid(context); }
+                if (detail::materialized_reference_value(context) != nullptr) { return context.value().has_value(); }
                 return detail::TSDispatch::all_valid(context);
             }
         };
@@ -883,6 +906,25 @@ namespace hgraph
 
             [[nodiscard]] Range<View> added_values(const TSViewContext &context) const noexcept override
             {
+                if (const auto *ref_state = switching_set_ref_state(context); ref_state != nullptr) {
+                    return Range<View>{&context,
+                                       context.value().as_set().delta().slot_capacity(),
+                                       [](const void *opaque, size_t slot) {
+                                           const auto &context = *static_cast<const TSViewContext *>(opaque);
+                                           const auto *ref_state = switching_set_ref_state(context);
+                                           if (ref_state == nullptr) { return false; }
+
+                                           const auto current = context.value().as_set();
+                                           const auto delta = current.delta();
+                                           return slot < delta.slot_capacity() && delta.slot_occupied(slot) && !delta.slot_removed(slot) &&
+                                                  !ref_state->previous_target_value.view().as_set().contains(delta.at_slot(slot));
+                                       },
+                                       [](const void *opaque, size_t slot) {
+                                           const auto &context = *static_cast<const TSViewContext *>(opaque);
+                                           return context.value().as_set().delta().at_slot(slot);
+                                       }};
+                }
+
                 return Range<View>{&context,
                                    context.value().as_set().delta().slot_capacity(),
                                    [](const void *opaque, size_t slot) {
@@ -898,6 +940,24 @@ namespace hgraph
 
             [[nodiscard]] Range<View> removed_values(const TSViewContext &context) const noexcept override
             {
+                if (const auto *ref_state = switching_set_ref_state(context); ref_state != nullptr) {
+                    return Range<View>{&context,
+                                       ref_state->previous_target_value.view().as_set().delta().slot_capacity(),
+                                       [](const void *opaque, size_t slot) {
+                                           const auto &context = *static_cast<const TSViewContext *>(opaque);
+                                           const auto *ref_state = switching_set_ref_state(context);
+                                           if (ref_state == nullptr) { return false; }
+
+                                           const auto previous = ref_state->previous_target_value.view().as_set().delta();
+                                           return slot < previous.slot_capacity() && previous.slot_occupied(slot) && !previous.slot_removed(slot) &&
+                                                  !context.value().as_set().contains(previous.at_slot(slot));
+                                       },
+                                       [](const void *opaque, size_t slot) {
+                                           const auto &context = *static_cast<const TSViewContext *>(opaque);
+                                           return switching_set_ref_state(context)->previous_target_value.view().as_set().delta().at_slot(slot);
+                                       }};
+                }
+
                 return Range<View>{&context,
                                    context.value().as_set().delta().slot_capacity(),
                                    [](const void *opaque, size_t slot) {

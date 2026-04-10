@@ -232,7 +232,20 @@ namespace hgraph
                         }
                     }
 
+                    if (view.evaluation_time() > MIN_DT && context.ts_state != nullptr && context.schema != nullptr &&
+                        context.schema->kind == TSKind::REF && context.ts_state->last_modified_time == MIN_DT &&
+                        context.value().has_value()) {
+                        // REF inputs can carry a live handle even when the bound target
+                        // has not produced data yet. Record the activation-time sample on
+                        // the input-local state so node scheduling observes the handle.
+                        context.ts_state->last_modified_time = view.evaluation_time();
+                    }
+
                     if (view.evaluation_time() > MIN_DT && view.scheduling_notifier() != nullptr && context.ts_state != nullptr) {
+                        if (context.ts_state->last_modified_time == view.evaluation_time()) {
+                            view.scheduling_notifier()->notify(view.evaluation_time());
+                            return;
+                        }
                         const BaseState *resolved = context.ts_state->resolved_state();
                         if (resolved != nullptr && resolved->last_modified_time == view.evaluation_time()) {
                             view.scheduling_notifier()->notify(resolved->last_modified_time);
