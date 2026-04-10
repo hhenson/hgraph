@@ -625,7 +625,10 @@ namespace hgraph
 
             void begin_mutation(void *data) const override
             {
-                if constexpr (tracks_deltas_v) { state(data)->mutation_depth++; }
+                if constexpr (tracks_deltas_v) {
+                    SetState *set = state(data);
+                    if (set->mutation_depth++ == 0) { m_keys.release_removed(*set); }
+                }
             }
 
             void end_mutation(void *data) const override
@@ -1050,7 +1053,10 @@ namespace hgraph
 
             void begin_mutation(void *data) const override
             {
-                if constexpr (tracks_deltas_v) { state(data)->mutation_depth++; }
+                if constexpr (tracks_deltas_v) {
+                    MapState *map = state(data);
+                    if (map->mutation_depth++ == 0) { release_removed(*map); }
+                }
             }
 
             void end_mutation(void *data) const override
