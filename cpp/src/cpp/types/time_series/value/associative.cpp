@@ -946,7 +946,7 @@ namespace hgraph
                     }
                     result.add(element_dispatch().to_python(m_keys.slot_data(*set, slot), &element_schema()));
                 }
-                return nb::frozenset(result);
+                return result;
             }
 
             void from_python(void *dst, const nb::object &src, const value::TypeMeta *schema) const override

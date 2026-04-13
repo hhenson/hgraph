@@ -111,18 +111,6 @@ namespace hgraph::v2
             };
         }
 
-        [[nodiscard]] nb::object removed_type()
-        {
-            static nb::object type = nb::module_::import_("hgraph").attr("Removed");
-            return nb::borrow(type);
-        }
-
-        [[nodiscard]] nb::object set_delta_builder()
-        {
-            static nb::object fn = nb::module_::import_("hgraph").attr("set_delta");
-            return nb::borrow(fn);
-        }
-
         [[nodiscard]] const RefLinkState *switching_ref_state(const TSViewContext &context) noexcept
         {
             const BaseState *state = context.ts_state;
@@ -424,24 +412,12 @@ namespace hgraph::v2
 
             [[nodiscard]] nb::object value() const
             {
-                if (is_reference()) { return reference_python_value(); }
-                if (is_bundle()) { return bundle_python_value(false); }
-                if (is_list()) { return list_python_value(false); }
-                if (is_dict()) { return dict_python_value(); }
-                if (is_set()) { return set_python_value(); }
-                const View value = current_value();
-                return value.has_value() ? value.to_python() : nb::none();
+                return m_input != nullptr ? input_view().to_python() : output_view().to_python();
             }
 
             [[nodiscard]] nb::object delta_value() const
             {
-                if (is_reference()) { return reference_python_value(); }
-                if (is_bundle()) { return bundle_python_value(true); }
-                if (is_list()) { return list_python_value(true); }
-                if (is_dict()) { return dict_python_delta_value(); }
-                if (is_set()) { return set_python_delta_value(); }
-                const View value = current_delta_value();
-                return value.has_value() ? value.to_python() : nb::none();
+                return m_input != nullptr ? input_view().delta_to_python() : output_view().delta_to_python();
             }
 
             [[nodiscard]] bool modified() const
@@ -1268,36 +1244,16 @@ namespace hgraph::v2
 
             void apply_result(nb::handle value) const
             {
-                if (value.is_none()) { return; }
-                set_value(value);
+                output_view().apply_result(value);
             }
 
             void set_value(nb::handle value) const
             {
-                ensure_output();
-                if (is_direct_dict_value() && !value.is_none()) {
-                    set_direct_dict_value(value);
+                if (is_direct_dict_value()) {
+                    output_view_prefix(m_path_steps.size() - 1).as_dict().from_python(m_path_steps.back().key.view(), value);
                     return;
                 }
-                auto view = output_view();
-                if (is_bundle() && !value.is_none()) {
-                    set_bundle_value(value);
-                    return;
-                }
-                if (is_list() && !value.is_none()) {
-                    set_list_value(value);
-                    return;
-                }
-                if (is_dict() && !value.is_none()) {
-                    set_dict_value(view, value);
-                    return;
-                }
-                if (is_set() && !value.is_none()) {
-                    set_set_value(view, value);
-                    return;
-                }
-                view.value().from_python(nb::borrow<nb::object>(value));
-                mark_output_modified(view, evaluation_time());
+                output_view().from_python(value);
             }
 
             [[nodiscard]] std::string repr() const
@@ -1312,16 +1268,6 @@ namespace hgraph::v2
             [[nodiscard]] engine_time_t evaluation_time() const
             {
                 return m_node != nullptr ? m_node->evaluation_time() : m_fixed_evaluation_time;
-            }
-
-            [[nodiscard]] static nb::object remove_sentinel()
-            {
-                return get_remove();
-            }
-
-            [[nodiscard]] static nb::object remove_if_exists_sentinel()
-            {
-                return get_remove_if_exists();
             }
 
             [[nodiscard]] PythonTimeSeriesHandle dict_slot_item(const TSViewContext &context, size_t slot) const
@@ -1348,27 +1294,6 @@ namespace hgraph::v2
             [[nodiscard]] bool is_direct_dict_value() const noexcept
             {
                 return !m_path_steps.empty() && m_path_steps.back().kind == PathStep::Kind::Key;
-            }
-
-            void set_direct_dict_value(nb::handle value) const
-            {
-                auto parent_view = output_view_prefix(m_path_steps.size() - 1);
-                if (parent_view.ts_schema() == nullptr || parent_view.ts_schema()->kind != TSKind::TSD) {
-                    throw std::logic_error("v2 Python dict child output mutation requires a TSD parent");
-                }
-                if (m_schema == nullptr || m_schema->value_type == nullptr) {
-                    throw std::logic_error("v2 Python dict child output mutation requires a value schema");
-                }
-
-                Value mapped_value(*m_schema->value_type);
-                mapped_value.reset();
-                mapped_value.from_python(nb::borrow<nb::object>(value));
-
-                parent_view.value()
-                    .as_map()
-                    .begin_mutation(evaluation_time())
-                    .set(m_path_steps.back().key.view(), mapped_value.view());
-                mark_output_modified(parent_view, evaluation_time());
             }
 
             [[nodiscard]] PythonTimeSeriesHandle detached_value_item(const View &value, const TSMeta *schema) const
@@ -1429,176 +1354,6 @@ namespace hgraph::v2
                 state->mark_modified(evaluation_time());
             }
 
-            void set_bundle_value(nb::handle value) const
-            {
-                if (m_schema == nullptr || m_schema->kind != TSKind::TSB) {
-                    throw std::logic_error("v2 Python bundle output mutation requires a TSB schema");
-                }
-
-                const nb::object python_type = m_schema->python_type();
-                if (python_type.is_valid() && !python_type.is_none() && nb::isinstance(value, python_type)) {
-                    for (size_t i = 0; i < m_schema->data.tsb.field_count; ++i) {
-                        const std::string_view field_name = m_schema->data.tsb.fields[i].name;
-                        nb::object attr = nb::getattr(value, field_name.data(), nb::none());
-                        if (!attr.is_none()) { field(std::string(field_name)).set_value(attr); }
-                    }
-                    return;
-                }
-
-                nb::object items = nb::hasattr(value, "items") ? nb::getattr(value, "items")() : nb::borrow<nb::object>(value);
-                for (auto pair : nb::iter(items)) {
-                    nb::object field_value = nb::borrow<nb::object>(pair[1]);
-                    if (!field_value.is_none()) { field(nb::cast<std::string>(pair[0])).set_value(field_value); }
-                }
-            }
-
-            void set_list_value(nb::handle value) const
-            {
-                if (m_schema == nullptr || m_schema->kind != TSKind::TSL) {
-                    throw std::logic_error("v2 Python list output mutation requires a TSL schema");
-                }
-
-                if (nb::isinstance<nb::tuple>(value) || nb::isinstance<nb::list>(value)) {
-                    const size_t size = nb::len(value);
-                    for (size_t i = 0; i < size; ++i) {
-                        nb::object item = nb::borrow<nb::object>(value[i]);
-                        if (!item.is_none()) { index(i).set_value(item); }
-                    }
-                    return;
-                }
-
-                if (nb::isinstance<nb::dict>(value)) {
-                    for (auto [key, item] : nb::cast<nb::dict>(value)) {
-                        nb::object item_object = nb::borrow<nb::object>(item);
-                        if (!item_object.is_none()) { index(nb::cast<size_t>(key)).set_value(item_object); }
-                    }
-                    return;
-                }
-
-                throw std::runtime_error("Invalid value type for v2 Python list output");
-            }
-
-            void set_dict_value(const TSOutputView &view, nb::handle value) const
-            {
-                if (m_schema == nullptr || m_schema->kind != TSKind::TSD) {
-                    throw std::logic_error("v2 Python dict output mutation requires a TSD schema");
-                }
-
-                const value::TypeMeta *key_schema = m_schema->key_type();
-                const TSMeta *value_ts_schema = m_schema->element_ts();
-                const value::TypeMeta *mapped_schema = value_ts_schema != nullptr ? value_ts_schema->value_type : nullptr;
-                if (key_schema == nullptr || mapped_schema == nullptr) {
-                    throw std::logic_error("v2 Python dict output mutation requires key and value schemas");
-                }
-
-                if (!view.valid() && !nb::cast<bool>(nb::bool_(value))) {
-                    mark_output_modified(view, evaluation_time());
-                    return;
-                }
-
-                auto item_attr = nb::getattr(value, "items", nb::none());
-                nb::iterator items = item_attr.is_none() ? nb::iter(value) : nb::iter(item_attr());
-                auto mutation = view.value().as_map().begin_mutation(evaluation_time());
-                bool changed = false;
-
-                for (const auto &kv : items) {
-                    nb::object entry_value = nb::borrow<nb::object>(kv[1]);
-                    if (entry_value.is_none()) { continue; }
-
-                    Value key_value(*key_schema);
-                    key_value.reset();
-                    key_value.from_python(nb::borrow<nb::object>(kv[0]));
-
-                    if (entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) {
-                        const bool removed = mutation.remove(key_value.view());
-                        if (!removed && entry_value.is(remove_sentinel())) {
-                            throw nb::key_error("TSD key not found for REMOVE");
-                        }
-                        changed = changed || removed;
-                        continue;
-                    }
-
-                    Value mapped_value(*mapped_schema);
-                    mapped_value.reset();
-                    mapped_value.from_python(entry_value);
-                    mutation.set(key_value.view(), mapped_value.view());
-                    changed = true;
-                }
-
-                if (changed) { mark_output_modified(view, evaluation_time()); }
-            }
-
-            void set_set_value(const TSOutputView &view, nb::handle value) const
-            {
-                if (m_schema == nullptr || m_schema->kind != TSKind::TSS) {
-                    throw std::logic_error("v2 Python set output mutation requires a TSS schema");
-                }
-
-                auto set_view = view.value().as_set();
-                const value::TypeMeta *element_schema = set_view.element_schema();
-                if (element_schema == nullptr) {
-                    throw std::logic_error("v2 Python set output mutation requires an element schema");
-                }
-
-                auto mutation = set_view.begin_mutation(evaluation_time());
-                bool changed = false;
-
-                const auto convert_value = [element_schema](const nb::handle &item) {
-                    Value element(*element_schema);
-                    element.reset();
-                    element.from_python(nb::borrow<nb::object>(item));
-                    return element;
-                };
-
-                const auto apply_added = [&](const nb::handle &item) {
-                    Value element = convert_value(item);
-                    changed = mutation.add(element.view()) || changed;
-                };
-
-                const auto apply_removed = [&](const nb::handle &item) {
-                    Value element = convert_value(item);
-                    changed = mutation.remove(element.view()) || changed;
-                };
-
-                if (nb::hasattr(value, "added") && nb::hasattr(value, "removed")) {
-                    for (auto item : nb::iter(nb::getattr(value, "added"))) { apply_added(nb::borrow<nb::object>(item)); }
-                    for (auto item : nb::iter(nb::getattr(value, "removed"))) { apply_removed(nb::borrow<nb::object>(item)); }
-                } else if (nb::isinstance<nb::frozenset>(value)) {
-                    std::vector<Value> replacement;
-                    replacement.reserve(nb::len(value));
-                    for (auto item : nb::iter(value)) { replacement.push_back(convert_value(nb::borrow<nb::object>(item))); }
-
-                    std::vector<Value> existing_items;
-                    for (const View &existing : set_view.values()) { existing_items.push_back(existing.clone()); }
-
-                    for (const Value &existing : existing_items) {
-                        const bool keep =
-                            std::any_of(replacement.begin(),
-                                        replacement.end(),
-                                        [&](const Value &candidate) { return existing.view() == candidate.view(); });
-                        if (!keep) { changed = mutation.remove(existing.view()) || changed; }
-                    }
-
-                    for (const Value &item : replacement) {
-                        if (!set_view.contains(item.view())) { changed = mutation.add(item.view()) || changed; }
-                    }
-                } else if (nb::isinstance<nb::set>(value) || nb::isinstance<nb::frozenset>(value) || nb::isinstance<nb::list>(value) ||
-                           nb::isinstance<nb::tuple>(value) || nb::isinstance<nb::dict>(value)) {
-                    for (auto item : nb::iter(value)) {
-                        nb::object item_object = nb::borrow<nb::object>(item);
-                        if (nb::isinstance(item_object, removed_type())) {
-                            apply_removed(nb::getattr(item_object, "item"));
-                        } else {
-                            apply_added(item_object);
-                        }
-                    }
-                } else {
-                    throw std::runtime_error("Invalid value type for v2 Python set output");
-                }
-
-                if (changed || !view.valid()) { mark_output_modified(view, evaluation_time()); }
-            }
-
           public:
             void add_set_item(const nb::handle &item) const
             {
@@ -1654,155 +1409,6 @@ namespace hgraph::v2
             }
 
           private:
-            [[nodiscard]] nb::object bundle_python_value(bool delta) const
-            {
-                if (delta) {
-                    nb::dict out;
-                    for (size_t i = 0; i < m_schema->data.tsb.field_count; ++i) {
-                        const std::string_view field_name = m_schema->data.tsb.fields[i].name;
-                        const auto child = field(std::string(field_name));
-                        if (!child.modified() || !child.valid()) { continue; }
-
-                        nb::object value = child.delta_value();
-                        if (!value.is_none()) { out[nb::str(field_name.data(), field_name.size())] = value; }
-                    }
-                    return out;
-                }
-
-                nb::dict out;
-                for (size_t i = 0; i < m_schema->data.tsb.field_count; ++i) {
-                    const std::string_view field_name = m_schema->data.tsb.fields[i].name;
-                    const auto child = field(std::string(field_name));
-                    if (!child.valid()) { continue; }
-
-                    nb::object value = child.value();
-                    if (!value.is_none()) { out[nb::str(field_name.data(), field_name.size())] = value; }
-                }
-                return out;
-            }
-
-            [[nodiscard]] nb::object list_python_value(bool delta) const
-            {
-                if (delta) {
-                    if (m_input != nullptr) {
-                        const auto view = input_view();
-                        const BaseState *state = view.context_ref().ts_state;
-                        if (state != nullptr && state->storage_kind != TSStorageKind::Native) {
-                            if (const LinkedTSContext *target = state->linked_target();
-                                target != nullptr && target->ts_state != nullptr &&
-                                target->ts_state->resolved_state() != nullptr &&
-                                target->ts_state->resolved_state()->storage_kind == TSStorageKind::Native) {
-                                nb::dict out;
-                                const auto list = current_value().as_list();
-                                const auto *target_state = static_cast<const TSLState *>(target->ts_state->resolved_state());
-                                for (const size_t slot : target_state->modified_children) {
-                                    if (slot >= list.size()) { continue; }
-                                    const View value = list.at(slot);
-                                    if (value.has_value()) { out[nb::int_(slot)] = value.to_python(); }
-                                }
-                                return out;
-                            }
-                        }
-                    }
-
-                    nb::dict out;
-                    const size_t size = m_input != nullptr ? input_view().as_list().size() : output_view().as_list().size();
-                    for (size_t i = 0; i < size; ++i) {
-                        const auto child = index(i);
-                        if (!child.modified()) { continue; }
-                        out[nb::int_(i)] = child.delta_value();
-                    }
-                    return out;
-                }
-
-                nb::list out;
-                const size_t size = m_input != nullptr ? input_view().as_list().size() : output_view().as_list().size();
-                for (size_t i = 0; i < size; ++i) {
-                    const auto child = index(i);
-                    out.append(child.valid() ? child.value() : nb::none());
-                }
-                return nb::tuple(out);
-            }
-
-            [[nodiscard]] nb::object dict_python_value() const
-            {
-                nb::dict out;
-                auto map = current_value().as_map();
-                constexpr size_t no_slot = static_cast<size_t>(-1);
-                for (size_t slot = map.first_live_slot(); slot != no_slot; slot = map.next_live_slot(slot)) {
-                    const View key = map.delta().key_at_slot(slot);
-                    const View value = map.at(key);
-                    if (value.has_value()) { out[key.to_python()] = value.to_python(); }
-                }
-                return out;
-            }
-
-            [[nodiscard]] nb::object dict_python_delta_value() const
-            {
-                const auto build_delta = [](const auto &view) {
-                    if (const auto *ref_state = switching_ref_state(view.context_ref());
-                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
-                        ref_state->previous_target_value.has_value()) {
-                        nb::dict out;
-                        const auto current = view.value().as_map();
-                        const auto previous = ref_state->previous_target_value.view().as_map();
-                        constexpr size_t no_slot = static_cast<size_t>(-1);
-
-                        for (size_t slot = current.first_live_slot(); slot != no_slot; slot = current.next_live_slot(slot)) {
-                            const View key = current.delta().key_at_slot(slot);
-                            const View current_value = current.at(key);
-                            if (!previous.contains(key) || previous.at(key) != current_value) {
-                                out[key.to_python()] = current_value.to_python();
-                            }
-                        }
-
-                        for (size_t slot = previous.first_live_slot(); slot != no_slot; slot = previous.next_live_slot(slot)) {
-                            const View key = previous.delta().key_at_slot(slot);
-                            if (!current.contains(key)) { out[key.to_python()] = remove_sentinel(); }
-                        }
-
-                        return out;
-                    }
-
-                    nb::dict out;
-                    MapDeltaView delta = view.delta_value().as_map().delta();
-
-                    for (size_t slot = delta.first_added_slot(); slot != static_cast<size_t>(-1); slot = delta.next_added_slot(slot)) {
-                        const View key = delta.key_at_slot(slot);
-                        const View value = delta.value_at_slot(slot);
-                        if (value.has_value()) { out[key.to_python()] = value.to_python(); }
-                    }
-
-                    for (size_t slot = delta.first_updated_slot(); slot != static_cast<size_t>(-1); slot = delta.next_updated_slot(slot)) {
-                        if (delta.slot_added(slot)) { continue; }
-                        const View key = delta.key_at_slot(slot);
-                        const View value = delta.value_at_slot(slot);
-                        if (value.has_value()) { out[key.to_python()] = value.to_python(); }
-                    }
-
-                    for (size_t slot = delta.first_removed_slot(); slot != static_cast<size_t>(-1); slot = delta.next_removed_slot(slot)) {
-                        out[delta.key_at_slot(slot).to_python()] = remove_sentinel();
-                    }
-
-                    return out;
-                };
-
-                return m_input != nullptr ? build_delta(input_view()) : build_delta(output_view());
-            }
-
-            [[nodiscard]] nb::object set_python_delta_value() const
-            {
-                const auto build_delta = [](const auto &view) {
-                    nb::list added_values;
-                    nb::list removed_values;
-                    for (const View &item : view.as_set().added_values()) { added_values.append(item.to_python()); }
-                    for (const View &item : view.as_set().removed_values()) { removed_values.append(item.to_python()); }
-                    return set_delta_builder()(added_values, removed_values);
-                };
-
-                return m_input != nullptr ? build_delta(input_view()) : build_delta(output_view());
-            }
-
             [[nodiscard]] TSInputView input_view() const
             {
                 return input_view_prefix(m_path_steps.size());
@@ -1854,51 +1460,6 @@ namespace hgraph::v2
             [[nodiscard]] View current_value() const
             {
                 return m_input != nullptr ? input_view().value() : output_view().value();
-            }
-
-            [[nodiscard]] View current_delta_value() const
-            {
-                return m_input != nullptr ? input_view().delta_value() : output_view().delta_value();
-            }
-
-            [[nodiscard]] nb::object set_python_value() const
-            {
-                const View value = current_value();
-                return value.has_value() ? value.to_python() : nb::frozenset();
-            }
-
-            [[nodiscard]] nb::object reference_python_value() const
-            {
-                if (!is_reference()) { return nb::none(); }
-
-                const View value = current_value();
-                if (value.has_value()) {
-                    if (const auto *ref = value.as_atomic().try_as<TimeSeriesReference>()) { return nb::cast(*ref); }
-                }
-
-                if (m_input != nullptr) {
-                    TSInputView view = input_view();
-                    if (const LinkedTSContext *target = view.linked_target(); target != nullptr && target->is_bound()) {
-                        TSOutputView target_view = output_view_from_context(*target, evaluation_time());
-                        const View target_value = target_view.value();
-                        if (target_value.has_value()) {
-                            if (const auto *ref = target_value.as_atomic().try_as<TimeSeriesReference>()) { return nb::cast(*ref); }
-                        }
-                        return nb::cast(TimeSeriesReference::make(target_view));
-                    }
-                } else {
-                    TSOutputView view = output_view();
-                    if (const LinkedTSContext *target = view.linked_target(); target != nullptr && target->is_bound()) {
-                        TSOutputView target_view = output_view_from_context(*target, evaluation_time());
-                        const View target_value = target_view.value();
-                        if (target_value.has_value()) {
-                            if (const auto *ref = target_value.as_atomic().try_as<TimeSeriesReference>()) { return nb::cast(*ref); }
-                        }
-                        return nb::cast(TimeSeriesReference::make(target_view));
-                    }
-                }
-
-                return nb::cast(TimeSeriesReference::make());
             }
 
             [[nodiscard]] bool has_output_parent() const noexcept

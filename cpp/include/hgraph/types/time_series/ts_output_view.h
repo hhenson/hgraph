@@ -52,6 +52,18 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
     [[nodiscard]] const TSViewContext &context_ref() const noexcept { return this->m_context; }
 
     /**
+     * Apply a Python-facing value assignment to this output position using the
+     * native TS semantics for the represented schema.
+     */
+    void from_python(nb::handle value) const;
+
+    /**
+     * Apply a Python node result. `None` is treated as "no update", matching
+     * the Python output contract.
+     */
+    void apply_result(nb::handle value) const;
+
+    /**
      * Internal helper used by collection wrappers to preserve output-specific
      * runtime state when navigating to a child TS position.
      */
@@ -75,6 +87,31 @@ HGRAPH_EXPORT void unregister_set_contains_output(const TSOutputView &view, cons
 HGRAPH_EXPORT void unregister_set_is_empty_output(const TSOutputView &view);
 
 }  // namespace detail
+
+template <typename TView>
+inline void TSDView<TView>::from_python(nb::handle value) const
+    requires std::same_as<TView, TSOutputView>
+{
+    this->view_ref().from_python(value);
+}
+
+template <typename TView>
+inline void TSDView<TView>::from_python(const View &key, nb::handle value) const
+    requires std::same_as<TView, TSOutputView>
+{
+    const auto *dispatch = this->key_dispatch();
+    if (dispatch == nullptr) {
+        throw std::logic_error("TSDView::from_python(key, value) requires a dict dispatch");
+    }
+    dispatch->child_from_python(this->view_ref(), key, value);
+}
+
+template <typename TView>
+inline void TSSView<TView>::from_python(nb::handle value) const
+    requires std::same_as<TView, TSOutputView>
+{
+    this->view_ref().from_python(value);
+}
 
 template <typename TView>
 inline TSOutputView TSSView<TView>::register_contains_output(const View &item) const

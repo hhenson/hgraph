@@ -67,6 +67,10 @@ namespace hgraph
         struct TSDispatch
         {
             virtual ~TSDispatch() = default;
+            [[nodiscard]] virtual nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time) const;
+            [[nodiscard]] virtual nb::object delta_to_python(const TSViewContext &context,
+                                                             engine_time_t evaluation_time) const;
+            virtual void from_python(const TSOutputView &view, nb::handle value) const;
             [[nodiscard]] virtual View delta_value(const TSViewContext &context) const noexcept;
             [[nodiscard]] virtual engine_time_t last_modified_time(const TSViewContext &context) const noexcept;
             [[nodiscard]] virtual bool valid(const TSViewContext &context) const noexcept;
@@ -117,6 +121,7 @@ namespace hgraph
             [[nodiscard]] virtual size_t iteration_limit(const TSViewContext &context) const noexcept = 0;
             [[nodiscard]] virtual bool slot_is_live(const TSViewContext &context, size_t slot) const noexcept = 0;
             [[nodiscard]] virtual View key_at_slot(const TSViewContext &context, size_t slot) const = 0;
+            virtual void child_from_python(const TSOutputView &view, const View &key, nb::handle value) const;
         };
 
         struct TSSetDispatch : TSDispatch
@@ -155,6 +160,9 @@ namespace hgraph
 
         [[nodiscard]] HGRAPH_EXPORT const TSInputViewOps &default_input_view_ops() noexcept;
         [[nodiscard]] HGRAPH_EXPORT const TSOutputViewOps &default_output_view_ops() noexcept;
+        [[nodiscard]] HGRAPH_EXPORT nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time);
+        [[nodiscard]] HGRAPH_EXPORT nb::object delta_to_python(const TSViewContext &context,
+                                                               engine_time_t evaluation_time);
     }  // namespace detail
 
     /**
@@ -314,6 +322,15 @@ namespace hgraph
         [[nodiscard]] View value() const noexcept { return m_context.value(); }
 
         /**
+         * Materialize the current TS value using the native Python-facing TS
+         * semantics for this schema.
+         */
+        [[nodiscard]] nb::object to_python() const
+        {
+            return detail::to_python(m_context, m_evaluation_time);
+        }
+
+        /**
          * Return the logical TS schema represented by this view.
          */
         [[nodiscard]] const TSMeta *ts_schema() const noexcept { return m_context.resolved().schema; }
@@ -337,6 +354,15 @@ namespace hgraph
             const auto *resolved_schema = schema();
             const auto *value_schema = resolved_schema != nullptr ? resolved_schema->value_type : nullptr;
             return dispatch != nullptr ? dispatch->delta_value(m_context) : View::invalid_for(value_schema);
+        }
+
+        /**
+         * Materialize the current TS delta using the native Python-facing TS
+         * semantics for this schema.
+         */
+        [[nodiscard]] nb::object delta_to_python() const
+        {
+            return detail::delta_to_python(m_context, m_evaluation_time);
         }
 
         /**
@@ -478,9 +504,11 @@ namespace hgraph
 
         [[nodiscard]] engine_time_t evaluation_time() const noexcept { return m_view.evaluation_time(); }
         [[nodiscard]] View value() const noexcept { return m_view.value(); }
+        [[nodiscard]] nb::object to_python() const { return m_view.to_python(); }
         [[nodiscard]] const TSMeta *ts_schema() const noexcept { return m_view.ts_schema(); }
         [[nodiscard]] const LinkedTSContext *linked_target() const noexcept { return m_view.linked_target(); }
         [[nodiscard]] View delta_value() const noexcept { return m_view.delta_value(); }
+        [[nodiscard]] nb::object delta_to_python() const { return m_view.delta_to_python(); }
         [[nodiscard]] bool modified() const noexcept { return m_view.modified(); }
         [[nodiscard]] bool valid() const noexcept { return m_view.valid(); }
         [[nodiscard]] bool all_valid() const noexcept { return m_view.all_valid(); }
@@ -566,6 +594,8 @@ namespace hgraph
         [[nodiscard]] KeyValueRange<View, TView> items() const noexcept;
         [[nodiscard]] KeyValueRange<View, TView> valid_items() const noexcept;
         [[nodiscard]] KeyValueRange<View, TView> modified_items() const noexcept;
+        void from_python(nb::handle value) const requires std::same_as<TView, TSOutputView>;
+        void from_python(const View &key, nb::handle value) const requires std::same_as<TView, TSOutputView>;
 
       protected:
         [[nodiscard]] const detail::TSKeyDispatch *key_dispatch() const noexcept;
@@ -583,6 +613,7 @@ namespace hgraph
         [[nodiscard]] Range<View> removed_values() const noexcept;
         [[nodiscard]] bool empty() const noexcept;
 
+        void from_python(nb::handle value) const requires std::same_as<TView, TSOutputView>;
         [[nodiscard]] TSOutputView register_contains_output(const View &item) const requires std::same_as<TView, TSOutputView>;
         void unregister_contains_output(const View &item) const requires std::same_as<TView, TSOutputView>;
         [[nodiscard]] TSOutputView register_is_empty_output() const requires std::same_as<TView, TSOutputView>;

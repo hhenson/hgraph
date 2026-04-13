@@ -16,6 +16,24 @@
 
 namespace hgraph
 {
+    namespace detail
+    {
+        [[nodiscard]] nb::object reference_to_python(const TSViewContext &context, engine_time_t evaluation_time);
+        [[nodiscard]] nb::object bundle_to_python(const TSViewContext &context, engine_time_t evaluation_time);
+        [[nodiscard]] nb::object bundle_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time);
+        [[nodiscard]] nb::object list_to_python(const TSViewContext &context, engine_time_t evaluation_time);
+        [[nodiscard]] nb::object list_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time);
+        [[nodiscard]] nb::object dict_to_python(const TSViewContext &context, engine_time_t evaluation_time);
+        [[nodiscard]] nb::object dict_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time);
+        [[nodiscard]] nb::object set_to_python(const TSViewContext &context);
+        [[nodiscard]] nb::object set_delta_to_python(const TSViewContext &context);
+        void bundle_from_python(const TSOutputView &view, nb::handle value);
+        void list_from_python(const TSOutputView &view, nb::handle value);
+        void dict_from_python(const TSOutputView &view, nb::handle value);
+        void dict_child_from_python(const TSOutputView &view, const View &key, nb::handle value);
+        void set_from_python(const TSOutputView &view, nb::handle value);
+    }  // namespace detail
+
     namespace
     {
         [[nodiscard]] size_t align_up(size_t value, size_t alignment) noexcept
@@ -623,6 +641,16 @@ namespace hgraph
 
         struct ReferenceTSDispatch final : detail::TSDispatch
         {
+            [[nodiscard]] nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
+            {
+                return detail::reference_to_python(context, evaluation_time);
+            }
+
+            [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
+            {
+                return detail::reference_to_python(context, evaluation_time);
+            }
+
             [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override
             {
                 if (context.schema == nullptr || context.schema->kind != TSKind::REF || context.schema->element_ts() == nullptr ||
@@ -675,6 +703,25 @@ namespace hgraph
             [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override
             {
                 return context.value().as_list().delta();
+            }
+
+            [[nodiscard]] nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
+            {
+                return detail::list_to_python(context, evaluation_time);
+            }
+
+            [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
+            {
+                return detail::list_delta_to_python(context, evaluation_time);
+            }
+
+            void from_python(const TSOutputView &view, nb::handle value) const override
+            {
+                if (value.is_none()) {
+                    detail::TSDispatch::from_python(view, value);
+                    return;
+                }
+                detail::list_from_python(view, value);
             }
 
             [[nodiscard]] bool child_modified(const TSViewContext &context, size_t index) const noexcept override
@@ -774,6 +821,25 @@ namespace hgraph
             [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override
             {
                 return context.value().as_bundle().delta();
+            }
+
+            [[nodiscard]] nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
+            {
+                return detail::bundle_to_python(context, evaluation_time);
+            }
+
+            [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
+            {
+                return detail::bundle_delta_to_python(context, evaluation_time);
+            }
+
+            void from_python(const TSOutputView &view, nb::handle value) const override
+            {
+                if (value.is_none()) {
+                    detail::TSDispatch::from_python(view, value);
+                    return;
+                }
+                detail::bundle_from_python(view, value);
             }
 
             [[nodiscard]] bool child_modified(const TSViewContext &context, size_t index) const noexcept override
@@ -881,6 +947,30 @@ namespace hgraph
                 return context.value().as_map().delta();
             }
 
+            [[nodiscard]] nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
+            {
+                return detail::dict_to_python(context, evaluation_time);
+            }
+
+            [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
+            {
+                return detail::dict_delta_to_python(context, evaluation_time);
+            }
+
+            void from_python(const TSOutputView &view, nb::handle value) const override
+            {
+                if (value.is_none()) {
+                    detail::TSDispatch::from_python(view, value);
+                    return;
+                }
+                detail::dict_from_python(view, value);
+            }
+
+            void child_from_python(const TSOutputView &view, const View &key, nb::handle value) const override
+            {
+                detail::dict_child_from_python(view, key, value);
+            }
+
             [[nodiscard]] bool child_modified(const TSViewContext &context, size_t index) const noexcept override
             {
                 if (context.ts_state != nullptr && context.ts_state->storage_kind == TSStorageKind::Native) {
@@ -974,6 +1064,25 @@ namespace hgraph
 
         struct SetTSDispatch final : detail::TSSetDispatch
         {
+            [[nodiscard]] nb::object to_python(const TSViewContext &context, engine_time_t) const override
+            {
+                return detail::set_to_python(context);
+            }
+
+            [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t) const override
+            {
+                return detail::set_delta_to_python(context);
+            }
+
+            void from_python(const TSOutputView &view, nb::handle value) const override
+            {
+                if (value.is_none()) {
+                    detail::TSDispatch::from_python(view, value);
+                    return;
+                }
+                detail::set_from_python(view, value);
+            }
+
             [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override
             {
                 return context.value().as_set().delta();
