@@ -308,7 +308,7 @@ namespace hgraph
         /**
          * Record the modified child and continue propagating the modification.
          */
-        void child_modified(size_t child_index, engine_time_t modified_time) noexcept;
+        virtual void child_modified(size_t child_index, engine_time_t modified_time) noexcept;
     };
 
     /**
@@ -328,6 +328,7 @@ namespace hgraph
                                 const detail::MapViewDispatch &dispatch,
                                 void *value_data,
                                 bool current_storage_alive = true);
+        void child_modified(size_t child_index, engine_time_t modified_time) noexcept override;
         void unbind_value_storage() noexcept;
         void detach_value_storage() noexcept;
         void sync_with_value_storage();

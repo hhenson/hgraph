@@ -26,25 +26,6 @@ namespace hgraph
             return std::ranges::any_of(state.child_states, [](const auto &child) { return child != nullptr; });
         }
 
-        void notify_collection_child_modified(TSLState &state, size_t child_index, engine_time_t modified_time) noexcept
-        {
-            state.child_modified(child_index, modified_time);
-        }
-
-        void notify_collection_child_modified(TSBState &state, size_t child_index, engine_time_t modified_time) noexcept
-        {
-            state.child_modified(child_index, modified_time);
-        }
-
-        void notify_collection_child_modified(TSDState &state, size_t child_index, engine_time_t modified_time) noexcept
-        {
-            if (state.storage_kind == TSStorageKind::Native && state.map_dispatch != nullptr && state.map_value_data != nullptr) {
-                state.map_dispatch->mark_value_updated(state.map_value_data, child_index, modified_time);
-            }
-
-            state.BaseCollectionState::child_modified(child_index, modified_time);
-        }
-
         [[nodiscard]] TimeSeriesStateV *owning_state_variant(BaseState *state) noexcept
         {
             if (state == nullptr) { return nullptr; }
@@ -153,20 +134,6 @@ namespace hgraph
 
                 default: return nullptr;
             }
-        }
-
-        void notify_parent_child_modified(TimeSeriesStateParentPtr parent, size_t child_index, engine_time_t modified_time) noexcept
-        {
-            hgraph::visit(
-                parent,
-                [child_index, modified_time](auto *ptr) {
-                    using T = std::remove_pointer_t<decltype(ptr)>;
-
-                    if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState>) {
-                        notify_collection_child_modified(*ptr, child_index, modified_time);
-                    }
-                },
-                [] {});
         }
 
         template <typename TFn>
@@ -365,8 +332,18 @@ namespace hgraph
         for (auto *subscriber : subscribers) { subscriber->notify(modified_time); }
     }
 
-    void BaseState::notify_parent_that_child_is_modified(engine_time_t modified_time) noexcept {
-        notify_parent_child_modified(parent, index, modified_time);
+    void BaseState::notify_parent_that_child_is_modified(engine_time_t modified_time) noexcept
+    {
+        hgraph::visit(
+            parent,
+            [this, modified_time](auto *ptr) {
+                using T = std::remove_pointer_t<decltype(ptr)>;
+
+                if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSBState> || std::same_as<T, TSDState>) {
+                    ptr->child_modified(index, modified_time);
+                }
+            },
+            [] {});
     }
 
     bool detail::has_local_reference_binding(const TSViewContext &context) noexcept
@@ -451,6 +428,15 @@ namespace hgraph
             return;
         }
         modified_children.insert(child_index);
+    }
+
+    void TSDState::child_modified(size_t child_index, engine_time_t modified_time) noexcept
+    {
+        if (storage_kind == TSStorageKind::Native && map_dispatch != nullptr && map_value_data != nullptr) {
+            map_dispatch->mark_value_updated(map_value_data, child_index, modified_time);
+        }
+
+        BaseCollectionState::child_modified(child_index, modified_time);
     }
 
     BaseCollectionState::~BaseCollectionState() = default;
