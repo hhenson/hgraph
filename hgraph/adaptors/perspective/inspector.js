@@ -23,21 +23,22 @@ export async function setupInspectorTable(){
         }
 
         const get_selected_row = () => {
-            return table.dataset.selected_row ? parseInt(table.dataset.selected_row) : null;
+            return table.dataset.selected_row ? JSON.parse(table.dataset.selected_row)[0] : null;
         }
+
         const set_selected_row = async (row) => {
             if (row === null){
                 delete table.dataset.selected_row;
             } else {
                 table.dataset.selection_type = "row";
-                table.dataset.selected_row = row;
+                table.dataset.selected_row = JSON.stringify([row]);
 
                 const ids = await fetchData("id", row, "id", row + 1);
                 const id = ids.id[0];
 
-                table.dataset.selection_meta = JSON.stringify({ row_header: [id], column_header: [] });
-                table.dataset.selection_values = JSON.stringify({ id: id });
-                table.dataset.selection_names = JSON.stringify(['id']);
+                table.dataset.selection_meta = JSON.stringify([{ row_header: [id], column_header: [] }]);
+                table.dataset.selection_values = JSON.stringify([{ id: id }]);
+                table.dataset.selection_names = JSON.stringify([['id']]);
             }
         }
 
