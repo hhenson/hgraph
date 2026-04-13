@@ -169,7 +169,7 @@ namespace hgraph
             return value != nullptr && value->is_peered() ? value->target() : LinkedTSContext::none();
         }
 
-        [[nodiscard]] bool linked_context_equal(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept
+        [[nodiscard]] bool linked_context_equal_impl(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept
         {
             return lhs.schema == rhs.schema && lhs.value_dispatch == rhs.value_dispatch && lhs.ts_dispatch == rhs.ts_dispatch &&
                    lhs.value_data == rhs.value_data && lhs.ts_state == rhs.ts_state &&
@@ -182,7 +182,7 @@ namespace hgraph
             return target.schema != nullptr && (target.schema->kind == TSKind::TSS || target.schema->kind == TSKind::TSD);
         }
 
-        [[nodiscard]] Value snapshot_target_value(const LinkedTSContext &target, engine_time_t modified_time = MIN_DT)
+        [[nodiscard]] Value snapshot_target_value_impl(const LinkedTSContext &target, engine_time_t modified_time = MIN_DT)
         {
             if (!retains_previous_target_value(target) || !target.is_bound() || target.value_dispatch == nullptr ||
                 target.value_data == nullptr) {
@@ -216,7 +216,7 @@ namespace hgraph
                 if (!has_delta) { return snapshot; }
 
                 auto snapshot_set = snapshot.view().as_set();
-                auto mutation = snapshot_set.begin_mutation();
+                auto mutation = snapshot_set.begin_mutation(modified_time != MIN_DT ? modified_time : MIN_ST);
                 for (const View &item : current_delta.added()) { static_cast<void>(mutation.remove(item)); }
                 for (const View &item : current_delta.removed()) { static_cast<void>(mutation.add(item)); }
                 snapshot_set.clear_delta_tracking();
@@ -261,6 +261,16 @@ namespace hgraph
             }
         }
     }  // namespace
+
+    bool detail::linked_context_equal(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept
+    {
+        return linked_context_equal_impl(lhs, rhs);
+    }
+
+    Value detail::snapshot_target_value(const LinkedTSContext &target, engine_time_t modified_time)
+    {
+        return snapshot_target_value_impl(target, modified_time);
+    }
 
     void BaseState::subscribe(Notifiable *subscriber) noexcept {
         if (subscriber != nullptr) { subscribers.insert(subscriber); }
@@ -351,6 +361,16 @@ namespace hgraph
 
         BaseCollectionState *collection_state = reference_collection_state(*context.schema, context.ts_state);
         return collection_state != nullptr && has_any_child_state(*collection_state);
+    }
+
+    const Value *detail::materialized_target_link_value(const TSViewContext &context) noexcept
+    {
+        if (context.ts_state == nullptr || context.ts_state->storage_kind != TSStorageKind::TargetLink) { return nullptr; }
+
+        const auto *state = static_cast<const TargetLinkState *>(context.ts_state);
+        return !state->target.is_bound() && state->switch_modified_time != MIN_DT && state->previous_target_value.has_value()
+                   ? &state->previous_target_value
+                   : nullptr;
     }
 
     const Value *detail::materialized_reference_value(const TSViewContext &context) noexcept
@@ -481,7 +501,13 @@ namespace hgraph
     TargetLinkState::TargetLinkStateNotifiable::TargetLinkStateNotifiable(TargetLinkState *self_) noexcept : self(self_) {}
 
     void TargetLinkState::TargetLinkStateNotifiable::notify(engine_time_t modified_time) {
-        if (self != nullptr) { self->mark_modified(modified_time); }
+        if (self != nullptr) {
+            if (self->switch_modified_time != modified_time) {
+                self->previous_target_value = {};
+                self->switch_modified_time = MIN_DT;
+            }
+            self->mark_modified(modified_time);
+        }
     }
 
     void TargetLinkState::SchedulingNotifier::notify(engine_time_t modified_time) {
@@ -504,6 +530,8 @@ namespace hgraph
         storage_kind = other.storage_kind;
         subscribers = std::move(other.subscribers);
         feature_registry = std::move(other.feature_registry);
+        previous_target_value = std::move(other.previous_target_value);
+        switch_modified_time = other.switch_modified_time;
         scheduling_notifier.set_target(other.scheduling_notifier.get_target());
 
         if (other.target.is_bound()) {
@@ -515,6 +543,8 @@ namespace hgraph
         }
 
         other.scheduling_notifier.set_target(nullptr);
+        other.previous_target_value = {};
+        other.switch_modified_time = MIN_DT;
     }
 
     TargetLinkState &TargetLinkState::operator=(TargetLinkState &&other) noexcept
@@ -529,6 +559,8 @@ namespace hgraph
         storage_kind = other.storage_kind;
         subscribers = std::move(other.subscribers);
         feature_registry = std::move(other.feature_registry);
+        previous_target_value = std::move(other.previous_target_value);
+        switch_modified_time = other.switch_modified_time;
         scheduling_notifier.set_target(other.scheduling_notifier.get_target());
 
         if (other.target.is_bound()) {
@@ -540,6 +572,8 @@ namespace hgraph
         }
 
         other.scheduling_notifier.set_target(nullptr);
+        other.previous_target_value = {};
+        other.switch_modified_time = MIN_DT;
         return *this;
     }
 
@@ -557,6 +591,14 @@ namespace hgraph
     bool TargetLinkState::is_bound() const noexcept {
         return target.is_bound();
     }
+    engine_time_t TargetLinkState::last_target_modified_time() const noexcept {
+        return target.ts_state != nullptr ? target.ts_state->last_modified_time : MIN_DT;
+    }
+
+    bool TargetLinkState::is_sampled() const noexcept {
+        return last_modified_time > last_target_modified_time();
+    }
+
     void TargetLinkState::register_with_target() noexcept {
         with_target_state(target, [this](BaseState *ptr) { ptr->subscribe(&target_notifiable); });
     }
@@ -765,14 +807,14 @@ namespace hgraph
         replay_boundary_attachments(true);
 
         if (propagate) {
-            const bool target_changed = !linked_context_equal(previous_target, bound_link.target);
+            const bool target_changed = !linked_context_equal_impl(previous_target, bound_link.target);
 
             // Restrict sampled REF propagation for now: ordinary Python code
             // mostly treats refs as opaque handles, so a source-side tick that
             // resolves to the same target should not manufacture a fresh delta.
             if (target_changed) {
                 previous_target_value =
-                    retain_transition_value ? snapshot_target_value(previous_target, modified_time) : Value{};
+                    retain_transition_value ? snapshot_target_value_impl(previous_target, modified_time) : Value{};
                 switch_modified_time = previous_target_value.has_value() ? modified_time : MIN_DT;
                 mark_modified(modified_time);
             } else {

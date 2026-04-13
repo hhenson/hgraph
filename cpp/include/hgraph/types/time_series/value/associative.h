@@ -39,13 +39,15 @@ namespace hgraph
         struct SetViewDispatch : ViewDispatch
         {
             /**
-             * Enter a mutation scope.
+             * Enter a time-aware mutation scope.
              *
-             * Delta tracking is cleared explicitly by higher runtime layers at
-             * evaluation-tick boundaries; entering a mutation scope only
-             * tracks nested mutation depth.
+             * Entering the outermost mutation scope at a later
+             * `evaluation_time` starts the next delta epoch and releases any
+             * retained removed payloads from the prior one. Re-entering in
+             * the same engine tick keeps the current epoch open so separate
+             * mutation scopes still net correctly.
              */
-            virtual void begin_mutation(void *data) const = 0;
+            virtual void begin_mutation(void *data, engine_time_t evaluation_time) const = 0;
             /**
              * End the current mutation epoch.
              */
@@ -98,13 +100,15 @@ namespace hgraph
         struct MapViewDispatch : ViewDispatch
         {
             /**
-             * Enter a mutation scope.
+             * Enter a time-aware mutation scope.
              *
-             * Delta tracking is cleared explicitly by higher runtime layers at
-             * evaluation-tick boundaries; entering a mutation scope only
-             * tracks nested mutation depth.
+             * Entering the outermost mutation scope at a later
+             * `evaluation_time` starts the next delta epoch and releases any
+             * retained removed payloads from the prior one. Re-entering in
+             * the same engine tick keeps the current epoch open so separate
+             * mutation scopes still net correctly.
              */
-            virtual void begin_mutation(void *data) const = 0;
+            virtual void begin_mutation(void *data, engine_time_t evaluation_time) const = 0;
             /**
              * End the current mutation epoch.
              */
@@ -172,7 +176,7 @@ namespace hgraph
          * underlying storage so callers can build larger operations from
          * smaller helpers without prematurely releasing removed slots.
          */
-        SetMutationView begin_mutation();
+        SetMutationView begin_mutation(engine_time_t evaluation_time);
         /**
          * Return the delta-inspection surface for the current mutation epoch.
          */
@@ -199,7 +203,7 @@ namespace hgraph
          * This is protected so only the RAII mutation wrapper can expose the
          * mutating surface.
          */
-        void begin_mutation_scope();
+        void begin_mutation_scope(engine_time_t evaluation_time);
         /**
          * Leave the underlying mutation epoch.
          *
@@ -256,7 +260,7 @@ namespace hgraph
         /**
          * Open a mutation scope over the supplied set view.
          */
-        explicit SetMutationView(SetView &view);
+        SetMutationView(SetView &view, engine_time_t evaluation_time);
         SetMutationView(const SetMutationView &) = delete;
         SetMutationView &operator=(const SetMutationView &) = delete;
         /**
@@ -391,7 +395,7 @@ namespace hgraph
          * underlying storage so callers can build larger operations from
          * smaller helpers without prematurely releasing removed slots.
          */
-        MapMutationView begin_mutation();
+        MapMutationView begin_mutation(engine_time_t evaluation_time);
         /**
          * Return the delta-inspection surface for the current mutation epoch.
          */
@@ -416,7 +420,7 @@ namespace hgraph
          * This is protected so only the RAII mutation wrapper can expose the
          * mutating surface.
          */
-        void begin_mutation_scope();
+        void begin_mutation_scope(engine_time_t evaluation_time);
         /**
          * Leave the underlying mutation epoch.
          *
@@ -487,7 +491,7 @@ namespace hgraph
         /**
          * Open a mutation scope over the supplied map view.
          */
-        explicit MapMutationView(MapView &view);
+        MapMutationView(MapView &view, engine_time_t evaluation_time);
         MapMutationView(const MapMutationView &) = delete;
         MapMutationView &operator=(const MapMutationView &) = delete;
         /**

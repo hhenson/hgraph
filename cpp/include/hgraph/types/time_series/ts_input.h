@@ -64,6 +64,15 @@ struct HGRAPH_EXPORT TSInput : TSValue {
     [[nodiscard]] TSInputView view(Notifiable *scheduling_notifier = nullptr,
                                     engine_time_t evaluation_time = MIN_DT);
 
+    /**
+     * Internal runtime access to the root state slot.
+     *
+     * Dynamic input rebinding upgrades the represented root state in place to
+     * a link-backed state when needed.
+     */
+    [[nodiscard]] TimeSeriesStateV &root_state_variant() noexcept { return root_state_variant_ref(); }
+    [[nodiscard]] const TimeSeriesStateV &root_state_variant() const noexcept { return root_state_variant_ref(); }
+
 private:
     friend struct TSInputBuilder;
 

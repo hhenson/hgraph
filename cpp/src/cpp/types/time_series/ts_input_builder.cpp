@@ -258,6 +258,8 @@ namespace hgraph
                 const auto &src_state = std::get<TargetLinkState>(src);
                 auto &dst_state = dst.emplace<TargetLinkState>();
                 initialize_base_state(dst_state, parent, index, src_state.last_modified_time, TSStorageKind::TargetLink);
+                dst_state.previous_target_value = src_state.previous_target_value;
+                dst_state.switch_modified_time = src_state.switch_modified_time;
                 dst_state.scheduling_notifier.set_target(src_state.scheduling_notifier.get_target());
                 if (src_state.target.is_bound()) {
                     dst_state.set_target(src_state.target);

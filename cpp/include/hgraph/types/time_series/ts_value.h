@@ -226,6 +226,8 @@ protected:
 
     [[nodiscard]] TimeSeriesStateV &state_variant() noexcept { return *static_cast<TimeSeriesStateV *>(ts_memory()); }
     [[nodiscard]] const TimeSeriesStateV &state_variant() const noexcept { return *static_cast<const TimeSeriesStateV *>(ts_memory()); }
+    [[nodiscard]] TimeSeriesStateV &root_state_variant_ref() noexcept { return state_variant(); }
+    [[nodiscard]] const TimeSeriesStateV &root_state_variant_ref() const noexcept { return state_variant(); }
 
   private:
     friend struct TSValueBuilder;

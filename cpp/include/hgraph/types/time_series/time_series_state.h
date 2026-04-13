@@ -43,8 +43,12 @@ namespace hgraph
         struct ViewDispatch;
 
         [[nodiscard]] HGRAPH_EXPORT bool has_local_reference_binding(const TSViewContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT const Value *materialized_target_link_value(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT const Value *materialized_reference_value(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT bool reference_all_valid(const TSViewContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT bool linked_context_equal(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT Value snapshot_target_value(const LinkedTSContext &target,
+                                                               engine_time_t modified_time = MIN_DT);
     }  // namespace detail
 
     /**
@@ -480,6 +484,17 @@ namespace hgraph
 
         LinkedTSContext target;
         /**
+         * Snapshot of the previously bound collection value for same-tick
+         * rebinding/unbinding semantics.
+         *
+         * This mirrors the Python input contract for peered dynamic
+         * collections: during the transition tick the input remains readable
+         * from the old collection view even after the binding itself has been
+         * changed or removed.
+         */
+        Value previous_target_value;
+        engine_time_t switch_modified_time{MIN_DT};
+        /**
          * Notification identity used to keep the target link state and the
          * non-peered collections above it up to date.
          */
@@ -491,6 +506,8 @@ namespace hgraph
         SchedulingNotifier       scheduling_notifier;
 
         [[nodiscard]] bool is_bound() const noexcept;
+        [[nodiscard]] engine_time_t last_target_modified_time() const noexcept;
+        [[nodiscard]] bool is_sampled() const noexcept;
 
       private:
         void register_with_target() noexcept;

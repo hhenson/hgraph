@@ -384,7 +384,6 @@ namespace hgraph::v2
     void Node::start(engine_time_t evaluation_time)
     {
         if (m_started) { return; }
-
         activate_active_inputs(*this, evaluation_time);
         auto rollback_start = UnwindCleanupGuard([&] { deactivate_active_inputs(*this, evaluation_time); });
         spec().runtime_ops->start(*this, evaluation_time);
@@ -420,9 +419,11 @@ namespace hgraph::v2
 
     void Node::eval(engine_time_t evaluation_time)
     {
-        if (!ready_to_eval(evaluation_time)) { return; }
+        const bool ready = ready_to_eval(evaluation_time);
+        const bool active_modified = has_input() && has_modified_active_input(*this, evaluation_time);
+        if (!ready) { return; }
         const bool scheduled = uses_scheduler() && scheduler().is_scheduled_now();
-        if (uses_scheduler() && has_input() && !scheduled && !has_modified_active_input(*this, evaluation_time)) { return; }
+        if (uses_scheduler() && has_input() && !scheduled && !active_modified) { return; }
         spec().runtime_ops->eval(*this, evaluation_time);
 
         if (!uses_scheduler()) { return; }

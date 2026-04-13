@@ -141,6 +141,7 @@ namespace hgraph
         {
             virtual ~TSInputViewOps() = default;
             virtual void bind_output(TSInputView &view, const TSOutputView &output) const = 0;
+            virtual void unbind_output(TSInputView &view) const = 0;
             virtual void make_active(TSInputView &view) const = 0;
             virtual void make_passive(TSInputView &view) const = 0;
             [[nodiscard]] virtual bool active(const TSInputView &view) const noexcept = 0;
@@ -246,6 +247,9 @@ namespace hgraph
         {
             const TSViewContext resolved_context = resolved();
             const value::TypeMeta *value_schema = resolved_context.schema != nullptr ? resolved_context.schema->value_type : nullptr;
+            if (const Value *materialized = detail::materialized_target_link_value(resolved_context); materialized != nullptr) {
+                return materialized->view();
+            }
             if (const Value *materialized = detail::materialized_reference_value(resolved_context); materialized != nullptr) {
                 return materialized->view();
             }

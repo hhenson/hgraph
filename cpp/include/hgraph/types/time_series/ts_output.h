@@ -88,15 +88,6 @@ private:
 };
 
 /**
- * Prepare an output collection for mutation at the supplied evaluation time.
- *
- * This clears any stale delta bookkeeping from a prior engine tick before a
- * new set/map mutation begins. Callers mutating TSS/TSD outputs should invoke
- * this once before opening the mutation scope for the current tick.
- */
-HGRAPH_EXPORT void prepare_output_view_mutation(const TSOutputView &view, engine_time_t evaluation_time);
-
-/**
  * Publish a modification on an output view and keep any direct dynamic dict
  * children synchronized with the same engine tick.
  */

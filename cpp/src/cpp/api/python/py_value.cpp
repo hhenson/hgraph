@@ -1405,67 +1405,76 @@ namespace hgraph
                 .def("__contains__", &SetView::contains, "value"_a)
                 .def("__iter__", [](const SetView &self) { return nb::iter(nb::cast(collect_set_views(self))); })
                 .def("add",
-                     [](SetView &self, const View &value) {
-                         auto mutation = self.begin_mutation();
+                     [](SetView &self, const View &value, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          return mutation.add(value);
                      },
-                     "value"_a)
+                     "value"_a,
+                     "evaluation_time"_a)
                 .def("add",
-                     [](SetView &self, const nb::object &value) {
-                         auto mutation = self.begin_mutation();
+                     [](SetView &self, const nb::object &value, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          Value wrapped = materialize_python_value(*self.element_schema(), value);
                          return mutation.add(wrapped.view());
                      },
-                     "value"_a)
+                     "value"_a,
+                     "evaluation_time"_a)
                 .def("insert",
-                     [](SetView &self, const View &value) {
-                         auto mutation = self.begin_mutation();
+                     [](SetView &self, const View &value, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          return mutation.add(value);
                      },
-                     "value"_a)
+                     "value"_a,
+                     "evaluation_time"_a)
                 .def("insert",
-                     [](SetView &self, const nb::object &value) {
-                         auto mutation = self.begin_mutation();
+                     [](SetView &self, const nb::object &value, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          Value wrapped = materialize_python_value(*self.element_schema(), value);
                          return mutation.add(wrapped.view());
                      },
-                     "value"_a)
+                     "value"_a,
+                     "evaluation_time"_a)
                 .def("remove",
-                     [](SetView &self, const View &value) {
-                         auto mutation = self.begin_mutation();
+                     [](SetView &self, const View &value, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          return mutation.remove(value);
                      },
-                     "value"_a)
+                     "value"_a,
+                     "evaluation_time"_a)
                 .def("remove",
-                     [](SetView &self, const nb::object &value) {
-                         auto mutation = self.begin_mutation();
+                     [](SetView &self, const nb::object &value, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          Value wrapped = materialize_python_value(*self.element_schema(), value);
                          return mutation.remove(wrapped.view());
                      },
-                     "value"_a)
+                     "value"_a,
+                     "evaluation_time"_a)
                 .def("erase",
-                     [](SetView &self, const View &value) {
-                         auto mutation = self.begin_mutation();
+                     [](SetView &self, const View &value, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          return mutation.remove(value);
                      },
-                     "value"_a)
+                     "value"_a,
+                     "evaluation_time"_a)
                 .def("erase",
-                     [](SetView &self, const nb::object &value) {
-                         auto mutation = self.begin_mutation();
+                     [](SetView &self, const nb::object &value, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          Value wrapped = materialize_python_value(*self.element_schema(), value);
                          return mutation.remove(wrapped.view());
                      },
-                     "value"_a)
+                     "value"_a,
+                     "evaluation_time"_a)
                 .def("reserve",
-                     [](SetView &self, size_t capacity) {
-                         auto mutation = self.begin_mutation();
+                     [](SetView &self, size_t capacity, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          mutation.reserve(capacity);
                      },
-                     "capacity"_a)
-                .def("clear", [](SetView &self) {
-                    auto mutation = self.begin_mutation();
+                     "capacity"_a,
+                     "evaluation_time"_a)
+                .def("clear", [](SetView &self, engine_time_t evaluation_time) {
+                    auto mutation = self.begin_mutation(evaluation_time);
                     mutation.clear();
-                });
+                }, "evaluation_time"_a);
         }
 
         void register_key_set_view(nb::module_ &m)
@@ -1497,81 +1506,90 @@ namespace hgraph
                 .def("__getitem__", [](MapView &self, const View &key) { return self.at(key); })
                 .def("keys", [](MapView &self) { return KeySetView(self); })
                 .def("set",
-                     [](MapView &self, const View &key, const View &value) {
-                         auto mutation = self.begin_mutation();
+                     [](MapView &self, const View &key, const View &value, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          static_cast<void>(mutation.set(key, value));
                      },
                      "key"_a,
-                     "value"_a)
+                     "value"_a,
+                     "evaluation_time"_a)
                 .def("set",
-                     [](MapView &self, const nb::object &key, const nb::object &value) {
-                         auto mutation = self.begin_mutation();
+                     [](MapView &self, const nb::object &key, const nb::object &value, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          Value wrapped_key = materialize_python_value(*self.key_schema(), key);
                          Value wrapped_value = materialize_python_value(*self.value_schema(), value);
                          static_cast<void>(mutation.set(wrapped_key.view(), wrapped_value.view()));
                      },
                      "key"_a,
-                     "value"_a)
+                     "value"_a,
+                     "evaluation_time"_a)
                 .def("add",
-                     [](MapView &self, const View &key, const View &value) {
+                     [](MapView &self, const View &key, const View &value, engine_time_t evaluation_time) {
                          const bool existed = self.contains(key);
                          if (!existed) {
-                             auto mutation = self.begin_mutation();
+                             auto mutation = self.begin_mutation(evaluation_time);
                              mutation.set(key, value);
                          }
                          return !existed;
                      },
                      "key"_a,
-                     "value"_a)
+                     "value"_a,
+                     "evaluation_time"_a)
                 .def("add",
-                     [](MapView &self, const nb::object &key, const nb::object &value) {
+                     [](MapView &self, const nb::object &key, const nb::object &value, engine_time_t evaluation_time) {
                          Value wrapped_key = materialize_python_value(*self.key_schema(), key);
                          const bool existed = self.contains(wrapped_key.view());
                          if (!existed) {
-                             auto mutation = self.begin_mutation();
+                             auto mutation = self.begin_mutation(evaluation_time);
                              Value wrapped_value = materialize_python_value(*self.value_schema(), value);
                              mutation.set(wrapped_key.view(), wrapped_value.view());
                          }
                          return !existed;
                      },
                      "key"_a,
-                     "value"_a)
+                     "value"_a,
+                     "evaluation_time"_a)
                 .def("remove",
-                     [](MapView &self, const View &key) {
-                         auto mutation = self.begin_mutation();
+                     [](MapView &self, const View &key, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          return mutation.remove(key);
                      },
-                     "key"_a)
+                     "key"_a,
+                     "evaluation_time"_a)
                 .def("remove",
-                     [](MapView &self, const nb::object &key) {
-                         auto mutation = self.begin_mutation();
+                     [](MapView &self, const nb::object &key, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          Value wrapped_key = materialize_python_value(*self.key_schema(), key);
                          return mutation.remove(wrapped_key.view());
                      },
-                     "key"_a)
+                     "key"_a,
+                     "evaluation_time"_a)
                 .def("erase",
-                     [](MapView &self, const View &key) {
-                         auto mutation = self.begin_mutation();
+                     [](MapView &self, const View &key, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          return mutation.remove(key);
                      },
-                     "key"_a)
+                     "key"_a,
+                     "evaluation_time"_a)
                 .def("erase",
-                     [](MapView &self, const nb::object &key) {
-                         auto mutation = self.begin_mutation();
+                     [](MapView &self, const nb::object &key, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          Value wrapped_key = materialize_python_value(*self.key_schema(), key);
                          return mutation.remove(wrapped_key.view());
                      },
-                     "key"_a)
+                     "key"_a,
+                     "evaluation_time"_a)
                 .def("reserve",
-                     [](MapView &self, size_t capacity) {
-                         auto mutation = self.begin_mutation();
+                     [](MapView &self, size_t capacity, engine_time_t evaluation_time) {
+                         auto mutation = self.begin_mutation(evaluation_time);
                          mutation.reserve(capacity);
                      },
-                     "capacity"_a)
-                .def("clear", [](MapView &self) {
-                    auto mutation = self.begin_mutation();
+                     "capacity"_a,
+                     "evaluation_time"_a)
+                .def("clear", [](MapView &self, engine_time_t evaluation_time) {
+                    auto mutation = self.begin_mutation(evaluation_time);
                     mutation.clear();
-                })
+                }, "evaluation_time"_a)
                 .def("items", [](MapView &self) {
                     nb::dict d = nb::cast<nb::dict>(self.to_python());
                     std::vector<std::pair<nb::object, nb::object>> result;

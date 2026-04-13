@@ -17,11 +17,125 @@ if not is_feature_enabled("use_cpp"):
 # Skip all tests if C++ extension is not available
 _hgraph = pytest.importorskip("hgraph._hgraph")
 value = _hgraph.value  # Value types are in the value submodule
+MIN_ST = _hgraph.MIN_ST
+MIN_TD = _hgraph.MIN_TD
 
 # Convenience aliases to avoid variable shadowing
 Value = value.Value
 TypeRegistry = value.TypeRegistry
 TypeKind = value.TypeKind
+
+
+class _TimedSetView:
+    def __init__(self, view):
+        self._view = view
+        self._tick = 0
+
+    def _evaluation_time(self):
+        evaluation_time = MIN_ST + MIN_TD * self._tick
+        self._tick += 1
+        return evaluation_time
+
+    def add(self, value):
+        wrapped = _materialize_view(self._view.element_schema(), value)
+        return self._view.add(wrapped.view(), self._evaluation_time())
+
+    def insert(self, value):
+        wrapped = _materialize_view(self._view.element_schema(), value)
+        return self._view.insert(wrapped.view(), self._evaluation_time())
+
+    def remove(self, value):
+        wrapped = _materialize_view(self._view.element_schema(), value)
+        return self._view.remove(wrapped.view(), self._evaluation_time())
+
+    def erase(self, value):
+        wrapped = _materialize_view(self._view.element_schema(), value)
+        return self._view.erase(wrapped.view(), self._evaluation_time())
+
+    def reserve(self, capacity):
+        return self._view.reserve(capacity, self._evaluation_time())
+
+    def clear(self):
+        return self._view.clear(self._evaluation_time())
+
+    def contains(self, value):
+        wrapped = _materialize_view(self._view.element_schema(), value)
+        return self._view.contains(wrapped.view())
+
+    def __contains__(self, value):
+        return self.contains(value)
+
+    def __getattr__(self, item):
+        return getattr(self._view, item)
+
+
+class _TimedMapView:
+    def __init__(self, view):
+        self._view = view
+        self._tick = 0
+
+    def _evaluation_time(self):
+        evaluation_time = MIN_ST + MIN_TD * self._tick
+        self._tick += 1
+        return evaluation_time
+
+    def set(self, key, value):
+        wrapped_key = _materialize_view(self._view.key_schema(), key)
+        wrapped_value = _materialize_view(self._view.value_schema(), value)
+        return self._view.set(wrapped_key.view(), wrapped_value.view(), self._evaluation_time())
+
+    def add(self, key, value):
+        wrapped_key = _materialize_view(self._view.key_schema(), key)
+        wrapped_value = _materialize_view(self._view.value_schema(), value)
+        return self._view.add(wrapped_key.view(), wrapped_value.view(), self._evaluation_time())
+
+    def remove(self, key):
+        wrapped_key = _materialize_view(self._view.key_schema(), key)
+        return self._view.remove(wrapped_key.view(), self._evaluation_time())
+
+    def erase(self, key):
+        wrapped_key = _materialize_view(self._view.key_schema(), key)
+        return self._view.erase(wrapped_key.view(), self._evaluation_time())
+
+    def reserve(self, capacity):
+        return self._view.reserve(capacity, self._evaluation_time())
+
+    def clear(self):
+        return self._view.clear(self._evaluation_time())
+
+    def contains(self, key):
+        wrapped_key = _materialize_view(self._view.key_schema(), key)
+        return self._view.contains(wrapped_key.view())
+
+    def at(self, key):
+        wrapped_key = _materialize_view(self._view.key_schema(), key)
+        return self._view.at(wrapped_key.view())
+
+    def __contains__(self, key):
+        return self.contains(key)
+
+    def __getitem__(self, key):
+        return self.at(key)
+
+    def __getattr__(self, item):
+        return getattr(self._view, item)
+
+
+def timed_set_view(view):
+    return _TimedSetView(view)
+
+
+def timed_map_view(view):
+    return _TimedMapView(view)
+
+
+def _materialize_view(schema, candidate):
+    if isinstance(candidate, value._View):
+        candidate = candidate.to_python()
+    wrapped = Value(schema)
+    wrapped.reset()
+    wrapped.view().from_python(candidate)
+    return wrapped
 
 
 # =============================================================================
@@ -147,7 +261,7 @@ def test_set_initially_empty(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     assert sv.size() == 0
     assert sv.empty()
@@ -162,7 +276,7 @@ def test_set_insert_native_type(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     sv.add(make_int_value(1).view())
     sv.add(make_int_value(2).view())
@@ -176,7 +290,7 @@ def test_set_insert_returns_true_for_new(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     result = sv.add(make_int_value(1).view())
 
@@ -188,7 +302,7 @@ def test_set_insert_returns_false_for_existing(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     sv.add(make_int_value(1).view())
     result = sv.add(make_int_value(1).view())
@@ -201,7 +315,7 @@ def test_set_insert_duplicates_dont_increase_size(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     sv.add(make_int_value(1).view())
     sv.add(make_int_value(2).view())
@@ -217,7 +331,7 @@ def test_set_insert_with_value(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     sv.add(make_int_value(100).view())
 
@@ -230,7 +344,7 @@ def test_set_insert_strings(string_set_schema):
     v = Value(string_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     # Keep Value objects alive to avoid dangling views
     apple = make_string_value("apple")
@@ -253,7 +367,7 @@ def test_set_contains_native_type(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     sv.add(make_int_value(1).view())
     sv.add(make_int_value(2).view())
@@ -267,7 +381,7 @@ def test_set_contains_returns_false_for_missing(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     sv.add(make_int_value(1).view())
     sv.add(make_int_value(2).view())
@@ -280,7 +394,7 @@ def test_set_contains_with_value_view(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     sv.add(make_int_value(100).view())
 
@@ -297,7 +411,7 @@ def test_set_erase_native_type(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     sv.add(make_int_value(1).view())
     sv.add(make_int_value(2).view())
@@ -314,7 +428,7 @@ def test_set_erase_returns_true_for_existing(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     sv.add(make_int_value(1).view())
     result = sv.remove(make_int_value(1).view())
@@ -327,7 +441,7 @@ def test_set_erase_returns_false_for_missing(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     sv.add(make_int_value(1).view())
     result = sv.remove(make_int_value(10).view())  # Not in set
@@ -344,7 +458,7 @@ def test_set_clear(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     sv.add(make_int_value(1).view())
     sv.add(make_int_value(2).view())
@@ -361,7 +475,7 @@ def test_set_size(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     assert sv.size() == 0
 
@@ -377,7 +491,7 @@ def test_set_empty(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     assert sv.empty()
 
@@ -395,7 +509,7 @@ def test_set_iteration(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
     e1 = make_int_value(10)
     e2 = make_int_value(20)
     e3 = make_int_value(30)
@@ -454,7 +568,7 @@ def test_map_initially_empty(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     assert mv.size() == 0
     assert mv.empty()
@@ -469,7 +583,7 @@ def test_map_set_native_types(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     # Keep Value objects alive to avoid dangling views
     apple_key, apple_val = make_string_value("apple"), make_double_value(1.50)
@@ -486,7 +600,7 @@ def test_map_set_overwrites_existing(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
@@ -507,7 +621,7 @@ def test_map_set_with_value(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     key = make_string_value("orange")
     val = make_double_value(2.00)
@@ -526,7 +640,7 @@ def test_map_at_native_type(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
@@ -542,7 +656,7 @@ def test_map_at_with_value_view(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
@@ -558,7 +672,7 @@ def test_map_operator_bracket_read(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
@@ -574,7 +688,7 @@ def test_map_operator_bracket_write(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
@@ -594,7 +708,7 @@ def test_map_operator_bracket_is_lookup_only(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     key = make_string_value("new_key")
     with pytest.raises((KeyError, IndexError, RuntimeError)):
@@ -613,7 +727,7 @@ def test_map_contains_native_type(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
@@ -628,7 +742,7 @@ def test_map_contains_returns_false_for_missing(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
@@ -643,7 +757,7 @@ def test_const_map_view_contains(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
@@ -663,7 +777,7 @@ def test_map_insert_returns_true_for_new(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     apple_key, apple_val = make_string_value("apple"), make_double_value(1.50)
     result = mv.add(apple_key.view(), apple_val.view())
@@ -676,7 +790,7 @@ def test_map_insert_returns_false_for_existing(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     apple_key1, apple_val1 = make_string_value("apple"), make_double_value(1.50)
     mv.add(apple_key1.view(), apple_val1.view())
@@ -692,7 +806,7 @@ def test_map_insert_doesnt_overwrite(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
@@ -715,7 +829,7 @@ def test_map_erase_native_type(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     # Add some entries
     k1 = make_string_value("apple")
@@ -741,7 +855,7 @@ def test_map_erase_returns_true_for_existing(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
@@ -757,7 +871,7 @@ def test_map_erase_returns_false_for_missing(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
@@ -779,7 +893,7 @@ def test_map_clear(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
@@ -800,7 +914,7 @@ def test_map_size(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     assert mv.size() == 0
 
@@ -829,7 +943,7 @@ def test_map_iteration_key_value_pairs(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
     k2 = make_string_value("banana")
@@ -848,7 +962,7 @@ def test_map_keys_iteration(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
     k2 = make_string_value("banana")
@@ -873,7 +987,7 @@ def test_set_insert_wrong_type_raises(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     with pytest.raises((TypeError, RuntimeError)):
         sv.add("not an int")
@@ -932,7 +1046,7 @@ def test_map_at_missing_key_raises(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
@@ -948,7 +1062,7 @@ def test_map_set_wrong_key_type_raises(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     with pytest.raises((TypeError, RuntimeError)):
         mv.set(42, 1.50)  # Key should be string
@@ -959,7 +1073,7 @@ def test_map_set_wrong_value_type_raises(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     with pytest.raises((TypeError, RuntimeError)):
         mv.set("apple", "not a double")
@@ -1032,11 +1146,11 @@ def test_set_equals_same_values(int_set_schema):
     v1 = Value(int_set_schema)
 
     v1.reset()
-    sv1 = v1.set_view()
+    sv1 = timed_set_view(v1.set_view())
     v2 = Value(int_set_schema)
 
     v2.reset()
-    sv2 = v2.set_view()
+    sv2 = timed_set_view(v2.set_view())
 
     e1 = make_int_value(10)
     e2 = make_int_value(20)
@@ -1053,11 +1167,11 @@ def test_set_not_equals_different_values(int_set_schema):
     v1 = Value(int_set_schema)
 
     v1.reset()
-    sv1 = v1.set_view()
+    sv1 = timed_set_view(v1.set_view())
     v2 = Value(int_set_schema)
 
     v2.reset()
-    sv2 = v2.set_view()
+    sv2 = timed_set_view(v2.set_view())
 
     e1 = make_int_value(10)
     e2 = make_int_value(20)
@@ -1079,7 +1193,7 @@ def test_clone_map(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
     k1 = make_string_value("apple")
     val1 = make_double_value(1.50)
     mv.set(k1.view(), val1.view())
@@ -1094,7 +1208,7 @@ def test_cloned_map_is_independent(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
     k1 = make_string_value("apple")
     val1 = make_double_value(1.50)
     mv.set(k1.view(), val1.view())
@@ -1118,11 +1232,11 @@ def test_map_equals_same_entries(string_double_map_schema):
     v1 = Value(string_double_map_schema)
 
     v1.reset()
-    mv1 = v1.map_view()
+    mv1 = timed_map_view(v1.map_view())
     v2 = Value(string_double_map_schema)
 
     v2.reset()
-    mv2 = v2.map_view()
+    mv2 = timed_map_view(v2.map_view())
 
     k1 = make_string_value("apple")
     val1 = make_double_value(1.50)
@@ -1137,11 +1251,11 @@ def test_map_not_equals_different_values(string_double_map_schema):
     v1 = Value(string_double_map_schema)
 
     v1.reset()
-    mv1 = v1.map_view()
+    mv1 = timed_map_view(v1.map_view())
     v2 = Value(string_double_map_schema)
 
     v2.reset()
-    mv2 = v2.map_view()
+    mv2 = timed_map_view(v2.map_view())
 
     k1 = make_string_value("apple")
     val1 = make_double_value(1.50)
@@ -1161,7 +1275,7 @@ def test_set_to_python(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
     e1 = make_int_value(10)
     e2 = make_int_value(20)
     e3 = make_int_value(30)
@@ -1206,7 +1320,7 @@ def test_map_to_python(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
     k2 = make_string_value("banana")
@@ -1259,7 +1373,7 @@ def test_set_to_string(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
     e1 = make_int_value(10)
     e2 = make_int_value(20)
     sv.add(e1.view())
@@ -1277,7 +1391,7 @@ def test_map_to_string(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
     k1 = make_string_value("key")
     v1 = make_double_value(1.5)
     mv.set(k1.view(), v1.view())
@@ -1296,7 +1410,7 @@ def test_map_keys_returns_key_set_view(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
     mv.set(k1.view(), v1.view())
@@ -1316,7 +1430,7 @@ def test_keyset_size(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
     k2 = make_string_value("banana")
@@ -1348,7 +1462,7 @@ def test_keyset_contains(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
     mv.set(k1.view(), v1.view())
@@ -1368,7 +1482,7 @@ def test_keyset_dunder_contains(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
     mv.set(k1.view(), v1.view())
@@ -1402,7 +1516,7 @@ def test_keyset_iteration(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
     k1 = make_string_value("x")
     v1 = make_double_value(1.0)
     k2 = make_string_value("y")
@@ -1427,7 +1541,7 @@ def test_keyset_same_interface_as_constsetview(int_set_schema, string_double_map
     set_v = Value(int_set_schema)
 
     set_v.reset()
-    sv = set_v.set_view()
+    sv = timed_set_view(set_v.set_view())
     e1 = make_int_value(10)
     sv.add(e1.view())
     const_set = set_v.view().as_set()
@@ -1436,7 +1550,7 @@ def test_keyset_same_interface_as_constsetview(int_set_schema, string_double_map
     map_v = Value(string_double_map_schema)
 
     map_v.reset()
-    mv = map_v.map_view()
+    mv = timed_map_view(map_v.map_view())
     k1 = make_string_value("test")
     v1 = make_double_value(1.0)
     mv.set(k1.view(), v1.view())
@@ -1454,7 +1568,7 @@ def test_keyset_mutable_map_keys(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
     k1 = make_string_value("key1")
     v1 = make_double_value(1.0)
     mv.set(k1.view(), v1.view())
@@ -1475,7 +1589,7 @@ def test_set_large_insert_performance(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     n = 1000
     start = time.perf_counter()
@@ -1495,7 +1609,7 @@ def test_set_large_contains_performance(int_set_schema):
     v = Value(int_set_schema)
 
     v.reset()
-    sv = v.set_view()
+    sv = timed_set_view(v.set_view())
 
     # Insert many elements
     n = 1000
@@ -1522,7 +1636,7 @@ def test_map_large_set_performance(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     n = 1000
     start = time.perf_counter()
@@ -1543,7 +1657,7 @@ def test_map_large_get_performance(string_double_map_schema):
     v = Value(string_double_map_schema)
 
     v.reset()
-    mv = v.map_view()
+    mv = timed_map_view(v.map_view())
 
     # Insert many elements
     n = 1000

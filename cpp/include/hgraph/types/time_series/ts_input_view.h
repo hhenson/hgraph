@@ -48,13 +48,17 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
     ~TSInputView() = default;
 
     /**
-     * Bind this collection-selected input slot to an output.
+     * Bind this input position to an output.
      *
-     * This is intended to be called on a child view reached through `TSL` or
-     * `TSB` navigation, where the current view identifies a prebuilt
-     * target-link terminal from the input construction plan.
+     * Native input state is upgraded to a target-link state on demand when
+     * dynamic rebinding requires it.
      */
     void bind_output(const TSOutputView &output);
+
+    /**
+     * Remove any current output binding from this input position.
+     */
+    void unbind_output();
 
     /**
      * Mark the input view as active.

@@ -424,20 +424,24 @@ namespace hgraph::v2
 
             [[nodiscard]] nb::object value() const
             {
+                if (is_reference()) { return reference_python_value(); }
                 if (is_bundle()) { return bundle_python_value(false); }
                 if (is_list()) { return list_python_value(false); }
                 if (is_dict()) { return dict_python_value(); }
-                if (is_set()) { return current_value().to_python(); }
-                return current_value().to_python();
+                if (is_set()) { return set_python_value(); }
+                const View value = current_value();
+                return value.has_value() ? value.to_python() : nb::none();
             }
 
             [[nodiscard]] nb::object delta_value() const
             {
+                if (is_reference()) { return reference_python_value(); }
                 if (is_bundle()) { return bundle_python_value(true); }
                 if (is_list()) { return list_python_value(true); }
                 if (is_dict()) { return dict_python_delta_value(); }
                 if (is_set()) { return set_python_delta_value(); }
-                return current_delta_value().to_python();
+                const View value = current_delta_value();
+                return value.has_value() ? value.to_python() : nb::none();
             }
 
             [[nodiscard]] bool modified() const
@@ -1121,8 +1125,8 @@ namespace hgraph::v2
                 ensure_output();
                 const Value key_value = key_value_from_python(key);
                 auto view = output_view();
-                prepare_output_view_mutation(view, evaluation_time());
-                const bool removed = view.value().as_map().begin_mutation().remove(key_value.view());
+                const bool removed =
+                    view.value().as_map().begin_mutation(evaluation_time()).remove(key_value.view());
                 if (!removed) { throw nb::key_error("TSD key not found"); }
                 mark_output_modified(view, evaluation_time());
             }
@@ -1162,11 +1166,12 @@ namespace hgraph::v2
                     throw std::runtime_error("v2 Python time-series un_bind_output requires a live input state");
                 }
 
-                if (state->storage_kind == TSStorageKind::TargetLink) {
-                    static_cast<TargetLinkState *>(state)->reset_target();
-                }
+                if (!is_reference()) { view.unbind_output(); }
 
                 if (is_reference()) {
+                    if (state->storage_kind == TSStorageKind::TargetLink) {
+                        static_cast<TargetLinkState *>(state)->reset_target();
+                    }
                     set_local_reference_value(view, TimeSeriesReference::make());
                     state->last_modified_time = MIN_DT;
                 }
@@ -1359,8 +1364,10 @@ namespace hgraph::v2
                 mapped_value.reset();
                 mapped_value.from_python(nb::borrow<nb::object>(value));
 
-                prepare_output_view_mutation(parent_view, evaluation_time());
-                parent_view.value().as_map().begin_mutation().set(m_path_steps.back().key.view(), mapped_value.view());
+                parent_view.value()
+                    .as_map()
+                    .begin_mutation(evaluation_time())
+                    .set(m_path_steps.back().key.view(), mapped_value.view());
                 mark_output_modified(parent_view, evaluation_time());
             }
 
@@ -1491,8 +1498,7 @@ namespace hgraph::v2
 
                 auto item_attr = nb::getattr(value, "items", nb::none());
                 nb::iterator items = item_attr.is_none() ? nb::iter(value) : nb::iter(item_attr());
-                prepare_output_view_mutation(view, evaluation_time());
-                auto mutation = view.value().as_map().begin_mutation();
+                auto mutation = view.value().as_map().begin_mutation(evaluation_time());
                 bool changed = false;
 
                 for (const auto &kv : items) {
@@ -1534,8 +1540,7 @@ namespace hgraph::v2
                     throw std::logic_error("v2 Python set output mutation requires an element schema");
                 }
 
-                prepare_output_view_mutation(view, evaluation_time());
-                auto mutation = set_view.begin_mutation();
+                auto mutation = set_view.begin_mutation(evaluation_time());
                 bool changed = false;
 
                 const auto convert_value = [element_schema](const nb::handle &item) {
@@ -1594,6 +1599,61 @@ namespace hgraph::v2
                 if (changed || !view.valid()) { mark_output_modified(view, evaluation_time()); }
             }
 
+          public:
+            void add_set_item(const nb::handle &item) const
+            {
+                if (!is_set()) { throw std::logic_error("v2 Python time-series add() requires a TSS schema"); }
+                ensure_output();
+
+                TSOutputView view = output_view();
+                auto set_view = view.value().as_set();
+                const value::TypeMeta *element_schema = set_view.element_schema();
+                if (element_schema == nullptr) {
+                    throw std::logic_error("v2 Python set output add() requires an element schema");
+                }
+
+                Value element(*element_schema);
+                element.reset();
+                element.from_python(nb::borrow<nb::object>(item));
+
+                auto mutation = set_view.begin_mutation(evaluation_time());
+                if (mutation.add(element.view())) { mark_output_modified(view, evaluation_time()); }
+            }
+
+            void remove_set_item(const nb::handle &item) const
+            {
+                if (!is_set()) { throw std::logic_error("v2 Python time-series remove() requires a TSS schema"); }
+                ensure_output();
+
+                TSOutputView view = output_view();
+                auto set_view = view.value().as_set();
+                const value::TypeMeta *element_schema = set_view.element_schema();
+                if (element_schema == nullptr) {
+                    throw std::logic_error("v2 Python set output remove() requires an element schema");
+                }
+
+                Value element(*element_schema);
+                element.reset();
+                element.from_python(nb::borrow<nb::object>(item));
+
+                auto mutation = set_view.begin_mutation(evaluation_time());
+                if (mutation.remove(element.view())) { mark_output_modified(view, evaluation_time()); }
+            }
+
+            void clear_set_items() const
+            {
+                if (!is_set()) { throw std::logic_error("v2 Python time-series clear() requires a TSS schema"); }
+                ensure_output();
+
+                TSOutputView view = output_view();
+                auto set_view = view.value().as_set();
+                const bool had_live_values = set_view.size() != 0;
+                auto mutation = set_view.begin_mutation(evaluation_time());
+                mutation.clear();
+                if (had_live_values) { mark_output_modified(view, evaluation_time()); }
+            }
+
+          private:
             [[nodiscard]] nb::object bundle_python_value(bool delta) const
             {
                 if (delta) {
@@ -1799,6 +1859,46 @@ namespace hgraph::v2
             [[nodiscard]] View current_delta_value() const
             {
                 return m_input != nullptr ? input_view().delta_value() : output_view().delta_value();
+            }
+
+            [[nodiscard]] nb::object set_python_value() const
+            {
+                const View value = current_value();
+                return value.has_value() ? value.to_python() : nb::frozenset();
+            }
+
+            [[nodiscard]] nb::object reference_python_value() const
+            {
+                if (!is_reference()) { return nb::none(); }
+
+                const View value = current_value();
+                if (value.has_value()) {
+                    if (const auto *ref = value.as_atomic().try_as<TimeSeriesReference>()) { return nb::cast(*ref); }
+                }
+
+                if (m_input != nullptr) {
+                    TSInputView view = input_view();
+                    if (const LinkedTSContext *target = view.linked_target(); target != nullptr && target->is_bound()) {
+                        TSOutputView target_view = output_view_from_context(*target, evaluation_time());
+                        const View target_value = target_view.value();
+                        if (target_value.has_value()) {
+                            if (const auto *ref = target_value.as_atomic().try_as<TimeSeriesReference>()) { return nb::cast(*ref); }
+                        }
+                        return nb::cast(TimeSeriesReference::make(target_view));
+                    }
+                } else {
+                    TSOutputView view = output_view();
+                    if (const LinkedTSContext *target = view.linked_target(); target != nullptr && target->is_bound()) {
+                        TSOutputView target_view = output_view_from_context(*target, evaluation_time());
+                        const View target_value = target_view.value();
+                        if (target_value.has_value()) {
+                            if (const auto *ref = target_value.as_atomic().try_as<TimeSeriesReference>()) { return nb::cast(*ref); }
+                        }
+                        return nb::cast(TimeSeriesReference::make(target_view));
+                    }
+                }
+
+                return nb::cast(TimeSeriesReference::make());
             }
 
             [[nodiscard]] bool has_output_parent() const noexcept
@@ -2337,6 +2437,9 @@ namespace hgraph::v2
             .def("values", &PythonTimeSeriesHandle::values)
             .def("added", &PythonTimeSeriesHandle::added)
             .def("removed", &PythonTimeSeriesHandle::removed)
+            .def("add", [](const PythonTimeSeriesHandle &self, nb::handle item) { self.add_set_item(item); }, "item"_a)
+            .def("remove", [](const PythonTimeSeriesHandle &self, nb::handle item) { self.remove_set_item(item); }, "item"_a)
+            .def("clear", [](const PythonTimeSeriesHandle &self) { self.clear_set_items(); })
             .def("valid_values", &PythonTimeSeriesHandle::valid_values)
             .def("modified_values", &PythonTimeSeriesHandle::modified_values)
             .def("items", &PythonTimeSeriesHandle::items)

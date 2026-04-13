@@ -90,6 +90,12 @@ namespace hgraph
             return MIN_DT + std::chrono::microseconds{offset};
         }
 
+        [[nodiscard]] engine_time_t next_mutation_tick()
+        {
+            static int offset = 1000;
+            return tick(offset++);
+        }
+
         const BaseState &as_base_state(void *state)
         {
             return *static_cast<BaseState *>(state);
@@ -180,7 +186,7 @@ TEST_CASE("TSValue stores collection values with delta tracking for time-series 
         hgraph::test_detail::ExposedTSValue value{*ts_registry.tss(int_type)};
 
         {
-            auto mutation = value.set_value().begin_mutation();
+            auto mutation = value.set_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
             mutation.adding(hgraph::Value{1}.view()).adding(hgraph::Value{2}.view());
         }
 
@@ -190,7 +196,7 @@ TEST_CASE("TSValue stores collection values with delta tracking for time-series 
         CHECK(added == std::vector<int>{1, 2});
 
         {
-            auto mutation = value.set_value().begin_mutation();
+            auto mutation = value.set_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
             mutation.removing(hgraph::Value{1}.view());
         }
 
@@ -204,13 +210,13 @@ TEST_CASE("TSValue stores collection values with delta tracking for time-series 
         hgraph::test_detail::ExposedTSValue value{*ts_registry.tsd(str_type, ts_registry.ts(int_type))};
 
         {
-            auto mutation = value.dict_value().begin_mutation();
+            auto mutation = value.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
             mutation.setting(hgraph::Value{std::string{"a"}}.view(), hgraph::Value{1}.view());
             mutation.setting(hgraph::Value{std::string{"b"}}.view(), hgraph::Value{2}.view());
         }
 
         {
-            auto mutation = value.dict_value().begin_mutation();
+            auto mutation = value.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
             mutation.removing(hgraph::Value{std::string{"a"}}.view());
         }
 
@@ -289,7 +295,7 @@ TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[t
         hgraph::test_detail::ExposedTSValue value{*dict_schema};
 
         {
-            auto mutation = value.dict_value().begin_mutation();
+            auto mutation = value.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
             mutation.setting(hgraph::Value{std::string{"a"}}.view(), hgraph::Value{1}.view());
             mutation.setting(hgraph::Value{std::string{"b"}}.view(), hgraph::Value{2}.view());
         }
@@ -310,7 +316,7 @@ TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[t
         REQUIRE(slot_b != SIZE_MAX);
 
         {
-            auto mutation = value.dict_value().begin_mutation();
+            auto mutation = value.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
             mutation.removing(hgraph::Value{std::string{"a"}}.view());
         }
 
@@ -346,7 +352,7 @@ TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[t
         const hgraph::Value key_a{std::string{"a"}};
 
         {
-            auto mutation = value.dict_value().begin_mutation();
+            auto mutation = value.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
             mutation.setting(key_a.view(), hgraph::Value{1}.view());
         }
 
@@ -357,7 +363,7 @@ TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[t
         const void             *cached_value_data = cached_child.context_ref().resolved().value_data;
 
         {
-            auto mutation = value.dict_value().begin_mutation();
+            auto mutation = value.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
             mutation.reserve(64);
             for (int i = 0; i < 16; ++i) {
                 mutation.setting(hgraph::Value{std::string{"k" + std::to_string(i)}}.view(), hgraph::Value{i + 10}.view());
@@ -378,12 +384,12 @@ TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[t
         const hgraph::Value inner_key{std::string{"leaf"}};
 
         {
-            auto mutation = inner_value.dict_value().begin_mutation();
+            auto mutation = inner_value.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
             mutation.setting(inner_key.view(), hgraph::Value{7}.view());
         }
 
         {
-            auto mutation = value.dict_value().begin_mutation();
+            auto mutation = value.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
             mutation.setting(outer_key.view(), inner_value.value());
         }
 
@@ -398,11 +404,11 @@ TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[t
         const void             *cached_inner_value_data = cached_inner_child.context_ref().resolved().value_data;
 
         {
-            auto mutation = value.dict_value().begin_mutation();
+            auto mutation = value.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
             mutation.reserve(64);
             for (int i = 0; i < 16; ++i) {
                 hgraph::test_detail::ExposedTSValue extra_inner{*inner_dict_schema};
-                auto inner_mutation = extra_inner.dict_value().begin_mutation();
+                auto inner_mutation = extra_inner.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
                 inner_mutation.setting(inner_key.view(), hgraph::Value{i}.view());
                 mutation.setting(hgraph::Value{std::string{"outer_" + std::to_string(i)}}.view(), extra_inner.value());
             }
@@ -474,7 +480,7 @@ TEST_CASE("TS collection views report recursive all_valid state", "[ts_view][ts_
 
         CHECK(dict.all_valid());
 
-        value.dict_value().begin_mutation().setting(key.view(), hgraph::Value{1}.view());
+        value.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick()).setting(key.view(), hgraph::Value{1}.view());
         auto child = dict.at(key.view());
         CHECK_FALSE(dict.all_valid());
 
@@ -523,7 +529,7 @@ TEST_CASE("TS collection views expose collection delta through root delta_value"
         hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(dict_ts)};
         const hgraph::Value key{std::string{"k"}};
 
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::tick(30));
         mutation.setting(key.view(), hgraph::Value{13}.view());
 
         const hgraph::MapDeltaView delta{output.view().delta_value()};
@@ -536,7 +542,7 @@ TEST_CASE("TS collection views expose collection delta through root delta_value"
         const auto *set_ts = ts_registry.tss(int_type);
         hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(set_ts)};
 
-        auto mutation = output.set_value().begin_mutation();
+        auto mutation = output.set_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         CHECK(mutation.add(hgraph::Value{17}.view()));
 
         const hgraph::SetDeltaView delta{output.view().delta_value()};
@@ -970,7 +976,7 @@ TEST_CASE("TSInput dict-key activation survives a simple remove and re-add of th
 
     const hgraph::Value key{std::string{"k"}};
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::tick(31));
         mutation.setting(key.view(), hgraph::Value{1.0f}.view());
     }
 
@@ -992,12 +998,12 @@ TEST_CASE("TSInput dict-key activation survives a simple remove and re-add of th
     CHECK(recorder.notifications == std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(31)});
 
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::tick(32));
         mutation.removing(key.view());
     }
 
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::tick(30));
         mutation.setting(key.view(), hgraph::Value{2.0f}.view());
     }
 
@@ -1029,7 +1035,7 @@ TEST_CASE("TSD child state tracks slot reuse directly from mutations", "[ts_valu
     const hgraph::Value key_b{std::string{"b"}};
 
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::tick(31));
         mutation.setting(key_a.view(), hgraph::Value{1.0f}.view());
     }
 
@@ -1039,7 +1045,7 @@ TEST_CASE("TSD child state tracks slot reuse directly from mutations", "[ts_valu
     REQUIRE(first_child_state != nullptr);
 
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::tick(32));
         mutation.removing(key_a.view());
     }
 
@@ -1048,7 +1054,7 @@ TEST_CASE("TSD child state tracks slot reuse directly from mutations", "[ts_valu
     CHECK(hgraph::test_detail::child_state(*dict_state, first_slot) == first_child_state);
 
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
     }
 
     // Once the next mutation epoch begins, removed slots are physically
@@ -1057,7 +1063,7 @@ TEST_CASE("TSD child state tracks slot reuse directly from mutations", "[ts_valu
     CHECK(hgraph::test_detail::child_state(*dict_state, first_slot) == nullptr);
 
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         mutation.setting(key_b.view(), hgraph::Value{2.0f}.view());
     }
 
@@ -1089,15 +1095,19 @@ TEST_CASE("TSInput linked TSD key re-add notifies when state already modified at
 
     // Add key and navigate so the slot is materialized.
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::tick(30));
         mutation.setting(key.view(), hgraph::Value{1.0f}.view());
     }
+    hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(30)).as_dict().at(key.view()),
+                                                   hgraph::test_detail::tick(30));
 
     auto *dict_state = static_cast<hgraph::TSDState *>(output.view_context().ts_state);
     REQUIRE(dict_state != nullptr);
 
     const size_t initial_slot = hgraph::test_detail::find_live_dict_slot(output, key);
     REQUIRE(initial_slot != SIZE_MAX);
+    auto *child_state = hgraph::test_detail::child_state(*dict_state, initial_slot);
+    REQUIRE(child_state != nullptr);
 
     hgraph::test_detail::RecordingNotifiable recorder;
     const auto eval_time = hgraph::test_detail::tick(40);
@@ -1110,22 +1120,20 @@ TEST_CASE("TSInput linked TSD key re-add notifies when state already modified at
     CHECK(recorder.notifications.empty());
 
     // Now mark modified, confirm we receive the notification.
-    auto *child_state = hgraph::test_detail::child_state(*dict_state, initial_slot);
-    REQUIRE(child_state != nullptr);
     child_state->mark_modified(eval_time);
     REQUIRE(recorder.notifications.size() == 1);
     CHECK(recorder.notifications[0] == eval_time);
 
     // Remove the key — evicts the active trie subtree to pending.
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::tick(31));
         mutation.removing(key.view());
     }
 
     // Re-add the key and mark the new slot as already modified at the
     // current evaluation tick BEFORE the input navigates to it.
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::tick(32));
         mutation.setting(key.view(), hgraph::Value{3.0f}.view());
     }
 
@@ -1202,7 +1210,7 @@ TEST_CASE("TSOutput wraps TSD values into cached REF alternatives", "[ts_output]
 
     hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(dict_ts)};
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         mutation.setting(key_one.view(), hgraph::Value{10}.view());
         mutation.setting(key_two.view(), hgraph::Value{20}.view());
     }
@@ -1224,7 +1232,7 @@ TEST_CASE("TSOutput wraps TSD values into cached REF alternatives", "[ts_output]
     CHECK(ref_two.target_view(hgraph::test_detail::tick(200)).value().as_atomic().as<int>() == 20);
 
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         mutation.setting(key_one.view(), hgraph::Value{15}.view());
     }
     hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(201)).as_dict().at(key_one.view()),
@@ -1253,7 +1261,7 @@ TEST_CASE("TSOutput TSD REF alternatives follow key removal and reinsertion", "[
 
     hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(dict_ts)};
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         mutation.setting(key.view(), hgraph::Value{10}.view());
     }
     hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(210)), hgraph::test_detail::tick(210));
@@ -1262,7 +1270,7 @@ TEST_CASE("TSOutput TSD REF alternatives follow key removal and reinsertion", "[
     REQUIRE(alternative.as_dict().at(key.view()).valid());
 
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         mutation.removing(key.view());
     }
     hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(211)), hgraph::test_detail::tick(211));
@@ -1270,7 +1278,7 @@ TEST_CASE("TSOutput TSD REF alternatives follow key removal and reinsertion", "[
     CHECK_FALSE(alternative.as_dict().at(key.view()).valid());
 
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         mutation.setting(key.view(), hgraph::Value{30}.view());
     }
     hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(212)), hgraph::test_detail::tick(212));
@@ -1299,7 +1307,7 @@ TEST_CASE("TSOutput TSD REF alternatives do not double-notify the root for child
 
     hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(dict_ts)};
     {
-        auto mutation = output.dict_value().begin_mutation();
+        auto mutation = output.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         mutation.setting(key.view(), hgraph::Value{10}.view());
     }
     hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(220)), hgraph::test_detail::tick(220));
@@ -1358,7 +1366,7 @@ TEST_CASE("TSOutput can dereference direct TSD child REF values", "[ts_output][r
     hgraph::test_detail::mark_output_view_modified(rebound_value.view(hgraph::test_detail::tick(226)), hgraph::test_detail::tick(226));
 
     {
-        auto mutation = dict_output.dict_value().begin_mutation();
+        auto mutation = dict_output.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         mutation.setting(key_one.view(), hgraph::Value{hgraph::v2::TimeSeriesReference::make(first_value.view())}.view());
         mutation.setting(key_two.view(), hgraph::Value{hgraph::v2::TimeSeriesReference::make(second_value.view())}.view());
     }
@@ -1374,7 +1382,7 @@ TEST_CASE("TSOutput can dereference direct TSD child REF values", "[ts_output][r
     CHECK(dict_view.at(key_two.view()).value().as_atomic().as<int>() == 60);
 
     {
-        auto mutation = dict_output.dict_value().begin_mutation();
+        auto mutation = dict_output.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         mutation.setting(key_one.view(), hgraph::Value{hgraph::v2::TimeSeriesReference::make(rebound_value.view())}.view());
         mutation.removing(key_two.view());
     }
@@ -1410,14 +1418,14 @@ TEST_CASE("TSOutput dereferenced REF TSD roots can wrap child values as REF alte
     hgraph::test_detail::ExposedTSOutput ref_output{hgraph::test_detail::output_builder_for(ref_to_dict_ts)};
 
     {
-        auto mutation = first_dict.dict_value().begin_mutation();
+        auto mutation = first_dict.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         mutation.setting(key_one.view(), hgraph::Value{10}.view());
         mutation.setting(key_two.view(), hgraph::Value{20}.view());
     }
     hgraph::test_detail::mark_output_view_modified(first_dict.view(hgraph::test_detail::tick(230)), hgraph::test_detail::tick(230));
 
     {
-        auto mutation = second_dict.dict_value().begin_mutation();
+        auto mutation = second_dict.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         mutation.setting(key_one.view(), hgraph::Value{30}.view());
         mutation.setting(key_three.view(), hgraph::Value{40}.view());
     }
@@ -1502,14 +1510,14 @@ TEST_CASE("TSOutput dereferenced REF TSD roots can dereference child REF values"
     hgraph::test_detail::mark_output_view_modified(rebound_value.view(hgraph::test_detail::tick(241)), hgraph::test_detail::tick(241));
 
     {
-        auto mutation = first_dict.dict_value().begin_mutation();
+        auto mutation = first_dict.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         mutation.setting(key_one.view(), hgraph::Value{hgraph::v2::TimeSeriesReference::make(first_value.view())}.view());
         mutation.setting(key_two.view(), hgraph::Value{hgraph::v2::TimeSeriesReference::make(second_value.view())}.view());
     }
     hgraph::test_detail::mark_output_view_modified(first_dict.view(hgraph::test_detail::tick(240)), hgraph::test_detail::tick(240));
 
     {
-        auto mutation = second_dict.dict_value().begin_mutation();
+        auto mutation = second_dict.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
         mutation.setting(key_one.view(), hgraph::Value{hgraph::v2::TimeSeriesReference::make(rebound_value.view())}.view());
     }
     hgraph::test_detail::mark_output_view_modified(second_dict.view(hgraph::test_detail::tick(241)), hgraph::test_detail::tick(241));

@@ -322,9 +322,7 @@ namespace hgraph
             // - TS  -> REF : wrap as a TimeSeriesReference value
             // - REF -> TS  : dereference through RefLinkState
             if (target_schema.kind == TSKind::REF) { return target_schema.element_ts() == &source_schema; }
-            if (target_schema.kind == TSKind::SIGNAL) {
-                return source_schema.kind == TSKind::TSValue && source_schema.value_type == target_schema.value_type;
-            }
+            if (target_schema.kind == TSKind::SIGNAL) { return source_schema.kind != TSKind::SIGNAL; }
             if (source_schema.kind == TSKind::TSD && target_schema.kind == TSKind::TSS) {
                 return TSTypeRegistry::instance().tss(source_schema.key_type()) == &target_schema;
             }
@@ -1640,10 +1638,7 @@ namespace hgraph
             const View source_value = source_root.value();
             auto target_map = target_root.value().as_map();
             auto target_dict = target_root.as_dict();
-            if (target_root_state->last_modified_time != modified_time) {
-                target_map.clear_delta_tracking();
-            }
-            auto mutation = target_map.begin_mutation();
+            auto mutation = target_map.begin_mutation(modified_time);
             bool map_value_changed = false;
             constexpr size_t no_slot = static_cast<size_t>(-1);
             const BaseState *current_source_root_state =
@@ -1794,10 +1789,7 @@ namespace hgraph
             }
 
             auto target_set = target_root.value().as_set();
-            if (target_root_state->last_modified_time != modified_time) {
-                target_set.clear_delta_tracking();
-            }
-            auto mutation = target_set.begin_mutation();
+            auto mutation = target_set.begin_mutation(modified_time);
             bool set_changed = false;
             constexpr size_t no_slot = static_cast<size_t>(-1);
             const BaseState *current_source_root_state =
@@ -2024,29 +2016,6 @@ namespace hgraph
     TSOutput::TSOutput(const TSOutputBuilder &builder)
     {
         builder.construct_output(*this);
-    }
-
-    void prepare_output_view_mutation(const TSOutputView &view, engine_time_t evaluation_time)
-    {
-        LinkedTSContext context = view.linked_context();
-        if (context.ts_state == nullptr || context.schema == nullptr || context.value_dispatch == nullptr || context.value_data == nullptr) {
-            return;
-        }
-        if (context.ts_state->last_modified_time == evaluation_time) { return; }
-
-        View value{context.value_dispatch, context.value_data, context.schema->value_type};
-        switch (context.schema->kind) {
-            case TSKind::TSS:
-                value.as_set().clear_delta_tracking();
-                break;
-
-            case TSKind::TSD:
-                value.as_map().clear_delta_tracking();
-                break;
-
-            default:
-                break;
-        }
     }
 
     void mark_output_view_modified(const TSOutputView &view, engine_time_t evaluation_time)

@@ -10,6 +10,7 @@
 
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/type_registry.h>
+#include <hgraph/types/constants.h>
 
 #include <nanobind/nanobind.h>
 
@@ -64,12 +65,12 @@ struct SetDeltaValue {
 
             // Copy elements from views
             auto add_set = _added.view().as_set();
-            auto add_mut = add_set.begin_mutation();
+            auto add_mut = add_set.begin_mutation(MIN_ST);
             for (auto elem : added_view.values()) {
                 static_cast<void>(add_mut.add(elem));
             }
             auto rem_set = _removed.view().as_set();
-            auto rem_mut = rem_set.begin_mutation();
+            auto rem_mut = rem_set.begin_mutation(MIN_ST);
             for (auto elem : removed_view.values()) {
                 static_cast<void>(rem_mut.add(elem));
             }

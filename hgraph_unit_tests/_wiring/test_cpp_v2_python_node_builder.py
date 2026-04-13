@@ -13,6 +13,7 @@ from hgraph._types._recordable_state import RECORDABLE_STATE
 from hgraph._types._scalar_types import LOGGER, STATE, CompoundScalar
 from hgraph._types._tsb_type import TimeSeriesSchema
 from hgraph.nodes.v2 import const as v2_const
+from hgraph.test import eval_node
 from hgraph._wiring._graph_builder import wire_graph
 from hgraph._wiring._wiring_node_class import PythonWiringNodeClass
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
@@ -118,6 +119,21 @@ def test_v2_python_nodes_can_self_notify_during_start_without_declaring_schedule
 
     assert compute_times == [config.start_time]
     assert sink_values == [1]
+
+
+def test_v2_python_unset_output_value_is_none():
+    seen = []
+
+    @compute_node
+    def read_unset_output(ts: TS[int], _output: TS[bool] = None) -> TS[bool]:
+        del ts
+        seen.append((_output.valid, _output.value))
+        return _output.value is None
+
+    with use_v2_python_node_builder():
+        assert eval_node(read_unset_output, [1]) == [True]
+
+    assert seen == [(False, None)]
 
 
 def test_v2_python_recordable_state_is_available():

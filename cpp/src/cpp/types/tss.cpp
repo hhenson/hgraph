@@ -21,6 +21,16 @@ namespace hgraph
             return false;
         }
 
+        [[nodiscard]] engine_time_t require_evaluation_time(const BaseTimeSeriesOutput &output, std::string_view action)
+        {
+            auto *node = output.owning_node();
+            if (node == nullptr || node->cached_evaluation_time_ptr() == nullptr) {
+                throw std::logic_error(std::string("TimeSeriesSetOutput::") + std::string(action) +
+                                       " requires an owning node with evaluation time");
+            }
+            return *node->cached_evaluation_time_ptr();
+        }
+
     }  // namespace
 
     // ========== TimeSeriesSetOutput Implementation ==========
@@ -97,10 +107,11 @@ namespace hgraph
         if (_delta_snapshot_valid || _element_type == nullptr) { return; }
 
         _delta_snapshot = value::SetDeltaValue(_element_type);
-        auto add_mutation = _delta_snapshot.added().begin_mutation();
+        const engine_time_t snapshot_time = last_modified_time() != MIN_DT ? last_modified_time() : MIN_ST;
+        auto add_mutation = _delta_snapshot.added().begin_mutation(snapshot_time);
         for (const auto elem : delta_view().added()) { static_cast<void>(add_mutation.add(elem)); }
 
-        auto remove_mutation = _delta_snapshot.removed().begin_mutation();
+        auto remove_mutation = _delta_snapshot.removed().begin_mutation(snapshot_time);
         for (const auto elem : delta_view().removed()) { static_cast<void>(remove_mutation.add(elem)); }
 
         _delta_snapshot_valid = true;
@@ -144,14 +155,9 @@ namespace hgraph
     }
 
     void TimeSeriesSetOutput::add(const value::View& elem) {
-        if (auto *node = owning_node(); node != nullptr) {
-            const engine_time_t evaluation_time = *node->cached_evaluation_time_ptr();
-            if (last_modified_time() != evaluation_time) {
-                value_view().clear_delta_tracking();
-                invalidate_delta_snapshot();
-            }
-        }
-        auto mutation = value_view().begin_mutation();
+        const engine_time_t evaluation_time = require_evaluation_time(*this, "add");
+        if (last_modified_time() != evaluation_time) { invalidate_delta_snapshot(); }
+        auto mutation = value_view().begin_mutation(evaluation_time);
         if (mutation.add(elem)) {
             invalidate_delta_snapshot();
             if (size() == 1) {
@@ -163,14 +169,9 @@ namespace hgraph
     }
 
     void TimeSeriesSetOutput::remove(const value::View& elem) {
-        if (auto *node = owning_node(); node != nullptr) {
-            const engine_time_t evaluation_time = *node->cached_evaluation_time_ptr();
-            if (last_modified_time() != evaluation_time) {
-                value_view().clear_delta_tracking();
-                invalidate_delta_snapshot();
-            }
-        }
-        auto mutation = value_view().begin_mutation();
+        const engine_time_t evaluation_time = require_evaluation_time(*this, "remove");
+        if (last_modified_time() != evaluation_time) { invalidate_delta_snapshot(); }
+        auto mutation = value_view().begin_mutation(evaluation_time);
         if (mutation.remove(elem)) {
             invalidate_delta_snapshot();
             _contains_ref_outputs.update(elem);
@@ -208,14 +209,9 @@ namespace hgraph
         if (!_element_type || item.is_none()) return;
         value::Value temp(_element_type);
         temp.from_python(item);
-        if (auto *node = owning_node(); node != nullptr) {
-            const engine_time_t evaluation_time = *node->cached_evaluation_time_ptr();
-            if (last_modified_time() != evaluation_time) {
-                value_view().clear_delta_tracking();
-                invalidate_delta_snapshot();
-            }
-        }
-        auto mutation = value_view().begin_mutation();
+        const engine_time_t evaluation_time = require_evaluation_time(*this, "py_add");
+        if (last_modified_time() != evaluation_time) { invalidate_delta_snapshot(); }
+        auto mutation = value_view().begin_mutation(evaluation_time);
         if (mutation.add(value::View(temp.view()))) {
             invalidate_delta_snapshot();
             if (size() == 1) {
@@ -230,14 +226,9 @@ namespace hgraph
         if (!_element_type || item.is_none()) return;
         value::Value temp(_element_type);
         temp.from_python(item);
-        if (auto *node = owning_node(); node != nullptr) {
-            const engine_time_t evaluation_time = *node->cached_evaluation_time_ptr();
-            if (last_modified_time() != evaluation_time) {
-                value_view().clear_delta_tracking();
-                invalidate_delta_snapshot();
-            }
-        }
-        auto mutation = value_view().begin_mutation();
+        const engine_time_t evaluation_time = require_evaluation_time(*this, "py_remove");
+        if (last_modified_time() != evaluation_time) { invalidate_delta_snapshot(); }
+        auto mutation = value_view().begin_mutation(evaluation_time);
         if (mutation.remove(value::View(temp.view()))) {
             invalidate_delta_snapshot();
             _contains_ref_outputs.update(item);
@@ -400,20 +391,15 @@ namespace hgraph
     }
 
     void TimeSeriesSetOutput::clear() {
-        if (auto *node = owning_node(); node != nullptr) {
-            const engine_time_t evaluation_time = *node->cached_evaluation_time_ptr();
-            if (last_modified_time() != evaluation_time) {
-                value_view().clear_delta_tracking();
-                invalidate_delta_snapshot();
-            }
-        }
+        const engine_time_t evaluation_time = require_evaluation_time(*this, "clear");
+        if (last_modified_time() != evaluation_time) { invalidate_delta_snapshot(); }
         // Update contains outputs for all elements before clearing
         if (_contains_ref_outputs) {
             for (auto elem : value_view().values()) {
                 _contains_ref_outputs.update(elem.to_python());
             }
         }
-        auto mutation = value_view().begin_mutation();
+        auto mutation = value_view().begin_mutation(evaluation_time);
         mutation.clear();
         invalidate_delta_snapshot();
         is_empty_output()->py_set_value(nb::cast(true));
@@ -497,7 +483,7 @@ namespace hgraph
     }
 
     void TimeSeriesSetOutput::_reset_value() {
-        auto mutation = value_view().begin_mutation();
+        auto mutation = value_view().begin_mutation(MIN_ST);
         mutation.clear();
         clear_deltas();
     }

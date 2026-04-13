@@ -12,6 +12,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
@@ -84,6 +85,64 @@ namespace hgraph
                 if (slot == no_slot) { return first_set_slot(bitset); }
                 const size_t next = bitset.find_next(slot);
                 return next == TBitset::npos ? no_slot : next;
+            }
+
+            [[nodiscard]] constexpr size_t mutation_depth(size_t state) noexcept
+            {
+                return state >> 1U;
+            }
+
+            [[nodiscard]] constexpr bool mutation_dirty(size_t state) noexcept
+            {
+                return (state & size_t{1}) != 0U;
+            }
+
+            void enter_mutation_scope(size_t &state) noexcept
+            {
+                state += 2U;
+            }
+
+            void leave_mutation_scope(size_t &state, std::string_view label)
+            {
+                if (mutation_depth(state) == 0U) {
+                    throw std::runtime_error(std::string(label) + " mutation depth underflow");
+                }
+                state -= 2U;
+            }
+
+            void mark_mutation_dirty(size_t &state) noexcept
+            {
+                state |= size_t{1};
+            }
+
+            void clear_mutation_dirty(size_t &state) noexcept
+            {
+                state &= ~size_t{1};
+            }
+
+            template <typename TState>
+            void begin_time_aware_mutation_scope(TState &state,
+                                                 engine_time_t evaluation_time,
+                                                 auto &&release_removed,
+                                                 std::string_view label)
+            {
+                if (mutation_depth(state.mutation_state) == 0U) {
+                    if (mutation_dirty(state.mutation_state) && state.last_modified_time < evaluation_time) {
+                        release_removed();
+                        clear_mutation_dirty(state.mutation_state);
+                    }
+                    state.current_mutation_time = evaluation_time;
+                } else if (state.current_mutation_time != evaluation_time) {
+                    throw std::runtime_error(std::string(label) +
+                                             " nested mutation scope entered with a different evaluation_time");
+                }
+                enter_mutation_scope(state.mutation_state);
+            }
+
+            template <typename TState> void note_collection_modified(TState &state) noexcept
+            {
+                mark_mutation_dirty(state.mutation_state);
+                state.last_modified_time = state.current_mutation_time;
             }
         }  // namespace
         struct KeyStorageBase;
@@ -189,14 +248,23 @@ namespace hgraph
              */
             sul::dynamic_bitset<> removed{};
             /**
-             * Active mutation-scope depth for this container.
+             * Packed mutation state.
              *
-             * Nested mutation scopes are allowed so helper functions can open a
-             * local scope while participating in a larger mutation operation.
-             * Removed payloads are released only when the outermost scope
-             * begins.
+             * Bit 0 tracks whether the current delta epoch contains retained
+             * removed payloads or delta bookkeeping that should be released or
+             * reset before the next epoch begins. Higher bits track the active
+             * mutation-scope depth, so nested scopes can share one outer
+             * mutation epoch without extra storage.
              */
-            size_t mutation_depth{0};
+            size_t mutation_state{0};
+            /**
+             * Evaluation time for the active outer mutation scope.
+             */
+            engine_time_t current_mutation_time{MIN_DT};
+            /**
+             * Evaluation time when this collection last changed.
+             */
+            engine_time_t last_modified_time{MIN_DT};
         };
 
         struct PlainMapState
@@ -239,14 +307,23 @@ namespace hgraph
              */
             std::vector<SlotObserver *> observers{};
             /**
-             * Active mutation-scope depth for this container.
+             * Packed mutation state.
              *
-             * Nested mutation scopes are allowed so helper functions can open a
-             * local scope while participating in a larger mutation operation.
-             * Removed key/value payloads are released only when the outermost
-             * scope begins.
+             * Bit 0 tracks whether the current delta epoch contains retained
+             * removed payloads or delta bookkeeping that should be released or
+             * reset before the next epoch begins. Higher bits track the active
+             * mutation-scope depth, so nested scopes can share one outer
+             * mutation epoch without extra storage.
              */
-            size_t mutation_depth{0};
+            size_t mutation_state{0};
+            /**
+             * Evaluation time for the active outer mutation scope.
+             */
+            engine_time_t current_mutation_time{MIN_DT};
+            /**
+             * Evaluation time when this collection last changed.
+             */
+            engine_time_t last_modified_time{MIN_DT};
         };
 
         inline uint64_t SetKeyIndexHash::operator()(size_t slot) const
@@ -465,6 +542,7 @@ namespace hgraph
                     state.alive.set(existing);
                     state.removed.reset(existing);
                     ++state.size;
+                    note_collection_modified(state);
                     return {.slot = existing, .inserted = true};
                 }
 
@@ -488,6 +566,7 @@ namespace hgraph
                 state.removed.reset(slot);
                 ++state.size;
                 state.index->insert(slot);
+                note_collection_modified(state);
                 return {.slot = slot, .inserted = true};
             }
 
@@ -534,12 +613,14 @@ namespace hgraph
                     state.index->erase(slot);
                     state.free_list.push_back(slot);
                     --state.size;
+                    note_collection_modified(state);
                     return;
                 }
 
                 state.alive.reset(slot);
                 state.removed.set(slot);
                 --state.size;
+                note_collection_modified(state);
             }
 
             void release_removed(DeltaSetState &state) const noexcept
@@ -671,11 +752,14 @@ namespace hgraph
             [[nodiscard]] const value::TypeMeta &element_schema() const noexcept override { return *m_schema.get().element_type; }
             [[nodiscard]] const ViewDispatch &element_dispatch() const noexcept override { return m_keys.dispatch(); }
 
-            void begin_mutation(void *data) const override
+            void begin_mutation(void *data, engine_time_t evaluation_time) const override
             {
                 if constexpr (tracks_deltas_v) {
                     SetState *set = state(data);
-                    if (set->mutation_depth++ == 0) { m_keys.release_removed(*set); }
+                    begin_time_aware_mutation_scope(
+                        *set, evaluation_time, [&] { m_keys.release_removed(*set); }, "Set");
+                } else {
+                    static_cast<void>(evaluation_time);
                 }
             }
 
@@ -683,10 +767,7 @@ namespace hgraph
             {
                 if constexpr (tracks_deltas_v) {
                     SetState *set = state(data);
-                    if (set->mutation_depth == 0) {
-                        throw std::runtime_error("Set mutation depth underflow");
-                    }
-                    --set->mutation_depth;
+                    leave_mutation_scope(set->mutation_state, "Set");
                 }
             }
 
@@ -796,7 +877,9 @@ namespace hgraph
             void clear_delta_tracking(void *data) const override
             {
                 if constexpr (tracks_deltas_v) {
-                    m_keys.release_removed(*state(data));
+                    SetState *set = state(data);
+                    m_keys.release_removed(*set);
+                    clear_mutation_dirty(set->mutation_state);
                 } else {
                     static_cast<void>(data);
                 }
@@ -997,7 +1080,9 @@ namespace hgraph
                     state(src)->free_list.clear();
                     state(src)->added.clear();
                     state(src)->removed.clear();
-                    state(src)->mutation_depth = 0;
+                    state(src)->mutation_state = 0;
+                    state(src)->current_mutation_time = MIN_DT;
+                    state(src)->last_modified_time = MIN_DT;
                 }
             }
 
@@ -1103,11 +1188,14 @@ namespace hgraph
             [[nodiscard]] const ViewDispatch &key_dispatch() const noexcept override { return m_keys.dispatch(); }
             [[nodiscard]] const ViewDispatch &value_dispatch() const noexcept override { return m_value_builder.get().dispatch(); }
 
-            void begin_mutation(void *data) const override
+            void begin_mutation(void *data, engine_time_t evaluation_time) const override
             {
                 if constexpr (tracks_deltas_v) {
                     MapState *map = state(data);
-                    if (map->mutation_depth++ == 0) { release_removed(*map); }
+                    begin_time_aware_mutation_scope(
+                        *map, evaluation_time, [&] { release_removed(*map); }, "Map");
+                } else {
+                    static_cast<void>(evaluation_time);
                 }
             }
 
@@ -1115,10 +1203,7 @@ namespace hgraph
             {
                 if constexpr (tracks_deltas_v) {
                     MapState *map = state(data);
-                    if (map->mutation_depth == 0) {
-                        throw std::runtime_error("Map mutation depth underflow");
-                    }
-                    --map->mutation_depth;
+                    leave_mutation_scope(map->mutation_state, "Map");
                 }
             }
 
@@ -1349,8 +1434,10 @@ namespace hgraph
                             state(data)->keys.removed.reset(slot);
                             ++key_state.size;
                             state(data)->updated.set(slot);
+                            note_collection_modified(*state(data));
                         } else if (!state(data)->keys.added.test(slot)) {
                             state(data)->updated.set(slot);
+                            note_collection_modified(*state(data));
                         }
                         key_dispatch().assign(key_data(data, slot), key);
                         value_dispatch().assign(value_data(data, slot), value);
@@ -1383,7 +1470,10 @@ namespace hgraph
                 // an uninitialised payload.
                 m_value_builder.get().construct(value_memory(*state(data), slot));
                 value_dispatch().assign(value_data(data, slot), value);
-                if constexpr (tracks_deltas_v) { notify_insert(*state(data), slot); }
+                if constexpr (tracks_deltas_v) {
+                    note_collection_modified(*state(data));
+                    notify_insert(*state(data), slot);
+                }
                 return insertion.inserted;
             }
 
@@ -1399,6 +1489,7 @@ namespace hgraph
                     }
                     state(data)->updated.reset(slot);
                     m_keys.remove_slot(state(data)->keys, slot);
+                    note_collection_modified(*state(data));
                     if (erased_immediately) { notify_erase(*state(data), slot); }
                 } else {
                     remove_dense_slot(*state(data), slot);
@@ -1429,7 +1520,10 @@ namespace hgraph
             void clear_delta_tracking(void *data) const override
             {
                 if constexpr (tracks_deltas_v) {
-                    release_removed(*state(data));
+                    MapState *map = state(data);
+                    release_removed(*map);
+                    clear_mutation_dirty(map->mutation_state);
+                    map->keys.mutation_state = 0;
                 } else {
                     static_cast<void>(data);
                 }
@@ -1683,10 +1777,14 @@ namespace hgraph
                     state(src)->keys.free_list.clear();
                     state(src)->keys.added.clear();
                     state(src)->keys.removed.clear();
-                    state(src)->keys.mutation_depth = 0;
+                    state(src)->keys.mutation_state = 0;
+                    state(src)->keys.current_mutation_time = MIN_DT;
+                    state(src)->keys.last_modified_time = MIN_DT;
                     state(src)->updated.clear();
                     state(src)->observers.clear();
-                    state(src)->mutation_depth = 0;
+                    state(src)->mutation_state = 0;
+                    state(src)->current_mutation_time = MIN_DT;
+                    state(src)->last_modified_time = MIN_DT;
                 } else {
                     state(src)->values = nullptr;
                     state(src)->values_inline = false;
@@ -2140,9 +2238,9 @@ namespace hgraph
         }
     }
 
-    SetMutationView SetView::begin_mutation()
+    SetMutationView SetView::begin_mutation(engine_time_t evaluation_time)
     {
-        return SetMutationView{*this};
+        return SetMutationView{*this, evaluation_time};
     }
 
     SetDeltaView SetView::delta()
@@ -2155,11 +2253,11 @@ namespace hgraph
         return SetDeltaView{*this};
     }
 
-    void SetView::begin_mutation_scope()
+    void SetView::begin_mutation_scope(engine_time_t evaluation_time)
     {
         const auto *dispatch = set_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("SetView::begin_mutation on invalid view"); }
-        dispatch->begin_mutation(data());
+        dispatch->begin_mutation(data(), evaluation_time);
     }
 
     void SetView::end_mutation_scope() noexcept
@@ -2275,10 +2373,10 @@ namespace hgraph
         dispatch->clear_delta_tracking(data());
     }
 
-    SetMutationView::SetMutationView(SetView &view)
+    SetMutationView::SetMutationView(SetView &view, engine_time_t evaluation_time)
         : SetView(view)
     {
-        begin_mutation_scope();
+        begin_mutation_scope(evaluation_time);
     }
 
     SetMutationView::SetMutationView(SetMutationView &&other) noexcept
@@ -2403,9 +2501,9 @@ namespace hgraph
         }
     }
 
-    MapMutationView MapView::begin_mutation()
+    MapMutationView MapView::begin_mutation(engine_time_t evaluation_time)
     {
-        return MapMutationView{*this};
+        return MapMutationView{*this, evaluation_time};
     }
 
     MapDeltaView MapView::delta()
@@ -2418,11 +2516,11 @@ namespace hgraph
         return MapDeltaView{*this};
     }
 
-    void MapView::begin_mutation_scope()
+    void MapView::begin_mutation_scope(engine_time_t evaluation_time)
     {
         const auto *dispatch = map_dispatch();
         if (dispatch == nullptr) { throw std::runtime_error("MapView::begin_mutation on invalid view"); }
-        dispatch->begin_mutation(data());
+        dispatch->begin_mutation(data(), evaluation_time);
     }
 
     void MapView::end_mutation_scope() noexcept
@@ -2688,10 +2786,10 @@ namespace hgraph
                     &dispatch->value_schema()};
     }
 
-    MapMutationView::MapMutationView(MapView &view)
+    MapMutationView::MapMutationView(MapView &view, engine_time_t evaluation_time)
         : MapView(view)
     {
-        begin_mutation_scope();
+        begin_mutation_scope(evaluation_time);
     }
 
     MapMutationView::MapMutationView(MapMutationView &&other) noexcept
