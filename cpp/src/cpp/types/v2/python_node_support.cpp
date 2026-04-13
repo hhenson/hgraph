@@ -407,6 +407,7 @@ namespace hgraph::v2
 
             [[nodiscard]] nb::object value() const
             {
+                if (m_schema != nullptr && m_schema->kind == TSKind::TSValue && !valid()) { return nb::none(); }
                 return m_input != nullptr ? input_view().to_python() : output_view().to_python();
             }
 

@@ -40,9 +40,9 @@ if is_feature_enabled("use_cpp"):
         hgraph._runtime._evaluation_engine.EvaluationMode = _hgraph.EvaluationMode
         hgraph._runtime._evaluation_engine.EvaluationLifeCycleObserver = _hgraph.EvaluationLifeCycleObserver
 
-        # TimeSeriesReference builders
-        hgraph.TimeSeriesReference._BUILDER = _hgraph.TimeSeriesReference.make
-        hgraph.TimeSeriesReference._INSTANCE_OF = lambda obj: isinstance(obj, _hgraph.TimeSeriesReference)
+        # Default the non-nested C++ runtime path to the v2 reference surface.
+        hgraph.TimeSeriesReference._BUILDER = _hgraph.v2.TimeSeriesReference.make
+        hgraph.TimeSeriesReference._INSTANCE_OF = lambda obj: isinstance(obj, _hgraph.v2.TimeSeriesReference)
 
         # Edge type
         hgraph._builder._graph_builder.EDGE_TYPE = _hgraph.v2.Edge
@@ -381,11 +381,11 @@ if is_feature_enabled("use_cpp"):
         hgraph.TimeSeriesBuilderFactory.declare(HgCppFactory())
 
         # === Node Builder Classes ===
-
-        hgraph._wiring._wiring_node_class.PythonWiringNodeClass.BUILDER_CLASS = _hgraph.PythonNodeBuilder
-        hgraph._wiring._wiring_node_class.PythonGeneratorWiringNodeClass.BUILDER_CLASS = (
-            _hgraph.PythonGeneratorNodeBuilder
-        )
+        # Keep non-nested Python nodes on the v2 builder family. Legacy builder
+        # families remain wired only for features that still have no v2 runtime
+        # implementation.
+        hgraph._wiring._wiring_node_class.PythonWiringNodeClass.BUILDER_CLASS = _hgraph.v2.NodeBuilder
+        hgraph._wiring._wiring_node_class.PythonGeneratorWiringNodeClass.BUILDER_CLASS = _hgraph.v2.NodeBuilder
 
 
         def _create_set_delta(added, removed, tp):

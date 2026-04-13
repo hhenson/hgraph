@@ -1,7 +1,6 @@
 from datetime import timedelta
 
 import hgraph._hgraph as _hgraph
-import pytest
 
 from hgraph import GraphConfiguration, TS, evaluate_graph, graph, sink_node
 from hgraph.nodes.v2 import const as v2_const
@@ -24,7 +23,7 @@ def test_v2_basic_nodes_build_a_pure_v2_graph():
     assert implementation_names == ("const", "null_sink")
 
 
-def test_v2_const_mixed_graphs_fail_early():
+def test_v2_const_graphs_use_v2_python_sinks_by_default():
     @sink_node
     def sink(ts: TS[int]):
         pass
@@ -33,9 +32,11 @@ def test_v2_const_mixed_graphs_fail_early():
     def g():
         sink(v2_const(1))
 
-    with pytest.raises(NotImplementedError, match="v2 execution does not support mixed graphs yet"):
-        with WiringNodeInstanceContext():
-            wire_graph(g)
+    with WiringNodeInstanceContext():
+        graph_builder = wire_graph(g)
+
+    assert isinstance(graph_builder, _hgraph.v2.GraphBuilder)
+    assert tuple(builder.implementation_name for builder in graph_builder.node_builders) == ("const", "sink")
 
 
 def test_v2_const_and_debug_print_execute_without_api_changes(capsys):
