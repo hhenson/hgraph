@@ -68,7 +68,8 @@ namespace hgraph
      * Pointer variant covering all concrete time-series state types plus the
      * root output endpoint.
      */
-    using TimeSeriesStateParentPtr = pointer_aligned_discriminated_ptr<TSLState, TSDState, TSBState, TSInput, TSOutput>;
+    using TimeSeriesStateParentPtr =
+        pointer_aligned_discriminated_ptr<TSLState, TSDState, TSBState, SignalState, TSInput, TSOutput>;
 
     /**
      * Identifies the storage backend carried by a logical TS state node.
@@ -620,9 +621,15 @@ namespace hgraph
     };
 
     /**
-     * State carried by a signal leaf time-series.
+     * State carried by a signal time-series.
+     *
+     * Signals are usually leaves, but they can also aggregate child signals
+     * when a non-peered collection is bound into a SIGNAL input. That mirrors
+     * the legacy `TimeSeriesSignalInput` behavior where child signal inputs are
+     * created lazily under the parent signal and any child tick promotes the
+     * parent signal.
      */
-    struct HGRAPH_EXPORT SignalState : BaseState
+    struct HGRAPH_EXPORT SignalState : BaseCollectionState
     {};
 
 }  // namespace hgraph

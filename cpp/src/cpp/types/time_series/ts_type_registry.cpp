@@ -5,6 +5,7 @@
 
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/v2/ref.h>
+#include <hgraph/types/value/type_meta_bindings.h>
 #include <hgraph/types/value/type_registry.h>
 
 #include <cstring>
@@ -243,6 +244,14 @@ const TSMeta* TSTypeRegistry::tsb(
         }
     }
     const value::TypeMeta* value_schema = builder.build();
+
+    if (python_type.is_valid() && !python_type.is_none() && value_schema != nullptr && nb::hasattr(python_type, "scalar_type")) {
+        nb::object scalar_type = nb::getattr(python_type, "scalar_type")();
+        if (scalar_type.is_valid() && !scalar_type.is_none()) {
+            value::register_compound_scalar_class(value_schema, scalar_type);
+            value::TypeRegistry::instance().register_python_type(scalar_type, value_schema);
+        }
+    }
 
     auto* meta = create_schema();
     meta->kind = TSKind::TSB;

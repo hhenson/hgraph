@@ -35,7 +35,8 @@ namespace hgraph
                 state->parent,
                 [&](auto *parent) {
                     using T = std::remove_pointer_t<decltype(parent)>;
-                    if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState>) {
+                    if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState> ||
+                                  std::same_as<T, SignalState>) {
                         if (parent != nullptr && state->index < parent->child_states.size() && parent->child_states[state->index] != nullptr &&
                             state_address(parent->child_states[state->index]) == state) {
                             slot = parent->child_states[state->index].get();
@@ -339,7 +340,8 @@ namespace hgraph
             [this, modified_time](auto *ptr) {
                 using T = std::remove_pointer_t<decltype(ptr)>;
 
-                if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSBState> || std::same_as<T, TSDState>) {
+                if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSBState> || std::same_as<T, TSDState> ||
+                              std::same_as<T, SignalState>) {
                     ptr->child_modified(index, modified_time);
                 }
             },

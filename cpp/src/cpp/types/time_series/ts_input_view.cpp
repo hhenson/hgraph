@@ -120,7 +120,8 @@ namespace hgraph
                     [&](auto *parent_state) {
                         using T = std::remove_pointer_t<decltype(parent_state)>;
 
-                        if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState>) {
+                        if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState> ||
+                                      std::same_as<T, SignalState>) {
                             if (parent_state != nullptr && state->index < parent_state->child_states.size() &&
                                 parent_state->child_states[state->index] != nullptr &&
                                 state_address(*parent_state->child_states[state->index]) == state) {

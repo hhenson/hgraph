@@ -2,6 +2,7 @@
 #include <hgraph/types/time_series/time_series_state.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input_builder.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/value/type_registry.h>
 
 #include <cassert>
@@ -101,6 +102,7 @@ namespace hgraph
 
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSBState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
+        [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(SignalState &state) noexcept { return &state; }
 
         [[nodiscard]] size_t child_slot_capacity(const TSMeta &schema)
         {
@@ -116,6 +118,11 @@ namespace hgraph
                         throw std::invalid_argument("TSInput construction plans currently require fixed-size TSL prefixes");
                     }
                     return collection_schema->fixed_size();
+
+                case TSKind::SIGNAL:
+                    // SIGNAL fan-in prefixes are dynamically sized based on the
+                    // observed inbound edge paths.
+                    return 0;
 
                 default:
                     throw std::invalid_argument("TSInput construction slots only support TSB and fixed-size TSL collections");
@@ -153,6 +160,9 @@ namespace hgraph
                         return child_schema;
                     }
 
+                case TSKind::SIGNAL:
+                    return TSTypeRegistry::instance().signal();
+
                 default:
                     throw std::invalid_argument("TSInput construction plan paths only support TSB and fixed-size TSL prefixes");
             }
@@ -165,7 +175,8 @@ namespace hgraph
             const TSMeta *collection_schema = schema;
             if (schema->kind == TSKind::REF && schema->element_ts() != nullptr) { collection_schema = schema->element_ts(); }
 
-            if (collection_schema->kind != TSKind::TSB && collection_schema->kind != TSKind::TSL) {
+            if (collection_schema->kind != TSKind::TSB && collection_schema->kind != TSKind::TSL &&
+                collection_schema->kind != TSKind::SIGNAL) {
                 throw std::invalid_argument("TSInput construction plan prefixes must be TSB or fixed-size TSL");
             }
 
@@ -299,6 +310,36 @@ namespace hgraph
             std::vector<std::shared_ptr<const InputStateNodeOps>> m_children;
         };
 
+        struct SignalNodeOps final : InputStateNodeOps
+        {
+            explicit SignalNodeOps(std::vector<std::shared_ptr<const InputStateNodeOps>> children)
+                : m_children(std::move(children))
+            {
+            }
+
+            void construct(TimeSeriesStateV &state, TimeSeriesStateParentPtr parent, size_t index) const override
+            {
+                auto &signal_state = state.emplace<SignalState>();
+                initialize_collection_state(signal_state, parent, index);
+                construct_collection_children(m_children, signal_state);
+            }
+
+            void copy_construct(TimeSeriesStateV &dst,
+                                const TimeSeriesStateV &src,
+                                TimeSeriesStateParentPtr parent,
+                                size_t index) const override
+            {
+                const auto &src_state = std::get<SignalState>(src);
+                auto &dst_state = dst.emplace<SignalState>();
+                initialize_collection_state(dst_state, parent, index, src_state.last_modified_time);
+                dst_state.modified_children = src_state.modified_children;
+                copy_collection_children(m_children, dst_state, src_state);
+            }
+
+          private:
+            std::vector<std::shared_ptr<const InputStateNodeOps>> m_children;
+        };
+
         struct ListNodeOps final : InputStateNodeOps
         {
             explicit ListNodeOps(std::vector<std::shared_ptr<const InputStateNodeOps>> children)
@@ -352,6 +393,9 @@ namespace hgraph
 
                             case TSKind::TSL:
                                 return std::make_shared<ListNodeOps>(std::move(children));
+
+                            case TSKind::SIGNAL:
+                                return std::make_shared<SignalNodeOps>(std::move(children));
 
                             default:
                                 throw std::invalid_argument("TSInput non-peered collection slots require TSB or TSL schemas");
@@ -422,8 +466,8 @@ namespace hgraph
 
     TSInputConstructionSlot TSInputConstructionSlot::create_non_peered_collection(const TSMeta *schema)
     {
-        if (schema == nullptr || (schema->kind != TSKind::TSB && schema->kind != TSKind::TSL)) {
-            throw std::invalid_argument("TSInputConstructionSlot::create_non_peered_collection requires a TSB or TSL schema");
+        if (schema == nullptr || (schema->kind != TSKind::TSB && schema->kind != TSKind::TSL && schema->kind != TSKind::SIGNAL)) {
+            throw std::invalid_argument("TSInputConstructionSlot::create_non_peered_collection requires a TSB, TSL, or SIGNAL schema");
         }
 
         TSInputConstructionSlot slot;
@@ -489,7 +533,11 @@ namespace hgraph
                 const TSMeta *child_schema = child_schema_at(*schema, slot_index);
 
                 if (static_cast<size_t>(slot_index) >= slot->children().size()) {
+                    if (schema->kind == TSKind::SIGNAL) {
+                        slot->children().resize(static_cast<size_t>(slot_index) + 1);
+                    } else {
                     throw std::out_of_range("TSInput construction plan edge extends beyond the parent slot capacity");
+                    }
                 }
 
                 TSInputConstructionSlot &child_slot = slot->children()[slot_index];

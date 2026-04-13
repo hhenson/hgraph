@@ -49,6 +49,9 @@ namespace hgraph::v2
                     }
                     return collection_schema->element_ts();
 
+                case TSKind::SIGNAL:
+                    return TSTypeRegistry::instance().signal();
+
                 default:
                     throw std::invalid_argument("v2 path navigation only supports TSB and fixed-size TSL");
             }
@@ -80,6 +83,14 @@ namespace hgraph::v2
                         auto *list_state = static_cast<TSLState *>(state->resolved_state());
                         if (list_state == nullptr || static_cast<size_t>(slot) >= list_state->child_states.size()) { return nullptr; }
                         const auto &child = list_state->child_states[slot];
+                        return child != nullptr ? std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, *child) : nullptr;
+                    }
+
+                case TSKind::SIGNAL:
+                    {
+                        auto *signal_state = static_cast<SignalState *>(state->resolved_state());
+                        if (signal_state == nullptr || static_cast<size_t>(slot) >= signal_state->child_states.size()) { return nullptr; }
+                        const auto &child = signal_state->child_states[slot];
                         return child != nullptr ? std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, *child) : nullptr;
                     }
 

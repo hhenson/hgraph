@@ -1,6 +1,7 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/active_trie.h>
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_value_builder.h>
 #include <hgraph/types/time_series/ts_view.h>
@@ -226,6 +227,7 @@ namespace hgraph
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSDState &state) noexcept { return &state; }
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSBState &state) noexcept { return &state; }
+        [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(SignalState &state) noexcept { return &state; }
 
         template <typename TCollectionState>
         void ensure_child_slot_capacity(TCollectionState &state, size_t slot_count)
@@ -322,7 +324,7 @@ namespace hgraph
                     break;
 
                 case TSKind::SIGNAL:
-                    initialize_base_state(state.emplace<SignalState>(), parent, index);
+                    initialize_collection_state(state.emplace<SignalState>(), parent, index);
                     break;
             }
         }
@@ -395,7 +397,7 @@ namespace hgraph
                         for (auto &child : typed_state.child_states) {
                             if (child != nullptr) { unbind_dynamic_dict_states_recursive(*child); }
                         }
-                    } else if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSBState>) {
+                    } else if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSBState> || std::same_as<T, SignalState>) {
                         for (auto &child : typed_state.child_states) {
                             if (child != nullptr) { unbind_dynamic_dict_states_recursive(*child); }
                         }
@@ -462,6 +464,8 @@ namespace hgraph
                                                                *typed_state.child_states[index],
                                                                RawViewAccess::data_of(list.at(index)));
                         }
+                    } else if constexpr (std::same_as<T, SignalState>) {
+                        static_cast<void>(binding_schema);
                     }
                 },
                 state);
@@ -589,7 +593,21 @@ namespace hgraph
                 case TSKind::SIGNAL:
                     {
                         const auto &src_state = std::get<SignalState>(src);
-                        initialize_base_state(dst.emplace<SignalState>(), parent, index, src_state.last_modified_time);
+                        auto &dst_state = dst.emplace<SignalState>();
+                        initialize_collection_state(dst_state, parent, index, src_state.last_modified_time);
+                        dst_state.modified_children = src_state.modified_children;
+                        ensure_child_slot_capacity(dst_state, src_state.child_states.size());
+
+                        const TSMeta &signal_schema = *TSTypeRegistry::instance().signal();
+                        for (size_t child_index = 0; child_index < src_state.child_states.size(); ++child_index) {
+                            const TimeSeriesStateV *src_child = const_state_value(src_state.child_states[child_index]);
+                            if (src_child == nullptr) { continue; }
+
+                            auto child_state = make_state_node([&](TimeSeriesStateV &state) {
+                                clone_state_tree(state, *src_child, signal_schema, parent_ptr(dst_state), child_index);
+                            });
+                            install_child_state(dst_state, child_index, std::move(child_state));
+                        }
                         break;
                     }
             }
@@ -646,6 +664,46 @@ namespace hgraph
                        ? ref_state
                        : nullptr;
         }
+
+        [[nodiscard]] bool signal_has_children(const TSViewContext &context) noexcept
+        {
+            const auto *state = context.ts_state != nullptr ? static_cast<const SignalState *>(context.ts_state->resolved_state()) : nullptr;
+            return state != nullptr &&
+                   std::ranges::any_of(state->child_states, [](const auto &child) { return child != nullptr; });
+        }
+
+        struct SignalTSDispatch final : detail::TSDispatch
+        {
+            [[nodiscard]] nb::object to_python(const TSViewContext &context, engine_time_t) const override
+            {
+                return nb::bool_(valid(context));
+            }
+
+            [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
+            {
+                return nb::bool_(last_modified_time(context) == evaluation_time && valid(context));
+            }
+
+            [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override
+            {
+                if (!signal_has_children(context)) {
+                    return detail::TSDispatch::valid(context);
+                }
+
+                const auto *state = static_cast<const SignalState *>(context.ts_state->resolved_state());
+                return std::ranges::any_of(state->child_states, [&](const auto &child) {
+                    if (child == nullptr) { return false; }
+                    const BaseState *child_state =
+                        std::visit([](const auto &typed_state) -> const BaseState * { return &typed_state; }, *child);
+                    return child_state != nullptr && child_state->last_modified_time != MIN_DT;
+                });
+            }
+
+            [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
+            {
+                return valid(context);
+            }
+        };
 
         struct LeafTSDispatch : detail::TSDispatch {};
 
@@ -1338,8 +1396,11 @@ namespace hgraph
             std::unique_ptr<detail::TSDispatch> dispatch;
             switch (schema.kind) {
                 case TSKind::TSValue:
-                case TSKind::SIGNAL:
                     dispatch = std::make_unique<LeafTSDispatch>();
+                    break;
+
+                case TSKind::SIGNAL:
+                    dispatch = std::make_unique<SignalTSDispatch>();
                     break;
 
                 case TSKind::REF:
