@@ -261,6 +261,23 @@ namespace hgraph
             install_child_state(collection_state, slot, std::move(child_state));
         }
 
+        [[nodiscard]] const TSMeta *planned_collection_child_schema(const TSMeta &schema, size_t slot)
+        {
+            const TSMeta *collection_schema = &schema;
+            if (schema.kind == TSKind::REF && schema.element_ts() != nullptr) { collection_schema = schema.element_ts(); }
+
+            switch (collection_schema->kind) {
+                case TSKind::TSB:
+                    return slot < collection_schema->field_count() ? collection_schema->fields()[slot].ts_type : nullptr;
+
+                case TSKind::TSL:
+                    return slot < collection_schema->fixed_size() ? collection_schema->element_ts() : nullptr;
+
+                default:
+                    return nullptr;
+            }
+        }
+
         void initialize_state_tree(TimeSeriesStateV &state, const TSMeta &schema, TimeSeriesStateParentPtr parent, size_t index)
         {
             switch (schema.kind) {
@@ -595,16 +612,20 @@ namespace hgraph
                         const auto &src_state = std::get<SignalState>(src);
                         auto &dst_state = dst.emplace<SignalState>();
                         initialize_collection_state(dst_state, parent, index, src_state.last_modified_time);
+                        dst_state.bound_schema = src_state.bound_schema;
                         dst_state.modified_children = src_state.modified_children;
                         ensure_child_slot_capacity(dst_state, src_state.child_states.size());
 
-                        const TSMeta &signal_schema = *TSTypeRegistry::instance().signal();
                         for (size_t child_index = 0; child_index < src_state.child_states.size(); ++child_index) {
                             const TimeSeriesStateV *src_child = const_state_value(src_state.child_states[child_index]);
                             if (src_child == nullptr) { continue; }
+                            const TSMeta *child_schema = src_state.bound_schema != nullptr
+                                                             ? planned_collection_child_schema(*src_state.bound_schema, child_index)
+                                                             : TSTypeRegistry::instance().signal();
+                            if (child_schema == nullptr) { continue; }
 
                             auto child_state = make_state_node([&](TimeSeriesStateV &state) {
-                                clone_state_tree(state, *src_child, signal_schema, parent_ptr(dst_state), child_index);
+                                clone_state_tree(state, *src_child, *child_schema, parent_ptr(dst_state), child_index);
                             });
                             install_child_state(dst_state, child_index, std::move(child_state));
                         }

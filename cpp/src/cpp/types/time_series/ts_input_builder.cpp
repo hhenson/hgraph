@@ -34,6 +34,8 @@ namespace hgraph
             append_key_bytes(key, static_cast<uint8_t>(slot.kind()));
             const auto schema_bits = reinterpret_cast<std::uintptr_t>(slot.schema());
             append_key_bytes(key, schema_bits);
+            const auto bound_schema_bits = reinterpret_cast<std::uintptr_t>(slot.bound_schema());
+            append_key_bytes(key, bound_schema_bits);
 
             switch (slot.kind()) {
                 case TSInputSlotKind::Empty:
@@ -120,8 +122,9 @@ namespace hgraph
                     return collection_schema->fixed_size();
 
                 case TSKind::SIGNAL:
-                    // SIGNAL fan-in prefixes are dynamically sized based on the
-                    // observed inbound edge paths.
+                    // SIGNAL roots do not encode their bound child shape in the
+                    // schema itself. Planned child sizing is provided by the
+                    // construction slot's bound_schema when needed.
                     return 0;
 
                 default:
@@ -168,7 +171,31 @@ namespace hgraph
             }
         }
 
-        void ensure_non_peered_collection_slot(TSInputConstructionSlot &slot, const TSMeta *schema)
+        void finalize_signal_bound_schemas(TSInputConstructionSlot &slot)
+        {
+            if (slot.kind() != TSInputSlotKind::NonPeeredCollection) { return; }
+
+            for (auto &child : slot.children()) {
+                finalize_signal_bound_schemas(child);
+            }
+
+            if (slot.schema() == nullptr || slot.schema()->kind != TSKind::SIGNAL) { return; }
+
+            std::vector<std::pair<std::string, const TSMeta *>> fields;
+            fields.reserve(slot.children().size());
+            for (size_t index = 0; index < slot.children().size(); ++index) {
+                const auto &child = slot.children()[index];
+                const TSMeta *child_schema = child.schema();
+                if (child_schema == nullptr) { child_schema = TSTypeRegistry::instance().signal(); }
+                fields.emplace_back(std::to_string(index), child_schema);
+            }
+
+            slot.set_bound_schema(TSTypeRegistry::instance().tsb(fields, "__signal__"));
+        }
+
+        void ensure_non_peered_collection_slot(TSInputConstructionSlot &slot,
+                                               const TSMeta *schema,
+                                               const TSMeta *bound_schema = nullptr)
         {
             if (schema == nullptr) { throw std::invalid_argument("TSInput construction plan collection slots require a schema"); }
 
@@ -181,11 +208,12 @@ namespace hgraph
             }
 
             if (slot.kind() == TSInputSlotKind::Empty) {
-                slot = TSInputConstructionSlot::create_non_peered_collection(collection_schema);
+                slot = TSInputConstructionSlot::create_non_peered_collection(collection_schema, bound_schema);
                 return;
             }
 
-            if (slot.kind() != TSInputSlotKind::NonPeeredCollection || slot.schema() != collection_schema) {
+            if (slot.kind() != TSInputSlotKind::NonPeeredCollection || slot.schema() != collection_schema ||
+                slot.bound_schema() != bound_schema) {
                 throw std::invalid_argument("TSInput construction plan contains conflicting collection requirements");
             }
         }
@@ -312,8 +340,9 @@ namespace hgraph
 
         struct SignalNodeOps final : InputStateNodeOps
         {
-            explicit SignalNodeOps(std::vector<std::shared_ptr<const InputStateNodeOps>> children)
-                : m_children(std::move(children))
+            SignalNodeOps(const TSMeta *bound_schema, std::vector<std::shared_ptr<const InputStateNodeOps>> children)
+                : m_bound_schema(bound_schema),
+                  m_children(std::move(children))
             {
             }
 
@@ -321,6 +350,7 @@ namespace hgraph
             {
                 auto &signal_state = state.emplace<SignalState>();
                 initialize_collection_state(signal_state, parent, index);
+                signal_state.bound_schema = m_bound_schema;
                 construct_collection_children(m_children, signal_state);
             }
 
@@ -332,11 +362,13 @@ namespace hgraph
                 const auto &src_state = std::get<SignalState>(src);
                 auto &dst_state = dst.emplace<SignalState>();
                 initialize_collection_state(dst_state, parent, index, src_state.last_modified_time);
+                dst_state.bound_schema = m_bound_schema;
                 dst_state.modified_children = src_state.modified_children;
                 copy_collection_children(m_children, dst_state, src_state);
             }
 
           private:
+            const TSMeta *m_bound_schema{nullptr};
             std::vector<std::shared_ptr<const InputStateNodeOps>> m_children;
         };
 
@@ -395,7 +427,7 @@ namespace hgraph
                                 return std::make_shared<ListNodeOps>(std::move(children));
 
                             case TSKind::SIGNAL:
-                                return std::make_shared<SignalNodeOps>(std::move(children));
+                                return std::make_shared<SignalNodeOps>(slot.bound_schema(), std::move(children));
 
                             default:
                                 throw std::invalid_argument("TSInput non-peered collection slots require TSB or TSL schemas");
@@ -464,15 +496,19 @@ namespace hgraph
         // CompositeTSInputBuilderOps removed — TSInputBuilder now delegates directly to TSValueBuilder.
     }  // namespace
 
-    TSInputConstructionSlot TSInputConstructionSlot::create_non_peered_collection(const TSMeta *schema)
+    TSInputConstructionSlot TSInputConstructionSlot::create_non_peered_collection(const TSMeta *schema, const TSMeta *bound_schema)
     {
         if (schema == nullptr || (schema->kind != TSKind::TSB && schema->kind != TSKind::TSL && schema->kind != TSKind::SIGNAL)) {
             throw std::invalid_argument("TSInputConstructionSlot::create_non_peered_collection requires a TSB, TSL, or SIGNAL schema");
         }
+        if (schema->kind != TSKind::SIGNAL && bound_schema != nullptr) {
+            throw std::invalid_argument("TSInputConstructionSlot bound_schema is only valid for SIGNAL slots");
+        }
 
         TSInputConstructionSlot slot;
         slot.set_schema_and_kind(schema, TSInputSlotKind::NonPeeredCollection);
-        slot.children().resize(child_slot_capacity(*schema));
+        slot.m_bound_schema = bound_schema;
+        slot.children().resize(child_slot_capacity(bound_schema != nullptr ? *bound_schema : *schema));
         return slot;
     }
 
@@ -530,18 +566,22 @@ namespace hgraph
 
             for (size_t depth = 0; depth < edge.input_path.size(); ++depth) {
                 const int64_t slot_index = edge.input_path[depth];
-                const TSMeta *child_schema = child_schema_at(*schema, slot_index);
+                const bool is_terminal = depth + 1 == edge.input_path.size();
+                const TSMeta *child_schema = schema->kind == TSKind::SIGNAL
+                                                 ? (is_terminal && edge.source_schema != nullptr
+                                                        ? edge.source_schema
+                                                        : TSTypeRegistry::instance().signal())
+                                                 : child_schema_at(*schema, slot_index);
 
                 if (static_cast<size_t>(slot_index) >= slot->children().size()) {
                     if (schema->kind == TSKind::SIGNAL) {
                         slot->children().resize(static_cast<size_t>(slot_index) + 1);
                     } else {
-                    throw std::out_of_range("TSInput construction plan edge extends beyond the parent slot capacity");
+                        throw std::out_of_range("TSInput construction plan edge extends beyond the parent slot capacity");
                     }
                 }
 
                 TSInputConstructionSlot &child_slot = slot->children()[slot_index];
-                const bool is_terminal = depth + 1 == edge.input_path.size();
 
                 if (is_terminal) {
                     install_terminal_slot(child_slot, child_schema, edge.binding);
@@ -553,6 +593,7 @@ namespace hgraph
             }
         }
 
+        finalize_signal_bound_schemas(plan.root());
         return plan;
     }
 

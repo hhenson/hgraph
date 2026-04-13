@@ -12,6 +12,7 @@ namespace hgraph::v2
     namespace
     {
         constexpr int64_t key_set_path = -3;
+        constexpr int64_t state_path = -2;
 
         [[nodiscard]] constexpr size_t align_up(size_t value, size_t alignment) noexcept
         {
@@ -20,7 +21,7 @@ namespace hgraph::v2
             return remainder == 0 ? value : value + (alignment - remainder);
         }
 
-        [[nodiscard]] const TSMeta *child_schema_at(const TSMeta &schema, int64_t slot)
+        [[nodiscard]] const TSMeta *navigable_child_schema_at(const TSMeta &schema, int64_t slot)
         {
             const TSMeta *collection_schema = &schema;
             if (schema.kind == TSKind::REF && schema.element_ts() != nullptr) { collection_schema = schema.element_ts(); }
@@ -50,11 +51,27 @@ namespace hgraph::v2
                     return collection_schema->element_ts();
 
                 case TSKind::SIGNAL:
-                    return TSTypeRegistry::instance().signal();
+                    throw std::logic_error("v2 SIGNAL child schema resolution requires planned signal state metadata");
 
                 default:
                     throw std::invalid_argument("v2 path navigation only supports TSB and fixed-size TSL");
             }
+        }
+
+        [[nodiscard]] const TSMeta *child_schema_at(const TSMeta &schema, const BaseState *state, int64_t slot)
+        {
+            const TSMeta *collection_schema = &schema;
+            if (schema.kind == TSKind::REF && schema.element_ts() != nullptr) { collection_schema = schema.element_ts(); }
+
+            if (collection_schema->kind == TSKind::SIGNAL) {
+                const auto *signal_state = state != nullptr ? static_cast<const SignalState *>(state->resolved_state()) : nullptr;
+                if (signal_state == nullptr || signal_state->bound_schema == nullptr) {
+                    throw std::logic_error("v2 SIGNAL input navigation requires a planned bound schema");
+                }
+                return navigable_child_schema_at(*signal_state->bound_schema, slot);
+            }
+
+            return navigable_child_schema_at(*collection_schema, slot);
         }
 
         [[nodiscard]] TSViewContext navigation_parent_context(const TSInputView &view) noexcept
@@ -101,13 +118,14 @@ namespace hgraph::v2
 
         [[nodiscard]] TSInputView traverse_input_child(TSInputView view, const TSMeta &schema, int64_t slot)
         {
-            BaseState *child_state = child_state_at(view.context_ref().ts_state, schema, slot);
+            BaseState *state = view.context_ref().ts_state;
+            BaseState *child_state = child_state_at(state, schema, slot);
             if (child_state == nullptr) {
                 throw std::logic_error("v2 input navigation requires a planned child state for the selected path");
             }
 
             TSViewContext child_context;
-            child_context.schema = child_schema_at(schema, slot);
+            child_context.schema = child_schema_at(schema, state, slot);
             child_context.ts_state = child_state;
             return view.make_child_view_impl(
                 child_context,
@@ -121,7 +139,7 @@ namespace hgraph::v2
             for (const int64_t slot : path) {
                 if (current_schema == nullptr) { throw std::invalid_argument("v2 input navigation requires a schema"); }
                 view = traverse_input_child(view, *current_schema, slot);
-                current_schema = child_schema_at(*current_schema, slot);
+                current_schema = view.context_ref().schema;
             }
 
             return view;
@@ -134,7 +152,7 @@ namespace hgraph::v2
                 if (current_schema == nullptr) { throw std::invalid_argument("v2 output navigation requires a schema"); }
 
                 if (slot == key_set_path) {
-                    const TSMeta *target_schema = child_schema_at(*current_schema, slot);
+                    const TSMeta *target_schema = navigable_child_schema_at(*current_schema, slot);
                     TSOutput *owning_output = view.owning_output();
                     if (owning_output == nullptr) {
                         throw std::logic_error("v2 key_set output navigation requires an owning output endpoint");
@@ -162,7 +180,7 @@ namespace hgraph::v2
                         throw std::invalid_argument("v2 output navigation only supports TSB and fixed-size TSL");
                 }
 
-                current_schema = child_schema_at(*current_schema, slot);
+                current_schema = navigable_child_schema_at(*current_schema, slot);
             }
 
             return view;
@@ -171,6 +189,15 @@ namespace hgraph::v2
         [[nodiscard]] size_t node_count(const GraphBuilder &builder) noexcept
         {
             return builder.node_builder_count();
+        }
+
+        [[nodiscard]] const TSMeta *edge_source_schema(const GraphBuilder &graph_builder, const Edge &edge) noexcept
+        {
+            const auto &src_builder = graph_builder.node_builder_at(static_cast<size_t>(edge.src_node));
+            if (!edge.output_path.empty() && edge.output_path.front() == state_path) {
+                return nullptr;
+            }
+            return src_builder.output_schema();
         }
 
         [[nodiscard]] std::vector<std::vector<TSInputConstructionEdge>>
@@ -187,6 +214,7 @@ namespace hgraph::v2
                 inbound_edges[edge.dst_node].push_back(TSInputConstructionEdge{
                     .input_path = edge.input_path,
                     .binding = TSInputBindingRef{.src_node = edge.src_node, .output_path = edge.output_path},
+                    .source_schema = edge_source_schema(graph_builder, edge),
                 });
             }
 

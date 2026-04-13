@@ -623,13 +623,14 @@ namespace hgraph
     /**
      * State carried by a signal time-series.
      *
-     * Signals are usually leaves, but they can also aggregate child signals
-     * when a non-peered collection is bound into a SIGNAL input. That mirrors
-     * the legacy `TimeSeriesSignalInput` behavior where child signal inputs are
-     * created lazily under the parent signal and any child tick promotes the
-     * parent signal.
+     * Signals are usually leaves, but a non-peered collection bound into a
+     * SIGNAL input is represented as a signal wrapper around a planned child
+     * state tree for the bound shape. Any child tick promotes the parent
+     * signal without exposing the bound value semantics through the SIGNAL API.
      */
     struct HGRAPH_EXPORT SignalState : BaseCollectionState
-    {};
+    {
+        const TSMeta *bound_schema{nullptr};
+    };
 
 }  // namespace hgraph

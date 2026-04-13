@@ -46,7 +46,8 @@ namespace hgraph
         TSInputConstructionSlot &operator=(TSInputConstructionSlot &&) noexcept = default;
         ~TSInputConstructionSlot() = default;
 
-        [[nodiscard]] static TSInputConstructionSlot create_non_peered_collection(const TSMeta *schema);
+        [[nodiscard]] static TSInputConstructionSlot create_non_peered_collection(const TSMeta *schema,
+                                                                                  const TSMeta *bound_schema = nullptr);
         [[nodiscard]] static TSInputConstructionSlot create_link_terminal(const TSMeta *schema,
                                                                           TSInputBindingRef binding = {}) noexcept;
 
@@ -58,6 +59,16 @@ namespace hgraph
         [[nodiscard]] const TSMeta *schema() const noexcept
         {
             return m_schema.ptr();
+        }
+
+        [[nodiscard]] const TSMeta *bound_schema() const noexcept
+        {
+            return m_bound_schema;
+        }
+
+        void set_bound_schema(const TSMeta *schema) noexcept
+        {
+            m_bound_schema = schema;
         }
 
         [[nodiscard]] bool is_non_peered_collection() const noexcept
@@ -85,6 +96,7 @@ namespace hgraph
         }
 
         SchemaPtr m_schema;
+        const TSMeta *m_bound_schema{nullptr};
         Payload m_payload;
 
         friend struct TSInputConstructionPlan;
@@ -96,6 +108,7 @@ namespace hgraph
     {
         std::vector<int64_t> input_path;
         TSInputBindingRef    binding;
+        const TSMeta        *source_schema{nullptr};
     };
 
     struct HGRAPH_EXPORT TSInputConstructionPlan
