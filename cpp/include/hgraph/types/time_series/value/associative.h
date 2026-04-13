@@ -136,6 +136,15 @@ namespace hgraph
             [[nodiscard]] virtual const void *key_data(const void *data, size_t index) const = 0;
             [[nodiscard]] virtual void *value_data(void *data, size_t index) const = 0;
             [[nodiscard]] virtual const void *value_data(const void *data, size_t index) const = 0;
+            /**
+             * Mark an existing live slot's value payload as updated in the
+             * current mutation epoch without changing the key or reassigning
+             * the mapped storage.
+             *
+             * This is the integration point used when a nested TS child
+             * mutates in place inside a native `TSD` value slot.
+             */
+            virtual void mark_value_updated(void *data, size_t slot, engine_time_t evaluation_time) const = 0;
             virtual void add_slot_observer(void *data, SlotObserver *observer) const = 0;
             virtual void remove_slot_observer(void *data, SlotObserver *observer) const = 0;
             /**

@@ -26,6 +26,25 @@ namespace hgraph
             return std::ranges::any_of(state.child_states, [](const auto &child) { return child != nullptr; });
         }
 
+        void notify_collection_child_modified(TSLState &state, size_t child_index, engine_time_t modified_time) noexcept
+        {
+            state.child_modified(child_index, modified_time);
+        }
+
+        void notify_collection_child_modified(TSBState &state, size_t child_index, engine_time_t modified_time) noexcept
+        {
+            state.child_modified(child_index, modified_time);
+        }
+
+        void notify_collection_child_modified(TSDState &state, size_t child_index, engine_time_t modified_time) noexcept
+        {
+            if (state.storage_kind == TSStorageKind::Native && state.map_dispatch != nullptr && state.map_value_data != nullptr) {
+                state.map_dispatch->mark_value_updated(state.map_value_data, child_index, modified_time);
+            }
+
+            state.BaseCollectionState::child_modified(child_index, modified_time);
+        }
+
         [[nodiscard]] TimeSeriesStateV *owning_state_variant(BaseState *state) noexcept
         {
             if (state == nullptr) { return nullptr; }
@@ -144,7 +163,7 @@ namespace hgraph
                     using T = std::remove_pointer_t<decltype(ptr)>;
 
                     if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState>) {
-                        ptr->child_modified(child_index, modified_time);
+                        notify_collection_child_modified(*ptr, child_index, modified_time);
                     }
                 },
                 [] {});

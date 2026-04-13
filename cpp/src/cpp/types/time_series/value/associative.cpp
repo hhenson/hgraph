@@ -1390,6 +1390,28 @@ namespace hgraph
                 return value_memory(*state(data), index);
             }
 
+            void mark_value_updated(void *data, size_t slot, engine_time_t evaluation_time) const override
+            {
+                if constexpr (tracks_deltas_v) {
+                    MapState *map = state(data);
+                    begin_time_aware_mutation_scope(
+                        *map, evaluation_time, [&] { release_removed(*map); }, "Map");
+
+                    const auto &key_state = keys(data);
+                    if (slot < key_state.capacity && key_state.occupied.test(slot) && key_state.alive.test(slot) &&
+                        !map->keys.added.test(slot)) {
+                        map->updated.set(slot);
+                        note_collection_modified(*map);
+                    }
+
+                    leave_mutation_scope(map->mutation_state, "Map");
+                } else {
+                    static_cast<void>(data);
+                    static_cast<void>(slot);
+                    static_cast<void>(evaluation_time);
+                }
+            }
+
             void add_slot_observer(void *data, SlotObserver *observer) const override
             {
                 if constexpr (tracks_deltas_v) {
