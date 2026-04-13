@@ -45,6 +45,7 @@ namespace hgraph::v2
                 target.output_view_ops != nullptr ? target.output_view_ops : &detail::default_output_view_ops(),
             };
         }
+
     }  // namespace
 
     TimeSeriesReference atomic_default_value(std::type_identity<TimeSeriesReference>)

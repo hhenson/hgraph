@@ -27,6 +27,7 @@ from hgraph import (
     graph,
     TS,
     TSS,
+    compute_set_delta,
     set_delta,
     Removed,
     contains_,
@@ -55,8 +56,8 @@ def test_output_set_initial_value():
 def test_output_set_via_frozenset():
     """Test setting value via frozenset."""
     @compute_node
-    def from_frozenset(ts: TS[frozenset[int]]) -> TSS[int]:
-        return ts.value
+    def from_frozenset(ts: TS[frozenset[int]], _output: TSS[int] = None) -> TSS[int]:
+        return compute_set_delta(ts, _output)
 
     # First tick sets full set, subsequent ticks compute delta
     assert eval_node(from_frozenset, [frozenset({1, 2}), frozenset({2, 3})]) == [
@@ -459,8 +460,8 @@ def test_add_already_existing_no_delta():
 def test_clear_set_via_frozenset():
     """Test clearing the set by assigning empty frozenset."""
     @compute_node
-    def clear_via_frozenset(ts: TS[frozenset[int]]) -> TSS[int]:
-        return ts.value
+    def clear_via_frozenset(ts: TS[frozenset[int]], _output: TSS[int] = None) -> TSS[int]:
+        return compute_set_delta(ts, _output)
 
     # Set to {1,2,3}, then clear to empty
     result = eval_node(clear_via_frozenset, [frozenset({1, 2, 3}), frozenset()])

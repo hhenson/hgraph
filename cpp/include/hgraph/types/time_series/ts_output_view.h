@@ -68,6 +68,18 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
     void apply_result(nb::handle value) const;
 
     /**
+     * Check whether another result can be applied in the current evaluation
+     * tick without violating the output's mutation contract.
+     */
+    [[nodiscard]] bool can_apply_result(nb::handle value) const;
+
+    /**
+     * Clear the represented output position using schema-appropriate TS
+     * semantics.
+     */
+    void clear() const;
+
+    /**
      * Internal helper used by collection wrappers to preserve output-specific
      * runtime state when navigating to a child TS position.
      */

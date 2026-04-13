@@ -1,4 +1,4 @@
-from hgraph import graph, TS, TSS, compute_node, Removed, contains_, set_delta
+from hgraph import graph, TS, TSS, compute_node, Removed, contains_, compute_set_delta, set_delta
 from hgraph import pass_through_node
 from hgraph.test import eval_node
 
@@ -26,8 +26,8 @@ def test_tss_strait():
 
 def test_tss_set_frozenset():
     @compute_node
-    def c(ts: TS[frozenset[str]]) -> TSS[str]:
-        return ts.value
+    def c(ts: TS[frozenset[str]], _output: TSS[str] = None) -> TSS[str]:
+        return compute_set_delta(ts, _output)
 
     assert eval_node(c, [frozenset({"a", "b"}), frozenset({"a"}), frozenset({"b"})]) == [
         set_delta(frozenset({"a", "b"}), frozenset(), tp=str),

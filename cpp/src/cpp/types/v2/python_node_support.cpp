@@ -485,6 +485,11 @@ namespace hgraph::v2
                 return m_schema != nullptr && m_schema->kind == TSKind::TSS;
             }
 
+            [[nodiscard]] bool is_window() const noexcept
+            {
+                return m_schema != nullptr && m_schema->kind == TSKind::TSW;
+            }
+
             [[nodiscard]] bool is_reference() const noexcept
             {
                 return m_schema != nullptr && m_schema->kind == TSKind::REF;
@@ -685,10 +690,11 @@ namespace hgraph::v2
                     return result;
                 }
                 if (is_set()) {
-                    if (m_input != nullptr) {
-                        for (const View &item : input_view().as_set().values()) { result.append(item.to_python()); }
-                    } else {
-                        for (const View &item : output_view().as_set().values()) { result.append(item.to_python()); }
+                    const View value = current_value();
+                    if (!value.has_value()) { return result; }
+
+                    for (auto item : nb::iter(value.to_python())) {
+                        result.append(nb::borrow<nb::object>(item));
                     }
                     return result;
                 }
@@ -1165,7 +1171,8 @@ namespace hgraph::v2
             [[nodiscard]] nb::object output() const
             {
                 if (m_input == nullptr) { return nb::none(); }
-                if (const LinkedTSContext *target = input_view().linked_target(); target != nullptr && target->is_bound()) {
+                TSInputView view = input_view();
+                if (const LinkedTSContext *target = view.linked_target(); target != nullptr && target->is_bound()) {
                     return nb::cast(PythonTimeSeriesHandle{*target, evaluation_time()});
                 }
                 return nb::none();
@@ -1236,6 +1243,43 @@ namespace hgraph::v2
             void apply_result(nb::handle value) const
             {
                 output_view().apply_result(value);
+            }
+
+            [[nodiscard]] bool can_apply_result(nb::handle value) const
+            {
+                ensure_output();
+                return output_view().can_apply_result(value);
+            }
+
+            void clear() const
+            {
+                ensure_output();
+                output_view().clear();
+            }
+
+            [[nodiscard]] nb::object as_schema() const
+            {
+                if (!is_bundle()) { throw std::logic_error("v2 Python time-series as_schema requires a TSB schema"); }
+                return nb::cast(*this);
+            }
+
+            [[nodiscard]] bool has_removed_value() const
+            {
+                if (!is_window()) {
+                    throw std::logic_error("v2 Python time-series has_removed_value requires a TSW schema");
+                }
+                if (!current_value().has_value()) { return false; }
+                return BufferView{current_value()}.has_removed();
+            }
+
+            [[nodiscard]] nb::object removed_value() const
+            {
+                if (!is_window()) {
+                    throw std::logic_error("v2 Python time-series removed_value requires a TSW schema");
+                }
+                if (!current_value().has_value()) { return nb::none(); }
+                BufferView buffer{current_value()};
+                return buffer.has_removed() ? buffer.removed().to_python() : nb::none();
             }
 
             void set_value(nb::handle value) const
@@ -1968,7 +2012,7 @@ namespace hgraph::v2
             .def("removed", &PythonTimeSeriesHandle::removed)
             .def("add", [](const PythonTimeSeriesHandle &self, nb::handle item) { self.add_set_item(item); }, "item"_a)
             .def("remove", [](const PythonTimeSeriesHandle &self, nb::handle item) { self.remove_set_item(item); }, "item"_a)
-            .def("clear", [](const PythonTimeSeriesHandle &self) { self.clear_set_items(); })
+            .def("clear", &PythonTimeSeriesHandle::clear)
             .def("valid_values", &PythonTimeSeriesHandle::valid_values)
             .def("modified_values", &PythonTimeSeriesHandle::modified_values)
             .def("items", &PythonTimeSeriesHandle::items)
@@ -1983,6 +2027,10 @@ namespace hgraph::v2
             .def("make_active", &PythonTimeSeriesHandle::make_active)
             .def("make_passive", &PythonTimeSeriesHandle::make_passive)
             .def_prop_ro("active", &PythonTimeSeriesHandle::active)
+            .def_prop_ro("as_schema", &PythonTimeSeriesHandle::as_schema)
+            .def_prop_ro("has_removed_value", &PythonTimeSeriesHandle::has_removed_value)
+            .def_prop_ro("removed_value", &PythonTimeSeriesHandle::removed_value)
+            .def("can_apply_result", &PythonTimeSeriesHandle::can_apply_result, "value"_a)
             .def("apply_result", &PythonTimeSeriesHandle::apply_result, "value"_a)
             .def("__repr__", &PythonTimeSeriesHandle::repr);
 

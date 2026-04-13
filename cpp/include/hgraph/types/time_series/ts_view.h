@@ -70,8 +70,10 @@ namespace hgraph
             [[nodiscard]] virtual nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time) const;
             [[nodiscard]] virtual nb::object delta_to_python(const TSViewContext &context,
                                                              engine_time_t evaluation_time) const;
+            [[nodiscard]] virtual bool can_apply_result(const TSOutputView &view, nb::handle value) const;
             virtual void apply_result(const TSOutputView &view, nb::handle value) const;
             virtual void from_python(const TSOutputView &view, nb::handle value) const;
+            virtual void clear(const TSOutputView &view) const;
             [[nodiscard]] virtual View delta_value(const TSViewContext &context) const noexcept;
             [[nodiscard]] virtual engine_time_t last_modified_time(const TSViewContext &context) const noexcept;
             [[nodiscard]] virtual bool valid(const TSViewContext &context) const noexcept;

@@ -1,5 +1,6 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/active_trie.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_value_builder.h>
 #include <hgraph/types/time_series/ts_view.h>
@@ -69,6 +70,13 @@ namespace hgraph
             using View::data;
             using View::data_of;
             using MapView::map_dispatch;
+        };
+
+        struct RawBufferAccess : BufferView
+        {
+            explicit RawBufferAccess(const View &view) : BufferView(view) {}
+
+            using BufferView::element_at;
         };
 
         template <typename TState>
@@ -726,6 +734,42 @@ namespace hgraph
                 detail::list_from_python(view, value);
             }
 
+            void clear(const TSOutputView &view) const override
+            {
+                if (!view.valid()) { return; }
+
+                TSLState *state = list_state(view.context_ref());
+                const engine_time_t modified_time = view.evaluation_time();
+                auto list = view.value().as_list();
+                std::vector<size_t> changed;
+                changed.reserve(list.size());
+                for (size_t index = 0; index < list.size(); ++index) {
+                    if (list.at(index).has_value()) { changed.push_back(index); }
+                }
+                if (changed.empty()) { return; }
+
+                {
+                    auto mutation = list.begin_mutation();
+                    mutation.clear();
+                }
+
+                if (state != nullptr && state->last_modified_time != modified_time) { state->modified_children.clear(); }
+                mark_output_view_modified(view, modified_time);
+
+                if (state != nullptr) {
+                    for (const size_t index : changed) {
+                        if (index < state->child_states.size() && state->child_states[index] != nullptr) {
+                            if (BaseState *child_state = state_address(state->child_states[index]); child_state != nullptr) {
+                                child_state->mark_modified_local(modified_time);
+                            }
+                        }
+                        state->child_modified(index, modified_time);
+                    }
+
+                    if (!list.is_fixed()) { state->reset_child_states(); }
+                }
+            }
+
             [[nodiscard]] bool child_modified(const TSViewContext &context, size_t index) const noexcept override
             {
                 if (context.ts_state != nullptr && context.ts_state->storage_kind == TSStorageKind::Native) {
@@ -842,6 +886,42 @@ namespace hgraph
                     return;
                 }
                 detail::bundle_from_python(view, value);
+            }
+
+            void clear(const TSOutputView &view) const override
+            {
+                if (!view.valid()) { return; }
+
+                TSBState *state = bundle_state(view.context_ref());
+                const engine_time_t modified_time = view.evaluation_time();
+                auto bundle = view.value().as_bundle();
+                std::vector<size_t> changed;
+                changed.reserve(m_fields.size());
+                for (size_t index = 0; index < m_fields.size(); ++index) {
+                    if (bundle.at(index).has_value()) { changed.push_back(index); }
+                }
+                if (changed.empty()) { return; }
+
+                {
+                    auto mutation = bundle.begin_mutation();
+                    for (const size_t index : changed) {
+                        mutation.set(index, View::invalid_for(m_fields[index].schema.get().value_type));
+                    }
+                }
+
+                if (state != nullptr && state->last_modified_time != modified_time) { state->modified_children.clear(); }
+                mark_output_view_modified(view, modified_time);
+
+                if (state != nullptr) {
+                    for (const size_t index : changed) {
+                        if (index < state->child_states.size() && state->child_states[index] != nullptr) {
+                            if (BaseState *child_state = state_address(state->child_states[index]); child_state != nullptr) {
+                                child_state->mark_modified_local(modified_time);
+                            }
+                        }
+                        state->child_modified(index, modified_time);
+                    }
+                }
             }
 
             [[nodiscard]] bool child_modified(const TSViewContext &context, size_t index) const noexcept override
@@ -970,7 +1050,12 @@ namespace hgraph
 
             void apply_result(const TSOutputView &view, nb::handle value) const override
             {
-                detail::dict_apply_result(view, value);
+                detail::dict_from_python(view, value);
+            }
+
+            void clear(const TSOutputView &view) const override
+            {
+                detail::dict_apply_result(view, nb::dict());
             }
 
             void child_from_python(const TSOutputView &view, const View &key, nb::handle value) const override
@@ -1095,6 +1180,11 @@ namespace hgraph
                 detail::set_apply_result(view, value);
             }
 
+            void clear(const TSOutputView &view) const override
+            {
+                detail::clear_set_items(view);
+            }
+
             [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override
             {
                 return context.value().as_set().delta();
@@ -1112,17 +1202,7 @@ namespace hgraph
 
             [[nodiscard]] Range<View> values(const TSViewContext &context) const noexcept override
             {
-                return Range<View>{&context,
-                                   context.value().as_set().delta().slot_capacity(),
-                                   [](const void *opaque, size_t slot) {
-                                       const auto &context = *static_cast<const TSViewContext *>(opaque);
-                                       const auto delta = context.value().as_set().delta();
-                                       return delta.slot_occupied(slot) && !delta.slot_removed(slot);
-                                   },
-                                   [](const void *opaque, size_t slot) {
-                                       const auto &context = *static_cast<const TSViewContext *>(opaque);
-                                       return context.value().as_set().delta().at_slot(slot);
-                                   }};
+                return context.value().as_set().values();
             }
 
             [[nodiscard]] Range<View> added_values(const TSViewContext &context) const noexcept override
@@ -1195,17 +1275,49 @@ namespace hgraph
 
         struct WindowTSDispatch final : detail::TSWindowDispatch
         {
+            [[nodiscard]] nb::object to_python(const TSViewContext &context, engine_time_t) const override
+            {
+                nb::list result;
+                if (!context.value().has_value()) { return result; }
+                for (const View &item : values(context)) { result.append(item.to_python()); }
+                return result;
+            }
+
+            [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t) const override
+            {
+                if (!valid(context)) { return nb::none(); }
+
+                BufferView buffer{context.value()};
+                return buffer.empty() ? nb::none() : buffer.back().to_python();
+            }
+
+            [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override
+            {
+                return context.value().has_value() && size(context) != 0;
+            }
+
+            [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
+            {
+                if (!valid(context)) { return false; }
+
+                const TSMeta *schema = context.resolved().schema;
+                if (schema == nullptr || schema->kind != TSKind::TSW) { return false; }
+                if (schema->is_duration_based()) { return valid(context); }
+                return size(context) >= schema->min_period();
+            }
+
             [[nodiscard]] size_t size(const TSViewContext &context) const noexcept override
             {
-                return context.value().as_cyclic_buffer().size();
+                return context.value().has_value() ? BufferView{context.value()}.size() : 0;
             }
 
             [[nodiscard]] Range<View> values(const TSViewContext &context) const noexcept override
             {
+                if (!context.value().has_value()) { return Range<View>{nullptr, 0, nullptr, nullptr}; }
                 return Range<View>{&context, size(context), nullptr,
                                    [](const void *opaque, size_t index) {
                                        const auto &context = *static_cast<const TSViewContext *>(opaque);
-                                       return context.value().as_cyclic_buffer().at(index);
+                                       return RawBufferAccess{context.value()}.element_at(index);
                                    }};
             }
 

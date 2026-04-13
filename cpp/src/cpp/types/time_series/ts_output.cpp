@@ -1,6 +1,7 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/value/type_meta_bindings.h>
 #include <hgraph/types/v2/ref.h>
 #include <hgraph/util/scope.h>
 
@@ -44,7 +45,9 @@ namespace hgraph
                     return fmt::format("TSL[{}]",
                                        schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
                 case TSKind::TSW:
-                    return fmt::format("TSW[{}]", safe_type_name(schema->value_type));
+                    return fmt::format(
+                        "TSW[{}]",
+                        schema->value_type != nullptr ? safe_type_name(schema->value_type->element_type) : "?");
                 case TSKind::TSB:
                     return fmt::format("TSB[{}]",
                                        schema->data.tsb.bundle_name != nullptr ? schema->data.tsb.bundle_name : "?");
@@ -56,6 +59,12 @@ namespace hgraph
             }
 
             return "<?>";
+        }
+
+        [[nodiscard]] nb::object bundle_python_class(const TSMeta *schema)
+        {
+            if (schema == nullptr || schema->kind != TSKind::TSB || schema->value_type == nullptr) { return nb::none(); }
+            return value::get_compound_scalar_class(schema->value_type);
         }
 
         [[nodiscard]] const TSMeta *ts_bool_schema()
@@ -137,6 +146,18 @@ namespace hgraph
             return dispatch != nullptr ? dispatch->valid(context) : false;
         }
 
+        [[nodiscard]] bool context_modified(const TSViewContext &context, engine_time_t evaluation_time) noexcept
+        {
+            if (evaluation_time == MIN_DT) { return false; }
+
+            const TSViewContext resolved = context.resolved();
+            const auto *dispatch = resolved.ts_dispatch;
+            const engine_time_t last_modified =
+                dispatch != nullptr ? dispatch->last_modified_time(resolved)
+                                    : (resolved.ts_state != nullptr ? resolved.ts_state->last_modified_time : MIN_DT);
+            return last_modified == evaluation_time;
+        }
+
         [[nodiscard]] TSViewContext detached_context(const TSViewContext &context) noexcept
         {
             TSViewContext detached = context.resolved();
@@ -166,11 +187,6 @@ namespace hgraph
 
         [[nodiscard]] nb::object reference_to_python(const TSViewContext &context, engine_time_t evaluation_time)
         {
-            const View value = context.value();
-            if (value.has_value()) {
-                if (const auto *ref = value.as_atomic().try_as<v2::TimeSeriesReference>()) { return nb::cast(*ref); }
-            }
-
             BaseState *state = context.ts_state;
             if (state != nullptr) {
                 if (const LinkedTSContext *target = state->linked_target(); target != nullptr && target->is_bound()) {
@@ -183,6 +199,11 @@ namespace hgraph
                 }
             }
 
+            const View value = context.value();
+            if (value.has_value()) {
+                if (const auto *ref = value.as_atomic().try_as<v2::TimeSeriesReference>()) { return nb::cast(*ref); }
+            }
+
             return nb::cast(v2::TimeSeriesReference::make());
         }
 
@@ -191,7 +212,7 @@ namespace hgraph
             const TSMeta *schema = context.resolved().schema;
             if (schema == nullptr || schema->kind != TSKind::TSB) { return nb::none(); }
 
-            nb::object python_type = schema->python_type();
+            nb::object python_type = bundle_python_class(schema);
             if (!context.value().has_value()) {
                 if (python_type.is_valid() && !python_type.is_none()) {
                     nb::dict kwargs;
@@ -248,8 +269,8 @@ namespace hgraph
             }
 
             for (size_t i = 0; i < schema->field_count(); ++i) {
-                if (!field_dispatch->child_modified(context, i)) { continue; }
                 const TSViewContext child = field_dispatch->child_at(context, i);
+                if (!context_modified(child, evaluation_time)) { continue; }
                 if (!context_valid(child)) { continue; }
                 const auto &field_info = schema->fields()[i];
                 out[nb::str(field_info.name)] = delta_to_python_impl(child, evaluation_time);
@@ -398,11 +419,8 @@ namespace hgraph
 
         [[nodiscard]] nb::object set_to_python(const TSViewContext &context)
         {
-            nb::set out;
-            const auto *dispatch = context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_set() : nullptr;
-            if (dispatch == nullptr || !context.value().has_value()) { return out; }
-            for (const View &item : dispatch->values(context)) { out.add(item.to_python()); }
-            return out;
+            const View value = context.value();
+            return value.has_value() ? value.to_python() : nb::set();
         }
 
         [[nodiscard]] nb::object set_delta_to_python(const TSViewContext &context)
@@ -450,7 +468,7 @@ namespace hgraph
                 throw std::logic_error("TSOutputView bundle mutation requires a TSB schema");
             }
 
-            const nb::object python_type = schema->python_type();
+            const nb::object python_type = bundle_python_class(schema);
             if (python_type.is_valid() && !python_type.is_none() && nb::isinstance(value, python_type)) {
                 for (size_t i = 0; i < schema->field_count(); ++i) {
                     const std::string_view field_name = schema->fields()[i].name;
@@ -746,20 +764,13 @@ namespace hgraph
                 return;
             }
 
-            if (!(nb::isinstance<nb::set>(value) || nb::isinstance<nb::frozenset>(value) || nb::isinstance<nb::list>(value) ||
-                  nb::isinstance<nb::tuple>(value))) {
+            if (nb::isinstance<nb::set>(value) || nb::isinstance<nb::list>(value) || nb::isinstance<nb::tuple>(value) ||
+                nb::isinstance<nb::dict>(value)) {
                 set_from_python(view, value);
                 return;
             }
 
-            bool has_removed_wrappers = false;
-            for (auto item : nb::iter(value)) {
-                if (nb::isinstance(nb::borrow<nb::object>(item), removed_type())) {
-                    has_removed_wrappers = true;
-                    break;
-                }
-            }
-            if (has_removed_wrappers) {
+            if (!nb::isinstance<nb::frozenset>(value)) {
                 set_from_python(view, value);
                 return;
             }
@@ -787,23 +798,25 @@ namespace hgraph
             std::vector<Value> existing_items;
             for (const View &existing : set_view.values()) { existing_items.push_back(existing.clone()); }
 
-            auto mutation = set_view.begin_mutation(view.evaluation_time());
             bool changed = false;
+            {
+                auto mutation = set_view.begin_mutation(view.evaluation_time());
 
-            for (const Value &existing : existing_items) {
-                const bool keep = std::any_of(
-                    replacement.begin(),
-                    replacement.end(),
-                    [&](const Value &candidate) { return existing.view() == candidate.view(); });
-                if (!keep) { changed = mutation.remove(existing.view()) || changed; }
-            }
+                for (const Value &existing : existing_items) {
+                    const bool keep = std::any_of(
+                        replacement.begin(),
+                        replacement.end(),
+                        [&](const Value &candidate) { return existing.view() == candidate.view(); });
+                    if (!keep) { changed = mutation.remove(existing.view()) || changed; }
+                }
 
-            for (const Value &item : replacement) {
-                const bool exists = std::any_of(
-                    existing_items.begin(),
-                    existing_items.end(),
-                    [&](const Value &existing) { return existing.view() == item.view(); });
-                if (!exists) { changed = mutation.add(item.view()) || changed; }
+                for (const Value &item : replacement) {
+                    const bool exists = std::any_of(
+                        existing_items.begin(),
+                        existing_items.end(),
+                        [&](const Value &existing) { return existing.view() == item.view(); });
+                    if (!exists) { changed = mutation.add(item.view()) || changed; }
+                }
             }
 
             if (changed || (!view.valid() && replacement.empty())) { mark_output_view_modified(view, view.evaluation_time()); }
@@ -811,24 +824,35 @@ namespace hgraph
 
         void add_set_item(const TSOutputView &view, const View &item)
         {
-            auto set_view = view.value().as_set();
-            auto mutation = set_view.begin_mutation(view.evaluation_time());
-            if (mutation.add(item)) { mark_output_view_modified(view, view.evaluation_time()); }
+            bool changed = false;
+            {
+                auto set_view = view.value().as_set();
+                auto mutation = set_view.begin_mutation(view.evaluation_time());
+                changed = mutation.add(item);
+            }
+            if (changed) { mark_output_view_modified(view, view.evaluation_time()); }
         }
 
         void remove_set_item(const TSOutputView &view, const View &item)
         {
-            auto set_view = view.value().as_set();
-            auto mutation = set_view.begin_mutation(view.evaluation_time());
-            if (mutation.remove(item)) { mark_output_view_modified(view, view.evaluation_time()); }
+            bool changed = false;
+            {
+                auto set_view = view.value().as_set();
+                auto mutation = set_view.begin_mutation(view.evaluation_time());
+                changed = mutation.remove(item);
+            }
+            if (changed) { mark_output_view_modified(view, view.evaluation_time()); }
         }
 
         void clear_set_items(const TSOutputView &view)
         {
-            auto set_view = view.value().as_set();
-            const bool had_live_values = set_view.size() != 0;
-            auto mutation = set_view.begin_mutation(view.evaluation_time());
-            mutation.clear();
+            bool had_live_values = false;
+            {
+                auto set_view = view.value().as_set();
+                had_live_values = set_view.size() != 0;
+                auto mutation = set_view.begin_mutation(view.evaluation_time());
+                mutation.clear();
+            }
             if (had_live_values) { mark_output_view_modified(view, view.evaluation_time()); }
         }
 
@@ -924,22 +948,11 @@ namespace hgraph
 
         [[nodiscard]] LinkedTSContext feature_source_context(const TSOutputView &view)
         {
-            const TSViewContext resolved = view.context_ref().resolved();
-            BaseState *state = view.context_ref().ts_state != nullptr ? view.context_ref().ts_state->resolved_state() : nullptr;
-            if (state == nullptr || resolved.schema == nullptr || resolved.value_dispatch == nullptr || resolved.ts_dispatch == nullptr) {
+            LinkedTSContext source_context = view.linked_context();
+            if (!source_context.is_bound()) {
                 throw std::invalid_argument("TSOutputView feature registration requires a resolved output position");
             }
-
-            return LinkedTSContext{
-                resolved.schema,
-                resolved.value_dispatch,
-                resolved.ts_dispatch,
-                resolved.value_data,
-                state,
-                nullptr,
-                nullptr,
-                state,
-            };
+            return source_context;
         }
 
         struct CollectionFeatureRegistry final : TimeSeriesFeatureRegistry
@@ -2840,9 +2853,21 @@ namespace hgraph
         mark_output_view_modified(view, view.evaluation_time());
     }
 
+    bool detail::TSDispatch::can_apply_result(const TSOutputView &view, nb::handle value) const
+    {
+        static_cast<void>(value);
+        return !view.modified();
+    }
+
     void detail::TSDispatch::apply_result(const TSOutputView &view, nb::handle value) const
     {
         from_python(view, value);
+    }
+
+    void detail::TSDispatch::clear(const TSOutputView &view) const
+    {
+        static_cast<void>(view);
+        throw std::logic_error("TS clear() is only implemented for collection schemas");
     }
 
     void detail::TSKeyDispatch::child_from_python(const TSOutputView &, const View &, nb::handle) const
@@ -2872,6 +2897,23 @@ namespace hgraph
             return;
         }
         dispatch->apply_result(*this, value);
+    }
+
+    bool TSOutputView::can_apply_result(nb::handle value) const
+    {
+        if (value.is_none()) { return true; }
+        const auto *dispatch = context_ref().resolved().ts_dispatch;
+        return dispatch != nullptr ? dispatch->can_apply_result(*this, value) : !modified();
+    }
+
+    void TSOutputView::clear() const
+    {
+        const auto *dispatch = context_ref().resolved().ts_dispatch;
+        if (dispatch == nullptr) {
+            from_python(nb::none());
+            return;
+        }
+        dispatch->clear(*this);
     }
 
     void TSOutputView::from_python(nb::handle value) const

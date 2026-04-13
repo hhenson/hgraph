@@ -43,6 +43,11 @@ def valid_impl(ts: REF[TIME_SERIES_TYPE], ts_value: TIME_SERIES_TYPE = None, _ou
     return False if _output.value is not False else None
 
 
+@valid_impl.start
+def valid_impl_start(_output: TS_OUT[bool]) -> TS[bool]:
+    _output.apply_result(False)
+
+
 @compute_node(overloads=modified)
 def modified_impl(ts: SIGNAL, _schedule: SCHEDULER = None, _output: TS_OUT[bool] = None) -> TS[bool]:
     if ts.modified:
