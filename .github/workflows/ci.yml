@@ -70,7 +70,7 @@ jobs:
           ls -la dist || true
 
       - name: Upload built wheels (all OS)
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: wheels-${{ runner.os }}
           path: dist/**
@@ -99,7 +99,7 @@ jobs:
 
       - name: Upload repaired Linux wheels (manylinux)
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: wheels-linux-manylinux
           path: wheelhouse/**
@@ -243,7 +243,7 @@ jobs:
 
       - name: Upload core dumps (Linux only)
         if: failure() && runner.os == 'Linux'
-        uses: actions/upload-artifact@v7.0.0
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: linux-core-dumps
           path: |
