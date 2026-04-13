@@ -1,6 +1,6 @@
 from functools import wraps
 from inspect import signature, isfunction
-from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any
+from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, Any, overload
 
 from frozendict import frozendict
 
@@ -42,6 +42,12 @@ COMPUTE_NODE_SIGNATURE = TypeVar("COMPUTE_NODE_SIGNATURE", bound=Callable)
 SINK_NODE_SIGNATURE = TypeVar("SINK_NODE_SIGNATURE", bound=Callable)
 GRAPH_SIGNATURE = TypeVar("GRAPH_SIGNATURE", bound=Callable)
 
+
+@overload
+def operator(fn: GRAPH_SIGNATURE) -> GRAPH_SIGNATURE: ...
+
+@overload
+def operator(*, deprecated: bool | str = ...) -> Callable[[GRAPH_SIGNATURE], GRAPH_SIGNATURE]: ...
 
 def operator(fn: GRAPH_SIGNATURE = None, deprecated: bool | str = False) -> GRAPH_SIGNATURE:
     """
@@ -99,6 +105,24 @@ def operator(fn: GRAPH_SIGNATURE = None, deprecated: bool | str = False) -> GRAP
         deprecated=deprecated,
     )
 
+
+@overload
+def compute_node(fn: COMPUTE_NODE_SIGNATURE, /) -> COMPUTE_NODE_SIGNATURE: ...
+
+@overload
+def compute_node(
+    fn: None = ...,
+    /,
+    node_impl: Any = ...,
+    active: Sequence[str] | Callable = ...,
+    valid: Sequence[str] | Callable = ...,
+    all_valid: Sequence[str] | Callable = ...,
+    overloads: "WiringNodeClass" | COMPUTE_NODE_SIGNATURE = ...,
+    resolvers: Mapping["Type", Callable] = ...,
+    requires: Callable[[..., ...], bool] = ...,
+    label: str | None = ...,
+    deprecated: bool | str = ...,
+) -> Callable[[COMPUTE_NODE_SIGNATURE], COMPUTE_NODE_SIGNATURE]: ...
 
 def compute_node(
     fn: COMPUTE_NODE_SIGNATURE = None,
@@ -222,6 +246,15 @@ def compute_node(
     )
 
 
+@overload
+def pull_source_node(fn: SOURCE_NODE_SIGNATURE, /) -> SOURCE_NODE_SIGNATURE: ...
+
+@overload
+def pull_source_node(
+    fn: None = ..., /, node_impl: Any = ..., resolvers: Mapping["TypeVar", Callable] = ...,
+    requires: Callable[[..., ...], bool] = ..., label: str | None = ..., deprecated: bool | str = ...,
+) -> Callable[[SOURCE_NODE_SIGNATURE], SOURCE_NODE_SIGNATURE]: ...
+
 def pull_source_node(
     fn: SOURCE_NODE_SIGNATURE = None,
     /,
@@ -248,6 +281,15 @@ def pull_source_node(
     )
 
 
+@overload
+def push_source_node(fn: SOURCE_NODE_SIGNATURE, /) -> SOURCE_NODE_SIGNATURE: ...
+
+@overload
+def push_source_node(
+    fn: None = ..., /, node_impl: Any = ..., resolvers: Mapping["TypeVar", Callable] = ...,
+    requires: Callable[[..., ...], bool] = ..., label: str | None = ..., deprecated: bool | str = ...,
+) -> Callable[[SOURCE_NODE_SIGNATURE], SOURCE_NODE_SIGNATURE]: ...
+
 def push_source_node(
     fn: SOURCE_NODE_SIGNATURE = None,
     /,
@@ -272,6 +314,17 @@ def push_source_node(
         deprecated=deprecated,
     )
 
+
+@overload
+def sink_node(fn: SINK_NODE_SIGNATURE, /) -> SINK_NODE_SIGNATURE: ...
+
+@overload
+def sink_node(
+    fn: None = ..., /, node_impl: Any = ..., active: Sequence[str] | Callable = ...,
+    valid: Sequence[str] | Callable = ..., all_valid: Sequence[str] | Callable = ...,
+    overloads: "WiringNodeClass" | SINK_NODE_SIGNATURE = ..., resolvers: Mapping["Type", Callable] = ...,
+    requires: Callable[[..., ...], bool] = ..., label: str | None = ..., deprecated: bool | str = ...,
+) -> Callable[[SINK_NODE_SIGNATURE], SINK_NODE_SIGNATURE]: ...
 
 def sink_node(
     fn: SINK_NODE_SIGNATURE = None,
@@ -327,6 +380,16 @@ def sink_node(
         deprecated=deprecated,
     )
 
+
+@overload
+def graph(fn: GRAPH_SIGNATURE) -> GRAPH_SIGNATURE: ...
+
+@overload
+def graph(
+    fn: None = ..., overloads: "WiringNodeClass" | GRAPH_SIGNATURE = ...,
+    resolvers: Mapping["TypeVar", Callable] = ..., requires: Callable[[..., ...], bool] = ...,
+    label: str | None = ..., deprecated: bool | str = ...,
+) -> Callable[[GRAPH_SIGNATURE], GRAPH_SIGNATURE]: ...
 
 def graph(
     fn: GRAPH_SIGNATURE = None,
@@ -387,6 +450,16 @@ def graph(
     )
 
 
+@overload
+def const_fn(fn: SOURCE_NODE_SIGNATURE) -> SOURCE_NODE_SIGNATURE: ...
+
+@overload
+def const_fn(
+    fn: None = ..., overloads: "WiringNodeClass" | GRAPH_SIGNATURE = ...,
+    resolvers: Mapping["TypeVar", Callable] = ..., requires: Callable[[..., ...], bool] = ...,
+    label: str | None = ..., deprecated: bool | str = ...,
+) -> Callable[[SOURCE_NODE_SIGNATURE], SOURCE_NODE_SIGNATURE]: ...
+
 def const_fn(
     fn: SOURCE_NODE_SIGNATURE = None,
     overloads: "WiringNodeClass" | GRAPH_SIGNATURE = None,
@@ -432,6 +505,16 @@ def const_fn(
         deprecated=deprecated,
     )
 
+
+@overload
+def generator(fn: SOURCE_NODE_SIGNATURE) -> SOURCE_NODE_SIGNATURE: ...
+
+@overload
+def generator(
+    fn: None = ..., overloads: "WiringNodeClass" | GRAPH_SIGNATURE = ...,
+    resolvers: Mapping["TypeVar", Callable] = ..., requires: Callable[[..., ...], bool] = ...,
+    label: str | None = ..., deprecated: bool | str = ...,
+) -> Callable[[SOURCE_NODE_SIGNATURE], SOURCE_NODE_SIGNATURE]: ...
 
 def generator(
     fn: SOURCE_NODE_SIGNATURE = None,
@@ -567,6 +650,12 @@ SERVICE_DEFINITION = TypeVar("SERVICE_DEFINITION", bound=Callable)
 default_path = None
 
 
+@overload
+def subscription_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION: ...
+
+@overload
+def subscription_service(*, resolvers: Mapping["TypeVar", Callable] = ...) -> Callable[[SERVICE_DEFINITION], SERVICE_DEFINITION]: ...
+
 def subscription_service(
     fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None
 ) -> SERVICE_DEFINITION:
@@ -596,6 +685,12 @@ def subscription_service(
     return _node_decorator(WiringNodeType.SUBS_SVC, fn, resolvers=resolvers)
 
 
+@overload
+def reference_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION: ...
+
+@overload
+def reference_service(*, resolvers: Mapping["TypeVar", Callable] = ...) -> Callable[[SERVICE_DEFINITION], SERVICE_DEFINITION]: ...
+
 def reference_service(
     fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None
 ) -> SERVICE_DEFINITION:
@@ -621,6 +716,12 @@ def reference_service(
 
     return _node_decorator(WiringNodeType.REF_SVC, fn, resolvers=resolvers)
 
+
+@overload
+def request_reply_service(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION: ...
+
+@overload
+def request_reply_service(*, resolvers: Mapping["TypeVar", Callable] = ...) -> Callable[[SERVICE_DEFINITION], SERVICE_DEFINITION]: ...
 
 def request_reply_service(
     fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None
@@ -697,7 +798,13 @@ def register_service(path: str, implementation, resolution_dict=None, **kwargs):
         WiringGraphContext.instance().register_service_impl(None, path, implementation, kwargs, resolution_dict)
 
 
-def adaptor(fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None):
+@overload
+def adaptor(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION: ...
+
+@overload
+def adaptor(*, resolvers: Mapping["TypeVar", Callable] = ...) -> Callable[[SERVICE_DEFINITION], SERVICE_DEFINITION]: ...
+
+def adaptor(fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None) -> SERVICE_DEFINITION:
     """
     ::
 
@@ -742,7 +849,15 @@ def adaptor_impl(
     )
 
 
-def service_adaptor(interface, resolvers: Mapping["TypeVar", Callable] = None):
+@overload
+def service_adaptor(fn: SERVICE_DEFINITION) -> SERVICE_DEFINITION: ...
+
+@overload
+def service_adaptor(*, resolvers: Mapping["TypeVar", Callable] = ...) -> Callable[[SERVICE_DEFINITION], SERVICE_DEFINITION]: ...
+
+def service_adaptor(
+    fn: SERVICE_DEFINITION = None, resolvers: Mapping["TypeVar", Callable] = None
+) -> SERVICE_DEFINITION:
     """
     ::
 
@@ -776,7 +891,7 @@ def service_adaptor(interface, resolvers: Mapping["TypeVar", Callable] = None):
     """
     from hgraph._wiring._wiring_node_signature import WiringNodeType
 
-    return _node_decorator(WiringNodeType.SERVICE_ADAPTOR, interface, resolvers=resolvers)
+    return _node_decorator(WiringNodeType.SERVICE_ADAPTOR, fn, resolvers=resolvers)
 
 
 def service_adaptor_impl(
@@ -828,6 +943,15 @@ def register_adaptor(path: str, implementation, resolution_dict=None, **kwargs):
         assert path, "A catch-all adaptor must have a path"
         WiringGraphContext.instance().register_service_impl(None, path, implementation, kwargs, resolution_dict)
 
+
+@overload
+def component(fn: GRAPH_SIGNATURE) -> GRAPH_SIGNATURE: ...
+
+@overload
+def component(
+    fn: None = ..., *, recordable_id: str | None = ..., resolvers: Mapping["TypeVar", Callable] = ...,
+    label: str | None = ..., deprecated: bool | str = ...,
+) -> Callable[[GRAPH_SIGNATURE], GRAPH_SIGNATURE]: ...
 
 def component(
     fn: GRAPH_SIGNATURE = None,
@@ -1094,7 +1218,15 @@ def _create_node(
         out = node_class(signature, impl_fn)
     else:
         out = node_class(signature, impl_fn, interfaces=interfaces)
-    out.__doc__ = signature_fn.__doc__
+    # Preserve function metadata for IDE introspection and inspect.unwrap() support
+    if callable(signature_fn) and not isinstance(signature_fn, WiringNodeSignature):
+        out.__doc__ = signature_fn.__doc__
+        out.__name__ = getattr(signature_fn, "__name__", None)
+        out.__module__ = getattr(signature_fn, "__module__", None)
+        out.__qualname__ = getattr(signature_fn, "__qualname__", None)
+        out.__wrapped__ = signature_fn
+    else:
+        out.__doc__ = getattr(signature_fn, "__doc__", None)
     return out
 
 
