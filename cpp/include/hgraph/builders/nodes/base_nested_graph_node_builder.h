@@ -59,7 +59,7 @@ namespace hgraph {
                 args[5].is_none()
                     ? std::nullopt
                     : std::optional<output_builder_s_ptr>(nb::cast<output_builder_s_ptr>(args[5]));
-        auto nested_graph_builder = nb::cast<graph_builder_s_ptr>(args[6]);
+        auto nested_graph_builder = coerce_graph_builder(args[6]);
         auto input_node_ids = nb::cast<std::unordered_map<std::string, int> >(args[7]);
         auto output_node_id = nb::cast<int>(args[8]);
 

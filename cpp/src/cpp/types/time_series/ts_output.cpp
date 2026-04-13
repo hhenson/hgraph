@@ -550,6 +550,81 @@ namespace hgraph
             if (changed) { mark_output_view_modified(view, view.evaluation_time()); }
         }
 
+        void dict_apply_result(const TSOutputView &view, nb::handle value)
+        {
+            if (nb::hasattr(value, "items")) {
+                const nb::object items_object = nb::getattr(value, "items")();
+                bool has_remove_sentinel = false;
+                for (auto item : nb::iter(items_object)) {
+                    nb::object entry_value = nb::borrow<nb::object>(item[1]);
+                    if (entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) {
+                        has_remove_sentinel = true;
+                        break;
+                    }
+                }
+                if (has_remove_sentinel) {
+                    dict_from_python(view, value);
+                    return;
+                }
+
+                const TSMeta *schema = view.ts_schema();
+                if (schema == nullptr || schema->kind != TSKind::TSD) {
+                    throw std::logic_error("TSOutputView dict result application requires a TSD schema");
+                }
+
+                const value::TypeMeta *key_schema = schema->key_type();
+                const TSMeta *value_ts_schema = schema->element_ts();
+                const value::TypeMeta *mapped_schema = value_ts_schema != nullptr ? value_ts_schema->value_type : nullptr;
+                if (key_schema == nullptr || mapped_schema == nullptr) {
+                    throw std::logic_error("TSOutputView dict result application requires key and value schemas");
+                }
+
+                std::vector<std::pair<Value, Value>> replacement;
+                for (auto item : nb::iter(items_object)) {
+                    Value key_value(*key_schema);
+                    key_value.reset();
+                    key_value.from_python(nb::borrow<nb::object>(item[0]));
+
+                    Value mapped_value(*mapped_schema);
+                    mapped_value.reset();
+                    mapped_value.from_python(nb::borrow<nb::object>(item[1]));
+                    replacement.emplace_back(std::move(key_value), std::move(mapped_value));
+                }
+
+                auto map_view = view.value().as_map();
+                std::vector<Value> existing_keys;
+                const auto current_delta = map_view.delta();
+                for (size_t slot = 0; slot < current_delta.slot_capacity(); ++slot) {
+                    if (!current_delta.slot_occupied(slot) || current_delta.slot_removed(slot)) { continue; }
+                    existing_keys.push_back(current_delta.key_at_slot(slot).clone());
+                }
+
+                auto mutation = map_view.begin_mutation(view.evaluation_time());
+                bool changed = false;
+
+                for (const Value &existing_key : existing_keys) {
+                    const bool keep = std::any_of(
+                        replacement.begin(),
+                        replacement.end(),
+                        [&](const auto &candidate) { return existing_key.view() == candidate.first.view(); });
+                    if (!keep) { changed = mutation.remove(existing_key.view()) || changed; }
+                }
+
+                for (const auto &[key, mapped_value] : replacement) {
+                    const bool exists = map_view.contains(key.view());
+                    if (!exists || map_view.at(key.view()) != mapped_value.view()) {
+                        mutation.set(key.view(), mapped_value.view());
+                        changed = true;
+                    }
+                }
+
+                if (changed || (!view.valid() && replacement.empty())) { mark_output_view_modified(view, view.evaluation_time()); }
+                return;
+            }
+
+            dict_from_python(view, value);
+        }
+
         void dict_child_from_python(const TSOutputView &view, const View &key, nb::handle value)
         {
             const TSMeta *schema = view.ts_schema();
@@ -586,6 +661,11 @@ namespace hgraph
             mapped_value.from_python(entry_value);
             mutation.set(key, mapped_value.view());
             mark_output_view_modified(view, view.evaluation_time());
+        }
+
+        void erase_dict_key(const TSOutputView &view, const View &key)
+        {
+            dict_child_from_python(view, key, remove_sentinel());
         }
 
         void set_from_python(const TSOutputView &view, nb::handle value)
@@ -657,6 +737,99 @@ namespace hgraph
             }
 
             if (changed || !view.valid()) { mark_output_view_modified(view, view.evaluation_time()); }
+        }
+
+        void set_apply_result(const TSOutputView &view, nb::handle value)
+        {
+            if (nb::hasattr(value, "added") && nb::hasattr(value, "removed")) {
+                set_from_python(view, value);
+                return;
+            }
+
+            if (!(nb::isinstance<nb::set>(value) || nb::isinstance<nb::frozenset>(value) || nb::isinstance<nb::list>(value) ||
+                  nb::isinstance<nb::tuple>(value))) {
+                set_from_python(view, value);
+                return;
+            }
+
+            bool has_removed_wrappers = false;
+            for (auto item : nb::iter(value)) {
+                if (nb::isinstance(nb::borrow<nb::object>(item), removed_type())) {
+                    has_removed_wrappers = true;
+                    break;
+                }
+            }
+            if (has_removed_wrappers) {
+                set_from_python(view, value);
+                return;
+            }
+
+            const TSMeta *schema = view.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSS) {
+                throw std::logic_error("TSOutputView set result application requires a TSS schema");
+            }
+
+            auto set_view = view.value().as_set();
+            const value::TypeMeta *element_schema = set_view.element_schema();
+            if (element_schema == nullptr) {
+                throw std::logic_error("TSOutputView set result application requires an element schema");
+            }
+
+            std::vector<Value> replacement;
+            replacement.reserve(nb::len(value));
+            for (auto item : nb::iter(value)) {
+                Value element(*element_schema);
+                element.reset();
+                element.from_python(nb::borrow<nb::object>(item));
+                replacement.push_back(std::move(element));
+            }
+
+            std::vector<Value> existing_items;
+            for (const View &existing : set_view.values()) { existing_items.push_back(existing.clone()); }
+
+            auto mutation = set_view.begin_mutation(view.evaluation_time());
+            bool changed = false;
+
+            for (const Value &existing : existing_items) {
+                const bool keep = std::any_of(
+                    replacement.begin(),
+                    replacement.end(),
+                    [&](const Value &candidate) { return existing.view() == candidate.view(); });
+                if (!keep) { changed = mutation.remove(existing.view()) || changed; }
+            }
+
+            for (const Value &item : replacement) {
+                const bool exists = std::any_of(
+                    existing_items.begin(),
+                    existing_items.end(),
+                    [&](const Value &existing) { return existing.view() == item.view(); });
+                if (!exists) { changed = mutation.add(item.view()) || changed; }
+            }
+
+            if (changed || (!view.valid() && replacement.empty())) { mark_output_view_modified(view, view.evaluation_time()); }
+        }
+
+        void add_set_item(const TSOutputView &view, const View &item)
+        {
+            auto set_view = view.value().as_set();
+            auto mutation = set_view.begin_mutation(view.evaluation_time());
+            if (mutation.add(item)) { mark_output_view_modified(view, view.evaluation_time()); }
+        }
+
+        void remove_set_item(const TSOutputView &view, const View &item)
+        {
+            auto set_view = view.value().as_set();
+            auto mutation = set_view.begin_mutation(view.evaluation_time());
+            if (mutation.remove(item)) { mark_output_view_modified(view, view.evaluation_time()); }
+        }
+
+        void clear_set_items(const TSOutputView &view)
+        {
+            auto set_view = view.value().as_set();
+            const bool had_live_values = set_view.size() != 0;
+            auto mutation = set_view.begin_mutation(view.evaluation_time());
+            mutation.clear();
+            if (had_live_values) { mark_output_view_modified(view, view.evaluation_time()); }
         }
 
     }  // namespace detail
@@ -1153,12 +1326,53 @@ namespace hgraph
                     };
                 }
             };
+
+            struct PendingDictChildViewOps final : TSOutputViewOps
+            {
+                PendingDictChildViewOps(LinkedTSContext parent_context_, Value key_)
+                    : parent_context(std::move(parent_context_)),
+                      key(std::move(key_))
+                {
+                }
+
+                [[nodiscard]] LinkedTSContext linked_context(const TSOutputView &view) const noexcept override
+                {
+                    static_cast<void>(view);
+                    return LinkedTSContext::none();
+                }
+
+                bool from_python(const TSOutputView &view, nb::handle value) const override
+                {
+                    TSOutputView parent_view = output_view_from_context(parent_context, view.evaluation_time());
+                    parent_view.as_dict().from_python(key.view(), value);
+                    return true;
+                }
+
+                LinkedTSContext parent_context;
+                Value key;
+            };
         }  // namespace
 
         const TSOutputViewOps &default_output_view_ops() noexcept
         {
             static DefaultTSOutputViewOps ops;
             return ops;
+        }
+
+        TSOutputView make_missing_dict_child_output_view(const TSOutputView &view, const View &key)
+        {
+            const TSMeta *schema = view.ts_schema();
+            const TSMeta *child_schema = schema != nullptr ? schema->element_ts() : nullptr;
+            if (child_schema == nullptr) {
+                return view.make_child_view_impl(TSViewContext::none(), view.context_ref(), view.evaluation_time());
+            }
+
+            TSViewContext child_context;
+            child_context.schema = child_schema;
+
+            auto ops = std::make_shared<PendingDictChildViewOps>(view.linked_context(), key.clone());
+            child_context.output_view_ops = ops.get();
+            return view.make_child_view_impl(child_context, view.context_ref(), view.evaluation_time(), std::move(ops));
         }
     }  // namespace detail
 
@@ -2626,6 +2840,11 @@ namespace hgraph
         mark_output_view_modified(view, view.evaluation_time());
     }
 
+    void detail::TSDispatch::apply_result(const TSOutputView &view, nb::handle value) const
+    {
+        from_python(view, value);
+    }
+
     void detail::TSKeyDispatch::child_from_python(const TSOutputView &, const View &, nb::handle) const
     {
         throw std::logic_error("TSKeyDispatch child_from_python is not implemented for this dispatch");
@@ -2647,13 +2866,19 @@ namespace hgraph
     void TSOutputView::apply_result(nb::handle value) const
     {
         if (value.is_none()) { return; }
-        from_python(value);
+        const auto *dispatch = context_ref().resolved().ts_dispatch;
+        if (dispatch == nullptr) {
+            from_python(value);
+            return;
+        }
+        dispatch->apply_result(*this, value);
     }
 
     void TSOutputView::from_python(nb::handle value) const
     {
         const auto *dispatch = context_ref().resolved().ts_dispatch;
         if (dispatch == nullptr) {
+            if (const auto *ops = output_view_ops(); ops != nullptr && ops->from_python(*this, value)) { return; }
             throw std::logic_error("TSOutputView Python mutation requires a dispatch");
         }
         dispatch->from_python(*this, value);

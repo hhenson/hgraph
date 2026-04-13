@@ -84,11 +84,6 @@ namespace hgraph::v2
             throw std::logic_error("v2 Python time-series dict schema is missing its value type");
         }
 
-        void mark_output_modified(const TSOutputView &view, engine_time_t evaluation_time)
-        {
-            mark_output_view_modified(view, evaluation_time);
-        }
-
         [[nodiscard]] TSOutputView output_view_from_context(const LinkedTSContext &context, engine_time_t evaluation_time)
         {
             TSViewContext view_context{
@@ -1100,11 +1095,7 @@ namespace hgraph::v2
                 if (!is_dict()) { throw std::logic_error("v2 Python time-series __delitem__ requires a TSD schema"); }
                 ensure_output();
                 const Value key_value = key_value_from_python(key);
-                auto view = output_view();
-                const bool removed =
-                    view.value().as_map().begin_mutation(evaluation_time()).remove(key_value.view());
-                if (!removed) { throw nb::key_error("TSD key not found"); }
-                mark_output_modified(view, evaluation_time());
+                output_view().as_dict().erase(key_value.view());
             }
 
             [[nodiscard]] PythonTimeSeriesHandle get_ref(const nb::handle &key, nb::object requester = nb::none()) const
@@ -1249,10 +1240,6 @@ namespace hgraph::v2
 
             void set_value(nb::handle value) const
             {
-                if (is_direct_dict_value()) {
-                    output_view_prefix(m_path_steps.size() - 1).as_dict().from_python(m_path_steps.back().key.view(), value);
-                    return;
-                }
                 output_view().from_python(value);
             }
 
@@ -1289,11 +1276,6 @@ namespace hgraph::v2
                 key_value.reset();
                 key_value.from_python(nb::borrow<nb::object>(key));
                 return key_value;
-            }
-
-            [[nodiscard]] bool is_direct_dict_value() const noexcept
-            {
-                return !m_path_steps.empty() && m_path_steps.back().kind == PathStep::Kind::Key;
             }
 
             [[nodiscard]] PythonTimeSeriesHandle detached_value_item(const View &value, const TSMeta *schema) const
@@ -1360,9 +1342,7 @@ namespace hgraph::v2
                 if (!is_set()) { throw std::logic_error("v2 Python time-series add() requires a TSS schema"); }
                 ensure_output();
 
-                TSOutputView view = output_view();
-                auto set_view = view.value().as_set();
-                const value::TypeMeta *element_schema = set_view.element_schema();
+                const value::TypeMeta *element_schema = output_view().value().as_set().element_schema();
                 if (element_schema == nullptr) {
                     throw std::logic_error("v2 Python set output add() requires an element schema");
                 }
@@ -1370,9 +1350,7 @@ namespace hgraph::v2
                 Value element(*element_schema);
                 element.reset();
                 element.from_python(nb::borrow<nb::object>(item));
-
-                auto mutation = set_view.begin_mutation(evaluation_time());
-                if (mutation.add(element.view())) { mark_output_modified(view, evaluation_time()); }
+                output_view().as_set().add(element.view());
             }
 
             void remove_set_item(const nb::handle &item) const
@@ -1380,9 +1358,7 @@ namespace hgraph::v2
                 if (!is_set()) { throw std::logic_error("v2 Python time-series remove() requires a TSS schema"); }
                 ensure_output();
 
-                TSOutputView view = output_view();
-                auto set_view = view.value().as_set();
-                const value::TypeMeta *element_schema = set_view.element_schema();
+                const value::TypeMeta *element_schema = output_view().value().as_set().element_schema();
                 if (element_schema == nullptr) {
                     throw std::logic_error("v2 Python set output remove() requires an element schema");
                 }
@@ -1390,22 +1366,14 @@ namespace hgraph::v2
                 Value element(*element_schema);
                 element.reset();
                 element.from_python(nb::borrow<nb::object>(item));
-
-                auto mutation = set_view.begin_mutation(evaluation_time());
-                if (mutation.remove(element.view())) { mark_output_modified(view, evaluation_time()); }
+                output_view().as_set().remove(element.view());
             }
 
             void clear_set_items() const
             {
                 if (!is_set()) { throw std::logic_error("v2 Python time-series clear() requires a TSS schema"); }
                 ensure_output();
-
-                TSOutputView view = output_view();
-                auto set_view = view.value().as_set();
-                const bool had_live_values = set_view.size() != 0;
-                auto mutation = set_view.begin_mutation(evaluation_time());
-                mutation.clear();
-                if (had_live_values) { mark_output_modified(view, evaluation_time()); }
+                output_view().as_set().clear();
             }
 
           private:

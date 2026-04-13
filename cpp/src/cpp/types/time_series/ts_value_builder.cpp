@@ -29,8 +29,10 @@ namespace hgraph
         [[nodiscard]] nb::object set_delta_to_python(const TSViewContext &context);
         void bundle_from_python(const TSOutputView &view, nb::handle value);
         void list_from_python(const TSOutputView &view, nb::handle value);
+        void dict_apply_result(const TSOutputView &view, nb::handle value);
         void dict_from_python(const TSOutputView &view, nb::handle value);
         void dict_child_from_python(const TSOutputView &view, const View &key, nb::handle value);
+        void set_apply_result(const TSOutputView &view, nb::handle value);
         void set_from_python(const TSOutputView &view, nb::handle value);
     }  // namespace detail
 
@@ -966,6 +968,11 @@ namespace hgraph
                 detail::dict_from_python(view, value);
             }
 
+            void apply_result(const TSOutputView &view, nb::handle value) const override
+            {
+                detail::dict_apply_result(view, value);
+            }
+
             void child_from_python(const TSOutputView &view, const View &key, nb::handle value) const override
             {
                 detail::dict_child_from_python(view, key, value);
@@ -1081,6 +1088,11 @@ namespace hgraph
                     return;
                 }
                 detail::set_from_python(view, value);
+            }
+
+            void apply_result(const TSOutputView &view, nb::handle value) const override
+            {
+                detail::set_apply_result(view, value);
             }
 
             [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override

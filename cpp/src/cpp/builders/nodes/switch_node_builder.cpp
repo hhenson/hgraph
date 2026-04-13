@@ -98,13 +98,13 @@ namespace hgraph {
                 auto nested_graph_builders = std::make_shared<SwitchNodeBuilder::graph_builders_map>();
                 for (auto item: py_nested_graph_builders) {
                     if (is_default_marker(item.first)) {
-                        default_graph_builder = nb::cast<graph_builder_s_ptr>(item.second);
+                        default_graph_builder = coerce_graph_builder(item.second);
                         continue;
                     }
                     // Convert Python key to Value
                     value::Value key(key_type);
                     key.from_python(nb::cast<nb::object>(item.first));
-                    nested_graph_builders->emplace(std::move(key), nb::cast<graph_builder_s_ptr>(item.second));
+                    nested_graph_builders->emplace(std::move(key), coerce_graph_builder(item.second));
                 }
 
                 auto py_input_node_ids = nb::cast<nb::dict>(args[8]);

@@ -9,6 +9,7 @@
 #include <hgraph/types/traits.h>
 #include <hgraph/types/ts_signal.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/types/v2/graph_builder.h>
 
 #include <string_view>
 
@@ -138,6 +139,18 @@ namespace hgraph
 
     size_t GraphBuilder::type_alignment() const {
         return alignof(Graph);
+    }
+
+    graph_builder_s_ptr coerce_graph_builder(nb::handle graph_builder)
+    {
+        if (!graph_builder.is_valid() || graph_builder.is_none()) { return {}; }
+        if (nb::isinstance<GraphBuilder>(graph_builder)) { return nb::cast<graph_builder_s_ptr>(graph_builder); }
+        if (nb::isinstance<v2::GraphBuilder>(graph_builder)) {
+            throw nb::type_error(
+                "Legacy nested graph builders do not support _hgraph.v2.GraphBuilder; nested v2 graphs are not implemented");
+        }
+
+        throw nb::type_error("Expected _hgraph.GraphBuilder");
     }
 
     void GraphBuilder::register_with_nanobind(nb::module_ &m) {

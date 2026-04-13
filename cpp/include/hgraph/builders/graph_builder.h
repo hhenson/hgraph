@@ -64,5 +64,12 @@ namespace hgraph {
 
         static void register_with_nanobind(nb::module_ &m);
     };
+
+    /**
+     * Accept only a legacy `_hgraph.GraphBuilder` for legacy nested-node
+     * builders. Passing a v2 graph builder is an explicit error until nested
+     * v2 graphs are implemented.
+     */
+    [[nodiscard]] HGRAPH_EXPORT graph_builder_s_ptr coerce_graph_builder(nb::handle graph_builder);
 }; // namespace hgraph
 #endif  // GRAPH_BUILDER_H

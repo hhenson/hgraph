@@ -3,6 +3,8 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/ts_view.h>
 
+#include <memory>
+
 namespace hgraph {
 
 /**
@@ -17,10 +19,12 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
                  TSViewContext parent,
                  engine_time_t evaluation_time,
                  TSOutput *owning_output = nullptr,
-                 const detail::TSOutputViewOps *output_view_ops = nullptr) noexcept
+                 const detail::TSOutputViewOps *output_view_ops = nullptr,
+                 std::shared_ptr<const detail::TSOutputViewOps> output_view_ops_owner = {}) noexcept
         : TSView<TSOutputView>(context, parent, evaluation_time),
           m_owning_output(owning_output),
-          m_output_view_ops(output_view_ops)
+          m_output_view_ops(output_view_ops != nullptr ? output_view_ops : output_view_ops_owner.get()),
+          m_output_view_ops_owner(std::move(output_view_ops_owner))
     {
     }
 
@@ -69,14 +73,22 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
      */
     [[nodiscard]] TSOutputView make_child_view_impl(TSViewContext context,
                                                     TSViewContext parent,
-                                                    engine_time_t evaluation_time) const noexcept
+                                                    engine_time_t evaluation_time,
+                                                    std::shared_ptr<const detail::TSOutputViewOps> output_view_ops_owner = {}) const noexcept
     {
-        return TSOutputView{std::move(context), parent, evaluation_time, m_owning_output, m_output_view_ops};
+        return TSOutputView{
+            std::move(context),
+            parent,
+            evaluation_time,
+            m_owning_output,
+            output_view_ops_owner != nullptr ? output_view_ops_owner.get() : m_output_view_ops,
+            std::move(output_view_ops_owner)};
     }
 
   private:
     TSOutput *m_owning_output{nullptr};
     const detail::TSOutputViewOps *m_output_view_ops{nullptr};
+    std::shared_ptr<const detail::TSOutputViewOps> m_output_view_ops_owner;
 };
 
 namespace detail {
@@ -85,6 +97,11 @@ namespace detail {
 HGRAPH_EXPORT void unregister_set_contains_output(const TSOutputView &view, const View &item);
 [[nodiscard]] HGRAPH_EXPORT TSOutputView register_set_is_empty_output(const TSOutputView &view);
 HGRAPH_EXPORT void unregister_set_is_empty_output(const TSOutputView &view);
+HGRAPH_EXPORT void erase_dict_key(const TSOutputView &view, const View &key);
+HGRAPH_EXPORT void add_set_item(const TSOutputView &view, const View &item);
+HGRAPH_EXPORT void remove_set_item(const TSOutputView &view, const View &item);
+HGRAPH_EXPORT void clear_set_items(const TSOutputView &view);
+[[nodiscard]] HGRAPH_EXPORT TSOutputView make_missing_dict_child_output_view(const TSOutputView &view, const View &key);
 
 }  // namespace detail
 
@@ -107,10 +124,38 @@ inline void TSDView<TView>::from_python(const View &key, nb::handle value) const
 }
 
 template <typename TView>
+inline void TSDView<TView>::erase(const View &key) const
+    requires std::same_as<TView, TSOutputView>
+{
+    detail::erase_dict_key(this->view_ref(), key);
+}
+
+template <typename TView>
 inline void TSSView<TView>::from_python(nb::handle value) const
     requires std::same_as<TView, TSOutputView>
 {
     this->view_ref().from_python(value);
+}
+
+template <typename TView>
+inline void TSSView<TView>::add(const View &item) const
+    requires std::same_as<TView, TSOutputView>
+{
+    detail::add_set_item(this->view_ref(), item);
+}
+
+template <typename TView>
+inline void TSSView<TView>::remove(const View &item) const
+    requires std::same_as<TView, TSOutputView>
+{
+    detail::remove_set_item(this->view_ref(), item);
+}
+
+template <typename TView>
+inline void TSSView<TView>::clear() const
+    requires std::same_as<TView, TSOutputView>
+{
+    detail::clear_set_items(this->view_ref());
 }
 
 template <typename TView>

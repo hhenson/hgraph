@@ -70,6 +70,7 @@ namespace hgraph
             [[nodiscard]] virtual nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time) const;
             [[nodiscard]] virtual nb::object delta_to_python(const TSViewContext &context,
                                                              engine_time_t evaluation_time) const;
+            virtual void apply_result(const TSOutputView &view, nb::handle value) const;
             virtual void from_python(const TSOutputView &view, nb::handle value) const;
             [[nodiscard]] virtual View delta_value(const TSViewContext &context) const noexcept;
             [[nodiscard]] virtual engine_time_t last_modified_time(const TSViewContext &context) const noexcept;
@@ -156,10 +157,17 @@ namespace hgraph
         {
             virtual ~TSOutputViewOps() = default;
             [[nodiscard]] virtual LinkedTSContext linked_context(const TSOutputView &view) const noexcept = 0;
+            virtual bool from_python(const TSOutputView &view, nb::handle value) const
+            {
+                static_cast<void>(view);
+                static_cast<void>(value);
+                return false;
+            }
         };
 
         [[nodiscard]] HGRAPH_EXPORT const TSInputViewOps &default_input_view_ops() noexcept;
         [[nodiscard]] HGRAPH_EXPORT const TSOutputViewOps &default_output_view_ops() noexcept;
+        [[nodiscard]] HGRAPH_EXPORT TSOutputView make_missing_dict_child_output_view(const TSOutputView &view, const View &key);
         [[nodiscard]] HGRAPH_EXPORT nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time);
         [[nodiscard]] HGRAPH_EXPORT nb::object delta_to_python(const TSViewContext &context,
                                                                engine_time_t evaluation_time);
@@ -596,6 +604,7 @@ namespace hgraph
         [[nodiscard]] KeyValueRange<View, TView> modified_items() const noexcept;
         void from_python(nb::handle value) const requires std::same_as<TView, TSOutputView>;
         void from_python(const View &key, nb::handle value) const requires std::same_as<TView, TSOutputView>;
+        void erase(const View &key) const requires std::same_as<TView, TSOutputView>;
 
       protected:
         [[nodiscard]] const detail::TSKeyDispatch *key_dispatch() const noexcept;
@@ -614,6 +623,9 @@ namespace hgraph
         [[nodiscard]] bool empty() const noexcept;
 
         void from_python(nb::handle value) const requires std::same_as<TView, TSOutputView>;
+        void add(const View &item) const requires std::same_as<TView, TSOutputView>;
+        void remove(const View &item) const requires std::same_as<TView, TSOutputView>;
+        void clear() const requires std::same_as<TView, TSOutputView>;
         [[nodiscard]] TSOutputView register_contains_output(const View &item) const requires std::same_as<TView, TSOutputView>;
         void unregister_contains_output(const View &item) const requires std::same_as<TView, TSOutputView>;
         [[nodiscard]] TSOutputView register_is_empty_output() const requires std::same_as<TView, TSOutputView>;
@@ -873,6 +885,9 @@ namespace hgraph
         if (key.schema() != map.key_schema()) { return this->view_ref().make_child_view(TSViewContext::none()); }
 
         const TSViewContext child = key_dispatch->child_key(this->view_ref().context_ref(), key);
+        if constexpr (std::same_as<TView, TSOutputView>) {
+            if (!child.is_bound()) { return detail::make_missing_dict_child_output_view(this->view_ref(), key); }
+        }
         return this->view_ref().make_child_view(child);
     }
 
