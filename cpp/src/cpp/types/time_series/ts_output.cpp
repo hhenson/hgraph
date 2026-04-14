@@ -429,17 +429,12 @@ namespace hgraph
                 ts_dispatch != nullptr ? ts_dispatch->delta_value(context)
                                        : View::invalid_for(context.resolved().schema != nullptr ? context.resolved().schema->value_type : nullptr);
             MapDeltaView delta = delta_view.as_map().delta();
-            for (size_t slot = delta.first_added_slot(); slot != static_cast<size_t>(-1); slot = delta.next_added_slot(slot)) {
+            const size_t limit = key_dispatch->iteration_limit(context);
+            for (size_t slot = 0; slot < limit; ++slot) {
+                if (!key_dispatch->slot_is_live(context, slot)) { continue; }
                 const TSViewContext child = dict_slot_context(context, slot);
-                if (!context_valid(child)) { continue; }
-                out[delta.key_at_slot(slot).to_python()] = delta_to_python_impl(child, evaluation_time);
-            }
-
-            for (size_t slot = delta.first_updated_slot(); slot != static_cast<size_t>(-1); slot = delta.next_updated_slot(slot)) {
-                if (delta.slot_added(slot)) { continue; }
-                const TSViewContext child = dict_slot_context(context, slot);
-                if (!context_valid(child)) { continue; }
-                out[delta.key_at_slot(slot).to_python()] = delta_to_python_impl(child, evaluation_time);
+                if (!context_modified(child, evaluation_time) || !context_valid(child)) { continue; }
+                out[key_dispatch->key_at_slot(context, slot).to_python()] = delta_to_python_impl(child, evaluation_time);
             }
 
             for (size_t slot = delta.first_removed_slot(); slot != static_cast<size_t>(-1); slot = delta.next_removed_slot(slot)) {

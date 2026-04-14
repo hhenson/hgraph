@@ -251,6 +251,21 @@ namespace hgraph
                     target.ts_state,
                 };
 
+                if (target_context.ts_dispatch != nullptr && !target_context.ts_dispatch->valid(target_context)) {
+                    resolved_context.schema = target_context.schema;
+                    resolved_context.value_dispatch = target_context.value_dispatch;
+                    resolved_context.ts_dispatch = target_context.ts_dispatch;
+                    resolved_context.value_data = nullptr;
+                    resolved_context.ts_state = target_context.ts_state;
+                    resolved_context.owning_output =
+                        target.owning_output != nullptr ? target.owning_output : resolved_context.owning_output;
+                    resolved_context.output_view_ops =
+                        target.output_view_ops != nullptr ? target.output_view_ops : resolved_context.output_view_ops;
+                    resolved_context.notification_state =
+                        target.notification_state != nullptr ? target.notification_state : resolved_context.notification_state;
+                    return;
+                }
+
                 resolved_context.schema = target_context.schema;
                 resolved_context.value_dispatch = target_context.value_dispatch;
                 resolved_context.ts_dispatch = target_context.ts_dispatch;
@@ -989,9 +1004,12 @@ namespace hgraph
                                           [](const void *context, size_t slot) {
                                               const auto *self = static_cast<const TSDView *>(context);
                                               const auto *dispatch = self->key_dispatch();
-                                              return dispatch != nullptr &&
-                                                     dispatch->slot_is_live(self->view_ref().context_ref(), slot) &&
-                                                     dispatch->child_modified(self->view_ref().context_ref(), slot);
+                                              if (dispatch == nullptr ||
+                                                  !dispatch->slot_is_live(self->view_ref().context_ref(), slot)) {
+                                                  return false;
+                                              }
+                                              const View key = dispatch->key_at_slot(self->view_ref().context_ref(), slot);
+                                              return self->at(key).modified();
                                           },
                                           [](const void *context, size_t slot) {
                                               const auto *self = static_cast<const TSDView *>(context);

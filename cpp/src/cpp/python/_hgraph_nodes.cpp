@@ -598,14 +598,38 @@ namespace
 
         void run(engine_time_t start_time, engine_time_t end_time)
         {
-            auto engine = EvaluationEngineBuilder{}
-                              .graph_builder(m_graph_builder)
-                              .evaluation_mode(m_run_mode)
-                              .start_time(start_time)
-                              .end_time(end_time)
-                              .cleanup_on_error(m_cleanup_on_error)
-                              .build();
-            engine.run();
+            try {
+                auto engine = EvaluationEngineBuilder{}
+                                  .graph_builder(m_graph_builder)
+                                  .evaluation_mode(m_run_mode)
+                                  .start_time(start_time)
+                                  .end_time(end_time)
+                                  .cleanup_on_error(m_cleanup_on_error)
+                                  .build();
+                engine.run();
+            } catch (const NodeException &e) {
+                try {
+                    nb::object hgraph_mod = nb::module_::import_("hgraph");
+                    nb::object py_node_exc_cls = hgraph_mod.attr("NodeException");
+                    const auto &error = e.error();
+                    nb::tuple args = nb::make_tuple(nb::cast(error.signature_name),
+                                                    nb::cast(error.label),
+                                                    nb::cast(error.wiring_path),
+                                                    nb::cast(error.error_msg),
+                                                    nb::cast(error.stack_trace),
+                                                    nb::cast(error.activation_back_trace),
+                                                    nb::cast(error.additional_context));
+                    PyErr_SetObject(py_node_exc_cls.ptr(), args.ptr());
+                } catch (...) {
+                    PyErr_SetString(PyExc_RuntimeError, e.what());
+                }
+                throw nb::python_error();
+            } catch (const nb::python_error &) {
+                throw;
+            } catch (const std::exception &e) {
+                if (PyErr_Occurred()) { throw nb::python_error(); }
+                throw nb::builtin_exception(nb::exception_type::runtime_error, e.what());
+            }
         }
 
       private:
