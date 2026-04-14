@@ -1109,6 +1109,15 @@ namespace hgraph::v2
             [[nodiscard]] PythonTimeSeriesHandle get_or_create(const nb::handle &key) const
             {
                 if (!is_dict()) { throw std::logic_error("v2 Python time-series get_or_create() requires a TSD schema"); }
+                const Value key_value = key_value_from_python(key);
+                if (m_input != nullptr) {
+                    ensure_input_dict_child(key_value);
+                    return key_item(key);
+                }
+                if (m_output != nullptr || m_bound_output.has_value()) {
+                    ensure_output_dict_child(key_value);
+                    return handle_from_context(output_view().as_dict().at(key_value.view()).context_ref());
+                }
                 return key_item(key);
             }
 
@@ -1504,6 +1513,51 @@ namespace hgraph::v2
                 const View value = current_value();
                 if (!value.has_value()) { throw std::logic_error("v2 Python time-series window value buffer requires a live value"); }
                 return BufferView{value.as_tuple()[1]};
+            }
+
+            void ensure_input_dict_child(const Value &key) const
+            {
+                TSInputView view = input_view();
+                auto dict_view = view.as_dict();
+                if (dict_view.at(key.view()).context_ref().is_bound()) { return; }
+
+                const TSMeta *child_schema = m_schema != nullptr ? m_schema->element_ts() : nullptr;
+                if (child_schema == nullptr || child_schema->value_type == nullptr || !view.value().has_value()) {
+                    throw std::logic_error("v2 Python time-series dict child creation requires live map-backed storage");
+                }
+
+                Value placeholder{*child_schema->value_type, MutationTracking::Plain};
+                auto mutation = view.value().as_map().begin_mutation(evaluation_time());
+                mutation.set(key.view(), placeholder.view());
+
+                if (BaseState *state = view.context_ref().ts_state != nullptr ? view.context_ref().ts_state->resolved_state() : nullptr;
+                    state != nullptr && state->storage_kind == TSStorageKind::Native) {
+                    auto *dict_state = static_cast<TSDState *>(state);
+                    dict_state->sync_with_value_storage();
+
+                    if (!dict_view.at(key.view()).context_ref().is_bound()) {
+                        const size_t slot = view.value().as_map().find_slot(key.view());
+                        if (slot == static_cast<size_t>(-1)) {
+                            throw std::logic_error("v2 Python time-series dict child creation failed to allocate a stable slot");
+                        }
+
+                        dict_state->on_insert(slot);
+                    }
+                }
+            }
+
+            void ensure_output_dict_child(const Value &key) const
+            {
+                TSOutputView view = output_view();
+                TSOutputView child_view = view.as_dict().at(key.view());
+                if (child_view.context_ref().is_bound() || child_view.value().has_value()) { return; }
+
+                const TSMeta *child_schema = m_schema != nullptr ? m_schema->element_ts() : nullptr;
+                if (child_schema == nullptr || child_schema->value_type == nullptr || !view.value().has_value()) {
+                    throw std::logic_error("v2 Python time-series dict child creation requires live map-backed output storage");
+                }
+
+                view.as_dict().from_python(key.view(), nb::none());
             }
 
             [[nodiscard]] bool has_output_parent() const noexcept

@@ -467,6 +467,35 @@ namespace hgraph
             return schema;
         }
 
+        [[nodiscard]] bool requires_dynamic_dict_binding(const TSMeta &schema) noexcept
+        {
+            switch (schema.kind) {
+                case TSKind::TSD:
+                    return true;
+
+                case TSKind::REF:
+                    return schema.element_ts() != nullptr && requires_dynamic_dict_binding(*schema.element_ts());
+
+                case TSKind::TSL:
+                    return schema.element_ts() != nullptr && requires_dynamic_dict_binding(*schema.element_ts());
+
+                case TSKind::TSB:
+                    for (size_t index = 0; index < schema.field_count(); ++index) {
+                        const TSMeta *field_schema = schema.fields()[index].ts_type;
+                        if (field_schema != nullptr && requires_dynamic_dict_binding(*field_schema)) { return true; }
+                    }
+                    return false;
+
+                case TSKind::TSValue:
+                case TSKind::TSS:
+                case TSKind::TSW:
+                case TSKind::SIGNAL:
+                    return false;
+            }
+
+            return false;
+        }
+
         void bind_dynamic_dict_states_recursive(const TSMeta &schema,
                                                 TimeSeriesStateV &state,
                                                 const detail::ViewDispatch &value_dispatch,
@@ -475,6 +504,7 @@ namespace hgraph
             if (value_data == nullptr) { return; }
 
             const TSMeta &binding_schema = binding_schema_for_state(schema, state);
+            if (!requires_dynamic_dict_binding(binding_schema)) { return; }
             View root_view{&value_dispatch, value_data, binding_schema.value_type};
 
             std::visit(
@@ -511,15 +541,19 @@ namespace hgraph
                         for (size_t index = 0;
                              index < typed_state.child_states.size() && index < binding_schema.field_count();
                              ++index) {
-                            if (typed_state.child_states[index] == nullptr) { continue; }
+                            const TSMeta *child_schema = binding_schema.fields()[index].ts_type;
+                            if (typed_state.child_states[index] == nullptr || child_schema == nullptr ||
+                                !requires_dynamic_dict_binding(*child_schema)) {
+                                continue;
+                            }
                             const View child_value = bundle.at(index);
                             if (RawViewAccess::data_of(child_value) == nullptr) {
                                 continue;
                             }
                             const auto &child_value_dispatch = ValueBuilderFactory::checked_builder_for(
-                                binding_schema.fields()[index].ts_type->value_type,
+                                child_schema->value_type,
                                 MutationTracking::Plain).dispatch();
-                            bind_dynamic_dict_states_recursive(*binding_schema.fields()[index].ts_type,
+                            bind_dynamic_dict_states_recursive(*child_schema,
                                                                *typed_state.child_states[index],
                                                                child_value_dispatch,
                                                                RawViewAccess::data_of(child_value));
@@ -528,15 +562,19 @@ namespace hgraph
                         auto list = root_view.as_list();
                         const size_t limit = std::min(typed_state.child_states.size(), list.size());
                         for (size_t index = 0; index < limit; ++index) {
-                            if (typed_state.child_states[index] == nullptr || binding_schema.element_ts() == nullptr) { continue; }
+                            const TSMeta *child_schema = binding_schema.element_ts();
+                            if (typed_state.child_states[index] == nullptr || child_schema == nullptr ||
+                                !requires_dynamic_dict_binding(*child_schema)) {
+                                continue;
+                            }
                             const View child_value = list.at(index);
                             if (RawViewAccess::data_of(child_value) == nullptr) {
                                 continue;
                             }
                             const auto &child_value_dispatch = ValueBuilderFactory::checked_builder_for(
-                                binding_schema.element_ts()->value_type,
+                                child_schema->value_type,
                                 MutationTracking::Plain).dispatch();
-                            bind_dynamic_dict_states_recursive(*binding_schema.element_ts(),
+                            bind_dynamic_dict_states_recursive(*child_schema,
                                                                *typed_state.child_states[index],
                                                                child_value_dispatch,
                                                                RawViewAccess::data_of(child_value));
@@ -844,11 +882,15 @@ namespace hgraph
 
             [[nodiscard]] size_t size(const TSViewContext &context) const noexcept override
             {
+                if (!context.value().has_value()) { return 0; }
                 return context.value().as_list().size();
             }
 
             [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override
             {
+                if (!context.value().has_value()) {
+                    return View::invalid_for(context.resolved().schema != nullptr ? context.resolved().schema->value_type : nullptr);
+                }
                 return context.value().as_list().delta();
             }
 
@@ -919,6 +961,7 @@ namespace hgraph
                     const auto *state = list_state(context);
                     if (hgraph::child_modified(state, index)) { return true; }
                 }
+                if (!context.value().has_value()) { return false; }
 
                 const auto delta = context.value().as_list().delta();
                 return list_slot_modified(delta, index);
@@ -1016,6 +1059,9 @@ namespace hgraph
 
             [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override
             {
+                if (!context.value().has_value()) {
+                    return View::invalid_for(context.resolved().schema != nullptr ? context.resolved().schema->value_type : nullptr);
+                }
                 return context.value().as_bundle().delta();
             }
 
@@ -1086,6 +1132,7 @@ namespace hgraph
                     const auto *state = bundle_state(context);
                     if (hgraph::child_modified(state, index)) { return true; }
                 }
+                if (!context.value().has_value()) { return false; }
 
                 const auto delta = context.value().as_bundle().delta();
                 return bundle_slot_modified(delta, index);
@@ -1349,33 +1396,41 @@ namespace hgraph
 
             [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override
             {
+                if (!context.value().has_value()) {
+                    return View::invalid_for(context.resolved().schema != nullptr ? context.resolved().schema->value_type : nullptr);
+                }
                 return context.value().as_set().delta();
             }
 
             [[nodiscard]] size_t size(const TSViewContext &context) const noexcept override
             {
+                if (!context.value().has_value()) { return 0; }
                 return context.value().as_set().size();
             }
 
             [[nodiscard]] bool empty(const TSViewContext &context) const noexcept override
             {
+                if (!context.value().has_value()) { return true; }
                 return context.value().as_set().empty();
             }
 
             [[nodiscard]] Range<View> values(const TSViewContext &context) const noexcept override
             {
+                if (!context.value().has_value()) { return Range<View>{nullptr, 0, nullptr, nullptr}; }
                 return context.value().as_set().values();
             }
 
             [[nodiscard]] Range<View> added_values(const TSViewContext &context) const noexcept override
             {
                 if (const auto *ref_state = switching_set_ref_state(context); ref_state != nullptr) {
+                    const size_t slot_capacity =
+                        context.value().has_value() ? context.value().as_set().delta().slot_capacity() : 0;
                     return Range<View>{&context,
-                                       context.value().as_set().delta().slot_capacity(),
+                                       slot_capacity,
                                        [](const void *opaque, size_t slot) {
                                            const auto &context = *static_cast<const TSViewContext *>(opaque);
                                            const auto *ref_state = switching_set_ref_state(context);
-                                           if (ref_state == nullptr) { return false; }
+                                           if (ref_state == nullptr || !context.value().has_value()) { return false; }
 
                                            const auto current = context.value().as_set();
                                            const auto delta = current.delta();
@@ -1387,6 +1442,8 @@ namespace hgraph
                                            return context.value().as_set().delta().at_slot(slot);
                                        }};
                 }
+
+                if (!context.value().has_value()) { return Range<View>{nullptr, 0, nullptr, nullptr}; }
 
                 return Range<View>{&context,
                                    context.value().as_set().delta().slot_capacity(),
@@ -1413,13 +1470,16 @@ namespace hgraph
 
                                            const auto previous = ref_state->previous_target_value.view().as_set().delta();
                                            return slot < previous.slot_capacity() && previous.slot_occupied(slot) && !previous.slot_removed(slot) &&
-                                                  !context.value().as_set().contains(previous.at_slot(slot));
+                                                  (!context.value().has_value() ||
+                                                   !context.value().as_set().contains(previous.at_slot(slot)));
                                        },
                                        [](const void *opaque, size_t slot) {
                                            const auto &context = *static_cast<const TSViewContext *>(opaque);
                                            return switching_set_ref_state(context)->previous_target_value.view().as_set().delta().at_slot(slot);
                                        }};
                 }
+
+                if (!context.value().has_value()) { return Range<View>{nullptr, 0, nullptr, nullptr}; }
 
                 return Range<View>{&context,
                                    context.value().as_set().delta().slot_capacity(),

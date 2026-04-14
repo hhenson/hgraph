@@ -207,6 +207,22 @@ namespace hgraph
             return dispatch->child_at(detached_context(context), slot);
         }
 
+        [[nodiscard]] TSOutputView ensure_tsd_child_view(const TSOutputView &view, const View &key)
+        {
+            TSOutputView child_view = view.as_dict().at(key);
+            if (child_view.context_ref().is_bound() || child_view.value().has_value()) { return child_view; }
+
+            BaseState *state = view.context_ref().ts_state != nullptr ? view.context_ref().ts_state->resolved_state() : nullptr;
+            if (state == nullptr || state->storage_kind != TSStorageKind::Native) { return child_view; }
+
+            auto *dict_state = static_cast<TSDState *>(state);
+            const size_t slot = view.value().as_map().find_slot(key);
+            if (slot == static_cast<size_t>(-1)) { return child_view; }
+
+            dict_state->on_insert(slot);
+            return view.as_dict().at(key);
+        }
+
     }  // namespace
 
     namespace detail
@@ -575,10 +591,10 @@ namespace hgraph
             const auto apply_child_value = [&](const View &key, nb::handle entry_value, bool apply_result) {
                 ensure_live_child(key);
 
-                TSOutputView child_view = view.as_dict().at(key);
-                if (!child_view.context_ref().is_bound()) {
-                    throw std::logic_error("TSD child mutation failed to materialize a bound child view");
-                }
+                    TSOutputView child_view = ensure_tsd_child_view(view, key);
+                    if (!child_view.context_ref().is_bound() && !child_view.value().has_value()) {
+                        throw std::logic_error("TSD child mutation failed to materialize a bound child view");
+                    }
 
                 if (apply_result && !entry_value.is_none()) {
                     child_view.apply_result(entry_value);
@@ -711,8 +727,8 @@ namespace hgraph
 
                 for (const auto &[key, mapped_value] : replacement) {
                     const View key_view = key.view();
-                    TSOutputView child_view = view.as_dict().at(key_view);
-                    if (!child_view.context_ref().is_bound()) {
+                    TSOutputView child_view = ensure_tsd_child_view(view, key_view);
+                    if (!child_view.context_ref().is_bound() && !child_view.value().has_value()) {
                         throw std::logic_error("TSD child result application failed to materialize a bound child view");
                     }
                     if (mapped_value.is_none()) {
@@ -749,8 +765,8 @@ namespace hgraph
 
                 mark_output_view_modified(view, view.evaluation_time());
 
-                TSOutputView child_view = view.as_dict().at(key);
-                if (!child_view.context_ref().is_bound()) {
+                TSOutputView child_view = ensure_tsd_child_view(view, key);
+                if (!child_view.context_ref().is_bound() && !child_view.value().has_value()) {
                     throw std::logic_error("TSD child mutation failed to materialize a bound child view");
                 }
 
@@ -784,8 +800,8 @@ namespace hgraph
                 mark_output_view_modified(view, view.evaluation_time());
             }
 
-            TSOutputView child_view = view.as_dict().at(key);
-            if (!child_view.context_ref().is_bound()) {
+            TSOutputView child_view = ensure_tsd_child_view(view, key);
+            if (!child_view.context_ref().is_bound() && !child_view.value().has_value()) {
                 throw std::logic_error("TSD child mutation failed to materialize a bound child view");
             }
 
