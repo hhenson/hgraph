@@ -161,3 +161,56 @@ TEST_CASE("Buffer builders keep plain storage smaller than delta storage")
     CHECK(hgraph::ValueBuilderFactory::checked_builder_for(queue_schema, hgraph::MutationTracking::Plain).size() <
           hgraph::ValueBuilderFactory::checked_builder_for(queue_schema, hgraph::MutationTracking::Delta).size());
 }
+
+TEST_CASE("Buffer view copy_from supports matching schemas across tracking layouts")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+
+    SECTION("cyclic buffer") {
+        const auto *schema = registry.cyclic_buffer(hgraph::value::scalar_type_meta<int32_t>(), 3).build();
+
+        hgraph::Value delta_value{*schema, hgraph::MutationTracking::Delta};
+        auto delta_buffer = delta_value.cyclic_buffer_view();
+        delta_buffer.begin_mutation().pushing(int32_t{1}).pushing(int32_t{2}).pushing(int32_t{3});
+
+        hgraph::Value plain_value{*schema, hgraph::MutationTracking::Plain};
+        plain_value.view().copy_from(delta_value.view());
+
+        auto plain_buffer = plain_value.cyclic_buffer_view();
+        REQUIRE(plain_buffer.size() == 3);
+        CHECK(plain_buffer[0].as_atomic().as<int32_t>() == 1);
+        CHECK(plain_buffer[1].as_atomic().as<int32_t>() == 2);
+        CHECK(plain_buffer[2].as_atomic().as<int32_t>() == 3);
+
+        hgraph::Value roundtrip{*schema, hgraph::MutationTracking::Delta};
+        roundtrip.view().copy_from(plain_value.view());
+        auto roundtrip_buffer = roundtrip.cyclic_buffer_view();
+        REQUIRE(roundtrip_buffer.size() == 3);
+        CHECK(roundtrip_buffer[0].as_atomic().as<int32_t>() == 1);
+        CHECK(roundtrip_buffer[1].as_atomic().as<int32_t>() == 2);
+        CHECK(roundtrip_buffer[2].as_atomic().as<int32_t>() == 3);
+    }
+
+    SECTION("queue") {
+        const auto *schema = registry.queue(hgraph::value::scalar_type_meta<int32_t>()).max_capacity(4).build();
+
+        hgraph::Value delta_value{*schema, hgraph::MutationTracking::Delta};
+        auto delta_queue = delta_value.queue_view();
+        delta_queue.begin_mutation().pushing(int32_t{10}).pushing(int32_t{20}).pushing(int32_t{30});
+
+        hgraph::Value plain_value{*schema, hgraph::MutationTracking::Plain};
+        plain_value.view().copy_from(delta_value.view());
+
+        auto plain_queue = plain_value.queue_view();
+        REQUIRE(plain_queue.size() == 3);
+        CHECK(plain_queue.front().as_atomic().as<int32_t>() == 10);
+        CHECK(plain_queue.back().as_atomic().as<int32_t>() == 30);
+
+        hgraph::Value roundtrip{*schema, hgraph::MutationTracking::Delta};
+        roundtrip.view().copy_from(plain_value.view());
+        auto roundtrip_queue = roundtrip.queue_view();
+        REQUIRE(roundtrip_queue.size() == 3);
+        CHECK(roundtrip_queue.front().as_atomic().as<int32_t>() == 10);
+        CHECK(roundtrip_queue.back().as_atomic().as<int32_t>() == 30);
+    }
+}

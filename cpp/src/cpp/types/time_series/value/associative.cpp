@@ -1,6 +1,7 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/value/associative.h>
 #include <hgraph/types/time_series/value/builder.h>
+#include <hgraph/types/time_series/value/value.h>
 
 #include <ankerl/unordered_dense.h>
 #include <sul/dynamic_bitset.hpp>
@@ -19,7 +20,6 @@
 
 namespace hgraph
 {
-
     namespace detail
     {
         namespace
@@ -703,9 +703,14 @@ namespace hgraph
             static constexpr bool tracks_deltas_v = TTracking == MutationTracking::Delta;
             using SetState = std::conditional_t<tracks_deltas_v, DeltaSetState, PlainSetState>;
 
+            [[nodiscard]] MutationTracking tracking() const noexcept override
+            {
+                return tracking_mode;
+            }
+
             explicit SetDispatch(const value::TypeMeta &schema)
                 : m_schema(schema),
-                  m_element_builder(ValueBuilderFactory::checked_builder_for(schema.element_type, TTracking)),
+                  m_element_builder(ValueBuilderFactory::checked_builder_for(schema.element_type, MutationTracking::Plain)),
                   m_keys(m_element_builder.get().dispatch(), m_element_builder.get())
             {
                 if (schema.element_type == nullptr) {
@@ -999,6 +1004,21 @@ namespace hgraph
                 }
             }
 
+            void copy_from(void *dst, const View &src) const override
+            {
+                if (this == detail::ViewAccess::dispatch(src)) {
+                    assign(dst, detail::ViewAccess::data(src));
+                    return;
+                }
+
+                hard_clear(dst);
+                for (const View source_element : src.as_set().values()) {
+                    Value normalized_element{element_schema(), element_dispatch().tracking()};
+                    normalized_element.view().copy_from(source_element);
+                    static_cast<void>(add(dst, detail::ViewAccess::data(normalized_element.view())));
+                }
+            }
+
             void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override
             {
                 if (src_schema == &m_schema.get()) {
@@ -1131,10 +1151,15 @@ namespace hgraph
             using MapState = std::conditional_t<tracks_deltas_v, DeltaMapState, PlainMapState>;
             using KeyState = std::conditional_t<tracks_deltas_v, DeltaSetState, PlainSetState>;
 
+            [[nodiscard]] MutationTracking tracking() const noexcept override
+            {
+                return tracking_mode;
+            }
+
             explicit MapDispatch(const value::TypeMeta &schema)
                 : m_schema(schema),
-                  m_key_builder(ValueBuilderFactory::checked_builder_for(schema.key_type, TTracking)),
-                  m_value_builder(ValueBuilderFactory::checked_builder_for(schema.element_type, TTracking)),
+                  m_key_builder(ValueBuilderFactory::checked_builder_for(schema.key_type, MutationTracking::Plain)),
+                  m_value_builder(ValueBuilderFactory::checked_builder_for(schema.element_type, MutationTracking::Plain)),
                   m_keys(m_key_builder.get().dispatch(), m_key_builder.get()),
                   m_value_stride(stride_for(m_value_builder.get())),
                   m_value_requires_destruct(m_value_builder.get().requires_destruct())
@@ -1696,6 +1721,28 @@ namespace hgraph
                         if (!keys(src).alive.test(slot)) { continue; }
                     }
                     static_cast<void>(set_item(dst, key_data(src, slot), value_data(src, slot)));
+                }
+            }
+
+            void copy_from(void *dst, const View &src) const override
+            {
+                if (this == detail::ViewAccess::dispatch(src)) {
+                    assign(dst, detail::ViewAccess::data(src));
+                    return;
+                }
+
+                hard_clear(dst);
+                const auto source = src.as_map();
+                for (size_t slot = source.first_live_slot(); slot != npos; slot = source.next_live_slot(slot)) {
+                    Value normalized_key{key_schema(), key_dispatch().tracking()};
+                    normalized_key.view().copy_from(source.delta().key_at_slot(slot));
+
+                    Value normalized_value{value_schema(), value_dispatch().tracking()};
+                    normalized_value.view().copy_from(source.delta().value_at_slot(slot));
+
+                    static_cast<void>(set_item(dst,
+                                               detail::ViewAccess::data(normalized_key.view()),
+                                               detail::ViewAccess::data(normalized_value.view())));
                 }
             }
 
@@ -2385,7 +2432,11 @@ namespace hgraph
         if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
             throw std::runtime_error("SetView::contains requires a valid matching-schema element");
         }
-        return dispatch->contains(data(), data_of(value));
+        if (value.tracking() == dispatch->element_dispatch().tracking()) {
+            return dispatch->contains(data(), data_of(value));
+        }
+        Value normalized{value, dispatch->element_dispatch().tracking()};
+        return dispatch->contains(data(), data_of(normalized.view()));
     }
 
     void SetView::clear_delta_tracking()
@@ -2424,7 +2475,11 @@ namespace hgraph
         if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
             throw std::runtime_error("SetMutationView::add requires a valid matching-schema element");
         }
-        return dispatch->add(data(), data_of(value));
+        if (value.tracking() == dispatch->element_dispatch().tracking()) {
+            return dispatch->add(data(), data_of(value));
+        }
+        Value normalized{value, dispatch->element_dispatch().tracking()};
+        return dispatch->add(data(), data_of(normalized.view()));
     }
 
     void SetMutationView::reserve(size_t capacity)
@@ -2447,7 +2502,11 @@ namespace hgraph
         if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
             throw std::runtime_error("SetMutationView::remove requires a valid matching-schema element");
         }
-        return dispatch->remove(data(), data_of(value));
+        if (value.tracking() == dispatch->element_dispatch().tracking()) {
+            return dispatch->remove(data(), data_of(value));
+        }
+        Value normalized{value, dispatch->element_dispatch().tracking()};
+        return dispatch->remove(data(), data_of(normalized.view()));
     }
 
     SetMutationView &SetMutationView::removing(const View &value)
@@ -2762,7 +2821,11 @@ namespace hgraph
         if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
             throw std::runtime_error("MapView::contains requires a valid matching-schema key");
         }
-        return dispatch->find(data(), data_of(key)) != static_cast<size_t>(-1);
+        if (key.tracking() == dispatch->key_dispatch().tracking()) {
+            return dispatch->find(data(), data_of(key)) != static_cast<size_t>(-1);
+        }
+        Value normalized{key, dispatch->key_dispatch().tracking()};
+        return dispatch->find(data(), data_of(normalized.view())) != static_cast<size_t>(-1);
     }
 
     void MapView::clear_delta_tracking()
@@ -2779,7 +2842,9 @@ namespace hgraph
         if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
             throw std::runtime_error("MapView::find_slot requires a valid matching-schema key");
         }
-        return dispatch->find(data(), data_of(key));
+        if (key.tracking() == dispatch->key_dispatch().tracking()) { return dispatch->find(data(), data_of(key)); }
+        Value normalized{key, dispatch->key_dispatch().tracking()};
+        return dispatch->find(data(), data_of(normalized.view()));
     }
 
     View MapView::at(const View &key)
@@ -2789,7 +2854,13 @@ namespace hgraph
         if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
             throw std::runtime_error("MapView::at requires a valid matching-schema key");
         }
-        const size_t index = dispatch->find(data(), data_of(key));
+        size_t index = static_cast<size_t>(-1);
+        if (key.tracking() == dispatch->key_dispatch().tracking()) {
+            index = dispatch->find(data(), data_of(key));
+        } else {
+            Value normalized{key, dispatch->key_dispatch().tracking()};
+            index = dispatch->find(data(), data_of(normalized.view()));
+        }
         if (index == static_cast<size_t>(-1)) { throw std::out_of_range("MapView::at key not found"); }
         return View{&dispatch->value_dispatch(), dispatch->value_data(data(), index), &dispatch->value_schema()};
     }
@@ -2801,7 +2872,13 @@ namespace hgraph
         if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
             throw std::runtime_error("MapView::at requires a valid matching-schema key");
         }
-        const size_t index = dispatch->find(data(), data_of(key));
+        size_t index = static_cast<size_t>(-1);
+        if (key.tracking() == dispatch->key_dispatch().tracking()) {
+            index = dispatch->find(data(), data_of(key));
+        } else {
+            Value normalized{key, dispatch->key_dispatch().tracking()};
+            index = dispatch->find(data(), data_of(normalized.view()));
+        }
         if (index == static_cast<size_t>(-1)) { throw std::out_of_range("MapView::at key not found"); }
         return View{&dispatch->value_dispatch(),
                     const_cast<void *>(dispatch->value_data(data(), index)),
@@ -2843,7 +2920,23 @@ namespace hgraph
         if (value.schema() != nullptr && value.schema() != &dispatch->value_schema()) {
             throw std::runtime_error("MapMutationView::set requires a matching value schema");
         }
-        dispatch->set_item(data(), data_of(key), data_of(value));
+        Value normalized_key;
+        Value normalized_value;
+        const void *key_data = nullptr;
+        const void *value_data = nullptr;
+        if (key.tracking() == dispatch->key_dispatch().tracking()) {
+            key_data = data_of(key);
+        } else {
+            normalized_key = Value{key, dispatch->key_dispatch().tracking()};
+            key_data = data_of(normalized_key.view());
+        }
+        if (value.tracking() == dispatch->value_dispatch().tracking()) {
+            value_data = data_of(value);
+        } else {
+            normalized_value = Value{value, dispatch->value_dispatch().tracking()};
+            value_data = data_of(normalized_value.view());
+        }
+        dispatch->set_item(data(), key_data, value_data);
     }
 
     void MapMutationView::reserve(size_t capacity)
@@ -2866,7 +2959,9 @@ namespace hgraph
         if (!key.has_value() || key.schema() != &dispatch->key_schema()) {
             throw std::runtime_error("MapMutationView::remove requires a valid matching-schema key");
         }
-        return dispatch->remove(data(), data_of(key));
+        if (key.tracking() == dispatch->key_dispatch().tracking()) { return dispatch->remove(data(), data_of(key)); }
+        Value normalized{key, dispatch->key_dispatch().tracking()};
+        return dispatch->remove(data(), data_of(normalized.view()));
     }
 
     MapMutationView &MapMutationView::removing(const View &key)

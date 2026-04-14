@@ -234,6 +234,61 @@ TEST_CASE("Delta map value slot payload addresses stay stable across reserve")
     CHECK(delta.value_at_slot(alpha_slot).as_atomic().as<int32_t>() == 42);
 }
 
+TEST_CASE("Associative view copy_from supports matching schemas across tracking layouts")
+{
+    auto &registry = hgraph::value::TypeRegistry::instance();
+
+    SECTION("sets") {
+        const auto *schema = registry.set(hgraph::value::scalar_type_meta<int32_t>()).build();
+
+        hgraph::Value delta_value{*schema, hgraph::MutationTracking::Delta};
+        auto delta_set = delta_value.set_view();
+        delta_set.begin_mutation(next_test_time()).adding(int32_t{1}).adding(int32_t{2});
+
+        hgraph::Value plain_value{*schema, hgraph::MutationTracking::Plain};
+        plain_value.view().copy_from(delta_value.view());
+
+        auto plain_set = plain_value.set_view();
+        CHECK(plain_set.size() == 2);
+        CHECK(plain_set.contains(hgraph::value_for(int32_t{1}).view()));
+        CHECK(plain_set.contains(hgraph::value_for(int32_t{2}).view()));
+
+        hgraph::Value roundtrip{*schema, hgraph::MutationTracking::Delta};
+        roundtrip.view().copy_from(plain_value.view());
+        auto roundtrip_set = roundtrip.set_view();
+        CHECK(roundtrip_set.size() == 2);
+        CHECK(roundtrip_set.contains(hgraph::value_for(int32_t{1}).view()));
+        CHECK(roundtrip_set.contains(hgraph::value_for(int32_t{2}).view()));
+    }
+
+    SECTION("maps") {
+        const auto *schema = registry.map(hgraph::value::scalar_type_meta<std::string>(),
+                                          hgraph::value::scalar_type_meta<int32_t>())
+                                 .build();
+
+        hgraph::Value delta_value{*schema, hgraph::MutationTracking::Delta};
+        auto delta_map = delta_value.map_view();
+        delta_map.begin_mutation(next_test_time())
+            .setting(std::string{"alpha"}, int32_t{1})
+            .setting(std::string{"beta"}, int32_t{2});
+
+        hgraph::Value plain_value{*schema, hgraph::MutationTracking::Plain};
+        plain_value.view().copy_from(delta_value.view());
+
+        auto plain_map = plain_value.map_view();
+        CHECK(plain_map.size() == 2);
+        CHECK(plain_map.at(hgraph::value_for(std::string{"alpha"}).view()).as_atomic().as<int32_t>() == 1);
+        CHECK(plain_map.at(hgraph::value_for(std::string{"beta"}).view()).as_atomic().as<int32_t>() == 2);
+
+        hgraph::Value roundtrip{*schema, hgraph::MutationTracking::Delta};
+        roundtrip.view().copy_from(plain_value.view());
+        auto roundtrip_map = roundtrip.map_view();
+        CHECK(roundtrip_map.size() == 2);
+        CHECK(roundtrip_map.at(hgraph::value_for(std::string{"alpha"}).view()).as_atomic().as<int32_t>() == 1);
+        CHECK(roundtrip_map.at(hgraph::value_for(std::string{"beta"}).view()).as_atomic().as<int32_t>() == 2);
+    }
+}
+
 TEST_CASE("Set values handle larger churn without losing membership semantics")
 {
     auto &registry = hgraph::value::TypeRegistry::instance();

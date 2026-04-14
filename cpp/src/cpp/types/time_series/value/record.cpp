@@ -20,6 +20,16 @@ namespace hgraph
 
     namespace detail
     {
+        [[nodiscard]] MutationTracking record_field_tracking(const value::TypeMeta &schema, MutationTracking tracking) noexcept
+        {
+            if (tracking != MutationTracking::Delta) { return MutationTracking::Plain; }
+
+            switch (schema.kind) {
+                case value::TypeKind::CyclicBuffer:
+                case value::TypeKind::Queue: return MutationTracking::Delta;
+                default: return MutationTracking::Plain;
+            }
+        }
 
         struct RecordStateHeader
         {
@@ -40,6 +50,11 @@ namespace hgraph
             static constexpr MutationTracking tracking_mode = TTracking;
             static constexpr bool tracks_deltas_v = TTracking == MutationTracking::Delta;
 
+            [[nodiscard]] MutationTracking tracking() const noexcept override
+            {
+                return tracking_mode;
+            }
+
             explicit RecordDispatchBase(const value::TypeMeta &schema)
                 : m_schema(schema)
             {
@@ -54,7 +69,8 @@ namespace hgraph
                     const value::BundleFieldInfo &field = schema.fields[i];
                     if (field.type == nullptr) { throw std::runtime_error("Record schema requires field schemas"); }
 
-                    const ValueBuilder &field_builder = ValueBuilderFactory::checked_builder_for(field.type, TTracking);
+                    const ValueBuilder &field_builder =
+                        ValueBuilderFactory::checked_builder_for(field.type, record_field_tracking(*field.type, tracking_mode));
                     const size_t field_alignment = field_builder.alignment();
                     offset = align_up(offset, field_alignment);
 
@@ -271,6 +287,27 @@ namespace hgraph
                         continue;
                     }
                     field_dispatch(i).assign(field_data(dst, i), field_data(src, i));
+                    value::validity_bit_set(validity_memory(dst), i, true);
+                }
+            }
+
+            void copy_from(void *dst, const View &src) const override
+            {
+                if (this == detail::ViewAccess::dispatch(src)) {
+                    assign(dst, detail::ViewAccess::data(src));
+                    return;
+                }
+
+                const auto source = src.as_tuple();
+                for (size_t i = 0; i < m_fields.size(); ++i) {
+                    const View source_field = source.at(i);
+                    if (!source_field.has_value()) {
+                        set_field_valid(dst, i, false);
+                        continue;
+                    }
+
+                    View destination_field{&field_dispatch(i), field_data(dst, i), &field_schema(i)};
+                    destination_field.copy_from(source_field);
                     value::validity_bit_set(validity_memory(dst), i, true);
                 }
             }
@@ -846,7 +883,8 @@ namespace hgraph
             dispatch->set_field_valid(data(), index, false);
             return;
         }
-        dispatch->field_dispatch(index).assign(dispatch->field_data(data(), index), data_of(value));
+        View destination{&dispatch->field_dispatch(index), dispatch->field_data(data(), index), &dispatch->field_schema(index)};
+        destination.copy_from(value);
         dispatch->set_field_valid(data(), index, true);
     }
 
@@ -949,7 +987,8 @@ namespace hgraph
             dispatch->set_field_valid(data(), index, false);
             return;
         }
-        dispatch->field_dispatch(index).assign(dispatch->field_data(data(), index), data_of(value));
+        View destination{&dispatch->field_dispatch(index), dispatch->field_data(data(), index), &dispatch->field_schema(index)};
+        destination.copy_from(value);
         dispatch->set_field_valid(data(), index, true);
     }
 

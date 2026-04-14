@@ -1,6 +1,7 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/value/sequence.h>
 #include <hgraph/types/time_series/value/builder.h>
+#include <hgraph/types/time_series/value/value.h>
 
 #include <algorithm>
 #include <concepts>
@@ -12,7 +13,6 @@
 
 namespace hgraph
 {
-
     namespace detail
     {
 
@@ -73,7 +73,7 @@ namespace hgraph
 
             explicit SequenceDispatchBase(const value::TypeMeta &schema)
                 : m_schema(schema),
-                  m_element_builder(ValueBuilderFactory::checked_builder_for(schema.element_type, TTracking))
+                  m_element_builder(ValueBuilderFactory::checked_builder_for(schema.element_type, MutationTracking::Plain))
             {
                 if (schema.element_type == nullptr) {
                     throw std::runtime_error("Sequence schema requires an element schema");
@@ -160,6 +160,11 @@ namespace hgraph
             static constexpr MutationTracking tracking_mode = TTracking;
             static constexpr bool tracks_deltas_v = TTracking == MutationTracking::Delta;
             using BufferState = std::conditional_t<tracks_deltas_v, DeltaCyclicBufferState, PlainCyclicBufferState>;
+
+            [[nodiscard]] MutationTracking tracking() const noexcept override
+            {
+                return tracking_mode;
+            }
 
             explicit CyclicBufferDispatch(const value::TypeMeta &schema)
                 : SequenceDispatchBase<TTracking>(schema)
@@ -390,6 +395,22 @@ namespace hgraph
                 }
             }
 
+            void copy_from(void *dst, const View &src) const override
+            {
+                if (this == detail::ViewAccess::dispatch(src)) {
+                    assign(dst, detail::ViewAccess::data(src));
+                    return;
+                }
+
+                clear(dst);
+                const auto source = src.as_cyclic_buffer();
+                for (size_t i = 0; i < source.size(); ++i) {
+                    Value normalized_element{element_schema(), element_dispatch().tracking()};
+                    normalized_element.view().copy_from(source.at(i));
+                    push(dst, detail::ViewAccess::data(normalized_element.view()));
+                }
+            }
+
             void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override
             {
                 if (src_schema == &this->m_schema.get()) {
@@ -541,6 +562,11 @@ namespace hgraph
             static constexpr MutationTracking tracking_mode = TTracking;
             static constexpr bool tracks_deltas_v = TTracking == MutationTracking::Delta;
             using QueueState = std::conditional_t<tracks_deltas_v, DeltaQueueState, PlainQueueState>;
+
+            [[nodiscard]] MutationTracking tracking() const noexcept override
+            {
+                return tracking_mode;
+            }
 
             explicit QueueDispatch(const value::TypeMeta &schema)
                 : SequenceDispatchBase<TTracking>(schema)
@@ -776,6 +802,27 @@ namespace hgraph
                 clear(dst);
                 for (size_t i = 0; i < size(src); ++i) {
                     push(dst, element_data(src, i));
+                }
+            }
+
+            void copy_from(void *dst, const View &src) const override
+            {
+                if (this == detail::ViewAccess::dispatch(src)) {
+                    assign(dst, detail::ViewAccess::data(src));
+                    return;
+                }
+
+                clear(dst);
+                const auto *source_dispatch = static_cast<const QueueViewDispatch *>(detail::ViewAccess::dispatch(src));
+                const void *source_data = detail::ViewAccess::data(src);
+                for (size_t i = 0; i < source_dispatch->size(source_data); ++i) {
+                    View source_element{
+                        &source_dispatch->element_dispatch(),
+                        const_cast<void *>(source_dispatch->element_data(source_data, i)),
+                        &source_dispatch->element_schema()};
+                    Value normalized_element{element_schema(), element_dispatch().tracking()};
+                    normalized_element.view().copy_from(source_element);
+                    push(dst, detail::ViewAccess::data(normalized_element.view()));
                 }
             }
 
@@ -1207,7 +1254,12 @@ namespace hgraph
         if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
             throw std::runtime_error("BufferMutationView::push requires a valid matching-schema value");
         }
-        dispatch->push(data(), data_of(value));
+        if (value.tracking() == dispatch->element_dispatch().tracking()) {
+            dispatch->push(data(), data_of(value));
+            return;
+        }
+        Value normalized{value, dispatch->element_dispatch().tracking()};
+        dispatch->push(data(), data_of(normalized.view()));
     }
     void BufferMutationView::pop()
     {
@@ -1281,7 +1333,12 @@ namespace hgraph
         if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
             throw std::runtime_error("CyclicBufferMutationView::push requires a valid matching-schema value");
         }
-        dispatch->push(data(), data_of(value));
+        if (value.tracking() == dispatch->element_dispatch().tracking()) {
+            dispatch->push(data(), data_of(value));
+            return;
+        }
+        Value normalized{value, dispatch->element_dispatch().tracking()};
+        dispatch->push(data(), data_of(normalized.view()));
     }
 
     void CyclicBufferMutationView::pop()
@@ -1305,7 +1362,12 @@ namespace hgraph
         if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
             throw std::runtime_error("CyclicBufferMutationView::set requires a valid matching-schema value");
         }
-        dispatch->set_at(data(), index, data_of(value));
+        if (value.tracking() == dispatch->element_dispatch().tracking()) {
+            dispatch->set_at(data(), index, data_of(value));
+            return;
+        }
+        Value normalized{value, dispatch->element_dispatch().tracking()};
+        dispatch->set_at(data(), index, data_of(normalized.view()));
     }
     const detail::CyclicBufferViewDispatch *CyclicBufferView::cyclic_dispatch() const noexcept
     {
@@ -1363,7 +1425,12 @@ namespace hgraph
         if (!value.has_value() || value.schema() != &dispatch->element_schema()) {
             throw std::runtime_error("QueueMutationView::push requires a valid matching-schema value");
         }
-        dispatch->push(data(), data_of(value));
+        if (value.tracking() == dispatch->element_dispatch().tracking()) {
+            dispatch->push(data(), data_of(value));
+            return;
+        }
+        Value normalized{value, dispatch->element_dispatch().tracking()};
+        dispatch->push(data(), data_of(normalized.view()));
     }
 
     void QueueMutationView::pop()

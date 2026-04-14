@@ -1,5 +1,7 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/time_series_state.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_value_builder.h>
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_meta.h>
@@ -56,6 +58,101 @@ namespace hgraph
                 target.owning_output,
                 target.output_view_ops != nullptr ? target.output_view_ops : &detail::default_output_view_ops(),
             };
+        }
+
+        [[nodiscard]] TSViewContext view_context_from_target(const LinkedTSContext &target) noexcept
+        {
+            return TSViewContext{TSContext{
+                target.schema,
+                target.value_dispatch,
+                target.ts_dispatch,
+                target.value_data,
+                target.ts_state,
+                target.owning_output,
+                target.output_view_ops,
+                target.notification_state,
+            }};
+        }
+
+        [[nodiscard]] TSViewContext context_from_root_state(const TSViewContext &context) noexcept
+        {
+            BaseState *state = context.ts_state;
+            if (state == nullptr || state->storage_kind != TSStorageKind::Native) { return context; }
+
+            std::vector<size_t> path;
+            const TSInput *root_input = nullptr;
+            const TSOutput *root_output = nullptr;
+            BaseState *cursor = state;
+
+            while (cursor != nullptr) {
+                bool advanced = false;
+                hgraph::visit(
+                    cursor->parent,
+                    [&](TSLState *parent) {
+                        path.push_back(cursor->index);
+                        cursor = parent;
+                        advanced = true;
+                    },
+                    [&](TSDState *parent) {
+                        path.push_back(cursor->index);
+                        cursor = parent;
+                        advanced = true;
+                    },
+                    [&](TSBState *parent) {
+                        path.push_back(cursor->index);
+                        cursor = parent;
+                        advanced = true;
+                    },
+                    [&](SignalState *parent) {
+                        path.push_back(cursor->index);
+                        cursor = parent;
+                        advanced = true;
+                    },
+                    [&](TSInput *parent) {
+                        root_input = parent;
+                        cursor = nullptr;
+                        advanced = true;
+                    },
+                    [&](TSOutput *parent) {
+                        root_output = parent;
+                        cursor = nullptr;
+                        advanced = true;
+                    },
+                    [] {});
+
+                if (!advanced) { break; }
+            }
+
+            TSViewContext refreshed = context;
+            TSViewContext current;
+            if (root_output != nullptr) {
+                current = const_cast<TSOutput *>(root_output)->view(MIN_DT).context_ref();
+            } else if (root_input != nullptr) {
+                current = const_cast<TSInput *>(root_input)->view(nullptr, MIN_DT).context_ref();
+            } else {
+                // Detached native trees, such as output-owned alternatives,
+                // are not rooted in the owning output's native state tree.
+                // Re-rooting them through owning_output would resolve against
+                // the source output instead of the local alternative storage.
+                return refreshed;
+            }
+
+            std::ranges::reverse(path);
+            for (const size_t slot : path) {
+                const TSViewContext resolved_parent = current.resolved();
+                const auto *collection = resolved_parent.ts_dispatch != nullptr ? resolved_parent.ts_dispatch->as_collection() : nullptr;
+                if (collection == nullptr) { return refreshed; }
+
+                current = collection->child_at(current, slot);
+                if (!current.is_bound()) { return refreshed; }
+            }
+
+            refreshed.schema = current.schema != nullptr ? current.schema : refreshed.schema;
+            refreshed.value_dispatch = current.value_dispatch != nullptr ? current.value_dispatch : refreshed.value_dispatch;
+            refreshed.ts_dispatch = current.ts_dispatch != nullptr ? current.ts_dispatch : refreshed.ts_dispatch;
+            refreshed.value_data = current.value_data;
+            refreshed.ts_state = current.ts_state != nullptr ? current.ts_state : refreshed.ts_state;
+            return refreshed;
         }
 
         [[nodiscard]] bool reference_value_all_valid(const v2::TimeSeriesReference &ref) noexcept
@@ -177,7 +274,7 @@ namespace hgraph
             }
 
             View current{target.value_dispatch, target.value_data, target.schema->value_type};
-            Value snapshot = current.clone();
+            Value snapshot = current.clone(MutationTracking::Delta);
 
             if (target.schema->kind == TSKind::TSS) {
                 auto current_set = current.as_set();
@@ -254,6 +351,11 @@ namespace hgraph
         return linked_context_equal_impl(lhs, rhs);
     }
 
+    TSViewContext detail::refresh_native_context(const TSViewContext &context) noexcept
+    {
+        return context_from_root_state(context);
+    }
+
     Value detail::snapshot_target_value(const LinkedTSContext &target, engine_time_t modified_time)
     {
         return snapshot_target_value_impl(target, modified_time);
@@ -295,7 +397,9 @@ namespace hgraph
 
     const BaseState *BaseState::resolved_state() const noexcept
     {
-        if (const LinkedTSContext *target = linked_target(); target != nullptr) { return target->ts_state; }
+        if (const LinkedTSContext *target = linked_target(); target != nullptr) {
+            return target->ts_state != nullptr ? target->ts_state->resolved_state() : nullptr;
+        }
         return this;
     }
 
@@ -355,10 +459,24 @@ namespace hgraph
             return false;
         }
 
-        if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr && target->is_bound()) { return true; }
-
         BaseCollectionState *collection_state = reference_collection_state(*context.schema, context.ts_state);
         return collection_state != nullptr && has_any_child_state(*collection_state);
+    }
+
+    bool detail::linked_context_valid(const LinkedTSContext &context) noexcept
+    {
+        if (!context.is_bound() || context.ts_dispatch == nullptr) { return false; }
+
+        const TSViewContext target_context = view_context_from_target(context);
+        return target_context.ts_dispatch != nullptr && target_context.ts_dispatch->valid(target_context);
+    }
+
+    bool detail::linked_context_all_valid(const LinkedTSContext &context) noexcept
+    {
+        if (!context.is_bound() || context.ts_dispatch == nullptr) { return false; }
+
+        const TSViewContext target_context = view_context_from_target(context);
+        return target_context.ts_dispatch != nullptr && target_context.ts_dispatch->all_valid(target_context);
     }
 
     const Value *detail::materialized_target_link_value(const TSViewContext &context) noexcept
@@ -401,6 +519,12 @@ namespace hgraph
     {
         if (context.schema == nullptr || context.schema->kind != TSKind::REF) { return false; }
 
+        if (context.ts_state != nullptr) {
+            if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr) {
+                return linked_context_all_valid(*target);
+            }
+        }
+
         if (const Value *materialized = materialized_reference_value(context); materialized != nullptr) {
             if (const auto *ref = materialized->view().as_atomic().try_as<v2::TimeSeriesReference>()) {
                 return reference_value_all_valid(*ref);
@@ -409,16 +533,18 @@ namespace hgraph
         }
 
         View value = context.value();
-        if (const auto *ref = value.as_atomic().try_as<v2::TimeSeriesReference>()) { return reference_value_all_valid(*ref); }
+        if (const auto *ref = value.as_atomic().try_as<v2::TimeSeriesReference>()) { return true; }
         return false;
     }
 
     void BaseCollectionState::child_modified(size_t child_index, engine_time_t modified_time) noexcept {
         if (suppress_repeated_child_notifications) {
-            if (last_modified_time == MIN_DT) {
+            if (last_modified_time != modified_time) {
                 modified_children.clear();
                 modified_children.insert(child_index);
                 mark_modified(modified_time);
+            } else {
+                modified_children.insert(child_index);
             }
             return;
         }
@@ -434,10 +560,6 @@ namespace hgraph
 
     void TSDState::child_modified(size_t child_index, engine_time_t modified_time) noexcept
     {
-        if (storage_kind == TSStorageKind::Native && map_dispatch != nullptr && map_value_data != nullptr) {
-            map_dispatch->mark_value_updated(map_value_data, child_index, modified_time);
-        }
-
         BaseCollectionState::child_modified(child_index, modified_time);
     }
 

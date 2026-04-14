@@ -290,9 +290,14 @@ namespace hgraph
         Storage             m_storage;
     };
 
+    inline Value View::clone(MutationTracking tracking) const
+    {
+        return Value{*this, tracking};
+    }
+
     inline Value View::clone() const
     {
-        return Value{*this};
+        return clone(MutationTracking::Plain);
     }
 
     template <typename T> inline void View::set(T &&value)

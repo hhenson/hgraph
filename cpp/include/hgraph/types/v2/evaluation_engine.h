@@ -455,6 +455,7 @@ namespace hgraph::v2
         EvaluationEngineBuilder &evaluation_mode(EvaluationMode evaluation_mode) noexcept;
         EvaluationEngineBuilder &start_time(engine_time_t start_time) noexcept;
         EvaluationEngineBuilder &end_time(engine_time_t end_time) noexcept;
+        EvaluationEngineBuilder &cleanup_on_error(bool cleanup_on_error) noexcept;
         EvaluationEngineBuilder &add_life_cycle_observer(EvaluationLifeCycleObserver *observer);
 
         [[nodiscard]] EvaluationEngine build() const;
@@ -464,6 +465,7 @@ namespace hgraph::v2
         EvaluationMode m_evaluation_mode{EvaluationMode::SIMULATION};
         engine_time_t m_start_time{MIN_DT};
         engine_time_t m_end_time{MAX_DT};
+        bool m_cleanup_on_error{true};
         std::vector<EvaluationLifeCycleObserver *> m_life_cycle_observers;
     };
 }  // namespace hgraph::v2

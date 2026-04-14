@@ -2,11 +2,19 @@
 #include <hgraph/types/time_series/value/builder.h>
 #include <hgraph/types/time_series/value/value.h>
 
-#include <cstring>
 #include <stdexcept>
 
 namespace hgraph
 {
+    void View::copy_from(const View &other)
+    {
+        if (!has_value() || !other.has_value()) { throw std::runtime_error("View::copy_from requires non-empty views"); }
+        if (data() == data_of(other)) { return; }
+        if (schema() != other.schema()) { throw std::invalid_argument("View::copy_from requires matching schemas"); }
+
+        dispatch()->copy_from(data(), other);
+    }
+
     Value::Value(const value::TypeMeta *schema, MutationTracking tracking)
         : Value(*schema, tracking)
     {

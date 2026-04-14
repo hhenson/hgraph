@@ -16,6 +16,11 @@ namespace hgraph::v2
 {
     namespace
     {
+        [[nodiscard]] bool can_release_gil() noexcept
+        {
+            return Py_IsInitialized() != 0 && PyGILState_Check() != 0;
+        }
+
         struct BaseClockState
         {
             explicit BaseClockState(engine_time_t start_time)
@@ -146,15 +151,34 @@ namespace hgraph::v2
                         std::unique_lock<std::mutex> lock(m_condition_mutex);
                         m_ready_to_push = true;
                         m_last_time_allowed_push = current_time;
+                    }
 
-                        while (current_time < next_scheduled_time && !m_push_node_requires_scheduling) {
-                            const auto sleep_time =
-                                std::chrono::duration_cast<std::chrono::milliseconds>(next_scheduled_time - current_time);
-                            m_push_node_requires_scheduling_condition.wait_for(
-                                lock,
-                                std::min(std::chrono::milliseconds{10000}, sleep_time));
-                            current_time = now();
+                    // Match the legacy realtime engine: only release the GIL while
+                    // the engine is blocked waiting for the next wake-up condition.
+                    while (true) {
+                        current_time = now();
+                        if (current_time >= next_scheduled_time) { break; }
+
+                        bool scheduled = false;
+                        const auto wake_deadline = std::min(next_scheduled_time, current_time + std::chrono::seconds(10));
+                        if (can_release_gil()) {
+                            nb::gil_scoped_release gil;
+                            std::unique_lock<std::mutex> lock(m_condition_mutex);
+                            scheduled = m_push_node_requires_scheduling;
+                            if (!scheduled) {
+                                m_push_node_requires_scheduling_condition.wait_until(lock, wake_deadline);
+                                scheduled = m_push_node_requires_scheduling;
+                            }
+                        } else {
+                            std::unique_lock<std::mutex> lock(m_condition_mutex);
+                            scheduled = m_push_node_requires_scheduling;
+                            if (!scheduled) {
+                                m_push_node_requires_scheduling_condition.wait_until(lock, wake_deadline);
+                                scheduled = m_push_node_requires_scheduling;
+                            }
                         }
+
+                        if (scheduled) { break; }
                     }
                 }
 
@@ -284,6 +308,7 @@ namespace hgraph::v2
             TClockState clock;
             engine_time_t start_time{MIN_DT};
             engine_time_t end_time{MAX_DT};
+            bool cleanup_on_error{true};
             bool stop_requested{false};
             std::vector<EvaluationLifeCycleObserver *> life_cycle_observers;
             std::vector<std::function<void()>> before_evaluation_notifications;
@@ -291,10 +316,15 @@ namespace hgraph::v2
             PushMessageReceiverStorage<TMode> push_message_receiver_storage;
             Graph graph;
 
-            EvaluationEngineState(const GraphBuilder &graph_builder, engine_time_t start_time, engine_time_t end_time)
+            EvaluationEngineState(
+                const GraphBuilder &graph_builder,
+                engine_time_t start_time,
+                engine_time_t end_time,
+                bool cleanup_on_error)
                 : clock(start_time),
                   start_time(start_time),
                   end_time(end_time),
+                  cleanup_on_error(cleanup_on_error),
                   graph(graph_builder.make_graph({this, &k_engine_ops}))
             {
                 push_message_receiver_storage.initialise({&clock, &ClockDispatch<TClockState>::value});
@@ -545,15 +575,25 @@ namespace hgraph::v2
                 }
 
                 state.graph.start();
-                auto stop_graph = UnwindCleanupGuard([&] { state.graph.stop(); });
-                while (state.clock.evaluation_time() < state.end_time) {
-                    notify_before_evaluation_impl(impl);
-                    state.graph.evaluate(state.clock.evaluation_time());
-                    notify_after_evaluation_impl(impl);
-                    advance_engine_time_impl(impl);
+                try {
+                    while (state.clock.evaluation_time() < state.end_time) {
+                        notify_before_evaluation_impl(impl);
+                        state.graph.evaluate(state.clock.evaluation_time());
+                        notify_after_evaluation_impl(impl);
+                        advance_engine_time_impl(impl);
+                    }
+                    state.graph.stop();
+                } catch (...) {
+                    if (state.cleanup_on_error) {
+                        try {
+                            state.graph.stop();
+                        } catch (...) {
+                        }
+                    } else {
+                        state.graph.abandon();
+                    }
+                    throw;
                 }
-
-                stop_graph.complete();
             }
 
             static void destruct_impl(void *impl) noexcept
@@ -662,6 +702,7 @@ namespace hgraph::v2
           m_evaluation_mode(other.m_evaluation_mode),
           m_start_time(other.m_start_time),
           m_end_time(other.m_end_time),
+          m_cleanup_on_error(other.m_cleanup_on_error),
           m_life_cycle_observers(other.m_life_cycle_observers)
     {
     }
@@ -673,6 +714,7 @@ namespace hgraph::v2
             m_evaluation_mode = other.m_evaluation_mode;
             m_start_time = other.m_start_time;
             m_end_time = other.m_end_time;
+            m_cleanup_on_error = other.m_cleanup_on_error;
             m_life_cycle_observers = other.m_life_cycle_observers;
         }
         return *this;
@@ -706,6 +748,12 @@ namespace hgraph::v2
         return *this;
     }
 
+    EvaluationEngineBuilder &EvaluationEngineBuilder::cleanup_on_error(bool cleanup_on_error) noexcept
+    {
+        m_cleanup_on_error = cleanup_on_error;
+        return *this;
+    }
+
     EvaluationEngineBuilder &EvaluationEngineBuilder::add_life_cycle_observer(EvaluationLifeCycleObserver *observer)
     {
         if (observer != nullptr) { m_life_cycle_observers.push_back(observer); }
@@ -719,7 +767,8 @@ namespace hgraph::v2
         switch (m_evaluation_mode) {
             case EvaluationMode::SIMULATION: {
                 // Hold the state under temporary ownership until the engine is attached and observer registration completes.
-                auto state = std::make_unique<SimulationEvaluationEngineState>(*m_graph_builder, m_start_time, m_end_time);
+                auto state =
+                    std::make_unique<SimulationEvaluationEngineState>(*m_graph_builder, m_start_time, m_end_time, m_cleanup_on_error);
                 for (auto *observer : m_life_cycle_observers) {
                     SimulationEvaluationEngineState::add_life_cycle_observer_impl(state.get(), observer);
                 }
@@ -728,7 +777,8 @@ namespace hgraph::v2
 
             case EvaluationMode::REAL_TIME: {
                 // Hold the state under temporary ownership until the engine is attached and observer registration completes.
-                auto state = std::make_unique<RealTimeEvaluationEngineState>(*m_graph_builder, m_start_time, m_end_time);
+                auto state =
+                    std::make_unique<RealTimeEvaluationEngineState>(*m_graph_builder, m_start_time, m_end_time, m_cleanup_on_error);
                 for (auto *observer : m_life_cycle_observers) {
                     RealTimeEvaluationEngineState::add_life_cycle_observer_impl(state.get(), observer);
                 }

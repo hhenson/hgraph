@@ -690,26 +690,9 @@ if is_feature_enabled("use_cpp"):
         _ai.AdaptorImplNodeClass.BUILDER_CLASS = _service_impl_nested_graph_builder
         _sai.ServiceAdaptorImplNodeClass.BUILDER_CLASS = _service_impl_nested_graph_builder
 
-
-        def _create_python_push_queue_builder(
-            *, signature, scalars, input_builder, output_builder, error_builder, eval_fn, **kwargs
-        ):
-            return _hgraph.PythonNodeBuilder(
-                signature=signature,
-                scalars=scalars,
-                input_builder=input_builder,
-                output_builder=output_builder,
-                error_builder=error_builder,
-                recordable_state_builder=None,
-                eval_fn=eval_fn,
-                start_fn=None,
-                stop_fn=None,
-            )
-
-
         from hgraph._wiring._wiring_node_class import _python_wiring_node_classes as _pwc
 
-        _pwc.PythonPushQueueWiringNodeClass.BUILDER_CLASS = _create_python_push_queue_builder
+        _pwc.PythonPushQueueWiringNodeClass.BUILDER_CLASS = _hgraph.v2.NodeBuilder
 
         hgraph._wiring._wiring_node_class._pull_source_node_class.PythonLastValuePullWiringNodeClass.BUILDER_CLASS = (
             _hgraph.LastValuePullNodeBuilder

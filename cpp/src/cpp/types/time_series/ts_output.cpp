@@ -45,9 +45,13 @@ namespace hgraph
                     return fmt::format("TSL[{}]",
                                        schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
                 case TSKind::TSW:
-                    return fmt::format(
-                        "TSW[{}]",
-                        schema->value_type != nullptr ? safe_type_name(schema->value_type->element_type) : "?");
+                    return fmt::format("TSW[{}]",
+                                       schema->value_type != nullptr && schema->value_type->field_count > 1 &&
+                                               schema->value_type->fields != nullptr &&
+                                               schema->value_type->fields[1].type != nullptr &&
+                                               schema->value_type->fields[1].type->element_type != nullptr
+                                           ? safe_type_name(schema->value_type->fields[1].type->element_type)
+                                           : "?");
                 case TSKind::TSB:
                     return fmt::format("TSB[{}]",
                                        schema->data.tsb.bundle_name != nullptr ? schema->data.tsb.bundle_name : "?");
@@ -125,6 +129,31 @@ namespace hgraph
         {
             static nb::object fn = nb::module_::import_("hgraph").attr("set_delta");
             return nb::borrow(fn);
+        }
+
+        [[nodiscard]] Value ts_nested_value_from_python(const value::TypeMeta &schema, const nb::handle &value)
+        {
+            Value nested_value(schema, MutationTracking::Plain);
+            nested_value.reset();
+            nested_value.from_python(nb::borrow<nb::object>(value));
+            return nested_value;
+        }
+
+        [[nodiscard]] Value ts_nested_clone(const View &value)
+        {
+            return value.clone(MutationTracking::Plain);
+        }
+
+        [[nodiscard]] bool tsd_key_is_live(const TSOutputView &view, const View &key)
+        {
+            const MapView map_view = view.value().as_map();
+            if (key.schema() != map_view.key_schema()) { return false; }
+
+            const size_t slot = map_view.find_slot(key);
+            if (slot == static_cast<size_t>(-1)) { return false; }
+
+            const MapDeltaView delta = map_view.delta();
+            return slot < delta.slot_capacity() && delta.slot_occupied(slot) && !delta.slot_removed(slot);
         }
 
         [[nodiscard]] const RefLinkState *switching_ref_state(const TSViewContext &context) noexcept
@@ -275,7 +304,8 @@ namespace hgraph
                 const auto &field_info = schema->fields()[i];
                 out[nb::str(field_info.name)] = delta_to_python_impl(child, evaluation_time);
             }
-            return out;
+            if (out.empty()) { return nb::none(); }
+            return std::move(out);
         }
 
         [[nodiscard]] nb::object list_to_python(const TSViewContext &context, engine_time_t evaluation_time)
@@ -321,7 +351,8 @@ namespace hgraph
                         if (!child.value().has_value()) { continue; }
                         out[nb::int_(slot)] = delta_to_python_impl(child, evaluation_time);
                     }
-                    return out;
+                    if (out.empty()) { return nb::none(); }
+                    return std::move(out);
                 }
             }
 
@@ -336,7 +367,8 @@ namespace hgraph
                 const TSViewContext child = dispatch->child_at(context, i);
                 out[nb::int_(i)] = delta_to_python_impl(child, evaluation_time);
             }
-            return out;
+            if (out.empty()) { return nb::none(); }
+            return std::move(out);
         }
 
         [[nodiscard]] nb::object dict_to_python(const TSViewContext &context, engine_time_t evaluation_time)
@@ -531,6 +563,35 @@ namespace hgraph
                 throw std::logic_error("TSOutputView dict mutation requires key and value schemas");
             }
 
+            const auto ensure_live_child = [&](const View &key) {
+                if (tsd_key_is_live(view, key)) { return; }
+
+                Value mapped_value(*mapped_schema, MutationTracking::Plain);
+                mapped_value.reset();
+
+                {
+                    auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
+                    mutation.set(key, mapped_value.view());
+                }
+
+                mark_output_view_modified(view, view.evaluation_time());
+            };
+
+            const auto apply_child_value = [&](const View &key, nb::handle entry_value, bool apply_result) {
+                ensure_live_child(key);
+
+                TSOutputView child_view = view.as_dict().at(key);
+                if (!child_view.context_ref().is_bound()) {
+                    throw std::logic_error("TSD child mutation failed to materialize a bound child view");
+                }
+
+                if (apply_result && !entry_value.is_none()) {
+                    child_view.apply_result(entry_value);
+                } else {
+                    child_view.from_python(entry_value);
+                }
+            };
+
             if (!view.valid() && !nb::cast<bool>(nb::bool_(value))) {
                 mark_output_view_modified(view, view.evaluation_time());
                 return;
@@ -538,34 +599,48 @@ namespace hgraph
 
             const nb::object item_attr = nb::getattr(value, "items", nb::none());
             nb::iterator items = item_attr.is_none() ? nb::iter(value) : nb::iter(item_attr());
-            auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
-            bool changed = false;
+            std::vector<std::pair<Value, nb::object>> entries;
 
             for (const auto &kv : items) {
                 nb::object entry_value = nb::borrow<nb::object>(kv[1]);
                 if (entry_value.is_none()) { continue; }
-
-                Value key_value(*key_schema);
-                key_value.reset();
-                key_value.from_python(nb::borrow<nb::object>(kv[0]));
-
-                if (entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) {
-                    const bool removed = mutation.remove(key_value.view());
-                    if (!removed && entry_value.is(remove_sentinel())) {
-                        throw nb::key_error("TSD key not found for REMOVE");
-                    }
-                    changed = changed || removed;
-                    continue;
-                }
-
-                Value mapped_value(*mapped_schema);
-                mapped_value.reset();
-                mapped_value.from_python(entry_value);
-                mutation.set(key_value.view(), mapped_value.view());
-                changed = true;
+                entries.emplace_back(
+                    ts_nested_value_from_python(*key_schema, nb::borrow<nb::object>(kv[0])),
+                    std::move(entry_value));
             }
 
-            if (changed) { mark_output_view_modified(view, view.evaluation_time()); }
+            bool structural_changed = false;
+            {
+                auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
+                for (const auto &[key_value, entry_value] : entries) {
+                    const View key = key_value.view();
+
+                    if (entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) {
+                        const bool removed = mutation.remove(key);
+                        if (!removed && entry_value.is(remove_sentinel())) {
+                            throw nb::key_error("TSD key not found for REMOVE");
+                        }
+                        structural_changed = structural_changed || removed;
+                        continue;
+                    }
+
+                    if (!tsd_key_is_live(view, key)) {
+                        Value mapped_value(*mapped_schema, MutationTracking::Plain);
+                        mapped_value.reset();
+                        mutation.set(key, mapped_value.view());
+                        structural_changed = true;
+                    }
+                }
+            }
+
+            if (structural_changed) {
+                mark_output_view_modified(view, view.evaluation_time());
+            }
+
+            for (const auto &[key_value, entry_value] : entries) {
+                if (entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) { continue; }
+                apply_child_value(key_value.view(), entry_value, false);
+            }
         }
 
         void dict_apply_result(const TSOutputView &view, nb::handle value)
@@ -597,16 +672,10 @@ namespace hgraph
                     throw std::logic_error("TSOutputView dict result application requires key and value schemas");
                 }
 
-                std::vector<std::pair<Value, Value>> replacement;
+                std::vector<std::pair<Value, nb::object>> replacement;
                 for (auto item : nb::iter(items_object)) {
-                    Value key_value(*key_schema);
-                    key_value.reset();
-                    key_value.from_python(nb::borrow<nb::object>(item[0]));
-
-                    Value mapped_value(*mapped_schema);
-                    mapped_value.reset();
-                    mapped_value.from_python(nb::borrow<nb::object>(item[1]));
-                    replacement.emplace_back(std::move(key_value), std::move(mapped_value));
+                    Value key_value = ts_nested_value_from_python(*key_schema, nb::borrow<nb::object>(item[0]));
+                    replacement.emplace_back(std::move(key_value), nb::borrow<nb::object>(item[1]));
                 }
 
                 auto map_view = view.value().as_map();
@@ -617,26 +686,47 @@ namespace hgraph
                     existing_keys.push_back(current_delta.key_at_slot(slot).clone());
                 }
 
-                auto mutation = map_view.begin_mutation(view.evaluation_time());
-                bool changed = false;
+                bool structural_changed = false;
+                {
+                    auto mutation = map_view.begin_mutation(view.evaluation_time());
 
-                for (const Value &existing_key : existing_keys) {
-                    const bool keep = std::any_of(
-                        replacement.begin(),
-                        replacement.end(),
-                        [&](const auto &candidate) { return existing_key.view() == candidate.first.view(); });
-                    if (!keep) { changed = mutation.remove(existing_key.view()) || changed; }
-                }
+                    for (const Value &existing_key : existing_keys) {
+                        const bool keep = std::any_of(
+                            replacement.begin(),
+                            replacement.end(),
+                            [&](const auto &candidate) { return existing_key.view() == candidate.first.view(); });
+                        if (!keep) { structural_changed = mutation.remove(existing_key.view()) || structural_changed; }
+                    }
 
-                for (const auto &[key, mapped_value] : replacement) {
-                    const bool exists = map_view.contains(key.view());
-                    if (!exists || map_view.at(key.view()) != mapped_value.view()) {
-                        mutation.set(key.view(), mapped_value.view());
-                        changed = true;
+                    for (const auto &[key, mapped_value] : replacement) {
+                        static_cast<void>(mapped_value);
+                        const View key_view = key.view();
+                        if (!tsd_key_is_live(view, key_view)) {
+                            Value invalid_value(*mapped_schema, MutationTracking::Plain);
+                            invalid_value.reset();
+                            mutation.set(key_view, invalid_value.view());
+                            structural_changed = true;
+                        }
                     }
                 }
 
-                if (changed || (!view.valid() && replacement.empty())) { mark_output_view_modified(view, view.evaluation_time()); }
+                if (structural_changed || (!view.valid() && replacement.empty())) {
+                    mark_output_view_modified(view, view.evaluation_time());
+                }
+
+                for (const auto &[key, mapped_value] : replacement) {
+                    const View key_view = key.view();
+                    TSOutputView child_view = view.as_dict().at(key_view);
+                    if (!child_view.context_ref().is_bound()) {
+                        throw std::logic_error("TSD child result application failed to materialize a bound child view");
+                    }
+                    if (mapped_value.is_none()) {
+                        child_view.from_python(mapped_value);
+                    } else {
+                        child_view.apply_result(mapped_value);
+                    }
+                }
+
                 return;
             }
 
@@ -653,20 +743,33 @@ namespace hgraph
                 throw std::logic_error("TSOutputView dict child mutation requires a mapped value schema");
             }
 
-            auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
-
             if (value.is_none()) {
-                Value mapped_value(*schema->element_ts()->value_type);
+                Value mapped_value(*schema->element_ts()->value_type, MutationTracking::Plain);
                 mapped_value.reset();
-                mapped_value.from_python(nb::none());
-                mutation.set(key, mapped_value.view());
+
+                {
+                    auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
+                    mutation.set(key, mapped_value.view());
+                }
+
                 mark_output_view_modified(view, view.evaluation_time());
+
+                TSOutputView child_view = view.as_dict().at(key);
+                if (!child_view.context_ref().is_bound()) {
+                    throw std::logic_error("TSD child mutation failed to materialize a bound child view");
+                }
+
+                child_view.from_python(value);
                 return;
             }
 
             nb::object entry_value = nb::borrow<nb::object>(value);
             if (entry_value.is(remove_sentinel()) || entry_value.is(remove_if_exists_sentinel())) {
-                const bool removed = mutation.remove(key);
+                bool removed = false;
+                {
+                    auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
+                    removed = mutation.remove(key);
+                }
                 if (!removed && entry_value.is(remove_sentinel())) {
                     throw nb::key_error("TSD key not found for REMOVE");
                 }
@@ -674,11 +777,24 @@ namespace hgraph
                 return;
             }
 
-            Value mapped_value(*schema->element_ts()->value_type);
-            mapped_value.reset();
-            mapped_value.from_python(entry_value);
-            mutation.set(key, mapped_value.view());
-            mark_output_view_modified(view, view.evaluation_time());
+            if (!tsd_key_is_live(view, key)) {
+                Value mapped_value(*schema->element_ts()->value_type, MutationTracking::Plain);
+                mapped_value.reset();
+
+                {
+                    auto mutation = view.value().as_map().begin_mutation(view.evaluation_time());
+                    mutation.set(key, mapped_value.view());
+                }
+
+                mark_output_view_modified(view, view.evaluation_time());
+            }
+
+            TSOutputView child_view = view.as_dict().at(key);
+            if (!child_view.context_ref().is_bound()) {
+                throw std::logic_error("TSD child mutation failed to materialize a bound child view");
+            }
+
+            child_view.from_python(entry_value);
         }
 
         void erase_dict_key(const TSOutputView &view, const View &key)
@@ -703,10 +819,7 @@ namespace hgraph
             bool changed = false;
 
             const auto convert_value = [element_schema](const nb::handle &item) {
-                Value element(*element_schema);
-                element.reset();
-                element.from_python(nb::borrow<nb::object>(item));
-                return element;
+                return ts_nested_value_from_python(*element_schema, nb::borrow<nb::object>(item));
             };
 
             const auto apply_added = [&](const nb::handle &item) {
@@ -728,7 +841,9 @@ namespace hgraph
                 for (auto item : nb::iter(value)) { replacement.push_back(convert_value(nb::borrow<nb::object>(item))); }
 
                 std::vector<Value> existing_items;
-                for (const View &existing : set_view.values()) { existing_items.push_back(existing.clone()); }
+                for (const View &existing : set_view.values()) {
+                    existing_items.push_back(existing.clone());
+                }
 
                 for (const Value &existing : existing_items) {
                     const bool keep = std::any_of(replacement.begin(),
@@ -789,14 +904,13 @@ namespace hgraph
             std::vector<Value> replacement;
             replacement.reserve(nb::len(value));
             for (auto item : nb::iter(value)) {
-                Value element(*element_schema);
-                element.reset();
-                element.from_python(nb::borrow<nb::object>(item));
-                replacement.push_back(std::move(element));
+                replacement.push_back(ts_nested_value_from_python(*element_schema, nb::borrow<nb::object>(item)));
             }
 
             std::vector<Value> existing_items;
-            for (const View &existing : set_view.values()) { existing_items.push_back(existing.clone()); }
+            for (const View &existing : set_view.values()) {
+                existing_items.push_back(existing.clone());
+            }
 
             bool changed = false;
             {
@@ -963,10 +1077,10 @@ namespace hgraph
             {
                 auto it = contains_outputs.find(item);
                 if (it == contains_outputs.end()) {
-                    Value key{item};
+                    Value key = ts_nested_clone(item);
                     auto [inserted, success] = contains_outputs.emplace(
                         std::move(key),
-                        std::make_unique<DerivedSetFeatureOutput>(source_context, evaluation_time, Value(item)));
+                        std::make_unique<DerivedSetFeatureOutput>(source_context, evaluation_time, ts_nested_clone(item)));
                     static_cast<void>(success);
                     it = inserted;
                 }
@@ -2367,8 +2481,7 @@ namespace hgraph
         void install_dynamic_child(const TSOutputView &target_dict_view,
                                    const View &key,
                                    const TSOutputView &source_child,
-                                   engine_time_t modified_time,
-                                   bool mark_child_modified)
+                                   engine_time_t modified_time)
         {
             // The mutation layer has already ensured the key exists in the
             // alternative map value. Resolve the corresponding output-side TS
@@ -2411,14 +2524,6 @@ namespace hgraph
                 configure_branch(target_child, source_child);
             }
 
-            BaseState *installed_state =
-                target_slot < target_state.child_states.size() && target_state.child_states[target_slot] != nullptr
-                    ? base_state_of(*target_state.child_states[target_slot])
-                    : nullptr;
-            // Newly materialized children need an explicit modification mark
-            // so the alternative child becomes valid immediately at the source
-            // tick that introduced or updated the key.
-            if (mark_child_modified && installed_state != nullptr) { installed_state->mark_modified(modified_time); }
         }
 
         void sync_dynamic_dict(DynamicDictBinding &binding, engine_time_t modified_time, bool initializing)
@@ -2455,7 +2560,7 @@ namespace hgraph
                 if (full_resync) {
                     std::vector<Value> stale_keys;
                     for (size_t slot = target_map.first_live_slot(); slot != no_slot; slot = target_map.next_live_slot(slot)) {
-                        stale_keys.emplace_back(target_map.delta().key_at_slot(slot));
+                        stale_keys.emplace_back(target_map.delta().key_at_slot(slot).clone());
                     }
                     for (const auto &key : stale_keys) { remove_target_key(key.view()); }
                 }
@@ -2488,7 +2593,7 @@ namespace hgraph
                 std::vector<Value> stale_keys;
                 for (size_t slot = target_map.first_live_slot(); slot != no_slot; slot = target_map.next_live_slot(slot)) {
                     const View key = target_map.delta().key_at_slot(slot);
-                    if (!source_map.contains(key)) { stale_keys.emplace_back(key); }
+                    if (!source_map.contains(key)) { stale_keys.emplace_back(key.clone()); }
                 }
                 for (const auto &key : stale_keys) { remove_target_key(key.view()); }
             } else {
@@ -2522,7 +2627,7 @@ namespace hgraph
                     // Insert the key into the alternative map before touching
                     // TS child state. That guarantees dict navigation can
                     // resolve a stable slot for install_dynamic_child().
-                    Value placeholder{*target_root.ts_schema()->element_ts()->value_type};
+                    Value placeholder{*target_root.ts_schema()->element_ts()->value_type, MutationTracking::Plain};
                     mutation.set(key, placeholder.view());
                     map_value_changed = true;
                 }
@@ -2534,15 +2639,17 @@ namespace hgraph
                 }
 
                 if (rebuild_child || !target_has_key) {
-                    install_dynamic_child(target_root, key, source_child, modified_time, modified_time != MIN_DT && source_updated);
+                    install_dynamic_child(target_root, key, source_child, modified_time);
                     target_child = target_dict.at(key);
                 }
 
-                if (source_updated && target_has_key) {
-                    // Preserve the current alternative payload object while
-                    // still surfacing the map-level delta for "this key
-                    // changed". If rebuilding was required above, refresh the
-                    // map payload after the new child subtree is in place.
+                if (source_updated && target_has_key &&
+                    (rebuild_child || context_modified(target_child.context_ref(), modified_time))) {
+                    // Existing keys publish a dict-level update when the
+                    // projected child changed this cycle. Rebinding/rebuilding
+                    // the child subtree for the same logical key is itself a
+                    // value replacement at the dict level and must surface as
+                    // an updated key.
                     mutation.set(key, target_child.value());
                     map_value_changed = true;
                 }
@@ -2601,7 +2708,9 @@ namespace hgraph
             if (!source_value.has_value()) {
                 if (full_resync) {
                     std::vector<Value> stale_keys;
-                    for (const View &key : target_set.values()) { stale_keys.emplace_back(key); }
+                    for (const View &key : target_set.values()) {
+                        stale_keys.emplace_back(key.clone());
+                    }
                     for (const auto &key : stale_keys) { remove_target_key(key.view()); }
                 }
 
@@ -2618,7 +2727,7 @@ namespace hgraph
             if (full_resync) {
                 std::vector<Value> stale_keys;
                 for (const View &key : target_set.values()) {
-                    if (!source_map.contains(key)) { stale_keys.emplace_back(key); }
+                    if (!source_map.contains(key)) { stale_keys.emplace_back(key.clone()); }
                 }
                 for (const auto &key : stale_keys) { remove_target_key(key.view()); }
 
@@ -2656,7 +2765,28 @@ namespace hgraph
             }
 
             if (source_schema->kind == TSKind::REF) {
-                if (source_schema->element_ts() == target_schema) {
+                const TSMeta *dereferenced_schema = source_schema->element_ts();
+                if (dereferenced_schema == nullptr) {
+                    throw std::invalid_argument("TSOutput alternative REF dereference requires a referenced schema");
+                }
+
+                if (target_schema->kind == TSKind::TSD && dereferenced_schema->kind == TSKind::TSD &&
+                    supports_alternative_cast(*dereferenced_schema, *target_schema)) {
+                    add_dynamic_dict_binding(
+                        make_dereferenced_dynamic_dict_binding(target_view, source_view),
+                        source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                    return;
+                }
+
+                if (target_schema->kind == TSKind::TSS && dereferenced_schema->kind == TSKind::TSD &&
+                    supports_alternative_cast(*dereferenced_schema, *target_schema)) {
+                    add_dynamic_key_set_binding(
+                        make_dereferenced_dynamic_key_set_binding(target_view, source_view),
+                        source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                    return;
+                }
+
+                if (supports_alternative_cast(*dereferenced_schema, *target_schema)) {
                     if (target_schema->kind == TSKind::TSB || target_schema->kind == TSKind::TSL) {
                         add_collection_ref_binding(
                             std::make_unique<CollectionRefBinding>(this, target_view, source_view),
@@ -2668,24 +2798,6 @@ namespace hgraph
                         // target through the normal TS view surface.
                         install_ref_link_for_target(target_view, source_view);
                     }
-                    return;
-                }
-
-                if (target_schema->kind == TSKind::TSD && source_schema->element_ts() != nullptr &&
-                    source_schema->element_ts()->kind == TSKind::TSD &&
-                    supports_alternative_cast(*source_schema->element_ts(), *target_schema)) {
-                    add_dynamic_dict_binding(
-                        make_dereferenced_dynamic_dict_binding(target_view, source_view),
-                        source_state != nullptr ? source_state->last_modified_time : MIN_DT);
-                    return;
-                }
-
-                if (target_schema->kind == TSKind::TSS && source_schema->element_ts() != nullptr &&
-                    source_schema->element_ts()->kind == TSKind::TSD &&
-                    supports_alternative_cast(*source_schema->element_ts(), *target_schema)) {
-                    add_dynamic_key_set_binding(
-                        make_dereferenced_dynamic_key_set_binding(target_view, source_view),
-                        source_state != nullptr ? source_state->last_modified_time : MIN_DT);
                     return;
                 }
 

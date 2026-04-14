@@ -18,6 +18,31 @@ namespace hgraph::v2
     [[nodiscard]] TSInputView input_view_for(Node &node, engine_time_t evaluation_time);
     [[nodiscard]] TSOutputView output_view_for(Node &node, engine_time_t evaluation_time);
 
+    struct HGRAPH_EXPORT NodeErrorInfo
+    {
+        std::string signature_name;
+        std::string label;
+        std::string wiring_path;
+        std::string error_msg;
+        std::string stack_trace;
+        std::string activation_back_trace;
+        std::string additional_context;
+    };
+
+    class HGRAPH_EXPORT NodeException : public std::runtime_error
+    {
+      public:
+        explicit NodeException(NodeErrorInfo error)
+            : std::runtime_error(error.error_msg), m_error(std::move(error))
+        {
+        }
+
+        [[nodiscard]] const NodeErrorInfo &error() const noexcept { return m_error; }
+
+      private:
+        NodeErrorInfo m_error;
+    };
+
     namespace detail
     {
         /**
@@ -30,6 +55,7 @@ namespace hgraph::v2
         {
             TSInput *input{nullptr};
             TSOutput *output{nullptr};
+            TSOutput *error_output{nullptr};
             const ValueBuilder *state_builder{nullptr};
             void *state_memory{nullptr};
             TSOutput *recordable_state{nullptr};
@@ -184,8 +210,17 @@ namespace hgraph::v2
         {
             static In<Name, TSchema, Activity, Validity> get(Node &node, engine_time_t evaluation_time)
             {
-                return In<Name, TSchema, Activity, Validity>{
-                    input_view_for(node, evaluation_time).as_bundle().field(Name.sv())};
+                TSInputView input = input_view_for(node, evaluation_time);
+                if (const TSMeta *root_schema = input.ts_schema();
+                    root_schema != nullptr && root_schema->kind == TSKind::TSB) {
+                    for (size_t index = 0; index < root_schema->field_count(); ++index) {
+                        if (root_schema->fields()[index].name == Name.sv()) {
+                            return In<Name, TSchema, Activity, Validity>{input.as_bundle().field(Name.sv())};
+                        }
+                    }
+                }
+
+                return In<Name, TSchema, Activity, Validity>{std::move(input)};
             }
         };
 
@@ -358,6 +393,16 @@ namespace hgraph::v2
             return node.data() != nullptr && runtime_data<StaticNodeRuntimeData>(node).output != nullptr;
         }
 
+        [[nodiscard]] inline bool default_has_error_output(const Node &node) noexcept
+        {
+            return node.data() != nullptr && runtime_data<StaticNodeRuntimeData>(node).error_output != nullptr;
+        }
+
+        [[nodiscard]] inline bool default_has_recordable_state(const Node &node) noexcept
+        {
+            return node.data() != nullptr && runtime_data<StaticNodeRuntimeData>(node).recordable_state != nullptr;
+        }
+
         [[nodiscard]] inline TSInputView default_input_view(Node &node, engine_time_t evaluation_time)
         {
             if (!default_has_input(node)) { return invalid_input_view(evaluation_time); }
@@ -368,6 +413,18 @@ namespace hgraph::v2
         {
             if (!default_has_output(node)) { return invalid_output_view(evaluation_time); }
             return runtime_data<StaticNodeRuntimeData>(node).output->view(evaluation_time);
+        }
+
+        [[nodiscard]] inline TSOutputView default_error_output_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!default_has_error_output(node)) { return invalid_output_view(evaluation_time); }
+            return runtime_data<StaticNodeRuntimeData>(node).error_output->view(evaluation_time);
+        }
+
+        [[nodiscard]] inline TSOutputView default_recordable_state_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!default_has_recordable_state(node)) { return invalid_output_view(evaluation_time); }
+            return runtime_data<StaticNodeRuntimeData>(node).recordable_state->view(evaluation_time);
         }
 
         [[nodiscard]] inline std::string default_runtime_label(const Node &node)
@@ -422,8 +479,12 @@ namespace hgraph::v2
                 &eval,
                 &default_has_input,
                 &default_has_output,
+                &default_has_error_output,
+                &default_has_recordable_state,
                 &default_input_view,
                 &default_output_view,
+                &default_error_output_view,
+                &default_recordable_state_view,
                 &default_runtime_label,
             };
         };

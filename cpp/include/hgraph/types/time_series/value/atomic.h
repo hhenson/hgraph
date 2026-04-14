@@ -80,6 +80,11 @@ namespace hgraph
 
         template <typename T> struct AtomicDispatch final : ViewDispatch
         {
+            [[nodiscard]] MutationTracking tracking() const noexcept override
+            {
+                return MutationTracking::Plain;
+            }
+
             [[nodiscard]] size_t hash(const void *data) const override
             {
                 return atomic_hash(state(data)->value);
@@ -110,6 +115,11 @@ namespace hgraph
             void assign(void *dst, const void *src) const override
             {
                 state(dst)->value = state(src)->value;
+            }
+
+            void copy_from(void *dst, const View &src) const override
+            {
+                assign(dst, detail::ViewAccess::data(src));
             }
 
             void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override
@@ -150,6 +160,11 @@ namespace hgraph
          */
         template <> struct AtomicDispatch<nb::object> final : ViewDispatch
         {
+            [[nodiscard]] MutationTracking tracking() const noexcept override
+            {
+                return MutationTracking::Plain;
+            }
+
             [[nodiscard]] size_t hash(const void *data) const override
             {
                 const auto &obj = state(data)->value;
@@ -200,6 +215,11 @@ namespace hgraph
             void assign(void *dst, const void *src) const override
             {
                 state(dst)->value = state(src)->value;
+            }
+
+            void copy_from(void *dst, const View &src) const override
+            {
+                assign(dst, detail::ViewAccess::data(src));
             }
 
             void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override

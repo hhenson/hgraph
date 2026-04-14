@@ -102,6 +102,11 @@ namespace hgraph::v2
         return m_last_evaluation_time;
     }
 
+    SenderReceiverState *Graph::push_message_receiver() const noexcept
+    {
+        return m_evaluation_engine.push_message_receiver();
+    }
+
     int64_t Graph::push_source_nodes_end() const noexcept
     {
         return m_push_source_nodes_end;
@@ -215,6 +220,11 @@ namespace hgraph::v2
 
         auto mark_stopped = hgraph::make_scope_exit([&] { m_started = false; });
         stop_nodes(m_node_count);
+    }
+
+    void Graph::abandon() noexcept
+    {
+        m_started = false;
     }
 
     void Graph::stop_nodes(size_t nodes_end)

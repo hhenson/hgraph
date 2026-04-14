@@ -9,6 +9,7 @@
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
+#include <cassert>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -61,6 +62,7 @@ namespace hgraph
 
         struct RawViewAccess : View
         {
+            using View::dispatch;
             using View::data_of;
         };
 
@@ -137,6 +139,18 @@ namespace hgraph
             state.bound_link.storage_kind = TSStorageKind::TargetLink;
         }
 
+        void initialize_window_state(TSWState &state,
+                                     const TSMeta &schema,
+                                     TimeSeriesStateParentPtr parent,
+                                     size_t index,
+                                     engine_time_t modified_time = MIN_DT) noexcept
+        {
+            initialize_base_state(state, parent, index, modified_time);
+            static_cast<void>(schema);
+            state.first_observed_time = MIN_DT;
+            state.ready = false;
+        }
+
         [[nodiscard]] TimeSeriesStatePtr state_ptr(TimeSeriesStateV &state) noexcept
         {
             return std::visit([](auto &typed_state) -> TimeSeriesStatePtr { return &typed_state; }, state);
@@ -185,6 +199,23 @@ namespace hgraph
         [[nodiscard]] bool dict_slot_modified(const MapDeltaView &delta, size_t index) noexcept
         {
             return index < delta.slot_capacity() && (delta.slot_added(index) || delta.slot_updated(index));
+        }
+
+        [[nodiscard]] bool collection_has_valid_child(const TSViewContext &context,
+                                                      const detail::TSCollectionDispatch &dispatch,
+                                                      size_t size) noexcept
+        {
+            if (!context.value().has_value()) { return false; }
+
+            for (size_t index = 0; index < size; ++index) {
+                const TSViewContext child = dispatch.child_at(context, index);
+                if (!child.is_bound()) { continue; }
+                if (const auto *child_dispatch = child.resolved().ts_dispatch; child_dispatch != nullptr && child_dispatch->valid(child)) {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         [[nodiscard]] TSViewContext linked_child_context(const LinkedTSContext &target,
@@ -312,7 +343,7 @@ namespace hgraph
                     }
 
                 case TSKind::TSW:
-                    initialize_base_state(state.emplace<TSWState>(), parent, index);
+                    initialize_window_state(state.emplace<TSWState>(), schema, parent, index);
                     break;
 
                 case TSKind::TSB:
@@ -355,6 +386,7 @@ namespace hgraph
 
             const auto &child_builder = TSValueBuilderFactory::checked_builder_for(state.element_schema);
             void *slot_value_data = state.map_dispatch->value_data(state.map_value_data, slot);
+            const auto &slot_value_dispatch = state.map_dispatch->value_dispatch();
 
             // Eagerly bind nested TSD children's value storage during mutation,
             // rather than deferring to the read path.
@@ -363,7 +395,7 @@ namespace hgraph
                     child_state != nullptr && child_state->storage_kind == TSStorageKind::Native) {
                     static_cast<TSDState *>(child_state)->bind_value_storage(
                         *state.element_schema->element_ts(),
-                        static_cast<const detail::MapViewDispatch &>(child_builder.value_builder().dispatch()),
+                        static_cast<const detail::MapViewDispatch &>(slot_value_dispatch),
                         slot_value_data,
                         false);
                 }
@@ -371,7 +403,7 @@ namespace hgraph
 
             return child_context_from_slot(state.child_states[slot],
                                            *state.element_schema,
-                                           child_builder.value_builder().dispatch(),
+                                           slot_value_dispatch,
                                            child_builder.ts_dispatch(),
                                            slot_value_data);
         }
@@ -435,22 +467,29 @@ namespace hgraph
             return schema;
         }
 
-        void bind_dynamic_dict_states_recursive(const TSMeta &schema, TimeSeriesStateV &state, void *value_data)
+        void bind_dynamic_dict_states_recursive(const TSMeta &schema,
+                                                TimeSeriesStateV &state,
+                                                const detail::ViewDispatch &value_dispatch,
+                                                void *value_data)
         {
             if (value_data == nullptr) { return; }
 
             const TSMeta &binding_schema = binding_schema_for_state(schema, state);
-            const auto &builder = TSValueBuilderFactory::checked_builder_for(binding_schema);
-            View root_view{&builder.value_builder().dispatch(), value_data, binding_schema.value_type};
+            View root_view{&value_dispatch, value_data, binding_schema.value_type};
 
             std::visit(
                 [&](auto &typed_state) {
                     using T = std::remove_cvref_t<decltype(typed_state)>;
 
                     if constexpr (std::same_as<T, TSDState>) {
+                        const auto *map_dispatch = dynamic_cast<const detail::MapViewDispatch *>(&value_dispatch);
+                        if (map_dispatch == nullptr) {
+                            throw std::logic_error("nested TSD binding requires map-backed value storage");
+                        }
                         typed_state.bind_value_storage(*binding_schema.element_ts(),
-                                                       static_cast<const detail::MapViewDispatch &>(builder.value_builder().dispatch()),
+                                                       *map_dispatch,
                                                        value_data);
+                        const auto &child_value_dispatch = map_dispatch->value_dispatch();
 
                         MapDeltaView delta = root_view.as_map().delta();
                         for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
@@ -458,9 +497,14 @@ namespace hgraph
                                 typed_state.child_states[slot] == nullptr) {
                                 continue;
                             }
+                            const View child_value = delta.value_at_slot(slot);
+                            if (RawViewAccess::data_of(child_value) == nullptr) {
+                                continue;
+                            }
                             bind_dynamic_dict_states_recursive(*binding_schema.element_ts(),
                                                                *typed_state.child_states[slot],
-                                                               RawViewAccess::data_of(delta.value_at_slot(slot)));
+                                                               child_value_dispatch,
+                                                               RawViewAccess::data_of(child_value));
                         }
                     } else if constexpr (std::same_as<T, TSBState>) {
                         auto bundle = root_view.as_bundle();
@@ -468,18 +512,34 @@ namespace hgraph
                              index < typed_state.child_states.size() && index < binding_schema.field_count();
                              ++index) {
                             if (typed_state.child_states[index] == nullptr) { continue; }
+                            const View child_value = bundle.at(index);
+                            if (RawViewAccess::data_of(child_value) == nullptr) {
+                                continue;
+                            }
+                            const auto &child_value_dispatch = ValueBuilderFactory::checked_builder_for(
+                                binding_schema.fields()[index].ts_type->value_type,
+                                MutationTracking::Plain).dispatch();
                             bind_dynamic_dict_states_recursive(*binding_schema.fields()[index].ts_type,
                                                                *typed_state.child_states[index],
-                                                               RawViewAccess::data_of(bundle.at(index)));
+                                                               child_value_dispatch,
+                                                               RawViewAccess::data_of(child_value));
                         }
                     } else if constexpr (std::same_as<T, TSLState>) {
                         auto list = root_view.as_list();
                         const size_t limit = std::min(typed_state.child_states.size(), list.size());
                         for (size_t index = 0; index < limit; ++index) {
                             if (typed_state.child_states[index] == nullptr || binding_schema.element_ts() == nullptr) { continue; }
+                            const View child_value = list.at(index);
+                            if (RawViewAccess::data_of(child_value) == nullptr) {
+                                continue;
+                            }
+                            const auto &child_value_dispatch = ValueBuilderFactory::checked_builder_for(
+                                binding_schema.element_ts()->value_type,
+                                MutationTracking::Plain).dispatch();
                             bind_dynamic_dict_states_recursive(*binding_schema.element_ts(),
                                                                *typed_state.child_states[index],
-                                                               RawViewAccess::data_of(list.at(index)));
+                                                               child_value_dispatch,
+                                                               RawViewAccess::data_of(child_value));
                         }
                     } else if constexpr (std::same_as<T, SignalState>) {
                         static_cast<void>(binding_schema);
@@ -575,7 +635,10 @@ namespace hgraph
                 case TSKind::TSW:
                     {
                         const auto &src_state = std::get<TSWState>(src);
-                        initialize_base_state(dst.emplace<TSWState>(), parent, index, src_state.last_modified_time);
+                        auto &dst_state = dst.emplace<TSWState>();
+                        initialize_base_state(dst_state, parent, index, src_state.last_modified_time);
+                        dst_state.first_observed_time = src_state.first_observed_time;
+                        dst_state.ready = src_state.ready;
                         break;
                     }
 
@@ -748,23 +811,18 @@ namespace hgraph
                 }
 
                 if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr) {
-                    if (!target->is_bound()) { return false; }
-
-                    if (target->schema != nullptr && target->schema->kind == TSKind::REF) {
-                        if (target->value_dispatch == nullptr || target->value_data == nullptr || target->schema->value_type == nullptr) {
-                            return false;
-                        }
-
-                        View target_value{target->value_dispatch, target->value_data, target->schema->value_type};
-                        if (target_value.as_atomic().try_as<v2::TimeSeriesReference>() != nullptr) { return true; }
-                        return false;
-                    }
-
-                    return true;
+                    return detail::linked_context_valid(*target);
                 }
 
-                if (context.value().as_atomic().try_as<v2::TimeSeriesReference>() != nullptr) { return true; }
-                return detail::has_local_reference_binding(context);
+                if (const Value *materialized = detail::materialized_reference_value(context); materialized != nullptr) {
+                    if (const auto *ref = materialized->view().as_atomic().try_as<v2::TimeSeriesReference>()) {
+                        return ref->is_valid();
+                    }
+                    return false;
+                }
+
+                View value = context.value();
+                return value.has_value() && value.as_atomic().try_as<v2::TimeSeriesReference>() != nullptr;
             }
 
             [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
@@ -802,6 +860,12 @@ namespace hgraph
             [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
             {
                 return detail::list_delta_to_python(context, evaluation_time);
+            }
+
+            [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override
+            {
+                if (!detail::TSDispatch::valid(context)) { return false; }
+                return collection_has_valid_child(context, *this, size(context));
             }
 
             void from_python(const TSOutputView &view, nb::handle value) const override
@@ -884,7 +948,7 @@ namespace hgraph
                                               RawViewAccess::data_of(child_value),
                                               nullptr};
                     }
-                    if (!m_element_ts_dispatch.get().all_valid(child)) { return false; }
+                    if (!m_element_ts_dispatch.get().valid(child)) { return false; }
                 }
 
                 return true;
@@ -892,23 +956,30 @@ namespace hgraph
 
             [[nodiscard]] TSViewContext child_at(const TSViewContext &context, size_t index) const override
             {
-                if (!context.value().has_value()) { return TSViewContext::none(); }
-
-                ListView list = context.value().as_list();
-                if (index >= list.size()) { return TSViewContext::none(); }
-
                 TSLState *state = list_state(context);
+                void *child_value_data = nullptr;
+                if (context.value().has_value()) {
+                    ListView list = context.value().as_list();
+                    if (index >= list.size()) { return TSViewContext::none(); }
+                    View child_value = list.at(index);
+                    child_value_data = RawViewAccess::data_of(child_value);
+                } else if (const TSMeta *schema = context.resolved().schema;
+                           schema != nullptr && schema->fixed_size() != 0 && index >= schema->fixed_size()) {
+                    return TSViewContext::none();
+                }
+
                 if (state != nullptr && (index >= state->child_states.size() || state->child_states[index] == nullptr)) {
                     ensure_child_state(*state, index, m_element_schema.get());
                 }
 
-                View child_value = list.at(index);
                 if (state == nullptr) {
-                    return TSViewContext{&m_element_schema.get(),
-                                         &m_element_value_dispatch.get(),
-                                         &m_element_ts_dispatch.get(),
-                                         RawViewAccess::data_of(child_value),
-                                         nullptr};
+                    if (child_value_data == nullptr) { return TSViewContext::none(); }
+                    return TSViewContext{
+                        &m_element_schema.get(),
+                        &m_element_value_dispatch.get(),
+                        &m_element_ts_dispatch.get(),
+                        child_value_data,
+                        nullptr};
                 }
                 if (index >= state->child_states.size() || state->child_states[index] == nullptr) { return TSViewContext::none(); }
 
@@ -916,7 +987,7 @@ namespace hgraph
                                                m_element_schema.get(),
                                                m_element_value_dispatch.get(),
                                                m_element_ts_dispatch.get(),
-                                               RawViewAccess::data_of(child_value));
+                                               child_value_data);
             }
 
           private:
@@ -956,6 +1027,12 @@ namespace hgraph
             [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
             {
                 return detail::bundle_delta_to_python(context, evaluation_time);
+            }
+
+            [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override
+            {
+                if (!detail::TSDispatch::valid(context)) { return false; }
+                return collection_has_valid_child(context, *this, m_fields.size());
             }
 
             void from_python(const TSOutputView &view, nb::handle value) const override
@@ -1037,7 +1114,7 @@ namespace hgraph
                                               RawViewAccess::data_of(child_value),
                                               nullptr};
                     }
-                    if (!m_fields[index].ts_dispatch.get().all_valid(child)) { return false; }
+                    if (!m_fields[index].ts_dispatch.get().valid(child)) { return false; }
                 }
 
                 return true;
@@ -1045,7 +1122,6 @@ namespace hgraph
 
             [[nodiscard]] TSViewContext child_at(const TSViewContext &context, size_t index) const override
             {
-                if (!context.value().has_value()) { return TSViewContext::none(); }
                 if (index >= m_fields.size()) { return TSViewContext::none(); }
 
                 TSBState *state = bundle_state(context);
@@ -1053,13 +1129,20 @@ namespace hgraph
                     ensure_child_state(*state, index, m_fields[index].schema.get());
                 }
 
-                View child_value = context.value().as_bundle().at(index);
+                void *child_value_data = nullptr;
+                if (context.value().has_value()) {
+                    View child_value = context.value().as_bundle().at(index);
+                    child_value_data = RawViewAccess::data_of(child_value);
+                }
+
                 if (state == nullptr) {
-                    return TSViewContext{&m_fields[index].schema.get(),
-                                         &m_fields[index].value_dispatch.get(),
-                                         &m_fields[index].ts_dispatch.get(),
-                                         RawViewAccess::data_of(child_value),
-                                         nullptr};
+                    if (child_value_data == nullptr) { return TSViewContext::none(); }
+                    return TSViewContext{
+                        &m_fields[index].schema.get(),
+                        &m_fields[index].value_dispatch.get(),
+                        &m_fields[index].ts_dispatch.get(),
+                        child_value_data,
+                        nullptr};
                 }
                 if (index >= state->child_states.size() || state->child_states[index] == nullptr) { return TSViewContext::none(); }
 
@@ -1067,7 +1150,7 @@ namespace hgraph
                                                m_fields[index].schema.get(),
                                                m_fields[index].value_dispatch.get(),
                                                m_fields[index].ts_dispatch.get(),
-                                               RawViewAccess::data_of(child_value));
+                                               child_value_data);
             }
 
             [[nodiscard]] TSViewContext child_field(const TSViewContext &context, std::string_view name) const override
@@ -1354,25 +1437,47 @@ namespace hgraph
 
         struct WindowTSDispatch final : detail::TSWindowDispatch
         {
-            [[nodiscard]] nb::object to_python(const TSViewContext &context, engine_time_t) const override
+            [[nodiscard]] nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
             {
-                nb::list result;
-                if (!context.value().has_value()) { return result; }
-                for (const View &item : values(context)) { result.append(item.to_python()); }
-                return result;
+                const TSMeta *schema = context.resolved().schema;
+                if (schema == nullptr || schema->kind != TSKind::TSW || !context.value().has_value()) { return nb::none(); }
+
+                const engine_time_t window_time = resolve_window_time(context, evaluation_time);
+                if (schema->is_duration_based()) {
+                    roll_duration_window(context, window_time);
+                    if (!duration_window_ready(context, window_time)) { return nb::none(); }
+                } else {
+                    const size_t window_size = size(context, window_time);
+                    if (window_size == 0 || window_size < schema->min_period()) { return nb::none(); }
+                }
+
+                return numpy_array_from_values(*this, context, window_time);
             }
 
-            [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t) const override
+            [[nodiscard]] nb::object delta_to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
             {
-                if (!valid(context)) { return nb::none(); }
+                if (!context.value().has_value()) { return nb::none(); }
 
-                BufferView buffer{context.value()};
+                const TSMeta *schema = context.resolved().schema;
+                if (schema == nullptr || schema->kind != TSKind::TSW) { return nb::none(); }
+
+                const engine_time_t window_time = resolve_window_time(context, evaluation_time);
+                if (schema->is_duration_based()) {
+                    roll_duration_window(context, window_time);
+                    if (!duration_window_ready(context, window_time)) { return nb::none(); }
+                }
+
+                const BufferView time_buffer = timestamp_buffer_view(context);
+                if (time_buffer.empty() || time_buffer.back().as_atomic().as<engine_time_t>() != window_time) { return nb::none(); }
+
+                const BufferView buffer = value_buffer_view(context);
                 return buffer.empty() ? nb::none() : buffer.back().to_python();
             }
 
             [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override
             {
-                return context.value().has_value() && size(context) != 0;
+                if (!context.value().has_value()) { return false; }
+                return buffer_size(context, value_field_index) != 0;
             }
 
             [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
@@ -1381,28 +1486,210 @@ namespace hgraph
 
                 const TSMeta *schema = context.resolved().schema;
                 if (schema == nullptr || schema->kind != TSKind::TSW) { return false; }
-                if (schema->is_duration_based()) { return valid(context); }
-                return size(context) >= schema->min_period();
+                if (schema->is_duration_based()) { return duration_window_ready(context, current_window_time(context)); }
+                return size(context, current_window_time(context)) >= schema->min_period();
             }
 
-            [[nodiscard]] size_t size(const TSViewContext &context) const noexcept override
+            [[nodiscard]] size_t size(const TSViewContext &context, engine_time_t evaluation_time) const noexcept override
             {
-                return context.value().has_value() ? BufferView{context.value()}.size() : 0;
+                if (!context.value().has_value()) { return 0; }
+                roll_duration_window(context, resolve_window_time(context, evaluation_time));
+                assert(buffer_size(context, timestamp_field_index) == buffer_size(context, value_field_index));
+                return buffer_size(context, value_field_index);
             }
 
-            [[nodiscard]] Range<View> values(const TSViewContext &context) const noexcept override
+            [[nodiscard]] Range<View> values(const TSViewContext &context, engine_time_t evaluation_time) const noexcept override
             {
                 if (!context.value().has_value()) { return Range<View>{nullptr, 0, nullptr, nullptr}; }
-                return Range<View>{&context, size(context), nullptr,
-                                   [](const void *opaque, size_t index) {
-                                       const auto &context = *static_cast<const TSViewContext *>(opaque);
-                                       return RawBufferAccess{context.value()}.element_at(index);
-                                   }};
+                return Range<View>{&context, size(context, evaluation_time), nullptr, &value_at};
             }
 
-            [[nodiscard]] Range<engine_time_t> value_times(const TSViewContext &) const noexcept override
+            [[nodiscard]] Range<engine_time_t> value_times(const TSViewContext &context,
+                                                           engine_time_t       evaluation_time) const noexcept override
             {
-                return Range<engine_time_t>{nullptr, 0, nullptr, nullptr};
+                if (!context.value().has_value()) { return Range<engine_time_t>{nullptr, 0, nullptr, nullptr}; }
+
+                roll_duration_window(context, resolve_window_time(context, evaluation_time));
+                return Range<engine_time_t>{&context, size(context, evaluation_time), nullptr, &timestamp_at};
+            }
+
+            void from_python(const TSOutputView &view, nb::handle value) const override
+            {
+                if (value.is_none()) {
+                    clear(view);
+                    return;
+                }
+
+                const BufferView buffer = value_buffer_view(view.context_ref());
+                Value element(buffer.element_schema());
+                element.from_python(nb::borrow<nb::object>(value));
+                Value timestamp_value{view.evaluation_time()};
+
+                const TSMeta *schema = view.ts_schema();
+                if (schema != nullptr && schema->kind == TSKind::TSW && schema->is_duration_based()) {
+                    auto time_queue = timestamp_buffer_view(view.context_ref()).as_queue();
+                    auto value_queue = value_buffer_view(view.context_ref()).as_queue();
+                    auto time_mutation = time_queue.begin_mutation();
+                    auto value_mutation = value_queue.begin_mutation();
+                    time_mutation.push(timestamp_value.view());
+                    value_mutation.push(element.view());
+                } else {
+                    auto time_cyclic = timestamp_buffer_view(view.context_ref()).as_cyclic_buffer();
+                    auto value_cyclic = value_buffer_view(view.context_ref()).as_cyclic_buffer();
+                    auto time_mutation = time_cyclic.begin_mutation();
+                    auto value_mutation = value_cyclic.begin_mutation();
+                    time_mutation.push(timestamp_value.view());
+                    value_mutation.push(element.view());
+                }
+
+                if (TSWState *state = const_cast<TSWState *>(window_state(view.context_ref())); state != nullptr) {
+                    if (schema != nullptr && schema->kind == TSKind::TSW) { record_window_append(*state, *schema, view.evaluation_time()); }
+                }
+
+                mark_output_view_modified(view, view.evaluation_time());
+            }
+
+            void clear(const TSOutputView &view) const override
+            {
+                const BufferView buffer = value_buffer_view(view.context_ref());
+                const bool had_live_values = !buffer.empty();
+
+                const TSMeta *schema = view.ts_schema();
+                if (schema != nullptr && schema->kind == TSKind::TSW && schema->is_duration_based()) {
+                    auto time_queue = timestamp_buffer_view(view.context_ref()).as_queue();
+                    auto value_queue = value_buffer_view(view.context_ref()).as_queue();
+                    auto time_mutation = time_queue.begin_mutation();
+                    auto value_mutation = value_queue.begin_mutation();
+                    time_mutation.clear();
+                    value_mutation.clear();
+                } else {
+                    auto time_cyclic = timestamp_buffer_view(view.context_ref()).as_cyclic_buffer();
+                    auto value_cyclic = value_buffer_view(view.context_ref()).as_cyclic_buffer();
+                    auto time_mutation = time_cyclic.begin_mutation();
+                    auto value_mutation = value_cyclic.begin_mutation();
+                    time_mutation.clear();
+                    value_mutation.clear();
+                }
+
+                if (TSWState *state = const_cast<TSWState *>(window_state(view.context_ref())); state != nullptr) {
+                    state->first_observed_time = MIN_DT;
+                    state->ready = false;
+                }
+
+                if (had_live_values) { mark_output_view_modified(view, view.evaluation_time()); }
+            }
+
+          private:
+            static constexpr size_t timestamp_field_index = 0;
+            static constexpr size_t value_field_index = 1;
+
+            [[nodiscard]] static View tuple_field(const TSViewContext &context, size_t index)
+            {
+                const TupleView tuple{context.value()};
+                return tuple[index];
+            }
+
+            [[nodiscard]] static size_t buffer_size(const TSViewContext &context, size_t index)
+            {
+                return BufferView{tuple_field(context, index)}.size();
+            }
+
+            [[nodiscard]] static BufferView timestamp_buffer_view(const TSViewContext &context)
+            {
+                return BufferView{tuple_field(context, timestamp_field_index)};
+            }
+
+            [[nodiscard]] static BufferView value_buffer_view(const TSViewContext &context)
+            {
+                return BufferView{tuple_field(context, value_field_index)};
+            }
+
+            [[nodiscard]] static View value_at(const void *opaque, size_t index)
+            {
+                const auto &context = *static_cast<const TSViewContext *>(opaque);
+                return RawBufferAccess{value_buffer_view(context)}.element_at(index);
+            }
+
+            [[nodiscard]] static engine_time_t timestamp_at(const void *opaque, size_t index)
+            {
+                const auto &context = *static_cast<const TSViewContext *>(opaque);
+                return RawBufferAccess{timestamp_buffer_view(context)}.element_at(index).as_atomic().as<engine_time_t>();
+            }
+
+            [[nodiscard]] static const TSWState *window_state(const TSViewContext &context) noexcept
+            {
+                const BaseState *state = context.ts_state != nullptr ? context.ts_state->resolved_state() : nullptr;
+                return state != nullptr && state->storage_kind == TSStorageKind::Native ? static_cast<const TSWState *>(state)
+                                                                                        : nullptr;
+            }
+
+            [[nodiscard]] static engine_time_t resolve_window_time(const TSViewContext &context, engine_time_t evaluation_time) noexcept
+            {
+                return evaluation_time != MIN_DT ? evaluation_time : current_window_time(context);
+            }
+
+            [[nodiscard]] static engine_time_t current_window_time(const TSViewContext &context) noexcept
+            {
+                const BaseState *state = context.ts_state != nullptr ? context.ts_state->resolved_state() : nullptr;
+                return state != nullptr ? state->last_modified_time : MIN_DT;
+            }
+
+            static void record_window_append(TSWState &state, const TSMeta &schema, engine_time_t evaluation_time) noexcept
+            {
+                if (schema.is_duration_based()) {
+                    if (state.first_observed_time == MIN_DT) { state.first_observed_time = evaluation_time; }
+                    state.ready = evaluation_time - state.first_observed_time >= schema.min_time_range();
+                    return;
+                }
+            }
+
+            [[nodiscard]] static bool duration_window_ready(const TSViewContext &context, engine_time_t evaluation_time) noexcept
+            {
+                const TSMeta *schema = context.resolved().schema;
+                if (schema == nullptr || schema->kind != TSKind::TSW || !schema->is_duration_based()) { return false; }
+
+                const TSWState *state = window_state(context);
+                if (state == nullptr || state->first_observed_time == MIN_DT || evaluation_time == MIN_DT) {
+                    return false;
+                }
+
+                return state->ready || evaluation_time - state->first_observed_time >= schema->min_time_range();
+            }
+
+            static void roll_duration_window(const TSViewContext &context, engine_time_t evaluation_time)
+            {
+                const TSMeta *schema = context.resolved().schema;
+                if (schema == nullptr || schema->kind != TSKind::TSW || !schema->is_duration_based()) { return; }
+
+                TSWState *state = const_cast<TSWState *>(window_state(context));
+                if (state == nullptr || evaluation_time == MIN_DT) { return; }
+
+                if (state->first_observed_time != MIN_DT) {
+                    state->ready = evaluation_time - state->first_observed_time >= schema->min_time_range();
+                }
+
+                const engine_time_t threshold = evaluation_time - schema->time_range();
+                auto time_queue = timestamp_buffer_view(context).as_queue();
+                auto value_queue = value_buffer_view(context).as_queue();
+                if (time_queue.empty() || time_queue.front().as_atomic().as<engine_time_t>() >= threshold) { return; }
+
+                auto time_mutation = time_queue.begin_mutation();
+                auto value_mutation = value_queue.begin_mutation();
+                while (!time_queue.empty() && !value_queue.empty() &&
+                       time_queue.front().as_atomic().as<engine_time_t>() < threshold) {
+                    time_mutation.pop();
+                    value_mutation.pop();
+                }
+            }
+
+            [[nodiscard]] static nb::object numpy_array_from_values(const WindowTSDispatch &self,
+                                                                    const TSViewContext    &context,
+                                                                    engine_time_t           evaluation_time)
+            {
+                static nb::object numpy_array = nb::module_::import_("numpy").attr("array");
+                nb::list result;
+                for (const View &item : self.values(context, evaluation_time)) { result.append(item.to_python()); }
+                return numpy_array(result);
             }
         };
 
@@ -1445,7 +1732,7 @@ namespace hgraph
 
                         dispatch = std::make_unique<ListTSDispatch>(
                             *element_schema,
-                            ValueBuilderFactory::checked_builder_for(element_schema->value_type, MutationTracking::Delta).dispatch(),
+                            ValueBuilderFactory::checked_builder_for(element_schema->value_type, MutationTracking::Plain).dispatch(),
                             checked_dispatch_for(*element_schema));
                         break;
                     }
@@ -1465,7 +1752,8 @@ namespace hgraph
                                 .name = schema.fields()[index].name,
                                 .schema = std::cref(*field_schema),
                                 .value_dispatch = std::cref(
-                                    ValueBuilderFactory::checked_builder_for(field_schema->value_type, MutationTracking::Delta).dispatch()),
+                                    ValueBuilderFactory::checked_builder_for(field_schema->value_type, MutationTracking::Plain)
+                                        .dispatch()),
                                 .ts_dispatch = std::cref(checked_dispatch_for(*field_schema)),
                             });
                         }
@@ -1483,7 +1771,7 @@ namespace hgraph
 
                         dispatch = std::make_unique<DictTSDispatch>(
                             *value_schema,
-                            ValueBuilderFactory::checked_builder_for(value_schema->value_type, MutationTracking::Delta).dispatch(),
+                            ValueBuilderFactory::checked_builder_for(value_schema->value_type, MutationTracking::Plain).dispatch(),
                             checked_dispatch_for(*value_schema));
                         break;
                     }
@@ -1781,7 +2069,11 @@ namespace hgraph
         auto cleanup_value = UnwindCleanupGuard([&] { value_builder().destruct(value_memory(memory)); });
         m_builder_ops.get().construct(ts_memory(memory), schema());
         auto cleanup_ts_state = UnwindCleanupGuard([&] { m_builder_ops.get().destruct(ts_memory(memory)); });
-        bind_dynamic_dict_states_recursive(schema(), *static_cast<TimeSeriesStateV *>(ts_memory(memory)), value_memory(memory));
+        bind_dynamic_dict_states_recursive(
+            schema(),
+            *static_cast<TimeSeriesStateV *>(ts_memory(memory)),
+            value_builder().dispatch(),
+            value_memory(memory));
     }
 
     void TSValueBuilder::destruct(void *memory) const noexcept
@@ -1799,7 +2091,11 @@ namespace hgraph
         auto cleanup_value = UnwindCleanupGuard([&] { value_builder().destruct(value_memory(dst)); });
         m_builder_ops.get().copy_construct(ts_memory(dst), src_builder.ts_memory(src), schema());
         auto cleanup_ts_state = UnwindCleanupGuard([&] { m_builder_ops.get().destruct(ts_memory(dst)); });
-        bind_dynamic_dict_states_recursive(schema(), *static_cast<TimeSeriesStateV *>(ts_memory(dst)), value_memory(dst));
+        bind_dynamic_dict_states_recursive(
+            schema(),
+            *static_cast<TimeSeriesStateV *>(ts_memory(dst)),
+            value_builder().dispatch(),
+            value_memory(dst));
     }
 
     void TSValueBuilder::move_construct(void *dst, void *src, const TSValueBuilder &src_builder) const
@@ -1811,7 +2107,11 @@ namespace hgraph
         auto cleanup_value = UnwindCleanupGuard([&] { value_builder().destruct(value_memory(dst)); });
         m_builder_ops.get().move_construct(ts_memory(dst), src_builder.ts_memory(src), schema());
         auto cleanup_ts_state = UnwindCleanupGuard([&] { m_builder_ops.get().destruct(ts_memory(dst)); });
-        bind_dynamic_dict_states_recursive(schema(), *static_cast<TimeSeriesStateV *>(ts_memory(dst)), value_memory(dst));
+        bind_dynamic_dict_states_recursive(
+            schema(),
+            *static_cast<TimeSeriesStateV *>(ts_memory(dst)),
+            value_builder().dispatch(),
+            value_memory(dst));
     }
 
     void *TSValueBuilder::value_memory(void *memory) const noexcept

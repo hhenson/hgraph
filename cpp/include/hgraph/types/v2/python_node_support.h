@@ -25,9 +25,11 @@ namespace hgraph::v2
                                                      Node *node,
                                                      TSInput *input,
                                                      TSOutput *output,
+                                                     TSOutput *error_output,
                                                      TSOutput *recordable_state,
                                                      const ::hgraph::TSMeta *input_schema,
                                                      const ::hgraph::TSMeta *output_schema,
+                                                     const ::hgraph::TSMeta *error_output_schema,
                                                      const ::hgraph::TSMeta *recordable_state_schema,
                                                      NodeScheduler *scheduler);
 

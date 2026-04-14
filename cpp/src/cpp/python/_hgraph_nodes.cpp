@@ -13,7 +13,10 @@
 #include <hgraph/nodes/context_node.h>
 #include <hgraph/nodes/python_generator_node.h>
 #include <hgraph/nodes/push_queue_node.h>
+#include <hgraph/runtime/graph_executor.h>
+#include <hgraph/types/error_type.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/v2/evaluation_engine.h>
 #include <hgraph/types/v2/graph_builder.h>
 #include <hgraph/types/v2/python_node_support.h>
@@ -357,6 +360,16 @@ namespace
         return cpp_ts_meta_or_none(recordable_state.attr("tsb_type"));
     }
 
+    [[nodiscard]] const TSMeta *error_output_schema_from_node_signature(nb::handle node_signature)
+    {
+        if (!nb::cast<bool>(nb::borrow(node_signature).attr("capture_exception"))) { return nullptr; }
+
+        nb::module_ hgraph_mod = nb::module_::import_("hgraph");
+        nb::object ts_type = nb::steal<nb::object>(PyObject_GetItem(hgraph_mod.attr("TS").ptr(), hgraph_mod.attr("NodeError").ptr()));
+        nb::object meta = hgraph_mod.attr("HgTimeSeriesTypeMetaData").attr("parse_type")(ts_type);
+        return cpp_ts_meta_or_none(meta);
+    }
+
     [[nodiscard]] V2PythonNodeSignature make_v2_node_signature(nb::handle signature)
     {
         if (nb::isinstance<V2PythonNodeSignature>(signature)) { return nb::cast<V2PythonNodeSignature>(signature); }
@@ -522,21 +535,16 @@ namespace
                                                        nb::object start_fn,
                                                        nb::object stop_fn)
     {
-        if (nb::cast<bool>(signature.attr("capture_exception"))) {
-            throw std::invalid_argument("v2 Python-backed nodes do not yet support error capture outputs");
-        }
         nb::object context_inputs = signature.attr("context_inputs");
         if (!context_inputs.is_none() && nb::len(context_inputs) > 0) {
             throw std::invalid_argument("v2 Python-backed nodes do not yet support context-manager inputs");
         }
 
         const NodeTypeEnum node_type = nb::cast<NodeTypeEnum>(signature.attr("node_type"));
-        if (node_type == NodeTypeEnum::PUSH_SOURCE_NODE) {
-            throw std::invalid_argument("v2 Python-backed nodes do not yet support push-source semantics");
-        }
 
         const TSMeta *input_schema = input_schema_from_node_signature(signature);
         const TSMeta *output_schema = output_schema_from_node_signature(signature);
+        const TSMeta *error_output_schema = error_output_schema_from_node_signature(signature);
         const TSMeta *recordable_state_schema = recordable_state_schema_from_node_signature(signature);
 
         NodeBuilder builder;
@@ -554,6 +562,7 @@ namespace
 
         if (input_schema != nullptr) { builder.input_schema(input_schema); }
         if (output_schema != nullptr) { builder.output_schema(output_schema); }
+        if (error_output_schema != nullptr) { builder.error_output_schema(error_output_schema); }
         if (recordable_state_schema != nullptr) { builder.recordable_state_schema(recordable_state_schema); }
         apply_selector_policies(builder, signature, input_schema);
         return builder;
@@ -566,8 +575,17 @@ namespace
               m_run_mode(normalize_evaluation_mode(run_mode)),
               m_cleanup_on_error(cleanup_on_error)
         {
-            if (!observers.empty()) {
-                throw std::invalid_argument("v2 Python execution does not yet support Python lifecycle observers");
+            for (const auto &observer : observers) {
+                if (!observer.is_valid() || observer.is_none()) { continue; }
+                if (nb::isinstance<hgraph::EvaluationLifeCycleObserver>(observer)) {
+                    // v2 execution does not route through the legacy graph/node runtime, so legacy
+                    // observers cannot be invoked meaningfully here yet. Ignore them instead of
+                    // rejecting otherwise valid v2 graphs that happen to request tracing.
+                    continue;
+                }
+
+                throw std::invalid_argument(
+                    "v2 GraphExecutor only accepts legacy EvaluationLifeCycleObserver instances for now");
             }
         }
 
@@ -580,12 +598,12 @@ namespace
 
         void run(engine_time_t start_time, engine_time_t end_time)
         {
-            static_cast<void>(m_cleanup_on_error);
             auto engine = EvaluationEngineBuilder{}
                               .graph_builder(m_graph_builder)
                               .evaluation_mode(m_run_mode)
                               .start_time(start_time)
                               .end_time(end_time)
+                              .cleanup_on_error(m_cleanup_on_error)
                               .build();
             engine.run();
         }
@@ -772,6 +790,7 @@ void export_nodes(nb::module_ &m) {
              "item"_a)
         .def_prop_ro("size", &hgraph::v2::GraphBuilder::size)
         .def_prop_ro("alignment", &hgraph::v2::GraphBuilder::alignment)
+        .def("memory_size", &hgraph::v2::GraphBuilder::memory_size)
         .def_prop_ro("node_builders",
                      [](const hgraph::v2::GraphBuilder &self) {
                          nb::tuple out = nb::steal<nb::tuple>(PyTuple_New(static_cast<Py_ssize_t>(self.node_builder_count())));

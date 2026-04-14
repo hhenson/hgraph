@@ -177,7 +177,11 @@ const TSMeta* TSTypeRegistry::tsw(const value::TypeMeta* value_type,
 
     auto* meta = create_schema();
     meta->kind = TSKind::TSW;
-    meta->value_type = value::TypeRegistry::instance().cyclic_buffer(value_type, period).build();
+    auto &value_registry = value::TypeRegistry::instance();
+    meta->value_type = value_registry.tuple()
+                           .add_element(value_registry.cyclic_buffer(value::scalar_type_meta<engine_time_t>(), period).build())
+                           .add_element(value_registry.cyclic_buffer(value_type, period).build())
+                           .build();
     meta->set_tsw_tick(period, min_period);
 
     tsw_cache_[cache_key] = meta;
@@ -204,7 +208,11 @@ const TSMeta* TSTypeRegistry::tsw_duration(const value::TypeMeta* value_type,
 
     auto* meta = create_schema();
     meta->kind = TSKind::TSW;
-    meta->value_type = value::TypeRegistry::instance().queue(value_type).build();
+    auto &value_registry = value::TypeRegistry::instance();
+    meta->value_type = value_registry.tuple()
+                           .add_element(value_registry.queue(value::scalar_type_meta<engine_time_t>()).build())
+                           .add_element(value_registry.queue(value_type).build())
+                           .build();
     meta->set_tsw_duration(time_range, min_time_range);
 
     tsw_cache_[cache_key] = meta;

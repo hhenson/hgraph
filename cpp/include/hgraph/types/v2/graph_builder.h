@@ -39,6 +39,7 @@ namespace hgraph::v2
 
         [[nodiscard]] size_t size() const;
         [[nodiscard]] size_t alignment() const;
+        [[nodiscard]] size_t memory_size() const;
         [[nodiscard]] Graph make_graph(GraphEvaluationEngine evaluation_engine) const;
 
         [[nodiscard]] size_t node_builder_count() const noexcept { return m_node_builders.size(); }

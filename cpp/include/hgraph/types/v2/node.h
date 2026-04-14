@@ -51,8 +51,12 @@ namespace hgraph::v2
 
         [[nodiscard]] bool (*has_input)(const Node &node) noexcept;
         [[nodiscard]] bool (*has_output)(const Node &node) noexcept;
+        [[nodiscard]] bool (*has_error_output)(const Node &node) noexcept;
+        [[nodiscard]] bool (*has_recordable_state)(const Node &node) noexcept;
         [[nodiscard]] TSInputView (*input_view)(Node &node, engine_time_t evaluation_time);
         [[nodiscard]] TSOutputView (*output_view)(Node &node, engine_time_t evaluation_time);
+        [[nodiscard]] TSOutputView (*error_output_view)(Node &node, engine_time_t evaluation_time);
+        [[nodiscard]] TSOutputView (*recordable_state_view)(Node &node, engine_time_t evaluation_time);
         [[nodiscard]] std::string (*runtime_label)(const Node &node);
     };
 
@@ -82,6 +86,8 @@ namespace hgraph::v2
         NodeTypeEnum node_type{NodeTypeEnum::COMPUTE_NODE};
         const TSMeta *input_schema{nullptr};
         const TSMeta *output_schema{nullptr};
+        const TSMeta *error_output_schema{nullptr};
+        const TSMeta *recordable_state_schema{nullptr};
 
         std::span<const size_t> active_inputs{};
         std::span<const size_t> valid_inputs{};
@@ -156,8 +162,12 @@ namespace hgraph::v2
         [[nodiscard]] bool is_pull_source_node() const noexcept;
         [[nodiscard]] const TSMeta *input_schema() const noexcept;
         [[nodiscard]] const TSMeta *output_schema() const noexcept;
+        [[nodiscard]] const TSMeta *error_output_schema() const noexcept;
+        [[nodiscard]] const TSMeta *recordable_state_schema() const noexcept;
         [[nodiscard]] bool has_input() const noexcept;
         [[nodiscard]] bool has_output() const noexcept;
+        [[nodiscard]] bool has_error_output() const noexcept;
+        [[nodiscard]] bool has_recordable_state() const noexcept;
         [[nodiscard]] bool started() const noexcept;
         [[nodiscard]] bool uses_scheduler() const noexcept;
         [[nodiscard]] bool has_scheduler() const noexcept;
@@ -172,6 +182,8 @@ namespace hgraph::v2
         /** View access is delegated to the node family via NodeRuntimeOps. */
         [[nodiscard]] TSInputView input_view(engine_time_t evaluation_time = MIN_DT);
         [[nodiscard]] TSOutputView output_view(engine_time_t evaluation_time = MIN_DT);
+        [[nodiscard]] TSOutputView error_output_view(engine_time_t evaluation_time = MIN_DT);
+        [[nodiscard]] TSOutputView recordable_state_view(engine_time_t evaluation_time = MIN_DT);
         [[nodiscard]] const BuiltNodeSpec &spec() const noexcept;
 
         /** Apply top-level valid/all_valid gating before calling eval. */

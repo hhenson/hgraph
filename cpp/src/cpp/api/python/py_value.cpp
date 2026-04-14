@@ -1038,7 +1038,7 @@ namespace hgraph
                      "src"_a)
                 .def("hash", &View::hash)
                 .def("equals", &View::equals, "other"_a)
-                .def("clone", &View::clone)
+                .def("clone", [](const View &self) { return self.clone(); })
                 .def("copy_from", &View::copy_from, "other"_a)
                 .def("visit", [](View self, const nb::callable &fn) { return visit_python_value(self, fn); }, "fn"_a)
                 .def("visit_void",

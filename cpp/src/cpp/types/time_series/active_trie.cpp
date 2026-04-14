@@ -50,7 +50,7 @@ namespace hgraph
         if (!it->second->has_any_active()) { return; }
         if (!it->second->slot_key) { return; }
 
-        Value key_copy = Value{it->second->slot_key->view()};
+        Value key_copy = it->second->slot_key->view().clone();
         auto subtrie = std::move(it->second);
         children.erase(it);
         pending.emplace(std::move(key_copy), std::move(subtrie));
@@ -58,13 +58,13 @@ namespace hgraph
 
     ActiveTrieNode *ActiveTrieNode::resolve_pending(const View &key, size_t new_slot)
     {
-        const Value lookup_key{key};
+        const Value lookup_key = key.clone();
         const auto it = pending.find(lookup_key);
         if (it == pending.end()) { return nullptr; }
 
         auto &child = children[new_slot];
         child = std::move(it->second);
-        child->slot_key = std::make_unique<Value>(key);
+        child->slot_key = std::make_unique<Value>(key.clone());
         ActiveTrieNode *result = child.get();
         pending.erase(it);
         return result;
@@ -74,14 +74,14 @@ namespace hgraph
     {
         auto copy = std::make_unique<ActiveTrieNode>();
         copy->locally_active = locally_active;
-        if (slot_key) { copy->slot_key = std::make_unique<Value>(slot_key->view()); }
+        if (slot_key) { copy->slot_key = std::make_unique<Value>(slot_key->view().clone()); }
 
         for (const auto &[slot, child] : children) {
             if (child) { copy->children.emplace(slot, child->deep_copy()); }
         }
 
         for (const auto &[key, subtrie] : pending) {
-            copy->pending.emplace(Value{key.view()}, subtrie ? subtrie->deep_copy() : nullptr);
+            copy->pending.emplace(key.view().clone(), subtrie ? subtrie->deep_copy() : nullptr);
         }
 
         return copy;

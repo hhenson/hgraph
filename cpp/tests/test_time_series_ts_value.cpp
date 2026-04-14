@@ -48,6 +48,7 @@ namespace hgraph
             using TSValue::dict_value;
             using TSValue::list_value;
             using TSValue::set_value;
+            using TSValue::value;
             using TSValue::view_context;
         };
 
@@ -138,6 +139,7 @@ namespace hgraph
             REQUIRE(context.ts_state != nullptr);
             context.ts_state->mark_modified(modified_time);
         }
+
     }  // namespace test_detail
 }  // namespace hgraph
 
@@ -253,6 +255,99 @@ TEST_CASE("TSValue stores collection values with delta tracking for time-series 
         }
         CHECK(updated_keys == std::vector<std::string>{"lhs"});
     }
+}
+
+TEST_CASE("TSW fixed windows keep ordered timestamps in native ring storage", "[ts_value][tsw]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *window_ts = ts_registry.tsw(int_type, 3, 1);
+
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(window_ts)};
+    auto tuple_view = output.value().as_tuple();
+    auto time_buffer = tuple_view[0].as_cyclic_buffer();
+    auto value_buffer = tuple_view[1].as_cyclic_buffer();
+
+    const auto push_value = [&](int value, hgraph::engine_time_t when) {
+        {
+            auto time_mutation = time_buffer.begin_mutation();
+            auto value_mutation = value_buffer.begin_mutation();
+            time_mutation.push(hgraph::Value{when}.view());
+            value_mutation.push(hgraph::Value{value}.view());
+        }
+        hgraph::test_detail::mark_output_view_modified(output.view(when), when);
+    };
+
+    push_value(1, hgraph::test_detail::tick(10));
+    push_value(2, hgraph::test_detail::tick(11));
+    push_value(3, hgraph::test_detail::tick(12));
+    push_value(4, hgraph::test_detail::tick(13));
+
+    const auto window_view = output.view(hgraph::test_detail::tick(13)).as_window();
+
+    std::vector<int> observed_values;
+    for (const hgraph::View &item : window_view.values()) {
+        observed_values.push_back(item.as_atomic().as<int>());
+    }
+    CHECK(observed_values == std::vector<int>{2, 3, 4});
+
+    std::vector<hgraph::engine_time_t> observed_times;
+    for (const hgraph::engine_time_t when : window_view.value_times()) { observed_times.push_back(when); }
+    CHECK(observed_times ==
+          std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(11),
+                                             hgraph::test_detail::tick(12),
+                                             hgraph::test_detail::tick(13)});
+    CHECK(value_buffer.has_removed());
+    CHECK(value_buffer.removed().as_atomic().as<int>() == 1);
+}
+
+TEST_CASE("TSW duration windows roll queued timestamps against view evaluation time", "[ts_value][tsw]")
+{
+    auto &value_registry = hgraph::value::TypeRegistry::instance();
+    auto &ts_registry = hgraph::TSTypeRegistry::instance();
+
+    const auto *int_type = value_registry.register_type<int>("int");
+    const auto *window_ts = ts_registry.tsw_duration(int_type, hgraph::MIN_TD * 2, hgraph::MIN_TD);
+
+    hgraph::test_detail::ExposedTSOutput output{hgraph::test_detail::output_builder_for(window_ts)};
+    auto tuple_view = output.value().as_tuple();
+    auto time_queue = tuple_view[0].as_queue();
+    auto value_queue = tuple_view[1].as_queue();
+    auto *state = static_cast<hgraph::TSWState *>(output.view_context().ts_state);
+    REQUIRE(state != nullptr);
+
+    const auto push_value = [&](int value, hgraph::engine_time_t when) {
+        {
+            auto time_mutation = time_queue.begin_mutation();
+            auto value_mutation = value_queue.begin_mutation();
+            time_mutation.push(hgraph::Value{when}.view());
+            value_mutation.push(hgraph::Value{value}.view());
+        }
+
+        if (state->first_observed_time == hgraph::MIN_DT) { state->first_observed_time = when; }
+        state->ready = when - state->first_observed_time >= window_ts->min_time_range();
+        hgraph::test_detail::mark_output_view_modified(output.view(when), when);
+    };
+
+    push_value(1, hgraph::test_detail::tick(10));
+    push_value(2, hgraph::test_detail::tick(11));
+    push_value(3, hgraph::test_detail::tick(12));
+
+    const auto window_view = output.view(hgraph::test_detail::tick(13)).as_window();
+    CHECK(window_view.size() == 2);
+
+    std::vector<int> observed_values;
+    for (const hgraph::View &item : window_view.values()) {
+        observed_values.push_back(item.as_atomic().as<int>());
+    }
+    CHECK(observed_values == std::vector<int>{2, 3});
+
+    std::vector<hgraph::engine_time_t> observed_times;
+    for (const hgraph::engine_time_t when : window_view.value_times()) { observed_times.push_back(when); }
+    CHECK(observed_times ==
+          std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(11), hgraph::test_detail::tick(12)});
 }
 
 TEST_CASE("TSValue exposes nested TS navigation through cached TS dispatch", "[ts_value]")

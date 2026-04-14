@@ -34,7 +34,7 @@ namespace hgraph
                 return *m_schema.get().element_type;
             }
 
-            [[nodiscard]] const ViewDispatch &element_dispatch() const noexcept
+            [[nodiscard]] const ViewDispatch &element_dispatch() const noexcept override
             {
                 return m_element_builder.get().dispatch();
             }
@@ -181,6 +181,33 @@ namespace hgraph
                 }
             }
 
+            void copy_from(void *dst, const View &src) const override
+            {
+                if (this == detail::ViewAccess::dispatch(src)) {
+                    assign(dst, detail::ViewAccess::data(src));
+                    return;
+                }
+
+                const auto source = src.as_list();
+                if (!is_fixed()) {
+                    resize(dst, source.size());
+                } else if (size(dst) != source.size()) {
+                    throw std::invalid_argument("List copy_from requires matching fixed-list sizes");
+                }
+
+                for (size_t i = 0; i < source.size(); ++i) {
+                    const View source_element = source.at(i);
+                    if (!source_element.has_value()) {
+                        set_element_valid(dst, i, false);
+                        continue;
+                    }
+
+                    View destination_element{&element_dispatch(), element_data(dst, i), &element_schema()};
+                    destination_element.copy_from(source_element);
+                    set_element_valid(dst, i, true);
+                }
+            }
+
             void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const override
             {
                 if (src_schema == &m_schema.get()) {
@@ -261,6 +288,11 @@ namespace hgraph
         {
             static constexpr MutationTracking tracking_mode = TTracking;
             static constexpr bool tracks_deltas_v = TTracking == MutationTracking::Delta;
+
+            [[nodiscard]] MutationTracking tracking() const noexcept override
+            {
+                return tracking_mode;
+            }
 
             FixedListDispatch(const value::TypeMeta &schema, const ValueBuilder &element_builder) noexcept
                 : ListDispatchBase(schema, element_builder),
@@ -509,6 +541,11 @@ namespace hgraph
             static constexpr MutationTracking tracking_mode = TTracking;
             static constexpr bool tracks_deltas_v = TTracking == MutationTracking::Delta;
             using DynamicListState = std::conditional_t<tracks_deltas_v, DeltaDynamicListState, PlainDynamicListState>;
+
+            [[nodiscard]] MutationTracking tracking() const noexcept override
+            {
+                return tracking_mode;
+            }
 
             DynamicListDispatch(const value::TypeMeta &schema, const ValueBuilder &element_builder) noexcept
                 : ListDispatchBase(schema, element_builder)
@@ -1070,7 +1107,8 @@ namespace hgraph
                 throw std::runtime_error("List schema requires an element schema");
             }
 
-            const ValueBuilder &element_builder = ValueBuilderFactory::checked_builder_for(schema->element_type, tracking);
+            const ValueBuilder &element_builder =
+                ValueBuilderFactory::checked_builder_for(schema->element_type, MutationTracking::Plain);
             CachedBuilderEntry entry;
 
             if (schema->is_fixed_size()) {

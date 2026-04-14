@@ -140,9 +140,10 @@ namespace hgraph
         struct TSWindowDispatch : TSDispatch
         {
             [[nodiscard]] const TSWindowDispatch *as_window() const noexcept override { return this; }
-            [[nodiscard]] virtual size_t size(const TSViewContext &context) const noexcept = 0;
-            [[nodiscard]] virtual Range<View> values(const TSViewContext &context) const noexcept = 0;
-            [[nodiscard]] virtual Range<engine_time_t> value_times(const TSViewContext &context) const noexcept = 0;
+            [[nodiscard]] virtual size_t size(const TSViewContext &context, engine_time_t evaluation_time) const noexcept = 0;
+            [[nodiscard]] virtual Range<View> values(const TSViewContext &context, engine_time_t evaluation_time) const noexcept = 0;
+            [[nodiscard]] virtual Range<engine_time_t> value_times(const TSViewContext &context,
+                                                                   engine_time_t       evaluation_time) const noexcept = 0;
         };
 
         struct TSInputViewOps
@@ -254,11 +255,15 @@ namespace hgraph
                 resolved_context.value_dispatch = target_context.value_dispatch;
                 resolved_context.ts_dispatch = target_context.ts_dispatch;
                 resolved_context.value_data = target_context.value_data;
+                resolved_context.owning_output = target.owning_output != nullptr ? target.owning_output : resolved_context.owning_output;
+                resolved_context.output_view_ops = target.output_view_ops != nullptr ? target.output_view_ops : resolved_context.output_view_ops;
+                resolved_context.notification_state =
+                    target.notification_state != nullptr ? target.notification_state : resolved_context.notification_state;
             };
 
             if (const LinkedTSContext *target = state->linked_target(); target != nullptr) { apply_target(*target); }
 
-            return resolved_context;
+            return detail::refresh_native_context(resolved_context);
         }
 
         [[nodiscard]] View value() const noexcept
@@ -1044,7 +1049,7 @@ namespace hgraph
     {
         const auto *dispatch = this->view_ref().context_ref().resolved().ts_dispatch;
         const auto *window_dispatch = dispatch != nullptr ? dispatch->as_window() : nullptr;
-        return window_dispatch != nullptr ? window_dispatch->size(this->view_ref().context_ref()) : 0;
+        return window_dispatch != nullptr ? window_dispatch->size(this->view_ref().context_ref(), this->view_ref().evaluation_time()) : 0;
     }
 
     template <typename TView>
@@ -1052,7 +1057,7 @@ namespace hgraph
     {
         const auto *dispatch = this->view_ref().context_ref().resolved().ts_dispatch;
         const auto *window_dispatch = dispatch != nullptr ? dispatch->as_window() : nullptr;
-        return window_dispatch != nullptr ? window_dispatch->values(this->view_ref().context_ref())
+        return window_dispatch != nullptr ? window_dispatch->values(this->view_ref().context_ref(), this->view_ref().evaluation_time())
                                           : Range<View>{nullptr, 0, nullptr, nullptr};
     }
 
@@ -1061,7 +1066,7 @@ namespace hgraph
     {
         const auto *dispatch = this->view_ref().context_ref().resolved().ts_dispatch;
         const auto *window_dispatch = dispatch != nullptr ? dispatch->as_window() : nullptr;
-        return window_dispatch != nullptr ? window_dispatch->value_times(this->view_ref().context_ref())
+        return window_dispatch != nullptr ? window_dispatch->value_times(this->view_ref().context_ref(), this->view_ref().evaluation_time())
                                           : Range<engine_time_t>{nullptr, 0, nullptr, nullptr};
     }
 

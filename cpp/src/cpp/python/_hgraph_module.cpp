@@ -57,10 +57,8 @@ NB_MODULE(_hgraph, m) {
                 );
                 PyErr_SetObject(py_node_exc_cls.ptr(), args.ptr());
             } catch (...) {
-                // Fallback to RuntimeError if anything goes wrong to avoid swallowing the error
                 PyErr_SetString(PyExc_RuntimeError, e.what());
             }
-            throw nb::python_error();
         }
     }, nullptr);
 

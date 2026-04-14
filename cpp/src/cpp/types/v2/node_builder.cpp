@@ -2,6 +2,7 @@
 #include <hgraph/types/v2/graph.h>
 #include <hgraph/types/v2/node_builder.h>
 #include <hgraph/types/v2/python_node_support.h>
+#include <hgraph/types/value/type_meta.h>
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
@@ -24,10 +25,34 @@ namespace hgraph::v2
             return remainder == 0 ? value : value + (alignment - remainder);
         }
 
+        [[nodiscard]] std::string signature_attr_or_empty(const nb::object &python_signature, const char *name)
+        {
+            if (!python_signature.is_valid() || python_signature.is_none()) { return {}; }
+
+            nb::object value = nb::getattr(python_signature, name, nb::none());
+            if (!value.is_valid() || value.is_none()) { return {}; }
+            return nb::cast<std::string>(value);
+        }
+
+        [[nodiscard]] NodeException python_node_exception(const nb::object &python_signature,
+                                                          std::string error_msg,
+                                                          std::string additional_context)
+        {
+            return NodeException(NodeErrorInfo{
+                signature_attr_or_empty(python_signature, "signature"),
+                signature_attr_or_empty(python_signature, "label"),
+                signature_attr_or_empty(python_signature, "wiring_path_name"),
+                std::move(error_msg),
+                "",
+                "",
+                std::move(additional_context)});
+        }
+
         struct ResolvedNodeBuilders
         {
             const TSInputBuilder *input_builder{nullptr};
             const TSOutputBuilder *output_builder{nullptr};
+            const TSOutputBuilder *error_output_builder{nullptr};
             const ValueBuilder *state_builder{nullptr};
             const TSOutputBuilder *recordable_state_builder{nullptr};
         };
@@ -47,6 +72,8 @@ namespace hgraph::v2
             size_t input_storage_offset{0};
             size_t output_object_offset{0};
             size_t output_storage_offset{0};
+            size_t error_output_object_offset{0};
+            size_t error_output_storage_offset{0};
             size_t state_storage_offset{0};
             size_t recordable_state_object_offset{0};
             size_t recordable_state_storage_offset{0};
@@ -78,6 +105,7 @@ namespace hgraph::v2
             nb::dict kwargs;
             nb::tuple start_parameter_names;
             nb::tuple stop_parameter_names;
+            bool generator_eval{false};
             nb::iterator generator;
             nb::object next_value;
         };
@@ -86,9 +114,146 @@ namespace hgraph::v2
         {
             TSInput *input{nullptr};
             TSOutput *output{nullptr};
+            TSOutput *error_output{nullptr};
             TSOutput *recordable_state{nullptr};
             PythonNodeHeapState *heap_state{nullptr};
         };
+
+        [[nodiscard]] nb::object push_queue_remove_sentinel()
+        {
+            static nb::object value = nb::module_::import_("hgraph").attr("REMOVE");
+            return nb::borrow(value);
+        }
+
+        [[nodiscard]] nb::object push_queue_remove_if_exists_sentinel()
+        {
+            static nb::object value = nb::module_::import_("hgraph").attr("REMOVE_IF_EXISTS");
+            return nb::borrow(value);
+        }
+
+        [[nodiscard]] nb::object append_tuple_item(const nb::object &existing, const nb::object &item)
+        {
+            const size_t existing_len = PyTuple_Size(existing.ptr());
+            nb::tuple result = nb::steal<nb::tuple>(PyTuple_New(existing_len + 1));
+            for (size_t i = 0; i < existing_len; ++i) {
+                PyTuple_SET_ITEM(result.ptr(), i, nb::borrow(existing[i]).release().ptr());
+            }
+            PyTuple_SET_ITEM(result.ptr(), existing_len, nb::borrow(item).release().ptr());
+            return std::move(result);
+        }
+
+        [[nodiscard]] bool bool_scalar_or(const nb::dict &scalars, std::string_view key, bool default_value)
+        {
+            const nb::str py_key{key.data(), key.size()};
+            if (!PyMapping_HasKey(scalars.ptr(), py_key.ptr())) { return default_value; }
+            return nb::cast<bool>(nb::steal<nb::object>(PyObject_GetItem(scalars.ptr(), py_key.ptr())));
+        }
+
+        [[nodiscard]] bool python_push_source_apply_message(Node &node,
+                                                            PythonNodeRuntimeData &runtime_data,
+                                                            const value::Value &message,
+                                                            engine_time_t evaluation_time)
+        {
+            static_cast<void>(node);
+
+            if (runtime_data.output == nullptr) {
+                throw std::logic_error("v2 Python push-source nodes require an output");
+            }
+
+            nb::gil_scoped_acquire guard;
+            const nb::object py_message = message.to_python();
+            TSOutputView output_view = runtime_data.output->view(evaluation_time);
+
+            const nb::dict scalars = runtime_data.heap_state != nullptr && runtime_data.heap_state->python_scalars.is_valid() &&
+                                             !runtime_data.heap_state->python_scalars.is_none()
+                                         ? nb::cast<nb::dict>(runtime_data.heap_state->python_scalars)
+                                         : nb::dict();
+            const bool elide = bool_scalar_or(scalars, "elide", false);
+            const bool batch = bool_scalar_or(scalars, "batch", false);
+
+            if (batch) {
+                const TSMeta *schema = output_view.ts_schema();
+                if (schema != nullptr && schema->kind == TSKind::TSD) {
+                    const nb::dict message_dict = nb::cast<nb::dict>(py_message);
+                    const nb::object remove = push_queue_remove_sentinel();
+                    const nb::object remove_if_exists = push_queue_remove_if_exists_sentinel();
+
+                    for (auto item : message_dict.items()) {
+                        const nb::tuple pair = nb::borrow<nb::tuple>(item);
+                        const nb::object key = nb::borrow(pair[0]);
+                        const nb::object value = nb::borrow(pair[1]);
+                        if (!value.is(remove) && !value.is(remove_if_exists)) { continue; }
+
+                        Value key_value{*schema->key_type(), MutationTracking::Plain};
+                        key_value.reset();
+                        key_value.from_python(key);
+                        TSOutputView child_view = output_view.as_dict().at(key_value.view());
+                        if (child_view.context_ref().is_bound() && child_view.modified()) { return false; }
+                    }
+
+                    for (auto item : message_dict.items()) {
+                        const nb::tuple pair = nb::borrow<nb::tuple>(item);
+                        const nb::object key = nb::borrow(pair[0]);
+                        const nb::object value = nb::borrow(pair[1]);
+
+                        Value key_value{*schema->key_type(), MutationTracking::Plain};
+                        key_value.reset();
+                        key_value.from_python(key);
+
+                        if (value.is(remove) || value.is(remove_if_exists)) {
+                            TSOutputView child_view = output_view.as_dict().at(key_value.view());
+                            if (child_view.context_ref().is_bound()) { output_view.as_dict().erase(key_value.view()); }
+                            continue;
+                        }
+
+                        TSOutputView child_view = output_view.as_dict().at(key_value.view());
+                        if (child_view.context_ref().is_bound() && child_view.modified()) {
+                            child_view.from_python(append_tuple_item(child_view.to_python(), value));
+                        } else {
+                            child_view.from_python(nb::make_tuple(value));
+                        }
+                    }
+                    return true;
+                }
+
+                if (output_view.modified()) {
+                    output_view.from_python(append_tuple_item(output_view.to_python(), py_message));
+                } else {
+                    output_view.from_python(nb::make_tuple(py_message));
+                }
+                return true;
+            }
+
+            if (elide || output_view.can_apply_result(py_message)) {
+                output_view.apply_result(py_message);
+                return true;
+            }
+            return false;
+        }
+
+        [[nodiscard]] nb::object call_python_push_source_start(nb::handle callable, nb::handle sender, nb::handle kwargs)
+        {
+            nb::gil_scoped_acquire guard;
+            if (!callable.is_valid() || callable.is_none()) { return nb::none(); }
+            nb::tuple args = nb::make_tuple(nb::borrow(sender));
+            PyObject *result = PyObject_Call(callable.ptr(), args.ptr(), kwargs.ptr());
+            if (result == nullptr) { throw nb::python_error(); }
+            return nb::steal<nb::object>(result);
+        }
+
+        [[nodiscard]] bool python_callable_is_generator_function(nb::handle callable)
+        {
+            if (!callable.is_valid() || callable.is_none()) { return false; }
+
+            const nb::object code = nb::getattr(callable, "__code__", nb::none());
+            if (!code.is_valid() || code.is_none()) { return false; }
+
+            const nb::object flags = nb::getattr(code, "co_flags", nb::none());
+            if (!flags.is_valid() || flags.is_none()) { return false; }
+
+            constexpr int co_generator = 0x20;
+            return (nb::cast<int>(flags) & co_generator) != 0;
+        }
 
         template <typename TState>
         [[nodiscard]] std::shared_ptr<const void> make_builder_state(TState state)
@@ -128,6 +293,12 @@ namespace hgraph::v2
 
             if (builder.output_schema() != nullptr) {
                 builders.output_builder = &TSOutputBuilderFactory::checked_builder_for(builder.output_schema());
+            }
+            if (builder.error_output_schema() != nullptr) {
+                builders.error_output_builder = &TSOutputBuilderFactory::checked_builder_for(builder.error_output_schema());
+            }
+            if (builder.error_output_schema() == nullptr && builder.error_builder().is_valid() && !builder.error_builder().is_none()) {
+                throw std::invalid_argument("v2 nodes with error capture outputs require a resolved time-series schema");
             }
             if (builder.has_state() && builder.state_schema() == nullptr) {
                 throw std::invalid_argument("v2 nodes with typed State<...> require a resolved value schema");
@@ -221,6 +392,18 @@ namespace hgraph::v2
                 offset += builders.output_builder->size();
             }
 
+            if (builders.error_output_builder != nullptr) {
+                layout.alignment = std::max(layout.alignment, alignof(TSOutput));
+                offset = align_up(offset, alignof(TSOutput));
+                layout.error_output_object_offset = offset;
+                offset += sizeof(TSOutput);
+
+                layout.alignment = std::max(layout.alignment, builders.error_output_builder->alignment());
+                offset = align_up(offset, builders.error_output_builder->alignment());
+                layout.error_output_storage_offset = offset;
+                offset += builders.error_output_builder->size();
+            }
+
             if (builders.recordable_state_builder != nullptr) {
                 layout.alignment = std::max(layout.alignment, alignof(TSOutput));
                 offset = align_up(offset, alignof(TSOutput));
@@ -263,9 +446,6 @@ namespace hgraph::v2
             if (!state.eval_fn.is_valid() || state.eval_fn.is_none()) {
                 throw std::invalid_argument("v2 Python node builder requires an eval function");
             }
-            if (builder.node_type() == NodeTypeEnum::PUSH_SOURCE_NODE) {
-                throw std::invalid_argument("v2 Python-backed nodes do not yet support push-source semantics");
-            }
         }
 
         void destruct_static_node(Node &node) noexcept
@@ -274,6 +454,7 @@ namespace hgraph::v2
             auto &runtime_data = detail::runtime_data<detail::StaticNodeRuntimeData>(node);
 
             if (runtime_data.recordable_state != nullptr) { runtime_data.recordable_state->~TSOutput(); }
+            if (runtime_data.error_output != nullptr) { runtime_data.error_output->~TSOutput(); }
             if (runtime_data.state_builder != nullptr && runtime_data.state_memory != nullptr) {
                 runtime_data.state_builder->destruct(runtime_data.state_memory);
             }
@@ -301,6 +482,7 @@ namespace hgraph::v2
             }
 
             if (runtime_data.recordable_state != nullptr) { runtime_data.recordable_state->~TSOutput(); }
+            if (runtime_data.error_output != nullptr) { runtime_data.error_output->~TSOutput(); }
             if (runtime_data.output != nullptr) { runtime_data.output->~TSOutput(); }
             if (runtime_data.input != nullptr) { runtime_data.input->~TSInput(); }
 
@@ -315,7 +497,30 @@ namespace hgraph::v2
             nb::gil_scoped_acquire guard;
             auto &heap_state = *runtime_data.heap_state;
             heap_state.kwargs = make_python_node_kwargs(heap_state.python_signature, heap_state.python_scalars, heap_state.node_handle);
-            if (node.is_pull_source_node()) {
+            if (node.is_push_source_node()) {
+                auto *receiver = node.graph() != nullptr ? node.graph()->push_message_receiver() : nullptr;
+                if (receiver == nullptr) { throw std::logic_error("v2 Python push-source nodes require a push-message receiver"); }
+
+                nb::object sender = nb::cpp_function([receiver, node_index = node.node_index()](nb::object message) {
+                    nb::gil_scoped_acquire sender_guard;
+                    receiver->enqueue({node_index, value::Value{std::move(message)}});
+                });
+
+                try {
+                    static_cast<void>(call_python_push_source_start(heap_state.eval_fn, sender, heap_state.kwargs));
+                } catch (const NodeException &) {
+                    throw;
+                } catch (const std::exception &e) {
+                    throw python_node_exception(heap_state.python_signature, e.what(), "During push-queue start");
+                } catch (...) {
+                    throw python_node_exception(
+                        heap_state.python_signature,
+                        "Unknown non-standard exception during push-queue start",
+                        "During push-queue start");
+                }
+                return;
+            }
+            if (node.is_pull_source_node() && heap_state.generator_eval) {
                 heap_state.generator = nb::cast<nb::iterator>(call_python_callable(heap_state.eval_fn, heap_state.kwargs));
                 heap_state.next_value = nb::object();
                 if (node.graph() != nullptr) { node.graph()->schedule_node(node.node_index(), node.evaluation_time()); }
@@ -339,72 +544,83 @@ namespace hgraph::v2
             auto &runtime_data = detail::runtime_data<PythonNodeRuntimeData>(node);
             nb::gil_scoped_acquire guard;
             auto &heap_state = *runtime_data.heap_state;
+            try {
+                if (node.is_push_source_node()) { return; }
+                if (node.is_pull_source_node() && heap_state.generator_eval) {
+                    const engine_time_t evaluation_time = node.evaluation_time();
+                    auto next_time = MIN_DT;
+                    nb::object out;
+                    const auto sentinel = nb::iterator::sentinel();
 
-            if (node.is_pull_source_node()) {
-                const engine_time_t evaluation_time = node.evaluation_time();
-                auto next_time = MIN_DT;
-                nb::object out;
-                const auto sentinel = nb::iterator::sentinel();
+                    auto datetime = nb::module_::import_("datetime");
+                    auto timedelta_type = datetime.attr("timedelta");
+                    auto datetime_type = datetime.attr("datetime");
 
-                auto datetime = nb::module_::import_("datetime");
-                auto timedelta_type = datetime.attr("timedelta");
-                auto datetime_type = datetime.attr("datetime");
+                    for (nb::iterator value = ++heap_state.generator; value != sentinel; ++value) {
+                        auto item = *value;
+                        if (value.is_none()) {
+                            out = nb::none();
+                            break;
+                        }
 
-                for (nb::iterator value = ++heap_state.generator; value != sentinel; ++value) {
-                    auto item = *value;
-                    if (value.is_none()) {
-                        out = nb::none();
-                        break;
+                        auto time = nb::cast<nb::object>(item[0]);
+                        out = nb::cast<nb::object>(item[1]);
+                        if (nb::isinstance(time, timedelta_type)) {
+                            next_time = evaluation_time + nb::cast<engine_time_delta_t>(time);
+                        } else if (nb::isinstance(time, datetime_type)) {
+                            next_time = nb::cast<engine_time_t>(time);
+                        } else {
+                            throw std::runtime_error("Type of time value not recognised");
+                        }
+
+                        if (next_time >= evaluation_time && !out.is_none()) { break; }
                     }
 
-                    auto time = nb::cast<nb::object>(item[0]);
-                    out = nb::cast<nb::object>(item[1]);
-                    if (nb::isinstance(time, timedelta_type)) {
-                        next_time = evaluation_time + nb::cast<engine_time_delta_t>(time);
-                    } else if (nb::isinstance(time, datetime_type)) {
-                        next_time = nb::cast<engine_time_t>(time);
-                    } else {
-                        throw std::runtime_error("Type of time value not recognised");
+                    if (next_time > MIN_DT && next_time <= evaluation_time) {
+                        if (heap_state.output_handle.is_valid() && !heap_state.output_handle.is_none() &&
+                            nb::cast<engine_time_t>(heap_state.output_handle.attr("last_modified_time")) == next_time) {
+                            throw std::runtime_error(
+                                fmt::format(
+                                    "Duplicate time produced by generator: [{:%FT%T%z}] - {}",
+                                    next_time,
+                                    nb::str(out).c_str()));
+                        }
+                        if (!out.is_none() && heap_state.output_handle.is_valid() && !heap_state.output_handle.is_none()) {
+                            heap_state.output_handle.attr("apply_result")(out);
+                        }
+                        heap_state.next_value = nb::none();
+                        python_node_eval(node, evaluation_time);
+                        return;
                     }
 
-                    if (next_time >= evaluation_time && !out.is_none()) { break; }
-                }
+                    if (heap_state.next_value.is_valid() && !heap_state.next_value.is_none()) {
+                        if (heap_state.output_handle.is_valid() && !heap_state.output_handle.is_none()) {
+                            heap_state.output_handle.attr("apply_result")(heap_state.next_value);
+                        }
+                        heap_state.next_value = nb::none();
+                    }
 
-                if (next_time > MIN_DT && next_time <= evaluation_time) {
-                    if (heap_state.output_handle.is_valid() && !heap_state.output_handle.is_none() &&
-                        nb::cast<engine_time_t>(heap_state.output_handle.attr("last_modified_time")) == next_time) {
-                        throw std::runtime_error(
-                            fmt::format(
-                                "Duplicate time produced by generator: [{:%FT%T%z}] - {}",
-                                next_time,
-                                nb::str(out).c_str()));
+                    if (next_time != MIN_DT) {
+                        heap_state.next_value = out;
+                        if (node.graph() != nullptr) { node.graph()->schedule_node(node.node_index(), next_time); }
                     }
-                    if (!out.is_none() && heap_state.output_handle.is_valid() && !heap_state.output_handle.is_none()) {
-                        heap_state.output_handle.attr("apply_result")(out);
-                    }
-                    heap_state.next_value = nb::none();
-                    python_node_eval(node, evaluation_time);
                     return;
                 }
 
-                if (heap_state.next_value.is_valid() && !heap_state.next_value.is_none()) {
-                    if (heap_state.output_handle.is_valid() && !heap_state.output_handle.is_none()) {
-                        heap_state.output_handle.attr("apply_result")(heap_state.next_value);
-                    }
-                    heap_state.next_value = nb::none();
+                nb::object out = call_python_callable(heap_state.eval_fn, heap_state.kwargs);
+                if (!out.is_none() && runtime_data.output != nullptr && heap_state.output_handle.is_valid() &&
+                    !heap_state.output_handle.is_none()) {
+                    heap_state.output_handle.attr("apply_result")(out);
                 }
-
-                if (next_time != MIN_DT) {
-                    heap_state.next_value = out;
-                    if (node.graph() != nullptr) { node.graph()->schedule_node(node.node_index(), next_time); }
-                }
-                return;
-            }
-
-            nb::object out = call_python_callable(heap_state.eval_fn, heap_state.kwargs);
-            if (!out.is_none() && runtime_data.output != nullptr && heap_state.output_handle.is_valid() &&
-                !heap_state.output_handle.is_none()) {
-                heap_state.output_handle.attr("apply_result")(out);
+            } catch (const NodeException &) {
+                throw;
+            } catch (const std::exception &e) {
+                throw python_node_exception(heap_state.python_signature, e.what(), "During evaluation");
+            } catch (...) {
+                throw python_node_exception(
+                    heap_state.python_signature,
+                    "Unknown non-standard exception during node evaluation",
+                    "During evaluation");
             }
         }
 
@@ -418,6 +634,35 @@ namespace hgraph::v2
             return node.data() != nullptr && detail::runtime_data<PythonNodeRuntimeData>(node).output != nullptr;
         }
 
+        [[nodiscard]] bool python_node_has_error_output(const Node &node) noexcept
+        {
+            return node.data() != nullptr && detail::runtime_data<PythonNodeRuntimeData>(node).error_output != nullptr;
+        }
+
+        [[nodiscard]] bool python_node_has_recordable_state(const Node &node) noexcept
+        {
+            return node.data() != nullptr && detail::runtime_data<PythonNodeRuntimeData>(node).recordable_state != nullptr;
+        }
+
+        [[nodiscard]] bool python_node_apply_message(Node &node, const value::Value &message, engine_time_t evaluation_time)
+        {
+            auto &runtime_data = detail::runtime_data<PythonNodeRuntimeData>(node);
+            try {
+                return python_push_source_apply_message(node, runtime_data, message, evaluation_time);
+            } catch (const NodeException &) {
+                throw;
+            } catch (const std::exception &e) {
+                auto &heap_state = *runtime_data.heap_state;
+                throw python_node_exception(heap_state.python_signature, e.what(), "During push-source message application");
+            } catch (...) {
+                auto &heap_state = *runtime_data.heap_state;
+                throw python_node_exception(
+                    heap_state.python_signature,
+                    "Unknown non-standard exception during push-source message application",
+                    "During push-source message application");
+            }
+        }
+
         [[nodiscard]] TSInputView python_node_input_view(Node &node, engine_time_t evaluation_time)
         {
             return detail::runtime_data<PythonNodeRuntimeData>(node).input->view(&node, evaluation_time);
@@ -426,6 +671,18 @@ namespace hgraph::v2
         [[nodiscard]] TSOutputView python_node_output_view(Node &node, engine_time_t evaluation_time)
         {
             return detail::runtime_data<PythonNodeRuntimeData>(node).output->view(evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView python_node_error_output_view(Node &node, engine_time_t evaluation_time)
+        {
+            auto *error_output = detail::runtime_data<PythonNodeRuntimeData>(node).error_output;
+            return error_output != nullptr ? error_output->view(evaluation_time) : detail::invalid_output_view(evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView python_node_recordable_state_view(Node &node, engine_time_t evaluation_time)
+        {
+            auto *recordable_state = detail::runtime_data<PythonNodeRuntimeData>(node).recordable_state;
+            return recordable_state != nullptr ? recordable_state->view(evaluation_time) : detail::invalid_output_view(evaluation_time);
         }
 
         [[nodiscard]] std::string python_node_runtime_label(const Node &node)
@@ -441,9 +698,17 @@ namespace hgraph::v2
             &python_node_eval,
             &python_node_has_input,
             &python_node_has_output,
+            &python_node_has_error_output,
+            &python_node_has_recordable_state,
             &python_node_input_view,
             &python_node_output_view,
+            &python_node_error_output_view,
+            &python_node_recordable_state_view,
             &python_node_runtime_label,
+        };
+
+        const PushSourceNodeRuntimeOps k_python_node_push_source_runtime_ops{
+            &python_node_apply_message,
         };
 
         template <typename TState, typename TBuildRuntimeData, typename TPopulateRuntime>
@@ -477,6 +742,7 @@ namespace hgraph::v2
 
             TSInput *input = nullptr;
             TSOutput *output = nullptr;
+            TSOutput *error_output = nullptr;
             void *state_memory = nullptr;
             TSOutput *recordable_state = nullptr;
             auto cleanup_input = hgraph::make_scope_exit([&] {
@@ -484,6 +750,9 @@ namespace hgraph::v2
             });
             auto cleanup_output = hgraph::make_scope_exit([&] {
                 if (output != nullptr) { output->~TSOutput(); }
+            });
+            auto cleanup_error_output = hgraph::make_scope_exit([&] {
+                if (error_output != nullptr) { error_output->~TSOutput(); }
             });
             auto cleanup_state = hgraph::make_scope_exit([&] {
                 if (builders.state_builder != nullptr && state_memory != nullptr) { builders.state_builder->destruct(state_memory); }
@@ -521,6 +790,14 @@ namespace hgraph::v2
                     *output, base + layout.output_storage_offset, TSOutputBuilder::MemoryOwnership::External);
             }
 
+            if (builders.error_output_builder != nullptr) {
+                error_output = new (base + layout.error_output_object_offset) TSOutput{};
+                builders.error_output_builder->construct_output(
+                    *error_output,
+                    base + layout.error_output_storage_offset,
+                    TSOutputBuilder::MemoryOwnership::External);
+            }
+
             if (builders.state_builder != nullptr) {
                 state_memory = base + layout.state_storage_offset;
                 builders.state_builder->construct(state_memory);
@@ -534,7 +811,14 @@ namespace hgraph::v2
                     TSOutputBuilder::MemoryOwnership::External);
             }
 
-            runtime_data = build_runtime_data(base + layout.runtime_data_offset, builders, input, output, state_memory, recordable_state);
+            runtime_data = build_runtime_data(
+                base + layout.runtime_data_offset,
+                builders,
+                input,
+                output,
+                error_output,
+                state_memory,
+                recordable_state);
 
             spec = new (base + layout.spec_offset) BuiltNodeSpec{
                 runtime_ops,
@@ -547,6 +831,8 @@ namespace hgraph::v2
                 builder.node_type(),
                 builder.input_schema(),
                 builder.output_schema(),
+                builder.error_output_schema(),
+                builder.recordable_state_schema(),
                 materialized_active_inputs,
                 materialized_valid_inputs,
                 materialized_all_valid_inputs,
@@ -554,13 +840,14 @@ namespace hgraph::v2
 
             node = new (memory) Node(node_index, spec);
             if (builder.uses_scheduler()) { scheduler = new (base + layout.scheduler_offset) NodeScheduler{node}; }
-            populate_runtime.initialise(builder, runtime_data, node, input, output, recordable_state);
+            populate_runtime.initialise(builder, runtime_data, node, input, output, error_output, recordable_state);
 
             cleanup_node.release();
             cleanup_spec.release();
             cleanup_scheduler.release();
             cleanup_runtime_data.release();
             cleanup_recordable_state.release();
+            cleanup_error_output.release();
             cleanup_state.release();
             cleanup_output.release();
             cleanup_input.release();
@@ -599,6 +886,7 @@ namespace hgraph::v2
                                    const ResolvedNodeBuilders &builders,
                                    TSInput *input,
                                    TSOutput *output,
+                                   TSOutput *error_output,
                                    void *state_memory,
                                    TSOutput *recordable_state,
                                    const NodeBuilder &builder)
@@ -606,6 +894,7 @@ namespace hgraph::v2
                     return new (storage) detail::StaticNodeRuntimeData{
                         input,
                         output,
+                        error_output,
                         builders.state_builder,
                         state_memory,
                         recordable_state,
@@ -624,7 +913,7 @@ namespace hgraph::v2
                     }
                 }
 
-                static void initialise(const NodeBuilder &, void *, Node *, TSInput *, TSOutput *, TSOutput *) {}
+                static void initialise(const NodeBuilder &, void *, Node *, TSInput *, TSOutput *, TSOutput *, TSOutput *) {}
             };
 
             struct RuntimeLifecycle
@@ -635,6 +924,7 @@ namespace hgraph::v2
                                 Node *node,
                                 TSInput *input,
                                 TSOutput *output,
+                                TSOutput *error_output,
                                 TSOutput *recordable_state) const
                 {
                     static_cast<void>(builder);
@@ -642,6 +932,7 @@ namespace hgraph::v2
                     static_cast<void>(node);
                     static_cast<void>(input);
                     static_cast<void>(output);
+                    static_cast<void>(error_output);
                     static_cast<void>(recordable_state);
                 }
             };
@@ -660,9 +951,18 @@ namespace hgraph::v2
                     const ResolvedNodeBuilders &builders,
                     TSInput *input,
                     TSOutput *output,
+                    TSOutput *error_output,
                     void *state_memory,
                     TSOutput *recordable_state) {
-                    return RuntimePopulator::build(storage, builders, input, output, state_memory, recordable_state, builder);
+                    return RuntimePopulator::build(
+                        storage,
+                        builders,
+                        input,
+                        output,
+                        error_output,
+                        state_memory,
+                        recordable_state,
+                        builder);
                 },
                 RuntimeLifecycle{});
         }
@@ -707,6 +1007,7 @@ namespace hgraph::v2
                                 Node *node,
                                 TSInput *input,
                                 TSOutput *output,
+                                TSOutput *error_output,
                                 TSOutput *recordable_state) const
                 {
                     auto &runtime_data = *static_cast<PythonNodeRuntimeData *>(runtime_data_ptr);
@@ -724,6 +1025,7 @@ namespace hgraph::v2
                         nb::dict(),
                         nb::make_tuple(),
                         nb::make_tuple(),
+                        false,
                         nb::iterator{},
                         nb::object(),
                     };
@@ -733,9 +1035,11 @@ namespace hgraph::v2
                         node,
                         input,
                         output,
+                        error_output,
                         recordable_state,
                         builder.input_schema(),
                         builder.output_schema(),
+                        builder.error_output_schema(),
                         builder.recordable_state_schema(),
                         node->scheduler_if_present());
                     runtime_data.heap_state->output_handle = runtime_data.heap_state->node_handle.attr("output");
@@ -743,6 +1047,9 @@ namespace hgraph::v2
                         python_callable_parameter_names(runtime_data.heap_state->start_fn);
                     runtime_data.heap_state->stop_parameter_names =
                         python_callable_parameter_names(runtime_data.heap_state->stop_fn);
+                    runtime_data.heap_state->generator_eval =
+                        builder.node_type() == NodeTypeEnum::PULL_SOURCE_NODE &&
+                        python_callable_is_generator_function(runtime_data.heap_state->eval_fn);
                 }
             };
 
@@ -752,7 +1059,7 @@ namespace hgraph::v2
                 node_index,
                 inbound_edges,
                 &k_python_node_runtime_ops,
-                nullptr,
+                builder.node_type() == NodeTypeEnum::PUSH_SOURCE_NODE ? &k_python_node_push_source_runtime_ops : nullptr,
                 &destruct_python_node,
                 sizeof(PythonNodeRuntimeData),
                 alignof(PythonNodeRuntimeData),
@@ -760,9 +1067,10 @@ namespace hgraph::v2
                    const ResolvedNodeBuilders &,
                    TSInput *input,
                    TSOutput *output,
+                   TSOutput *error_output,
                    void *,
                    TSOutput *recordable_state) -> void * {
-                    return new (storage) PythonNodeRuntimeData{input, output, recordable_state, nullptr};
+                    return new (storage) PythonNodeRuntimeData{input, output, error_output, recordable_state, nullptr};
                 },
                 RuntimeLifecycle{});
         }
@@ -846,6 +1154,12 @@ namespace hgraph::v2
     NodeBuilder &NodeBuilder::output_schema(const TSMeta *value)
     {
         m_output_schema = value;
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::error_output_schema(const TSMeta *value)
+    {
+        m_error_output_schema = value;
         return *this;
     }
 

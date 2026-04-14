@@ -1,6 +1,7 @@
 #pragma once
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/value/tracking.h>
 #include <hgraph/types/value/type_meta.h>
 
 #include <compare>
@@ -15,6 +16,12 @@
 namespace hgraph
 {
     struct Value;
+    struct View;
+
+    namespace detail
+    {
+        struct ViewAccess;
+    }
 
     /**
      * Lightweight type-erased range over value-layer results.
@@ -239,12 +246,14 @@ namespace hgraph
              * preventing accidental polymorphic deletion through a base
              * pointer.
              */
+            [[nodiscard]] virtual MutationTracking      tracking() const noexcept                                         = 0;
             [[nodiscard]] virtual size_t                hash(const void *data) const                                     = 0;
             [[nodiscard]] virtual std::string           to_string(const void *data) const                                = 0;
             [[nodiscard]] virtual std::partial_ordering compare(const void *lhs, const void *rhs) const                  = 0;
             [[nodiscard]] virtual nb::object            to_python(const void *data, const value::TypeMeta *schema) const = 0;
             virtual void from_python(void *dst, const nb::object &src, const value::TypeMeta *schema) const              = 0;
             virtual void assign(void *dst, const void *src) const                                                        = 0;
+            virtual void copy_from(void *dst, const View &src) const                                                    = 0;
             virtual void set_from_cpp(void *dst, const void *src, const value::TypeMeta *src_schema) const               = 0;
             virtual void move_from_cpp(void *dst, void *src, const value::TypeMeta *src_schema) const                    = 0;
 
@@ -390,7 +399,12 @@ namespace hgraph
          * This preserves the represented schema and copies the current payload
          * when the view is valid.
          */
+        [[nodiscard]] Value clone(MutationTracking tracking) const;
         [[nodiscard]] Value clone() const;
+        [[nodiscard]] MutationTracking tracking() const noexcept
+        {
+            return context.dispatch != nullptr ? context.dispatch->tracking() : MutationTracking::Plain;
+        }
 
         /**
          * Copy the payload represented by another view into this view.
@@ -398,12 +412,7 @@ namespace hgraph
          * Both views must be valid and must describe the same schema. This
          * copies payload state only; it does not rebind either view.
          */
-        void copy_from(const View &other) {
-            if (!has_value() || !other.has_value()) { throw std::runtime_error("View::copy_from requires non-empty views"); }
-            if (data() == data_of(other)) { return; }
-            if (schema() != other.schema()) { throw std::invalid_argument("View::copy_from requires matching schemas"); }
-            dispatch()->assign(data(), data_of(other));
-        }
+        void copy_from(const View &other);
 
         template <typename T> [[nodiscard]] T       *try_as() noexcept;
         template <typename T> [[nodiscard]] const T *try_as() const noexcept;
@@ -447,7 +456,18 @@ namespace hgraph
         [[nodiscard]] static void *data_of(const View &view) noexcept { return view.context.data; }
 
       private:
+        friend struct detail::ViewAccess;
+
         ValueViewContext context;
     };
+
+    namespace detail
+    {
+        struct ViewAccess
+        {
+            [[nodiscard]] static const ViewDispatch *dispatch(const View &view) noexcept { return view.context.dispatch; }
+            [[nodiscard]] static const void         *data(const View &view) noexcept { return view.context.data; }
+        };
+    }  // namespace detail
 
 }  // namespace hgraph

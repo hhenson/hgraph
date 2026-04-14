@@ -56,6 +56,7 @@ namespace hgraph::v2
         [[nodiscard]] const Traits &traits() const;
         [[nodiscard]] engine_time_t evaluation_time() const noexcept;
         [[nodiscard]] engine_time_t last_evaluation_time() const noexcept;
+        [[nodiscard]] SenderReceiverState *push_message_receiver() const noexcept;
         /** Prefix length of nodes treated as push sources during evaluation. */
         [[nodiscard]] int64_t push_source_nodes_end() const noexcept;
         [[nodiscard]] engine_time_t scheduled_time(size_t index) const;
@@ -65,6 +66,7 @@ namespace hgraph::v2
 
         void start();
         void stop();
+        void abandon() noexcept;
         void evaluate(engine_time_t when);
         void schedule_node(int64_t node_index, engine_time_t when, bool force_set = false);
 

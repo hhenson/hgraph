@@ -53,6 +53,9 @@ namespace hgraph::v2
         NodeBuilder &output_schema(const TSMeta *value);
         [[nodiscard]] const TSMeta *output_schema() const noexcept { return m_output_schema; }
 
+        NodeBuilder &error_output_schema(const TSMeta *value);
+        [[nodiscard]] const TSMeta *error_output_schema() const noexcept { return m_error_output_schema; }
+
         NodeBuilder &recordable_state_schema(const TSMeta *value);
         [[nodiscard]] const TSMeta *recordable_state_schema() const noexcept { return m_recordable_state_schema; }
 
@@ -215,6 +218,7 @@ namespace hgraph::v2
         bool m_has_explicit_node_type{false};
         const TSMeta *m_input_schema{nullptr};
         const TSMeta *m_output_schema{nullptr};
+        const TSMeta *m_error_output_schema{nullptr};
         bool m_has_state{false};
         const value::TypeMeta *m_state_schema{nullptr};
         bool m_has_recordable_state{false};

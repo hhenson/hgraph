@@ -8,6 +8,7 @@
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/tagged_ptr.h>
 
+#include <deque>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -43,10 +44,13 @@ namespace hgraph
         struct ViewDispatch;
 
         [[nodiscard]] HGRAPH_EXPORT bool has_local_reference_binding(const TSViewContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT bool linked_context_valid(const LinkedTSContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT bool linked_context_all_valid(const LinkedTSContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT const Value *materialized_target_link_value(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT const Value *materialized_reference_value(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT bool reference_all_valid(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT bool linked_context_equal(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT TSViewContext refresh_native_context(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT Value snapshot_target_value(const LinkedTSContext &target,
                                                                engine_time_t modified_time = MIN_DT);
     }  // namespace detail
@@ -403,7 +407,10 @@ namespace hgraph
      * State carried by a time-series window.
      */
     struct HGRAPH_EXPORT TSWState : BaseState
-    {};
+    {
+        engine_time_t first_observed_time{MIN_DT};
+        bool          ready{false};
+    };
 
     /**
      * Storage carried by a target-linked logical time-series position.

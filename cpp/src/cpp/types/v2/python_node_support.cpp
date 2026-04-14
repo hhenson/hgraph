@@ -143,6 +143,14 @@ namespace hgraph::v2
             return MIN_DT;
         }
 
+        [[nodiscard]] Value ts_nested_value_from_python(const value::TypeMeta &schema, const nb::handle &value)
+        {
+            Value nested_value(schema, MutationTracking::Plain);
+            nested_value.reset();
+            nested_value.from_python(nb::borrow<nb::object>(value));
+            return nested_value;
+        }
+
         class PythonTraitsHandle
         {
           public:
@@ -370,8 +378,7 @@ namespace hgraph::v2
 
                     PathStep step;
                     step.kind = Kind::Key;
-                    step.key = Value{key_schema};
-                    step.key.from_python(nb::borrow<nb::object>(value));
+                    step.key = ts_nested_value_from_python(*key_schema, value);
                     return step;
                 }
             };
@@ -418,7 +425,10 @@ namespace hgraph::v2
 
             [[nodiscard]] bool modified() const
             {
-                if (m_input == nullptr && m_output == nullptr && m_bound_output.has_value()) {
+                if (has_live_bound_output()) {
+                    return output_view().modified();
+                }
+                if (has_detached_bound_value()) {
                     const engine_time_t when = effective_modified_time(*m_bound_output);
                     return when != MIN_DT ? when == m_fixed_evaluation_time : current_value().has_value();
                 }
@@ -427,7 +437,10 @@ namespace hgraph::v2
 
             [[nodiscard]] bool valid() const
             {
-                if (m_input == nullptr && m_output == nullptr && m_bound_output.has_value()) {
+                if (has_live_bound_output()) {
+                    return output_view().valid();
+                }
+                if (has_detached_bound_value()) {
                     return current_value().has_value();
                 }
                 return m_input != nullptr ? input_view().valid() : output_view().valid();
@@ -435,7 +448,10 @@ namespace hgraph::v2
 
             [[nodiscard]] bool all_valid() const
             {
-                if (m_input == nullptr && m_output == nullptr && m_bound_output.has_value()) {
+                if (has_live_bound_output()) {
+                    return output_view().all_valid();
+                }
+                if (has_detached_bound_value()) {
                     return current_value().has_value();
                 }
                 return m_input != nullptr ? input_view().all_valid() : output_view().all_valid();
@@ -443,7 +459,10 @@ namespace hgraph::v2
 
             [[nodiscard]] engine_time_t last_modified_time() const
             {
-                if (m_input == nullptr && m_output == nullptr && m_bound_output.has_value()) {
+                if (has_live_bound_output()) {
+                    return output_view().last_modified_time();
+                }
+                if (has_detached_bound_value()) {
                     return effective_modified_time(*m_bound_output);
                 }
                 return m_input != nullptr ? input_view().last_modified_time() : output_view().last_modified_time();
@@ -601,6 +620,9 @@ namespace hgraph::v2
                 if (is_list()) { return m_input != nullptr ? input_view().as_list().size() : output_view().as_list().size(); }
                 if (is_dict()) { return m_input != nullptr ? input_view().as_dict().size() : output_view().as_dict().size(); }
                 if (is_set()) { return m_input != nullptr ? input_view().as_set().size() : output_view().as_set().size(); }
+                if (is_window()) {
+                    return m_input != nullptr ? input_view().as_window().size() : output_view().as_window().size();
+                }
                 throw std::logic_error("v2 Python time-series __len__ requires a collection schema");
             }
 
@@ -615,9 +637,7 @@ namespace hgraph::v2
                 if (is_set()) {
                     const value::TypeMeta *element_schema = current_value().as_set().element_schema();
                     if (element_schema == nullptr) { return false; }
-                    Value value(*element_schema);
-                    value.reset();
-                    value.from_python(nb::borrow<nb::object>(item));
+                    Value value = ts_nested_value_from_python(*element_schema, item);
                     return m_input != nullptr ? input_view().value().as_set().contains(value.view())
                                               : output_view().value().as_set().contains(value.view());
                 }
@@ -1195,8 +1215,7 @@ namespace hgraph::v2
                     throw std::logic_error("v2 Python time-series get_contains_output() requires a TSS element schema");
                 }
 
-                Value key_value(item_schema);
-                key_value.from_python(nb::borrow<nb::object>(item));
+                Value key_value = ts_nested_value_from_python(*item_schema, item);
                 return PythonTimeSeriesHandle{
                     view.as_set().register_contains_output(key_value.view()).linked_context(),
                     evaluation_time()};
@@ -1211,8 +1230,7 @@ namespace hgraph::v2
                 const auto *item_schema = m_schema != nullptr && m_schema->value_type != nullptr ? m_schema->value_type->element_type : nullptr;
                 if (item_schema == nullptr) { return; }
 
-                Value key_value(item_schema);
-                key_value.from_python(nb::borrow<nb::object>(item));
+                Value key_value = ts_nested_value_from_python(*item_schema, item);
                 view.as_set().unregister_contains_output(key_value.view());
             }
 
@@ -1270,7 +1288,7 @@ namespace hgraph::v2
                     throw std::logic_error("v2 Python time-series has_removed_value requires a TSW schema");
                 }
                 if (!current_value().has_value()) { return false; }
-                return BufferView{current_value()}.has_removed();
+                return current_window_value_buffer().has_removed();
             }
 
             [[nodiscard]] nb::object removed_value() const
@@ -1279,7 +1297,7 @@ namespace hgraph::v2
                     throw std::logic_error("v2 Python time-series removed_value requires a TSW schema");
                 }
                 if (!current_value().has_value()) { return nb::none(); }
-                BufferView buffer{current_value()};
+                BufferView buffer = current_window_value_buffer();
                 return buffer.has_removed() ? buffer.removed().to_python() : nb::none();
             }
 
@@ -1317,10 +1335,7 @@ namespace hgraph::v2
                     throw std::logic_error("v2 Python dict access requires a key schema");
                 }
 
-                Value key_value(*key_schema);
-                key_value.reset();
-                key_value.from_python(nb::borrow<nb::object>(key));
-                return key_value;
+                return ts_nested_value_from_python(*key_schema, key);
             }
 
             [[nodiscard]] PythonTimeSeriesHandle detached_value_item(const View &value, const TSMeta *schema) const
@@ -1349,6 +1364,9 @@ namespace hgraph::v2
                     context.ts_dispatch,
                     context.value_data,
                     context.ts_state,
+                    context.owning_output,
+                    context.output_view_ops,
+                    context.notification_state,
                 };
                 return PythonTimeSeriesHandle{linked, evaluation_time()};
             }
@@ -1392,9 +1410,7 @@ namespace hgraph::v2
                     throw std::logic_error("v2 Python set output add() requires an element schema");
                 }
 
-                Value element(*element_schema);
-                element.reset();
-                element.from_python(nb::borrow<nb::object>(item));
+                Value element = ts_nested_value_from_python(*element_schema, item);
                 output_view().as_set().add(element.view());
             }
 
@@ -1408,9 +1424,7 @@ namespace hgraph::v2
                     throw std::logic_error("v2 Python set output remove() requires an element schema");
                 }
 
-                Value element(*element_schema);
-                element.reset();
-                element.from_python(nb::borrow<nb::object>(item));
+                Value element = ts_nested_value_from_python(*element_schema, item);
                 output_view().as_set().remove(element.view());
             }
 
@@ -1422,6 +1436,16 @@ namespace hgraph::v2
             }
 
           private:
+            [[nodiscard]] bool has_live_bound_output() const noexcept
+            {
+                return m_input == nullptr && m_output == nullptr && m_bound_output.has_value() && m_bound_output->ts_state != nullptr;
+            }
+
+            [[nodiscard]] bool has_detached_bound_value() const noexcept
+            {
+                return m_input == nullptr && m_output == nullptr && m_bound_output.has_value() && m_bound_output->ts_state == nullptr;
+            }
+
             [[nodiscard]] TSInputView input_view() const
             {
                 return input_view_prefix(m_path_steps.size());
@@ -1473,6 +1497,13 @@ namespace hgraph::v2
             [[nodiscard]] View current_value() const
             {
                 return m_input != nullptr ? input_view().value() : output_view().value();
+            }
+
+            [[nodiscard]] BufferView current_window_value_buffer() const
+            {
+                const View value = current_value();
+                if (!value.has_value()) { throw std::logic_error("v2 Python time-series window value buffer requires a live value"); }
+                return BufferView{value.as_tuple()[1]};
             }
 
             [[nodiscard]] bool has_output_parent() const noexcept
@@ -1626,6 +1657,7 @@ namespace hgraph::v2
                              nb::object graph,
                              nb::object input,
                              nb::object output,
+                             nb::object error_output,
                              nb::object recordable_state,
                              nb::object scheduler)
                 : m_node(node),
@@ -1634,6 +1666,7 @@ namespace hgraph::v2
                   m_graph(std::move(graph)),
                   m_input(std::move(input)),
                   m_output(std::move(output)),
+                  m_error_output(std::move(error_output)),
                   m_recordable_state(std::move(recordable_state)),
                   m_scheduler(std::move(scheduler))
             {
@@ -1683,6 +1716,11 @@ namespace hgraph::v2
                 return m_output.is_valid() ? nb::borrow(m_output) : nb::none();
             }
 
+            [[nodiscard]] nb::object error_output() const
+            {
+                return m_error_output.is_valid() ? nb::borrow(m_error_output) : nb::none();
+            }
+
             [[nodiscard]] nb::object recordable_state() const
             {
                 return m_recordable_state.is_valid() ? nb::borrow(m_recordable_state) : nb::none();
@@ -1706,6 +1744,11 @@ namespace hgraph::v2
             [[nodiscard]] bool has_output() const noexcept
             {
                 return m_output.is_valid() && !m_output.is_none();
+            }
+
+            [[nodiscard]] bool has_error_output() const noexcept
+            {
+                return m_error_output.is_valid() && !m_error_output.is_none();
             }
 
             void notify(nb::object modified_time = nb::none()) const
@@ -1748,6 +1791,7 @@ namespace hgraph::v2
             nb::object m_graph;
             nb::object m_input;
             nb::object m_output;
+            nb::object m_error_output;
             nb::object m_recordable_state;
             nb::object m_scheduler;
         };
@@ -1758,9 +1802,11 @@ namespace hgraph::v2
                                        Node *node,
                                        TSInput *input,
                                        TSOutput *output,
+                                       TSOutput *error_output,
                                        TSOutput *recordable_state,
                                        const TSMeta *input_schema,
                                        const TSMeta *output_schema,
+                                       const TSMeta *error_output_schema,
                                        const TSMeta *recordable_state_schema,
                                        NodeScheduler *scheduler)
     {
@@ -1770,6 +1816,10 @@ namespace hgraph::v2
             input != nullptr ? nb::cast(PythonTimeSeriesHandle{node, input, nullptr, input_schema}) : nb::none();
         nb::object output_handle =
             output != nullptr ? nb::cast(PythonTimeSeriesHandle{node, nullptr, output, output_schema}) : nb::none();
+        nb::object error_output_handle = error_output != nullptr
+                                             ? nb::cast(PythonTimeSeriesHandle{
+                                                   node, nullptr, error_output, error_output_schema})
+                                             : nb::none();
         nb::object recordable_state_handle = recordable_state != nullptr
                                                  ? nb::cast(PythonTimeSeriesHandle{
                                                        node, nullptr, recordable_state, recordable_state_schema})
@@ -1781,6 +1831,7 @@ namespace hgraph::v2
                                          std::move(graph),
                                          std::move(input_handle),
                                          std::move(output_handle),
+                                         std::move(error_output_handle),
                                          std::move(recordable_state_handle),
                                          std::move(scheduler_handle)});
     }
@@ -1793,9 +1844,23 @@ namespace hgraph::v2
         nb::object input = nb::borrow(node_handle).attr("input");
         nb::object time_series_inputs = nb::borrow(signature).attr("time_series_inputs");
         if (!input.is_none() && !time_series_inputs.is_none()) {
+            std::unordered_set<std::string> active_input_names;
+            nb::object active_inputs = nb::borrow(signature).attr("active_inputs");
+            if (!active_inputs.is_none()) {
+                for (auto item : active_inputs) { active_input_names.insert(nb::cast<std::string>(item)); }
+            } else {
+                for (auto item : time_series_inputs.attr("keys")()) {
+                    active_input_names.insert(nb::cast<std::string>(nb::borrow<nb::object>(item)));
+                }
+            }
+
             for (auto key : time_series_inputs.attr("keys")()) {
                 nb::object key_obj = nb::borrow<nb::object>(key);
-                values[key_obj] = input[key_obj];
+                nb::object handle = nb::steal<nb::object>(PyObject_GetItem(input.ptr(), key_obj.ptr()));
+                if (!handle.is_none() && active_input_names.contains(nb::cast<std::string>(key_obj))) {
+                    nb::cast<PythonTimeSeriesHandle &>(handle).make_active();
+                }
+                values[key_obj] = std::move(handle);
             }
         }
 
@@ -1973,7 +2038,7 @@ namespace hgraph::v2
             .def("__len__", &PythonTimeSeriesHandle::len)
             .def("__iter__",
                  [](const PythonTimeSeriesHandle &self) {
-                     return self.is_list() || self.is_set() ? nb::iter(self.values()) : nb::iter(self.keys());
+                     return self.is_dict() ? nb::iter(self.keys()) : nb::iter(self.values());
                  })
             .def_prop_ro("owning_node", &PythonTimeSeriesHandle::owning_node)
             .def_prop_ro("owning_graph", &PythonTimeSeriesHandle::owning_graph)
@@ -2044,11 +2109,13 @@ namespace hgraph::v2
             .def_prop_ro("graph", &PythonNodeHandle::graph)
             .def_prop_ro("input", &PythonNodeHandle::input)
             .def_prop_ro("output", &PythonNodeHandle::output)
+            .def_prop_ro("error_output", &PythonNodeHandle::error_output)
             .def_prop_ro("recordable_state", &PythonNodeHandle::recordable_state)
             .def_prop_ro("scheduler", &PythonNodeHandle::scheduler)
             .def_prop_ro("has_scheduler", &PythonNodeHandle::has_scheduler)
             .def_prop_ro("has_input", &PythonNodeHandle::has_input)
             .def_prop_ro("has_output", &PythonNodeHandle::has_output)
+            .def_prop_ro("has_error_output", &PythonNodeHandle::has_error_output)
             .def("notify", &PythonNodeHandle::notify, "modified_time"_a = nb::none())
             .def("notify_next_cycle", &PythonNodeHandle::notify_next_cycle)
             .def("__repr__", &PythonNodeHandle::repr)

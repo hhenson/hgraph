@@ -120,7 +120,7 @@ protected:
     /**
      * Return the window value surface for this time-series.
      */
-    [[nodiscard]] CyclicBufferView window_value() const;
+    [[nodiscard]] BufferView window_value() const;
 
     /**
      * Return the list delta surface backed by the stored delta-tracking

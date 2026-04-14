@@ -824,6 +824,13 @@ class HgArrayScalarTypeMetaData(HgCollectionType):
     def parse_value(cls, value) -> Optional["HgTypeMetaData"]:
         return None  # have not learned to parse ndarrays yet
 
+    @cpp_type_property
+    def cpp_type(self, _hgraph):
+        # Arrays do not yet have a native C++ value model. Expose them as
+        # opaque Python scalars so v2 wiring can bind TS[Array[...]] without
+        # routing through legacy graph infrastructure.
+        return _hgraph.value.get_scalar_type_meta(self.py_collection_type)
+
     def __eq__(self, o: object) -> bool:
         return (
             type(o) is HgArrayScalarTypeMetaData
@@ -1359,6 +1366,10 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
     @property
     def generic_rank(self) -> dict[type, float]:
         return self.value_tp.generic_rank
+
+    @cpp_type_property
+    def cpp_type(self, _hgraph):
+        return _hgraph.value.get_scalar_type_meta(type)
 
     def resolve(self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], weak=False) -> "HgTypeMetaData":
         if self.is_resolved:

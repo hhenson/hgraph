@@ -124,9 +124,9 @@ namespace hgraph
         return value().as_map();
     }
 
-    CyclicBufferView TSValue::window_value() const
+    BufferView TSValue::window_value() const
     {
-        return value().as_cyclic_buffer();
+        return BufferView{value().as_tuple()[1]};
     }
 
     ListDeltaView TSValue::list_delta_value() const

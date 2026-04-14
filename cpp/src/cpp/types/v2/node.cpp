@@ -1,6 +1,7 @@
 #include <hgraph/types/v2/graph.h>
 #include <hgraph/types/v2/node_impl.h>
 #include <hgraph/types/v2/node.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/util/scope.h>
 
 #include <cassert>
@@ -43,19 +44,35 @@ namespace hgraph::v2
                 throw std::logic_error("v2 top-level input selectors require a TSB root input schema");
             }
 
+            const auto input_slots = [&]() -> std::span<const size_t> {
+                return !node.spec().active_inputs.empty()
+                           ? node.spec().active_inputs
+                           : std::span<const size_t>{};
+            }();
             size_t activated_inputs_end = 0;
             auto rollback_activation = UnwindCleanupGuard([&] {
                 auto view = node.input_view(evaluation_time).as_bundle();
-                for (size_t i = activated_inputs_end; i > 0; --i) { view[node.spec().active_inputs[i - 1]].make_passive(); }
+                if (!input_slots.empty()) {
+                    for (size_t i = activated_inputs_end; i > 0; --i) { view[input_slots[i - 1]].make_passive(); }
+                } else {
+                    for (size_t i = activated_inputs_end; i > 0; --i) { view[i - 1].make_passive(); }
+                }
             });
 
-            // For now selector activation is limited to top-level TSB fields.
-            // REF / alternative-view activation comes later.
             auto view = node.input_view(evaluation_time).as_bundle();
-            for (const size_t slot : node.spec().active_inputs) {
-                if (slot >= schema->field_count()) { throw std::out_of_range("v2 input selector is out of range"); }
-                view[slot].make_active();
-                ++activated_inputs_end;
+            if (!input_slots.empty()) {
+                // For now selector activation is limited to top-level TSB fields.
+                // REF / alternative-view activation comes later.
+                for (const size_t slot : input_slots) {
+                    if (slot >= schema->field_count()) { throw std::out_of_range("v2 input selector is out of range"); }
+                    view[slot].make_active();
+                    ++activated_inputs_end;
+                }
+            } else {
+                for (size_t slot = 0; slot < schema->field_count(); ++slot) {
+                    view[slot].make_active();
+                    ++activated_inputs_end;
+                }
             }
         }
 
@@ -69,10 +86,45 @@ namespace hgraph::v2
             }
 
             auto view = node.input_view(evaluation_time).as_bundle();
-            for (const size_t slot : node.spec().active_inputs) {
-                if (slot >= schema->field_count()) { throw std::out_of_range("v2 input selector is out of range"); }
-                view[slot].make_passive();
+            if (!node.spec().active_inputs.empty()) {
+                for (const size_t slot : node.spec().active_inputs) {
+                    if (slot >= schema->field_count()) { throw std::out_of_range("v2 input selector is out of range"); }
+                    view[slot].make_passive();
+                }
+            } else {
+                for (size_t slot = 0; slot < schema->field_count(); ++slot) { view[slot].make_passive(); }
             }
+        }
+
+        [[nodiscard]] NodeErrorInfo fallback_node_error(const Node &node,
+                                                        std::string error_msg,
+                                                        std::string additional_context = {})
+        {
+            return NodeErrorInfo{
+                node.runtime_label(),
+                std::string{node.label()},
+                {},
+                std::move(error_msg),
+                {},
+                {},
+                std::move(additional_context),
+            };
+        }
+
+        void publish_error_output(Node &node, engine_time_t evaluation_time, const NodeErrorInfo &error)
+        {
+            if (!node.has_error_output()) { return; }
+            TSOutputView error_view = node.error_output_view(evaluation_time);
+            nb::gil_scoped_acquire guard;
+            nb::object py_error = nb::module_::import_("hgraph").attr("NodeError")(
+                error.signature_name,
+                error.label,
+                error.wiring_path,
+                error.error_msg,
+                error.stack_trace,
+                error.activation_back_trace,
+                error.additional_context.empty() ? nb::none() : nb::cast(error.additional_context));
+            error_view.from_python(py_error);
         }
     }  // namespace
 
@@ -284,6 +336,16 @@ namespace hgraph::v2
         return spec().output_schema;
     }
 
+    const TSMeta *Node::error_output_schema() const noexcept
+    {
+        return spec().error_output_schema;
+    }
+
+    const TSMeta *Node::recordable_state_schema() const noexcept
+    {
+        return spec().recordable_state_schema;
+    }
+
     bool Node::has_input() const noexcept
     {
         return spec().runtime_ops->has_input(*this);
@@ -292,6 +354,16 @@ namespace hgraph::v2
     bool Node::has_output() const noexcept
     {
         return spec().runtime_ops->has_output(*this);
+    }
+
+    bool Node::has_error_output() const noexcept
+    {
+        return spec().runtime_ops->has_error_output(*this);
+    }
+
+    bool Node::has_recordable_state() const noexcept
+    {
+        return spec().runtime_ops->has_recordable_state(*this);
     }
 
     bool Node::started() const noexcept
@@ -359,6 +431,16 @@ namespace hgraph::v2
         return spec().runtime_ops->output_view(*this, evaluation_time);
     }
 
+    TSOutputView Node::error_output_view(engine_time_t evaluation_time)
+    {
+        return spec().runtime_ops->error_output_view(*this, evaluation_time);
+    }
+
+    TSOutputView Node::recordable_state_view(engine_time_t evaluation_time)
+    {
+        return spec().runtime_ops->recordable_state_view(*this, evaluation_time);
+    }
+
     const BuiltNodeSpec &Node::spec() const noexcept
     {
         assert(m_spec != nullptr);
@@ -424,7 +506,22 @@ namespace hgraph::v2
         if (!ready) { return; }
         const bool scheduled = uses_scheduler() && scheduler().is_scheduled_now();
         if (uses_scheduler() && has_input() && !scheduled && !active_modified) { return; }
-        spec().runtime_ops->eval(*this, evaluation_time);
+        if (has_error_output()) {
+            try {
+                spec().runtime_ops->eval(*this, evaluation_time);
+            } catch (const NodeException &e) {
+                publish_error_output(*this, evaluation_time, e.error());
+            } catch (const std::exception &e) {
+                publish_error_output(*this, evaluation_time, fallback_node_error(*this, e.what(), "During evaluation"));
+            } catch (...) {
+                publish_error_output(
+                    *this,
+                    evaluation_time,
+                    fallback_node_error(*this, "Unknown non-standard exception during node evaluation", "During evaluation"));
+            }
+        } else {
+            spec().runtime_ops->eval(*this, evaluation_time);
+        }
 
         if (!uses_scheduler()) { return; }
         if (scheduled) {

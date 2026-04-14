@@ -1,4 +1,5 @@
 #include <hgraph/types/v2/graph_builder.h>
+
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/util/scope.h>
 
@@ -11,6 +12,7 @@ namespace hgraph::v2
 {
     namespace
     {
+        constexpr int64_t error_path = -1;
         constexpr int64_t key_set_path = -3;
         constexpr int64_t state_path = -2;
 
@@ -194,10 +196,36 @@ namespace hgraph::v2
         [[nodiscard]] const TSMeta *edge_source_schema(const GraphBuilder &graph_builder, const Edge &edge) noexcept
         {
             const auto &src_builder = graph_builder.node_builder_at(static_cast<size_t>(edge.src_node));
+            if (!edge.output_path.empty() && edge.output_path.front() == error_path) {
+                return src_builder.error_output_schema();
+            }
             if (!edge.output_path.empty() && edge.output_path.front() == state_path) {
-                return nullptr;
+                return src_builder.recordable_state_schema();
             }
             return src_builder.output_schema();
+        }
+
+        [[nodiscard]] std::pair<TSOutputView, const TSMeta *> select_source_output(Node &src_node, const Edge &edge)
+        {
+            if (edge.output_path.empty()) {
+                if (!src_node.has_output()) { throw std::logic_error("v2 graph builder source node has no output"); }
+                return {src_node.output_view(MIN_DT), src_node.output_schema()};
+            }
+
+            if (edge.output_path.front() == error_path) {
+                if (!src_node.has_error_output()) { throw std::logic_error("v2 graph builder source node has no error output"); }
+                return {src_node.error_output_view(MIN_DT), src_node.error_output_schema()};
+            }
+
+            if (edge.output_path.front() == state_path) {
+                if (!src_node.has_recordable_state()) {
+                    throw std::logic_error("v2 graph builder source node has no recordable state output");
+                }
+                return {src_node.recordable_state_view(MIN_DT), src_node.recordable_state_schema()};
+            }
+
+            if (!src_node.has_output()) { throw std::logic_error("v2 graph builder source node has no output"); }
+            return {src_node.output_view(MIN_DT), src_node.output_schema()};
         }
 
         [[nodiscard]] std::vector<std::vector<TSInputConstructionEdge>>
@@ -321,6 +349,11 @@ namespace hgraph::v2
         return describe_layout(*this, inbound_edges).alignment;
     }
 
+    size_t GraphBuilder::memory_size() const
+    {
+        return size();
+    }
+
     Graph GraphBuilder::make_graph(GraphEvaluationEngine evaluation_engine) const
     {
         if (!evaluation_engine) { throw std::logic_error("v2 graph builder requires an attached evaluation engine"); }
@@ -363,10 +396,15 @@ namespace hgraph::v2
             auto &src_node = graph.node_at(static_cast<size_t>(edge.src_node));
             auto &dst_node = graph.node_at(static_cast<size_t>(edge.dst_node));
 
-            if (!src_node.has_output()) { throw std::logic_error("v2 graph builder source node has no output"); }
             if (!dst_node.has_input()) { throw std::logic_error("v2 graph builder destination node has no input"); }
 
-            TSOutputView output = traverse_output(src_node.output_view(MIN_DT), src_node.output_schema(), edge.output_path);
+            auto [source_view, source_schema] = select_source_output(src_node, edge);
+            const auto navigation_path =
+                !edge.output_path.empty() && (edge.output_path.front() == error_path || edge.output_path.front() == state_path)
+                    ? PathView{edge.output_path}.subspan(1)
+                    : PathView{edge.output_path};
+
+            TSOutputView output = traverse_output(source_view, source_schema, navigation_path);
             TSInputView input = traverse_input(dst_node.input_view(MIN_DT), dst_node.input_schema(), edge.input_path);
             input.bind_output(output);
         }
