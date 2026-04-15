@@ -1013,7 +1013,7 @@ namespace hgraph
                   item(std::move(item_))
             {
                 if (BaseState *state = notification_state_of(source_context); state != nullptr) { state->subscribe(this); }
-                refresh(initial_time, true);
+                refresh(initial_time != MIN_DT ? initial_time : MIN_ST, true);
             }
 
             ~DerivedSetFeatureOutput() override
@@ -2730,6 +2730,7 @@ namespace hgraph
             auto target_set = target_root.value().as_set();
             auto mutation = target_set.begin_mutation(modified_time);
             bool set_changed = false;
+            const bool materialize_empty_set = initializing && !target_root.value().has_value();
             constexpr size_t no_slot = static_cast<size_t>(-1);
             const BaseState *current_source_root_state =
                 binding.source_context.ts_state != nullptr ? binding.source_context.ts_state->resolved_state() : nullptr;
@@ -2753,7 +2754,9 @@ namespace hgraph
                 }
 
                 binding.set_last_source_snapshot(current_source_root_state, false);
-                if (!initializing && set_changed) {
+                if (materialize_empty_set) {
+                    if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
+                } else if (!initializing && set_changed) {
                     if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
                 }
                 return;
@@ -2782,7 +2785,9 @@ namespace hgraph
             }
 
             binding.set_last_source_snapshot(current_source_root_state, true);
-            if (!initializing && set_changed) {
+            if (materialize_empty_set) {
+                if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
+            } else if (!initializing && set_changed) {
                 if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
             }
         }
@@ -2820,7 +2825,7 @@ namespace hgraph
                     supports_alternative_cast(*dereferenced_schema, *target_schema)) {
                     add_dynamic_key_set_binding(
                         make_dereferenced_dynamic_key_set_binding(target_view, source_view),
-                        source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                        target_view.evaluation_time());
                     return;
                 }
 
@@ -2879,7 +2884,7 @@ namespace hgraph
             if (target_schema->kind == TSKind::TSS && source_schema->kind == TSKind::TSD) {
                 add_dynamic_key_set_binding(
                     std::make_unique<DynamicKeySetBinding>(this, target_view, source_view),
-                    source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                    target_view.evaluation_time());
                 return;
             }
 
@@ -3155,6 +3160,25 @@ namespace hgraph
 
         auto *registry = dynamic_cast<CollectionFeatureRegistry *>(source_context.ts_state->feature_registry.get());
         if (registry != nullptr) { registry->unregister_is_empty_output(); }
+    }
+
+    TSOutputView detail::project_dict_key_set_output(const TSViewContext &source_context, engine_time_t evaluation_time)
+    {
+        const TSViewContext resolved_context = source_context.resolved();
+        const TSMeta *schema = resolved_context.schema;
+        TSOutput *owning_output = resolved_context.owning_output;
+        if (schema == nullptr || owning_output == nullptr) {
+            throw std::logic_error("TSDView::key_set requires a bound dict view");
+        }
+
+        TSOutputView source_view{
+            resolved_context,
+            TSViewContext::none(),
+            evaluation_time,
+            owning_output,
+            resolved_context.output_view_ops != nullptr ? resolved_context.output_view_ops : &detail::default_output_view_ops(),
+        };
+        return owning_output->bindable_view(source_view, TSTypeRegistry::instance().tss(schema->key_type()));
     }
 
     TSOutputView TSOutput::bindable_view(const TSOutputView &source, const TSMeta *schema)

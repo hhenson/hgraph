@@ -109,4 +109,10 @@ struct HGRAPH_EXPORT TSInputView : TSView<TSInputView> {
     const detail::TSInputViewOps *m_input_view_ops{nullptr};
 };
 
+struct TSSInputView : TSSReadView<TSInputView>
+{
+    using TSSReadView<TSInputView>::TSSReadView;
+    TSSInputView() = default;
+};
+
 }  // namespace hgraph

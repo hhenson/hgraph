@@ -1488,7 +1488,7 @@ namespace hgraph::v2
                 }
 
                 Value element = ts_nested_value_from_python(*element_schema, item);
-                output_view().as_set().add(element.view());
+                output_view().as_mutable_set().add(element.view());
             }
 
             void remove_set_item(const nb::handle &item) const
@@ -1502,14 +1502,14 @@ namespace hgraph::v2
                 }
 
                 Value element = ts_nested_value_from_python(*element_schema, item);
-                output_view().as_set().remove(element.view());
+                output_view().as_mutable_set().remove(element.view());
             }
 
             void clear_set_items() const
             {
                 if (!is_set()) { throw std::logic_error("v2 Python time-series clear() requires a TSS schema"); }
                 ensure_output();
-                output_view().as_set().clear();
+                output_view().as_mutable_set().clear();
             }
 
           private:

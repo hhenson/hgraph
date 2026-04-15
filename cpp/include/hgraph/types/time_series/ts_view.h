@@ -34,7 +34,11 @@ namespace hgraph
     struct TSLView;
 
     template <typename TView>
-    struct TSSView;
+    struct TSSReadView;
+
+    struct TSSInputView;
+    struct TSSOutputView;
+    struct MutableTSSOutputView;
 
     template <typename TView>
     struct TSWView;
@@ -43,6 +47,24 @@ namespace hgraph
     struct SignalView;
 
     struct TSViewContext;
+
+    template <typename TView>
+    struct TSSetViewType;
+
+    template <>
+    struct TSSetViewType<TSInputView>
+    {
+        using type = TSSInputView;
+    };
+
+    template <>
+    struct TSSetViewType<TSOutputView>
+    {
+        using type = TSSOutputView;
+    };
+
+    template <typename TView>
+    using TSSetView = typename TSSetViewType<TView>::type;
 
     namespace detail
     {
@@ -470,12 +492,26 @@ namespace hgraph
         /**
          * Interpret this view as a set view when the runtime kind matches.
          */
-        [[nodiscard]] TSSView<TView> as_set() noexcept { return TSSView<TView>{*static_cast<TView *>(this)}; }
+        [[nodiscard]] TSSetView<TView> as_set() noexcept
+        {
+            if constexpr (std::same_as<TView, TSInputView>) {
+                return TSSInputView{*static_cast<TView *>(this)};
+            } else {
+                return TSSOutputView{*static_cast<TView *>(this)};
+            }
+        }
 
         /**
          * Interpret this view as a set view when the runtime kind matches.
          */
-        [[nodiscard]] TSSView<TView> as_set() const noexcept { return TSSView<TView>{*static_cast<const TView *>(this)}; }
+        [[nodiscard]] TSSetView<TView> as_set() const noexcept
+        {
+            if constexpr (std::same_as<TView, TSInputView>) {
+                return TSSInputView{*static_cast<const TView *>(this)};
+            } else {
+                return TSSOutputView{*static_cast<const TView *>(this)};
+            }
+        }
 
         /**
          * Interpret this view as a window view when the runtime kind matches.
@@ -549,8 +585,8 @@ namespace hgraph
         [[nodiscard]] TSLView<TView> as_list() const noexcept { return m_view.as_list(); }
         [[nodiscard]] TSDView<TView> as_dict() noexcept { return m_view.as_dict(); }
         [[nodiscard]] TSDView<TView> as_dict() const noexcept { return m_view.as_dict(); }
-        [[nodiscard]] TSSView<TView> as_set() noexcept { return m_view.as_set(); }
-        [[nodiscard]] TSSView<TView> as_set() const noexcept { return m_view.as_set(); }
+        [[nodiscard]] TSSetView<TView> as_set() noexcept { return m_view.as_set(); }
+        [[nodiscard]] TSSetView<TView> as_set() const noexcept { return m_view.as_set(); }
         [[nodiscard]] TSWView<TView> as_window() noexcept { return m_view.as_window(); }
         [[nodiscard]] TSWView<TView> as_window() const noexcept { return m_view.as_window(); }
         [[nodiscard]] SignalView<TView> as_signal() noexcept { return m_view.as_signal(); }
@@ -624,7 +660,7 @@ namespace hgraph
         [[nodiscard]] KeyValueRange<View, TView> items() const noexcept;
         [[nodiscard]] KeyValueRange<View, TView> valid_items() const noexcept;
         [[nodiscard]] KeyValueRange<View, TView> modified_items() const noexcept;
-        [[nodiscard]] TSOutputView key_set() const requires std::same_as<TView, TSOutputView>;
+        [[nodiscard]] TSSetView<TView> key_set() const;
         void from_python(nb::handle value) const requires std::same_as<TView, TSOutputView>;
         void from_python(const View &key, nb::handle value) const requires std::same_as<TView, TSOutputView>;
         void erase(const View &key) const requires std::same_as<TView, TSOutputView>;
@@ -634,10 +670,10 @@ namespace hgraph
     };
 
     template <typename TView>
-    struct TSSView : TSViewFacade<TView>
+    struct TSSReadView : TSViewFacade<TView>
     {
         using TSViewFacade<TView>::TSViewFacade;
-        TSSView() = default;
+        TSSReadView() = default;
 
         [[nodiscard]] size_t size() const noexcept;
         [[nodiscard]] Range<View> values() const noexcept;
@@ -645,14 +681,8 @@ namespace hgraph
         [[nodiscard]] Range<View> removed_values() const noexcept;
         [[nodiscard]] bool empty() const noexcept;
 
-        void from_python(nb::handle value) const requires std::same_as<TView, TSOutputView>;
-        void add(const View &item) const requires std::same_as<TView, TSOutputView>;
-        void remove(const View &item) const requires std::same_as<TView, TSOutputView>;
-        void clear() const requires std::same_as<TView, TSOutputView>;
-        [[nodiscard]] TSOutputView register_contains_output(const View &item) const requires std::same_as<TView, TSOutputView>;
-        void unregister_contains_output(const View &item) const requires std::same_as<TView, TSOutputView>;
-        [[nodiscard]] TSOutputView register_is_empty_output() const requires std::same_as<TView, TSOutputView>;
-        void unregister_is_empty_output() const requires std::same_as<TView, TSOutputView>;
+      protected:
+        [[nodiscard]] const detail::TSSetDispatch *set_dispatch() const noexcept;
     };
 
     template <typename TView>
@@ -1020,46 +1050,48 @@ namespace hgraph
     }
 
     template <typename TView>
-    size_t TSSView<TView>::size() const noexcept
+    const detail::TSSetDispatch *TSSReadView<TView>::set_dispatch() const noexcept
     {
         const auto *dispatch = this->view_ref().context_ref().resolved().ts_dispatch;
-        const auto *set_dispatch = dispatch != nullptr ? dispatch->as_set() : nullptr;
+        return dispatch != nullptr ? dispatch->as_set() : nullptr;
+    }
+
+    template <typename TView>
+    size_t TSSReadView<TView>::size() const noexcept
+    {
+        const auto *set_dispatch = this->set_dispatch();
         return set_dispatch != nullptr ? set_dispatch->size(this->view_ref().context_ref()) : 0;
     }
 
     template <typename TView>
-    Range<View> TSSView<TView>::values() const noexcept
+    Range<View> TSSReadView<TView>::values() const noexcept
     {
-        const auto *dispatch = this->view_ref().context_ref().resolved().ts_dispatch;
-        const auto *set_dispatch = dispatch != nullptr ? dispatch->as_set() : nullptr;
+        const auto *set_dispatch = this->set_dispatch();
         return set_dispatch != nullptr ? set_dispatch->values(this->view_ref().context_ref()) : Range<View>{nullptr, 0, nullptr, nullptr};
     }
 
     template <typename TView>
-    Range<View> TSSView<TView>::added_values() const noexcept
+    Range<View> TSSReadView<TView>::added_values() const noexcept
     {
         if (!this->view_ref().modified()) { return Range<View>{nullptr, 0, nullptr, nullptr}; }
-        const auto *dispatch = this->view_ref().context_ref().resolved().ts_dispatch;
-        const auto *set_dispatch = dispatch != nullptr ? dispatch->as_set() : nullptr;
+        const auto *set_dispatch = this->set_dispatch();
         return set_dispatch != nullptr ? set_dispatch->added_values(this->view_ref().context_ref())
                                        : Range<View>{nullptr, 0, nullptr, nullptr};
     }
 
     template <typename TView>
-    Range<View> TSSView<TView>::removed_values() const noexcept
+    Range<View> TSSReadView<TView>::removed_values() const noexcept
     {
         if (!this->view_ref().modified()) { return Range<View>{nullptr, 0, nullptr, nullptr}; }
-        const auto *dispatch = this->view_ref().context_ref().resolved().ts_dispatch;
-        const auto *set_dispatch = dispatch != nullptr ? dispatch->as_set() : nullptr;
+        const auto *set_dispatch = this->set_dispatch();
         return set_dispatch != nullptr ? set_dispatch->removed_values(this->view_ref().context_ref())
                                        : Range<View>{nullptr, 0, nullptr, nullptr};
     }
 
     template <typename TView>
-    bool TSSView<TView>::empty() const noexcept
+    bool TSSReadView<TView>::empty() const noexcept
     {
-        const auto *dispatch = this->view_ref().context_ref().resolved().ts_dispatch;
-        const auto *set_dispatch = dispatch != nullptr ? dispatch->as_set() : nullptr;
+        const auto *set_dispatch = this->set_dispatch();
         return set_dispatch == nullptr || set_dispatch->empty(this->view_ref().context_ref());
     }
 

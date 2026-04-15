@@ -254,8 +254,8 @@ namespace hgraph::v2
         template <typename TValue>
         struct schema_view_traits<TSS<TValue>>
         {
-            using input_view_type = TSSView<TSInputView>;
-            using output_view_type = TSSView<TSOutputView>;
+            using input_view_type = TSSInputView;
+            using output_view_type = TSSOutputView;
 
             [[nodiscard]] static input_view_type input_view(TSInputView view) { return view.as_set(); }
             [[nodiscard]] static output_view_type output_view(TSOutputView view) { return view.as_set(); }
