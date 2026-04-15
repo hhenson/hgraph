@@ -94,9 +94,9 @@ namespace hgraph::v2
     {
         switch (m_kind) {
             case Kind::EMPTY: return false;
-            case Kind::PEERED: return target().is_bound();
+            case Kind::PEERED: return target().is_bound() && target_view().valid();
             case Kind::NON_PEERED:
-                return std::any_of(items().begin(), items().end(), [](const auto &item) { return item.is_valid(); });
+                return std::any_of(items().begin(), items().end(), [](const auto &item) { return !item.is_empty(); });
         }
         return false;
     }
