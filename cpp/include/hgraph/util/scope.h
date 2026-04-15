@@ -58,6 +58,11 @@ namespace hgraph {
             fn_();
         }
 
+        void release() noexcept
+        {
+            active_ = false;
+        }
+
         ~UnwindCleanupGuard() noexcept
         {
             if (!active_ || std::uncaught_exceptions() <= uncaught_exceptions_) { return; }
