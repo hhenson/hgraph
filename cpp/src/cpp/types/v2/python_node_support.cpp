@@ -35,6 +35,13 @@ namespace hgraph::v2
             using View::data_of;
         };
 
+        struct RawMapAccess : MapView
+        {
+            explicit RawMapAccess(const View &view) : MapView(view) {}
+
+            using MapView::map_dispatch;
+        };
+
         [[nodiscard]] const TSMeta *field_schema(const TSMeta *schema, std::string_view field_name) noexcept
         {
             if (schema == nullptr || schema->kind != TSKind::TSB) { return nullptr; }
@@ -83,6 +90,10 @@ namespace hgraph::v2
             if (const TSMeta *element = schema->element_ts(); element != nullptr) { return element; }
             throw std::logic_error("v2 Python time-series dict schema is missing its value type");
         }
+
+        [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSBState &state) noexcept { return &state; }
+        [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
+        [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSDState &state) noexcept { return &state; }
 
         [[nodiscard]] TSOutputView output_view_from_context(const LinkedTSContext &context, engine_time_t evaluation_time)
         {
@@ -432,7 +443,9 @@ namespace hgraph::v2
                     const engine_time_t when = effective_modified_time(*m_bound_output);
                     return when != MIN_DT ? when == m_fixed_evaluation_time : current_value().has_value();
                 }
-                return m_input != nullptr ? input_view().modified() : output_view().modified();
+
+                const bool modified = m_input != nullptr ? input_view().modified() : output_view().modified();
+                return modified;
             }
 
             [[nodiscard]] bool valid() const
@@ -564,6 +577,41 @@ namespace hgraph::v2
                 if (!is_dict()) { throw std::logic_error("v2 Python time-series get() requires a TSD schema"); }
                 const auto child = key_item(key);
                 return child.valid() ? nb::cast(child) : std::move(default_value);
+            }
+
+            [[nodiscard]] PythonTimeSeriesHandle key_set() const
+            {
+                if (!is_dict()) { throw std::logic_error("v2 Python time-series key_set requires a TSD schema"); }
+
+                const TSMeta *target_schema = TSTypeRegistry::instance().tss(m_schema->key_type());
+                if (target_schema == nullptr) {
+                    throw std::logic_error("v2 Python time-series key_set requires a registered TSS schema");
+                }
+
+                if (m_output != nullptr || m_bound_output.has_value()) {
+                    TSOutputView view = output_view();
+                    TSOutput *owning_output = view.owning_output();
+                    if (owning_output == nullptr) {
+                        throw std::logic_error("v2 Python time-series key_set requires an owning output endpoint");
+                    }
+                    return PythonTimeSeriesHandle{owning_output->bindable_view(view, target_schema).linked_context(), evaluation_time()};
+                }
+
+                if (m_input != nullptr) {
+                    TSInputView view = input_view();
+                    if (const LinkedTSContext *target = view.linked_target(); target != nullptr && target->is_bound()) {
+                        TSOutputView target_view = output_view_from_context(*target, evaluation_time());
+                        TSOutput *owning_output = target_view.owning_output();
+                        if (owning_output == nullptr) {
+                            throw std::logic_error("v2 Python time-series key_set requires an owning output endpoint");
+                        }
+                        return PythonTimeSeriesHandle{
+                            owning_output->bindable_view(target_view, target_schema).linked_context(),
+                            evaluation_time()};
+                    }
+                }
+
+                throw std::logic_error("v2 Python time-series key_set requires a bound dict handle");
             }
 
             [[nodiscard]] nb::object get_attr(const std::string &name) const
@@ -1063,8 +1111,10 @@ namespace hgraph::v2
                 }
                 if (is_dict()) {
                     const auto append_modified_items = [this, &result](const auto &dict) {
-                        for (const auto &[key, value] : dict.modified_items()) {
+                        for (const auto &[key, value] : dict.items()) {
                             static_cast<void>(value);
+                            const auto child = key_item(key);
+                            if (!child.modified()) { continue; }
                             result.append(nb::make_tuple(key.to_python(), nb::cast(key_item(key))));
                         }
                     };
@@ -1131,6 +1181,24 @@ namespace hgraph::v2
                 if (!is_dict()) { throw std::logic_error("v2 Python time-series __delitem__ requires a TSD schema"); }
                 ensure_output();
                 const Value key_value = key_value_from_python(key);
+                output_view().as_dict().erase(key_value.view());
+            }
+
+            void on_key_removed(const nb::handle &key) const
+            {
+                if (!is_dict()) { throw std::logic_error("v2 Python time-series on_key_removed() requires a TSD schema"); }
+
+                const Value key_value = key_value_from_python(key);
+
+                if (m_input != nullptr) {
+                    TSInputView view = input_view();
+                    if (!view.value().has_value()) { return; }
+                    auto mutation = view.value().as_map().begin_mutation(evaluation_time());
+                    static_cast<void>(mutation.remove(key_value.view()));
+                    return;
+                }
+
+                ensure_output();
                 output_view().as_dict().erase(key_value.view());
             }
 
@@ -1396,15 +1464,30 @@ namespace hgraph::v2
             {
                 TSInputView view = input_view();
                 BaseState *state = view.context_ref().ts_state;
-                if (state == nullptr) {
-                    throw std::runtime_error("v2 REF bind_output requires a live input state");
+
+                if (state != nullptr) {
+                    TSOutputView output_view = output.output_view();
+                    if (output_view.context_ref().is_bound() || output_view.value().has_value()) {
+                        try {
+                            view.bind_output(output_view);
+                            return;
+                        } catch (...) {
+                        }
+                    }
                 }
 
+                TimeSeriesReference reference = TimeSeriesReference::make();
+                TSOutputView output_view = output.output_view();
+                if (output_view.context_ref().is_bound() || output_view.value().has_value()) {
+                    reference = TimeSeriesReference::make(output_view);
+                }
+
+                if (state == nullptr) { throw std::runtime_error("v2 REF bind_output requires a live input state"); }
                 if (state->storage_kind == TSStorageKind::TargetLink) {
                     static_cast<TargetLinkState *>(state)->reset_target();
                 }
 
-                set_local_reference_value(view, TimeSeriesReference::make(output.output_view()));
+                set_local_reference_value(view, reference);
                 state->mark_modified(evaluation_time());
             }
 
@@ -1481,7 +1564,27 @@ namespace hgraph::v2
                     switch (step.kind) {
                         case PathStep::Kind::Field: view = view.as_bundle().field(step.field_name); break;
                         case PathStep::Kind::Index: view = view.as_list().at(step.index); break;
-                        case PathStep::Kind::Key: view = view.as_dict().at(step.key.view()); break;
+                        case PathStep::Kind::Key:
+                            {
+                                const TSViewContext &context = view.context_ref();
+                                const TSMeta *schema = context.resolved().schema;
+                                BaseState *resolved_state =
+                                    context.ts_state != nullptr ? context.ts_state->resolved_state() : nullptr;
+                                if (schema != nullptr && schema->kind == TSKind::TSD &&
+                                    resolved_state != nullptr && resolved_state->storage_kind == TSStorageKind::Native &&
+                                    view.value().has_value()) {
+                                    bind_input_dict_state(resolved_state, *schema, view.value());
+                                    auto *dict_state = static_cast<TSDState *>(resolved_state);
+                                    dict_state->sync_with_value_storage();
+                                    const size_t slot = view.value().as_map().find_slot(step.key.view());
+                                    if (slot != static_cast<size_t>(-1) &&
+                                        (dict_state->child_states.size() <= slot || dict_state->child_states[slot] == nullptr)) {
+                                        dict_state->on_insert(slot);
+                                    }
+                                }
+                                view = view.as_dict().at(step.key.view());
+                                break;
+                            }
                     }
                 }
                 return view;
@@ -1513,6 +1616,86 @@ namespace hgraph::v2
                 const View value = current_value();
                 if (!value.has_value()) { throw std::logic_error("v2 Python time-series window value buffer requires a live value"); }
                 return BufferView{value.as_tuple()[1]};
+            }
+
+            static void bind_input_dict_state(BaseState *state, const TSMeta &schema, const View &value)
+            {
+                if (state == nullptr || schema.kind != TSKind::TSD || !value.has_value()) { return; }
+
+                const auto *map_dispatch = RawMapAccess(value).map_dispatch();
+                if (map_dispatch == nullptr) {
+                    throw std::logic_error("v2 Python input dict state creation requires map-backed value storage");
+                }
+
+                auto *dict_state = static_cast<TSDState *>(state);
+                dict_state->bind_value_storage(*schema.element_ts(), *map_dispatch, RawViewAccess::data_of(value), false);
+            }
+
+            static void ensure_input_child_state(TSInputView &view, const PathStep &step, const TSMeta *child_schema)
+            {
+                if (child_schema == nullptr) { return; }
+
+                BaseState *resolved_state = view.context_ref().ts_state != nullptr ? view.context_ref().ts_state->resolved_state() : nullptr;
+                if (resolved_state == nullptr || resolved_state->storage_kind != TSStorageKind::Native) { return; }
+
+                switch (step.kind) {
+                    case PathStep::Kind::Field:
+                        {
+                            const TSMeta *schema = view.context_ref().resolved().schema;
+                            if (schema == nullptr || schema->kind != TSKind::TSB) { return; }
+
+                            auto *bundle_state = static_cast<TSBState *>(resolved_state);
+
+                            for (size_t index = 0; index < schema->field_count(); ++index) {
+                                const auto &field = schema->fields()[index];
+                                if (step.field_name != field.name) { continue; }
+                                if (bundle_state->child_states.size() <= index) { bundle_state->child_states.resize(index + 1); }
+                                if (bundle_state->child_states[index] == nullptr) {
+                                    bundle_state->child_states[index] = make_time_series_state_node(*child_schema, parent_ptr(*bundle_state), index);
+                                }
+                                bind_input_dict_state(std::visit([](auto &typed_state) -> BaseState * { return &typed_state; },
+                                                                 *bundle_state->child_states[index]),
+                                                      *child_schema,
+                                                      view.value().as_bundle().at(index));
+                                return;
+                            }
+                            return;
+                        }
+
+                    case PathStep::Kind::Index:
+                        {
+                            const TSMeta *schema = view.context_ref().resolved().schema;
+                            if (schema == nullptr || schema->kind != TSKind::TSL) { return; }
+
+                            auto *list_state = static_cast<TSLState *>(resolved_state);
+                            if (list_state->child_states.size() <= step.index) { list_state->child_states.resize(step.index + 1); }
+                            if (list_state->child_states[step.index] == nullptr) {
+                                list_state->child_states[step.index] =
+                                    make_time_series_state_node(*child_schema, parent_ptr(*list_state), step.index);
+                            }
+                            bind_input_dict_state(std::visit([](auto &typed_state) -> BaseState * { return &typed_state; },
+                                                             *list_state->child_states[step.index]),
+                                                  *child_schema,
+                                                  view.value().as_list().at(step.index));
+                            return;
+                        }
+
+                    case PathStep::Kind::Key:
+                        {
+                            const TSMeta *schema = view.context_ref().resolved().schema;
+                            if (schema == nullptr || schema->kind != TSKind::TSD || !view.value().has_value()) { return; }
+
+                            auto *dict_state = static_cast<TSDState *>(resolved_state);
+                            dict_state->sync_with_value_storage();
+                            const size_t slot = view.value().as_map().find_slot(step.key.view());
+                            if (slot == static_cast<size_t>(-1)) { return; }
+
+                            if (dict_state->child_states.size() <= slot || dict_state->child_states[slot] == nullptr) {
+                                dict_state->on_insert(slot);
+                            }
+                            return;
+                        }
+                }
             }
 
             void ensure_input_dict_child(const Value &key) const
@@ -2108,9 +2291,11 @@ namespace hgraph::v2
             .def_prop_ro("valid", &PythonTimeSeriesHandle::valid)
             .def_prop_ro("all_valid", &PythonTimeSeriesHandle::all_valid)
             .def_prop_ro("last_modified_time", &PythonTimeSeriesHandle::last_modified_time)
+            .def_prop_ro("key_set", &PythonTimeSeriesHandle::key_set)
             .def("get", &PythonTimeSeriesHandle::get, "key"_a, "default"_a = nb::none())
             .def("get_or_create", &PythonTimeSeriesHandle::get_or_create, "key"_a)
             .def("create", &PythonTimeSeriesHandle::create, "key"_a)
+            .def("on_key_removed", &PythonTimeSeriesHandle::on_key_removed, "key"_a)
             .def("get_ref", &PythonTimeSeriesHandle::get_ref, "key"_a, "requester"_a = nb::none())
             .def("release_ref", &PythonTimeSeriesHandle::release_ref, "key"_a, "requester"_a = nb::none())
             .def("get_contains_output", &PythonTimeSeriesHandle::get_contains_output, "item"_a, "requester"_a)

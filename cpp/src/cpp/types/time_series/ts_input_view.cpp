@@ -238,7 +238,8 @@ namespace hgraph
                         link_state.switch_modified_time = MIN_DT;
                     }
 
-                    if (evaluation_time != MIN_DT && had_binding) {
+                    if (evaluation_time != MIN_DT &&
+                        !detail::linked_context_equal(previous_target, link_state.target)) {
                         link_state.mark_modified(evaluation_time);
                     }
                 }

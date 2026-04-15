@@ -521,7 +521,7 @@ namespace hgraph
 
         if (context.ts_state != nullptr) {
             if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr) {
-                return linked_context_all_valid(*target);
+                return target->is_bound();
             }
         }
 

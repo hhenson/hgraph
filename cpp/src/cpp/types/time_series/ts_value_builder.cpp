@@ -843,23 +843,29 @@ namespace hgraph
 
             [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override
             {
-                if (context.schema == nullptr || context.schema->kind != TSKind::REF || context.schema->element_ts() == nullptr ||
-                    context.ts_state == nullptr) {
+                if (context.schema == nullptr || context.schema->kind != TSKind::REF || context.schema->element_ts() == nullptr) {
                     return false;
                 }
 
-                if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr) {
-                    return detail::linked_context_valid(*target);
-                }
-
-                if (const Value *materialized = detail::materialized_reference_value(context); materialized != nullptr) {
-                    if (const auto *ref = materialized->view().as_atomic().try_as<v2::TimeSeriesReference>()) {
-                        return ref->is_valid();
+                if (context.ts_state != nullptr) {
+                    if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr) {
+                        return target->is_bound();
                     }
-                    return false;
+                }
+
+                if (context.ts_state != nullptr) {
+                    if (const Value *materialized = detail::materialized_reference_value(context); materialized != nullptr) {
+                        if (const auto *ref = materialized->view().as_atomic().try_as<v2::TimeSeriesReference>()) {
+                            return ref->is_valid();
+                        }
+                        return false;
+                    }
                 }
 
                 View value = context.value();
+                if (const auto *ref = value.as_atomic().try_as<v2::TimeSeriesReference>()) {
+                    return ref->is_valid();
+                }
                 return value.has_value() && value.as_atomic().try_as<v2::TimeSeriesReference>() != nullptr;
             }
 
@@ -1024,7 +1030,15 @@ namespace hgraph
                         child_value_data,
                         nullptr};
                 }
-                if (index >= state->child_states.size() || state->child_states[index] == nullptr) { return TSViewContext::none(); }
+                if (index >= state->child_states.size() || state->child_states[index] == nullptr) {
+                    if (child_value_data == nullptr) { return TSViewContext::none(); }
+                    return TSViewContext{
+                        &m_element_schema.get(),
+                        &m_element_value_dispatch.get(),
+                        &m_element_ts_dispatch.get(),
+                        child_value_data,
+                        nullptr};
+                }
 
                 return child_context_from_slot(state->child_states[index],
                                                m_element_schema.get(),
@@ -1191,7 +1205,15 @@ namespace hgraph
                         child_value_data,
                         nullptr};
                 }
-                if (index >= state->child_states.size() || state->child_states[index] == nullptr) { return TSViewContext::none(); }
+                if (index >= state->child_states.size() || state->child_states[index] == nullptr) {
+                    if (child_value_data == nullptr) { return TSViewContext::none(); }
+                    return TSViewContext{
+                        &m_fields[index].schema.get(),
+                        &m_fields[index].value_dispatch.get(),
+                        &m_fields[index].ts_dispatch.get(),
+                        child_value_data,
+                        nullptr};
+                }
 
                 return child_context_from_slot(state->child_states[index],
                                                m_fields[index].schema.get(),
@@ -1349,7 +1371,15 @@ namespace hgraph
                                          RawViewAccess::data_of(child_value),
                                          nullptr};
                 }
-                if (state->child_states.size() <= slot || state->child_states[slot] == nullptr) { return TSViewContext::none(); }
+                if (state->child_states.size() <= slot || state->child_states[slot] == nullptr) {
+                    const void *child_value_data = RawViewAccess::data_of(child_value);
+                    if (child_value_data == nullptr) { return TSViewContext::none(); }
+                    return TSViewContext{&m_value_schema.get(),
+                                         &m_value_dispatch.get(),
+                                         &m_value_ts_dispatch.get(),
+                                         const_cast<void *>(child_value_data),
+                                         nullptr};
+                }
 
                 return child_context_from_slot(state->child_states[slot],
                                                m_value_schema.get(),
