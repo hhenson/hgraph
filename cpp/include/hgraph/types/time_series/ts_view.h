@@ -624,6 +624,7 @@ namespace hgraph
         [[nodiscard]] KeyValueRange<View, TView> items() const noexcept;
         [[nodiscard]] KeyValueRange<View, TView> valid_items() const noexcept;
         [[nodiscard]] KeyValueRange<View, TView> modified_items() const noexcept;
+        [[nodiscard]] TSOutputView key_set() const requires std::same_as<TView, TSOutputView>;
         void from_python(nb::handle value) const requires std::same_as<TView, TSOutputView>;
         void from_python(const View &key, nb::handle value) const requires std::same_as<TView, TSOutputView>;
         void erase(const View &key) const requires std::same_as<TView, TSOutputView>;

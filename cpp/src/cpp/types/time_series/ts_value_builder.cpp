@@ -1405,6 +1405,17 @@ namespace hgraph
                 return detail::set_delta_to_python(context);
             }
 
+            [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override
+            {
+                if (detail::TSDispatch::valid(context)) { return true; }
+
+                const auto *ref_state = switching_set_ref_state(context);
+                if (ref_state == nullptr) { return false; }
+
+                return ref_state->switch_modified_time == last_modified_time(context) &&
+                       ref_state->previous_target_value.has_value();
+            }
+
             void from_python(const TSOutputView &view, nb::handle value) const override
             {
                 if (value.is_none()) {

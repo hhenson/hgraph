@@ -2,6 +2,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
 
 #include <memory>
 
@@ -125,14 +126,18 @@ inline void TSDView<TView>::from_python(nb::handle value) const
 }
 
 template <typename TView>
+inline TSOutputView TSDView<TView>::key_set() const
+    requires std::same_as<TView, TSOutputView>
+{
+    const TSMeta *schema = this->view_ref().context_ref().schema;
+    return this->view_ref().owning_output()->bindable_view(this->view_ref(), TSTypeRegistry::instance().tss(schema->key_type()));
+}
+
+template <typename TView>
 inline void TSDView<TView>::from_python(const View &key, nb::handle value) const
     requires std::same_as<TView, TSOutputView>
 {
-    const auto *dispatch = this->key_dispatch();
-    if (dispatch == nullptr) {
-        throw std::logic_error("TSDView::from_python(key, value) requires a dict dispatch");
-    }
-    dispatch->child_from_python(this->view_ref(), key, value);
+    this->key_dispatch()->child_from_python(this->view_ref(), key, value);
 }
 
 template <typename TView>

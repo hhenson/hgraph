@@ -583,30 +583,15 @@ namespace hgraph::v2
             {
                 if (!is_dict()) { throw std::logic_error("v2 Python time-series key_set requires a TSD schema"); }
 
-                const TSMeta *target_schema = TSTypeRegistry::instance().tss(m_schema->key_type());
-                if (target_schema == nullptr) {
-                    throw std::logic_error("v2 Python time-series key_set requires a registered TSS schema");
-                }
-
                 if (m_output != nullptr || m_bound_output.has_value()) {
-                    TSOutputView view = output_view();
-                    TSOutput *owning_output = view.owning_output();
-                    if (owning_output == nullptr) {
-                        throw std::logic_error("v2 Python time-series key_set requires an owning output endpoint");
-                    }
-                    return PythonTimeSeriesHandle{owning_output->bindable_view(view, target_schema).linked_context(), evaluation_time()};
+                    return PythonTimeSeriesHandle{output_view().as_dict().key_set().linked_context(), evaluation_time()};
                 }
 
                 if (m_input != nullptr) {
                     TSInputView view = input_view();
                     if (const LinkedTSContext *target = view.linked_target(); target != nullptr && target->is_bound()) {
-                        TSOutputView target_view = output_view_from_context(*target, evaluation_time());
-                        TSOutput *owning_output = target_view.owning_output();
-                        if (owning_output == nullptr) {
-                            throw std::logic_error("v2 Python time-series key_set requires an owning output endpoint");
-                        }
                         return PythonTimeSeriesHandle{
-                            owning_output->bindable_view(target_view, target_schema).linked_context(),
+                            output_view_from_context(*target, evaluation_time()).as_dict().key_set().linked_context(),
                             evaluation_time()};
                     }
                 }

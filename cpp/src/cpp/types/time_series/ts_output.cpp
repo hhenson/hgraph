@@ -3,6 +3,7 @@
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/value/type_meta_bindings.h>
 #include <hgraph/types/v2/ref.h>
+#include <hgraph/util/tagged_ptr.h>
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
@@ -471,7 +472,7 @@ namespace hgraph
             nb::list added_values;
             nb::list removed_values;
             const auto *dispatch = context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_set() : nullptr;
-            if (dispatch != nullptr && context.value().has_value()) {
+            if (dispatch != nullptr) {
                 for (const View &item : dispatch->added_values(context)) { added_values.append(item.to_python()); }
                 for (const View &item : dispatch->removed_values(context)) { removed_values.append(item.to_python()); }
             }
@@ -1727,7 +1728,9 @@ namespace hgraph
                   source_context(source_view.linked_context())
             {
                 source_notifier.binding = this;
-                last_source_root_state = source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr;
+                set_last_source_snapshot(
+                    source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
+                    false);
             }
 
             DynamicDictBinding(AlternativeOutput *owner_,
@@ -1740,14 +1743,23 @@ namespace hgraph
                   source_bridge_state(std::move(source_bridge_state_))
             {
                 source_notifier.binding = this;
-                last_source_root_state = source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr;
+                set_last_source_snapshot(
+                    source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
+                    false);
+            }
+
+            [[nodiscard]] const BaseState *last_source_root_state() const noexcept { return m_last_source_snapshot.ptr(); }
+            [[nodiscard]] bool last_source_had_value() const noexcept { return m_last_source_snapshot.tag() != 0; }
+            void set_last_source_snapshot(BaseState *state, bool had_value) noexcept
+            {
+                m_last_source_snapshot.set(state, had_value ? 1u : 0u);
             }
 
             AlternativeOutput *owner{nullptr};
             TSViewContext target_context{TSViewContext::none()};
             LinkedTSContext source_context{};
             std::unique_ptr<TimeSeriesStateV> source_bridge_state{};
-            const BaseState *last_source_root_state{nullptr};
+            tagged_ptr<BaseState, 1> m_last_source_snapshot{};
             SourceNotifier source_notifier{};
         };
 
@@ -1771,7 +1783,9 @@ namespace hgraph
                   source_context(source_view.linked_context())
             {
                 source_notifier.binding = this;
-                last_source_root_state = source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr;
+                set_last_source_snapshot(
+                    source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
+                    false);
             }
 
             DynamicKeySetBinding(AlternativeOutput *owner_,
@@ -1784,14 +1798,23 @@ namespace hgraph
                   source_bridge_state(std::move(source_bridge_state_))
             {
                 source_notifier.binding = this;
-                last_source_root_state = source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr;
+                set_last_source_snapshot(
+                    source_context.ts_state != nullptr ? source_context.ts_state->resolved_state() : nullptr,
+                    false);
+            }
+
+            [[nodiscard]] const BaseState *last_source_root_state() const noexcept { return m_last_source_snapshot.ptr(); }
+            [[nodiscard]] bool last_source_had_value() const noexcept { return m_last_source_snapshot.tag() != 0; }
+            void set_last_source_snapshot(BaseState *state, bool had_value) noexcept
+            {
+                m_last_source_snapshot.set(state, had_value ? 1u : 0u);
             }
 
             AlternativeOutput *owner{nullptr};
             TSViewContext target_context{TSViewContext::none()};
             LinkedTSContext source_context{};
             std::unique_ptr<TimeSeriesStateV> source_bridge_state{};
-            const BaseState *last_source_root_state{nullptr};
+            tagged_ptr<BaseState, 1> m_last_source_snapshot{};
             SourceNotifier source_notifier{};
         };
 
@@ -2553,10 +2576,12 @@ namespace hgraph
             auto mutation = target_map.begin_mutation(modified_time);
             bool map_value_changed = false;
             constexpr size_t no_slot = static_cast<size_t>(-1);
-            const BaseState *current_source_root_state =
+            BaseState *current_source_root_state =
                 binding.source_context.ts_state != nullptr ? binding.source_context.ts_state->resolved_state() : nullptr;
-            const bool source_rebound = !initializing && current_source_root_state != binding.last_source_root_state;
-            const bool full_resync = initializing || source_rebound;
+            const bool current_source_had_value = source_value.has_value();
+            const bool source_rebound = !initializing && current_source_root_state != binding.last_source_root_state();
+            const bool source_value_changed = !initializing && current_source_had_value != binding.last_source_had_value();
+            const bool full_resync = initializing || source_rebound || source_value_changed;
 
             auto remove_target_key = [&](const View &key) {
                 TSOutputView existing_child = target_dict.at(key);
@@ -2576,7 +2601,7 @@ namespace hgraph
                     for (const auto &key : stale_keys) { remove_target_key(key.view()); }
                 }
 
-                binding.last_source_root_state = current_source_root_state;
+                binding.set_last_source_snapshot(current_source_root_state, false);
                 if (!initializing && map_value_changed) {
                     if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
                 }
@@ -2616,7 +2641,7 @@ namespace hgraph
             const bool has_added_slots = source_delta.first_added_slot() != no_slot;
             const bool has_updated_slots = source_delta.first_updated_slot() != no_slot;
             if (!full_resync && !map_value_changed && !has_added_slots && !has_updated_slots) {
-                binding.last_source_root_state = current_source_root_state;
+                binding.set_last_source_snapshot(current_source_root_state, current_source_had_value);
                 return;
             }
 
@@ -2680,7 +2705,7 @@ namespace hgraph
                 }
             }
 
-            binding.last_source_root_state = current_source_root_state;
+            binding.set_last_source_snapshot(current_source_root_state, true);
 
             if (!initializing && map_value_changed) {
                 // The dynamic dict binding handles child-level validity and
@@ -2706,10 +2731,12 @@ namespace hgraph
             auto mutation = target_set.begin_mutation(modified_time);
             bool set_changed = false;
             constexpr size_t no_slot = static_cast<size_t>(-1);
-            const BaseState *current_source_root_state =
+            BaseState *current_source_root_state =
                 binding.source_context.ts_state != nullptr ? binding.source_context.ts_state->resolved_state() : nullptr;
-            const bool source_rebound = !initializing && current_source_root_state != binding.last_source_root_state;
-            const bool full_resync = initializing || source_rebound;
+            const bool current_source_had_value = source_root.value().has_value();
+            const bool source_rebound = !initializing && current_source_root_state != binding.last_source_root_state();
+            const bool source_value_changed = !initializing && current_source_had_value != binding.last_source_had_value();
+            const bool full_resync = initializing || source_rebound || source_value_changed;
 
             auto remove_target_key = [&](const View &key) {
                 set_changed = mutation.remove(key) || set_changed;
@@ -2725,7 +2752,7 @@ namespace hgraph
                     for (const auto &key : stale_keys) { remove_target_key(key.view()); }
                 }
 
-                binding.last_source_root_state = current_source_root_state;
+                binding.set_last_source_snapshot(current_source_root_state, false);
                 if (!initializing && set_changed) {
                     if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
                 }
@@ -2754,7 +2781,7 @@ namespace hgraph
                 }
             }
 
-            binding.last_source_root_state = current_source_root_state;
+            binding.set_last_source_snapshot(current_source_root_state, true);
             if (!initializing && set_changed) {
                 if (BaseState *root = ts_root_state(); root != nullptr) { root->mark_modified(modified_time); }
             }
@@ -3100,10 +3127,6 @@ namespace hgraph
 
     TSOutputView detail::register_set_contains_output(const TSOutputView &view, const View &item)
     {
-        if (view.ts_schema() == nullptr || view.ts_schema()->kind != TSKind::TSS) {
-            throw std::invalid_argument("register_set_contains_output requires a TSS view");
-        }
-
         LinkedTSContext source_context = feature_source_context(view);
         auto &registry = ensure_collection_feature_registry(*source_context.ts_state);
         return registry.register_contains_output(source_context, view.evaluation_time(), item);
@@ -3111,8 +3134,6 @@ namespace hgraph
 
     void detail::unregister_set_contains_output(const TSOutputView &view, const View &item)
     {
-        if (view.ts_schema() == nullptr || view.ts_schema()->kind != TSKind::TSS) { return; }
-
         LinkedTSContext source_context = feature_source_context(view);
         if (source_context.ts_state == nullptr || source_context.ts_state->feature_registry == nullptr) { return; }
 
@@ -3122,10 +3143,6 @@ namespace hgraph
 
     TSOutputView detail::register_set_is_empty_output(const TSOutputView &view)
     {
-        if (view.ts_schema() == nullptr || view.ts_schema()->kind != TSKind::TSS) {
-            throw std::invalid_argument("register_set_is_empty_output requires a TSS view");
-        }
-
         LinkedTSContext source_context = feature_source_context(view);
         auto &registry = ensure_collection_feature_registry(*source_context.ts_state);
         return registry.register_is_empty_output(source_context, view.evaluation_time());
@@ -3133,8 +3150,6 @@ namespace hgraph
 
     void detail::unregister_set_is_empty_output(const TSOutputView &view)
     {
-        if (view.ts_schema() == nullptr || view.ts_schema()->kind != TSKind::TSS) { return; }
-
         LinkedTSContext source_context = feature_source_context(view);
         if (source_context.ts_state == nullptr || source_context.ts_state->feature_registry == nullptr) { return; }
 
