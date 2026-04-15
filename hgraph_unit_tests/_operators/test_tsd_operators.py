@@ -128,10 +128,14 @@ def test_tsd_get_items():
     ) == [None, {1: 3}, {2: 2, 1: 4}, {2: REMOVE, 1: REMOVE}, None]
 
 
-def test_tsd_get_items_refs():
+def test_tsd_get_items_from_compute_node_output():
+    @compute_node
+    def identity_tsd(ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+        return ts.delta_value
+
     @graph
     def g(ts: TSD[int, TS[int]], keys: TSS[int]) -> TSD[int, TS[int]]:
-        return getitem_(map_(lambda x: x, ts), keys)
+        return getitem_(identity_tsd(ts), keys)
 
     assert eval_node(
         g,

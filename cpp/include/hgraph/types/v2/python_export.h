@@ -14,7 +14,9 @@ namespace hgraph::v2
 {
     namespace detail
     {
-        [[nodiscard]] inline nb::object upgrade_python_wiring_node(nb::handle node, nb::handle builder_factory)
+        [[nodiscard]] inline nb::object upgrade_python_wiring_node(nb::handle node,
+                                                                   nb::handle builder_factory,
+                                                                   nb::handle signature_override = nb::none())
         {
             nb::object wiring_node = nb::borrow(node);
             nb::object cpp_static_wiring_node_cls =
@@ -24,6 +26,34 @@ namespace hgraph::v2
                 nb::setattr(wiring_node, "__class__", cpp_static_wiring_node_cls);
             }
             nb::setattr(wiring_node, "_builder_factory", nb::borrow(builder_factory));
+
+            if (signature_override.is_valid() && !signature_override.is_none()) {
+                nb::object signature = nb::borrow(signature_override);
+                nb::setattr(wiring_node, "signature", signature);
+
+                if (nb::hasattr(wiring_node, "overload_list")) {
+                    nb::object overload_list = wiring_node.attr("overload_list");
+                    nb::setattr(overload_list, "arg_count_cache", nb::dict());
+
+                    if (nb::hasattr(overload_list, "overloads")) {
+                        nb::list updated_overloads;
+                        nb::object calc_rank = overload_list.attr("_calc_rank");
+                        nb::object rank = py_call(calc_rank, nb::make_tuple(signature));
+
+                        for (auto entry_handle : overload_list.attr("overloads")) {
+                            nb::tuple entry = nb::cast<nb::tuple>(entry_handle);
+                            nb::object impl = nb::borrow(entry[0]);
+                            if (impl.ptr() == wiring_node.ptr()) {
+                                updated_overloads.append(nb::make_tuple(impl, rank));
+                            } else {
+                                updated_overloads.append(nb::borrow(entry_handle));
+                            }
+                        }
+
+                        nb::setattr(overload_list, "overloads", updated_overloads);
+                    }
+                }
+            }
             return wiring_node;
         }
 
@@ -184,7 +214,8 @@ namespace hgraph::v2
     [[nodiscard]] nb::object make_compute_wiring_node_from_python_impl(
         std::string_view python_module,
         std::string_view python_symbol,
-        std::string_view exported_name = {})
+        std::string_view exported_name = {},
+        nb::object signature_override = nb::none())
     {
         const std::string node_name = detail::node_name_or<TImplementation>(exported_name);
         nb::object python_wiring_node =
@@ -216,7 +247,7 @@ namespace hgraph::v2
                 return builder;
             });
 
-        return detail::upgrade_python_wiring_node(python_wiring_node, builder_factory);
+        return detail::upgrade_python_wiring_node(python_wiring_node, builder_factory, signature_override);
     }
 
     /** Export a static C++ compute node into a nanobind module. */
@@ -232,10 +263,15 @@ namespace hgraph::v2
     void export_compute_node_from_python_impl(nb::module_ &m,
                                               std::string_view python_module,
                                               std::string_view python_symbol,
-                                              std::string_view exported_name)
+                                              std::string_view exported_name,
+                                              nb::object signature_override = nb::none())
     {
         nb::object node =
-            make_compute_wiring_node_from_python_impl<TImplementation>(python_module, python_symbol, exported_name);
+            make_compute_wiring_node_from_python_impl<TImplementation>(
+                python_module,
+                python_symbol,
+                exported_name,
+                std::move(signature_override));
         m.attr(std::string{exported_name}.c_str()) = node;
     }
 }  // namespace hgraph::v2

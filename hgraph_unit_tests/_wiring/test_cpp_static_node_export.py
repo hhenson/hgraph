@@ -4,7 +4,9 @@ from datetime import timedelta
 import hgraph._hgraph as _hgraph
 import pytest
 
-from hgraph import TS, TSD, GraphConfiguration, const, evaluate_graph, generator, graph, sink_node
+from hgraph import REF, TS, TSD, TSS, GraphConfiguration, const, evaluate_graph, generator, graph, sink_node
+from hgraph._impl._operators import _tsd_operators as tsd_operators
+from hgraph._operators import getitem_
 from hgraph._builder._graph_builder import GraphBuilderFactory
 from hgraph._wiring._graph_builder import wire_graph
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
@@ -73,6 +75,25 @@ def test_cpp_static_compute_node_wires_into_python_graph_builder():
 
     assert input_edges == {(0,), (1,)}
     assert len(output_edges) == 1
+
+
+def test_cpp_static_python_impl_replacement_preserves_operator_overloads():
+    assert tsd_operators.tsd_get_items is _hgraph.v2.tsd_get_items
+    assert tsd_operators.tsd_get_item_default is _hgraph.v2.tsd_get_item_default
+
+    @sink_node
+    def sink(ts: TSD[int, REF[TS[int]]]):
+        pass
+
+    @graph
+    def g():
+        sink(getitem_(const({1: 1}, TSD[int, TS[int]]), const(frozenset({1}), TSS[int])))
+
+    with WiringNodeInstanceContext():
+        graph_builder = wire_graph(g)
+
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+    assert any(builder.implementation_name == "tsd_get_items" for builder in cpp_builders)
 
 
 def test_cpp_static_generic_compute_node_exports_linked_type_vars_and_resolves_on_wiring():

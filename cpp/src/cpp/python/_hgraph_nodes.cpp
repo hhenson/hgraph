@@ -34,9 +34,6 @@ namespace
     using hgraph::View;
     using hgraph::Value;
     using hgraph::BaseState;
-    using hgraph::MutationTracking;
-    using hgraph::TSStorageKind;
-    using hgraph::TSDState;
     using hgraph::engine_time_t;
     using namespace hgraph::v2;
 
@@ -101,35 +98,27 @@ namespace
             return view.as_atomic().template try_as<TimeSeriesReference>();
         }
 
-        template <typename TSetView>
-        [[nodiscard]] bool set_contains(const TSetView &set_view, const View &key)
-        {
-            for (const View &candidate : set_view.values()) {
-                if (candidate == key) { return true; }
-            }
-            return false;
-        }
-
-        template <typename TSetView>
-        [[nodiscard]] bool set_added_contains(const TSetView &set_view, const View &key)
-        {
-            for (const View &candidate : set_view.added_values()) {
-                if (candidate == key) { return true; }
-            }
-            return false;
-        }
-
-        [[nodiscard]] bool selected_source_has_key(const TimeSeriesReference &dict_ref, const View &key, engine_time_t evaluation_time)
-        {
-            if (!dict_ref.is_peered()) { return false; }
-            auto dict_view = dict_ref.target_view(evaluation_time).as_dict();
-            return dict_view.value().has_value() && dict_view.value().as_map().contains(key);
-        }
-
         [[nodiscard]] nb::object remove_if_exists_sentinel()
         {
             static nb::object value = nb::module_::import_("hgraph").attr("REMOVE_IF_EXISTS");
             return nb::borrow(value);
+        }
+
+        [[nodiscard]] TSOutputView output_view_from_input(const TSInputView &input)
+        {
+            const TSViewContext resolved = input.context_ref().resolved();
+            if (resolved.schema == nullptr || resolved.value_dispatch == nullptr || resolved.ts_dispatch == nullptr ||
+                resolved.ts_state == nullptr) {
+                return TSOutputView{TSViewContext::none(), TSViewContext::none(), input.evaluation_time(), nullptr};
+            }
+
+            return TSOutputView{
+                TSViewContext{resolved.schema, resolved.value_dispatch, resolved.ts_dispatch, resolved.value_data, resolved.ts_state},
+                TSViewContext::none(),
+                input.evaluation_time(),
+                resolved.owning_output,
+                resolved.output_view_ops != nullptr ? resolved.output_view_ops : &hgraph::detail::default_output_view_ops(),
+            };
         }
 
         void suppress_spurious_empty_dict_tick(const hgraph::TSDView<TSOutputView> &out, engine_time_t evaluation_time)
@@ -142,66 +131,6 @@ namespace
             if (state != nullptr && state->last_modified_time == evaluation_time && !has_delta) {
                 state->last_modified_time = hgraph::MIN_DT;
             }
-        }
-
-        [[nodiscard]] TSInputView ensure_dict_input_child(const hgraph::TSDView<TSInputView> &dict, const View &key)
-        {
-            TSInputView parent_view = dict.view();
-            auto dict_view = parent_view.as_dict();
-            if (dict_view.at(key).context_ref().is_bound()) { return dict[key]; }
-
-            const TSMeta *child_schema = parent_view.ts_schema() != nullptr ? parent_view.ts_schema()->element_ts() : nullptr;
-            if (child_schema == nullptr || child_schema->value_type == nullptr || !parent_view.value().has_value()) {
-                throw std::logic_error("v2 native dict child creation requires live map-backed storage");
-            }
-
-            Value placeholder{*child_schema->value_type, MutationTracking::Plain};
-            auto mutation = parent_view.value().as_map().begin_mutation(parent_view.evaluation_time());
-            mutation.set(key, placeholder.view());
-
-            if (BaseState *state =
-                    parent_view.context_ref().ts_state != nullptr ? parent_view.context_ref().ts_state->resolved_state() : nullptr;
-                state != nullptr && state->storage_kind == TSStorageKind::Native) {
-                auto *dict_state = static_cast<TSDState *>(state);
-                dict_state->sync_with_value_storage();
-
-                if (!dict_view.at(key).context_ref().is_bound()) {
-                    const size_t slot = parent_view.value().as_map().find_slot(key);
-                    if (slot == static_cast<size_t>(-1)) {
-                        throw std::logic_error("v2 native dict child creation failed to allocate a stable slot");
-                    }
-
-                    dict_state->on_insert(slot);
-                }
-            }
-            return dict[key];
-        }
-
-        void remove_dict_input_child(const hgraph::TSDView<TSInputView> &dict, const View &key)
-        {
-            TSInputView parent_view = dict.view();
-            if (!parent_view.value().has_value()) { return; }
-
-            auto mutation = parent_view.value().as_map().begin_mutation(parent_view.evaluation_time());
-            static_cast<void>(mutation.remove(key));
-        }
-
-        void set_ref_dict_item(const hgraph::TSDView<TSOutputView> &out,
-                               const View                &key,
-                               const TimeSeriesReference &value,
-                               engine_time_t            evaluation_time)
-        {
-            static_cast<void>(evaluation_time);
-            TSOutputView child = out[key];
-            const auto *current = child.value().as_atomic().template try_as<TimeSeriesReference>();
-            if (current != nullptr && *current == value) { return; }
-
-            out.from_python(key, nb::cast(value));
-        }
-
-        void erase_ref_dict_item(const hgraph::TSDView<TSOutputView> &out, const View &key)
-        {
-            out.erase(key);
         }
     }  // namespace
 
@@ -573,20 +502,10 @@ namespace
         using K = ScalarVar<"K">;
         using V = TsVar<"V">;
 
-        static void stop(In<"_ref", TSD<K, REF<V>>> ref, In<"_ref_ref", TSD<K, REF<V>>> ref_ref)
-        {
-            static_cast<void>(ref);
-            static_cast<void>(ref_ref);
-        }
-
-        static void eval(In<"ts", REF<TSD<K, V>>, InputValidity::Unchecked> ts,
+        static void eval(In<"ts", TSD<K, V>, InputValidity::Unchecked> ts,
                          In<"key", TSS<K>, InputValidity::Unchecked> key,
-                         In<"_ref", TSD<K, REF<V>>, InputValidity::Unchecked> ref,
-                         In<"_ref_ref", TSD<K, REF<V>>, InputValidity::Unchecked> ref_ref,
                          Out<TSD<K, REF<V>>> out)
         {
-            static_cast<void>(ref);
-            static_cast<void>(ref_ref);
             const engine_time_t evaluation_time = out.evaluation_time();
             auto out_dict = out.view();
 
@@ -594,7 +513,8 @@ namespace
             for (const View &tracked : out_dict.keys()) { tracked_keys.emplace_back(tracked); }
             nb::dict delta;
 
-            if (!(ts.valid() && !ts.value().is_empty() && ts.value().is_peered() && key.valid())) {
+            TSOutputView source_root = output_view_from_input(ts.view().view());
+            if (!(ts.valid() && key.valid() && source_root.context_ref().is_bound())) {
                 for (const Value &tracked_key : tracked_keys) { delta[tracked_key.view().to_python()] = remove_if_exists_sentinel(); }
                 if (!delta.empty()) {
                     out_dict.view().apply_result(delta);
@@ -605,10 +525,10 @@ namespace
             }
 
             auto selected_keys = key.view().as_set();
-            auto source_dict = ts.value().target_view(evaluation_time).as_dict();
+            auto source_dict = source_root.as_dict();
             std::vector<Value> desired_keys;
             for (const View &selected : selected_keys.values()) {
-                if (!selected_source_has_key(ts.value(), selected, evaluation_time)) { continue; }
+                if (!source_dict.value().has_value() || !source_dict.value().as_map().contains(selected)) { continue; }
 
                 desired_keys.emplace_back(selected);
                 TSOutputView source_child = source_dict[selected];
@@ -1289,7 +1209,11 @@ void export_nodes(nb::module_ &m) {
     hgraph::v2::export_compute_node_from_python_impl<TsdGetItemDefaultNode>(
         v2, "hgraph._impl._operators._tsd_operators", "tsd_get_item_default", "tsd_get_item_default");
     hgraph::v2::export_compute_node_from_python_impl<TsdGetItemsNode>(
-        v2, "hgraph._impl._operators._tsd_operators", "tsd_get_items", "tsd_get_items");
+        v2,
+        "hgraph._impl._operators._tsd_operators",
+        "tsd_get_items",
+        "tsd_get_items",
+        hgraph::v2::StaticNodeSignature<TsdGetItemsNode>::wiring_signature("tsd_get_items"));
     hgraph::v2::export_compute_node_from_python_impl<hgraph::nodes::v2::ConstNode>(
         v2, "hgraph._impl._operators._time_series_conversion", "const_default", "const");
     hgraph::v2::export_compute_node_from_python_impl<hgraph::nodes::v2::NothingNode>(
