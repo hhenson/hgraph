@@ -1750,7 +1750,7 @@ namespace hgraph
 
             [[nodiscard]] const BaseState *last_source_root_state() const noexcept { return m_last_source_snapshot.ptr(); }
             [[nodiscard]] bool last_source_had_value() const noexcept { return m_last_source_snapshot.tag() != 0; }
-            void set_last_source_snapshot(BaseState *state, bool had_value) noexcept
+            void set_last_source_snapshot(const BaseState *state, bool had_value) noexcept
             {
                 m_last_source_snapshot.set(state, had_value ? 1u : 0u);
             }
@@ -1759,7 +1759,7 @@ namespace hgraph
             TSViewContext target_context{TSViewContext::none()};
             LinkedTSContext source_context{};
             std::unique_ptr<TimeSeriesStateV> source_bridge_state{};
-            tagged_ptr<BaseState, 1> m_last_source_snapshot{};
+            tagged_ptr<const BaseState, 1> m_last_source_snapshot{};
             SourceNotifier source_notifier{};
         };
 
@@ -1805,7 +1805,7 @@ namespace hgraph
 
             [[nodiscard]] const BaseState *last_source_root_state() const noexcept { return m_last_source_snapshot.ptr(); }
             [[nodiscard]] bool last_source_had_value() const noexcept { return m_last_source_snapshot.tag() != 0; }
-            void set_last_source_snapshot(BaseState *state, bool had_value) noexcept
+            void set_last_source_snapshot(const BaseState *state, bool had_value) noexcept
             {
                 m_last_source_snapshot.set(state, had_value ? 1u : 0u);
             }
@@ -1814,7 +1814,7 @@ namespace hgraph
             TSViewContext target_context{TSViewContext::none()};
             LinkedTSContext source_context{};
             std::unique_ptr<TimeSeriesStateV> source_bridge_state{};
-            tagged_ptr<BaseState, 1> m_last_source_snapshot{};
+            tagged_ptr<const BaseState, 1> m_last_source_snapshot{};
             SourceNotifier source_notifier{};
         };
 
@@ -2576,7 +2576,7 @@ namespace hgraph
             auto mutation = target_map.begin_mutation(modified_time);
             bool map_value_changed = false;
             constexpr size_t no_slot = static_cast<size_t>(-1);
-            BaseState *current_source_root_state =
+            const BaseState *current_source_root_state =
                 binding.source_context.ts_state != nullptr ? binding.source_context.ts_state->resolved_state() : nullptr;
             const bool current_source_had_value = source_value.has_value();
             const bool source_rebound = !initializing && current_source_root_state != binding.last_source_root_state();
@@ -2731,7 +2731,7 @@ namespace hgraph
             auto mutation = target_set.begin_mutation(modified_time);
             bool set_changed = false;
             constexpr size_t no_slot = static_cast<size_t>(-1);
-            BaseState *current_source_root_state =
+            const BaseState *current_source_root_state =
                 binding.source_context.ts_state != nullptr ? binding.source_context.ts_state->resolved_state() : nullptr;
             const bool current_source_had_value = source_root.value().has_value();
             const bool source_rebound = !initializing && current_source_root_state != binding.last_source_root_state();

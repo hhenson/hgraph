@@ -88,11 +88,11 @@ namespace hgraph
 
       private:
         using Payload = std::variant<std::monostate, std::vector<TSInputConstructionSlot>, TSInputBindingRef>;
-        using SchemaPtr = tagged_ptr<TSMeta, 2>;
+        using SchemaPtr = tagged_ptr<const TSMeta, 2>;
 
         constexpr void set_schema_and_kind(const TSMeta *schema, TSInputSlotKind kind) noexcept
         {
-            m_schema.set(const_cast<TSMeta *>(schema), static_cast<typename SchemaPtr::storage_type>(kind));
+            m_schema.set(schema, static_cast<typename SchemaPtr::storage_type>(kind));
         }
 
         SchemaPtr m_schema;

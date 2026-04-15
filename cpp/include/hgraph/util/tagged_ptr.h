@@ -140,7 +140,7 @@ namespace hgraph
             template <typename T>
             constexpr erased_tagged_ptr(T *ptr, storage_type tag = 0) noexcept
             {
-                set(static_cast<void *>(ptr), tag);
+                set(ptr, tag);
             }
 
             [[nodiscard]] constexpr void *ptr() const noexcept
@@ -151,7 +151,7 @@ namespace hgraph
             template <typename T>
             [[nodiscard]] constexpr T *as() const noexcept
             {
-                return static_cast<T *>(ptr());
+                return reinterpret_cast<T *>(m_bits & ptr_mask);
             }
 
             [[nodiscard]] constexpr storage_type tag() const noexcept
@@ -174,7 +174,10 @@ namespace hgraph
             template <typename T>
             constexpr void set(T *ptr, storage_type tag_value = 0) noexcept
             {
-                set(static_cast<void *>(ptr), tag_value);
+                const storage_type ptr_bits = reinterpret_cast<storage_type>(ptr);
+                assert((ptr_bits & tag_mask) == 0);
+                assert((tag_value & ~tag_mask) == 0);
+                m_bits = ptr_bits | tag_value;
             }
 
             constexpr void set_ptr(void *ptr) noexcept
@@ -185,7 +188,7 @@ namespace hgraph
             template <typename T>
             constexpr void set_ptr(T *ptr) noexcept
             {
-                set(static_cast<void *>(ptr), tag());
+                set(ptr, tag());
             }
 
             constexpr void set_tag(storage_type tag_value) noexcept
