@@ -186,6 +186,15 @@ This is shared immutable data.
 
 It should live in `NodeBuilder` type state for the nested operator rather than in ad hoc runtime objects.
 
+The `ChildGraphTemplate` is produced by a compilation pass that:
+
+1. takes the wiring-layer child graph (which still contains stub nodes)
+2. extracts boundary structure from stubs into a `BoundaryBindingPlan`
+3. removes stub nodes from the child `v2::GraphBuilder`
+4. packages the cleaned builder, plan, and metadata into the template
+
+This compilation boundary is explicit: it runs once per template during builder construction, not during graph instantiation.
+
 ### 6.2 ChildGraphInstance
 
 `ChildGraphInstance` is the runtime handle owned by a nested operator's state.
@@ -207,10 +216,11 @@ It should expose:
 1. `initialise`
 2. `start`
 3. `stop`
-4. `evaluate`
-5. `bind`
-6. `unbind`
-7. `next_scheduled_time`
+4. `evaluate` — owns the full evaluation protocol: reset clock, evaluate child graph, mark evaluated, check rescheduling
+5. `dispose` — two-phase removal support: stop the graph but defer destruction (needed for `map_` death-time semantics)
+6. `bind`
+7. `unbind`
+8. `next_scheduled_time`
 
 The nested operator may own:
 
@@ -256,6 +266,8 @@ The critical property is that this plan is explicit and runtime-ready.
 
 The runtime should not need to rediscover boundary structure by scanning child nodes by name.
 
+Note: `child_node_index` values in binding specs must refer to the final compiled graph layout. The compilation pass that produces the `BoundaryBindingPlan` (see 6.1) must generate indices that are valid after stub removal and any node reordering.
+
 ### 6.4 BoundaryBindingRuntime
 
 The runtime executor for the plan performs:
@@ -278,28 +290,65 @@ The current nested-evaluation-clock behavior in Python and legacy C++ is the rig
 
 The `v2` version should be implemented as a clock delegate owned by `ChildGraphInstance`, not by introducing a second graph family.
 
+Critical scheduling invariant to preserve from the Python reference (`NestedEngineEvaluationClock`):
+
+```text
+next_time = min(next_time,
+                max(nested_next_scheduled_evaluation_time,
+                    (last_evaluation_time or MIN_DT) + MIN_TD))
+```
+
+This logic:
+
+1. prevents scheduling before the current evaluation time (avoids infinite rescheduling)
+2. coalesces multiple scheduling requests to the earliest feasible time
+3. gates on the parent node's last evaluation time to respect parent-first ordering
+4. delegates final scheduling to `parent_graph.schedule_node(parent_node, time)`
+
+Getting this wrong causes infinite rescheduling loops or missed evaluations. The v2 implementation must preserve these semantics exactly.
+
 ## 7. Binding Modes
 
 The generic boundary binder should support a small number of explicit modes.
 
 At minimum:
 
-1. `clone_ref_binding`
+1. `bind_direct`
+   - bind child input directly to the corresponding parent input (non-REF, non-multiplexed)
+   - the default mode for simple `nested_graph` arguments
+2. `clone_ref_binding`
    - bind child REF input to the same upstream target as the parent input
-2. `bind_multiplexed_element`
+   - must handle all three REF binding paths (TS->REF, REF->REF, REF->TS) and preserve peering semantics
+3. `bind_multiplexed_element`
    - bind child input to a keyed/list element selected by the operator
-3. `bind_key_value`
+4. `bind_key_value`
    - bind the child key input from operator-owned scalar/value state
-4. `alias_child_output`
+5. `alias_child_output`
    - expose child output directly as parent output
-5. `bind_bundle_member_output`
+6. `bind_bundle_member_output`
    - support output bundles such as `try_except(...).out`
-6. `detach_restore_blank`
+7. `detach_restore_blank`
    - detach child input and restore an inert local input when a child graph is removed
-7. `context_import`
+   - must interact correctly with two-phase removal (stop graph, then later destroy)
+8. `context_import`
    - import required context from the parent graph boundary
-8. `context_export`
+9. `context_export`
    - export child-owned context where required
+
+The following table summarizes which modes apply to which spec types:
+
+```text
+Mode                        InputBindingSpec  OutputBindingSpec  ContextBindingSpec
+bind_direct                      yes               -                  -
+clone_ref_binding                yes               -                  -
+bind_multiplexed_element         yes               -                  -
+bind_key_value                   yes               -                  -
+alias_child_output                -               yes                 -
+bind_bundle_member_output         -               yes                 -
+detach_restore_blank             yes               -                  -
+context_import                    -                -                 yes
+context_export                    -                -                 yes
+```
 
 The goal is not to add many modes.
 
@@ -458,6 +507,48 @@ The recommendation is:
 
 This keeps `mesh`, `switch`-inside-context, and `map`-inside-context on the same substrate as the rest of nested execution.
 
+## 10a. Context Discovery Model
+
+Context bindings in the `v2` design should be resolved at compile time wherever possible, using `ContextBindingSpec` entries in the `BoundaryBindingPlan`.
+
+For the common cases (`map`, `switch`, `nested_graph`, `try_except`, `component`), the required context inputs are known at wiring time and can be fully expressed as boundary binding specs. The compilation pass resolves context names to parent graph time-series locations and records them in the plan.
+
+For `mesh_`, where context providers may be dynamically registered by keyed child graphs, a runtime context registry on `v2::Graph` is additionally needed. This registry maps context keys to time-series locations and is populated during child graph start-up. The boundary binding plan for mesh context exports should record the context key and child output location; the runtime binder registers the mapping when the child graph starts and removes it when the child graph stops.
+
+The recommendation is:
+
+1. compile-time context resolution via `ContextBindingSpec` for all operators
+2. a lightweight runtime context registry on `v2::Graph` for dynamic context providers (mesh)
+3. no name-based runtime scanning of child nodes for context discovery
+
+## 10b. Node Identity And Graph Lineage
+
+The Python API defines the following node identity contract:
+
+```text
+node_ndx: int
+    The relative index of this node within the parent graph's list of nodes.
+
+owning_graph_id: tuple[int, ...]
+    The path from the root graph to the graph containing this node.
+    Root graph = (). First nested level = (parent_node_ndx,). etc.
+
+node_id: tuple[int, ...]
+    owning_graph_id + (node_ndx,)
+    Unique path from root graph to this node.
+    For keyed operators (map, mesh), a unique integer id is allocated per key
+    and used in the path (similar to categorical encoding).
+```
+
+The `v2` implementation must support this contract at the method level. Internal representation can differ for efficiency:
+
+1. `v2::Node` currently stores a flat `int64_t node_index` — this remains the local index within a single graph
+2. `v2::Graph` should store its `graph_id` (the `owning_graph_id` for its nodes)
+3. `ChildGraphInstance` computes child `graph_id` as `parent_node.node_id`
+4. for keyed operators, the operator manages a key-to-integer mapping for path encoding
+
+The Python-visible `node_id`, `node_ndx`, and `owning_graph_id` properties must return values identical to the Python reference implementation.
+
 ## 11. Operator Mapping Onto The Substrate
 
 Each operator should become a thin layer over the shared child-graph and boundary infrastructure.
@@ -591,6 +682,8 @@ Exit criteria:
 Exit criteria:
 
 1. a `v2` child graph can be created, started, evaluated, stopped, and inspected without legacy graph classes
+2. child graph scheduling through the parent node's scheduler works correctly (clock delegation)
+3. `node_id`, `node_ndx`, and `owning_graph_id` return correct values for child graph nodes
 
 ## Phase 3: Boundary Binding Infrastructure
 
@@ -601,6 +694,7 @@ Exit criteria:
 Exit criteria:
 
 1. `nested_graph` can run without runtime stub nodes
+2. `test_nested_graph.py` passes under both `HGRAPH_USE_CPP=0` and `HGRAPH_USE_CPP=1` with identical results
 
 ## Phase 4: Context Support
 
@@ -647,13 +741,11 @@ The design is considered complete when all of the following are true.
 6. Full graph lineage uses the proper nested `node_id()` semantics rather than local index shortcuts.
 7. The implementation remains explainable in terms of the shared substrate described in this RFC.
 
-## 16. Open Questions
+## 16. Resolved Questions
 
-These should be resolved before implementation if possible, but they do not change the core architecture.
-
-1. Should `ChildGraphInstance` own a dedicated boundary-runtime object, or should the operator runtime own boundary state directly?
-2. Should context import/export be represented as dedicated binding modes or a small parallel plan object?
-3. Should the long-term end state move from Option B to Option C for boundary representation once parity is reached?
+1. **Should `ChildGraphInstance` own a dedicated boundary-runtime object?** Yes. The instance is the natural scope for boundary state — created with the child graph, destroyed with it.
+2. **Should context import/export be dedicated binding modes or a parallel plan?** Dedicated binding modes (`context_import`, `context_export`) within `BoundaryBindingPlan`. A parallel plan adds conceptual overhead for fundamentally the same operation.
+3. **Should the long-term end state move from Option B to Option C?** Deferred until after Phase 5. Option B may prove sufficient; Option C is only justified if wiring-layer stubs continue to cause maintenance burden after runtime stubs are gone.
 
 ## 17. Summary Decision
 

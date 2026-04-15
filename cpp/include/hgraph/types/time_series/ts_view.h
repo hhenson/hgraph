@@ -273,21 +273,6 @@ namespace hgraph
                     target.ts_state,
                 };
 
-                if (target_context.ts_dispatch != nullptr && !target_context.ts_dispatch->valid(target_context)) {
-                    resolved_context.schema = target_context.schema;
-                    resolved_context.value_dispatch = target_context.value_dispatch;
-                    resolved_context.ts_dispatch = target_context.ts_dispatch;
-                    resolved_context.value_data = nullptr;
-                    resolved_context.ts_state = target_context.ts_state;
-                    resolved_context.owning_output =
-                        target.owning_output != nullptr ? target.owning_output : resolved_context.owning_output;
-                    resolved_context.output_view_ops =
-                        target.output_view_ops != nullptr ? target.output_view_ops : resolved_context.output_view_ops;
-                    resolved_context.notification_state =
-                        target.notification_state != nullptr ? target.notification_state : resolved_context.notification_state;
-                    return;
-                }
-
                 resolved_context.schema = target_context.schema;
                 resolved_context.value_dispatch = target_context.value_dispatch;
                 resolved_context.ts_dispatch = target_context.ts_dispatch;
@@ -729,11 +714,29 @@ namespace hgraph
 
     inline bool detail::TSDispatch::valid(const TSViewContext &context) const noexcept
     {
+        if (context.schema != nullptr && context.schema->kind != TSKind::REF && context.ts_state != nullptr) {
+            if (detail::materialized_target_link_value(context) != nullptr) {
+                return last_modified_time(context) != MIN_DT && context.value().has_value();
+            }
+
+            if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr) {
+                return detail::linked_context_valid(*target);
+            }
+        }
+
         return last_modified_time(context) != MIN_DT && context.value().has_value();
     }
 
     inline bool detail::TSDispatch::all_valid(const TSViewContext &context) const noexcept
     {
+        if (context.schema != nullptr && context.schema->kind != TSKind::REF && context.ts_state != nullptr) {
+            if (detail::materialized_target_link_value(context) != nullptr) { return valid(context); }
+
+            if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr) {
+                return detail::linked_context_all_valid(*target);
+            }
+        }
+
         return valid(context);
     }
 
