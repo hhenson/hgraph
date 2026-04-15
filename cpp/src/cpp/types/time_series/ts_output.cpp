@@ -2205,7 +2205,9 @@ namespace hgraph
             return !changed_slots.empty();
         }
 
-        void sync_collection_ref_from_output(const TSOutputView &target_view, const TSOutputView &source_view)
+        void sync_collection_ref_from_output(const TSOutputView &target_view,
+                                             const TSOutputView &source_view,
+                                             engine_time_t       modified_time)
         {
             const TSMeta *target_schema = target_view.ts_schema();
             const TSMeta *source_schema = source_view.ts_schema();
@@ -2238,7 +2240,7 @@ namespace hgraph
                             target_state,
                             target_view,
                             target_bundle,
-                            source_view.last_modified_time(),
+                            modified_time,
                             target_schema->field_count(),
                             [&](size_t slot) { return target_schema->fields()[slot].ts_type; }));
                         return;
@@ -2268,7 +2270,7 @@ namespace hgraph
                             target_state,
                             target_view,
                             target_list,
-                            source_view.last_modified_time(),
+                            modified_time,
                             target_schema->fixed_size(),
                             [&](size_t) { return target_schema->element_ts(); }));
                         return;
@@ -2322,7 +2324,7 @@ namespace hgraph
                     }
 
                 case v2::TimeSeriesReference::Kind::PEERED:
-                    sync_collection_ref_from_output(target_view, ref.target_view(modified_time));
+                    sync_collection_ref_from_output(target_view, ref.target_view(modified_time), modified_time);
                     return;
 
                 case v2::TimeSeriesReference::Kind::NON_PEERED:
