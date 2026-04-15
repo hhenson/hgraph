@@ -186,6 +186,17 @@ namespace hgraph::v2
     // TODO: The reflected C++ signature now carries selector-level
     // activity/validity policy metadata. We still need node-level overloads,
     // resolvers, and requires to reach feature parity with Python wiring.
+    // Selector policy notes:
+    // - Omitting an explicit activity/validity template argument keeps the
+    //   current default behavior.
+    // - When explicit flags are supplied in C++, they are order-independent:
+    //   `In<..., InputValidity::Unchecked, InputActivity::Passive>` is valid.
+    // - C++ does not model Python's node-level active=() / valid=() shorthands
+    //   directly. Code generation must express those cases per input:
+    //   * active=()  => mark every input Passive
+    //   * valid=()   => mark every input Unchecked
+    // - The static reflection/export path must preserve the resulting explicit
+    //   empty selector sets rather than collapsing them back to "use default".
     enum class InputActivity
     {
         Active,
@@ -295,12 +306,58 @@ namespace hgraph::v2
         {
             mark_output_view_modified(view, evaluation_time);
         }
+
+        template <auto TPolicy>
+        [[nodiscard]] consteval bool is_input_policy_flag()
+        {
+            using policy_type = std::remove_cv_t<decltype(TPolicy)>;
+            return std::is_same_v<policy_type, InputActivity> || std::is_same_v<policy_type, InputValidity>;
+        }
+
+        template <auto... TPolicies>
+        consteval void validate_input_policy_flags()
+        {
+            static_assert((is_input_policy_flag<TPolicies>() && ...), "In<> only accepts InputActivity / InputValidity policy flags");
+            static_assert(
+                (0U + ... + static_cast<unsigned>(std::is_same_v<std::remove_cv_t<decltype(TPolicies)>, InputActivity>)) <= 1U,
+                "In<> accepts at most one InputActivity policy flag");
+            static_assert(
+                (0U + ... + static_cast<unsigned>(std::is_same_v<std::remove_cv_t<decltype(TPolicies)>, InputValidity>)) <= 1U,
+                "In<> accepts at most one InputValidity policy flag");
+        }
+
+        template <auto... TPolicies>
+        [[nodiscard]] consteval InputActivity resolved_input_activity()
+        {
+            validate_input_policy_flags<TPolicies...>();
+
+            InputActivity result = InputActivity::Active;
+            (
+                [&] {
+                    using policy_type = std::remove_cv_t<decltype(TPolicies)>;
+                    if constexpr (std::is_same_v<policy_type, InputActivity>) { result = TPolicies; }
+                }(),
+                ...);
+            return result;
+        }
+
+        template <auto... TPolicies>
+        [[nodiscard]] consteval InputValidity resolved_input_validity()
+        {
+            validate_input_policy_flags<TPolicies...>();
+
+            InputValidity result = InputValidity::Valid;
+            (
+                [&] {
+                    using policy_type = std::remove_cv_t<decltype(TPolicies)>;
+                    if constexpr (std::is_same_v<policy_type, InputValidity>) { result = TPolicies; }
+                }(),
+                ...);
+            return result;
+        }
     }  // namespace detail
 
-    template <fixed_string Name,
-              typename TSchema,
-              InputActivity Activity = InputActivity::Active,
-              InputValidity Validity = InputValidity::Valid>
+    template <fixed_string Name, typename TSchema, auto... TPolicies>
     class In
     {
       public:
@@ -315,8 +372,8 @@ namespace hgraph::v2
         using schema = TSchema;
         using view_type = typename detail::schema_view_traits<TSchema>::input_view_type;
         static constexpr auto name = Name;
-        static constexpr auto activity = Activity;
-        static constexpr auto validity = Validity;
+        static constexpr auto activity = detail::resolved_input_activity<TPolicies...>();
+        static constexpr auto validity = detail::resolved_input_validity<TPolicies...>();
 
         explicit In(TSInputView view) : m_view(detail::schema_view_traits<TSchema>::input_view(std::move(view))) {}
 
@@ -332,16 +389,16 @@ namespace hgraph::v2
         view_type m_view;
     };
 
-    template <fixed_string Name, typename TValue, InputActivity Activity, InputValidity Validity>
-    class In<Name, TS<TValue>, Activity, Validity>
+    template <fixed_string Name, typename TValue, auto... TPolicies>
+    class In<Name, TS<TValue>, TPolicies...>
     {
       public:
         using schema = TS<TValue>;
         using value_type = TValue;
         using view_type = TSInputView;
         static constexpr auto name = Name;
-        static constexpr auto activity = Activity;
-        static constexpr auto validity = Validity;
+        static constexpr auto activity = detail::resolved_input_activity<TPolicies...>();
+        static constexpr auto validity = detail::resolved_input_validity<TPolicies...>();
 
         explicit In(TSInputView view) : m_view(std::move(view)) {}
 
@@ -361,16 +418,16 @@ namespace hgraph::v2
         view_type m_view;
     };
 
-    template <fixed_string Name, typename TSchema, InputActivity Activity, InputValidity Validity>
-    class In<Name, REF<TSchema>, Activity, Validity>
+    template <fixed_string Name, typename TSchema, auto... TPolicies>
+    class In<Name, REF<TSchema>, TPolicies...>
     {
       public:
         using schema = REF<TSchema>;
         using value_type = v2::TimeSeriesReference;
         using view_type = TSInputView;
         static constexpr auto name = Name;
-        static constexpr auto activity = Activity;
-        static constexpr auto validity = Validity;
+        static constexpr auto activity = detail::resolved_input_activity<TPolicies...>();
+        static constexpr auto validity = detail::resolved_input_validity<TPolicies...>();
 
         explicit In(TSInputView view) : m_view(std::move(view)) {}
 
@@ -957,8 +1014,8 @@ namespace hgraph::v2
         struct is_input_selector : std::false_type
         {};
 
-        template <fixed_string Name, typename TSchema, InputActivity Activity, InputValidity Validity>
-        struct is_input_selector<In<Name, TSchema, Activity, Validity>> : std::true_type
+        template <fixed_string Name, typename TSchema, auto... TPolicies>
+        struct is_input_selector<In<Name, TSchema, TPolicies...>> : std::true_type
         {};
 
         template <typename T>

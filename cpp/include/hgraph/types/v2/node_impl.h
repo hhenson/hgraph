@@ -205,22 +205,22 @@ namespace hgraph::v2
             static TSOutputView get(Node &node, engine_time_t evaluation_time);
         };
 
-        template <fixed_string Name, typename TSchema, InputActivity Activity, InputValidity Validity>
-        struct arg_provider<In<Name, TSchema, Activity, Validity>>
+        template <fixed_string Name, typename TSchema, auto... TPolicies>
+        struct arg_provider<In<Name, TSchema, TPolicies...>>
         {
-            static In<Name, TSchema, Activity, Validity> get(Node &node, engine_time_t evaluation_time)
+            static In<Name, TSchema, TPolicies...> get(Node &node, engine_time_t evaluation_time)
             {
                 TSInputView input = input_view_for(node, evaluation_time);
                 if (const TSMeta *root_schema = input.ts_schema();
                     root_schema != nullptr && root_schema->kind == TSKind::TSB) {
                     for (size_t index = 0; index < root_schema->field_count(); ++index) {
                         if (root_schema->fields()[index].name == Name.sv()) {
-                            return In<Name, TSchema, Activity, Validity>{input.as_bundle().field(Name.sv())};
+                            return In<Name, TSchema, TPolicies...>{input.as_bundle().field(Name.sv())};
                         }
                     }
                 }
 
-                return In<Name, TSchema, Activity, Validity>{std::move(input)};
+                return In<Name, TSchema, TPolicies...>{std::move(input)};
             }
         };
 

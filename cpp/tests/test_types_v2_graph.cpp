@@ -29,6 +29,12 @@ namespace hgraph::v2::test_detail
     static_assert(std::same_as<typename Out<DictSchema>::view_type, TSDView<TSOutputView>>);
     static_assert(std::same_as<decltype(std::declval<const In<"lhs", TS<int>> &>().delta_value()), const int &>);
     static_assert(std::same_as<decltype(std::declval<const In<"pair", PairSchema> &>().delta_value()), View>);
+    static_assert(In<"lhs", TS<int>, InputValidity::Unchecked>::activity == InputActivity::Active);
+    static_assert(In<"lhs", TS<int>, InputValidity::Unchecked>::validity == InputValidity::Unchecked);
+    static_assert(
+        In<"lhs", TS<int>, InputValidity::Unchecked, InputActivity::Passive>::activity == InputActivity::Passive);
+    static_assert(
+        In<"lhs", TS<int>, InputValidity::Unchecked, InputActivity::Passive>::validity == InputValidity::Unchecked);
 
     struct NoopNode
     {
@@ -56,7 +62,7 @@ namespace hgraph::v2::test_detail
 
         using Pair = PairSchema;
 
-        static void eval(In<"pair", Pair, InputActivity::Passive, InputValidity::Unchecked> pair, Out<TS<int>> out)
+        static void eval(In<"pair", Pair, InputValidity::Unchecked, InputActivity::Passive> pair, Out<TS<int>> out)
         {
             const int lhs = pair.view().field("lhs").value().as_atomic().as<int>();
             const int rhs = pair.view().field("rhs").value().as_atomic().as<int>();
@@ -152,10 +158,25 @@ namespace hgraph::v2::test_detail
 
         static void eval(In<"lhs", TS<int>> lhs,
                          In<"rhs", TS<int>, InputActivity::Passive, InputValidity::Unchecked> rhs,
-                         In<"strict", TS<int>, InputActivity::Active, InputValidity::AllValid> strict,
+                         In<"strict", TS<int>, InputValidity::AllValid> strict,
                          Out<TS<int>> out)
         {
             out.set(lhs.value() + rhs.value() + strict.value());
+        }
+    };
+
+    struct ExplicitEmptyPolicyNode
+    {
+        ExplicitEmptyPolicyNode() = delete;
+        ~ExplicitEmptyPolicyNode() = delete;
+
+        static constexpr auto name = "explicit_empty_policy";
+
+        static void eval(In<"lhs", TS<int>, InputValidity::Unchecked, InputActivity::Passive> lhs,
+                         In<"rhs", TS<int>, InputValidity::Unchecked, InputActivity::Passive> rhs,
+                         Out<TS<int>> out)
+        {
+            out.set(lhs.value() + rhs.value());
         }
     };
 
@@ -275,7 +296,7 @@ namespace hgraph::v2::test_detail
 
         static constexpr auto name = "tagged_scheduler_bool";
 
-        static void eval(In<"ts", TS<bool>, InputActivity::Active, InputValidity::Unchecked> ts,
+        static void eval(In<"ts", TS<bool>, InputValidity::Unchecked> ts,
                          In<"ts1", TS<int>> ts1,
                          NodeScheduler &scheduler,
                          Out<TS<bool>> out)
@@ -2266,6 +2287,38 @@ TEST_CASE("v2 static node signatures derive selector policies from In metadata",
     CHECK(signature::active_input_names() == std::vector<std::string>{"lhs", "strict"});
     CHECK(signature::valid_input_names() == std::vector<std::string>{"lhs"});
     CHECK(signature::all_valid_input_names() == std::vector<std::string>{"strict"});
+}
+
+TEST_CASE("v2 static node signatures preserve explicit empty selector policies", "[v2][signature]")
+{
+    using signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::ExplicitEmptyPolicyNode>;
+
+    CHECK(signature::active_input_names().empty());
+    CHECK(signature::valid_input_names().empty());
+    CHECK(signature::has_explicit_activity_policy());
+    CHECK(signature::has_explicit_valid_input_policy());
+
+    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+
+    nb::gil_scoped_acquire guard;
+    nb::object wiring_signature = signature::wiring_signature();
+    nb::object active_inputs = wiring_signature.attr("active_inputs");
+    nb::object valid_inputs = wiring_signature.attr("valid_inputs");
+
+    CHECK_FALSE(active_inputs.is_none());
+    CHECK_FALSE(valid_inputs.is_none());
+    CHECK(nb::len(active_inputs) == 0);
+    CHECK(nb::len(valid_inputs) == 0);
+    CHECK(wiring_signature.attr("all_valid_inputs").is_none());
+}
+
+TEST_CASE("v2 static node builders preserve explicit empty active selector policies", "[v2][signature]")
+{
+    hgraph::v2::NodeBuilder builder;
+    builder.implementation<hgraph::v2::test_detail::ExplicitEmptyPolicyNode>();
+
+    CHECK(builder.has_explicit_active_inputs());
+    CHECK(builder.active_inputs().empty());
 }
 
 TEST_CASE("v2 static node signatures export linked template type variables", "[v2][python][signature]")

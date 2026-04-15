@@ -343,7 +343,7 @@ namespace
 
         static void eval(In<"lhs", TS<int>> lhs,
                          In<"rhs", TS<int>, InputActivity::Passive, InputValidity::Unchecked> rhs,
-                         In<"strict", TS<int>, InputActivity::Active, InputValidity::AllValid> strict,
+                         In<"strict", TS<int>, InputValidity::AllValid> strict,
                          Out<TS<int>> out)
         {
             out.set(lhs.value() + rhs.value() + strict.value());
@@ -510,10 +510,10 @@ namespace
         using K = ScalarVar<"K">;
         using V = TsVar<"V">;
 
-        static void eval(In<"ts", REF<TSD<K, V>>> ts,
+        static void eval(In<"ts", REF<TSD<K, V>>, InputValidity::Unchecked> ts,
                          In<"key", TS<K>> key,
-                         In<"_ref", REF<V>> ref,
-                         In<"_ref_ref", REF<V>> ref_ref,
+                         In<"_ref", REF<V>, InputValidity::Unchecked> ref,
+                         In<"_ref_ref", REF<V>, InputValidity::Unchecked> ref_ref,
                          Out<REF<V>> out)
         {
             if (ts.modified() || key.modified()) {
@@ -579,10 +579,10 @@ namespace
             static_cast<void>(ref_ref);
         }
 
-        static void eval(In<"ts", REF<TSD<K, V>>> ts,
-                         In<"key", TSS<K>> key,
-                         In<"_ref", TSD<K, REF<V>>> ref,
-                         In<"_ref_ref", TSD<K, REF<V>>> ref_ref,
+        static void eval(In<"ts", REF<TSD<K, V>>, InputValidity::Unchecked> ts,
+                         In<"key", TSS<K>, InputValidity::Unchecked> key,
+                         In<"_ref", TSD<K, REF<V>>, InputValidity::Unchecked> ref,
+                         In<"_ref_ref", TSD<K, REF<V>>, InputValidity::Unchecked> ref_ref,
                          Out<TSD<K, REF<V>>> out)
         {
             static_cast<void>(ref);
@@ -1288,45 +1288,8 @@ void export_nodes(nb::module_ &m) {
         v2, "hgraph._impl._operators._time_series_properties", "valid_impl", "valid_impl");
     hgraph::v2::export_compute_node_from_python_impl<TsdGetItemDefaultNode>(
         v2, "hgraph._impl._operators._tsd_operators", "tsd_get_item_default", "tsd_get_item_default");
-    {
-        constexpr std::string_view python_module = "hgraph._impl._operators._tsd_operators";
-        constexpr std::string_view python_symbol = "tsd_get_items";
-        constexpr std::string_view exported_name = "tsd_get_items";
-        const std::string node_name = hgraph::v2::detail::node_name_or<TsdGetItemsNode>(exported_name);
-        nb::object python_signature =
-            nb::module_::import_(std::string{python_module}.c_str()).attr(std::string{python_symbol}.c_str()).attr("signature");
-
-        nb::object builder_factory = nb::cpp_function(
-            [node_name](nb::handle resolved_wiring_signature, nb::handle node_signature, nb::handle scalars) -> hgraph::v2::NodeBuilder {
-                const TSMeta *input_schema = hgraph::v2::detail::resolved_input_schema(resolved_wiring_signature, node_name);
-                const TSMeta *output_schema = hgraph::v2::detail::resolved_output_schema(resolved_wiring_signature);
-                std::string runtime_label = hgraph::v2::detail::runtime_label_or(node_signature, node_name);
-
-                hgraph::v2::NodeBuilder builder;
-                if (input_schema != nullptr) { builder.input_schema(input_schema); }
-                if (output_schema != nullptr) { builder.output_schema(output_schema); }
-                hgraph::v2::detail::apply_selector_policies(builder, node_signature, resolved_wiring_signature, input_schema);
-                builder.set_valid_inputs({1});
-
-                builder.implementation<TsdGetItemsNode>()
-                    .label(std::move(runtime_label))
-                    .python_signature(nb::borrow(node_signature))
-                    .python_scalars(hgraph::v2::detail::python_scalars_dict(scalars))
-                    .python_input_builder(nb::none())
-                    .python_output_builder(nb::none())
-                    .python_error_builder(nb::none())
-                    .python_recordable_state_builder(
-                        hgraph::v2::detail::resolved_recordable_state_builder_or_none(resolved_wiring_signature))
-                    .implementation_name(node_name)
-                    .requires_resolved_schemas(true);
-
-                return builder;
-            });
-
-        nb::object wiring_node_cls =
-            nb::module_::import_("hgraph._wiring._wiring_node_class._cpp_static_wiring_node_class").attr("CppStaticWiringNodeClass");
-        v2.attr(std::string{exported_name}.c_str()) = hgraph::v2::detail::py_call(wiring_node_cls, nb::make_tuple(python_signature, builder_factory));
-    }
+    hgraph::v2::export_compute_node_from_python_impl<TsdGetItemsNode>(
+        v2, "hgraph._impl._operators._tsd_operators", "tsd_get_items", "tsd_get_items");
     hgraph::v2::export_compute_node_from_python_impl<hgraph::nodes::v2::ConstNode>(
         v2, "hgraph._impl._operators._time_series_conversion", "const_default", "const");
     hgraph::v2::export_compute_node_from_python_impl<hgraph::nodes::v2::NothingNode>(

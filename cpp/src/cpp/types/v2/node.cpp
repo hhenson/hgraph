@@ -38,7 +38,7 @@ namespace hgraph::v2
             }
 
             const auto input_slots = [&]() -> std::span<const size_t> {
-                return !node.spec().active_inputs.empty()
+                return (node.spec().has_explicit_active_inputs || !node.spec().active_inputs.empty())
                            ? node.spec().active_inputs
                            : std::span<const size_t>{};
             }();
@@ -81,7 +81,7 @@ namespace hgraph::v2
             }
 
             auto view = node.input_view(evaluation_time).as_bundle();
-            if (!node.spec().active_inputs.empty()) {
+            if (node.spec().has_explicit_active_inputs || !node.spec().active_inputs.empty()) {
                 for (const size_t slot : node.spec().active_inputs) {
                     if (slot >= schema->field_count()) { throw std::out_of_range("v2 input selector is out of range"); }
                     view[slot].make_passive();

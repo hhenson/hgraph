@@ -50,12 +50,12 @@ namespace hgraph::v2
         template <typename T>
         struct input_selector_traits;
 
-        template <fixed_string Name, typename TSchema, InputActivity Activity, InputValidity Validity>
-        struct input_selector_traits<In<Name, TSchema, Activity, Validity>>
+        template <fixed_string Name, typename TSchema, auto... TPolicies>
+        struct input_selector_traits<In<Name, TSchema, TPolicies...>>
         {
             using schema = TSchema;
-            static constexpr auto activity = Activity;
-            static constexpr auto validity = Validity;
+            static constexpr auto activity = In<Name, TSchema, TPolicies...>::activity;
+            static constexpr auto validity = In<Name, TSchema, TPolicies...>::validity;
 
             [[nodiscard]] static std::string name()
             {
@@ -316,6 +316,27 @@ namespace hgraph::v2
         }
 
         template <typename TArgsTuple, size_t... I>
+        [[nodiscard]] constexpr bool has_explicit_activity_policy_impl(std::index_sequence<I...>)
+        {
+            return (
+                ... ||
+                [] {
+                    using arg_type = std::remove_cvref_t<std::tuple_element_t<I, TArgsTuple>>;
+                    if constexpr (is_input_selector<arg_type>::value) {
+                        return input_selector_traits<arg_type>::activity != InputActivity::Active;
+                    } else {
+                        return false;
+                    }
+                }());
+        }
+
+        template <typename TArgsTuple>
+        [[nodiscard]] constexpr bool has_explicit_activity_policy()
+        {
+            return has_explicit_activity_policy_impl<TArgsTuple>(std::make_index_sequence<std::tuple_size_v<TArgsTuple>>{});
+        }
+
+        template <typename TArgsTuple, size_t... I>
         [[nodiscard]] std::vector<std::string> valid_input_names_impl(std::index_sequence<I...>)
         {
             std::vector<std::string> names;
@@ -339,6 +360,27 @@ namespace hgraph::v2
         [[nodiscard]] std::vector<std::string> valid_input_names()
         {
             return valid_input_names_impl<TArgsTuple>(std::make_index_sequence<std::tuple_size_v<TArgsTuple>>{});
+        }
+
+        template <typename TArgsTuple, size_t... I>
+        [[nodiscard]] constexpr bool has_explicit_valid_input_policy_impl(std::index_sequence<I...>)
+        {
+            return (
+                ... ||
+                [] {
+                    using arg_type = std::remove_cvref_t<std::tuple_element_t<I, TArgsTuple>>;
+                    if constexpr (is_input_selector<arg_type>::value) {
+                        return input_selector_traits<arg_type>::validity != InputValidity::Valid;
+                    } else {
+                        return false;
+                    }
+                }());
+        }
+
+        template <typename TArgsTuple>
+        [[nodiscard]] constexpr bool has_explicit_valid_input_policy()
+        {
+            return has_explicit_valid_input_policy_impl<TArgsTuple>(std::make_index_sequence<std::tuple_size_v<TArgsTuple>>{});
         }
 
         template <typename TArgsTuple, size_t... I>
@@ -404,6 +446,12 @@ namespace hgraph::v2
         [[nodiscard]] inline nb::object names_as_frozenset_or_none(const std::vector<std::string> &names)
         {
             return names.empty() ? nb::none() : input_names_to_frozenset(names);
+        }
+
+        [[nodiscard]] inline nb::object names_as_frozenset_or_none(const std::vector<std::string> &names,
+                                                                   bool preserve_explicit_empty)
+        {
+            return (preserve_explicit_empty || !names.empty()) ? input_names_to_frozenset(names) : nb::none();
         }
 
         template <typename TArgsTuple, size_t... I>
@@ -824,9 +872,19 @@ namespace hgraph::v2
             return detail::active_input_names<eval_args_tuple>();
         }
 
+        [[nodiscard]] static constexpr bool has_explicit_activity_policy()
+        {
+            return detail::has_explicit_activity_policy<eval_args_tuple>();
+        }
+
         [[nodiscard]] static std::vector<std::string> valid_input_names()
         {
             return detail::valid_input_names<eval_args_tuple>();
+        }
+
+        [[nodiscard]] static constexpr bool has_explicit_valid_input_policy()
+        {
+            return detail::has_explicit_valid_input_policy<eval_args_tuple>();
         }
 
         [[nodiscard]] static std::vector<std::string> all_valid_input_names()
@@ -933,8 +991,10 @@ namespace hgraph::v2
             kwargs["input_types"] = detail::make_frozendict(input_types);
             kwargs["output_type"] = detail::python_output_type<eval_args_tuple>(type_var_context);
             kwargs["src_location"] = detail::make_source_code_details();
-            kwargs["active_inputs"] = detail::names_as_frozenset_or_none(active_input_names());
-            kwargs["valid_inputs"] = detail::names_as_frozenset_or_none(valid_input_names());
+            kwargs["active_inputs"] =
+                detail::names_as_frozenset_or_none(active_input_names(), has_explicit_activity_policy());
+            kwargs["valid_inputs"] =
+                detail::names_as_frozenset_or_none(valid_input_names(), has_explicit_valid_input_policy());
             kwargs["all_valid_inputs"] = detail::names_as_frozenset_or_none(all_valid_input_names());
             kwargs["context_inputs"] = nb::none();
             kwargs["unresolved_args"] = detail::input_names_to_frozenset(unresolved_args);

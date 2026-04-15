@@ -833,6 +833,7 @@ namespace hgraph::v2
                 builder.output_schema(),
                 builder.error_output_schema(),
                 builder.recordable_state_schema(),
+                builder.has_explicit_active_inputs(),
                 materialized_active_inputs,
                 materialized_valid_inputs,
                 materialized_all_valid_inputs,

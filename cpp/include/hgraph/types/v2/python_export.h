@@ -14,6 +14,19 @@ namespace hgraph::v2
 {
     namespace detail
     {
+        [[nodiscard]] inline nb::object upgrade_python_wiring_node(nb::handle node, nb::handle builder_factory)
+        {
+            nb::object wiring_node = nb::borrow(node);
+            nb::object cpp_static_wiring_node_cls =
+                nb::module_::import_("hgraph._wiring._wiring_node_class._cpp_static_wiring_node_class").attr("CppStaticWiringNodeClass");
+
+            if (!nb::isinstance(wiring_node, cpp_static_wiring_node_cls)) {
+                nb::setattr(wiring_node, "__class__", cpp_static_wiring_node_cls);
+            }
+            nb::setattr(wiring_node, "_builder_factory", nb::borrow(builder_factory));
+            return wiring_node;
+        }
+
         [[nodiscard]] inline const TSMeta *cpp_ts_meta_or_none(nb::handle meta)
         {
             if (meta.is_none()) { return nullptr; }
@@ -174,8 +187,9 @@ namespace hgraph::v2
         std::string_view exported_name = {})
     {
         const std::string node_name = detail::node_name_or<TImplementation>(exported_name);
-        nb::object python_signature =
-            nb::module_::import_(std::string{python_module}.c_str()).attr(std::string{python_symbol}.c_str()).attr("signature");
+        nb::object python_wiring_node =
+            nb::module_::import_(std::string{python_module}.c_str()).attr(std::string{python_symbol}.c_str());
+        nb::object python_signature = python_wiring_node.attr("signature");
 
         nb::object builder_factory = nb::cpp_function(
             [node_name](nb::handle resolved_wiring_signature, nb::handle node_signature, nb::handle scalars) -> NodeBuilder {
@@ -202,10 +216,7 @@ namespace hgraph::v2
                 return builder;
             });
 
-        nb::object wiring_node_cls =
-            nb::module_::import_("hgraph._wiring._wiring_node_class._cpp_static_wiring_node_class").attr("CppStaticWiringNodeClass");
-
-        return detail::py_call(wiring_node_cls, nb::make_tuple(python_signature, builder_factory));
+        return detail::upgrade_python_wiring_node(python_wiring_node, builder_factory);
     }
 
     /** Export a static C++ compute node into a nanobind module. */
