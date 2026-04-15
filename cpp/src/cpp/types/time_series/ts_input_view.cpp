@@ -54,17 +54,12 @@ namespace hgraph
                     ActiveTriePosition child_pos;
                     child_pos.trie = &attachment.active_trie;
                     child_pos.boundary_root = ref_link->current_target_root_state();
-                    child_pos.node = attachment.active_trie.root_node();
-
-                    if (child_pos.node != nullptr && child_state != nullptr) { child_pos.node = child_pos.node->child_at(child_state->index); }
+                    child_pos.node = lookup_trie_path(child_pos, child_state);
                     return child_pos;
                 }
 
                 ActiveTriePosition child_pos;
                 child_pos.trie = parent.active_position().trie;
-                child_pos.node = parent.active_position().node != nullptr && child_state != nullptr
-                    ? parent.active_position().node->child_at(child_state->index)
-                    : nullptr;
                 child_pos.boundary_root = parent.active_position().boundary_root;
                 child_pos.link_crossings = parent.active_position().link_crossings;
 
@@ -75,6 +70,7 @@ namespace hgraph
                     }
                 }
 
+                child_pos.node = lookup_trie_path(child_pos, child_state);
                 return child_pos;
             }
 

@@ -414,7 +414,7 @@ namespace hgraph
                                        ? context.resolved().ts_dispatch->as_collection()
                                        : nullptr;
             const auto *key_dispatch = dispatch != nullptr ? dispatch->as_keys() : nullptr;
-            if (key_dispatch == nullptr || !context.value().has_value()) { return out; }
+            if (key_dispatch == nullptr || !context.value().has_value()) { return nb::none(); }
 
             const auto *ts_dispatch = context.resolved().ts_dispatch;
             const engine_time_t last_modified_time = ts_dispatch != nullptr ? ts_dispatch->last_modified_time(context) : MIN_DT;
@@ -439,7 +439,7 @@ namespace hgraph
                     if (!current.contains(key)) { out[key.to_python()] = remove_sentinel(); }
                 }
 
-                return out;
+                return out.empty() ? nb::none() : nb::object{std::move(out)};
             }
 
             const View delta_view =
@@ -451,14 +451,15 @@ namespace hgraph
                 if (!key_dispatch->slot_is_live(context, slot)) { continue; }
                 const TSViewContext child = dict_slot_context(context, slot);
                 if (!context_modified(child, evaluation_time) || !context_valid(child)) { continue; }
-                out[key_dispatch->key_at_slot(context, slot).to_python()] = delta_to_python_impl(child, evaluation_time);
+                out[key_dispatch->key_at_slot(context, slot).to_python()] =
+                    delta.slot_added(slot) ? to_python_impl(child, evaluation_time) : delta_to_python_impl(child, evaluation_time);
             }
 
             for (size_t slot = delta.first_removed_slot(); slot != static_cast<size_t>(-1); slot = delta.next_removed_slot(slot)) {
                 out[delta.key_at_slot(slot).to_python()] = remove_sentinel();
             }
 
-            return out;
+            return out.empty() ? nb::none() : nb::object{std::move(out)};
         }
 
         [[nodiscard]] nb::object set_to_python(const TSViewContext &context)
@@ -1202,7 +1203,10 @@ namespace hgraph
             // The two schema-changing cases supported so far are:
             // - TS  -> REF : wrap as a TimeSeriesReference value
             // - REF -> TS  : dereference through RefLinkState
-            if (target_schema.kind == TSKind::REF) { return target_schema.element_ts() == &source_schema; }
+            if (target_schema.kind == TSKind::REF) {
+                const TSMeta *target_element = target_schema.element_ts();
+                return target_element != nullptr && supports_alternative_cast(source_schema, *target_element);
+            }
             if (target_schema.kind == TSKind::SIGNAL) { return source_schema.kind != TSKind::SIGNAL; }
             if (source_schema.kind == TSKind::TSD && target_schema.kind == TSKind::TSS) {
                 return TSTypeRegistry::instance().tss(source_schema.key_type()) == &target_schema;
@@ -2572,6 +2576,14 @@ namespace hgraph
                 throw std::logic_error("TSOutput alternative dynamic dict sync requires a live target TSD state");
             }
 
+            const TSViewContext target_root_context = target_root.context_ref();
+            if (target_root_context.value_dispatch != nullptr && target_root_context.value_data != nullptr) {
+                target_root_state->bind_value_storage(
+                    *target_root.ts_schema()->element_ts(),
+                    static_cast<const detail::MapViewDispatch &>(*target_root_context.value_dispatch),
+                    target_root_context.value_data);
+            }
+
             const View source_value = source_root.value();
             auto target_map = target_root.value().as_map();
             auto target_dict = target_root.as_dict();
@@ -2649,7 +2661,18 @@ namespace hgraph
 
             auto replay_live_slot = [&](size_t slot, bool source_updated, bool rebuild_child) {
                 const View key = source_delta.key_at_slot(slot);
-                TSOutputView source_child = source_root.as_dict().at(key);
+                TSOutputView source_child = ensure_tsd_child_view(source_root, key);
+                if (source_updated) {
+                    if (BaseState *source_child_state = source_child.context_ref().ts_state;
+                        source_child_state != nullptr && source_child_state->last_modified_time != modified_time) {
+                        // Dynamic alternatives can bind directly against TSD children
+                        // even when the source output only published a root-level dict
+                        // tick. Materialize the child state on demand and stamp it with
+                        // the current replay time so peered REF wrappers observe the same
+                        // validity the normal TSD publish path would expose.
+                        source_child_state->mark_modified(modified_time);
+                    }
+                }
                 TSOutputView target_child = target_dict.at(key);
                 const bool target_has_key = target_child.context_ref().is_bound();
                 const bool child_schema_differs = target_has_key && target_child.ts_schema() != source_child.ts_schema();
@@ -2815,6 +2838,16 @@ namespace hgraph
                     throw std::invalid_argument("TSOutput alternative REF dereference requires a referenced schema");
                 }
 
+                if (target_schema->kind == TSKind::REF) {
+                    const TSMeta *target_element = target_schema->element_ts();
+                    if (target_element != nullptr && supports_alternative_cast(*dereferenced_schema, *target_element)) {
+                        add_scalar_value_binding(
+                            std::make_unique<ScalarValueBinding>(this, target_view, source_view),
+                            source_state != nullptr ? source_state->last_modified_time : MIN_DT);
+                        return;
+                    }
+                }
+
                 if (target_schema->kind == TSKind::TSD && dereferenced_schema->kind == TSKind::TSD &&
                     supports_alternative_cast(*dereferenced_schema, *target_schema)) {
                     add_dynamic_dict_binding(
@@ -2862,11 +2895,19 @@ namespace hgraph
             }
 
             if (target_schema->kind == TSKind::REF) {
-                if (target_schema->element_ts() != source_schema) {
+                const TSMeta *target_element = target_schema->element_ts();
+                if (target_element == nullptr || !supports_alternative_cast(*source_schema, *target_element)) {
                     throw std::invalid_argument("TSOutput alternative REF wrapping requires matching referenced schema");
                 }
 
                 target_view.value().as_atomic().set(hgraph::v2::TimeSeriesReference::make(source_view));
+                if (target_state != nullptr) {
+                    const engine_time_t source_modified_time =
+                        source_state != nullptr && source_state->last_modified_time != MIN_DT
+                            ? source_state->last_modified_time
+                            : source_view.evaluation_time();
+                    target_state->last_modified_time = source_modified_time;
+                }
                 auto notifier = std::make_unique<WrappedRefNotifier>(target_state);
                 BaseState *source_notification_state = notification_state_of(source_context);
                 if (source_notification_state != nullptr) { source_notification_state->subscribe(notifier.get()); }

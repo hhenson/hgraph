@@ -210,8 +210,12 @@ target_compile_features(hgraph_time_series_value_tests PRIVATE cxx_std_23)
 
 add_executable(hgraph_v2_tests
     test_types_v2_graph.cpp
+    test_types_v2_nested.cpp
     ../src/cpp/builders/builder.cpp
+    ../src/cpp/types/v2/boundary_binding.cpp
+    ../src/cpp/types/v2/child_graph.cpp
     ../src/cpp/types/v2/evaluation_engine.cpp
+    ../src/cpp/types/v2/nested_clock.cpp
     ../src/cpp/types/v2/node.cpp
     ../src/cpp/types/v2/node_builder.cpp
     ../src/cpp/types/v2/graph.cpp

@@ -1173,18 +1173,42 @@ namespace hgraph::v2
     NodeBuilder &NodeBuilder::active_input(size_t slot)
     {
         m_active_inputs.emplace_back(slot);
+        m_has_explicit_active_inputs = true;
         return *this;
     }
 
     NodeBuilder &NodeBuilder::valid_input(size_t slot)
     {
         m_valid_inputs.emplace_back(slot);
+        m_has_explicit_valid_inputs = true;
         return *this;
     }
 
     NodeBuilder &NodeBuilder::all_valid_input(size_t slot)
     {
         m_all_valid_inputs.emplace_back(slot);
+        m_has_explicit_all_valid_inputs = true;
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::set_active_inputs(std::vector<size_t> slots)
+    {
+        m_active_inputs = std::move(slots);
+        m_has_explicit_active_inputs = true;
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::set_valid_inputs(std::vector<size_t> slots)
+    {
+        m_valid_inputs = std::move(slots);
+        m_has_explicit_valid_inputs = true;
+        return *this;
+    }
+
+    NodeBuilder &NodeBuilder::set_all_valid_inputs(std::vector<size_t> slots)
+    {
+        m_all_valid_inputs = std::move(slots);
+        m_has_explicit_all_valid_inputs = true;
         return *this;
     }
 

@@ -487,4 +487,3 @@ namespace hgraph {
         return bound() ? std::max(_output->last_modified_time(), _sample_time) : MIN_DT;
     }
 } // namespace hgraph
-

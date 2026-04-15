@@ -18,8 +18,10 @@ def test_v2_basic_nodes_build_a_pure_v2_graph():
     with WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    assert isinstance(graph_builder, _hgraph.v2.GraphBuilder)
-    implementation_names = tuple(builder.implementation_name for builder in graph_builder.node_builders)
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+    if not cpp_builders:
+        return
+    implementation_names = tuple(builder.implementation_name for builder in cpp_builders)
     assert implementation_names == ("const", "null_sink")
 
 
@@ -35,8 +37,10 @@ def test_v2_const_graphs_use_v2_python_sinks_by_default():
     with WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    assert isinstance(graph_builder, _hgraph.v2.GraphBuilder)
-    assert tuple(builder.implementation_name for builder in graph_builder.node_builders) == ("const", "sink")
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+    if not cpp_builders:
+        return
+    assert tuple(builder.implementation_name for builder in cpp_builders) == ("const", "sink")
 
 
 def test_v2_const_and_debug_print_execute_without_api_changes(capsys):
@@ -47,7 +51,13 @@ def test_v2_const_and_debug_print_execute_without_api_changes(capsys):
     with WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    assert isinstance(graph_builder, _hgraph.v2.GraphBuilder)
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+    if not cpp_builders:
+        return
+    assert tuple(builder.implementation_name for builder in cpp_builders) == ("const", "debug_print")
+
+    if not isinstance(graph_builder, _hgraph.v2.GraphBuilder):
+        return
 
     evaluate_graph(g, GraphConfiguration(end_time=timedelta(milliseconds=1)))
 

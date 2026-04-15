@@ -1725,7 +1725,26 @@ namespace hgraph::v2
                     throw std::logic_error("v2 Python time-series dict child creation requires live map-backed output storage");
                 }
 
-                view.as_dict().from_python(key.view(), nb::none());
+                Value placeholder{*child_schema->value_type, MutationTracking::Plain};
+                placeholder.reset();
+
+                auto mutation = view.value().as_map().begin_mutation(evaluation_time());
+                mutation.set(key.view(), placeholder.view());
+
+                if (BaseState *state = view.context_ref().ts_state != nullptr ? view.context_ref().ts_state->resolved_state() : nullptr;
+                    state != nullptr && state->storage_kind == TSStorageKind::Native) {
+                    auto *dict_state = static_cast<TSDState *>(state);
+                    dict_state->sync_with_value_storage();
+
+                    if (!view.as_dict().at(key.view()).context_ref().is_bound()) {
+                        const size_t slot = view.value().as_map().find_slot(key.view());
+                        if (slot == static_cast<size_t>(-1)) {
+                            throw std::logic_error("v2 Python time-series dict child creation failed to allocate a stable output slot");
+                        }
+
+                        dict_state->on_insert(slot);
+                    }
+                }
             }
 
             [[nodiscard]] bool has_output_parent() const noexcept
@@ -1856,7 +1875,7 @@ namespace hgraph::v2
                     throw std::runtime_error("v2 TimeSeriesReference.bind_input only supports peered refs for now");
                 }
 
-                input_handle.bind_output(PythonTimeSeriesHandle{ref.target(), input_handle.evaluation_time()});
+                    input_handle.bind_output(PythonTimeSeriesHandle{ref.target(), input_handle.evaluation_time()});
             }
 
             [[nodiscard]] static nb::object output(const TimeSeriesReference &ref)

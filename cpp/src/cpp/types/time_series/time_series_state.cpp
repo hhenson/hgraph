@@ -189,9 +189,13 @@ namespace hgraph
                         for (size_t index = 0; index < schema.field_count(); ++index) {
                             const BaseState *child = index < bundle_state.child_states.size() ? state_address(bundle_state.child_states[index]) : nullptr;
                             const TSMeta *child_schema = schema.fields()[index].ts_type;
-                            items.push_back(child_schema != nullptr
-                                                ? materialize_local_reference(*child_schema, const_cast<BaseState *>(child))
-                                                : v2::TimeSeriesReference::make());
+                            if (child_schema == nullptr) {
+                                items.push_back(v2::TimeSeriesReference::make());
+                                continue;
+                            }
+
+                            v2::TimeSeriesReference item = materialize_local_reference(*child_schema, const_cast<BaseState *>(child));
+                            items.push_back(item.is_valid() ? std::move(item) : v2::TimeSeriesReference::make());
                         }
                         return v2::TimeSeriesReference::make(std::move(items));
                     }
@@ -204,9 +208,13 @@ namespace hgraph
                         for (size_t index = 0; index < schema.fixed_size(); ++index) {
                             const BaseState *child = index < list_state.child_states.size() ? state_address(list_state.child_states[index]) : nullptr;
                             const TSMeta *child_schema = schema.element_ts();
-                            items.push_back(child_schema != nullptr
-                                                ? materialize_local_reference(*child_schema, const_cast<BaseState *>(child))
-                                                : v2::TimeSeriesReference::make());
+                            if (child_schema == nullptr) {
+                                items.push_back(v2::TimeSeriesReference::make());
+                                continue;
+                            }
+
+                            v2::TimeSeriesReference item = materialize_local_reference(*child_schema, const_cast<BaseState *>(child));
+                            items.push_back(item.is_valid() ? std::move(item) : v2::TimeSeriesReference::make());
                         }
                         return v2::TimeSeriesReference::make(std::move(items));
                     }

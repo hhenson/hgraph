@@ -62,6 +62,9 @@ namespace hgraph::v2
         NodeBuilder &active_input(size_t slot);
         NodeBuilder &valid_input(size_t slot);
         NodeBuilder &all_valid_input(size_t slot);
+        NodeBuilder &set_active_inputs(std::vector<size_t> slots);
+        NodeBuilder &set_valid_inputs(std::vector<size_t> slots);
+        NodeBuilder &set_all_valid_inputs(std::vector<size_t> slots);
 
         [[nodiscard]] const std::vector<size_t> &active_inputs() const noexcept { return m_active_inputs; }
         [[nodiscard]] const std::vector<size_t> &valid_inputs() const noexcept { return m_valid_inputs; }
@@ -118,17 +121,23 @@ namespace hgraph::v2
             }
             m_uses_scheduler = signature::has_scheduler();
 
-            if (m_active_inputs.empty()) {
-                for (const auto &name : signature::active_input_names()) { m_active_inputs.push_back(slot_for_input_name(name)); }
-            }
+            if (m_input_schema != nullptr && m_input_schema->kind == TSKind::TSB) {
+                if (!m_has_explicit_active_inputs && m_active_inputs.empty()) {
+                    for (const auto &name : signature::active_input_names()) {
+                        m_active_inputs.push_back(slot_for_input_name(name));
+                    }
+                }
 
-            if (m_valid_inputs.empty()) {
-                for (const auto &name : signature::valid_input_names()) { m_valid_inputs.push_back(slot_for_input_name(name)); }
-            }
+                if (!m_has_explicit_valid_inputs && m_valid_inputs.empty()) {
+                    for (const auto &name : signature::valid_input_names()) {
+                        m_valid_inputs.push_back(slot_for_input_name(name));
+                    }
+                }
 
-            if (m_all_valid_inputs.empty()) {
-                for (const auto &name : signature::all_valid_input_names()) {
-                    m_all_valid_inputs.push_back(slot_for_input_name(name));
+                if (!m_has_explicit_all_valid_inputs && m_all_valid_inputs.empty()) {
+                    for (const auto &name : signature::all_valid_input_names()) {
+                        m_all_valid_inputs.push_back(slot_for_input_name(name));
+                    }
                 }
             }
 
@@ -227,6 +236,9 @@ namespace hgraph::v2
         std::vector<size_t> m_active_inputs;
         std::vector<size_t> m_valid_inputs;
         std::vector<size_t> m_all_valid_inputs;
+        bool m_has_explicit_active_inputs{false};
+        bool m_has_explicit_valid_inputs{false};
+        bool m_has_explicit_all_valid_inputs{false};
         nb::object m_python_signature;
         nb::object m_python_scalars;
         nb::object m_python_input_builder;

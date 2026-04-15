@@ -181,6 +181,12 @@ namespace hgraph::v2
             switch (schema->kind) {
                 case TSKind::REF:
                     {
+                        if (target != nullptr && target->is_bound() && (target->schema == nullptr || target->schema->kind != TSKind::REF)) {
+                            TimeSeriesReference ref{*target};
+                            ref.m_observed_time = input.last_modified_time();
+                            return ref;
+                        }
+
                         const auto value = input.value();
                         if (!value.has_value()) { return make(); }
                         TimeSeriesReference ref = value.as_atomic().checked_as<TimeSeriesReference>();
@@ -194,7 +200,10 @@ namespace hgraph::v2
                         std::vector<TimeSeriesReference> refs;
                         auto bundle = input.as_bundle();
                         refs.reserve(bundle.size());
-                        for (size_t i = 0; i < bundle.size(); ++i) { refs.push_back(make(bundle[i])); }
+                        for (size_t i = 0; i < bundle.size(); ++i) {
+                            TimeSeriesReference item = make(bundle[i]);
+                            refs.push_back(item.is_valid() ? std::move(item) : make());
+                        }
                         return make(std::move(refs));
                     }
 
@@ -204,7 +213,10 @@ namespace hgraph::v2
                         std::vector<TimeSeriesReference> refs;
                         auto list = input.as_list();
                         refs.reserve(list.size());
-                        for (size_t i = 0; i < list.size(); ++i) { refs.push_back(make(list[i])); }
+                        for (size_t i = 0; i < list.size(); ++i) {
+                            TimeSeriesReference item = make(list[i]);
+                            refs.push_back(item.is_valid() ? std::move(item) : make());
+                        }
                         return make(std::move(refs));
                     }
 

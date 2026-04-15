@@ -6,6 +6,7 @@
 
 #include <string>
 #include <string_view>
+#include <optional>
 #include <unordered_set>
 #include <vector>
 
@@ -71,47 +72,35 @@ namespace hgraph::v2
             return factory.attr("make_output_builder")(tsb_type);
         }
 
-        [[nodiscard]] inline std::vector<std::string> names_from_frozenset_or_default(
-            nb::handle resolved_wiring_signature,
-            const char *attribute_name,
-            bool default_to_all_time_series_args)
-        {
-            nb::object names_obj = nb::borrow(resolved_wiring_signature).attr(attribute_name);
-            if (!names_obj.is_none()) {
-                std::vector<std::string> names;
-                names.reserve(static_cast<size_t>(nb::len(names_obj)));
-                for (auto item : names_obj) { names.push_back(nb::cast<std::string>(item)); }
-                return names;
-            }
-            if (!default_to_all_time_series_args) { return {}; }
-            nb::object time_series_args = nb::borrow(resolved_wiring_signature).attr("time_series_args");
-            std::vector<std::string> names;
-            names.reserve(static_cast<size_t>(nb::len(time_series_args)));
-            for (auto item : time_series_args) { names.push_back(nb::cast<std::string>(item)); }
-            return names;
-        }
-
         inline void apply_selector_policies(NodeBuilder &builder,
+                                            nb::handle node_signature,
                                             nb::handle resolved_wiring_signature,
                                             const TSMeta *input_schema)
         {
-            if (input_schema == nullptr) { return; }
+            if (input_schema == nullptr || input_schema->kind != TSKind::TSB) { return; }
 
-            auto apply_slots = [&](const char *attribute_name, bool default_to_all_time_series_args, auto add_slot) {
-                for (const auto &name : names_from_frozenset_or_default(
-                         resolved_wiring_signature, attribute_name, default_to_all_time_series_args)) {
+            auto resolve_slots = [&](const char *attribute_name) {
+                nb::object names_obj = nb::getattr(nb::borrow(node_signature), attribute_name, nb::none());
+                if (names_obj.is_none()) {
+                    names_obj = nb::getattr(nb::borrow(resolved_wiring_signature), attribute_name, nb::none());
+                }
+
+                if (names_obj.is_none()) { return std::optional<std::vector<size_t>>{}; }
+
+                std::vector<size_t> slots;
+                slots.reserve(static_cast<size_t>(nb::len(names_obj)));
+                for (auto item : names_obj) {
+                    const auto name = nb::cast<std::string>(item);
                     for (size_t slot = 0; slot < input_schema->field_count(); ++slot) {
-                        if (input_schema->fields()[slot].name == name) {
-                            add_slot(slot);
-                            break;
-                        }
+                        if (input_schema->fields()[slot].name == name) { slots.push_back(slot); }
                     }
                 }
+                return std::optional<std::vector<size_t>>{std::move(slots)};
             };
 
-            apply_slots("active_inputs", true, [&](size_t slot) { builder.active_input(slot); });
-            apply_slots("valid_inputs", true, [&](size_t slot) { builder.valid_input(slot); });
-            apply_slots("all_valid_inputs", false, [&](size_t slot) { builder.all_valid_input(slot); });
+            if (auto slots = resolve_slots("active_inputs")) { builder.set_active_inputs(std::move(*slots)); }
+            if (auto slots = resolve_slots("valid_inputs")) { builder.set_valid_inputs(std::move(*slots)); }
+            if (auto slots = resolve_slots("all_valid_inputs")) { builder.set_all_valid_inputs(std::move(*slots)); }
         }
 
         [[nodiscard]] inline std::string runtime_label_or(nb::handle node_signature, std::string_view default_name)
@@ -148,6 +137,7 @@ namespace hgraph::v2
                 NodeBuilder builder;
                 if (needs_resolved_schemas && input_schema != nullptr) { builder.input_schema(input_schema); }
                 if (needs_resolved_schemas && output_schema != nullptr) { builder.output_schema(output_schema); }
+                detail::apply_selector_policies(builder, node_signature, resolved_wiring_signature, input_schema);
                 builder.implementation<TImplementation>()
                     .label(std::move(runtime_label))
                     .python_signature(nb::borrow(node_signature))
@@ -158,7 +148,6 @@ namespace hgraph::v2
                     .python_recordable_state_builder(detail::resolved_recordable_state_builder_or_none(resolved_wiring_signature))
                     .implementation_name(node_name)
                     .requires_resolved_schemas(needs_resolved_schemas);
-                detail::apply_selector_policies(builder, resolved_wiring_signature, input_schema);
 
                 return builder;
             });
@@ -197,6 +186,7 @@ namespace hgraph::v2
                 NodeBuilder builder;
                 if (input_schema != nullptr) { builder.input_schema(input_schema); }
                 if (output_schema != nullptr) { builder.output_schema(output_schema); }
+                detail::apply_selector_policies(builder, node_signature, resolved_wiring_signature, input_schema);
 
                 builder.implementation<TImplementation>()
                     .label(std::move(runtime_label))
@@ -208,7 +198,6 @@ namespace hgraph::v2
                     .python_recordable_state_builder(detail::resolved_recordable_state_builder_or_none(resolved_wiring_signature))
                     .implementation_name(node_name)
                     .requires_resolved_schemas(true);
-                detail::apply_selector_policies(builder, resolved_wiring_signature, input_schema);
 
                 return builder;
             });

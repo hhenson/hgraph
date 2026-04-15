@@ -375,16 +375,16 @@ namespace hgraph::v2
         explicit In(TSInputView view) : m_view(std::move(view)) {}
 
         [[nodiscard]] const view_type &view() const noexcept { return m_view; }
-        [[nodiscard]] const value_type &delta_value() const
+        [[nodiscard]] value_type delta_value() const
         {
-            return m_view.delta_value().as_atomic().template checked_as<value_type>();
+            return value_type::make(m_view);
         }
         [[nodiscard]] bool modified() const noexcept { return m_view.modified(); }
         [[nodiscard]] bool valid() const noexcept { return m_view.valid(); }
         [[nodiscard]] bool all_valid() const noexcept { return m_view.all_valid(); }
-        [[nodiscard]] const value_type &value() const
+        [[nodiscard]] value_type value() const
         {
-            return m_view.value().as_atomic().template checked_as<value_type>();
+            return value_type::make(m_view);
         }
 
         operator const view_type &() const noexcept { return m_view; }

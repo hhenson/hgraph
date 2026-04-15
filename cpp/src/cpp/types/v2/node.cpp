@@ -22,15 +22,8 @@ namespace hgraph::v2
             }
 
             auto view = node.input_view(evaluation_time).as_bundle();
-            if (!node.spec().active_inputs.empty()) {
-                for (const size_t slot : node.spec().active_inputs) {
-                    if (slot < schema->field_count() && view[slot].modified()) { return true; }
-                }
-                return false;
-            }
-
             for (size_t slot = 0; slot < schema->field_count(); ++slot) {
-                if (view[slot].modified()) { return true; }
+                if (view[slot].modified() && view[slot].active()) { return true; }
             }
             return false;
         }
@@ -74,6 +67,8 @@ namespace hgraph::v2
                     ++activated_inputs_end;
                 }
             }
+
+            rollback_activation.release();
         }
 
         void deactivate_active_inputs(Node &node, engine_time_t evaluation_time)
@@ -482,7 +477,7 @@ namespace hgraph::v2
                 scheduler().advance();
             }
         }
-
+        rollback_start.release();
         rollback_started.release();
     }
 

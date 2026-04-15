@@ -576,6 +576,8 @@ namespace hgraph
         [[nodiscard]] TSWView<TView> as_window() const noexcept { return m_view.as_window(); }
         [[nodiscard]] SignalView<TView> as_signal() noexcept { return m_view.as_signal(); }
         [[nodiscard]] SignalView<TView> as_signal() const noexcept { return m_view.as_signal(); }
+        [[nodiscard]] TView &view() noexcept { return m_view; }
+        [[nodiscard]] const TView &view() const noexcept { return m_view; }
 
       protected:
         [[nodiscard]] TView &view_mutable() noexcept { return m_view; }

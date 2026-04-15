@@ -1458,7 +1458,27 @@ namespace hgraph
             [[nodiscard]] Range<View> values(const TSViewContext &context) const noexcept override
             {
                 if (!context.value().has_value()) { return Range<View>{nullptr, 0, nullptr, nullptr}; }
-                return context.value().as_set().values();
+                const auto delta = context.value().as_set().delta();
+                return Range<View>{
+                    &context,
+                    delta.slot_capacity(),
+                    [](const void *opaque, size_t slot) {
+                        const auto &context = *static_cast<const TSViewContext *>(opaque);
+                        const View value = context.value();
+                        if (!value.has_value()) { return false; }
+                        const auto *dispatch =
+                            static_cast<const detail::SetViewDispatch *>(detail::ViewAccess::dispatch(value));
+                        return dispatch != nullptr && dispatch->slot_live(detail::ViewAccess::data(value), slot);
+                    },
+                    [](const void *opaque, size_t slot) {
+                        const auto &context = *static_cast<const TSViewContext *>(opaque);
+                        const View value = context.value();
+                        const auto *dispatch =
+                            static_cast<const detail::SetViewDispatch *>(detail::ViewAccess::dispatch(value));
+                        return View{&dispatch->element_dispatch(),
+                                    const_cast<void *>(dispatch->slot_data(detail::ViewAccess::data(value), slot)),
+                                    &dispatch->element_schema()};
+                    }};
             }
 
             [[nodiscard]] Range<View> added_values(const TSViewContext &context) const noexcept override

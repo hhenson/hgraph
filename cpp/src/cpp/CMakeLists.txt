@@ -125,9 +125,12 @@ set(HGRAPH_SOURCES
         types/time_series/time_series_state.cpp
         types/time_series/active_trie.cpp
         types/time_series/ts_type_registry.cpp
+        types/v2/boundary_binding.cpp
+        types/v2/child_graph.cpp
         types/v2/evaluation_engine.cpp
         types/v2/graph.cpp
         types/v2/graph_builder.cpp
+        types/v2/nested_clock.cpp
         types/v2/node.cpp
         types/v2/node_builder.cpp
         types/v2/python_node_support.cpp

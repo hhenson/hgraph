@@ -162,5 +162,6 @@ struct ActiveTriePosition {
  * Returns the trie node at the leaf, or nullptr if pos has no trie.
  */
 HGRAPH_EXPORT ActiveTrieNode *ensure_trie_path(ActiveTriePosition &pos, BaseState *state);
+HGRAPH_EXPORT ActiveTrieNode *lookup_trie_path(const ActiveTriePosition &pos, BaseState *state);
 
 }  // namespace hgraph

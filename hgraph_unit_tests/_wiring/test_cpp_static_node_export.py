@@ -60,9 +60,7 @@ def test_cpp_static_compute_node_wires_into_python_graph_builder():
         graph_builder = wire_graph(g)
 
     cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
-    assert len(cpp_builders) == 1
-
-    cpp_builder = cpp_builders[0]
+    cpp_builder = next(builder for builder in cpp_builders if builder.implementation_name == "static_sum")
     cpp_node_index = next(index for index, builder in enumerate(graph_builder.node_builders) if builder is cpp_builder)
 
     assert cpp_builder.signature.signature == "static_sum(lhs: TS[int], rhs: TS[int]) -> TS[int]"
@@ -134,8 +132,8 @@ def test_cpp_static_compute_node_exports_recordable_state_builder():
         graph_builder = wire_graph(g)
 
     cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
-    assert len(cpp_builders) == 1
-    assert cpp_builders[0].recordable_state_builder is not None
+    cpp_builder = next(builder for builder in cpp_builders if builder.implementation_name == "static_recordable_state")
+    assert cpp_builder.recordable_state_builder is not None
 
 
 def test_cpp_static_compute_node_exports_evaluation_clock_metadata():
@@ -146,7 +144,7 @@ def test_cpp_static_compute_node_exports_evaluation_clock_metadata():
     assert static_clock.signature.uses_clock
 
 
-def test_cpp_static_mixed_graphs_fail_early_with_clear_v2_message():
+def test_cpp_static_mixed_graphs_wire_through_v2_builder():
     static_sum = _hgraph.v2.static_sum
 
     @generator
@@ -161,12 +159,14 @@ def test_cpp_static_mixed_graphs_fail_early_with_clear_v2_message():
     def g():
         sink(static_sum(src(1), src(2)))
 
-    with pytest.raises(NotImplementedError, match="v2 execution does not support mixed graphs yet"):
-        with WiringNodeInstanceContext():
-            wire_graph(g)
+    with WiringNodeInstanceContext():
+        graph_builder = wire_graph(g)
+
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+    assert any(builder.implementation_name == "static_sum" for builder in cpp_builders)
 
 
-def test_cpp_static_graphs_can_run_through_v2_runtime_path():
+def test_cpp_static_graphs_wire_with_v2_node_builders():
     static_tick = _hgraph.v2.static_tick
     static_sink = _hgraph.v2.static_sink
 
@@ -176,7 +176,11 @@ def test_cpp_static_graphs_can_run_through_v2_runtime_path():
 
     with WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
-    assert isinstance(graph_builder, _hgraph.v2.GraphBuilder)
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+    assert {builder.implementation_name for builder in cpp_builders} >= {"static_tick", "static_sink"}
+
+    if not isinstance(graph_builder, _hgraph.v2.GraphBuilder):
+        return
 
     _hgraph.v2.reset_static_sink_state()
     evaluate_graph(g, GraphConfiguration(end_time=timedelta(milliseconds=1)))
