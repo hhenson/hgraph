@@ -327,6 +327,15 @@ def convert_cs_to_frame(
     return pl.DataFrame(asdict(ts.value))
 
 
+@compute_node(overloads=convert)
+def convert_tuple_of_cs_to_frame(
+    ts: TS[Tuple[COMPOUND_SCALAR, ...]],
+    _tp: Type[TS[Frame[COMPOUND_SCALAR]]] = DEFAULT[OUT],
+    _cs: Type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+) -> TS[Frame[COMPOUND_SCALAR]]:
+    return pl.DataFrame([asdict(i) for i in ts.value])
+
+
 def _check_schema(scalar, bundle):
     from hgraph import HgSeriesScalarTypeMetaData
     from hgraph import HgTupleCollectionScalarType

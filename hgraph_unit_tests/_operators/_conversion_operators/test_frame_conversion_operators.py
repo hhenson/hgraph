@@ -114,8 +114,8 @@ def test_convert_tuple_to_frame():
         b: str
 
     @graph
-    def g(ts: TS[Tuple[ABStruct]]) -> TS[Frame[ABStruct]]:
+    def g(ts: TS[Tuple[ABStruct, ...]]) -> TS[Frame[ABStruct]]:
         return convert[TS[Frame[ABStruct]]](ts)
 
-    frame = pl.DataFrame({"a": [1], "b": ["1"]})
-    assert_frame_equal(eval_node(g, ts=[(ABStruct(1, "1"),)])[-1], frame)
+    frame = pl.DataFrame({"a": [1, 2], "b": ["1", "2"]})
+    assert_frame_equal(eval_node(g, ts=[(ABStruct(1, "1"), ABStruct(2, "2"))])[-1], frame)
