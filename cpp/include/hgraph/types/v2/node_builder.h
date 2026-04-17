@@ -8,7 +8,6 @@
 #include <hgraph/types/v2/static_signature.h>
 
 #include <cstddef>
-#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -18,6 +17,7 @@
 namespace hgraph::v2
 {
     struct NodeBuilder;
+    struct ChildGraphTemplate;
 
     namespace detail
     {
@@ -39,6 +39,11 @@ namespace hgraph::v2
     struct HGRAPH_EXPORT NodeBuilder
     {
         NodeBuilder() = default;
+        NodeBuilder(const NodeBuilder &other);
+        NodeBuilder(NodeBuilder &&other) noexcept;
+        NodeBuilder &operator=(const NodeBuilder &other);
+        NodeBuilder &operator=(NodeBuilder &&other) noexcept;
+        ~NodeBuilder();
 
         NodeBuilder &label(std::string value);
         [[nodiscard]] std::string_view label() const noexcept { return m_label; }
@@ -82,6 +87,7 @@ namespace hgraph::v2
             nb::object start_fn = nb::none(),
             nb::object stop_fn = nb::none());
         NodeBuilder &implementation_name(std::string value);
+        NodeBuilder &public_node_index(int64_t value) noexcept;
         NodeBuilder &uses_scheduler(bool value) noexcept;
         NodeBuilder &requires_resolved_schemas(bool value) noexcept;
 
@@ -92,6 +98,7 @@ namespace hgraph::v2
         [[nodiscard]] const nb::object &error_builder() const noexcept { return m_python_error_builder; }
         [[nodiscard]] const nb::object &recordable_state_builder() const noexcept { return m_python_recordable_state_builder; }
         [[nodiscard]] const std::string &implementation_name() const noexcept { return m_implementation_name; }
+        [[nodiscard]] int64_t public_node_index() const noexcept { return m_public_node_index; }
         [[nodiscard]] bool uses_scheduler() const noexcept { return m_uses_scheduler; }
         [[nodiscard]] bool requires_resolved_schemas() const noexcept { return m_requires_resolved_schemas; }
         [[nodiscard]] bool has_state() const noexcept { return m_has_state; }
@@ -169,6 +176,8 @@ namespace hgraph::v2
 
       private:
         friend struct GraphBuilder;
+        friend NodeBuilder &nested_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
+        friend NodeBuilder &try_except_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
         template <typename TState>
         friend const TState &detail::node_builder_type_state(const NodeBuilder &builder);
 
@@ -184,13 +193,15 @@ namespace hgraph::v2
                                                 int64_t node_index,
                                                 const std::vector<TSInputConstructionEdge> &inbound_edges);
             void (*destruct_at)(const NodeBuilder &builder, Node &node) noexcept;
+            [[nodiscard]] const void *(*clone_state)(const void *state);
+            void (*destroy_state)(const void *state) noexcept;
         };
 
         template <typename TState>
         [[nodiscard]] const TState &type_state() const
         {
             if (!m_type_state) { throw std::logic_error("v2 node builder type state was not configured"); }
-            return *static_cast<const TState *>(m_type_state.get());
+            return *static_cast<const TState *>(m_type_state);
         }
 
         void validate_complete() const
@@ -225,6 +236,7 @@ namespace hgraph::v2
         void set_python_type_state(nb::object eval_fn, nb::object start_fn, nb::object stop_fn);
         [[nodiscard]] static const TypeOps &static_type_ops();
         [[nodiscard]] static const TypeOps &python_type_ops();
+        void reset_type_state() noexcept;
 
         std::string m_label;
         NodeTypeEnum m_node_type{NodeTypeEnum::COMPUTE_NODE};
@@ -250,9 +262,10 @@ namespace hgraph::v2
         nb::object m_python_error_builder;
         nb::object m_python_recordable_state_builder;
         std::string m_implementation_name;
+        int64_t m_public_node_index{-1};
         bool m_requires_resolved_schemas{false};
 
         const TypeOps *m_type_ops{nullptr};
-        std::shared_ptr<const void> m_type_state;
+        const void *m_type_state{nullptr};
     };
 }  // namespace hgraph::v2

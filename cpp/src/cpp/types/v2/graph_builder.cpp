@@ -396,6 +396,7 @@ namespace hgraph::v2
             auto &src_node = graph.node_at(static_cast<size_t>(edge.src_node));
             auto &dst_node = graph.node_at(static_cast<size_t>(edge.dst_node));
 
+            if (edge.input_path.empty()) { continue; }
             if (!dst_node.has_input()) { throw std::logic_error("v2 graph builder destination node has no input"); }
 
             auto [source_view, source_schema] = select_source_output(src_node, edge);

@@ -537,6 +537,20 @@ if is_feature_enabled("use_cpp"):
             output_node_id=0,
         ):
             input_node_ids = dict(input_node_ids) if input_node_ids is not None else {}
+
+            if isinstance(nested_graph, _hgraph.v2.GraphBuilder):
+                return _hgraph.v2.build_nested_node(
+                    signature,
+                    scalars,
+                    input_builder,
+                    output_builder,
+                    error_builder,
+                    nested_graph,
+                    input_node_ids,
+                    output_node_id,
+                    True,
+                )
+
             output_node_id = -1 if output_node_id in (None, 0) else int(output_node_id)
             return _hgraph.TryExceptNodeBuilder(
                 signature,
@@ -598,6 +612,21 @@ if is_feature_enabled("use_cpp"):
             output_node_id=None,
         ):
             input_node_ids = dict(input_node_ids) if input_node_ids is not None else {}
+
+            # If the inner graph is a v2 GraphBuilder, use the v2 nested graph path
+            if isinstance(nested_graph, _hgraph.v2.GraphBuilder):
+                return _hgraph.v2.build_nested_node(
+                    signature,
+                    scalars,
+                    input_builder,
+                    output_builder,
+                    error_builder,
+                    nested_graph,
+                    input_node_ids,
+                    output_node_id,
+                    False,
+                )
+
             output_node_id = -1 if output_node_id in (None, 0) else int(output_node_id)
             return _hgraph.NestedGraphNodeBuilder(
                 signature,
@@ -717,8 +746,6 @@ if is_feature_enabled("use_cpp"):
                 error_builder=error_builder,
                 recordable_state_builder=recordable_state_builder,
             )
-
-
         hgraph._wiring._context_wiring.ContextNodeClass.BUILDER_CLASS = _context_node_builder
         
         # Setup C++ observer implementations

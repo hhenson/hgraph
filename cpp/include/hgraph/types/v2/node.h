@@ -21,19 +21,18 @@ namespace hgraph::v2
     struct Graph;
     struct NodeBuilder;
 
-    using Path = std::vector<int64_t>;
+    using Path     = std::vector<int64_t>;
     using PathView = std::span<const int64_t>;
 
     struct HGRAPH_EXPORT Node;
     struct HGRAPH_EXPORT NodeScheduler;
 
     /** Runtime node category, aligned with the existing Python/C++ node type names. */
-    enum class NodeTypeEnum
-    {
+    enum class NodeTypeEnum {
         PUSH_SOURCE_NODE = 0,
         PULL_SOURCE_NODE = 1,
-        COMPUTE_NODE = 2,
-        SINK_NODE = 3,
+        COMPUTE_NODE     = 2,
+        SINK_NODE        = 3,
     };
 
     /**
@@ -75,20 +74,21 @@ namespace hgraph::v2
      */
     struct HGRAPH_EXPORT BuiltNodeSpec
     {
-        const NodeRuntimeOps *runtime_ops{nullptr};
+        const NodeRuntimeOps           *runtime_ops{nullptr};
         const PushSourceNodeRuntimeOps *push_source_runtime_ops{nullptr};
-        void (*destruct)(Node &node) noexcept{nullptr};
+        void (*destruct)(Node &node) noexcept {nullptr};
         size_t scheduler_offset{0};
         size_t runtime_data_offset{0};
-        bool uses_scheduler{false};
+        bool   uses_scheduler{false};
 
         std::string_view label;
-        NodeTypeEnum node_type{NodeTypeEnum::COMPUTE_NODE};
-        const TSMeta *input_schema{nullptr};
-        const TSMeta *output_schema{nullptr};
-        const TSMeta *error_output_schema{nullptr};
-        const TSMeta *recordable_state_schema{nullptr};
-        bool has_explicit_active_inputs{false};
+        NodeTypeEnum     node_type{NodeTypeEnum::COMPUTE_NODE};
+        int64_t          public_node_index{-1};
+        const TSMeta    *input_schema{nullptr};
+        const TSMeta    *output_schema{nullptr};
+        const TSMeta    *error_output_schema{nullptr};
+        const TSMeta    *recordable_state_schema{nullptr};
+        bool             has_explicit_active_inputs{false};
 
         std::span<const size_t> active_inputs{};
         std::span<const size_t> valid_inputs{};
@@ -106,29 +106,30 @@ namespace hgraph::v2
     {
         explicit NodeScheduler(Node *node) noexcept : m_node(node) {}
 
-        NodeScheduler(const NodeScheduler &) = delete;
+        NodeScheduler(const NodeScheduler &)            = delete;
         NodeScheduler &operator=(const NodeScheduler &) = delete;
-        NodeScheduler(NodeScheduler &&) = default;
-        NodeScheduler &operator=(NodeScheduler &&) = default;
-        ~NodeScheduler() = default;
+        NodeScheduler(NodeScheduler &&)                 = default;
+        NodeScheduler &operator=(NodeScheduler &&)      = default;
+        ~NodeScheduler()                                = default;
 
         [[nodiscard]] engine_time_t next_scheduled_time() const noexcept;
-        [[nodiscard]] bool requires_scheduling() const noexcept;
-        [[nodiscard]] bool is_scheduled() const noexcept;
-        [[nodiscard]] bool is_scheduled_now() const noexcept;
-        [[nodiscard]] bool has_tag(std::string_view tag) const;
+        [[nodiscard]] bool          requires_scheduling() const noexcept;
+        [[nodiscard]] bool          is_scheduled() const noexcept;
+        [[nodiscard]] bool          is_scheduled_now() const noexcept;
+        [[nodiscard]] bool          has_tag(std::string_view tag) const;
         [[nodiscard]] engine_time_t pop_tag(std::string_view tag, engine_time_t default_time = MIN_DT);
         void schedule(engine_time_t when, std::optional<std::string> tag = std::nullopt, bool on_wall_clock = false);
         void schedule(engine_time_delta_t when, std::optional<std::string> tag = std::nullopt, bool on_wall_clock = false);
+        void schedule_immediate(std::optional<std::string> tag = std::nullopt);
         void un_schedule(const std::string &tag);
         void un_schedule();
         void reset();
         void advance();
 
       private:
-        Node *m_node{nullptr};
+        Node                                           *m_node{nullptr};
         std::set<std::pair<engine_time_t, std::string>> m_scheduled_events;
-        std::unordered_map<std::string, engine_time_t> m_tags;
+        std::unordered_map<std::string, engine_time_t>  m_tags;
     };
 
     /**
@@ -144,47 +145,50 @@ namespace hgraph::v2
     {
         Node(int64_t node_index, const BuiltNodeSpec *spec) noexcept;
 
-        Node(const Node &) = delete;
+        Node(const Node &)            = delete;
         Node &operator=(const Node &) = delete;
-        Node(Node &&) = delete;
-        Node &operator=(Node &&) = delete;
-        ~Node() override = default;
+        Node(Node &&)                 = delete;
+        Node &operator=(Node &&)      = delete;
+        ~Node() override              = default;
 
         void set_graph(Graph *graph) noexcept;
 
-        [[nodiscard]] Graph *graph() const noexcept;
-        [[nodiscard]] int64_t node_index() const noexcept;
-        [[nodiscard]] std::string_view label() const noexcept;
-        [[nodiscard]] std::string runtime_label() const;
-        [[nodiscard]] NodeTypeEnum node_type() const noexcept;
+        [[nodiscard]] Graph                      *graph() const noexcept;
+        [[nodiscard]] const std::vector<int64_t> &owning_graph_id() const noexcept;
+        [[nodiscard]] std::vector<int64_t>        node_id() const;
+        [[nodiscard]] int64_t                     node_index() const noexcept;
+        [[nodiscard]] int64_t                     public_node_index() const noexcept;
+        [[nodiscard]] std::string_view            label() const noexcept;
+        [[nodiscard]] std::string                 runtime_label() const;
+        [[nodiscard]] NodeTypeEnum                node_type() const noexcept;
         /** Push sources are drained by the realtime engine before the normal scheduled pass. */
         [[nodiscard]] bool is_push_source_node() const noexcept;
         /** Pull sources remain in the normal scheduled evaluation pass. */
-        [[nodiscard]] bool is_pull_source_node() const noexcept;
-        [[nodiscard]] const TSMeta *input_schema() const noexcept;
-        [[nodiscard]] const TSMeta *output_schema() const noexcept;
-        [[nodiscard]] const TSMeta *error_output_schema() const noexcept;
-        [[nodiscard]] const TSMeta *recordable_state_schema() const noexcept;
-        [[nodiscard]] bool has_input() const noexcept;
-        [[nodiscard]] bool has_output() const noexcept;
-        [[nodiscard]] bool has_error_output() const noexcept;
-        [[nodiscard]] bool has_recordable_state() const noexcept;
-        [[nodiscard]] bool started() const noexcept;
-        [[nodiscard]] bool uses_scheduler() const noexcept;
-        [[nodiscard]] bool has_scheduler() const noexcept;
-        [[nodiscard]] engine_time_t evaluation_time() const noexcept;
-        void set_started(bool value) noexcept;
-        [[nodiscard]] NodeScheduler &scheduler();
-        [[nodiscard]] NodeScheduler *scheduler_if_present() noexcept;
+        [[nodiscard]] bool                 is_pull_source_node() const noexcept;
+        [[nodiscard]] const TSMeta        *input_schema() const noexcept;
+        [[nodiscard]] const TSMeta        *output_schema() const noexcept;
+        [[nodiscard]] const TSMeta        *error_output_schema() const noexcept;
+        [[nodiscard]] const TSMeta        *recordable_state_schema() const noexcept;
+        [[nodiscard]] bool                 has_input() const noexcept;
+        [[nodiscard]] bool                 has_output() const noexcept;
+        [[nodiscard]] bool                 has_error_output() const noexcept;
+        [[nodiscard]] bool                 has_recordable_state() const noexcept;
+        [[nodiscard]] bool                 started() const noexcept;
+        [[nodiscard]] bool                 uses_scheduler() const noexcept;
+        [[nodiscard]] bool                 has_scheduler() const noexcept;
+        [[nodiscard]] engine_time_t        evaluation_time() const noexcept;
+        void                               set_started(bool value) noexcept;
+        [[nodiscard]] NodeScheduler       &scheduler();
+        [[nodiscard]] NodeScheduler       *scheduler_if_present() noexcept;
         [[nodiscard]] const NodeScheduler *scheduler_if_present() const noexcept;
-        [[nodiscard]] void *data() noexcept;
-        [[nodiscard]] const void *data() const noexcept;
+        [[nodiscard]] void                *data() noexcept;
+        [[nodiscard]] const void          *data() const noexcept;
 
         /** View access is delegated to the node family via NodeRuntimeOps. */
-        [[nodiscard]] TSInputView input_view(engine_time_t evaluation_time = MIN_DT);
-        [[nodiscard]] TSOutputView output_view(engine_time_t evaluation_time = MIN_DT);
-        [[nodiscard]] TSOutputView error_output_view(engine_time_t evaluation_time = MIN_DT);
-        [[nodiscard]] TSOutputView recordable_state_view(engine_time_t evaluation_time = MIN_DT);
+        [[nodiscard]] TSInputView          input_view(engine_time_t evaluation_time = MIN_DT);
+        [[nodiscard]] TSOutputView         output_view(engine_time_t evaluation_time = MIN_DT);
+        [[nodiscard]] TSOutputView         error_output_view(engine_time_t evaluation_time = MIN_DT);
+        [[nodiscard]] TSOutputView         recordable_state_view(engine_time_t evaluation_time = MIN_DT);
         [[nodiscard]] const BuiltNodeSpec &spec() const noexcept;
 
         /** Apply top-level valid/all_valid gating before calling eval. */
@@ -206,10 +210,11 @@ namespace hgraph::v2
 
         [[nodiscard]] TSInputView resolve_input_slot(size_t slot, engine_time_t evaluation_time);
 
-        Graph *m_graph{nullptr};
+        Graph               *m_graph{nullptr};
         const BuiltNodeSpec *m_spec{nullptr};
-        int64_t m_node_index{-1};
-        bool m_started{false};
+        int64_t              m_node_index{-1};
+        int64_t              m_public_node_index{-1};
+        bool                 m_started{false};
     };
 
 }  // namespace hgraph::v2

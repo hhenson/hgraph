@@ -46,6 +46,22 @@ namespace hgraph::v2
             };
         }
 
+        [[nodiscard]] LinkedTSContext linked_context_from_input(const TSInputView &input) noexcept
+        {
+            const TSViewContext &context  = input.context_ref();
+            const TSViewContext  resolved = context.resolved();
+            return LinkedTSContext{
+                resolved.schema,
+                resolved.value_dispatch,
+                resolved.ts_dispatch,
+                resolved.value_data,
+                context.ts_state,
+                resolved.owning_output,
+                resolved.output_view_ops,
+                context.notification_state,
+            };
+        }
+
     }  // namespace
 
     TimeSeriesReference atomic_default_value(std::type_identity<TimeSeriesReference>)
@@ -182,7 +198,7 @@ namespace hgraph::v2
                 case TSKind::REF:
                     {
                         if (target != nullptr && target->is_bound() && (target->schema == nullptr || target->schema->kind != TSKind::REF)) {
-                            TimeSeriesReference ref{*target};
+                            TimeSeriesReference ref{linked_context_from_input(input)};
                             ref.m_observed_time = input.last_modified_time();
                             return ref;
                         }
@@ -195,7 +211,7 @@ namespace hgraph::v2
                     }
 
                 case TSKind::TSB:
-                    if (target != nullptr && target->is_bound()) { return TimeSeriesReference(*target); }
+                    if (target != nullptr && target->is_bound()) { return TimeSeriesReference(linked_context_from_input(input)); }
                     {
                         std::vector<TimeSeriesReference> refs;
                         auto bundle = input.as_bundle();
@@ -208,7 +224,7 @@ namespace hgraph::v2
                     }
 
                 case TSKind::TSL:
-                    if (target != nullptr && target->is_bound()) { return TimeSeriesReference(*target); }
+                    if (target != nullptr && target->is_bound()) { return TimeSeriesReference(linked_context_from_input(input)); }
                     {
                         std::vector<TimeSeriesReference> refs;
                         auto list = input.as_list();
@@ -226,7 +242,7 @@ namespace hgraph::v2
                 case TSKind::TSValue:
                 case TSKind::SIGNAL:
                     if (target != nullptr && target->is_bound()) {
-                        TimeSeriesReference ref{*target};
+                        TimeSeriesReference ref{linked_context_from_input(input)};
                         ref.m_observed_time = input.last_modified_time();
                         return ref;
                     }

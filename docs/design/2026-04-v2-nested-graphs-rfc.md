@@ -178,7 +178,6 @@ ChildGraphTemplate
   default_label: string
   flags:
     has_output
-    captures_exception
     requires_context
 ```
 

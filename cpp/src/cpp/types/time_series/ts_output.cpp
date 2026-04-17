@@ -160,7 +160,8 @@ namespace hgraph
         [[nodiscard]] const RefLinkState *switching_ref_state(const TSViewContext &context) noexcept
         {
             const BaseState *state = context.ts_state;
-            while (state != nullptr && state->storage_kind == TSStorageKind::TargetLink) {
+            while (state != nullptr &&
+                   (state->storage_kind == TSStorageKind::TargetLink || state->storage_kind == TSStorageKind::OutputLink)) {
                 const LinkedTSContext *target = state->linked_target();
                 state = target != nullptr ? target->ts_state : nullptr;
             }
@@ -222,6 +223,32 @@ namespace hgraph
 
             dict_state->on_insert(slot);
             return view.as_dict().at(key);
+        }
+
+        [[nodiscard]] TimeSeriesStateV *owning_state_variant(BaseState *state, TSOutput *root_output) noexcept
+        {
+            if (state == nullptr) { return nullptr; }
+            if (root_output != nullptr) {
+                auto &root_state = root_output->root_state_variant();
+                if (std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, root_state) == state) { return &root_state; }
+            }
+
+            TimeSeriesStateV *slot = nullptr;
+            hgraph::visit(
+                state->parent,
+                [&](auto *parent) {
+                    using T = std::remove_pointer_t<decltype(parent)>;
+                    if constexpr (std::same_as<T, TSLState> || std::same_as<T, TSDState> || std::same_as<T, TSBState> ||
+                                  std::same_as<T, SignalState>) {
+                        if (parent != nullptr && state->index < parent->child_states.size() && parent->child_states[state->index] != nullptr &&
+                            std::visit([](auto &typed_state) -> BaseState * { return &typed_state; }, *parent->child_states[state->index]) ==
+                                state) {
+                            slot = parent->child_states[state->index].get();
+                        }
+                    }
+                },
+                [] {});
+            return slot;
         }
 
     }  // namespace
@@ -3033,6 +3060,63 @@ namespace hgraph
             owning_output->sync_ref_target_subscriptions(evaluation_time);
         }
         context.ts_state->mark_modified(evaluation_time);
+    }
+
+    namespace
+    {
+        [[nodiscard]] OutputLinkState *ensure_output_link_state(const TSOutputView &target)
+        {
+            const TSMeta *target_schema = target.ts_schema();
+            if (target_schema == nullptr) { throw std::invalid_argument("prepare_output_link requires a target schema"); }
+
+            BaseState *target_state = target.context_ref().ts_state;
+            if (target_state == nullptr) { throw std::logic_error("prepare_output_link requires a live target state"); }
+
+            TimeSeriesStateV *slot = owning_state_variant(target_state, target.owning_output());
+            if (slot == nullptr) { throw std::logic_error("prepare_output_link could not resolve the owning target state slot"); }
+
+            if (target_state->storage_kind == TSStorageKind::OutputLink) {
+                return static_cast<OutputLinkState *>(target_state);
+            }
+
+            const TimeSeriesStateParentPtr parent = target_state->parent;
+            const size_t index = target_state->index;
+            const engine_time_t last_modified_time = target_state->last_modified_time;
+            auto &new_state = slot->emplace<OutputLinkState>();
+            initialize_base_state(new_state, parent, index, last_modified_time, TSStorageKind::OutputLink);
+            new_state.target.clear();
+            return &new_state;
+        }
+    }
+
+    void prepare_output_link(const TSOutputView &target)
+    {
+        static_cast<void>(ensure_output_link_state(target));
+    }
+
+    bool bind_output_link(const TSOutputView &target, const TSOutputView &source)
+    {
+        const TSMeta *target_schema = target.ts_schema();
+        const TSMeta *source_schema = source.ts_schema();
+        if (target_schema == nullptr || source_schema == nullptr || target_schema != source_schema) {
+            throw std::invalid_argument("bind_output_link requires matching source and target schemas");
+        }
+
+        BaseState *target_state = target.context_ref().ts_state;
+        if (target_state == nullptr) { throw std::logic_error("bind_output_link requires a live target state"); }
+        OutputLinkState *link_state = ensure_output_link_state(target);
+
+        const LinkedTSContext source_context = source.linked_context();
+        if (detail::linked_context_equal(link_state->target, source_context)) { return false; }
+        link_state->set_target(source_context);
+        return true;
+    }
+
+    void clear_output_link(const TSOutputView &target)
+    {
+        BaseState *target_state = target.context_ref().ts_state;
+        if (target_state == nullptr || target_state->storage_kind != TSStorageKind::OutputLink) { return; }
+        static_cast<OutputLinkState *>(target_state)->reset_target();
     }
 
     nb::object detail::TSDispatch::to_python(const TSViewContext &context, engine_time_t) const

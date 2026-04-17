@@ -16,6 +16,11 @@
 
 namespace hgraph
 {
+    namespace v2
+    {
+        struct Node;
+    }
+
     struct ActiveTrieNode;
 
     struct TSMeta;
@@ -28,6 +33,7 @@ namespace hgraph
     struct TSBState;
     struct TSSState;
     struct TSWState;
+    struct OutputLinkState;
     struct TargetLinkState;
     struct RefLinkState;
     struct SignalState;
@@ -60,20 +66,21 @@ namespace hgraph
      * used in the struct model.
      */
     using TimeSeriesStateV =
-        std::variant<TSState, TSLState, TSDState, TSBState, TSSState, TSWState, TargetLinkState, RefLinkState, SignalState>;
+        std::variant<TSState, TSLState, TSDState, TSBState, TSSState, TSWState, OutputLinkState, TargetLinkState, RefLinkState,
+                     SignalState>;
 
     /**
      * Pointer variant covering all concrete time-series state types.
      */
     using TimeSeriesStatePtr = std::variant<TSState *, TSLState *, TSDState *, TSBState *, TSSState *, TSWState *,
-                                            TargetLinkState *, RefLinkState *, SignalState *>;
+                                            OutputLinkState *, TargetLinkState *, RefLinkState *, SignalState *>;
 
     /**
      * Pointer variant covering all concrete time-series state types plus the
      * root output endpoint.
      */
     using TimeSeriesStateParentPtr =
-        pointer_aligned_discriminated_ptr<TSLState, TSDState, TSBState, SignalState, TSInput, TSOutput>;
+        pointer_aligned_discriminated_ptr<TSLState, TSDState, TSBState, SignalState, v2::Node, TSInput, TSOutput>;
 
     /**
      * Identifies the storage backend carried by a logical TS state node.
@@ -85,6 +92,7 @@ namespace hgraph
     enum class TSStorageKind : uint8_t
     {
         Native,
+        OutputLink,
         TargetLink,
         RefLink,
     };
@@ -410,6 +418,44 @@ namespace hgraph
     {
         engine_time_t first_observed_time{MIN_DT};
         bool          ready{false};
+    };
+
+    /**
+     * Storage carried by an output-linked logical time-series position.
+     *
+     * Unlike TargetLinkState, this is output-side only. It redirects one
+     * outward-facing output position to another output position and preserves
+     * normal output/subscriber semantics without any input scheduling logic.
+     */
+    struct HGRAPH_EXPORT OutputLinkState : BaseState
+    {
+        struct TargetNotifiable : Notifiable
+        {
+            explicit TargetNotifiable(OutputLinkState *self) noexcept;
+
+            void notify(engine_time_t modified_time) override;
+
+            OutputLinkState *self;
+        };
+
+        OutputLinkState() noexcept;
+        ~OutputLinkState();
+
+        OutputLinkState(OutputLinkState &&other) noexcept;
+        OutputLinkState &operator=(OutputLinkState &&other) noexcept;
+
+        OutputLinkState(const OutputLinkState &) = delete;
+        OutputLinkState &operator=(const OutputLinkState &) = delete;
+
+        void set_target(LinkedTSContext target_state) noexcept;
+        void reset_target() noexcept;
+
+        LinkedTSContext target;
+        TargetNotifiable target_notifiable;
+
+      private:
+        void register_with_target() noexcept;
+        void unregister_from_target() noexcept;
     };
 
     /**

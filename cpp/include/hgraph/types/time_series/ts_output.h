@@ -49,6 +49,8 @@ struct HGRAPH_EXPORT TSOutput : TSValue {
      * Return the binding handle representing this output's current root view.
      */
     [[nodiscard]] LinkedTSContext linked_context() noexcept { return TSValue::linked_context(); }
+    [[nodiscard]] TimeSeriesStateV &root_state_variant() noexcept { return root_state_variant_ref(); }
+    [[nodiscard]] const TimeSeriesStateV &root_state_variant() const noexcept { return root_state_variant_ref(); }
 
     [[nodiscard]] TSOutputView view(engine_time_t evaluation_time = MIN_DT);
 
@@ -92,5 +94,8 @@ private:
  * children synchronized with the same engine tick.
  */
 HGRAPH_EXPORT void mark_output_view_modified(const TSOutputView &view, engine_time_t evaluation_time);
+HGRAPH_EXPORT void prepare_output_link(const TSOutputView &target);
+[[nodiscard]] HGRAPH_EXPORT bool bind_output_link(const TSOutputView &target, const TSOutputView &source);
+HGRAPH_EXPORT void clear_output_link(const TSOutputView &target);
 
 }  // namespace hgraph

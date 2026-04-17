@@ -1,3 +1,5 @@
+#include <hgraph/api/python/wrapper_factory.h>
+#include <hgraph/api/python/py_ref.h>
 #include <hgraph/nodes/nest_graph_node.h>
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
@@ -11,6 +13,8 @@
 #include <hgraph/nodes/v2/basic_nodes.h>
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/nodes/context_node.h>
+#include <hgraph/python/global_keys.h>
+#include <hgraph/python/global_state.h>
 #include <hgraph/nodes/python_generator_node.h>
 #include <hgraph/nodes/push_queue_node.h>
 #include <hgraph/runtime/graph_executor.h>
@@ -18,7 +22,9 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/v2/child_graph.h>
 #include <hgraph/types/v2/evaluation_engine.h>
+#include <hgraph/types/v2/nested_node_builder.h>
 #include <hgraph/types/v2/graph_builder.h>
 #include <hgraph/types/v2/python_node_support.h>
 #include <hgraph/types/v2/python_export.h>
@@ -32,13 +38,82 @@ namespace
     using hgraph::TSOutputView;
     using hgraph::TSViewContext;
     using hgraph::View;
+
     using hgraph::Value;
     using hgraph::BaseState;
+    using hgraph::TimeSeriesOutput;
+    using hgraph::TimeSeriesReferenceInput;
+    using hgraph::TimeSeriesReferenceOutput;
+    using hgraph::PyTimeSeriesReferenceInput;
+    using hgraph::PyTimeSeriesReferenceOutput;
+    using hgraph::GlobalState;
     using hgraph::engine_time_t;
     using namespace hgraph::v2;
+    namespace keys = hgraph::keys;
 
     namespace
     {
+        [[nodiscard]] Node *owner_node_from_linked_context(const hgraph::LinkedTSContext &context) noexcept
+        {
+            const auto owner_from_output = [&](hgraph::TSOutput *output) noexcept -> Node * {
+                if (output == nullptr) { return nullptr; }
+                Node *owner = nullptr;
+                std::visit(
+                    [&](auto &state) {
+                        hgraph::visit(
+                            state.parent,
+                            [&](Node *parent) noexcept { owner = parent; },
+                            [](auto *) noexcept {},
+                            []() noexcept {});
+                    },
+                    output->root_state_variant());
+                return owner;
+            };
+
+            hgraph::BaseState *cursor = context.notification_state != nullptr ? context.notification_state : context.ts_state;
+            while (cursor != nullptr) {
+                Node *owner = nullptr;
+                bool  advanced = false;
+                hgraph::visit(
+                    cursor->parent,
+                    [&](hgraph::TSLState *parent) {
+                        cursor = parent;
+                        advanced = true;
+                    },
+                    [&](hgraph::TSDState *parent) {
+                        cursor = parent;
+                        advanced = true;
+                    },
+                    [&](hgraph::TSBState *parent) {
+                        cursor = parent;
+                        advanced = true;
+                    },
+                    [&](hgraph::SignalState *parent) {
+                        cursor = parent;
+                        advanced = true;
+                    },
+                    [&](Node *parent) {
+                        owner = parent;
+                        cursor = nullptr;
+                        advanced = true;
+                    },
+                    [&](hgraph::TSInput *parent) {
+                        static_cast<void>(parent);
+                        cursor = nullptr;
+                        advanced = true;
+                    },
+                    [&](hgraph::TSOutput *parent) {
+                        owner = owner_from_output(parent);
+                        cursor = nullptr;
+                        advanced = true;
+                    },
+                    [] {});
+                if (owner != nullptr) { return owner; }
+                if (!advanced) { break; }
+            }
+            return owner_from_output(context.owning_output);
+        }
+
         [[nodiscard]] bool input_has_binding(const TSInputView &view) noexcept
         {
             if (const auto *target = view.linked_target(); target != nullptr) { return target->is_bound(); }
@@ -380,6 +455,197 @@ namespace
         }
     };
 
+    struct StaticContextOutputNode
+    {
+        StaticContextOutputNode() = delete;
+        ~StaticContextOutputNode() = delete;
+
+        static constexpr auto name = "get_context_output";
+        static constexpr auto node_type = NodeTypeEnum::PULL_SOURCE_NODE;
+
+        using ContextTs = TsVar<"CONTEXT_TIME_SERIES_TYPE">;
+        static constexpr intptr_t state_subscription_tag = 1;
+
+        [[nodiscard]] static int64_t raw_subscription(State<int64_t> state)
+        {
+            return state.view().template checked_as<int64_t>();
+        }
+
+        [[nodiscard]] static TimeSeriesOutput *subscribed_output(State<int64_t> state)
+        {
+            const intptr_t raw = static_cast<intptr_t>(raw_subscription(state));
+            if (raw == 0 || (raw & state_subscription_tag) != 0) { return nullptr; }
+            return reinterpret_cast<TimeSeriesOutput *>(raw);
+        }
+
+        [[nodiscard]] static BaseState *subscribed_state(State<int64_t> state)
+        {
+            const intptr_t raw = static_cast<intptr_t>(raw_subscription(state));
+            if (raw == 0 || (raw & state_subscription_tag) == 0) { return nullptr; }
+            return reinterpret_cast<BaseState *>(raw & ~state_subscription_tag);
+        }
+
+        static void set_subscribed_output(State<int64_t> state, TimeSeriesOutput *output)
+        {
+            state.view().set_scalar(static_cast<int64_t>(reinterpret_cast<intptr_t>(output)));
+        }
+
+        static void set_subscribed_state(State<int64_t> state, BaseState *output_state)
+        {
+            const intptr_t raw = reinterpret_cast<intptr_t>(output_state);
+            state.view().set_scalar(static_cast<int64_t>(raw | state_subscription_tag));
+        }
+
+        static void clear_subscription(Node &node, State<int64_t> state)
+        {
+            if (TimeSeriesOutput *output = subscribed_output(state); output != nullptr) {
+                output->un_subscribe(&node);
+            }
+            if (BaseState *output_state = subscribed_state(state); output_state != nullptr) {
+                output_state->unsubscribe(&node);
+            }
+            state.view().set_scalar(static_cast<int64_t>(0));
+        }
+
+        static void start(Node &node, engine_time_t evaluation_time, State<int64_t> state)
+        {
+            state.view().set_scalar(static_cast<int64_t>(0));
+            node.notify(evaluation_time);
+        }
+
+        static void stop(Node &node, State<int64_t> state)
+        {
+            clear_subscription(node, state);
+        }
+
+        static void eval(Node &node,
+                         ScalarArg<"path", std::string> path,
+                         ScalarArg<"depth", int> depth,
+                         State<int64_t> state,
+                         Out<REF<ContextTs>> out)
+        {
+            const auto &owning_graph_id = node.owning_graph_id();
+            const int   requested_depth = depth.value();
+            const int   use = requested_depth >= 0
+                                  ? std::min<int>(requested_depth, static_cast<int>(owning_graph_id.size()))
+                                  : std::max<int>(0, static_cast<int>(owning_graph_id.size()) + requested_depth);
+
+            std::vector<int64_t> owning_graph_prefix;
+            owning_graph_prefix.reserve(static_cast<size_t>(use));
+            for (int i = 0; i < use; ++i) {
+                owning_graph_prefix.push_back(owning_graph_id[static_cast<size_t>(i)]);
+            }
+
+            const std::string key = keys::context_output_key(owning_graph_prefix, path.value());
+            nb::object        shared = GlobalState::get(key, nb::none());
+            if (!shared.is_valid() || shared.is_none()) {
+                std::string diag;
+                try {
+                    nb::object gs = GlobalState::instance();
+                    nb::object keys_obj = gs.attr("keys")();
+                    std::vector<std::string> ctx_keys;
+                    for (auto item : nb::iter(keys_obj)) {
+                        std::string s = nb::cast<std::string>(nb::str(item));
+                        if (s.rfind("context-", 0) == 0) { ctx_keys.push_back(s); }
+                    }
+                    if (!ctx_keys.empty()) {
+                        diag = fmt::format(" Available context keys: [{}]", fmt::join(ctx_keys, ", "));
+                    }
+                } catch (...) {}
+                throw std::runtime_error(fmt::format("Missing shared output for path: {}{}", key, diag));
+            }
+
+            nb::object        value = nb::none();
+            TimeSeriesOutput *output_ts = nullptr;
+            BaseState        *output_state = nullptr;
+
+            if (nb::isinstance<TimeSeriesReference>(shared)) {
+                const auto ref = nb::cast<TimeSeriesReference>(shared);
+                if (ref.is_peered()) {
+                    const auto &target = ref.target();
+                    output_state = target.notification_state != nullptr ? target.notification_state : target.ts_state;
+                }
+                value = shared;
+            } else if (nb::isinstance<PyTimeSeriesReferenceOutput>(shared)) {
+                auto output = hgraph::unwrap_output_as<TimeSeriesReferenceOutput>(shared);
+                output_ts = output.get();
+                value = shared.attr("value");
+            } else if (nb::isinstance<PyTimeSeriesReferenceInput>(shared)) {
+                auto ref = hgraph::unwrap_input_as<TimeSeriesReferenceInput>(shared);
+                if (ref->has_peer()) { output_ts = ref->output(); }
+                value = shared.attr("value");
+            } else {
+                throw std::runtime_error(
+                    fmt::format("Context found an unknown output type bound to {}: {}", key, nb::str(shared.type()).c_str()));
+            }
+
+            if (output_ts != nullptr) {
+                TimeSeriesOutput *current_output = subscribed_output(state);
+                BaseState        *current_state  = subscribed_state(state);
+                if (current_output != output_ts || current_state != nullptr) {
+                    clear_subscription(node, state);
+                    output_ts->subscribe(&node);
+                    set_subscribed_output(state, output_ts);
+                }
+            } else if (output_state != nullptr) {
+                TimeSeriesOutput *current_output = subscribed_output(state);
+                BaseState        *current_state  = subscribed_state(state);
+                if (current_output != nullptr || current_state != output_state) {
+                    clear_subscription(node, state);
+                    output_state->subscribe(&node);
+                    set_subscribed_state(state, output_state);
+                }
+            }
+
+            out.view().from_python(value);
+        }
+    };
+
+    struct StaticCaptureContextNode
+    {
+        StaticCaptureContextNode() = delete;
+        ~StaticCaptureContextNode() = delete;
+
+        static constexpr auto name = "capture_context";
+        static constexpr auto node_type = NodeTypeEnum::SINK_NODE;
+
+        using ContextTs = TsVar<"TIME_SERIES_TYPE">;
+
+        static void start(Node &node,
+                          ScalarArg<"path", std::string> path,
+                          In<"ts", REF<ContextTs>> ts,
+                          State<std::string> state)
+        {
+            std::vector<int64_t> owning_graph_id = node.owning_graph_id();
+            const auto           ref = TimeSeriesReference::make(ts.view());
+
+            if (ref.is_peered()) {
+                if (Node *owner = owner_node_from_linked_context(ref.target()); owner != nullptr) {
+                    const auto &owner_graph_id = owner->owning_graph_id();
+                    if (!owner_graph_id.empty()) { owning_graph_id = owner_graph_id; }
+                }
+            }
+
+            const std::string key = keys::context_output_key(owning_graph_id, path.value());
+            state.view().set_scalar(key);
+            GlobalState::set(key, nb::cast(ref));
+        }
+
+        static void eval(ScalarArg<"path", std::string> path, In<"ts", REF<ContextTs>> ts, State<std::string> state)
+        {
+            static_cast<void>(path);
+            static_cast<void>(ts);
+            static_cast<void>(state);
+        }
+
+        static void stop(State<std::string> state)
+        {
+            if (const auto *key = state.view().as_atomic().template try_as<std::string>(); key != nullptr && !key->empty()) {
+                GlobalState::remove(*key);
+            }
+        }
+    };
+
     struct ValidImplNode
     {
         ValidImplNode() = delete;
@@ -622,7 +888,14 @@ namespace
         if (meta.is_none()) { return nullptr; }
 
         nb::object cpp_type = nb::borrow(meta).attr("cpp_type");
-        if (cpp_type.is_none()) { return nullptr; }
+        if (cpp_type.is_none()) {
+            nb::object is_context_wired = nb::getattr(nb::borrow(meta), "is_context_wired", nb::bool_(false));
+            if (nb::cast<bool>(is_context_wired)) {
+                nb::object ts_type = nb::getattr(nb::borrow(meta), "ts_type", nb::none());
+                if (!ts_type.is_none()) { return cpp_ts_meta_or_none(ts_type); }
+            }
+            return nullptr;
+        }
         return nb::cast<const TSMeta *>(cpp_type);
     }
 
@@ -826,11 +1099,6 @@ namespace
                                                        nb::object start_fn,
                                                        nb::object stop_fn)
     {
-        nb::object context_inputs = signature.attr("context_inputs");
-        if (!context_inputs.is_none() && nb::len(context_inputs) > 0) {
-            throw std::invalid_argument("v2 Python-backed nodes do not yet support context-manager inputs");
-        }
-
         const NodeTypeEnum node_type = nb::cast<NodeTypeEnum>(signature.attr("node_type"));
 
         const TSMeta *input_schema = input_schema_from_node_signature(signature);
@@ -856,6 +1124,175 @@ namespace
         if (error_output_schema != nullptr) { builder.error_output_schema(error_output_schema); }
         if (recordable_state_schema != nullptr) { builder.recordable_state_schema(recordable_state_schema); }
         apply_selector_policies(builder, signature, input_schema);
+        return builder;
+    }
+
+    [[nodiscard]] NodeBuilder make_nested_graph_node_builder(nb::object signature,
+                                                             nb::handle scalars,
+                                                             nb::object input_builder,
+                                                             nb::object output_builder,
+                                                             nb::object error_builder,
+                                                             const GraphBuilder &nested_graph,
+                                                             nb::dict input_node_ids,
+                                                             nb::object output_node_id_obj,
+                                                             bool try_except)
+    {
+        int64_t output_node_id = -1;
+        if (output_node_id_obj.is_valid() && !output_node_id_obj.is_none()) {
+            output_node_id = nb::cast<int64_t>(output_node_id_obj);
+        }
+
+        std::unordered_set<int64_t> stub_indices;
+        for (auto item : input_node_ids.items()) {
+            stub_indices.insert(nb::cast<int64_t>(nb::borrow<nb::tuple>(item)[1]));
+        }
+        if (output_node_id >= 0) { stub_indices.insert(output_node_id); }
+
+        std::unordered_map<int64_t, int64_t> old_to_new;
+        std::vector<NodeBuilder>             clean_builders;
+        clean_builders.reserve(nested_graph.node_builder_count());
+
+        int64_t new_index = 0;
+        for (size_t old_index = 0; old_index < nested_graph.node_builder_count(); ++old_index) {
+            const int64_t old_index_i64 = static_cast<int64_t>(old_index);
+            if (stub_indices.contains(old_index_i64)) { continue; }
+
+            NodeBuilder builder = nested_graph.node_builder_at(old_index);
+            builder.public_node_index(old_index_i64);
+            clean_builders.push_back(std::move(builder));
+            old_to_new.emplace(old_index_i64, new_index++);
+        }
+
+        std::vector<Edge> clean_edges;
+        clean_edges.reserve(nested_graph.edges().size());
+        for (const auto &edge : nested_graph.edges()) {
+            if (stub_indices.contains(edge.src_node) || stub_indices.contains(edge.dst_node)) { continue; }
+            clean_edges.emplace_back(
+                old_to_new.at(edge.src_node),
+                edge.output_path,
+                old_to_new.at(edge.dst_node),
+                edge.input_path);
+        }
+
+        BoundaryBindingPlan plan;
+        for (auto item : input_node_ids.items()) {
+            const nb::tuple pair     = nb::borrow<nb::tuple>(item);
+            const auto      arg_name = nb::cast<std::string>(pair[0]);
+            const auto      stub_idx = nb::cast<int64_t>(pair[1]);
+
+            for (const auto &edge : nested_graph.edges()) {
+                if (edge.src_node == stub_idx && old_to_new.contains(edge.dst_node)) {
+                    plan.inputs.push_back(InputBindingSpec{
+                        .arg_name         = arg_name,
+                        .mode             = InputBindingMode::BIND_DIRECT,
+                        .child_node_index = old_to_new.at(edge.dst_node),
+                        .child_input_path = edge.input_path,
+                    });
+                }
+            }
+        }
+
+        if (output_node_id >= 0) {
+            for (const auto &edge : nested_graph.edges()) {
+                if (edge.dst_node != output_node_id) { continue; }
+
+                if (old_to_new.contains(edge.src_node)) {
+                    plan.outputs.push_back(OutputBindingSpec{
+                        .mode              = OutputBindingMode::ALIAS_CHILD_OUTPUT,
+                        .child_node_index  = old_to_new.at(edge.src_node),
+                        .child_output_path = edge.output_path,
+                    });
+                    continue;
+                }
+
+                for (auto item : input_node_ids.items()) {
+                    const nb::tuple pair     = nb::borrow<nb::tuple>(item);
+                    const auto      arg_name = nb::cast<std::string>(pair[0]);
+                    const auto      stub_idx = nb::cast<int64_t>(pair[1]);
+                    if (edge.src_node != stub_idx) { continue; }
+
+                    plan.outputs.push_back(OutputBindingSpec{
+                        .mode               = OutputBindingMode::ALIAS_PARENT_INPUT,
+                        .parent_arg_name    = arg_name,
+                        .child_node_index   = -1,
+                        .child_output_path  = edge.output_path,
+                        .parent_output_path = {},
+                    });
+                    break;
+                }
+            }
+        }
+
+        const auto *tmpl = ChildGraphTemplate::create(
+            GraphBuilder{std::move(clean_builders), std::move(clean_edges)},
+            std::move(plan),
+            nb::cast<std::string>(signature.attr("name")),
+            ChildGraphTemplateFlags{.has_output = output_node_id >= 0});
+
+        nb::dict unwrapped_inputs;
+        nb::object time_series_inputs = signature.attr("time_series_inputs");
+        if (!time_series_inputs.is_none()) {
+            for (auto item : nb::borrow<nb::dict>(time_series_inputs).items()) {
+                const nb::tuple pair = nb::borrow<nb::tuple>(item);
+                unwrapped_inputs[pair[0]] = nb::borrow(pair[1]).attr("dereference")();
+            }
+        }
+
+        nb::object time_series_output = signature.attr("time_series_output");
+        nb::object unwrapped_output =
+            time_series_output.is_none() ? nb::none() : nb::borrow(time_series_output).attr("dereference")();
+
+        nb::object unwrapped_signature = signature.attr("copy_with")(
+            "time_series_inputs"_a = std::move(unwrapped_inputs),
+            "time_series_output"_a = std::move(unwrapped_output));
+
+        nb::object unwrapped_input_builder  = std::move(input_builder);
+        nb::object unwrapped_output_builder = std::move(output_builder);
+        nb::object unwrapped_error_builder  = std::move(error_builder);
+
+        try {
+            nb::object create_builders =
+                nb::module_::import_("hgraph._wiring._wiring_node_class._wiring_node_class").attr("create_input_output_builders");
+            nb::tuple builders = nb::cast<nb::tuple>(create_builders(unwrapped_signature, nb::none()));
+            unwrapped_input_builder  = nb::borrow(builders[0]);
+            unwrapped_output_builder = nb::borrow(builders[1]);
+            unwrapped_error_builder  = nb::borrow(builders[2]);
+        } catch (const nb::python_error &) {}
+
+        hgraph::v2::NodeTypeEnum node_type = hgraph::v2::NodeTypeEnum::COMPUTE_NODE;
+        const std::string        node_type_name = nb::cast<std::string>(signature.attr("node_type").attr("name"));
+        if (node_type_name == "PUSH_SOURCE_NODE") {
+            node_type = hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE;
+        } else if (node_type_name == "PULL_SOURCE_NODE") {
+            node_type = hgraph::v2::NodeTypeEnum::PULL_SOURCE_NODE;
+        } else if (node_type_name == "SINK_NODE") {
+            node_type = hgraph::v2::NodeTypeEnum::SINK_NODE;
+        }
+
+        const TSMeta *input_schema = input_schema_from_node_signature(unwrapped_signature);
+        const TSMeta *output_schema = output_schema_from_node_signature(unwrapped_signature);
+        const TSMeta *error_output_schema = error_output_schema_from_node_signature(unwrapped_signature);
+
+        NodeBuilder builder;
+        builder.node_type(node_type)
+            .python_signature(nb::borrow(unwrapped_signature))
+            .python_scalars(dict_or_empty(nb::borrow(scalars)))
+            .python_input_builder(std::move(unwrapped_input_builder))
+            .python_output_builder(std::move(unwrapped_output_builder))
+            .python_error_builder(std::move(unwrapped_error_builder))
+            .implementation_name(nb::cast<std::string>(signature.attr("name")))
+            .requires_resolved_schemas(true);
+
+        if (input_schema != nullptr) { builder.input_schema(input_schema); }
+        if (output_schema != nullptr) { builder.output_schema(output_schema); }
+        if (error_output_schema != nullptr) { builder.error_output_schema(error_output_schema); }
+        apply_selector_policies(builder, unwrapped_signature, input_schema);
+
+        if (try_except) {
+            hgraph::v2::try_except_graph_implementation(builder, tmpl);
+        } else {
+            hgraph::v2::nested_graph_implementation(builder, tmpl);
+        }
         return builder;
     }
 
@@ -1192,8 +1629,22 @@ void export_nodes(nb::module_ &m) {
         .def("build", &hgraph::v2::EvaluationEngineBuilder::build);
 
     v2.def("reset_static_sink_state", &StaticSinkNode::reset);
+    v2.def("reset_child_graph_template_registry", [] { ChildGraphTemplateRegistry::instance().reset(); });
+    v2.def("child_graph_template_registry_size", [] { return ChildGraphTemplateRegistry::instance().size(); });
     v2.def("static_sink_call_count", [] { return StaticSinkNode::call_count; });
     v2.def("static_sink_last_value", [] { return StaticSinkNode::last_value; });
+    v2.def(
+        "build_nested_node",
+        &make_nested_graph_node_builder,
+        "signature"_a,
+        "scalars"_a,
+        "input_builder"_a = nb::none(),
+        "output_builder"_a = nb::none(),
+        "error_builder"_a = nb::none(),
+        "nested_graph"_a,
+        "input_node_ids"_a,
+        "output_node_id"_a = nb::none(),
+        "try_except"_a = false);
 
     hgraph::v2::export_compute_node<StaticSumNode>(v2);
     hgraph::v2::export_compute_node<StaticPolicyNode>(v2);
@@ -1203,6 +1654,16 @@ void export_nodes(nb::module_ &m) {
     hgraph::v2::export_compute_node<StaticClockNode>(v2);
     hgraph::v2::export_compute_node<StaticTickNode>(v2);
     hgraph::v2::export_compute_node<StaticRefBoolNode>(v2);
+    hgraph::v2::export_compute_node_from_python_impl<StaticContextOutputNode>(
+        v2,
+        "hgraph._wiring._context_wiring",
+        "get_context_output",
+        "get_context_output");
+    hgraph::v2::export_compute_node_from_python_impl<StaticCaptureContextNode>(
+        v2,
+        "hgraph._wiring._context_wiring",
+        "capture_context",
+        "capture_context");
     hgraph::v2::export_compute_node<StaticSinkNode>(v2);
     hgraph::v2::export_compute_node_from_python_impl<ValidImplNode>(
         v2, "hgraph._impl._operators._time_series_properties", "valid_impl", "valid_impl");

@@ -588,6 +588,14 @@ namespace hgraph
 
         void clone_state_tree(TimeSeriesStateV &dst, const TimeSeriesStateV &src, const TSMeta &schema, TimeSeriesStateParentPtr parent, size_t index)
         {
+            if (const auto *src_state = std::get_if<OutputLinkState>(&src)) {
+                auto &dst_state = dst.emplace<OutputLinkState>();
+                initialize_base_state(dst_state, parent, index, src_state->last_modified_time, TSStorageKind::OutputLink);
+                dst_state.target.clear();
+                if (src_state->target.is_bound()) { dst_state.set_target(src_state->target); }
+                return;
+            }
+
             if (const auto *src_state = std::get_if<TargetLinkState>(&src)) {
                 auto &dst_state = dst.emplace<TargetLinkState>();
                 initialize_base_state(dst_state, parent, index, src_state->last_modified_time, TSStorageKind::TargetLink);
@@ -764,7 +772,8 @@ namespace hgraph
         [[nodiscard]] const RefLinkState *switching_ref_state(const TSViewContext &context) noexcept
         {
             const BaseState *state = context.ts_state;
-            while (state != nullptr && state->storage_kind == TSStorageKind::TargetLink) {
+            while (state != nullptr &&
+                   (state->storage_kind == TSStorageKind::TargetLink || state->storage_kind == TSStorageKind::OutputLink)) {
                 const LinkedTSContext *target = state->linked_target();
                 state = target != nullptr ? target->ts_state : nullptr;
             }
