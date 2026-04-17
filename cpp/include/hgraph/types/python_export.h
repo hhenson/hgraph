@@ -18,8 +18,7 @@ namespace hgraph
                                                                    nb::handle builder_factory,
                                                                    nb::handle signature_override = nb::none())
         {
-            nb::object copy_fn = nb::module_::import_("copy").attr("copy");
-            nb::object wiring_node = py_call(copy_fn, nb::make_tuple(nb::borrow(node)));
+            nb::object wiring_node = nb::borrow(node);
             nb::object cpp_static_wiring_node_cls =
                 nb::module_::import_("hgraph._wiring._wiring_node_class._cpp_static_wiring_node_class").attr("CppStaticWiringNodeClass");
 
@@ -33,8 +32,7 @@ namespace hgraph
                 nb::setattr(wiring_node, "signature", signature);
 
                 if (nb::hasattr(wiring_node, "overload_list")) {
-                    nb::object overload_list = py_call(copy_fn, nb::make_tuple(wiring_node.attr("overload_list")));
-                    nb::setattr(wiring_node, "overload_list", overload_list);
+                    nb::object overload_list = wiring_node.attr("overload_list");
                     nb::setattr(overload_list, "arg_count_cache", nb::dict());
 
                     if (nb::hasattr(overload_list, "overloads")) {

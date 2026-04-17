@@ -67,6 +67,12 @@ NB_MODULE(_hgraph, m) {
     m.def("get_stack_trace", &hgraph::get_stack_trace, "Get current C++ stack trace as a string");
     m.def("print_stack_trace", &hgraph::print_stack_trace, "Print current C++ stack trace to stderr");
 
+    m.attr("MIN_DT") = nb::cast(hgraph::MIN_DT);
+    m.attr("MAX_DT") = nb::cast(hgraph::MAX_DT);
+    m.attr("MIN_ST") = nb::cast(hgraph::MIN_ST);
+    m.attr("MAX_ET") = nb::cast(hgraph::MAX_ET);
+    m.attr("MIN_TD") = nb::cast(hgraph::MIN_TD);
+
     export_types(m);
     export_nodes(m);
 }

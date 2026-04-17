@@ -2005,7 +2005,7 @@ namespace hgraph
             .def("get_trait", &PythonTraitsHandle::get_trait, "trait_name"_a)
             .def("get_trait_or", &PythonTraitsHandle::get_trait_or, "trait_name"_a, "default"_a = nb::none());
 
-        nb::class_<PythonGraphHandle>(m, "_PythonGraphHandle")
+        auto graph_cls = nb::class_<PythonGraphHandle>(m, "Graph")
             .def_prop_ro("graph_id", &PythonGraphHandle::graph_id)
             .def_prop_ro("parent_node", &PythonGraphHandle::parent_node)
             .def_prop_ro("label", &PythonGraphHandle::label)
@@ -2013,6 +2013,7 @@ namespace hgraph
             .def_prop_ro("evaluation_engine_api", &PythonGraphHandle::evaluation_engine_api)
             .def_prop_ro("traits", &PythonGraphHandle::traits)
             .def("schedule_node", &PythonGraphHandle::schedule_node, "node_ndx"_a, "when"_a, "force_set"_a = false);
+        m.attr("_PythonGraphHandle") = m.attr("Graph");
 
         nb::class_<NodeSchedulerHandle>(m, "_NodeSchedulerHandle")
             .def_prop_ro("next_scheduled_time", &NodeSchedulerHandle::next_scheduled_time)
@@ -2066,7 +2067,7 @@ namespace hgraph
             .def("__getitem__", &TimeSeriesReference::operator[])
             .def_static("make", &V2PythonReferenceSupport::make, "ts"_a = nb::none(), "from_items"_a = nb::none());
 
-        nb::class_<PythonTimeSeriesHandle>(m, "_PythonTimeSeriesHandle")
+        auto time_series_cls = nb::class_<PythonTimeSeriesHandle>(m, "TimeSeriesHandle")
             .def("__bool__", &PythonTimeSeriesHandle::truthy)
             .def("__getitem__", &PythonTimeSeriesHandle::get_item, "key"_a)
             .def("__delitem__", &PythonTimeSeriesHandle::del_item, "key"_a)
@@ -2139,8 +2140,23 @@ namespace hgraph
             .def("can_apply_result", &PythonTimeSeriesHandle::can_apply_result, "value"_a)
             .def("apply_result", &PythonTimeSeriesHandle::apply_result, "value"_a)
             .def("__repr__", &PythonTimeSeriesHandle::repr);
+        m.attr("_PythonTimeSeriesHandle") = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesInput")         = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesOutput")        = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesValueInput")    = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesValueOutput")   = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesReferenceInput")  = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesReferenceOutput") = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesListInput")     = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesListOutput")    = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesDictInput")     = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesDictOutput")    = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesBundleInput")   = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesBundleOutput")  = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesSetInput")      = m.attr("TimeSeriesHandle");
+        m.attr("TimeSeriesSetOutput")     = m.attr("TimeSeriesHandle");
 
-        nb::class_<PythonNodeHandle>(m, "_PythonNodeHandle")
+        auto node_cls = nb::class_<PythonNodeHandle>(m, "Node")
             .def_prop_ro("node_ndx", &PythonNodeHandle::node_ndx)
             .def_prop_ro("owning_graph_id", &PythonNodeHandle::owning_graph_id)
             .def_prop_ro("node_id", &PythonNodeHandle::node_id)
@@ -2160,5 +2176,8 @@ namespace hgraph
             .def("notify_next_cycle", &PythonNodeHandle::notify_next_cycle)
             .def("__repr__", &PythonNodeHandle::repr)
             .def("__str__", &PythonNodeHandle::repr);
+        m.attr("_PythonNodeHandle") = m.attr("Node");
+        m.attr("NestedNode")        = m.attr("Node");
+        m.attr("PushQueueNode")     = m.attr("Node");
     }
 }  // namespace hgraph

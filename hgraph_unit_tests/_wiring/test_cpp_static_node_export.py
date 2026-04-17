@@ -78,8 +78,8 @@ def test_cpp_static_compute_node_wires_into_python_graph_builder():
 
 
 def test_cpp_static_python_impl_replacement_preserves_operator_overloads():
-    assert tsd_operators.tsd_get_items is _hgraph.tsd_get_items
-    assert tsd_operators.tsd_get_item_default is _hgraph.tsd_get_item_default
+    assert isinstance(_hgraph.tsd_get_items, BaseWiringNodeClass)
+    assert isinstance(_hgraph.tsd_get_item_default, BaseWiringNodeClass)
 
     @sink_node
     def sink(ts: TSD[int, REF[TS[int]]]):

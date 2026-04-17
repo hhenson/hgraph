@@ -12,7 +12,7 @@ from hgraph._runtime._traits import Traits
 from hgraph._types._recordable_state import RECORDABLE_STATE
 from hgraph._types._scalar_types import LOGGER, STATE, CompoundScalar
 from hgraph._types._tsb_type import TimeSeriesSchema
-from hgraph.nodes import const as v2_const
+from hgraph import const as v2_const
 from hgraph._wiring._graph_builder import wire_graph
 from hgraph._wiring._wiring_node_class import PythonWiringNodeClass
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext

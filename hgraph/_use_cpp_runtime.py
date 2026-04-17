@@ -16,10 +16,6 @@ if is_feature_enabled("use_cpp"):
         import hgraph._hgraph as _hgraph
 
         from hgraph._wiring import _context_wiring
-        from hgraph._operators import _debug_tools as _debug_tools
-        from hgraph._operators import _graph_operators as _graph_operators
-        from hgraph._impl._operators import _tsd_operators as _tsd_operators
-        from hgraph._operators import _time_series_conversion as _ts_conversion
         from hgraph._wiring._wiring_node_class import _component_node_class as _component
         from hgraph._wiring._wiring_node_class import _map_wiring_node as _map
         from hgraph._wiring._wiring_node_class import _mesh_wiring_node as _mesh
@@ -40,17 +36,6 @@ if is_feature_enabled("use_cpp"):
         hgraph._builder._graph_builder.EDGE_TYPE = _hgraph.Edge
         hgraph._builder._graph_builder.GraphBuilder.register(_hgraph.GraphBuilder)
         hgraph._builder._node_builder.NodeBuilder.register(_hgraph.NodeBuilder)
-
-        hgraph.const = _hgraph.const
-        hgraph.debug_print = _hgraph.debug_print
-        hgraph.nothing = _hgraph.nothing
-        hgraph.null_sink = _hgraph.null_sink
-        _ts_conversion.const = _hgraph.const
-        _debug_tools.debug_print = _hgraph.debug_print
-        _graph_operators.nothing = _hgraph.nothing
-        _graph_operators.null_sink = _hgraph.null_sink
-        _tsd_operators.tsd_get_items = _hgraph.tsd_get_items
-        _tsd_operators.tsd_get_item_default = _hgraph.tsd_get_item_default
 
         def _unsupported_cpp_builder(feature: str):
             def _raise(*args, **kwargs):

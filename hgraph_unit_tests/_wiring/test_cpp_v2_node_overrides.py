@@ -3,9 +3,9 @@ from datetime import timedelta
 import hgraph._hgraph as _hgraph
 
 from hgraph import GraphConfiguration, TS, evaluate_graph, graph, sink_node
-from hgraph.nodes import const as v2_const
-from hgraph.nodes import debug_print as v2_debug_print
-from hgraph.nodes import null_sink as v2_null_sink
+from hgraph import const as v2_const
+from hgraph import debug_print as v2_debug_print
+from hgraph import null_sink as v2_null_sink
 from hgraph._wiring._graph_builder import wire_graph
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
 
