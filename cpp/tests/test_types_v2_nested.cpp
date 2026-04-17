@@ -6,6 +6,7 @@
 #include <hgraph/types/v2/graph_builder.h>
 #include <hgraph/types/v2/nested_clock.h>
 #include <hgraph/types/v2/nested_node_builder.h>
+#include <hgraph/types/v2/ref.h>
 #include <hgraph/types/value/type_registry.h>
 
 #include <chrono>
@@ -614,6 +615,47 @@ namespace hgraph::v2::nested_test
         static void eval(In<"x", TS<int>> x, Out<TS<int>> out) { out.set(x.value() + 10); }
     };
 
+    struct IdentityIntNode
+    {
+        IdentityIntNode()  = delete;
+        ~IdentityIntNode() = delete;
+
+        static void eval(In<"x", TS<int>> x, Out<TS<int>> out) { out.set(x.value()); }
+    };
+
+    struct RefStateProbeNode
+    {
+        RefStateProbeNode()  = delete;
+        ~RefStateProbeNode() = delete;
+
+        static void eval(In<"ref", REF<TS<int>>> ref, Out<TS<int>> out)
+        {
+            const auto &value = ref.value();
+            if (!ref.valid()) {
+                out.set(-1);
+            } else if (value.is_empty()) {
+                out.set(1);
+            } else if (value.is_peered()) {
+                out.set(2);
+            } else {
+                out.set(3);
+            }
+        }
+    };
+
+    struct DereferenceRefNode
+    {
+        DereferenceRefNode()  = delete;
+        ~DereferenceRefNode() = delete;
+
+        static void eval(In<"ref", REF<TS<int>>> ref, EvaluationClock clock, Out<TS<int>> out)
+        {
+            const auto &value = ref.value();
+            if (!value.is_peered()) { return; }
+            out.set(value.target_view(clock.evaluation_time()).value().as_atomic().as<int>());
+        }
+    };
+
     // Helper: publish a scalar value to a node's root output and mark it modified.
     template <typename T> void publish_output(Node &node, T &&value, engine_time_t modified_time) {
         auto output = node.output_view(modified_time);
@@ -623,6 +665,210 @@ namespace hgraph::v2::nested_test
         context.ts_state->mark_modified(modified_time);
     }
 }  // namespace hgraph::v2::nested_test
+
+TEST_CASE("BoundaryBindingRuntime bind_keyed binds a multiplexed list element", "[v2][nested][boundary]") {
+    using namespace hgraph::v2;
+    using namespace hgraph::v2::nested_test;
+    ChildTemplateRegistryResetGuard registry_guard;
+
+    auto       &value_registry     = hgraph::value::TypeRegistry::instance();
+    auto       &ts_registry        = hgraph::TSTypeRegistry::instance();
+    const auto *int_type           = value_registry.register_type<int>("int");
+    const auto *scalar_ts          = ts_registry.ts(int_type);
+    const auto *list_ts            = ts_registry.tsl(scalar_ts, 2);
+    const auto *parent_input_schema = ts_registry.tsb({{"xs", list_ts}}, "BoundaryListInputs");
+
+    GraphBuilder parent_builder;
+    parent_builder.add_node(NodeBuilder{}.label("source0").output_schema(scalar_ts).implementation<NoopNode>())
+        .add_node(NodeBuilder{}.label("source1").output_schema(scalar_ts).implementation<NoopNode>())
+        .add_node(NodeBuilder{}.label("parent_holder").input_schema(parent_input_schema).output_schema(scalar_ts).implementation<NoopNode>())
+        .add_edge(Edge{.src_node = 0, .dst_node = 2, .input_path = {0, 0}})
+        .add_edge(Edge{.src_node = 1, .dst_node = 2, .input_path = {0, 1}});
+
+    auto  parent_engine = EvaluationEngineBuilder{}.graph_builder(std::move(parent_builder)).start_time(tick(0)).build();
+    auto &parent_graph  = parent_engine.graph();
+    parent_graph.start();
+
+    publish_output(parent_graph.node_at(0), 11, tick(1));
+    publish_output(parent_graph.node_at(1), 22, tick(1));
+
+    GraphBuilder child_builder;
+    child_builder.add_node(NodeBuilder{}.label("identity").implementation<IdentityIntNode>());
+
+    BoundaryBindingPlan plan;
+    plan.inputs.push_back(InputBindingSpec{
+        .arg_name         = "xs",
+        .mode             = InputBindingMode::BIND_MULTIPLEXED_ELEMENT,
+        .child_node_index = 0,
+        .child_input_path = {0},
+    });
+
+    const ChildGraphTemplate *tmpl = ChildGraphTemplate::create(std::move(child_builder), plan, "list_child");
+
+    ChildGraphInstance child;
+    child.initialise(*tmpl, parent_graph.node_at(2), {2, 0}, "keyed_child");
+    hgraph::Value key_value{1};
+    BoundaryBindingRuntime::bind_keyed(child.boundary_plan(), *child.graph(), parent_graph.node_at(2), key_value.view(), tick(1));
+    child.start(tick(1));
+    child.graph()->schedule_node(0, tick(1));
+    child.evaluate(tick(1));
+
+    CHECK(child.graph()->node_at(0).output_view(tick(1)).value().as_atomic().as<int>() == 22);
+}
+
+TEST_CASE("BoundaryBindingRuntime bind_keyed injects key values and detach_restore_blank clears them",
+          "[v2][nested][boundary]") {
+    using namespace hgraph::v2;
+    using namespace hgraph::v2::nested_test;
+    ChildTemplateRegistryResetGuard registry_guard;
+
+    auto       &value_registry = hgraph::value::TypeRegistry::instance();
+    auto       &ts_registry    = hgraph::TSTypeRegistry::instance();
+    const auto *int_type       = value_registry.register_type<int>("int");
+    const auto *scalar_ts      = ts_registry.ts(int_type);
+
+    GraphBuilder parent_builder;
+    parent_builder.add_node(NodeBuilder{}.label("parent_holder").output_schema(scalar_ts).implementation<NoopNode>());
+
+    auto  parent_engine = EvaluationEngineBuilder{}.graph_builder(std::move(parent_builder)).start_time(tick(0)).build();
+    auto &parent_graph  = parent_engine.graph();
+    parent_graph.start();
+
+    GraphBuilder child_builder;
+    child_builder.add_node(NodeBuilder{}.label("identity").implementation<IdentityIntNode>());
+
+    BoundaryBindingPlan plan;
+    plan.inputs.push_back(InputBindingSpec{
+        .mode             = InputBindingMode::BIND_KEY_VALUE,
+        .child_node_index = 0,
+        .child_input_path = {0},
+    });
+    plan.inputs.push_back(InputBindingSpec{
+        .mode             = InputBindingMode::DETACH_RESTORE_BLANK,
+        .child_node_index = 0,
+        .child_input_path = {0},
+    });
+
+    const ChildGraphTemplate *tmpl = ChildGraphTemplate::create(std::move(child_builder), plan, "key_child");
+
+    ChildGraphInstance child;
+    child.initialise(*tmpl, parent_graph.node_at(0), {0, 0}, "key_child");
+    hgraph::Value key_value{7};
+    BoundaryBindingRuntime::bind_keyed(child.boundary_plan(), *child.graph(), parent_graph.node_at(0), key_value.view(), tick(1));
+    child.start(tick(1));
+    child.graph()->schedule_node(0, tick(1));
+    child.evaluate(tick(1));
+
+    CHECK(child.graph()->node_at(0).output_view(tick(1)).value().as_atomic().as<int>() == 7);
+
+    BoundaryBindingRuntime::unbind(child.boundary_plan(), *child.graph());
+    auto child_input = child.graph()->node_at(0).input_view(hgraph::MIN_DT).as_bundle()[0];
+    CHECK_FALSE(child_input.valid());
+}
+
+TEST_CASE("BoundaryBindingRuntime clone_ref_binding preserves peered reference semantics", "[v2][nested][boundary]") {
+    using namespace hgraph::v2;
+    using namespace hgraph::v2::nested_test;
+    ChildTemplateRegistryResetGuard registry_guard;
+
+    auto       &value_registry      = hgraph::value::TypeRegistry::instance();
+    auto       &ts_registry         = hgraph::TSTypeRegistry::instance();
+    const auto *int_type            = value_registry.register_type<int>("int");
+    const auto *scalar_ts           = ts_registry.ts(int_type);
+    const auto *ref_scalar_ts       = ts_registry.ref(scalar_ts);
+    const auto *parent_input_schema = ts_registry.tsb({{"ref", ref_scalar_ts}}, "BoundaryRefInputs");
+
+    GraphBuilder parent_builder;
+    parent_builder.add_node(NodeBuilder{}.label("source").output_schema(scalar_ts).implementation<NoopNode>())
+        .add_node(NodeBuilder{}.label("parent_holder").input_schema(parent_input_schema).output_schema(scalar_ts).implementation<NoopNode>())
+        .add_edge(Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+
+    auto  parent_engine = EvaluationEngineBuilder{}.graph_builder(std::move(parent_builder)).start_time(tick(0)).build();
+    auto &parent_graph  = parent_engine.graph();
+    parent_graph.start();
+
+    publish_output(parent_graph.node_at(0), 41, tick(1));
+
+    GraphBuilder child_builder;
+    child_builder.add_node(NodeBuilder{}.label("probe").implementation<RefStateProbeNode>());
+
+    BoundaryBindingPlan plan;
+    plan.inputs.push_back(InputBindingSpec{
+        .arg_name         = "ref",
+        .mode             = InputBindingMode::CLONE_REF_BINDING,
+        .child_node_index = 0,
+        .child_input_path = {0},
+    });
+
+    const ChildGraphTemplate *tmpl = ChildGraphTemplate::create(std::move(child_builder), plan, "ref_child");
+
+    ChildGraphInstance child;
+    child.initialise(*tmpl, parent_graph.node_at(1), {1, 0}, "ref_child");
+    BoundaryBindingRuntime::bind(child.boundary_plan(), *child.graph(), parent_graph.node_at(1), tick(1));
+    child.start(tick(1));
+    child.graph()->schedule_node(0, tick(1));
+    child.evaluate(tick(1));
+
+    CHECK(child.graph()->node_at(0).output_view(tick(1)).value().as_atomic().as<int>() == 2);
+}
+
+TEST_CASE("BoundaryBindingRuntime rebind updates cloned REF targets", "[v2][nested][boundary]") {
+    using namespace hgraph::v2;
+    using namespace hgraph::v2::nested_test;
+    ChildTemplateRegistryResetGuard registry_guard;
+
+    auto       &value_registry      = hgraph::value::TypeRegistry::instance();
+    auto       &ts_registry         = hgraph::TSTypeRegistry::instance();
+    const auto *int_type            = value_registry.register_type<int>("int");
+    const auto *scalar_ts           = ts_registry.ts(int_type);
+    const auto *ref_scalar_ts       = ts_registry.ref(scalar_ts);
+    const auto *parent_input_schema = ts_registry.tsb({{"ref", ref_scalar_ts}}, "BoundaryRefRebindInputs");
+
+    GraphBuilder parent_builder;
+    parent_builder.add_node(NodeBuilder{}.label("source0").output_schema(scalar_ts).implementation<NoopNode>())
+        .add_node(NodeBuilder{}.label("source1").output_schema(scalar_ts).implementation<NoopNode>())
+        .add_node(NodeBuilder{}.label("parent_holder").input_schema(parent_input_schema).output_schema(scalar_ts).implementation<NoopNode>());
+
+    auto  parent_engine = EvaluationEngineBuilder{}.graph_builder(std::move(parent_builder)).start_time(tick(0)).build();
+    auto &parent_graph  = parent_engine.graph();
+    parent_graph.start();
+
+    publish_output(parent_graph.node_at(0), 10, tick(1));
+    publish_output(parent_graph.node_at(1), 20, tick(2));
+
+    auto parent_input = parent_graph.node_at(2).input_view(tick(1)).as_bundle()[0];
+    parent_input.bind_output(parent_graph.node_at(0).output_view(tick(1)));
+
+    GraphBuilder child_builder;
+    child_builder.add_node(NodeBuilder{}.label("deref").implementation<DereferenceRefNode>());
+
+    BoundaryBindingPlan plan;
+    plan.inputs.push_back(InputBindingSpec{
+        .arg_name         = "ref",
+        .mode             = InputBindingMode::CLONE_REF_BINDING,
+        .child_node_index = 0,
+        .child_input_path = {0},
+    });
+
+    const ChildGraphTemplate *tmpl = ChildGraphTemplate::create(std::move(child_builder), plan, "ref_rebind_child");
+
+    ChildGraphInstance child;
+    child.initialise(*tmpl, parent_graph.node_at(2), {2, 0}, "ref_rebind_child");
+    BoundaryBindingRuntime::bind(child.boundary_plan(), *child.graph(), parent_graph.node_at(2), tick(1));
+    child.start(tick(1));
+    child.graph()->schedule_node(0, tick(1));
+    child.evaluate(tick(1));
+
+    CHECK(child.graph()->node_at(0).output_view(tick(1)).value().as_atomic().as<int>() == 10);
+
+    parent_input = parent_graph.node_at(2).input_view(tick(2)).as_bundle()[0];
+    parent_input.bind_output(parent_graph.node_at(1).output_view(tick(2)));
+    BoundaryBindingRuntime::rebind(child.boundary_plan(), *child.graph(), parent_graph.node_at(2), "ref", tick(2));
+    child.graph()->schedule_node(0, tick(2));
+    child.evaluate(tick(2));
+
+    CHECK(child.graph()->node_at(0).output_view(tick(2)).value().as_atomic().as<int>() == 20);
+}
 
 // ============================================================================
 // Full Nested Operator: nested_graph_implementation end-to-end

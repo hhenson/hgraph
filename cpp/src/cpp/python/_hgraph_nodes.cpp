@@ -26,6 +26,7 @@
 #include <hgraph/types/v2/evaluation_engine.h>
 #include <hgraph/types/v2/nested_node_builder.h>
 #include <hgraph/types/v2/graph_builder.h>
+#include <hgraph/types/v2/path_constants.h>
 #include <hgraph/types/v2/python_node_support.h>
 #include <hgraph/types/v2/python_export.h>
 #include <hgraph/types/v2/ref.h>
@@ -919,6 +920,73 @@ namespace
         return hgraph::TSTypeRegistry::instance().tsb(fields, "python_v2.inputs");
     }
 
+    [[nodiscard]] const TSMeta *input_schema_for_arg(nb::handle node_signature, std::string_view arg_name)
+    {
+        nb::object input_types = nb::borrow(node_signature).attr("time_series_inputs");
+        if (input_types.is_none()) { return nullptr; }
+        if (!PyMapping_HasKey(input_types.ptr(), nb::str(arg_name.data(), arg_name.size()).ptr())) { return nullptr; }
+        return cpp_ts_meta_or_none(nb::steal<nb::object>(
+            PyObject_GetItem(input_types.ptr(), nb::str(arg_name.data(), arg_name.size()).ptr())));
+    }
+
+    [[nodiscard]] const TSMeta *navigate_bound_source_schema(const TSMeta *schema, hgraph::v2::PathView path)
+    {
+        const TSMeta *current = schema;
+        for (const int64_t slot : path) {
+            const TSMeta *collection_schema = current;
+            if (collection_schema != nullptr && collection_schema->kind == TSKind::REF && collection_schema->element_ts() != nullptr) {
+                collection_schema = collection_schema->element_ts();
+            }
+            if (collection_schema == nullptr) {
+                throw std::invalid_argument("build_nested_node source path requires a schema");
+            }
+
+            if (slot == hgraph::v2::k_key_set_path) {
+                if (collection_schema->kind != TSKind::TSD) {
+                    throw std::logic_error("build_nested_node key_set source path requires a dict schema");
+                }
+                current = hgraph::TSTypeRegistry::instance().tss(collection_schema->key_type());
+                continue;
+            }
+
+            if (slot < 0) { throw std::out_of_range("build_nested_node source path slot must be non-negative"); }
+
+            switch (collection_schema->kind) {
+                case TSKind::TSB:
+                    {
+                        const auto index = static_cast<size_t>(slot);
+                        if (index >= collection_schema->field_count()) {
+                            throw std::out_of_range("build_nested_node bundle source path is out of range");
+                        }
+                        current = collection_schema->fields()[index].ts_type;
+                        break;
+                    }
+                case TSKind::TSL:
+                    {
+                        const auto index = static_cast<size_t>(slot);
+                        if (collection_schema->fixed_size() != 0 && index >= collection_schema->fixed_size()) {
+                            throw std::out_of_range("build_nested_node list source path is out of range");
+                        }
+                        current = collection_schema->element_ts();
+                        break;
+                    }
+                case TSKind::TSD:
+                    current = collection_schema->element_ts();
+                    break;
+                default:
+                    throw std::invalid_argument("build_nested_node source path only supports bundle/list/dict navigation");
+            }
+        }
+        return current;
+    }
+
+    [[nodiscard]] InputBindingMode infer_nested_input_binding_mode(const TSMeta *source_schema)
+    {
+        return source_schema != nullptr && source_schema->kind == TSKind::REF
+                   ? InputBindingMode::CLONE_REF_BINDING
+                   : InputBindingMode::BIND_DIRECT;
+    }
+
     [[nodiscard]] const TSMeta *output_schema_from_node_signature(nb::handle node_signature)
     {
         return cpp_ts_meta_or_none(nb::borrow(node_signature).attr("time_series_output"));
@@ -1179,14 +1247,18 @@ namespace
             const nb::tuple pair     = nb::borrow<nb::tuple>(item);
             const auto      arg_name = nb::cast<std::string>(pair[0]);
             const auto      stub_idx = nb::cast<int64_t>(pair[1]);
+            const TSMeta   *arg_schema = input_schema_for_arg(signature, arg_name);
 
             for (const auto &edge : nested_graph.edges()) {
                 if (edge.src_node == stub_idx && old_to_new.contains(edge.dst_node)) {
+                    const TSMeta *source_schema = navigate_bound_source_schema(arg_schema, edge.output_path);
                     plan.inputs.push_back(InputBindingSpec{
                         .arg_name         = arg_name,
-                        .mode             = InputBindingMode::BIND_DIRECT,
+                        .mode             = infer_nested_input_binding_mode(source_schema),
                         .child_node_index = old_to_new.at(edge.dst_node),
+                        .parent_input_path = edge.output_path,
                         .child_input_path = edge.input_path,
+                        .ts_schema        = source_schema,
                     });
                 }
             }

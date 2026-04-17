@@ -324,15 +324,22 @@ At minimum:
    - bind the child key input from operator-owned scalar/value state
 5. `alias_child_output`
    - expose child output directly as parent output
-6. `bind_bundle_member_output`
+   - the child node's output (navigated via `child_output_path`) is linked into the parent output (navigated via `parent_output_path`)
+   - uses zero-copy output link aliasing rather than value copying
+6. `alias_parent_input`
+   - expose one of the parent node's inputs as the parent output
+   - used when a nested graph's output stub is wired directly to an input stub rather than to a child compute node
+   - the parent input field is identified by `parent_arg_name` on the `OutputBindingSpec`; the `child_output_path` navigates within that input's bound output
+   - this arises naturally in `try_except` and `component` where the inner wiring passes an input through to the output bundle without transformation
+7. `bind_bundle_member_output`
    - support output bundles such as `try_except(...).out`
-7. `detach_restore_blank`
+8. `detach_restore_blank`
    - detach child input and restore an inert local input when a child graph is removed
    - must interact correctly with two-phase removal (stop graph, then later destroy)
-8. `context_import`
+9. `context_import`
    - import required context from the parent graph boundary
-9. `context_export`
-   - export child-owned context where required
+10. `context_export`
+    - export child-owned context where required
 
 The following table summarizes which modes apply to which spec types:
 
@@ -343,6 +350,7 @@ clone_ref_binding                yes               -                  -
 bind_multiplexed_element         yes               -                  -
 bind_key_value                   yes               -                  -
 alias_child_output                -               yes                 -
+alias_parent_input                -               yes                 -
 bind_bundle_member_output         -               yes                 -
 detach_restore_blank             yes               -                  -
 context_import                    -                -                 yes

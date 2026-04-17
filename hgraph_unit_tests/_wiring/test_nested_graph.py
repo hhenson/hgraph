@@ -1,5 +1,5 @@
 import pytest
-from hgraph import graph, debug_print, const, nested_graph, sink_node, SIGNAL, TS
+from hgraph import graph, debug_print, const, nested_graph, sink_node, SIGNAL, TS, TSB, TimeSeriesSchema
 from hgraph.test import eval_node
 
 import pytest
@@ -68,3 +68,19 @@ def test_nested_graph_sink():
 
     assert eval_node(h) == None
     assert side_effect_value == True
+
+
+def test_nested_graph_preserves_input_subpaths():
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[int]
+
+    @graph
+    def g(ts: TSB[AB]) -> TS[int]:
+        return ts.a + ts.b
+
+    @graph
+    def h(ts: TSB[AB]) -> TS[int]:
+        return nested_graph(g, ts)
+
+    assert eval_node(h, ts=[{"a": 1, "b": 2}, {"a": 3, "b": 4}]) == [3, 7]

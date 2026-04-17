@@ -1,4 +1,5 @@
 #include <hgraph/types/v2/graph_builder.h>
+#include <hgraph/types/v2/path_constants.h>
 
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/util/scope.h>
@@ -13,7 +14,6 @@ namespace hgraph::v2
     namespace
     {
         constexpr int64_t error_path = -1;
-        constexpr int64_t key_set_path = -3;
         constexpr int64_t state_path = -2;
 
         [[nodiscard]] constexpr size_t align_up(size_t value, size_t alignment) noexcept
@@ -28,7 +28,7 @@ namespace hgraph::v2
             const TSMeta *collection_schema = &schema;
             if (schema.kind == TSKind::REF && schema.element_ts() != nullptr) { collection_schema = schema.element_ts(); }
 
-            if (slot == key_set_path) {
+            if (slot == k_key_set_path) {
                 if (collection_schema->kind != TSKind::TSD) {
                     throw std::invalid_argument("v2 key_set path navigation requires a TSD schema");
                 }
@@ -153,7 +153,7 @@ namespace hgraph::v2
             for (const int64_t slot : path) {
                 if (current_schema == nullptr) { throw std::invalid_argument("v2 output navigation requires a schema"); }
 
-                if (slot == key_set_path) {
+                if (slot == k_key_set_path) {
                     const TSMeta *target_schema = navigable_child_schema_at(*current_schema, slot);
                     TSOutput *owning_output = view.owning_output();
                     if (owning_output == nullptr) {

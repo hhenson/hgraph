@@ -3,6 +3,7 @@
 #include <hgraph/types/v2/graph.h>
 #include <hgraph/types/v2/nested_node_builder.h>
 #include <hgraph/types/v2/node_builder.h>
+#include <hgraph/types/v2/path_constants.h>
 #include <hgraph/types/v2/python_node_support.h>
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/util/scope.h>
@@ -26,8 +27,6 @@ namespace hgraph::v2
             ErrorOutput = 2,
             RecordableState = 3,
         };
-
-        constexpr int64_t key_set_path = -3;
 
         [[nodiscard]] TSOutputView bound_output_of(TSInputView view) noexcept {
             const TSViewContext &context = view.context_ref();
@@ -77,7 +76,7 @@ namespace hgraph::v2
                 const TSMeta *collection_schema = unwrap_navigation_schema(schema);
                 if (collection_schema == nullptr) { throw std::invalid_argument("nested output navigation requires a schema"); }
 
-                if (slot == key_set_path) {
+                if (slot == k_key_set_path) {
                     if (collection_schema->kind != TSKind::TSD) {
                         throw std::logic_error("nested output key_set navigation requires a dict schema");
                     }

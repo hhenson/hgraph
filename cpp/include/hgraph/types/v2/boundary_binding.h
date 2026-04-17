@@ -41,6 +41,7 @@ namespace hgraph::v2
         std::string arg_name;
         InputBindingMode mode{InputBindingMode::BIND_DIRECT};
         int64_t child_node_index{-1};       // Target node in compiled child graph
+        Path parent_input_path;             // Path within the parent arg source
         Path child_input_path;              // Path within that node's input
         const TSMeta *ts_schema{nullptr};
     };
