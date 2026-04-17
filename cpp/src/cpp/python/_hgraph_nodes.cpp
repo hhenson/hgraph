@@ -1,31 +1,13 @@
-#include <hgraph/api/python/wrapper_factory.h>
-#include <hgraph/api/python/py_ref.h>
-#include <hgraph/nodes/nest_graph_node.h>
-#include <hgraph/nodes/nested_node.h>
-#include <hgraph/nodes/nested_evaluation_engine.h>
-#include <hgraph/nodes/tsd_map_node.h>
-#include <hgraph/nodes/reduce_node.h>
-#include <hgraph/nodes/component_node.h>
-#include <hgraph/nodes/switch_node.h>
-#include <hgraph/nodes/try_except_node.h>
-#include <hgraph/nodes/non_associative_reduce_node.h>
-#include <hgraph/nodes/mesh_node.h>
 #include <hgraph/nodes/v2/basic_nodes.h>
-#include <hgraph/nodes/last_value_pull_node.h>
-#include <hgraph/nodes/context_node.h>
 #include <hgraph/python/global_keys.h>
 #include <hgraph/python/global_state.h>
-#include <hgraph/nodes/python_generator_node.h>
-#include <hgraph/nodes/push_queue_node.h>
-#include <hgraph/runtime/graph_executor.h>
-#include <hgraph/types/error_type.h>
-#include <hgraph/types/node.h>
 #include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/v2/child_graph.h>
 #include <hgraph/types/v2/evaluation_engine.h>
-#include <hgraph/types/v2/nested_node_builder.h>
 #include <hgraph/types/v2/graph_builder.h>
+#include <hgraph/types/v2/nested_node_builder.h>
+#include <hgraph/types/v2/node_impl.h>
 #include <hgraph/types/v2/path_constants.h>
 #include <hgraph/types/v2/python_node_support.h>
 #include <hgraph/types/v2/python_export.h>
@@ -42,11 +24,7 @@ namespace
 
     using hgraph::Value;
     using hgraph::BaseState;
-    using hgraph::TimeSeriesOutput;
-    using hgraph::TimeSeriesReferenceInput;
-    using hgraph::TimeSeriesReferenceOutput;
-    using hgraph::PyTimeSeriesReferenceInput;
-    using hgraph::PyTimeSeriesReferenceOutput;
+    using hgraph::TSOutput;
     using hgraph::GlobalState;
     using hgraph::engine_time_t;
     using namespace hgraph::v2;
@@ -54,9 +32,16 @@ namespace
 
     namespace
     {
+        constexpr size_t injectable_state_bit = 1;
+        constexpr size_t injectable_recordable_state_bit = 2;
+        constexpr size_t injectable_scheduler_bit = 4;
+        constexpr size_t injectable_output_bit = 8;
+        constexpr size_t injectable_clock_bit = 16;
+        constexpr size_t injectable_engine_bit = 32;
+
         [[nodiscard]] Node *owner_node_from_linked_context(const hgraph::LinkedTSContext &context) noexcept
         {
-            const auto owner_from_output = [&](hgraph::TSOutput *output) noexcept -> Node * {
+            const auto owner_from_output = [&](TSOutput *output) noexcept -> Node * {
                 if (output == nullptr) { return nullptr; }
                 Node *owner = nullptr;
                 std::visit(
@@ -238,32 +223,32 @@ namespace
 
         [[nodiscard]] bool uses_scheduler() const noexcept
         {
-            return (injectables & static_cast<size_t>(hgraph::InjectableTypesEnum::SCHEDULER)) != 0;
+            return (injectables & injectable_scheduler_bit) != 0;
         }
 
         [[nodiscard]] bool uses_clock() const noexcept
         {
-            return (injectables & static_cast<size_t>(hgraph::InjectableTypesEnum::CLOCK)) != 0;
+            return (injectables & injectable_clock_bit) != 0;
         }
 
         [[nodiscard]] bool uses_engine() const noexcept
         {
-            return (injectables & static_cast<size_t>(hgraph::InjectableTypesEnum::ENGINE_API)) != 0;
+            return (injectables & injectable_engine_bit) != 0;
         }
 
         [[nodiscard]] bool uses_state() const noexcept
         {
-            return (injectables & static_cast<size_t>(hgraph::InjectableTypesEnum::STATE)) != 0;
+            return (injectables & injectable_state_bit) != 0;
         }
 
         [[nodiscard]] bool uses_recordable_state() const noexcept
         {
-            return (injectables & static_cast<size_t>(hgraph::InjectableTypesEnum::RECORDABLE_STATE)) != 0;
+            return (injectables & injectable_recordable_state_bit) != 0;
         }
 
         [[nodiscard]] bool uses_output_feedback() const noexcept
         {
-            return (injectables & static_cast<size_t>(hgraph::InjectableTypesEnum::OUTPUT)) != 0;
+            return (injectables & injectable_output_bit) != 0;
         }
 
         [[nodiscard]] bool is_source_node() const noexcept
@@ -465,43 +450,25 @@ namespace
         static constexpr auto node_type = NodeTypeEnum::PULL_SOURCE_NODE;
 
         using ContextTs = TsVar<"CONTEXT_TIME_SERIES_TYPE">;
-        static constexpr intptr_t state_subscription_tag = 1;
 
         [[nodiscard]] static int64_t raw_subscription(State<int64_t> state)
         {
             return state.view().template checked_as<int64_t>();
         }
 
-        [[nodiscard]] static TimeSeriesOutput *subscribed_output(State<int64_t> state)
-        {
-            const intptr_t raw = static_cast<intptr_t>(raw_subscription(state));
-            if (raw == 0 || (raw & state_subscription_tag) != 0) { return nullptr; }
-            return reinterpret_cast<TimeSeriesOutput *>(raw);
-        }
-
         [[nodiscard]] static BaseState *subscribed_state(State<int64_t> state)
         {
             const intptr_t raw = static_cast<intptr_t>(raw_subscription(state));
-            if (raw == 0 || (raw & state_subscription_tag) == 0) { return nullptr; }
-            return reinterpret_cast<BaseState *>(raw & ~state_subscription_tag);
-        }
-
-        static void set_subscribed_output(State<int64_t> state, TimeSeriesOutput *output)
-        {
-            state.view().set_scalar(static_cast<int64_t>(reinterpret_cast<intptr_t>(output)));
+            return raw == 0 ? nullptr : reinterpret_cast<BaseState *>(raw);
         }
 
         static void set_subscribed_state(State<int64_t> state, BaseState *output_state)
         {
-            const intptr_t raw = reinterpret_cast<intptr_t>(output_state);
-            state.view().set_scalar(static_cast<int64_t>(raw | state_subscription_tag));
+            state.view().set_scalar(static_cast<int64_t>(reinterpret_cast<intptr_t>(output_state)));
         }
 
         static void clear_subscription(Node &node, State<int64_t> state)
         {
-            if (TimeSeriesOutput *output = subscribed_output(state); output != nullptr) {
-                output->un_subscribe(&node);
-            }
             if (BaseState *output_state = subscribed_state(state); output_state != nullptr) {
                 output_state->unsubscribe(&node);
             }
@@ -556,49 +523,30 @@ namespace
                 throw std::runtime_error(fmt::format("Missing shared output for path: {}{}", key, diag));
             }
 
-            nb::object        value = nb::none();
-            TimeSeriesOutput *output_ts = nullptr;
-            BaseState        *output_state = nullptr;
-
-            if (nb::isinstance<TimeSeriesReference>(shared)) {
-                const auto ref = nb::cast<TimeSeriesReference>(shared);
-                if (ref.is_peered()) {
-                    const auto &target = ref.target();
-                    output_state = target.notification_state != nullptr ? target.notification_state : target.ts_state;
-                }
-                value = shared;
-            } else if (nb::isinstance<PyTimeSeriesReferenceOutput>(shared)) {
-                auto output = hgraph::unwrap_output_as<TimeSeriesReferenceOutput>(shared);
-                output_ts = output.get();
-                value = shared.attr("value");
-            } else if (nb::isinstance<PyTimeSeriesReferenceInput>(shared)) {
-                auto ref = hgraph::unwrap_input_as<TimeSeriesReferenceInput>(shared);
-                if (ref->has_peer()) { output_ts = ref->output(); }
-                value = shared.attr("value");
-            } else {
+            if (!nb::isinstance<TimeSeriesReference>(shared)) {
                 throw std::runtime_error(
-                    fmt::format("Context found an unknown output type bound to {}: {}", key, nb::str(shared.type()).c_str()));
+                    fmt::format("Context found an invalid shared output bound to {}: {}", key, nb::str(shared.type()).c_str()));
             }
 
-            if (output_ts != nullptr) {
-                TimeSeriesOutput *current_output = subscribed_output(state);
-                BaseState        *current_state  = subscribed_state(state);
-                if (current_output != output_ts || current_state != nullptr) {
-                    clear_subscription(node, state);
-                    output_ts->subscribe(&node);
-                    set_subscribed_output(state, output_ts);
-                }
-            } else if (output_state != nullptr) {
-                TimeSeriesOutput *current_output = subscribed_output(state);
-                BaseState        *current_state  = subscribed_state(state);
-                if (current_output != nullptr || current_state != output_state) {
+            const auto ref = nb::cast<TimeSeriesReference>(shared);
+            BaseState *output_state = nullptr;
+            if (ref.is_peered()) {
+                const auto &target = ref.target();
+                output_state = target.notification_state != nullptr ? target.notification_state : target.ts_state;
+            }
+
+            if (output_state != nullptr) {
+                BaseState *current_state  = subscribed_state(state);
+                if (current_state != output_state) {
                     clear_subscription(node, state);
                     output_state->subscribe(&node);
                     set_subscribed_state(state, output_state);
                 }
+            } else if (raw_subscription(state) != 0) {
+                clear_subscription(node, state);
             }
 
-            out.view().from_python(value);
+            out.view().from_python(shared);
         }
     };
 
@@ -1375,18 +1323,7 @@ namespace
               m_run_mode(normalize_evaluation_mode(run_mode)),
               m_cleanup_on_error(cleanup_on_error)
         {
-            for (const auto &observer : observers) {
-                if (!observer.is_valid() || observer.is_none()) { continue; }
-                if (nb::isinstance<hgraph::EvaluationLifeCycleObserver>(observer)) {
-                    // v2 execution does not route through the legacy graph/node runtime, so legacy
-                    // observers cannot be invoked meaningfully here yet. Ignore them instead of
-                    // rejecting otherwise valid v2 graphs that happen to request tracing.
-                    continue;
-                }
-
-                throw std::invalid_argument(
-                    "v2 GraphExecutor only accepts legacy EvaluationLifeCycleObserver instances for now");
-            }
+            static_cast<void>(observers);
         }
 
         [[nodiscard]] EvaluationMode run_mode() const noexcept { return m_run_mode; }

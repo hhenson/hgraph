@@ -8,18 +8,12 @@
  *
  */
 #include <hgraph/hgraph_base.h>
-#include <hgraph/types/error_type.h>
 #include <hgraph/util/stack_trace.h>
+#include <hgraph/types/v2/node_impl.h>
 
 #include <nanobind/intrusive/counter.inl>
 
-void export_runtime(nb::module_ &);
-
-void export_builders(nb::module_ &);
-
 void export_types(nb::module_ &);
-
-void export_utils(nb::module_ &);
 
 void export_nodes(nb::module_ &);
 
@@ -36,24 +30,23 @@ NB_MODULE(_hgraph, m) {
             Py_DECREF(o);
         });
 
-    // Translate hgraph::NodeException into the Python hgraph.NodeException to match Python error shape
+    // Translate hgraph::v2::NodeException into the Python hgraph.NodeException to match Python error shape.
     nb::register_exception_translator([](const std::exception_ptr &p, void *) {
         try {
             if (p) std::rethrow_exception(p);
-        } catch (const hgraph::NodeException &e) {
+        } catch (const hgraph::v2::NodeException &e) {
             try {
-                // Import Python hgraph.NodeException class
                 nb::object hgraph_mod = nb::module_::import_("hgraph");
                 nb::object py_node_exc_cls = hgraph_mod.attr("NodeException");
-                // Raise Python NodeException by setting the exception type and constructor args
+                const auto &error = e.error();
                 nb::tuple args = nb::make_tuple(
-                    nb::cast(e.signature_name),
-                    nb::cast(e.label),
-                    nb::cast(e.wiring_path),
-                    nb::cast(e.error_msg),
-                    nb::cast(e.stack_trace),
-                    nb::cast(e.activation_back_trace),
-                    nb::cast(e.additional_context)
+                    nb::cast(error.signature_name),
+                    nb::cast(error.label),
+                    nb::cast(error.wiring_path),
+                    nb::cast(error.error_msg),
+                    nb::cast(error.stack_trace),
+                    nb::cast(error.activation_back_trace),
+                    nb::cast(error.additional_context)
                 );
                 PyErr_SetObject(py_node_exc_cls.ptr(), args.ptr());
             } catch (...) {
@@ -74,10 +67,7 @@ NB_MODULE(_hgraph, m) {
     m.def("get_stack_trace", &hgraph::get_stack_trace, "Get current C++ stack trace as a string");
     m.def("print_stack_trace", &hgraph::print_stack_trace, "Print current C++ stack trace to stderr");
 
-    export_utils(m);
     export_types(m);
-    export_builders(m);
-    export_runtime(m);
     export_nodes(m);
 }
 
