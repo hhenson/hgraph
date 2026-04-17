@@ -1,17 +1,17 @@
-#include <hgraph/nodes/v2/basic_nodes.h>
+#include <hgraph/nodes/basic_nodes.h>
 #include <hgraph/python/global_keys.h>
 #include <hgraph/python/global_state.h>
 #include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
-#include <hgraph/types/v2/child_graph.h>
-#include <hgraph/types/v2/evaluation_engine.h>
-#include <hgraph/types/v2/graph_builder.h>
-#include <hgraph/types/v2/nested_node_builder.h>
-#include <hgraph/types/v2/node_impl.h>
-#include <hgraph/types/v2/path_constants.h>
-#include <hgraph/types/v2/python_node_support.h>
-#include <hgraph/types/v2/python_export.h>
-#include <hgraph/types/v2/ref.h>
+#include <hgraph/types/child_graph.h>
+#include <hgraph/types/evaluation_engine.h>
+#include <hgraph/types/graph_builder.h>
+#include <hgraph/types/nested_node_builder.h>
+#include <hgraph/types/node_impl.h>
+#include <hgraph/types/path_constants.h>
+#include <hgraph/types/python_node_support.h>
+#include <hgraph/types/python_export.h>
+#include <hgraph/types/ref.h>
 
 namespace
 {
@@ -27,7 +27,7 @@ namespace
     using hgraph::TSOutput;
     using hgraph::GlobalState;
     using hgraph::engine_time_t;
-    using namespace hgraph::v2;
+    using namespace hgraph;
     namespace keys = hgraph::keys;
 
     namespace
@@ -281,6 +281,67 @@ namespace
             return !record_replay_id.empty();
         }
 
+        [[nodiscard]] nb::object resolved_recordable_state_arg() const
+        {
+            if (recordable_state_arg.is_valid() && !recordable_state_arg.is_none()) { return nb::borrow(recordable_state_arg); }
+            if (!uses_recordable_state() || !scalars.is_valid() || scalars.is_none()) { return nb::none(); }
+
+            nb::object recordable_state_type =
+                nb::module_::import_("hgraph._types._scalar_type_meta_data").attr("HgRecordableStateType");
+            for (auto item : nb::borrow<nb::dict>(scalars).items()) {
+                const nb::tuple pair = nb::borrow<nb::tuple>(item);
+                if (nb::isinstance(nb::borrow(pair[1]), recordable_state_type)) { return nb::borrow(pair[0]); }
+            }
+            return nb::none();
+        }
+
+        [[nodiscard]] nb::object resolved_recordable_state() const
+        {
+            if (recordable_state.is_valid() && !recordable_state.is_none()) { return nb::borrow(recordable_state); }
+            if (!uses_recordable_state() || !scalars.is_valid() || scalars.is_none()) { return nb::none(); }
+
+            nb::object recordable_state_type =
+                nb::module_::import_("hgraph._types._scalar_type_meta_data").attr("HgRecordableStateType");
+            for (auto item : nb::borrow<nb::dict>(scalars).items()) {
+                const nb::tuple pair = nb::borrow<nb::tuple>(item);
+                if (nb::isinstance(nb::borrow(pair[1]), recordable_state_type)) { return nb::borrow(pair[1]); }
+            }
+            return nb::none();
+        }
+
+        [[nodiscard]] std::string resolved_signature_text() const
+        {
+            if (!signature_text.empty()) { return signature_text; }
+
+            auto render_meta = [](nb::handle meta) -> std::string {
+                if (meta.is_none()) { return "?"; }
+                if (nb::hasattr(meta, "dereference")) {
+                    return nb::cast<std::string>(nb::str(nb::borrow(meta).attr("dereference")()));
+                }
+                return nb::cast<std::string>(nb::str(nb::borrow(meta)));
+            };
+
+            std::vector<std::string> rendered_args;
+            rendered_args.reserve(args.size());
+            for (const auto &arg : args) {
+                nb::object meta = nb::none();
+                if (time_series_inputs.is_valid() && !time_series_inputs.is_none() &&
+                    PyMapping_HasKey(time_series_inputs.ptr(), nb::str(arg.c_str()).ptr())) {
+                    meta = nb::steal<nb::object>(PyObject_GetItem(time_series_inputs.ptr(), nb::str(arg.c_str()).ptr()));
+                } else if (scalars.is_valid() && !scalars.is_none() &&
+                           PyMapping_HasKey(scalars.ptr(), nb::str(arg.c_str()).ptr())) {
+                    meta = nb::steal<nb::object>(PyObject_GetItem(scalars.ptr(), nb::str(arg.c_str()).ptr()));
+                }
+                rendered_args.push_back(fmt::format("{}: {}", arg, render_meta(meta)));
+            }
+
+            const std::string return_text =
+                time_series_output.is_valid() && !time_series_output.is_none()
+                    ? fmt::format(" -> {}", render_meta(time_series_output))
+                    : std::string{};
+            return fmt::format("{}({}){}", name, fmt::join(rendered_args, ", "), return_text);
+        }
+
         [[nodiscard]] nb::dict to_dict() const
         {
             nb::dict out;
@@ -304,9 +365,9 @@ namespace
             out["capture_values"] = capture_values;
             out["record_replay_id"] = record_replay_id;
             out["has_nested_graphs"] = has_nested_graphs;
-            out["recordable_state_arg"] = nb::borrow(recordable_state_arg);
-            out["recordable_state"] = nb::borrow(recordable_state);
-            out["signature"] = signature_text;
+            out["recordable_state_arg"] = resolved_recordable_state_arg();
+            out["recordable_state"] = resolved_recordable_state();
+            out["signature"] = resolved_signature_text();
             return out;
         }
     };
@@ -812,7 +873,7 @@ namespace
         switch (mode_value) {
             case static_cast<int>(EvaluationMode::REAL_TIME): return EvaluationMode::REAL_TIME;
             case static_cast<int>(EvaluationMode::SIMULATION): return EvaluationMode::SIMULATION;
-            default: throw std::invalid_argument(fmt::format("Unknown v2 evaluation mode {}", mode_value));
+            default: throw std::invalid_argument(fmt::format("Unknown evaluation mode {}", mode_value));
         }
     }
 
@@ -877,7 +938,7 @@ namespace
             PyObject_GetItem(input_types.ptr(), nb::str(arg_name.data(), arg_name.size()).ptr())));
     }
 
-    [[nodiscard]] const TSMeta *navigate_bound_source_schema(const TSMeta *schema, hgraph::v2::PathView path)
+    [[nodiscard]] const TSMeta *navigate_bound_source_schema(const TSMeta *schema, hgraph::PathView path)
     {
         const TSMeta *current = schema;
         for (const int64_t slot : path) {
@@ -889,7 +950,7 @@ namespace
                 throw std::invalid_argument("build_nested_node source path requires a schema");
             }
 
-            if (slot == hgraph::v2::k_key_set_path) {
+            if (slot == hgraph::k_key_set_path) {
                 if (collection_schema->kind != TSKind::TSD) {
                     throw std::logic_error("build_nested_node key_set source path requires a dict schema");
                 }
@@ -1056,7 +1117,7 @@ namespace
             .def_prop_ro("capture_values", [](const V2PythonNodeSignature &self) { return self.capture_values; })
             .def_prop_ro("record_replay_id", [](const V2PythonNodeSignature &self) { return self.record_replay_id; })
             .def_prop_ro("has_nested_graphs", [](const V2PythonNodeSignature &self) { return self.has_nested_graphs; })
-            .def_prop_ro("signature", [](const V2PythonNodeSignature &self) { return self.signature_text; })
+            .def_prop_ro("signature", [](const V2PythonNodeSignature &self) { return self.resolved_signature_text(); })
             .def_prop_ro("uses_scheduler", &V2PythonNodeSignature::uses_scheduler)
             .def_prop_ro("uses_clock", &V2PythonNodeSignature::uses_clock)
             .def_prop_ro("uses_engine", &V2PythonNodeSignature::uses_engine)
@@ -1064,9 +1125,9 @@ namespace
             .def_prop_ro("uses_recordable_state", &V2PythonNodeSignature::uses_recordable_state)
             .def_prop_ro("uses_output_feedback", &V2PythonNodeSignature::uses_output_feedback)
             .def_prop_ro("recordable_state_arg",
-                         [](const V2PythonNodeSignature &self) { return nb::borrow(self.recordable_state_arg); })
+                         [](const V2PythonNodeSignature &self) { return self.resolved_recordable_state_arg(); })
             .def_prop_ro("recordable_state",
-                         [](const V2PythonNodeSignature &self) { return nb::borrow(self.recordable_state); })
+                         [](const V2PythonNodeSignature &self) { return self.resolved_recordable_state(); })
             .def_prop_ro("is_source_node", &V2PythonNodeSignature::is_source_node)
             .def_prop_ro("is_pull_source_node", &V2PythonNodeSignature::is_pull_source_node)
             .def_prop_ro("is_push_source_node", &V2PythonNodeSignature::is_push_source_node)
@@ -1074,9 +1135,9 @@ namespace
             .def_prop_ro("is_sink_node", &V2PythonNodeSignature::is_sink_node)
             .def_prop_ro("is_recordable", &V2PythonNodeSignature::is_recordable)
             .def("to_dict", &V2PythonNodeSignature::to_dict)
-            .def("__str__", [](const V2PythonNodeSignature &self) { return self.signature_text; })
+            .def("__str__", [](const V2PythonNodeSignature &self) { return self.resolved_signature_text(); })
             .def("__repr__", [](const V2PythonNodeSignature &self) {
-                return fmt::format("v2.NodeSignature(name='{}', node_type={})", self.name, static_cast<int>(self.node_type));
+                return fmt::format("NodeSignature(name='{}', node_type={})", self.name, static_cast<int>(self.node_type));
             });
     }
 
@@ -1279,14 +1340,14 @@ namespace
             unwrapped_error_builder  = nb::borrow(builders[2]);
         } catch (const nb::python_error &) {}
 
-        hgraph::v2::NodeTypeEnum node_type = hgraph::v2::NodeTypeEnum::COMPUTE_NODE;
+        hgraph::NodeTypeEnum node_type = hgraph::NodeTypeEnum::COMPUTE_NODE;
         const std::string        node_type_name = nb::cast<std::string>(signature.attr("node_type").attr("name"));
         if (node_type_name == "PUSH_SOURCE_NODE") {
-            node_type = hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE;
+            node_type = hgraph::NodeTypeEnum::PUSH_SOURCE_NODE;
         } else if (node_type_name == "PULL_SOURCE_NODE") {
-            node_type = hgraph::v2::NodeTypeEnum::PULL_SOURCE_NODE;
+            node_type = hgraph::NodeTypeEnum::PULL_SOURCE_NODE;
         } else if (node_type_name == "SINK_NODE") {
-            node_type = hgraph::v2::NodeTypeEnum::SINK_NODE;
+            node_type = hgraph::NodeTypeEnum::SINK_NODE;
         }
 
         const TSMeta *input_schema = input_schema_from_node_signature(unwrapped_signature);
@@ -1309,9 +1370,9 @@ namespace
         apply_selector_policies(builder, unwrapped_signature, input_schema);
 
         if (try_except) {
-            hgraph::v2::try_except_graph_implementation(builder, tmpl);
+            hgraph::try_except_graph_implementation(builder, tmpl);
         } else {
-            hgraph::v2::nested_graph_implementation(builder, tmpl);
+            hgraph::nested_graph_implementation(builder, tmpl);
         }
         return builder;
     }
@@ -1330,7 +1391,7 @@ namespace
 
         [[nodiscard]] nb::object graph() const
         {
-            throw std::logic_error("v2 Python graph access is not exposed yet; only execution is supported");
+            throw std::logic_error("Python graph access is not exposed yet; only execution is supported");
         }
 
         void run(engine_time_t start_time, engine_time_t end_time)
@@ -1379,9 +1440,8 @@ namespace
 
 void export_nodes(nb::module_ &m) {
     using namespace hgraph;
-    auto v2 = m.def_submodule("v2", "Experimental v2 static node exports");
-    hgraph::v2::register_python_runtime_bindings(v2);
-    register_v2_node_signature(v2);
+    hgraph::register_python_runtime_bindings(m);
+    register_v2_node_signature(m);
     auto bind_builder_common = [&](auto &cls, auto *builder_type_tag, std::string_view type_name) {
         using builder_type = std::remove_pointer_t<decltype(builder_type_tag)>;
         cls.def(
@@ -1391,7 +1451,7 @@ void export_nodes(nb::module_ &m) {
                    static_cast<void>(owning_graph_id);
                    static_cast<void>(node_ndx);
                    throw std::logic_error(
-                       fmt::format("v2 {} only supports execution through _hgraph.v2.GraphBuilder and _hgraph.v2.GraphExecutor",
+                       fmt::format("{} only supports execution through _hgraph.GraphBuilder and _hgraph.GraphExecutor",
                                    type_name));
                },
                "owning_graph_id"_a,
@@ -1427,7 +1487,7 @@ void export_nodes(nb::module_ &m) {
             .def("__repr__",
                  [type_name](const builder_type &self) {
                      return fmt::format(
-                         "v2.{}@{:p}[impl={}]",
+                         "{}@{:p}[impl={}]",
                          type_name,
                          static_cast<const void *>(&self),
                          self.implementation_name());
@@ -1435,14 +1495,14 @@ void export_nodes(nb::module_ &m) {
             .def("__str__",
                  [type_name](const builder_type &self) {
                      return fmt::format(
-                         "v2.{}@{:p}[impl={}]",
+                         "{}@{:p}[impl={}]",
                          type_name,
                          static_cast<const void *>(&self),
                          self.implementation_name());
                  });
     };
 
-    auto node_builder_cls = nb::class_<hgraph::v2::NodeBuilder>(v2, "NodeBuilder")
+    auto node_builder_cls = nb::class_<hgraph::NodeBuilder>(m, "NodeBuilder")
         .def_static(
             "python",
             &make_python_node_builder,
@@ -1456,26 +1516,26 @@ void export_nodes(nb::module_ &m) {
             "start_fn"_a = nb::none(),
             "stop_fn"_a = nb::none())
         .def_static("make_signature", &make_v2_node_signature, "signature"_a);
-    bind_builder_common(node_builder_cls, static_cast<hgraph::v2::NodeBuilder *>(nullptr), "NodeBuilder");
-    node_builder_cls.attr("NODE_SIGNATURE") = v2.attr("NodeSignature");
-    node_builder_cls.attr("NODE_TYPE_ENUM") = v2.attr("NodeTypeEnum");
+    bind_builder_common(node_builder_cls, static_cast<hgraph::NodeBuilder *>(nullptr), "NodeBuilder");
+    node_builder_cls.attr("NODE_SIGNATURE") = m.attr("NodeSignature");
+    node_builder_cls.attr("NODE_TYPE_ENUM") = m.attr("NodeTypeEnum");
 
-    nb::class_<hgraph::v2::Edge>(v2, "Edge")
+    nb::class_<hgraph::Edge>(m, "Edge")
         .def(
-            nb::init<int64_t, hgraph::v2::Path, int64_t, hgraph::v2::Path>(),
+            nb::init<int64_t, hgraph::Path, int64_t, hgraph::Path>(),
             "src_node"_a,
-            "output_path"_a = hgraph::v2::Path{},
+            "output_path"_a = hgraph::Path{},
             "dst_node"_a,
-            "input_path"_a = hgraph::v2::Path{})
-        .def_rw("src_node", &hgraph::v2::Edge::src_node)
-        .def_rw("output_path", &hgraph::v2::Edge::output_path)
-        .def_rw("dst_node", &hgraph::v2::Edge::dst_node)
-        .def_rw("input_path", &hgraph::v2::Edge::input_path)
-        .def("__eq__", &hgraph::v2::Edge::operator==)
-        .def("__lt__", &hgraph::v2::Edge::operator<)
+            "input_path"_a = hgraph::Path{})
+        .def_rw("src_node", &hgraph::Edge::src_node)
+        .def_rw("output_path", &hgraph::Edge::output_path)
+        .def_rw("dst_node", &hgraph::Edge::dst_node)
+        .def_rw("input_path", &hgraph::Edge::input_path)
+        .def("__eq__", &hgraph::Edge::operator==)
+        .def("__lt__", &hgraph::Edge::operator<)
         .def(
             "__hash__",
-            [](const hgraph::v2::Edge &self) {
+            [](const hgraph::Edge &self) {
                 size_t hash = std::hash<int64_t>{}(self.src_node);
                 hash ^= std::hash<int64_t>{}(self.dst_node) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
                 for (const auto slot : self.output_path) {
@@ -1487,18 +1547,18 @@ void export_nodes(nb::module_ &m) {
                 return hash;
             });
 
-    nb::class_<hgraph::v2::GraphBuilder>(v2, "GraphBuilder")
+    nb::class_<hgraph::GraphBuilder>(m, "GraphBuilder")
         .def(nb::init<>())
         .def(
             "__init__",
-            [](hgraph::v2::GraphBuilder *self, nb::iterable node_builders, std::vector<hgraph::v2::Edge> edges) {
-                new (self) hgraph::v2::GraphBuilder{};
+            [](hgraph::GraphBuilder *self, nb::iterable node_builders, std::vector<hgraph::Edge> edges) {
+                new (self) hgraph::GraphBuilder{};
                 for (auto item : node_builders) {
                     nb::object builder = nb::borrow(item);
-                    if (nb::isinstance<hgraph::v2::NodeBuilder>(builder)) {
-                        self->add_node(nb::cast<hgraph::v2::NodeBuilder>(builder));
+                    if (nb::isinstance<hgraph::NodeBuilder>(builder)) {
+                        self->add_node(nb::cast<hgraph::NodeBuilder>(builder));
                     } else {
-                        throw std::invalid_argument("v2 GraphBuilder expects v2 node builders");
+                        throw std::invalid_argument("GraphBuilder expects runtime node builders");
                     }
                 }
                 for (auto &edge : edges) { self->add_edge(std::move(edge)); }
@@ -1507,53 +1567,53 @@ void export_nodes(nb::module_ &m) {
             "edges"_a)
         .def(
             "add_node",
-            [](hgraph::v2::GraphBuilder &self, const hgraph::v2::NodeBuilder &node_builder) -> hgraph::v2::GraphBuilder & {
+            [](hgraph::GraphBuilder &self, const hgraph::NodeBuilder &node_builder) -> hgraph::GraphBuilder & {
                 return self.add_node(node_builder);
             },
             "node_builder"_a,
             nb::rv_policy::reference_internal)
         .def(
             "add_edge",
-            [](hgraph::v2::GraphBuilder &self, const hgraph::v2::Edge &edge) -> hgraph::v2::GraphBuilder & {
+            [](hgraph::GraphBuilder &self, const hgraph::Edge &edge) -> hgraph::GraphBuilder & {
                 return self.add_edge(edge);
             },
             "edge"_a,
             nb::rv_policy::reference_internal)
         .def(
             "make_instance",
-            [](const hgraph::v2::GraphBuilder &self, nb::tuple graph_id, nb::handle parent_node, std::string label) -> nb::object {
+            [](const hgraph::GraphBuilder &self, nb::tuple graph_id, nb::handle parent_node, std::string label) -> nb::object {
                 static_cast<void>(self);
                 static_cast<void>(graph_id);
                 static_cast<void>(parent_node);
                 static_cast<void>(label);
                 throw std::logic_error(
-                    "v2 GraphBuilder only supports execution through _hgraph.v2.GraphExecutor");
+                    "GraphBuilder only supports execution through _hgraph.GraphExecutor");
             },
             "graph_id"_a,
             "parent_node"_a = nb::none(),
             "label"_a = "")
         .def(
             "make_and_connect_nodes",
-            [](const hgraph::v2::GraphBuilder &self, nb::tuple graph_id, int64_t first_node_ndx) -> nb::object {
+            [](const hgraph::GraphBuilder &self, nb::tuple graph_id, int64_t first_node_ndx) -> nb::object {
                 static_cast<void>(self);
                 static_cast<void>(graph_id);
                 static_cast<void>(first_node_ndx);
                 throw std::logic_error(
-                    "v2 GraphBuilder only supports execution through _hgraph.v2.GraphExecutor");
+                    "GraphBuilder only supports execution through _hgraph.GraphExecutor");
             },
             "graph_id"_a,
             "first_node_ndx"_a)
         .def("release_instance",
-             [](const hgraph::v2::GraphBuilder &self, nb::handle item) {
+             [](const hgraph::GraphBuilder &self, nb::handle item) {
                  static_cast<void>(self);
                  static_cast<void>(item);
              },
              "item"_a)
-        .def_prop_ro("size", &hgraph::v2::GraphBuilder::size)
-        .def_prop_ro("alignment", &hgraph::v2::GraphBuilder::alignment)
-        .def("memory_size", &hgraph::v2::GraphBuilder::memory_size)
+        .def_prop_ro("size", &hgraph::GraphBuilder::size)
+        .def_prop_ro("alignment", &hgraph::GraphBuilder::alignment)
+        .def("memory_size", &hgraph::GraphBuilder::memory_size)
         .def_prop_ro("node_builders",
-                     [](const hgraph::v2::GraphBuilder &self) {
+                     [](const hgraph::GraphBuilder &self) {
                          nb::tuple out = nb::steal<nb::tuple>(PyTuple_New(static_cast<Py_ssize_t>(self.node_builder_count())));
                          for (size_t i = 0; i < self.node_builder_count(); ++i) {
                              nb::object item = nb::cast(self.node_builder_at(i));
@@ -1564,39 +1624,39 @@ void export_nodes(nb::module_ &m) {
                          }
                          return out;
                      })
-        .def_prop_ro("edges", [](const hgraph::v2::GraphBuilder &self) { return nb::tuple(nb::cast(self.edges())); })
+        .def_prop_ro("edges", [](const hgraph::GraphBuilder &self) { return nb::tuple(nb::cast(self.edges())); })
         .def(
             "__repr__",
-            [](const hgraph::v2::GraphBuilder &self) {
+            [](const hgraph::GraphBuilder &self) {
                 return fmt::format(
-                    "v2.GraphBuilder@{:p}[nodes={}, edges={}]",
+                    "GraphBuilder@{:p}[nodes={}, edges={}]",
                     static_cast<const void *>(&self),
                     self.node_builder_count(),
                     self.edges().size());
             })
         .def("__str__",
-             [](const hgraph::v2::GraphBuilder &self) {
+             [](const hgraph::GraphBuilder &self) {
                  return fmt::format(
-                     "v2.GraphBuilder@{:p}[nodes={}, edges={}]",
+                     "GraphBuilder@{:p}[nodes={}, edges={}]",
                      static_cast<const void *>(&self),
                      self.node_builder_count(),
                      self.edges().size());
              });
 
-    nb::enum_<hgraph::v2::EvaluationMode>(v2, "EvaluationMode")
-        .value("REAL_TIME", hgraph::v2::EvaluationMode::REAL_TIME)
-        .value("SIMULATION", hgraph::v2::EvaluationMode::SIMULATION)
+    nb::enum_<hgraph::EvaluationMode>(m, "EvaluationMode")
+        .value("REAL_TIME", hgraph::EvaluationMode::REAL_TIME)
+        .value("SIMULATION", hgraph::EvaluationMode::SIMULATION)
         .export_values();
 
-    nb::class_<hgraph::v2::EvaluationEngine>(v2, "EvaluationEngine")
-        .def_prop_ro("evaluation_mode", &hgraph::v2::EvaluationEngine::evaluation_mode)
-        .def_prop_ro("start_time", &hgraph::v2::EvaluationEngine::start_time)
-        .def_prop_ro("end_time", &hgraph::v2::EvaluationEngine::end_time)
-        .def("run", &hgraph::v2::EvaluationEngine::run);
+    nb::class_<hgraph::EvaluationEngine>(m, "EvaluationEngine")
+        .def_prop_ro("evaluation_mode", &hgraph::EvaluationEngine::evaluation_mode)
+        .def_prop_ro("start_time", &hgraph::EvaluationEngine::start_time)
+        .def_prop_ro("end_time", &hgraph::EvaluationEngine::end_time)
+        .def("run", &hgraph::EvaluationEngine::run);
 
-    nb::class_<V2GraphExecutor>(v2, "GraphExecutor")
+    nb::class_<V2GraphExecutor>(m, "GraphExecutor")
         .def(
-            nb::init<hgraph::v2::GraphBuilder, nb::object, std::vector<nb::object>, bool>(),
+            nb::init<hgraph::GraphBuilder, nb::object, std::vector<nb::object>, bool>(),
             "graph_builder"_a,
             "run_mode"_a,
             "observers"_a = std::vector<nb::object>{},
@@ -1605,44 +1665,44 @@ void export_nodes(nb::module_ &m) {
         .def_prop_ro("graph", &V2GraphExecutor::graph)
         .def("run", &V2GraphExecutor::run, "start_time"_a, "end_time"_a);
 
-    nb::class_<hgraph::v2::EvaluationEngineBuilder>(v2, "EvaluationEngineBuilder")
+    nb::class_<hgraph::EvaluationEngineBuilder>(m, "EvaluationEngineBuilder")
         .def(nb::init<>())
         .def(
             "graph_builder",
-            [](hgraph::v2::EvaluationEngineBuilder &self,
-               const hgraph::v2::GraphBuilder &graph_builder) -> hgraph::v2::EvaluationEngineBuilder & {
+            [](hgraph::EvaluationEngineBuilder &self,
+               const hgraph::GraphBuilder &graph_builder) -> hgraph::EvaluationEngineBuilder & {
                 return self.graph_builder(graph_builder);
             },
             "graph_builder"_a,
             nb::rv_policy::reference_internal)
         .def(
             "evaluation_mode",
-            [](hgraph::v2::EvaluationEngineBuilder &self,
-               hgraph::v2::EvaluationMode evaluation_mode) -> hgraph::v2::EvaluationEngineBuilder & {
+            [](hgraph::EvaluationEngineBuilder &self,
+               hgraph::EvaluationMode evaluation_mode) -> hgraph::EvaluationEngineBuilder & {
                 return self.evaluation_mode(evaluation_mode);
             },
             "evaluation_mode"_a,
             nb::rv_policy::reference_internal)
         .def(
             "start_time",
-            [](hgraph::v2::EvaluationEngineBuilder &self,
-               engine_time_t start_time) -> hgraph::v2::EvaluationEngineBuilder & { return self.start_time(start_time); },
+            [](hgraph::EvaluationEngineBuilder &self,
+               engine_time_t start_time) -> hgraph::EvaluationEngineBuilder & { return self.start_time(start_time); },
             "start_time"_a,
             nb::rv_policy::reference_internal)
         .def(
             "end_time",
-            [](hgraph::v2::EvaluationEngineBuilder &self,
-               engine_time_t end_time) -> hgraph::v2::EvaluationEngineBuilder & { return self.end_time(end_time); },
+            [](hgraph::EvaluationEngineBuilder &self,
+               engine_time_t end_time) -> hgraph::EvaluationEngineBuilder & { return self.end_time(end_time); },
             "end_time"_a,
             nb::rv_policy::reference_internal)
-        .def("build", &hgraph::v2::EvaluationEngineBuilder::build);
+        .def("build", &hgraph::EvaluationEngineBuilder::build);
 
-    v2.def("reset_static_sink_state", &StaticSinkNode::reset);
-    v2.def("reset_child_graph_template_registry", [] { ChildGraphTemplateRegistry::instance().reset(); });
-    v2.def("child_graph_template_registry_size", [] { return ChildGraphTemplateRegistry::instance().size(); });
-    v2.def("static_sink_call_count", [] { return StaticSinkNode::call_count; });
-    v2.def("static_sink_last_value", [] { return StaticSinkNode::last_value; });
-    v2.def(
+    m.def("reset_static_sink_state", &StaticSinkNode::reset);
+    m.def("reset_child_graph_template_registry", [] { ChildGraphTemplateRegistry::instance().reset(); });
+    m.def("child_graph_template_registry_size", [] { return ChildGraphTemplateRegistry::instance().size(); });
+    m.def("static_sink_call_count", [] { return StaticSinkNode::call_count; });
+    m.def("static_sink_last_value", [] { return StaticSinkNode::last_value; });
+    m.def(
         "build_nested_node",
         &make_nested_graph_node_builder,
         "signature"_a,
@@ -1655,41 +1715,41 @@ void export_nodes(nb::module_ &m) {
         "output_node_id"_a = nb::none(),
         "try_except"_a = false);
 
-    hgraph::v2::export_compute_node<StaticSumNode>(v2);
-    hgraph::v2::export_compute_node<StaticPolicyNode>(v2);
-    hgraph::v2::export_compute_node<StaticGetItemNode>(v2);
-    hgraph::v2::export_compute_node<StaticTypedStateNode>(v2);
-    hgraph::v2::export_compute_node<StaticRecordableStateNode>(v2);
-    hgraph::v2::export_compute_node<StaticClockNode>(v2);
-    hgraph::v2::export_compute_node<StaticTickNode>(v2);
-    hgraph::v2::export_compute_node<StaticRefBoolNode>(v2);
-    hgraph::v2::export_compute_node_from_python_impl<StaticContextOutputNode>(
-        v2,
+    hgraph::export_compute_node<StaticSumNode>(m);
+    hgraph::export_compute_node<StaticPolicyNode>(m);
+    hgraph::export_compute_node<StaticGetItemNode>(m);
+    hgraph::export_compute_node<StaticTypedStateNode>(m);
+    hgraph::export_compute_node<StaticRecordableStateNode>(m);
+    hgraph::export_compute_node<StaticClockNode>(m);
+    hgraph::export_compute_node<StaticTickNode>(m);
+    hgraph::export_compute_node<StaticRefBoolNode>(m);
+    hgraph::export_compute_node_from_python_impl<StaticContextOutputNode>(
+        m,
         "hgraph._wiring._context_wiring",
         "get_context_output",
         "get_context_output");
-    hgraph::v2::export_compute_node_from_python_impl<StaticCaptureContextNode>(
-        v2,
+    hgraph::export_compute_node_from_python_impl<StaticCaptureContextNode>(
+        m,
         "hgraph._wiring._context_wiring",
         "capture_context",
         "capture_context");
-    hgraph::v2::export_compute_node<StaticSinkNode>(v2);
-    hgraph::v2::export_compute_node_from_python_impl<ValidImplNode>(
-        v2, "hgraph._impl._operators._time_series_properties", "valid_impl", "valid_impl");
-    hgraph::v2::export_compute_node_from_python_impl<TsdGetItemDefaultNode>(
-        v2, "hgraph._impl._operators._tsd_operators", "tsd_get_item_default", "tsd_get_item_default");
-    hgraph::v2::export_compute_node_from_python_impl<TsdGetItemsNode>(
-        v2,
+    hgraph::export_compute_node<StaticSinkNode>(m);
+    hgraph::export_compute_node_from_python_impl<ValidImplNode>(
+        m, "hgraph._impl._operators._time_series_properties", "valid_impl", "valid_impl");
+    hgraph::export_compute_node_from_python_impl<TsdGetItemDefaultNode>(
+        m, "hgraph._impl._operators._tsd_operators", "tsd_get_item_default", "tsd_get_item_default");
+    hgraph::export_compute_node_from_python_impl<TsdGetItemsNode>(
+        m,
         "hgraph._impl._operators._tsd_operators",
         "tsd_get_items",
         "tsd_get_items",
-        hgraph::v2::StaticNodeSignature<TsdGetItemsNode>::wiring_signature("tsd_get_items"));
-    hgraph::v2::export_compute_node_from_python_impl<hgraph::nodes::v2::ConstNode>(
-        v2, "hgraph._impl._operators._time_series_conversion", "const_default", "const");
-    hgraph::v2::export_compute_node_from_python_impl<hgraph::nodes::v2::NothingNode>(
-        v2, "hgraph._impl._operators._graph_operators", "nothing_impl", "nothing");
-    hgraph::v2::export_compute_node_from_python_impl<hgraph::nodes::v2::NullSinkNode>(
-        v2, "hgraph._impl._operators._graph_operators", "null_sink_impl", "null_sink");
-    hgraph::v2::export_compute_node_from_python_impl<hgraph::nodes::v2::DebugPrintNode>(
-        v2, "hgraph._impl._operators._graph_operators", "debug_print_impl", "debug_print");
+        hgraph::StaticNodeSignature<TsdGetItemsNode>::wiring_signature("tsd_get_items"));
+    hgraph::export_compute_node_from_python_impl<hgraph::nodes::ConstNode>(
+        m, "hgraph._impl._operators._time_series_conversion", "const_default", "const");
+    hgraph::export_compute_node_from_python_impl<hgraph::nodes::NothingNode>(
+        m, "hgraph._impl._operators._graph_operators", "nothing_impl", "nothing");
+    hgraph::export_compute_node_from_python_impl<hgraph::nodes::NullSinkNode>(
+        m, "hgraph._impl._operators._graph_operators", "null_sink_impl", "null_sink");
+    hgraph::export_compute_node_from_python_impl<hgraph::nodes::DebugPrintNode>(
+        m, "hgraph._impl._operators._graph_operators", "debug_print_impl", "debug_print");
 }

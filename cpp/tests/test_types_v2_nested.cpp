@@ -1,18 +1,18 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <hgraph/types/time_series/ts_type_registry.h>
-#include <hgraph/types/v2/child_graph.h>
-#include <hgraph/types/v2/graph_builder.h>
-#include <hgraph/types/v2/nested_clock.h>
-#include <hgraph/types/v2/nested_node_builder.h>
-#include <hgraph/types/v2/ref.h>
+#include <hgraph/types/child_graph.h>
+#include <hgraph/types/graph_builder.h>
+#include <hgraph/types/nested_clock.h>
+#include <hgraph/types/nested_node_builder.h>
+#include <hgraph/types/ref.h>
 #include <hgraph/types/value/type_registry.h>
 #include <nanobind/nanobind.h>
 
 #include <chrono>
 #include <filesystem>
 
-namespace hgraph::v2::nested_test
+namespace hgraph::nested_test
 {
     struct ChildTemplateRegistryResetGuard
     {
@@ -127,96 +127,96 @@ namespace hgraph::v2::nested_test
         path.insert(0, "/Users/hhenson/CLionProjects/hgraph_2");
     }
 
-}  // namespace hgraph::v2::nested_test
+}  // namespace hgraph::nested_test
 
 // ============================================================================
 // Nested Clock Tests
 // ============================================================================
 
 TEST_CASE("nested clock state initialises with expected defaults", "[v2][nested][clock]") {
-    hgraph::v2::NestedClockState state;
+    hgraph::NestedClockState state;
     CHECK(state.evaluation_time == hgraph::MIN_DT);
     CHECK(state.nested_next_scheduled == hgraph::MAX_DT);
     CHECK(state.parent_node == nullptr);
 }
 
 TEST_CASE("nested clock ops creates a valid EngineEvaluationClock facade", "[v2][nested][clock]") {
-    hgraph::v2::NestedClockState state;
-    state.evaluation_time = hgraph::v2::nested_test::tick(10);
+    hgraph::NestedClockState state;
+    state.evaluation_time = hgraph::nested_test::tick(10);
 
-    hgraph::v2::EngineEvaluationClock clock{&state, &hgraph::v2::nested_clock_ops()};
+    hgraph::EngineEvaluationClock clock{&state, &hgraph::nested_clock_ops()};
 
     CHECK(clock.valid());
-    CHECK(clock.evaluation_time() == hgraph::v2::nested_test::tick(10));
+    CHECK(clock.evaluation_time() == hgraph::nested_test::tick(10));
     CHECK(clock.next_scheduled_evaluation_time() == hgraph::MAX_DT);
 }
 
 TEST_CASE("nested clock set_evaluation_time updates the state", "[v2][nested][clock]") {
-    hgraph::v2::NestedClockState state;
+    hgraph::NestedClockState state;
 
-    hgraph::v2::EngineEvaluationClock clock{&state, &hgraph::v2::nested_clock_ops()};
-    clock.set_evaluation_time(hgraph::v2::nested_test::tick(5));
+    hgraph::EngineEvaluationClock clock{&state, &hgraph::nested_clock_ops()};
+    clock.set_evaluation_time(hgraph::nested_test::tick(5));
 
-    CHECK(state.evaluation_time == hgraph::v2::nested_test::tick(5));
-    CHECK(clock.evaluation_time() == hgraph::v2::nested_test::tick(5));
+    CHECK(state.evaluation_time == hgraph::nested_test::tick(5));
+    CHECK(clock.evaluation_time() == hgraph::nested_test::tick(5));
 }
 
 TEST_CASE("nested clock update_next_scheduled skips when already evaluated past requested time", "[v2][nested][clock]") {
-    hgraph::v2::NestedClockState state;
-    state.evaluation_time = hgraph::v2::nested_test::tick(10);
+    hgraph::NestedClockState state;
+    state.evaluation_time = hgraph::nested_test::tick(10);
 
-    hgraph::v2::EngineEvaluationClock clock{&state, &hgraph::v2::nested_clock_ops()};
+    hgraph::EngineEvaluationClock clock{&state, &hgraph::nested_clock_ops()};
 
     // Request scheduling at tick(5), which is before evaluation_time tick(10)
-    clock.update_next_scheduled_evaluation_time(hgraph::v2::nested_test::tick(5));
+    clock.update_next_scheduled_evaluation_time(hgraph::nested_test::tick(5));
 
     // Should not have changed — we already evaluated past this time
     CHECK(state.nested_next_scheduled == hgraph::MAX_DT);
 }
 
 TEST_CASE("nested clock update_next_scheduled computes proposed time correctly", "[v2][nested][clock]") {
-    hgraph::v2::NestedClockState state;
+    hgraph::NestedClockState state;
     // No evaluation yet — evaluation_time is MIN_DT
     // Floor = MIN_DT + MIN_TD = tick(1)
 
-    hgraph::v2::EngineEvaluationClock clock{&state, &hgraph::v2::nested_clock_ops()};
+    hgraph::EngineEvaluationClock clock{&state, &hgraph::nested_clock_ops()};
 
     // Request scheduling at tick(5)
     // proposed = min(tick(5), max(MAX_DT, MIN_DT + MIN_TD)) = min(tick(5), MAX_DT) = tick(5)
-    clock.update_next_scheduled_evaluation_time(hgraph::v2::nested_test::tick(5));
+    clock.update_next_scheduled_evaluation_time(hgraph::nested_test::tick(5));
 
-    CHECK(state.nested_next_scheduled == hgraph::v2::nested_test::tick(5));
+    CHECK(state.nested_next_scheduled == hgraph::nested_test::tick(5));
 }
 
 TEST_CASE("nested clock update_next_scheduled coalesces to earliest time", "[v2][nested][clock]") {
-    hgraph::v2::NestedClockState state;
+    hgraph::NestedClockState state;
 
-    hgraph::v2::EngineEvaluationClock clock{&state, &hgraph::v2::nested_clock_ops()};
+    hgraph::EngineEvaluationClock clock{&state, &hgraph::nested_clock_ops()};
 
     // First request at tick(10)
-    clock.update_next_scheduled_evaluation_time(hgraph::v2::nested_test::tick(10));
-    CHECK(state.nested_next_scheduled == hgraph::v2::nested_test::tick(10));
+    clock.update_next_scheduled_evaluation_time(hgraph::nested_test::tick(10));
+    CHECK(state.nested_next_scheduled == hgraph::nested_test::tick(10));
 
     // Second request at tick(5) — should coalesce to the earlier time
     // proposed = min(tick(5), max(tick(10), MIN_DT + MIN_TD)) = min(tick(5), tick(10)) = tick(5)
-    clock.update_next_scheduled_evaluation_time(hgraph::v2::nested_test::tick(5));
-    CHECK(state.nested_next_scheduled == hgraph::v2::nested_test::tick(5));
+    clock.update_next_scheduled_evaluation_time(hgraph::nested_test::tick(5));
+    CHECK(state.nested_next_scheduled == hgraph::nested_test::tick(5));
 }
 
 TEST_CASE("nested clock update_next_scheduled prevents scheduling before evaluation_time + MIN_TD", "[v2][nested][clock]") {
-    hgraph::v2::NestedClockState state;
-    state.evaluation_time = hgraph::v2::nested_test::tick(10);
+    hgraph::NestedClockState state;
+    state.evaluation_time = hgraph::nested_test::tick(10);
 
-    hgraph::v2::EngineEvaluationClock clock{&state, &hgraph::v2::nested_clock_ops()};
+    hgraph::EngineEvaluationClock clock{&state, &hgraph::nested_clock_ops()};
 
     // Request at tick(11) — the minimum possible is tick(10) + MIN_TD = tick(11)
-    clock.update_next_scheduled_evaluation_time(hgraph::v2::nested_test::tick(11));
-    CHECK(state.nested_next_scheduled == hgraph::v2::nested_test::tick(11));
+    clock.update_next_scheduled_evaluation_time(hgraph::nested_test::tick(11));
+    CHECK(state.nested_next_scheduled == hgraph::nested_test::tick(11));
 }
 
 TEST_CASE("nested clock update_next_scheduled delegates through parent scheduler", "[v2][nested][clock]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
 
     auto       &value_registry = hgraph::value::TypeRegistry::instance();
     auto       &ts_registry    = hgraph::TSTypeRegistry::instance();
@@ -249,8 +249,8 @@ TEST_CASE("nested clock update_next_scheduled delegates through parent scheduler
 }
 
 TEST_CASE("nested clock startup scheduling survives parent start", "[v2][nested][clock]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
 
     auto       &value_registry = hgraph::value::TypeRegistry::instance();
     auto       &ts_registry    = hgraph::TSTypeRegistry::instance();
@@ -283,8 +283,8 @@ TEST_CASE("nested clock startup scheduling survives parent start", "[v2][nested]
 }
 
 TEST_CASE("nested clock preserves same-cycle wakeups through parent scheduler", "[v2][nested][clock]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
 
     auto       &value_registry = hgraph::value::TypeRegistry::instance();
     auto       &ts_registry    = hgraph::TSTypeRegistry::instance();
@@ -316,8 +316,8 @@ TEST_CASE("nested clock preserves same-cycle wakeups through parent scheduler", 
 }
 
 TEST_CASE("nested clock reset_next_scheduled resets to MAX_DT", "[v2][nested][clock]") {
-    hgraph::v2::NestedClockState state;
-    state.nested_next_scheduled = hgraph::v2::nested_test::tick(5);
+    hgraph::NestedClockState state;
+    state.nested_next_scheduled = hgraph::nested_test::tick(5);
 
     state.reset_next_scheduled();
 
@@ -325,13 +325,13 @@ TEST_CASE("nested clock reset_next_scheduled resets to MAX_DT", "[v2][nested][cl
 }
 
 TEST_CASE("nested clock advance_to_next_scheduled_time moves evaluation_time", "[v2][nested][clock]") {
-    hgraph::v2::NestedClockState state;
-    state.nested_next_scheduled = hgraph::v2::nested_test::tick(5);
+    hgraph::NestedClockState state;
+    state.nested_next_scheduled = hgraph::nested_test::tick(5);
 
-    hgraph::v2::EngineEvaluationClock clock{&state, &hgraph::v2::nested_clock_ops()};
+    hgraph::EngineEvaluationClock clock{&state, &hgraph::nested_clock_ops()};
     clock.advance_to_next_scheduled_time();
 
-    CHECK(state.evaluation_time == hgraph::v2::nested_test::tick(5));
+    CHECK(state.evaluation_time == hgraph::nested_test::tick(5));
     CHECK(state.nested_next_scheduled == hgraph::MAX_DT);
 }
 
@@ -340,7 +340,7 @@ TEST_CASE("nested clock advance_to_next_scheduled_time moves evaluation_time", "
 // ============================================================================
 
 TEST_CASE("ChildGraphTemplate::create stores builder and plan", "[v2][nested][template]") {
-    using namespace hgraph::v2;
+    using namespace hgraph;
     nested_test::ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry = hgraph::value::TypeRegistry::instance();
@@ -374,8 +374,8 @@ TEST_CASE("ChildGraphTemplate::create stores builder and plan", "[v2][nested][te
 // ============================================================================
 
 TEST_CASE("ChildGraphInstance lifecycle: initialise creates child graph", "[v2][nested][instance]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry = hgraph::value::TypeRegistry::instance();
@@ -411,8 +411,8 @@ TEST_CASE("ChildGraphInstance lifecycle: initialise creates child graph", "[v2][
 }
 
 TEST_CASE("ChildGraphInstance lifecycle: start and stop", "[v2][nested][instance]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry = hgraph::value::TypeRegistry::instance();
@@ -451,8 +451,8 @@ TEST_CASE("ChildGraphInstance lifecycle: start and stop", "[v2][nested][instance
 }
 
 TEST_CASE("ChildGraphInstance lifecycle: evaluate updates clock evaluation_time", "[v2][nested][instance]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry = hgraph::value::TypeRegistry::instance();
@@ -486,8 +486,8 @@ TEST_CASE("ChildGraphInstance lifecycle: evaluate updates clock evaluation_time"
 }
 
 TEST_CASE("ChildGraphInstance lifecycle: dispose stops and marks disposed", "[v2][nested][instance]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry = hgraph::value::TypeRegistry::instance();
@@ -521,8 +521,8 @@ TEST_CASE("ChildGraphInstance lifecycle: dispose stops and marks disposed", "[v2
 }
 
 TEST_CASE("ChildGraphInstance rejects double initialise", "[v2][nested][instance]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry = hgraph::value::TypeRegistry::instance();
@@ -547,8 +547,8 @@ TEST_CASE("ChildGraphInstance rejects double initialise", "[v2][nested][instance
 }
 
 TEST_CASE("ChildGraphInstance rejects evaluate before start", "[v2][nested][instance]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry = hgraph::value::TypeRegistry::instance();
@@ -573,8 +573,8 @@ TEST_CASE("ChildGraphInstance rejects evaluate before start", "[v2][nested][inst
 }
 
 TEST_CASE("ChildGraphInstance move semantics transfer ownership", "[v2][nested][instance]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry = hgraph::value::TypeRegistry::instance();
@@ -610,8 +610,8 @@ TEST_CASE("ChildGraphInstance move semantics transfer ownership", "[v2][nested][
 }
 
 TEST_CASE("nested clock scheduling propagates through child graph evaluation", "[v2][nested][integration]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry = hgraph::value::TypeRegistry::instance();
@@ -656,7 +656,7 @@ TEST_CASE("nested clock scheduling propagates through child graph evaluation", "
 // Boundary Binding: BIND_DIRECT End-to-End Test
 // ============================================================================
 
-namespace hgraph::v2::nested_test
+namespace hgraph::nested_test
 {
     // A simple compute node for the child graph: reads input, adds 10, writes output.
     struct AddTenNode
@@ -716,11 +716,11 @@ namespace hgraph::v2::nested_test
         if (context.ts_state == nullptr) { throw std::logic_error("test output leaf has no state to mark modified"); }
         context.ts_state->mark_modified(modified_time);
     }
-}  // namespace hgraph::v2::nested_test
+}  // namespace hgraph::nested_test
 
 TEST_CASE("BoundaryBindingRuntime bind_keyed binds a multiplexed list element", "[v2][nested][boundary]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry     = hgraph::value::TypeRegistry::instance();
@@ -770,8 +770,8 @@ TEST_CASE("BoundaryBindingRuntime bind_keyed binds a multiplexed list element", 
 
 TEST_CASE("BoundaryBindingRuntime bind_keyed injects key values and detach_restore_blank clears them",
           "[v2][nested][boundary]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry = hgraph::value::TypeRegistry::instance();
@@ -819,8 +819,8 @@ TEST_CASE("BoundaryBindingRuntime bind_keyed injects key values and detach_resto
 }
 
 TEST_CASE("BoundaryBindingRuntime clone_ref_binding preserves peered reference semantics", "[v2][nested][boundary]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry      = hgraph::value::TypeRegistry::instance();
@@ -865,8 +865,8 @@ TEST_CASE("BoundaryBindingRuntime clone_ref_binding preserves peered reference s
 }
 
 TEST_CASE("BoundaryBindingRuntime rebind updates cloned REF targets", "[v2][nested][boundary]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry      = hgraph::value::TypeRegistry::instance();
@@ -927,8 +927,8 @@ TEST_CASE("BoundaryBindingRuntime rebind updates cloned REF targets", "[v2][nest
 // ============================================================================
 
 TEST_CASE("nested_graph_implementation creates a working nested operator node", "[v2][nested][operator]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry      = hgraph::value::TypeRegistry::instance();
@@ -998,8 +998,8 @@ TEST_CASE("nested_graph_implementation creates a working nested operator node", 
 // ============================================================================
 
 TEST_CASE("nested operator is automatically scheduled when its input changes", "[v2][nested][scheduling]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
 
     auto       &value_registry      = hgraph::value::TypeRegistry::instance();
@@ -1070,8 +1070,8 @@ TEST_CASE("nested operator is automatically scheduled when its input changes", "
 // ============================================================================
 
 TEST_CASE("try_except forwards child output to .out field on success", "[v2][nested][try_except]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
     ensure_python_hgraph_importable();
 
@@ -1133,8 +1133,8 @@ TEST_CASE("try_except forwards child output to .out field on success", "[v2][nes
 }
 
 TEST_CASE("try_except catches exception, stops child, and subsequent evals are no-ops", "[v2][nested][try_except]") {
-    using namespace hgraph::v2;
-    using namespace hgraph::v2::nested_test;
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
     ensure_python_hgraph_importable();
 

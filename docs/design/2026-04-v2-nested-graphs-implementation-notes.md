@@ -151,7 +151,7 @@ Those are the right top-level pieces.
 
 `BoundaryBindingRuntime` declares multiple modes, but only `BIND_DIRECT` is implemented, and even that implementation is bundle-only and direct-input-only.
 
-See [boundary_binding.cpp](/Users/hhenson/CLionProjects/hgraph_2/cpp/src/cpp/types/v2/boundary_binding.cpp:19).
+See [boundary_binding.cpp](/Users/hhenson/CLionProjects/hgraph_2/cpp/src/cpp/types/boundary_binding.cpp:19).
 
 `bind_keyed()` and `rebind()` are empty, and the other declared input modes are silent no-ops.
 
@@ -161,7 +161,7 @@ That is acceptable for a narrow first smoke test, but it is not yet a real reusa
 
 The initial nested runtime stored `captures_exception` in generic nested runtime data and then changed generic output forwarding behavior based on that flag.
 
-See [node_builder.cpp](/Users/hhenson/CLionProjects/hgraph_2/cpp/src/cpp/types/v2/node_builder.cpp:965) and [node_builder.cpp](/Users/hhenson/CLionProjects/hgraph_2/cpp/src/cpp/types/v2/node_builder.cpp:1063).
+See [node_builder.cpp](/Users/hhenson/CLionProjects/hgraph_2/cpp/src/cpp/types/node_builder.cpp:965) and [node_builder.cpp](/Users/hhenson/CLionProjects/hgraph_2/cpp/src/cpp/types/node_builder.cpp:1063).
 
 That part has since been corrected. `try_except` now has its own eval path and the generic child template no longer carries exception-capture policy.
 
@@ -179,7 +179,7 @@ That is not how I would structure it. The generic nested runtime should not know
 1. walks output paths as though they are bundle-only
 2. copies via Python conversion (`to_python` / `from_python`)
 
-See [node_builder.cpp](/Users/hhenson/CLionProjects/hgraph_2/cpp/src/cpp/types/v2/node_builder.cpp:1000).
+See [node_builder.cpp](/Users/hhenson/CLionProjects/hgraph_2/cpp/src/cpp/types/node_builder.cpp:1000).
 
 The `try_except`-specific routing is now outside the generic helper, which is the right direction. The remaining issue is that output forwarding still uses the Python bridge as a tactical copy path.
 
@@ -195,7 +195,7 @@ The larger keyed-path story for `map_` still remains, but the basic non-keyed li
 
 `ChildGraphInstance::initialise()` comments say the nested engine delegates lifecycle notifications to the parent engine, but the current nested engine ops are mostly no-ops.
 
-See [child_graph.cpp](/Users/hhenson/CLionProjects/hgraph_2/cpp/src/cpp/types/v2/child_graph.cpp:224).
+See [child_graph.cpp](/Users/hhenson/CLionProjects/hgraph_2/cpp/src/cpp/types/child_graph.cpp:224).
 
 That mismatch has been corrected in comments. The engine is still intentionally thin, but the documentation no longer overclaims.
 

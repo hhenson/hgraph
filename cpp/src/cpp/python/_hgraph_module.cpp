@@ -9,7 +9,7 @@
  */
 #include <hgraph/hgraph_base.h>
 #include <hgraph/util/stack_trace.h>
-#include <hgraph/types/v2/node_impl.h>
+#include <hgraph/types/node_impl.h>
 
 #include <nanobind/intrusive/counter.inl>
 
@@ -30,11 +30,11 @@ NB_MODULE(_hgraph, m) {
             Py_DECREF(o);
         });
 
-    // Translate hgraph::v2::NodeException into the Python hgraph.NodeException to match Python error shape.
+    // Translate hgraph::NodeException into the Python hgraph.NodeException to match Python error shape.
     nb::register_exception_translator([](const std::exception_ptr &p, void *) {
         try {
             if (p) std::rethrow_exception(p);
-        } catch (const hgraph::v2::NodeException &e) {
+        } catch (const hgraph::NodeException &e) {
             try {
                 nb::object hgraph_mod = nb::module_::import_("hgraph");
                 nb::object py_node_exc_cls = hgraph_mod.attr("NodeException");

@@ -5,7 +5,7 @@
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_value_builder.h>
 #include <hgraph/types/time_series/ts_view.h>
-#include <hgraph/types/v2/ref.h>
+#include <hgraph/types/ref.h>
 #include <hgraph/util/scope.h>
 
 #include <algorithm>
@@ -864,7 +864,7 @@ namespace hgraph
 
                 if (context.ts_state != nullptr) {
                     if (const Value *materialized = detail::materialized_reference_value(context); materialized != nullptr) {
-                        if (const auto *ref = materialized->view().as_atomic().try_as<v2::TimeSeriesReference>()) {
+                        if (const auto *ref = materialized->view().as_atomic().try_as<TimeSeriesReference>()) {
                             return ref->is_valid();
                         }
                         return false;
@@ -872,10 +872,10 @@ namespace hgraph
                 }
 
                 View value = context.value();
-                if (const auto *ref = value.as_atomic().try_as<v2::TimeSeriesReference>()) {
+                if (const auto *ref = value.as_atomic().try_as<TimeSeriesReference>()) {
                     return ref->is_valid();
                 }
-                return value.has_value() && value.as_atomic().try_as<v2::TimeSeriesReference>() != nullptr;
+                return value.has_value() && value.as_atomic().try_as<TimeSeriesReference>() != nullptr;
             }
 
             [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override

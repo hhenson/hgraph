@@ -2,9 +2,9 @@
 
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/value/type_registry.h>
-#include <hgraph/types/v2/graph_builder.h>
-#include <hgraph/types/v2/python_export.h>
-#include <hgraph/types/v2/ref.h>
+#include <hgraph/types/graph_builder.h>
+#include <hgraph/types/python_export.h>
+#include <hgraph/types/ref.h>
 
 #include <chrono>
 #include <cstdlib>
@@ -13,7 +13,7 @@
 #include <thread>
 #include <unordered_set>
 
-namespace hgraph::v2::test_detail
+namespace hgraph::test_detail
 {
     using PairSchema = TSB<Field<"lhs", TS<int>>, Field<"rhs", TS<int>>>;
     using RefPairSchema = TSB<Field<"lhs", REF<TS<int>>>, Field<"rhs", REF<TS<int>>>>;
@@ -481,7 +481,7 @@ namespace hgraph::v2::test_detail
 
         static void eval(In<"source", TS<int>> source, Out<REF<TS<int>>> out)
         {
-            out.set(hgraph::v2::TimeSeriesReference::make(source.view()));
+            out.set(hgraph::TimeSeriesReference::make(source.view()));
         }
     };
 
@@ -525,7 +525,7 @@ namespace hgraph::v2::test_detail
 
         static void eval(In<"pair", RefWrappedPairSchema> pair, EvaluationClock clock, Out<TS<int>> out)
         {
-            const auto lhs_ref = pair.view().field("lhs").value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+            const auto lhs_ref = pair.view().field("lhs").value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
             const int lhs = lhs_ref.target_view(clock.evaluation_time()).value().as_atomic().as<int>();
             const int rhs = pair.view().field("rhs").value().as_atomic().as<int>();
             out.set(lhs + rhs);
@@ -542,7 +542,7 @@ namespace hgraph::v2::test_detail
             int sum = 0;
             auto list = items.view().as_list();
             for (size_t i = 0; i < list.size(); ++i) {
-                const auto ref = list[i].value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+                const auto ref = list[i].value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
                 sum += ref.target_view(clock.evaluation_time()).value().as_atomic().as<int>();
             }
             out.set(sum);
@@ -573,7 +573,7 @@ namespace hgraph::v2::test_detail
             int sum = bundle.view().field("tail").value().as_atomic().as<int>();
             auto list = bundle.view().field("items").as_list();
             for (size_t i = 0; i < list.size(); ++i) {
-                const auto ref = list[i].value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+                const auto ref = list[i].value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
                 sum += ref.target_view(clock.evaluation_time()).value().as_atomic().as<int>();
             }
             out.set(sum);
@@ -796,7 +796,7 @@ namespace hgraph::v2::test_detail
         nb::list path = nb::borrow<nb::list>(sys.attr("path"));
         path.insert(0, "/Users/hhenson/CLionProjects/hgraph_2");
     }
-}  // namespace hgraph::v2::test_detail
+}  // namespace hgraph::test_detail
 
 TEST_CASE("v2 graph wires scalar sources into a compute node with validity gating", "[v2][graph]")
 {
@@ -807,33 +807,33 @@ TEST_CASE("v2 graph wires scalar sources into a compute node with validity gatin
     const auto *scalar_ts = ts_registry.ts(int_type);
     const auto *input_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Inputs");
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("rhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("sum").implementation<hgraph::v2::test_detail::SumScalarInputs>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 2, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 1, .dst_node = 2, .input_path = {1}});
+        .add_node(hgraph::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("rhs_source").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("sum").implementation<hgraph::test_detail::SumScalarInputs>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 2, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 1, .dst_node = 2, .input_path = {1}});
 
-    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto engine = hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(0));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 2, hgraph::v2::test_detail::tick(1));
-    CHECK(graph.scheduled_time(2) == hgraph::v2::test_detail::tick(1));
-    CHECK(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(1)).modified());
-    CHECK_FALSE(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(2)).modified());
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 2, hgraph::test_detail::tick(1));
+    CHECK(graph.scheduled_time(2) == hgraph::test_detail::tick(1));
+    CHECK(graph.node_at(0).output_view(hgraph::test_detail::tick(1)).modified());
+    CHECK_FALSE(graph.node_at(0).output_view(hgraph::test_detail::tick(2)).modified());
 
-    graph.evaluate(hgraph::v2::test_detail::tick(1));
+    graph.evaluate(hgraph::test_detail::tick(1));
     CHECK(graph.node_at(2).output_view().value().as_atomic().as<int>() == 0);
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 3, hgraph::v2::test_detail::tick(2));
-    CHECK(graph.scheduled_time(2) == hgraph::v2::test_detail::tick(2));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(1), {}, 3, hgraph::test_detail::tick(2));
+    CHECK(graph.scheduled_time(2) == hgraph::test_detail::tick(2));
 
-    graph.evaluate(hgraph::v2::test_detail::tick(2));
+    graph.evaluate(hgraph::test_detail::tick(2));
     CHECK(graph.node_at(2).output_view().value().as_atomic().as<int>() == 5);
-    CHECK(graph.node_at(2).output_view(hgraph::v2::test_detail::tick(2)).modified());
-    CHECK(graph.scheduled_time(2) == hgraph::v2::test_detail::tick(2));
+    CHECK(graph.node_at(2).output_view(hgraph::test_detail::tick(2)).modified());
+    CHECK(graph.scheduled_time(2) == hgraph::test_detail::tick(2));
 }
 
 TEST_CASE("v2 graph binds bundle output child paths into nested input paths", "[v2][graph]")
@@ -846,22 +846,22 @@ TEST_CASE("v2 graph binds bundle output child paths into nested input paths", "[
     const auto *pair_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Pair");
     const auto *nested_input_schema = ts_registry.tsb({{"pair", pair_schema}}, "NestedInput");
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("pair_source").output_schema(pair_schema).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("sum").input_schema(nested_input_schema).implementation<hgraph::v2::test_detail::SumNestedPair>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {0}, .dst_node = 1, .input_path = {0, 0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {1}, .dst_node = 1, .input_path = {0, 1}});
+        .add_node(hgraph::NodeBuilder{}.label("pair_source").output_schema(pair_schema).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("sum").input_schema(nested_input_schema).implementation<hgraph::test_detail::SumNestedPair>())
+        .add_edge(hgraph::Edge{.src_node = 0, .output_path = {0}, .dst_node = 1, .input_path = {0, 0}})
+        .add_edge(hgraph::Edge{.src_node = 0, .output_path = {1}, .dst_node = 1, .input_path = {0, 1}});
 
-    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto engine = hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(0));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0}, 7, hgraph::v2::test_detail::tick(11));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {1}, 13, hgraph::v2::test_detail::tick(11));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {0}, 7, hgraph::test_detail::tick(11));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {1}, 13, hgraph::test_detail::tick(11));
 
-    graph.schedule_node(1, hgraph::v2::test_detail::tick(11));
-    graph.evaluate(hgraph::v2::test_detail::tick(11));
+    graph.schedule_node(1, hgraph::test_detail::tick(11));
+    graph.evaluate(hgraph::test_detail::tick(11));
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 20);
 }
 
@@ -869,29 +869,29 @@ TEST_CASE("v2 graph drains push source messages before normal scheduled evaluati
 {
     using namespace std::chrono_literals;
 
-    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+    hgraph::test_detail::ensure_python_hgraph_importable();
 
     auto &value_registry = hgraph::value::TypeRegistry::instance();
     auto &ts_registry = hgraph::TSTypeRegistry::instance();
 
     const auto *int_type = value_registry.register_type<int>("int");
     const auto *scalar_ts = ts_registry.ts(int_type);
-    const auto start_time = hgraph::v2::test_detail::utc_now_tick();
-    hgraph::v2::test_detail::CountingObserver observer;
+    const auto start_time = hgraph::test_detail::utc_now_tick();
+    hgraph::test_detail::CountingObserver observer;
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}
+        .add_node(hgraph::NodeBuilder{}
                       .label("push_source")
-                      .node_type(hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE)
+                      .node_type(hgraph::NodeTypeEnum::PUSH_SOURCE_NODE)
                       .output_schema(scalar_ts)
-                      .implementation<hgraph::v2::test_detail::PushEchoNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("sink").implementation<hgraph::v2::test_detail::PassThroughInput>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+                      .implementation<hgraph::test_detail::PushEchoNode>())
+        .add_node(hgraph::NodeBuilder{}.label("sink").implementation<hgraph::test_detail::PassThroughInput>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
 
-    auto engine = hgraph::v2::EvaluationEngineBuilder{}
+    auto engine = hgraph::EvaluationEngineBuilder{}
                       .graph_builder(std::move(builder))
-                      .evaluation_mode(hgraph::v2::EvaluationMode::REAL_TIME)
+                      .evaluation_mode(hgraph::EvaluationMode::REAL_TIME)
                       .start_time(start_time)
                       .end_time(start_time + 1s)
                       .add_life_cycle_observer(&observer)
@@ -904,7 +904,7 @@ TEST_CASE("v2 graph drains push source messages before normal scheduled evaluati
         auto clock = graph.engine_evaluation_clock();
         auto *receiver = engine.push_message_receiver();
         REQUIRE(receiver != nullptr);
-        clock.update_next_scheduled_evaluation_time(hgraph::v2::test_detail::utc_now_tick() + 250ms);
+        clock.update_next_scheduled_evaluation_time(hgraph::test_detail::utc_now_tick() + 250ms);
         // Queue one external message for push-source node 0. The payload is the
         // integer that PushEchoNode::apply_message(...) receives as `value`.
         receiver->enqueue({0, hgraph::value::Value{7}});
@@ -926,26 +926,26 @@ TEST_CASE("v2 push source message application requeues failed messages", "[v2][g
 {
     using namespace std::chrono_literals;
 
-    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+    hgraph::test_detail::ensure_python_hgraph_importable();
 
     auto &value_registry = hgraph::value::TypeRegistry::instance();
     auto &ts_registry = hgraph::TSTypeRegistry::instance();
 
     const auto *int_type = value_registry.register_type<int>("int");
     const auto *scalar_ts = ts_registry.ts(int_type);
-    const auto start_time = hgraph::v2::test_detail::utc_now_tick();
-    hgraph::v2::test_detail::CountingObserver observer;
+    const auto start_time = hgraph::test_detail::utc_now_tick();
+    hgraph::test_detail::CountingObserver observer;
 
-    hgraph::v2::GraphBuilder builder;
-    builder.add_node(hgraph::v2::NodeBuilder{}
+    hgraph::GraphBuilder builder;
+    builder.add_node(hgraph::NodeBuilder{}
                          .label("push_source")
-                         .node_type(hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE)
+                         .node_type(hgraph::NodeTypeEnum::PUSH_SOURCE_NODE)
                          .output_schema(scalar_ts)
-                         .implementation<hgraph::v2::test_detail::PushEchoNode>());
+                         .implementation<hgraph::test_detail::PushEchoNode>());
 
-    auto engine = hgraph::v2::EvaluationEngineBuilder{}
+    auto engine = hgraph::EvaluationEngineBuilder{}
                       .graph_builder(std::move(builder))
-                      .evaluation_mode(hgraph::v2::EvaluationMode::REAL_TIME)
+                      .evaluation_mode(hgraph::EvaluationMode::REAL_TIME)
                       .start_time(start_time)
                       .end_time(start_time + 1s)
                       .add_life_cycle_observer(&observer)
@@ -958,7 +958,7 @@ TEST_CASE("v2 push source message application requeues failed messages", "[v2][g
         auto clock = graph.engine_evaluation_clock();
         auto *receiver = engine.push_message_receiver();
         REQUIRE(receiver != nullptr);
-        clock.update_next_scheduled_evaluation_time(hgraph::v2::test_detail::utc_now_tick() + 250ms);
+        clock.update_next_scheduled_evaluation_time(hgraph::test_detail::utc_now_tick() + 250ms);
         // Negative values make PushEchoNode reject the message. The graph
         // should preserve the same payload by requeueing it at the front.
         receiver->enqueue({0, hgraph::value::Value{-1}});
@@ -973,7 +973,7 @@ TEST_CASE("v2 push source message application requeues failed messages", "[v2][g
 
 TEST_CASE("v2 stopped receivers ignore enqueues instead of throwing", "[v2][graph][push]")
 {
-    hgraph::v2::SenderReceiverState receiver;
+    hgraph::SenderReceiverState receiver;
     receiver.mark_stopped();
 
     CHECK_NOTHROW(receiver.enqueue({0, hgraph::value::Value{7}}));
@@ -985,20 +985,20 @@ TEST_CASE("v2 stopped receivers ignore enqueues instead of throwing", "[v2][grap
 
 TEST_CASE("v2 node builder rejects push source implementations without apply_message", "[v2][graph][push]")
 {
-    hgraph::v2::NodeBuilder push_node_then_impl;
+    hgraph::NodeBuilder push_node_then_impl;
     CHECK_THROWS_AS(
-        push_node_then_impl.node_type(hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE).implementation<hgraph::v2::test_detail::NoopNode>(),
+        push_node_then_impl.node_type(hgraph::NodeTypeEnum::PUSH_SOURCE_NODE).implementation<hgraph::test_detail::NoopNode>(),
         std::logic_error);
 
-    hgraph::v2::NodeBuilder impl_then_push_node;
-    impl_then_push_node.implementation<hgraph::v2::test_detail::NoopNode>();
-    CHECK_THROWS_AS(impl_then_push_node.node_type(hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE), std::logic_error);
+    hgraph::NodeBuilder impl_then_push_node;
+    impl_then_push_node.implementation<hgraph::test_detail::NoopNode>();
+    CHECK_THROWS_AS(impl_then_push_node.node_type(hgraph::NodeTypeEnum::PUSH_SOURCE_NODE), std::logic_error);
 }
 
 TEST_CASE("v2 graph builder rejects nodes without implementations when added", "[v2][graph][builder]")
 {
-    hgraph::v2::GraphBuilder builder;
-    CHECK_THROWS_AS(builder.add_node(hgraph::v2::NodeBuilder{}.label("incomplete")), std::invalid_argument);
+    hgraph::GraphBuilder builder;
+    CHECK_THROWS_AS(builder.add_node(hgraph::NodeBuilder{}.label("incomplete")), std::invalid_argument);
 }
 
 TEST_CASE("v2 simulation engines reject push source graphs at build time", "[v2][engine][push]")
@@ -1009,19 +1009,19 @@ TEST_CASE("v2 simulation engines reject push source graphs at build time", "[v2]
     const auto *int_type = value_registry.register_type<int>("int");
     const auto *scalar_ts = ts_registry.ts(int_type);
 
-    hgraph::v2::GraphBuilder builder;
-    builder.add_node(hgraph::v2::NodeBuilder{}
+    hgraph::GraphBuilder builder;
+    builder.add_node(hgraph::NodeBuilder{}
                          .label("push_source")
-                         .node_type(hgraph::v2::NodeTypeEnum::PUSH_SOURCE_NODE)
+                         .node_type(hgraph::NodeTypeEnum::PUSH_SOURCE_NODE)
                          .output_schema(scalar_ts)
-                         .implementation<hgraph::v2::test_detail::PushEchoNode>());
+                         .implementation<hgraph::test_detail::PushEchoNode>());
 
     CHECK_THROWS_AS(
-        hgraph::v2::EvaluationEngineBuilder{}
+        hgraph::EvaluationEngineBuilder{}
             .graph_builder(std::move(builder))
-            .evaluation_mode(hgraph::v2::EvaluationMode::SIMULATION)
-            .start_time(hgraph::v2::test_detail::tick(0))
-            .end_time(hgraph::v2::test_detail::tick(1))
+            .evaluation_mode(hgraph::EvaluationMode::SIMULATION)
+            .start_time(hgraph::test_detail::tick(0))
+            .end_time(hgraph::test_detail::tick(1))
             .build(),
         std::logic_error);
 }
@@ -1034,19 +1034,19 @@ TEST_CASE("v2 pull source nodes remain on the normal scheduled evaluation path",
     const auto *int_type = value_registry.register_type<int>("int");
     const auto *scalar_ts = ts_registry.ts(int_type);
 
-    hgraph::v2::GraphBuilder builder;
-    builder.add_node(hgraph::v2::NodeBuilder{}
+    hgraph::GraphBuilder builder;
+    builder.add_node(hgraph::NodeBuilder{}
                          .label("pull_source")
                          .output_schema(scalar_ts)
-                         .implementation<hgraph::v2::test_detail::PullTickNode>());
+                         .implementation<hgraph::test_detail::PullTickNode>());
 
-    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(240));
+    auto engine = hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(240));
     auto &graph = engine.graph();
     graph.start();
 
     CHECK(graph.push_source_nodes_end() == 0);
-    graph.schedule_node(0, hgraph::v2::test_detail::tick(241));
-    graph.evaluate(hgraph::v2::test_detail::tick(241));
+    graph.schedule_node(0, hgraph::test_detail::tick(241));
+    graph.evaluate(hgraph::test_detail::tick(241));
     CHECK(graph.node_at(0).output_view().value().as_atomic().as<int>() == 42);
 }
 
@@ -1058,22 +1058,22 @@ TEST_CASE("v2 nodes support typed local state", "[v2][graph][state]")
     const auto *int_type = value_registry.register_type<int>("int");
     const auto *scalar_ts = ts_registry.ts(int_type);
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("sum").implementation<hgraph::v2::test_detail::SumWithTypedState>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("sum").implementation<hgraph::test_detail::SumWithTypedState>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
 
-    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto engine = hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(0));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 5, hgraph::v2::test_detail::tick(31));
-    graph.evaluate(hgraph::v2::test_detail::tick(31));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 5, hgraph::test_detail::tick(31));
+    graph.evaluate(hgraph::test_detail::tick(31));
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 5);
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 7, hgraph::v2::test_detail::tick(32));
-    graph.evaluate(hgraph::v2::test_detail::tick(32));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 7, hgraph::test_detail::tick(32));
+    graph.evaluate(hgraph::test_detail::tick(32));
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 12);
 }
 
@@ -1085,22 +1085,22 @@ TEST_CASE("v2 nodes support recordable state", "[v2][graph][state]")
     const auto *int_type = value_registry.register_type<int>("int");
     const auto *scalar_ts = ts_registry.ts(int_type);
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("previous").implementation<hgraph::v2::test_detail::PreviousValueFromRecordableState>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("previous").implementation<hgraph::test_detail::PreviousValueFromRecordableState>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
 
-    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto engine = hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(0));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 11, hgraph::v2::test_detail::tick(41));
-    graph.evaluate(hgraph::v2::test_detail::tick(41));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 11, hgraph::test_detail::tick(41));
+    graph.evaluate(hgraph::test_detail::tick(41));
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == -1);
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 13, hgraph::v2::test_detail::tick(42));
-    graph.evaluate(hgraph::v2::test_detail::tick(42));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 13, hgraph::test_detail::tick(42));
+    graph.evaluate(hgraph::test_detail::tick(42));
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 11);
 }
 
@@ -1112,25 +1112,25 @@ TEST_CASE("v2 nodes support evaluation clock injection", "[v2][graph][clock]")
     const auto *int_type = value_registry.register_type<int>("int");
     const auto *scalar_ts = ts_registry.ts(int_type);
 
-    hgraph::v2::test_detail::ClockCaptureNode::reset();
+    hgraph::test_detail::ClockCaptureNode::reset();
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("clock_capture").implementation<hgraph::v2::test_detail::ClockCaptureNode>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("clock_capture").implementation<hgraph::test_detail::ClockCaptureNode>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
 
-    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto engine = hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(0));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 7, hgraph::v2::test_detail::tick(51));
-    graph.evaluate(hgraph::v2::test_detail::tick(51));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 7, hgraph::test_detail::tick(51));
+    graph.evaluate(hgraph::test_detail::tick(51));
 
-    CHECK(hgraph::v2::test_detail::ClockCaptureNode::seen_evaluation_time == hgraph::v2::test_detail::tick(51));
-    CHECK(hgraph::v2::test_detail::ClockCaptureNode::seen_next_cycle_time == hgraph::v2::test_detail::tick(51) + hgraph::MIN_TD);
-    CHECK(hgraph::v2::test_detail::ClockCaptureNode::saw_now_at_or_after_evaluation_time);
-    CHECK(hgraph::v2::test_detail::ClockCaptureNode::saw_non_negative_cycle_time);
+    CHECK(hgraph::test_detail::ClockCaptureNode::seen_evaluation_time == hgraph::test_detail::tick(51));
+    CHECK(hgraph::test_detail::ClockCaptureNode::seen_next_cycle_time == hgraph::test_detail::tick(51) + hgraph::MIN_TD);
+    CHECK(hgraph::test_detail::ClockCaptureNode::saw_now_at_or_after_evaluation_time);
+    CHECK(hgraph::test_detail::ClockCaptureNode::saw_non_negative_cycle_time);
 }
 
 TEST_CASE("v2 nodes support simple scheduler injection", "[v2][graph][scheduler]")
@@ -1141,34 +1141,34 @@ TEST_CASE("v2 nodes support simple scheduler injection", "[v2][graph][scheduler]
     const auto *int_type = value_registry.register_type<int>("int");
     const auto *scalar_ts = ts_registry.ts(int_type);
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("scheduler_echo").implementation<hgraph::v2::test_detail::SchedulerEchoNode>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("scheduler_echo").implementation<hgraph::test_detail::SchedulerEchoNode>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
 
-    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto engine = hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(0));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 2, hgraph::v2::test_detail::tick(1));
-    graph.evaluate(hgraph::v2::test_detail::tick(1));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 2, hgraph::test_detail::tick(1));
+    graph.evaluate(hgraph::test_detail::tick(1));
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 2);
-    CHECK(graph.scheduled_time(1) == hgraph::v2::test_detail::tick(3));
+    CHECK(graph.scheduled_time(1) == hgraph::test_detail::tick(3));
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 3, hgraph::v2::test_detail::tick(2));
-    graph.evaluate(hgraph::v2::test_detail::tick(2));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 3, hgraph::test_detail::tick(2));
+    graph.evaluate(hgraph::test_detail::tick(2));
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 3);
-    CHECK(graph.scheduled_time(1) == hgraph::v2::test_detail::tick(3));
+    CHECK(graph.scheduled_time(1) == hgraph::test_detail::tick(3));
 
-    graph.evaluate(hgraph::v2::test_detail::tick(3));
+    graph.evaluate(hgraph::test_detail::tick(3));
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == -1);
-    CHECK(graph.scheduled_time(1) == hgraph::v2::test_detail::tick(5));
+    CHECK(graph.scheduled_time(1) == hgraph::test_detail::tick(5));
 
-    graph.evaluate(hgraph::v2::test_detail::tick(4));
-    CHECK_FALSE(graph.node_at(1).output_view(hgraph::v2::test_detail::tick(4)).modified());
+    graph.evaluate(hgraph::test_detail::tick(4));
+    CHECK_FALSE(graph.node_at(1).output_view(hgraph::test_detail::tick(4)).modified());
 
-    graph.evaluate(hgraph::v2::test_detail::tick(5));
+    graph.evaluate(hgraph::test_detail::tick(5));
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == -1);
 }
 
@@ -1182,48 +1182,48 @@ TEST_CASE("v2 nodes support tagged scheduler injection", "[v2][graph][scheduler]
     const auto *scalar_int_ts = ts_registry.ts(int_type);
     const auto *scalar_bool_ts = ts_registry.ts(bool_type);
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("bool_source").output_schema(scalar_bool_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("delay_source").output_schema(scalar_int_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("tagged_scheduler").implementation<hgraph::v2::test_detail::TaggedSchedulerBoolNode>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 2, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 1, .dst_node = 2, .input_path = {1}});
+        .add_node(hgraph::NodeBuilder{}.label("bool_source").output_schema(scalar_bool_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("delay_source").output_schema(scalar_int_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("tagged_scheduler").implementation<hgraph::test_detail::TaggedSchedulerBoolNode>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 2, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 1, .dst_node = 2, .input_path = {1}});
 
-    auto engine = hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(0));
+    auto engine = hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(0));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 3, hgraph::v2::test_detail::tick(1));
-    graph.evaluate(hgraph::v2::test_detail::tick(1));
-    CHECK_FALSE(graph.node_at(2).output_view(hgraph::v2::test_detail::tick(1)).modified());
-    CHECK(graph.scheduled_time(2) == hgraph::v2::test_detail::tick(4));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(1), {}, 3, hgraph::test_detail::tick(1));
+    graph.evaluate(hgraph::test_detail::tick(1));
+    CHECK_FALSE(graph.node_at(2).output_view(hgraph::test_detail::tick(1)).modified());
+    CHECK(graph.scheduled_time(2) == hgraph::test_detail::tick(4));
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 5, hgraph::v2::test_detail::tick(2));
-    graph.evaluate(hgraph::v2::test_detail::tick(2));
-    CHECK_FALSE(graph.node_at(2).output_view(hgraph::v2::test_detail::tick(2)).modified());
-    CHECK(graph.scheduled_time(2) == hgraph::v2::test_detail::tick(7));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(1), {}, 5, hgraph::test_detail::tick(2));
+    graph.evaluate(hgraph::test_detail::tick(2));
+    CHECK_FALSE(graph.node_at(2).output_view(hgraph::test_detail::tick(2)).modified());
+    CHECK(graph.scheduled_time(2) == hgraph::test_detail::tick(7));
 
-    graph.evaluate(hgraph::v2::test_detail::tick(4));
-    CHECK_FALSE(graph.node_at(2).output_view(hgraph::v2::test_detail::tick(4)).modified());
+    graph.evaluate(hgraph::test_detail::tick(4));
+    CHECK_FALSE(graph.node_at(2).output_view(hgraph::test_detail::tick(4)).modified());
 
-    graph.evaluate(hgraph::v2::test_detail::tick(7));
+    graph.evaluate(hgraph::test_detail::tick(7));
     CHECK_FALSE(graph.node_at(2).output_view().value().as_atomic().as<bool>());
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, true, hgraph::v2::test_detail::tick(8));
-    graph.evaluate(hgraph::v2::test_detail::tick(8));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, true, hgraph::test_detail::tick(8));
+    graph.evaluate(hgraph::test_detail::tick(8));
     CHECK(graph.node_at(2).output_view().value().as_atomic().as<bool>());
-    CHECK(graph.scheduled_time(2) == hgraph::v2::test_detail::tick(13));
+    CHECK(graph.scheduled_time(2) == hgraph::test_detail::tick(13));
 
-    graph.evaluate(hgraph::v2::test_detail::tick(13));
+    graph.evaluate(hgraph::test_detail::tick(13));
     CHECK_FALSE(graph.node_at(2).output_view().value().as_atomic().as<bool>());
 }
 
 TEST_CASE("v2 evaluation engine builder produces a runnable simulation engine", "[v2][engine]")
 {
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(60), hgraph::v2::test_detail::tick(70));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(60), hgraph::test_detail::tick(70));
     auto api = engine.graph().evaluation_engine_api();
 
     int before_count = 0;
@@ -1238,39 +1238,39 @@ TEST_CASE("v2 evaluation engine builder produces a runnable simulation engine", 
         if (after_count == 1) { api.add_after_evaluation_notification([&] { ++after_count; }); }
     });
 
-    CHECK(engine.evaluation_mode() == hgraph::v2::EvaluationMode::SIMULATION);
-    CHECK(engine.start_time() == hgraph::v2::test_detail::tick(60));
-    CHECK(engine.end_time() == hgraph::v2::test_detail::tick(70));
-    CHECK(engine.graph().engine_evaluation_clock().evaluation_time() == hgraph::v2::test_detail::tick(60));
+    CHECK(engine.evaluation_mode() == hgraph::EvaluationMode::SIMULATION);
+    CHECK(engine.start_time() == hgraph::test_detail::tick(60));
+    CHECK(engine.end_time() == hgraph::test_detail::tick(70));
+    CHECK(engine.graph().engine_evaluation_clock().evaluation_time() == hgraph::test_detail::tick(60));
 
     engine.run();
     CHECK(before_count == 2);
     CHECK(after_count == 2);
-    CHECK(engine.graph().engine_evaluation_clock().evaluation_time() == hgraph::v2::test_detail::tick(71));
+    CHECK(engine.graph().engine_evaluation_clock().evaluation_time() == hgraph::test_detail::tick(71));
 }
 
 TEST_CASE("v2 graph scheduling matches current graph overwrite rules", "[v2][graph][schedule]")
 {
-    hgraph::v2::GraphBuilder builder;
-    builder.add_node(hgraph::v2::NodeBuilder{}.label("node").implementation<hgraph::v2::test_detail::NoopNode>());
+    hgraph::GraphBuilder builder;
+    builder.add_node(hgraph::NodeBuilder{}.label("node").implementation<hgraph::test_detail::NoopNode>());
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(80), hgraph::v2::test_detail::tick(90));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(80), hgraph::test_detail::tick(90));
     auto &graph = engine.graph();
 
-    graph.schedule_node(0, hgraph::v2::test_detail::tick(80));
-    CHECK(graph.scheduled_time(0) == hgraph::v2::test_detail::tick(80));
+    graph.schedule_node(0, hgraph::test_detail::tick(80));
+    CHECK(graph.scheduled_time(0) == hgraph::test_detail::tick(80));
 
-    graph.schedule_node(0, hgraph::v2::test_detail::tick(85));
-    CHECK(graph.scheduled_time(0) == hgraph::v2::test_detail::tick(85));
+    graph.schedule_node(0, hgraph::test_detail::tick(85));
+    CHECK(graph.scheduled_time(0) == hgraph::test_detail::tick(85));
 
-    graph.schedule_node(0, hgraph::v2::test_detail::tick(88), true);
-    CHECK(graph.scheduled_time(0) == hgraph::v2::test_detail::tick(88));
+    graph.schedule_node(0, hgraph::test_detail::tick(88), true);
+    CHECK(graph.scheduled_time(0) == hgraph::test_detail::tick(88));
 }
 
 TEST_CASE("v2 startup notify without a declared scheduler only schedules the startup cycle", "[v2][graph][schedule]")
 {
-    hgraph::v2::test_detail::StartupNotifyWithoutSchedulerNode::reset();
+    hgraph::test_detail::StartupNotifyWithoutSchedulerNode::reset();
 
     auto &value_registry = hgraph::value::TypeRegistry::instance();
     auto &ts_registry = hgraph::TSTypeRegistry::instance();
@@ -1278,23 +1278,23 @@ TEST_CASE("v2 startup notify without a declared scheduler only schedules the sta
     const auto *int_type = value_registry.register_type<int>("int");
     const auto *scalar_ts = ts_registry.ts(int_type);
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder.add_node(
-        hgraph::v2::NodeBuilder{}.label("startup_notify").output_schema(scalar_ts).implementation<
-            hgraph::v2::test_detail::StartupNotifyWithoutSchedulerNode>());
+        hgraph::NodeBuilder{}.label("startup_notify").output_schema(scalar_ts).implementation<
+            hgraph::test_detail::StartupNotifyWithoutSchedulerNode>());
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(300), hgraph::v2::test_detail::tick(301));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(300), hgraph::test_detail::tick(301));
     auto &graph = engine.graph();
     graph.start();
 
-    CHECK(hgraph::v2::test_detail::StartupNotifyWithoutSchedulerNode::start_calls == 1);
-    CHECK(graph.scheduled_time(0) == hgraph::v2::test_detail::tick(300));
+    CHECK(hgraph::test_detail::StartupNotifyWithoutSchedulerNode::start_calls == 1);
+    CHECK(graph.scheduled_time(0) == hgraph::test_detail::tick(300));
 
-    graph.evaluate(hgraph::v2::test_detail::tick(300));
+    graph.evaluate(hgraph::test_detail::tick(300));
 
-    CHECK(hgraph::v2::test_detail::StartupNotifyWithoutSchedulerNode::eval_calls == 1);
-    CHECK(hgraph::v2::test_detail::StartupNotifyWithoutSchedulerNode::last_eval_time == hgraph::v2::test_detail::tick(300));
+    CHECK(hgraph::test_detail::StartupNotifyWithoutSchedulerNode::eval_calls == 1);
+    CHECK(hgraph::test_detail::StartupNotifyWithoutSchedulerNode::last_eval_time == hgraph::test_detail::tick(300));
     CHECK(graph.node_at(0).output_view().value().as_atomic().as<int>() == 1);
 }
 
@@ -1308,26 +1308,26 @@ TEST_CASE("v2 static nodes can pass through REF values when wired as REF", "[v2]
     const auto *scalar_bool_ts = ts_registry.ts(bool_type);
     const auto *scalar_int_ref_ts = ts_registry.ref(ts_registry.ts(int_type));
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("trigger").output_schema(scalar_bool_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("emit_empty_ref").implementation<hgraph::v2::test_detail::EmitEmptyRefNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("ref_passthrough").implementation<hgraph::v2::test_detail::RefPassthroughNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("ref_probe").implementation<hgraph::v2::test_detail::RefStateProbeNode>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 1, .dst_node = 2, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 2, .dst_node = 3, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("trigger").output_schema(scalar_bool_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("emit_empty_ref").implementation<hgraph::test_detail::EmitEmptyRefNode>())
+        .add_node(hgraph::NodeBuilder{}.label("ref_passthrough").implementation<hgraph::test_detail::RefPassthroughNode>())
+        .add_node(hgraph::NodeBuilder{}.label("ref_probe").implementation<hgraph::test_detail::RefStateProbeNode>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 1, .dst_node = 2, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 2, .dst_node = 3, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(320), hgraph::v2::test_detail::tick(321));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(320), hgraph::test_detail::tick(321));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, true, hgraph::v2::test_detail::tick(320));
-    graph.evaluate(hgraph::v2::test_detail::tick(320));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, true, hgraph::test_detail::tick(320));
+    graph.evaluate(hgraph::test_detail::tick(320));
 
     const auto &ref_value =
-        graph.node_at(2).output_view().value().as_atomic().template checked_as<hgraph::v2::TimeSeriesReference>();
+        graph.node_at(2).output_view().value().as_atomic().template checked_as<hgraph::TimeSeriesReference>();
     CHECK(graph.node_at(2).output_schema() == scalar_int_ref_ts);
     CHECK(ref_value.is_empty());
     CHECK_FALSE(ref_value.is_valid());
@@ -1343,24 +1343,24 @@ TEST_CASE("v2 binds TS outputs to REF inputs through shared output alternatives"
     const auto *scalar_ts = ts_registry.ts(int_type);
     const auto *scalar_ref_ts = ts_registry.ref(scalar_ts);
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("probe_a").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("probe_b").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 2, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("source").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("probe_a").implementation<hgraph::test_detail::DereferenceRefNode>())
+        .add_node(hgraph::NodeBuilder{}.label("probe_b").implementation<hgraph::test_detail::DereferenceRefNode>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 2, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(325), hgraph::v2::test_detail::tick(326));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(325), hgraph::test_detail::tick(326));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 19, hgraph::v2::test_detail::tick(325));
-    graph.evaluate(hgraph::v2::test_detail::tick(325));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 19, hgraph::test_detail::tick(325));
+    graph.evaluate(hgraph::test_detail::tick(325));
 
-    const auto input_a = graph.node_at(1).input_view(hgraph::v2::test_detail::tick(325)).as_bundle()[0];
-    const auto input_b = graph.node_at(2).input_view(hgraph::v2::test_detail::tick(325)).as_bundle()[0];
+    const auto input_a = graph.node_at(1).input_view(hgraph::test_detail::tick(325)).as_bundle()[0];
+    const auto input_b = graph.node_at(2).input_view(hgraph::test_detail::tick(325)).as_bundle()[0];
     const hgraph::LinkedTSContext *target_a = input_a.linked_target();
     const hgraph::LinkedTSContext *target_b = input_b.linked_target();
 
@@ -1371,15 +1371,15 @@ TEST_CASE("v2 binds TS outputs to REF inputs through shared output alternatives"
     CHECK(target_a->ts_state == target_b->ts_state);
     CHECK(target_a->value_data == target_b->value_data);
 
-    const auto &wrapped_ref = input_a.value().as_atomic().template checked_as<hgraph::v2::TimeSeriesReference>();
+    const auto &wrapped_ref = input_a.value().as_atomic().template checked_as<hgraph::TimeSeriesReference>();
     CHECK(wrapped_ref.is_peered());
     CHECK(wrapped_ref.is_valid());
-    CHECK(wrapped_ref.target_view(hgraph::v2::test_detail::tick(325)).value().as_atomic().as<int>() == 19);
+    CHECK(wrapped_ref.target_view(hgraph::test_detail::tick(325)).value().as_atomic().as<int>() == 19);
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 19);
     CHECK(graph.node_at(2).output_view().value().as_atomic().as<int>() == 19);
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 23, hgraph::v2::test_detail::tick(326));
-    graph.evaluate(hgraph::v2::test_detail::tick(326));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 23, hgraph::test_detail::tick(326));
+    graph.evaluate(hgraph::test_detail::tick(326));
 
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 23);
     CHECK(graph.node_at(2).output_view().value().as_atomic().as<int>() == 23);
@@ -1395,28 +1395,28 @@ TEST_CASE("v2 child TS outputs share REF alternatives by logical position", "[v2
     const auto *scalar_ref_ts = ts_registry.ref(scalar_ts);
     const auto *pair_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Pair");
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("pair_source").output_schema(pair_schema).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_probe_a").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_probe_b").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("rhs_probe").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {0}, .dst_node = 1, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {0}, .dst_node = 2, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {1}, .dst_node = 3, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("pair_source").output_schema(pair_schema).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("lhs_probe_a").implementation<hgraph::test_detail::DereferenceRefNode>())
+        .add_node(hgraph::NodeBuilder{}.label("lhs_probe_b").implementation<hgraph::test_detail::DereferenceRefNode>())
+        .add_node(hgraph::NodeBuilder{}.label("rhs_probe").implementation<hgraph::test_detail::DereferenceRefNode>())
+        .add_edge(hgraph::Edge{.src_node = 0, .output_path = {0}, .dst_node = 1, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 0, .output_path = {0}, .dst_node = 2, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 0, .output_path = {1}, .dst_node = 3, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(326), hgraph::v2::test_detail::tick(327));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(326), hgraph::test_detail::tick(327));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0}, 11, hgraph::v2::test_detail::tick(326));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {1}, 13, hgraph::v2::test_detail::tick(326));
-    graph.evaluate(hgraph::v2::test_detail::tick(326));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {0}, 11, hgraph::test_detail::tick(326));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {1}, 13, hgraph::test_detail::tick(326));
+    graph.evaluate(hgraph::test_detail::tick(326));
 
-    const auto lhs_input_a = graph.node_at(1).input_view(hgraph::v2::test_detail::tick(326)).as_bundle()[0];
-    const auto lhs_input_b = graph.node_at(2).input_view(hgraph::v2::test_detail::tick(326)).as_bundle()[0];
-    const auto rhs_input = graph.node_at(3).input_view(hgraph::v2::test_detail::tick(326)).as_bundle()[0];
+    const auto lhs_input_a = graph.node_at(1).input_view(hgraph::test_detail::tick(326)).as_bundle()[0];
+    const auto lhs_input_b = graph.node_at(2).input_view(hgraph::test_detail::tick(326)).as_bundle()[0];
+    const auto rhs_input = graph.node_at(3).input_view(hgraph::test_detail::tick(326)).as_bundle()[0];
     const hgraph::LinkedTSContext *lhs_target_a = lhs_input_a.linked_target();
     const hgraph::LinkedTSContext *lhs_target_b = lhs_input_b.linked_target();
     const hgraph::LinkedTSContext *rhs_target = rhs_input.linked_target();
@@ -1445,29 +1445,29 @@ TEST_CASE("v2 binds mixed TSB wrap alternatives at the bundle boundary", "[v2][g
     const auto *scalar_ts = ts_registry.ts(int_type);
     const auto *pair_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Pair");
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("pair_source").output_schema(pair_schema).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("consumer").implementation<hgraph::v2::test_detail::SumWrappedPair>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("pair_source").output_schema(pair_schema).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("consumer").implementation<hgraph::test_detail::SumWrappedPair>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(327), hgraph::v2::test_detail::tick(328));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(327), hgraph::test_detail::tick(328));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0}, 11, hgraph::v2::test_detail::tick(327));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {1}, 13, hgraph::v2::test_detail::tick(327));
-    graph.evaluate(hgraph::v2::test_detail::tick(327));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {0}, 11, hgraph::test_detail::tick(327));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {1}, 13, hgraph::test_detail::tick(327));
+    graph.evaluate(hgraph::test_detail::tick(327));
 
-    auto pair_input = graph.node_at(1).input_view(hgraph::v2::test_detail::tick(327)).as_bundle()[0].as_bundle();
-    const auto lhs_ref = pair_input.field("lhs").value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+    auto pair_input = graph.node_at(1).input_view(hgraph::test_detail::tick(327)).as_bundle()[0].as_bundle();
+    const auto lhs_ref = pair_input.field("lhs").value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
     const hgraph::LinkedTSContext *rhs_target = pair_input.field("rhs").linked_target();
 
     CHECK(lhs_ref.is_peered());
     REQUIRE(rhs_target != nullptr);
     CHECK(rhs_target->schema == scalar_ts);
-    CHECK(lhs_ref.target_view(hgraph::v2::test_detail::tick(327)).value().as_atomic().as<int>() == 11);
+    CHECK(lhs_ref.target_view(hgraph::test_detail::tick(327)).value().as_atomic().as<int>() == 11);
     CHECK(pair_input.field("rhs").value().as_atomic().as<int>() == 13);
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 24);
 }
@@ -1481,29 +1481,29 @@ TEST_CASE("v2 binds fixed-size TSL wrap alternatives at the list boundary", "[v2
     const auto *scalar_ts = ts_registry.ts(int_type);
     const auto *list_schema = ts_registry.tsl(scalar_ts, 2);
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("list_source").output_schema(list_schema).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("consumer").implementation<hgraph::v2::test_detail::SumWrappedList>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("list_source").output_schema(list_schema).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("consumer").implementation<hgraph::test_detail::SumWrappedList>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(328), hgraph::v2::test_detail::tick(329));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(328), hgraph::test_detail::tick(329));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0}, 2, hgraph::v2::test_detail::tick(328));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {1}, 4, hgraph::v2::test_detail::tick(328));
-    graph.evaluate(hgraph::v2::test_detail::tick(328));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {0}, 2, hgraph::test_detail::tick(328));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {1}, 4, hgraph::test_detail::tick(328));
+    graph.evaluate(hgraph::test_detail::tick(328));
 
-    auto list_input = graph.node_at(1).input_view(hgraph::v2::test_detail::tick(328)).as_bundle()[0].as_list();
-    const auto ref0 = list_input[0].value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
-    const auto ref1 = list_input[1].value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+    auto list_input = graph.node_at(1).input_view(hgraph::test_detail::tick(328)).as_bundle()[0].as_list();
+    const auto ref0 = list_input[0].value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
+    const auto ref1 = list_input[1].value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
 
     CHECK(ref0.is_peered());
     CHECK(ref1.is_peered());
-    CHECK(ref0.target_view(hgraph::v2::test_detail::tick(328)).value().as_atomic().as<int>() == 2);
-    CHECK(ref1.target_view(hgraph::v2::test_detail::tick(328)).value().as_atomic().as<int>() == 4);
+    CHECK(ref0.target_view(hgraph::test_detail::tick(328)).value().as_atomic().as<int>() == 2);
+    CHECK(ref1.target_view(hgraph::test_detail::tick(328)).value().as_atomic().as<int>() == 4);
     CHECK(graph.node_at(1).output_view().value().as_atomic().as<int>() == 6);
 }
 
@@ -1517,30 +1517,30 @@ TEST_CASE("v2 binds nested fixed TSL wrap alternatives recursively", "[v2][graph
     const auto *list_schema = ts_registry.tsl(scalar_ts, 2);
     const auto *source_schema = ts_registry.tsb({{"items", list_schema}, {"tail", scalar_ts}}, "NestedList");
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("source").output_schema(source_schema).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("consumer").implementation<hgraph::v2::test_detail::SumNestedWrappedList>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("source").output_schema(source_schema).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("consumer").implementation<hgraph::test_detail::SumNestedWrappedList>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(329), hgraph::v2::test_detail::tick(330));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(329), hgraph::test_detail::tick(330));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0, 0}, 3, hgraph::v2::test_detail::tick(329));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0, 1}, 5, hgraph::v2::test_detail::tick(329));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {1}, 7, hgraph::v2::test_detail::tick(329));
-    graph.evaluate(hgraph::v2::test_detail::tick(329));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {0, 0}, 3, hgraph::test_detail::tick(329));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {0, 1}, 5, hgraph::test_detail::tick(329));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {1}, 7, hgraph::test_detail::tick(329));
+    graph.evaluate(hgraph::test_detail::tick(329));
 
-    auto bundle_input = graph.node_at(1).input_view(hgraph::v2::test_detail::tick(329)).as_bundle()[0].as_bundle();
+    auto bundle_input = graph.node_at(1).input_view(hgraph::test_detail::tick(329)).as_bundle()[0].as_bundle();
     auto list_input = bundle_input.field("items").as_list();
-    const auto ref0 = list_input[0].value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
-    const auto ref1 = list_input[1].value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+    const auto ref0 = list_input[0].value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
+    const auto ref1 = list_input[1].value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
     const hgraph::LinkedTSContext *tail_target = bundle_input.field("tail").linked_target();
 
-    CHECK(ref0.target_view(hgraph::v2::test_detail::tick(329)).value().as_atomic().as<int>() == 3);
-    CHECK(ref1.target_view(hgraph::v2::test_detail::tick(329)).value().as_atomic().as<int>() == 5);
+    CHECK(ref0.target_view(hgraph::test_detail::tick(329)).value().as_atomic().as<int>() == 3);
+    CHECK(ref1.target_view(hgraph::test_detail::tick(329)).value().as_atomic().as<int>() == 5);
     REQUIRE(tail_target != nullptr);
     CHECK(tail_target->schema == scalar_ts);
     CHECK(bundle_input.field("tail").value().as_atomic().as<int>() == 7);
@@ -1558,29 +1558,29 @@ TEST_CASE("v2 nested child TS outputs share REF alternatives by logical position
     const auto *list_schema = ts_registry.tsl(scalar_ts, 2);
     const auto *source_schema = ts_registry.tsb({{"items", list_schema}, {"tail", scalar_ts}}, "NestedList");
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("source").output_schema(source_schema).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("probe_a").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("probe_b").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("probe_c").implementation<hgraph::v2::test_detail::DereferenceRefNode>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {0, 0}, .dst_node = 1, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {0, 0}, .dst_node = 2, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .output_path = {0, 1}, .dst_node = 3, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("source").output_schema(source_schema).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("probe_a").implementation<hgraph::test_detail::DereferenceRefNode>())
+        .add_node(hgraph::NodeBuilder{}.label("probe_b").implementation<hgraph::test_detail::DereferenceRefNode>())
+        .add_node(hgraph::NodeBuilder{}.label("probe_c").implementation<hgraph::test_detail::DereferenceRefNode>())
+        .add_edge(hgraph::Edge{.src_node = 0, .output_path = {0, 0}, .dst_node = 1, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 0, .output_path = {0, 0}, .dst_node = 2, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 0, .output_path = {0, 1}, .dst_node = 3, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(330), hgraph::v2::test_detail::tick(331));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(330), hgraph::test_detail::tick(331));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0, 0}, 3, hgraph::v2::test_detail::tick(330));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0, 1}, 5, hgraph::v2::test_detail::tick(330));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {1}, 7, hgraph::v2::test_detail::tick(330));
-    graph.evaluate(hgraph::v2::test_detail::tick(330));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {0, 0}, 3, hgraph::test_detail::tick(330));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {0, 1}, 5, hgraph::test_detail::tick(330));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {1}, 7, hgraph::test_detail::tick(330));
+    graph.evaluate(hgraph::test_detail::tick(330));
 
-    const auto input_a = graph.node_at(1).input_view(hgraph::v2::test_detail::tick(330)).as_bundle()[0];
-    const auto input_b = graph.node_at(2).input_view(hgraph::v2::test_detail::tick(330)).as_bundle()[0];
-    const auto input_c = graph.node_at(3).input_view(hgraph::v2::test_detail::tick(330)).as_bundle()[0];
+    const auto input_a = graph.node_at(1).input_view(hgraph::test_detail::tick(330)).as_bundle()[0];
+    const auto input_b = graph.node_at(2).input_view(hgraph::test_detail::tick(330)).as_bundle()[0];
+    const auto input_c = graph.node_at(3).input_view(hgraph::test_detail::tick(330)).as_bundle()[0];
     const hgraph::LinkedTSContext *target_a = input_a.linked_target();
     const hgraph::LinkedTSContext *target_b = input_b.linked_target();
     const hgraph::LinkedTSContext *target_c = input_c.linked_target();
@@ -1609,36 +1609,36 @@ TEST_CASE("v2 binds REF outputs to TS inputs through dereference alternatives", 
     const auto *scalar_ts = ts_registry.ts(int_type);
     const auto *ref_scalar_ts = ts_registry.ref(scalar_ts);
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("a").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("b").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("ref_source").output_schema(ref_scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("consumer").implementation<hgraph::v2::test_detail::PassThroughInput>())
-        .add_edge(hgraph::v2::Edge{.src_node = 2, .dst_node = 3, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("a").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("b").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("ref_source").output_schema(ref_scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("consumer").implementation<hgraph::test_detail::PassThroughInput>())
+        .add_edge(hgraph::Edge{.src_node = 2, .dst_node = 3, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(331), hgraph::v2::test_detail::tick(333));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(331), hgraph::test_detail::tick(333));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 17, hgraph::v2::test_detail::tick(331));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 29, hgraph::v2::test_detail::tick(331));
-    hgraph::v2::test_detail::publish_scalar_output(
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 17, hgraph::test_detail::tick(331));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(1), {}, 29, hgraph::test_detail::tick(331));
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(2),
         {},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(331))),
-        hgraph::v2::test_detail::tick(331));
-    graph.evaluate(hgraph::v2::test_detail::tick(331));
+        hgraph::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::test_detail::tick(331))),
+        hgraph::test_detail::tick(331));
+    graph.evaluate(hgraph::test_detail::tick(331));
 
     CHECK(graph.node_at(3).output_view().value().as_atomic().as<int>() == 17);
 
-    hgraph::v2::test_detail::publish_scalar_output(
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(2),
         {},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::v2::test_detail::tick(332))),
-        hgraph::v2::test_detail::tick(332));
-    graph.evaluate(hgraph::v2::test_detail::tick(332));
+        hgraph::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::test_detail::tick(332))),
+        hgraph::test_detail::tick(332));
+    graph.evaluate(hgraph::test_detail::tick(332));
 
     CHECK(graph.node_at(3).output_view().value().as_atomic().as<int>() == 29);
 }
@@ -1653,39 +1653,39 @@ TEST_CASE("v2 child REF outputs retarget through shared dereference alternatives
     const auto *ref_scalar_ts = ts_registry.ref(scalar_ts);
     const auto *ref_pair_schema = ts_registry.tsb({{"lhs", ref_scalar_ts}, {"rhs", ref_scalar_ts}}, "RefPair");
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("a").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("b").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("c").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("pair_ref_source").output_schema(ref_pair_schema).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_consumer_a").implementation<hgraph::v2::test_detail::PassThroughInput>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_consumer_b").implementation<hgraph::v2::test_detail::PassThroughInput>())
-        .add_edge(hgraph::v2::Edge{.src_node = 3, .output_path = {0}, .dst_node = 4, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 3, .output_path = {0}, .dst_node = 5, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("a").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("b").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("c").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("pair_ref_source").output_schema(ref_pair_schema).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("lhs_consumer_a").implementation<hgraph::test_detail::PassThroughInput>())
+        .add_node(hgraph::NodeBuilder{}.label("lhs_consumer_b").implementation<hgraph::test_detail::PassThroughInput>())
+        .add_edge(hgraph::Edge{.src_node = 3, .output_path = {0}, .dst_node = 4, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 3, .output_path = {0}, .dst_node = 5, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(333), hgraph::v2::test_detail::tick(335));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(333), hgraph::test_detail::tick(335));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 5, hgraph::v2::test_detail::tick(333));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 7, hgraph::v2::test_detail::tick(334));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(2), {}, 11, hgraph::v2::test_detail::tick(333));
-    hgraph::v2::test_detail::publish_scalar_output(
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 5, hgraph::test_detail::tick(333));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(1), {}, 7, hgraph::test_detail::tick(334));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(2), {}, 11, hgraph::test_detail::tick(333));
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(3),
         {0},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(333))),
-        hgraph::v2::test_detail::tick(333));
-    hgraph::v2::test_detail::publish_scalar_output(
+        hgraph::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::test_detail::tick(333))),
+        hgraph::test_detail::tick(333));
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(3),
         {1},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(2).output_view(hgraph::v2::test_detail::tick(333))),
-        hgraph::v2::test_detail::tick(333));
-    graph.evaluate(hgraph::v2::test_detail::tick(333));
+        hgraph::TimeSeriesReference::make(graph.node_at(2).output_view(hgraph::test_detail::tick(333))),
+        hgraph::test_detail::tick(333));
+    graph.evaluate(hgraph::test_detail::tick(333));
 
-    const auto input_a_before = graph.node_at(4).input_view(hgraph::v2::test_detail::tick(333)).as_bundle()[0];
-    const auto input_b_before = graph.node_at(5).input_view(hgraph::v2::test_detail::tick(333)).as_bundle()[0];
+    const auto input_a_before = graph.node_at(4).input_view(hgraph::test_detail::tick(333)).as_bundle()[0];
+    const auto input_b_before = graph.node_at(5).input_view(hgraph::test_detail::tick(333)).as_bundle()[0];
     const hgraph::LinkedTSContext *target_a_before = input_a_before.linked_target();
     const hgraph::LinkedTSContext *target_b_before = input_b_before.linked_target();
 
@@ -1695,15 +1695,15 @@ TEST_CASE("v2 child REF outputs retarget through shared dereference alternatives
     CHECK(graph.node_at(4).output_view().value().as_atomic().as<int>() == 5);
     CHECK(graph.node_at(5).output_view().value().as_atomic().as<int>() == 5);
 
-    hgraph::v2::test_detail::publish_scalar_output(
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(3),
         {0},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::v2::test_detail::tick(334))),
-        hgraph::v2::test_detail::tick(334));
-    graph.evaluate(hgraph::v2::test_detail::tick(334));
+        hgraph::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::test_detail::tick(334))),
+        hgraph::test_detail::tick(334));
+    graph.evaluate(hgraph::test_detail::tick(334));
 
-    const auto input_a_after = graph.node_at(4).input_view(hgraph::v2::test_detail::tick(334)).as_bundle()[0];
-    const auto input_b_after = graph.node_at(5).input_view(hgraph::v2::test_detail::tick(334)).as_bundle()[0];
+    const auto input_a_after = graph.node_at(4).input_view(hgraph::test_detail::tick(334)).as_bundle()[0];
+    const auto input_b_after = graph.node_at(5).input_view(hgraph::test_detail::tick(334)).as_bundle()[0];
     const hgraph::LinkedTSContext *target_a_after = input_a_after.linked_target();
     const hgraph::LinkedTSContext *target_b_after = input_b_after.linked_target();
 
@@ -1726,40 +1726,40 @@ TEST_CASE("v2 child REF outputs share TS alternatives by logical position", "[v2
     const auto *ref_scalar_ts = ts_registry.ref(scalar_ts);
     const auto *ref_pair_schema = ts_registry.tsb({{"lhs", ref_scalar_ts}, {"rhs", ref_scalar_ts}}, "RefPair");
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("rhs").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("pair_ref_source").output_schema(ref_pair_schema).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_consumer_a").implementation<hgraph::v2::test_detail::PassThroughInput>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_consumer_b").implementation<hgraph::v2::test_detail::PassThroughInput>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("rhs_consumer").implementation<hgraph::v2::test_detail::PassThroughInput>())
-        .add_edge(hgraph::v2::Edge{.src_node = 2, .output_path = {0}, .dst_node = 3, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 2, .output_path = {0}, .dst_node = 4, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 2, .output_path = {1}, .dst_node = 5, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("lhs").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("rhs").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("pair_ref_source").output_schema(ref_pair_schema).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("lhs_consumer_a").implementation<hgraph::test_detail::PassThroughInput>())
+        .add_node(hgraph::NodeBuilder{}.label("lhs_consumer_b").implementation<hgraph::test_detail::PassThroughInput>())
+        .add_node(hgraph::NodeBuilder{}.label("rhs_consumer").implementation<hgraph::test_detail::PassThroughInput>())
+        .add_edge(hgraph::Edge{.src_node = 2, .output_path = {0}, .dst_node = 3, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 2, .output_path = {0}, .dst_node = 4, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 2, .output_path = {1}, .dst_node = 5, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(332), hgraph::v2::test_detail::tick(333));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(332), hgraph::test_detail::tick(333));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 5, hgraph::v2::test_detail::tick(332));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 7, hgraph::v2::test_detail::tick(332));
-    hgraph::v2::test_detail::publish_scalar_output(
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 5, hgraph::test_detail::tick(332));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(1), {}, 7, hgraph::test_detail::tick(332));
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(2),
         {0},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(332))),
-        hgraph::v2::test_detail::tick(332));
-    hgraph::v2::test_detail::publish_scalar_output(
+        hgraph::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::test_detail::tick(332))),
+        hgraph::test_detail::tick(332));
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(2),
         {1},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::v2::test_detail::tick(332))),
-        hgraph::v2::test_detail::tick(332));
-    graph.evaluate(hgraph::v2::test_detail::tick(332));
+        hgraph::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::test_detail::tick(332))),
+        hgraph::test_detail::tick(332));
+    graph.evaluate(hgraph::test_detail::tick(332));
 
-    const auto lhs_input_a = graph.node_at(3).input_view(hgraph::v2::test_detail::tick(332)).as_bundle()[0];
-    const auto lhs_input_b = graph.node_at(4).input_view(hgraph::v2::test_detail::tick(332)).as_bundle()[0];
-    const auto rhs_input = graph.node_at(5).input_view(hgraph::v2::test_detail::tick(332)).as_bundle()[0];
+    const auto lhs_input_a = graph.node_at(3).input_view(hgraph::test_detail::tick(332)).as_bundle()[0];
+    const auto lhs_input_b = graph.node_at(4).input_view(hgraph::test_detail::tick(332)).as_bundle()[0];
+    const auto rhs_input = graph.node_at(5).input_view(hgraph::test_detail::tick(332)).as_bundle()[0];
     const hgraph::LinkedTSContext *lhs_target_a = lhs_input_a.linked_target();
     const hgraph::LinkedTSContext *lhs_target_b = lhs_input_b.linked_target();
     const hgraph::LinkedTSContext *rhs_target = rhs_input.linked_target();
@@ -1788,47 +1788,47 @@ TEST_CASE("v2 nested child REF outputs share TS alternatives by logical position
     const auto *ref_list_schema = ts_registry.tsl(ref_scalar_ts, 2);
     const auto *source_schema = ts_registry.tsb({{"items", ref_list_schema}, {"tail", ref_scalar_ts}}, "NestedRefList");
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("rhs").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("tail").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("nested_ref_source").output_schema(source_schema).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("probe_a").implementation<hgraph::v2::test_detail::PassThroughInput>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("probe_b").implementation<hgraph::v2::test_detail::PassThroughInput>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("probe_c").implementation<hgraph::v2::test_detail::PassThroughInput>())
-        .add_edge(hgraph::v2::Edge{.src_node = 3, .output_path = {0, 0}, .dst_node = 4, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 3, .output_path = {0, 0}, .dst_node = 5, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 3, .output_path = {0, 1}, .dst_node = 6, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("lhs").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("rhs").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("tail").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("nested_ref_source").output_schema(source_schema).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("probe_a").implementation<hgraph::test_detail::PassThroughInput>())
+        .add_node(hgraph::NodeBuilder{}.label("probe_b").implementation<hgraph::test_detail::PassThroughInput>())
+        .add_node(hgraph::NodeBuilder{}.label("probe_c").implementation<hgraph::test_detail::PassThroughInput>())
+        .add_edge(hgraph::Edge{.src_node = 3, .output_path = {0, 0}, .dst_node = 4, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 3, .output_path = {0, 0}, .dst_node = 5, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 3, .output_path = {0, 1}, .dst_node = 6, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(335), hgraph::v2::test_detail::tick(336));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(335), hgraph::test_detail::tick(336));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 2, hgraph::v2::test_detail::tick(335));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 4, hgraph::v2::test_detail::tick(335));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(2), {}, 6, hgraph::v2::test_detail::tick(335));
-    hgraph::v2::test_detail::publish_scalar_output(
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 2, hgraph::test_detail::tick(335));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(1), {}, 4, hgraph::test_detail::tick(335));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(2), {}, 6, hgraph::test_detail::tick(335));
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(3),
         {0, 0},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(335))),
-        hgraph::v2::test_detail::tick(335));
-    hgraph::v2::test_detail::publish_scalar_output(
+        hgraph::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::test_detail::tick(335))),
+        hgraph::test_detail::tick(335));
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(3),
         {0, 1},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::v2::test_detail::tick(335))),
-        hgraph::v2::test_detail::tick(335));
-    hgraph::v2::test_detail::publish_scalar_output(
+        hgraph::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::test_detail::tick(335))),
+        hgraph::test_detail::tick(335));
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(3),
         {1},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(2).output_view(hgraph::v2::test_detail::tick(335))),
-        hgraph::v2::test_detail::tick(335));
-    graph.evaluate(hgraph::v2::test_detail::tick(335));
+        hgraph::TimeSeriesReference::make(graph.node_at(2).output_view(hgraph::test_detail::tick(335))),
+        hgraph::test_detail::tick(335));
+    graph.evaluate(hgraph::test_detail::tick(335));
 
-    const auto input_a = graph.node_at(4).input_view(hgraph::v2::test_detail::tick(335)).as_bundle()[0];
-    const auto input_b = graph.node_at(5).input_view(hgraph::v2::test_detail::tick(335)).as_bundle()[0];
-    const auto input_c = graph.node_at(6).input_view(hgraph::v2::test_detail::tick(335)).as_bundle()[0];
+    const auto input_a = graph.node_at(4).input_view(hgraph::test_detail::tick(335)).as_bundle()[0];
+    const auto input_b = graph.node_at(5).input_view(hgraph::test_detail::tick(335)).as_bundle()[0];
+    const auto input_c = graph.node_at(6).input_view(hgraph::test_detail::tick(335)).as_bundle()[0];
     const hgraph::LinkedTSContext *target_a = input_a.linked_target();
     const hgraph::LinkedTSContext *target_b = input_b.linked_target();
     const hgraph::LinkedTSContext *target_c = input_c.linked_target();
@@ -1856,33 +1856,33 @@ TEST_CASE("v2 rooted alternatives can mix wrap and dereference conversions", "[v
     const auto *ref_scalar_ts = ts_registry.ref(scalar_ts);
     const auto *source_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", ref_scalar_ts}}, "WrapDerefSourcePair");
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("rhs_target").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("source").output_schema(source_schema).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("consumer").implementation<hgraph::v2::test_detail::SumWrappedPair>())
-        .add_edge(hgraph::v2::Edge{.src_node = 1, .dst_node = 2, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("rhs_target").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("source").output_schema(source_schema).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("consumer").implementation<hgraph::test_detail::SumWrappedPair>())
+        .add_edge(hgraph::Edge{.src_node = 1, .dst_node = 2, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(336), hgraph::v2::test_detail::tick(337));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(336), hgraph::test_detail::tick(337));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 13, hgraph::v2::test_detail::tick(336));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {0}, 11, hgraph::v2::test_detail::tick(336));
-    hgraph::v2::test_detail::publish_scalar_output(
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 13, hgraph::test_detail::tick(336));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(1), {0}, 11, hgraph::test_detail::tick(336));
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(1),
         {1},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(336))),
-        hgraph::v2::test_detail::tick(336));
-    graph.evaluate(hgraph::v2::test_detail::tick(336));
+        hgraph::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::test_detail::tick(336))),
+        hgraph::test_detail::tick(336));
+    graph.evaluate(hgraph::test_detail::tick(336));
 
-    auto pair_input = graph.node_at(2).input_view(hgraph::v2::test_detail::tick(336)).as_bundle()[0].as_bundle();
-    const auto lhs_ref = pair_input.field("lhs").value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+    auto pair_input = graph.node_at(2).input_view(hgraph::test_detail::tick(336)).as_bundle()[0].as_bundle();
+    const auto lhs_ref = pair_input.field("lhs").value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
     const hgraph::LinkedTSContext *rhs_target = pair_input.field("rhs").linked_target();
 
     CHECK(lhs_ref.is_peered());
-    CHECK(lhs_ref.target_view(hgraph::v2::test_detail::tick(336)).value().as_atomic().as<int>() == 11);
+    CHECK(lhs_ref.target_view(hgraph::test_detail::tick(336)).value().as_atomic().as<int>() == 11);
     REQUIRE(rhs_target != nullptr);
     CHECK(rhs_target->schema == scalar_ts);
     CHECK(pair_input.field("rhs").value().as_atomic().as<int>() == 13);
@@ -1899,34 +1899,34 @@ TEST_CASE("v2 binds fixed-shape REF bundle outputs to TS bundle inputs", "[v2][g
     const auto *ref_scalar_ts = ts_registry.ref(scalar_ts);
     const auto *ref_pair_schema = ts_registry.tsb({{"lhs", ref_scalar_ts}, {"rhs", ref_scalar_ts}}, "RefPair");
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("rhs").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("pair_ref_source").output_schema(ref_pair_schema).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("consumer").implementation<hgraph::v2::test_detail::SumPairInput>())
-        .add_edge(hgraph::v2::Edge{.src_node = 2, .dst_node = 3, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("lhs").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("rhs").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("pair_ref_source").output_schema(ref_pair_schema).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("consumer").implementation<hgraph::test_detail::SumPairInput>())
+        .add_edge(hgraph::Edge{.src_node = 2, .dst_node = 3, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(333), hgraph::v2::test_detail::tick(334));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(333), hgraph::test_detail::tick(334));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 5, hgraph::v2::test_detail::tick(333));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 7, hgraph::v2::test_detail::tick(333));
-    hgraph::v2::test_detail::publish_scalar_output(
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 5, hgraph::test_detail::tick(333));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(1), {}, 7, hgraph::test_detail::tick(333));
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(2),
         {0},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(333))),
-        hgraph::v2::test_detail::tick(333));
-    hgraph::v2::test_detail::publish_scalar_output(
+        hgraph::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::test_detail::tick(333))),
+        hgraph::test_detail::tick(333));
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(2),
         {1},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::v2::test_detail::tick(333))),
-        hgraph::v2::test_detail::tick(333));
-    graph.evaluate(hgraph::v2::test_detail::tick(333));
+        hgraph::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::test_detail::tick(333))),
+        hgraph::test_detail::tick(333));
+    graph.evaluate(hgraph::test_detail::tick(333));
 
-    auto pair_input = graph.node_at(3).input_view(hgraph::v2::test_detail::tick(333)).as_bundle()[0].as_bundle();
+    auto pair_input = graph.node_at(3).input_view(hgraph::test_detail::tick(333)).as_bundle()[0].as_bundle();
     CHECK(pair_input.field("lhs").value().as_atomic().as<int>() == 5);
     CHECK(pair_input.field("rhs").value().as_atomic().as<int>() == 7);
     CHECK(graph.node_at(3).output_view().value().as_atomic().as<int>() == 12);
@@ -1942,34 +1942,34 @@ TEST_CASE("v2 binds fixed-size REF list outputs to TS list inputs", "[v2][graph]
     const auto *ref_scalar_ts = ts_registry.ref(scalar_ts);
     const auto *ref_list_schema = ts_registry.tsl(ref_scalar_ts, 2);
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("rhs").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("list_ref_source").output_schema(ref_list_schema).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("consumer").implementation<hgraph::v2::test_detail::SumPlainList>())
-        .add_edge(hgraph::v2::Edge{.src_node = 2, .dst_node = 3, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("lhs").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("rhs").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("list_ref_source").output_schema(ref_list_schema).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("consumer").implementation<hgraph::test_detail::SumPlainList>())
+        .add_edge(hgraph::Edge{.src_node = 2, .dst_node = 3, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(334), hgraph::v2::test_detail::tick(335));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(334), hgraph::test_detail::tick(335));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 2, hgraph::v2::test_detail::tick(334));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 4, hgraph::v2::test_detail::tick(334));
-    hgraph::v2::test_detail::publish_scalar_output(
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 2, hgraph::test_detail::tick(334));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(1), {}, 4, hgraph::test_detail::tick(334));
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(2),
         {0},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(334))),
-        hgraph::v2::test_detail::tick(334));
-    hgraph::v2::test_detail::publish_scalar_output(
+        hgraph::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::test_detail::tick(334))),
+        hgraph::test_detail::tick(334));
+    hgraph::test_detail::publish_scalar_output(
         graph.node_at(2),
         {1},
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::v2::test_detail::tick(334))),
-        hgraph::v2::test_detail::tick(334));
-    graph.evaluate(hgraph::v2::test_detail::tick(334));
+        hgraph::TimeSeriesReference::make(graph.node_at(1).output_view(hgraph::test_detail::tick(334))),
+        hgraph::test_detail::tick(334));
+    graph.evaluate(hgraph::test_detail::tick(334));
 
-    auto list_input = graph.node_at(3).input_view(hgraph::v2::test_detail::tick(334)).as_bundle()[0].as_list();
+    auto list_input = graph.node_at(3).input_view(hgraph::test_detail::tick(334)).as_bundle()[0].as_list();
     CHECK(list_input[0].value().as_atomic().as<int>() == 2);
     CHECK(list_input[1].value().as_atomic().as<int>() == 4);
     CHECK(graph.node_at(3).output_view().value().as_atomic().as<int>() == 6);
@@ -1983,30 +1983,30 @@ TEST_CASE("v2 time-series references capture bound output targets through views"
     const auto *int_type = value_registry.register_type<int>("int");
     const auto *scalar_ts = ts_registry.ts(int_type);
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("sink").implementation<hgraph::v2::test_detail::PassThroughInput>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("source").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("sink").implementation<hgraph::test_detail::PassThroughInput>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(330), hgraph::v2::test_detail::tick(331));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(330), hgraph::test_detail::tick(331));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 17, hgraph::v2::test_detail::tick(330));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 17, hgraph::test_detail::tick(330));
 
-    const auto output_ref = hgraph::v2::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::v2::test_detail::tick(330)));
+    const auto output_ref = hgraph::TimeSeriesReference::make(graph.node_at(0).output_view(hgraph::test_detail::tick(330)));
     CHECK(output_ref.is_peered());
     CHECK(output_ref.is_valid());
-    CHECK(output_ref.target_view(hgraph::v2::test_detail::tick(330)).value().as_atomic().as<int>() == 17);
+    CHECK(output_ref.target_view(hgraph::test_detail::tick(330)).value().as_atomic().as<int>() == 17);
 
     const auto input_ref =
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(1).input_view(hgraph::v2::test_detail::tick(330)).as_bundle()[0]);
+        hgraph::TimeSeriesReference::make(graph.node_at(1).input_view(hgraph::test_detail::tick(330)).as_bundle()[0]);
     CHECK(input_ref.is_peered());
     CHECK(input_ref.is_valid());
     CHECK(input_ref == output_ref);
-    CHECK(input_ref.target_view(hgraph::v2::test_detail::tick(330)).value().as_atomic().as<int>() == 17);
+    CHECK(input_ref.target_view(hgraph::test_detail::tick(330)).value().as_atomic().as<int>() == 17);
 }
 
 TEST_CASE("v2 time-series references made from REF inputs return the carried ref value", "[v2][graph][ref]")
@@ -2017,31 +2017,31 @@ TEST_CASE("v2 time-series references made from REF inputs return the carried ref
     const auto *int_type = value_registry.register_type<int>("int");
     const auto *scalar_ts = ts_registry.ts(int_type);
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("wrap").implementation<hgraph::v2::test_detail::WrapInputAsRefNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("ref_passthrough").implementation<hgraph::v2::test_detail::RefPassthroughNode>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 1, .dst_node = 2, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("source").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("wrap").implementation<hgraph::test_detail::WrapInputAsRefNode>())
+        .add_node(hgraph::NodeBuilder{}.label("ref_passthrough").implementation<hgraph::test_detail::RefPassthroughNode>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 1, .dst_node = 2, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(340), hgraph::v2::test_detail::tick(341));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(340), hgraph::test_detail::tick(341));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 23, hgraph::v2::test_detail::tick(340));
-    graph.evaluate(hgraph::v2::test_detail::tick(340));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 23, hgraph::test_detail::tick(340));
+    graph.evaluate(hgraph::test_detail::tick(340));
 
     const auto &wrapped_ref =
-        graph.node_at(1).output_view().value().as_atomic().template checked_as<hgraph::v2::TimeSeriesReference>();
+        graph.node_at(1).output_view().value().as_atomic().template checked_as<hgraph::TimeSeriesReference>();
     const auto ref_input =
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(2).input_view(hgraph::v2::test_detail::tick(340)).as_bundle()[0]);
+        hgraph::TimeSeriesReference::make(graph.node_at(2).input_view(hgraph::test_detail::tick(340)).as_bundle()[0]);
 
     CHECK(wrapped_ref.is_peered());
     CHECK(ref_input.is_peered());
     CHECK(ref_input == wrapped_ref);
-    CHECK(ref_input.target_view(hgraph::v2::test_detail::tick(340)).value().as_atomic().as<int>() == 23);
+    CHECK(ref_input.target_view(hgraph::test_detail::tick(340)).value().as_atomic().as<int>() == 23);
 }
 
 TEST_CASE("v2 time-series references made from peered bundle inputs stay peered", "[v2][graph][ref]")
@@ -2054,25 +2054,25 @@ TEST_CASE("v2 time-series references made from peered bundle inputs stay peered"
     const auto *pair_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Pair");
     const auto *nested_input_schema = ts_registry.tsb({{"pair", pair_schema}}, "NestedInput");
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("pair_source").output_schema(pair_schema).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("sum").input_schema(nested_input_schema).implementation<hgraph::v2::test_detail::SumNestedPair>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("pair_source").output_schema(pair_schema).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("sum").input_schema(nested_input_schema).implementation<hgraph::test_detail::SumNestedPair>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(350), hgraph::v2::test_detail::tick(351));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(350), hgraph::test_detail::tick(351));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {0}, 41, hgraph::v2::test_detail::tick(350));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {1}, 43, hgraph::v2::test_detail::tick(350));
-    graph.evaluate(hgraph::v2::test_detail::tick(350));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {0}, 41, hgraph::test_detail::tick(350));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {1}, 43, hgraph::test_detail::tick(350));
+    graph.evaluate(hgraph::test_detail::tick(350));
 
     const auto pair_ref =
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(1).input_view(hgraph::v2::test_detail::tick(350)).as_bundle()[0]);
+        hgraph::TimeSeriesReference::make(graph.node_at(1).input_view(hgraph::test_detail::tick(350)).as_bundle()[0]);
     CHECK(pair_ref.is_peered());
-    auto target = pair_ref.target_view(hgraph::v2::test_detail::tick(350)).as_bundle();
+    auto target = pair_ref.target_view(hgraph::test_detail::tick(350)).as_bundle();
     CHECK(target.field("lhs").value().as_atomic().as<int>() == 41);
     CHECK(target.field("rhs").value().as_atomic().as<int>() == 43);
 }
@@ -2086,31 +2086,31 @@ TEST_CASE("v2 time-series references made from non-peered bundle inputs become c
     const auto *scalar_ts = ts_registry.ts(int_type);
     const auto *pair_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Pair");
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("rhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("sum").input_schema(pair_schema).implementation<hgraph::v2::test_detail::SumNestedPair>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 2, .input_path = {0}})
-        .add_edge(hgraph::v2::Edge{.src_node = 1, .dst_node = 2, .input_path = {1}});
+        .add_node(hgraph::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("rhs_source").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("sum").input_schema(pair_schema).implementation<hgraph::test_detail::SumNestedPair>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 2, .input_path = {0}})
+        .add_edge(hgraph::Edge{.src_node = 1, .dst_node = 2, .input_path = {1}});
 
     auto engine =
-        hgraph::v2::test_detail::make_engine(std::move(builder), hgraph::v2::test_detail::tick(360), hgraph::v2::test_detail::tick(361));
+        hgraph::test_detail::make_engine(std::move(builder), hgraph::test_detail::tick(360), hgraph::test_detail::tick(361));
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 47, hgraph::v2::test_detail::tick(360));
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(1), {}, 53, hgraph::v2::test_detail::tick(360));
-    graph.evaluate(hgraph::v2::test_detail::tick(360));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 47, hgraph::test_detail::tick(360));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(1), {}, 53, hgraph::test_detail::tick(360));
+    graph.evaluate(hgraph::test_detail::tick(360));
 
     const auto pair_ref =
-        hgraph::v2::TimeSeriesReference::make(graph.node_at(2).input_view(hgraph::v2::test_detail::tick(360)));
+        hgraph::TimeSeriesReference::make(graph.node_at(2).input_view(hgraph::test_detail::tick(360)));
     CHECK(pair_ref.is_non_peered());
     REQUIRE(pair_ref.items().size() == 2);
     CHECK(pair_ref[0].is_peered());
     CHECK(pair_ref[1].is_peered());
-    CHECK(pair_ref[0].target_view(hgraph::v2::test_detail::tick(360)).value().as_atomic().as<int>() == 47);
-    CHECK(pair_ref[1].target_view(hgraph::v2::test_detail::tick(360)).value().as_atomic().as<int>() == 53);
+    CHECK(pair_ref[0].target_view(hgraph::test_detail::tick(360)).value().as_atomic().as<int>() == 47);
+    CHECK(pair_ref[1].target_view(hgraph::test_detail::tick(360)).value().as_atomic().as<int>() == 53);
 }
 
 TEST_CASE("v2 graph notifies after evaluation even when node evaluation throws", "[v2][graph][engine]")
@@ -2121,27 +2121,27 @@ TEST_CASE("v2 graph notifies after evaluation even when node evaluation throws",
     const auto *int_type = value_registry.register_type<int>("int");
     const auto *scalar_ts = ts_registry.ts(int_type);
 
-    hgraph::v2::test_detail::CountingObserver observer;
+    hgraph::test_detail::CountingObserver observer;
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::v2::test_detail::NoopNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("throws").implementation<hgraph::v2::test_detail::ThrowOnEval>())
-        .add_edge(hgraph::v2::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
+        .add_node(hgraph::NodeBuilder{}.label("lhs_source").output_schema(scalar_ts).implementation<hgraph::test_detail::NoopNode>())
+        .add_node(hgraph::NodeBuilder{}.label("throws").implementation<hgraph::test_detail::ThrowOnEval>())
+        .add_edge(hgraph::Edge{.src_node = 0, .dst_node = 1, .input_path = {0}});
 
-    auto engine = hgraph::v2::EvaluationEngineBuilder{}
+    auto engine = hgraph::EvaluationEngineBuilder{}
                       .graph_builder(std::move(builder))
-                      .start_time(hgraph::v2::test_detail::tick(100))
-                      .end_time(hgraph::v2::test_detail::tick(110))
+                      .start_time(hgraph::test_detail::tick(100))
+                      .end_time(hgraph::test_detail::tick(110))
                       .add_life_cycle_observer(&observer)
                       .build();
     auto &graph = engine.graph();
     graph.start();
 
-    hgraph::v2::test_detail::publish_scalar_output(graph.node_at(0), {}, 7, hgraph::v2::test_detail::tick(101));
+    hgraph::test_detail::publish_scalar_output(graph.node_at(0), {}, 7, hgraph::test_detail::tick(101));
 
-    CHECK_THROWS_AS(graph.evaluate(hgraph::v2::test_detail::tick(101)), std::runtime_error);
-    CHECK(graph.last_evaluation_time() == hgraph::v2::test_detail::tick(101));
+    CHECK_THROWS_AS(graph.evaluate(hgraph::test_detail::tick(101)), std::runtime_error);
+    CHECK(graph.last_evaluation_time() == hgraph::test_detail::tick(101));
     CHECK(observer.before_graph_evaluation == 1);
     CHECK(observer.after_graph_evaluation == 1);
     CHECK(observer.before_node_evaluation == 1);
@@ -2150,27 +2150,27 @@ TEST_CASE("v2 graph notifies after evaluation even when node evaluation throws",
 
 TEST_CASE("v2 graph stop continues through node failures before rethrowing", "[v2][graph][lifecycle]")
 {
-    hgraph::v2::test_detail::StopThrowsNode::reset();
-    hgraph::v2::test_detail::StopTracksNode::reset();
-    hgraph::v2::test_detail::CountingObserver observer;
+    hgraph::test_detail::StopThrowsNode::reset();
+    hgraph::test_detail::StopTracksNode::reset();
+    hgraph::test_detail::CountingObserver observer;
 
-    hgraph::v2::GraphBuilder builder;
+    hgraph::GraphBuilder builder;
     builder
-        .add_node(hgraph::v2::NodeBuilder{}.label("throws_on_stop").implementation<hgraph::v2::test_detail::StopThrowsNode>())
-        .add_node(hgraph::v2::NodeBuilder{}.label("tracks_stop").implementation<hgraph::v2::test_detail::StopTracksNode>());
+        .add_node(hgraph::NodeBuilder{}.label("throws_on_stop").implementation<hgraph::test_detail::StopThrowsNode>())
+        .add_node(hgraph::NodeBuilder{}.label("tracks_stop").implementation<hgraph::test_detail::StopTracksNode>());
 
-    auto engine = hgraph::v2::EvaluationEngineBuilder{}
+    auto engine = hgraph::EvaluationEngineBuilder{}
                       .graph_builder(std::move(builder))
-                      .start_time(hgraph::v2::test_detail::tick(120))
-                      .end_time(hgraph::v2::test_detail::tick(130))
+                      .start_time(hgraph::test_detail::tick(120))
+                      .end_time(hgraph::test_detail::tick(130))
                       .add_life_cycle_observer(&observer)
                       .build();
     auto &graph = engine.graph();
     graph.start();
 
     CHECK_THROWS_AS(graph.stop(), std::runtime_error);
-    CHECK(hgraph::v2::test_detail::StopThrowsNode::stop_calls == 1);
-    CHECK(hgraph::v2::test_detail::StopTracksNode::stop_calls == 1);
+    CHECK(hgraph::test_detail::StopThrowsNode::stop_calls == 1);
+    CHECK(hgraph::test_detail::StopTracksNode::stop_calls == 1);
     CHECK(observer.before_stop_graph == 1);
     CHECK(observer.after_stop_graph == 1);
     CHECK(observer.before_stop_node == 2);
@@ -2179,30 +2179,30 @@ TEST_CASE("v2 graph stop continues through node failures before rethrowing", "[v
 
 TEST_CASE("v2 graph start rolls back started nodes when startup fails", "[v2][graph][lifecycle]")
 {
-    hgraph::v2::test_detail::StartThrowsNode::reset();
-    hgraph::v2::test_detail::StartTracksNode::reset();
-    hgraph::v2::test_detail::CountingObserver observer;
+    hgraph::test_detail::StartThrowsNode::reset();
+    hgraph::test_detail::StartTracksNode::reset();
+    hgraph::test_detail::CountingObserver observer;
 
     {
-        hgraph::v2::GraphBuilder builder;
+        hgraph::GraphBuilder builder;
         builder
-            .add_node(hgraph::v2::NodeBuilder{}.label("tracks_start").implementation<hgraph::v2::test_detail::StartTracksNode>())
-            .add_node(hgraph::v2::NodeBuilder{}.label("throws_on_start").implementation<hgraph::v2::test_detail::StartThrowsNode>());
+            .add_node(hgraph::NodeBuilder{}.label("tracks_start").implementation<hgraph::test_detail::StartTracksNode>())
+            .add_node(hgraph::NodeBuilder{}.label("throws_on_start").implementation<hgraph::test_detail::StartThrowsNode>());
 
-        auto engine = hgraph::v2::EvaluationEngineBuilder{}
+        auto engine = hgraph::EvaluationEngineBuilder{}
                           .graph_builder(std::move(builder))
-                          .start_time(hgraph::v2::test_detail::tick(140))
-                          .end_time(hgraph::v2::test_detail::tick(150))
+                          .start_time(hgraph::test_detail::tick(140))
+                          .end_time(hgraph::test_detail::tick(150))
                           .add_life_cycle_observer(&observer)
                           .build();
         auto &graph = engine.graph();
 
         CHECK_THROWS_AS(graph.start(), std::runtime_error);
         CHECK_NOTHROW(graph.stop());
-        CHECK(hgraph::v2::test_detail::StartTracksNode::start_calls == 1);
-        CHECK(hgraph::v2::test_detail::StartTracksNode::stop_calls == 1);
-        CHECK(hgraph::v2::test_detail::StartThrowsNode::start_calls == 1);
-        CHECK(hgraph::v2::test_detail::StartThrowsNode::stop_calls == 0);
+        CHECK(hgraph::test_detail::StartTracksNode::start_calls == 1);
+        CHECK(hgraph::test_detail::StartTracksNode::stop_calls == 1);
+        CHECK(hgraph::test_detail::StartThrowsNode::start_calls == 1);
+        CHECK(hgraph::test_detail::StartThrowsNode::stop_calls == 0);
         CHECK(observer.before_start_graph == 1);
         CHECK(observer.after_start_graph == 0);
         CHECK(observer.before_start_node == 2);
@@ -2213,26 +2213,26 @@ TEST_CASE("v2 graph start rolls back started nodes when startup fails", "[v2][gr
         CHECK(observer.after_stop_node == 1);
     }
 
-    CHECK(hgraph::v2::test_detail::StartTracksNode::stop_calls == 1);
-    CHECK(hgraph::v2::test_detail::StartThrowsNode::stop_calls == 0);
+    CHECK(hgraph::test_detail::StartTracksNode::stop_calls == 1);
+    CHECK(hgraph::test_detail::StartThrowsNode::stop_calls == 0);
 }
 
 TEST_CASE("v2 real-time engine clock advances to scheduled wall-clock time", "[v2][engine][realtime]")
 {
     using namespace std::chrono_literals;
 
-    hgraph::v2::GraphBuilder builder;
-    const auto start_time = hgraph::v2::test_detail::utc_now_tick();
-    auto engine = hgraph::v2::test_detail::make_engine(
-        std::move(builder), start_time, start_time + 500ms, hgraph::v2::EvaluationMode::REAL_TIME);
+    hgraph::GraphBuilder builder;
+    const auto start_time = hgraph::test_detail::utc_now_tick();
+    auto engine = hgraph::test_detail::make_engine(
+        std::move(builder), start_time, start_time + 500ms, hgraph::EvaluationMode::REAL_TIME);
 
     auto clock = engine.graph().engine_evaluation_clock();
-    const auto scheduled_time = hgraph::v2::test_detail::utc_now_tick() + 30ms;
+    const auto scheduled_time = hgraph::test_detail::utc_now_tick() + 30ms;
 
     clock.update_next_scheduled_evaluation_time(scheduled_time);
     clock.advance_to_next_scheduled_time();
 
-    const auto after = hgraph::v2::test_detail::utc_now_tick();
+    const auto after = hgraph::test_detail::utc_now_tick();
     CHECK(clock.evaluation_time() >= scheduled_time);
     CHECK(clock.evaluation_time() <= after);
 }
@@ -2241,16 +2241,16 @@ TEST_CASE("v2 real-time engine clock wakes early when push scheduling is request
 {
     using namespace std::chrono_literals;
 
-    hgraph::v2::GraphBuilder builder;
-    const auto start_time = hgraph::v2::test_detail::utc_now_tick();
-    auto engine = hgraph::v2::test_detail::make_engine(
-        std::move(builder), start_time, start_time + 1s, hgraph::v2::EvaluationMode::REAL_TIME);
+    hgraph::GraphBuilder builder;
+    const auto start_time = hgraph::test_detail::utc_now_tick();
+    auto engine = hgraph::test_detail::make_engine(
+        std::move(builder), start_time, start_time + 1s, hgraph::EvaluationMode::REAL_TIME);
 
     auto clock = engine.graph().engine_evaluation_clock();
-    const auto scheduled_time = hgraph::v2::test_detail::utc_now_tick() + 250ms;
+    const auto scheduled_time = hgraph::test_detail::utc_now_tick() + 250ms;
     clock.update_next_scheduled_evaluation_time(scheduled_time);
 
-    const auto before = hgraph::v2::test_detail::utc_now_tick();
+    const auto before = hgraph::test_detail::utc_now_tick();
     std::thread notifier([clock] {
         std::this_thread::sleep_for(std::chrono::milliseconds{20});
         clock.mark_push_node_requires_scheduling();
@@ -2259,7 +2259,7 @@ TEST_CASE("v2 real-time engine clock wakes early when push scheduling is request
     clock.advance_to_next_scheduled_time();
     notifier.join();
 
-    const auto after = hgraph::v2::test_detail::utc_now_tick();
+    const auto after = hgraph::test_detail::utc_now_tick();
     CHECK(after < scheduled_time);
     CHECK(clock.evaluation_time() < scheduled_time);
     CHECK(clock.evaluation_time() >= before);
@@ -2270,10 +2270,10 @@ TEST_CASE("v2 real-time engine clock wakes early when push scheduling is request
 
 TEST_CASE("v2 static node signatures export Python wiring metadata", "[v2][python]")
 {
-    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+    hgraph::test_detail::ensure_python_hgraph_importable();
 
     nb::gil_scoped_acquire guard;
-    nb::object signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::ExportedSumNode>::wiring_signature();
+    nb::object signature = hgraph::StaticNodeSignature<hgraph::test_detail::ExportedSumNode>::wiring_signature();
 
     CHECK(nb::cast<std::string>(signature.attr("name")) == "exported_sum");
     CHECK(nb::cast<std::string>(signature.attr("signature")) == "exported_sum(lhs: TS[int], rhs: TS[int]) -> TS[int]");
@@ -2282,7 +2282,7 @@ TEST_CASE("v2 static node signatures export Python wiring metadata", "[v2][pytho
 
 TEST_CASE("v2 static node signatures derive selector policies from In metadata", "[v2][signature]")
 {
-    using signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::PolicyMetadataNode>;
+    using signature = hgraph::StaticNodeSignature<hgraph::test_detail::PolicyMetadataNode>;
 
     CHECK(signature::active_input_names() == std::vector<std::string>{"lhs", "strict"});
     CHECK(signature::valid_input_names() == std::vector<std::string>{"lhs"});
@@ -2291,14 +2291,14 @@ TEST_CASE("v2 static node signatures derive selector policies from In metadata",
 
 TEST_CASE("v2 static node signatures preserve explicit empty selector policies", "[v2][signature]")
 {
-    using signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::ExplicitEmptyPolicyNode>;
+    using signature = hgraph::StaticNodeSignature<hgraph::test_detail::ExplicitEmptyPolicyNode>;
 
     CHECK(signature::active_input_names().empty());
     CHECK(signature::valid_input_names().empty());
     CHECK(signature::has_explicit_activity_policy());
     CHECK(signature::has_explicit_valid_input_policy());
 
-    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+    hgraph::test_detail::ensure_python_hgraph_importable();
 
     nb::gil_scoped_acquire guard;
     nb::object wiring_signature = signature::wiring_signature();
@@ -2314,8 +2314,8 @@ TEST_CASE("v2 static node signatures preserve explicit empty selector policies",
 
 TEST_CASE("v2 static node builders preserve explicit empty active selector policies", "[v2][signature]")
 {
-    hgraph::v2::NodeBuilder builder;
-    builder.implementation<hgraph::v2::test_detail::ExplicitEmptyPolicyNode>();
+    hgraph::NodeBuilder builder;
+    builder.implementation<hgraph::test_detail::ExplicitEmptyPolicyNode>();
 
     CHECK(builder.has_explicit_active_inputs());
     CHECK(builder.active_inputs().empty());
@@ -2323,9 +2323,9 @@ TEST_CASE("v2 static node builders preserve explicit empty active selector polic
 
 TEST_CASE("v2 static node signatures export linked template type variables", "[v2][python][signature]")
 {
-    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+    hgraph::test_detail::ensure_python_hgraph_importable();
 
-    using signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::GenericGetItemNode>;
+    using signature = hgraph::StaticNodeSignature<hgraph::test_detail::GenericGetItemNode>;
 
     CHECK(signature::input_schema() == nullptr);
     CHECK(signature::output_schema() == nullptr);
@@ -2342,10 +2342,10 @@ TEST_CASE("v2 static node signatures export linked template type variables", "[v
 
 TEST_CASE("v2 static node signatures export declared node type metadata", "[v2][python][signature]")
 {
-    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+    hgraph::test_detail::ensure_python_hgraph_importable();
 
     nb::gil_scoped_acquire guard;
-    nb::object signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::PullTickNode>::wiring_signature();
+    nb::object signature = hgraph::StaticNodeSignature<hgraph::test_detail::PullTickNode>::wiring_signature();
     nb::object expected =
         nb::module_::import_("hgraph._wiring._wiring_node_signature").attr("WiringNodeType").attr("PULL_SOURCE_NODE");
 
@@ -2354,11 +2354,11 @@ TEST_CASE("v2 static node signatures export declared node type metadata", "[v2][
 
 TEST_CASE("v2 static node signatures export state injectables", "[v2][python][signature]")
 {
-    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+    hgraph::test_detail::ensure_python_hgraph_importable();
 
-    using typed_state_signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::SumWithTypedState>;
+    using typed_state_signature = hgraph::StaticNodeSignature<hgraph::test_detail::SumWithTypedState>;
     using recordable_state_signature =
-        hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::PreviousValueFromRecordableState>;
+        hgraph::StaticNodeSignature<hgraph::test_detail::PreviousValueFromRecordableState>;
 
     CHECK(typed_state_signature::has_state());
     CHECK_FALSE(typed_state_signature::has_recordable_state());
@@ -2379,9 +2379,9 @@ TEST_CASE("v2 static node signatures export state injectables", "[v2][python][si
 
 TEST_CASE("v2 static node signatures export evaluation clock injectables", "[v2][python][signature]")
 {
-    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+    hgraph::test_detail::ensure_python_hgraph_importable();
 
-    using signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::ClockCaptureNode>;
+    using signature = hgraph::StaticNodeSignature<hgraph::test_detail::ClockCaptureNode>;
 
     CHECK(signature::has_clock());
 
@@ -2395,9 +2395,9 @@ TEST_CASE("v2 static node signatures export evaluation clock injectables", "[v2]
 
 TEST_CASE("v2 static node signatures export node scheduler injectables", "[v2][python][signature]")
 {
-    hgraph::v2::test_detail::ensure_python_hgraph_importable();
+    hgraph::test_detail::ensure_python_hgraph_importable();
 
-    using signature = hgraph::v2::StaticNodeSignature<hgraph::v2::test_detail::SchedulerEchoNode>;
+    using signature = hgraph::StaticNodeSignature<hgraph::test_detail::SchedulerEchoNode>;
 
     CHECK(signature::has_scheduler());
 

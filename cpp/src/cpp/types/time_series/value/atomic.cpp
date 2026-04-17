@@ -1,6 +1,6 @@
 #include <hgraph/hgraph_base.h>
 #ifndef HGRAPH_DISABLE_TS_REFERENCE_ATOMIC
-#include <hgraph/types/v2/ref.h>
+#include <hgraph/types/ref.h>
 #endif
 #include <hgraph/types/time_series/value/atomic.h>
 #include <hgraph/types/time_series/value/builder.h>
@@ -91,7 +91,7 @@ namespace hgraph
             HGRAPH_ATOMIC_BUILDER_CASE(std::string)
             HGRAPH_ATOMIC_BUILDER_CASE(nb::object)
 #ifndef HGRAPH_DISABLE_TS_REFERENCE_ATOMIC
-            HGRAPH_ATOMIC_BUILDER_CASE(v2::TimeSeriesReference)
+            HGRAPH_ATOMIC_BUILDER_CASE(TimeSeriesReference)
 #endif
             HGRAPH_ATOMIC_BUILDER_CASE(engine_date_t)
             HGRAPH_ATOMIC_BUILDER_CASE(engine_time_t)

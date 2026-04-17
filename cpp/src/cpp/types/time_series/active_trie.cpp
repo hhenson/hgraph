@@ -31,7 +31,7 @@ namespace hgraph
                         using T = std::remove_pointer_t<decltype(p)>;
                         if constexpr (std::same_as<T, TSInput>) {
                             is_root = true;
-                        } else if constexpr (!std::same_as<T, TSOutput> && !std::same_as<T, v2::Node>) {
+                        } else if constexpr (!std::same_as<T, TSOutput> && !std::same_as<T, Node>) {
                             next = static_cast<BaseState *>(p);
                         }
                     },
@@ -48,7 +48,7 @@ namespace hgraph
                         [&](auto *p) {
                             using T = std::remove_pointer_t<decltype(p)>;
                             if constexpr (!std::same_as<T, TSInput> && !std::same_as<T, TSOutput> &&
-                                          !std::same_as<T, v2::Node>) {
+                                          !std::same_as<T, Node>) {
                                 next = static_cast<BaseState *>(p);
                             }
                         },

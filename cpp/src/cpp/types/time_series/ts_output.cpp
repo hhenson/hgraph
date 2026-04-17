@@ -2,7 +2,7 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/value/type_meta_bindings.h>
-#include <hgraph/types/v2/ref.h>
+#include <hgraph/types/ref.h>
 #include <hgraph/util/tagged_ptr.h>
 #include <hgraph/util/scope.h>
 
@@ -266,18 +266,18 @@ namespace hgraph
                     TSOutputView target_view = output_view_from_context(*target, evaluation_time);
                     const View target_value = target_view.value();
                     if (target_value.has_value()) {
-                        if (const auto *ref = target_value.as_atomic().try_as<v2::TimeSeriesReference>()) { return nb::cast(*ref); }
+                        if (const auto *ref = target_value.as_atomic().try_as<TimeSeriesReference>()) { return nb::cast(*ref); }
                     }
-                    return nb::cast(v2::TimeSeriesReference::make(target_view));
+                    return nb::cast(TimeSeriesReference::make(target_view));
                 }
             }
 
             const View value = context.value();
             if (value.has_value()) {
-                if (const auto *ref = value.as_atomic().try_as<v2::TimeSeriesReference>()) { return nb::cast(*ref); }
+                if (const auto *ref = value.as_atomic().try_as<TimeSeriesReference>()) { return nb::cast(*ref); }
             }
 
-            return nb::cast(v2::TimeSeriesReference::make());
+            return nb::cast(TimeSeriesReference::make());
         }
 
         [[nodiscard]] nb::object bundle_to_python(const TSViewContext &context, engine_time_t evaluation_time)
@@ -1153,18 +1153,18 @@ namespace hgraph
             return *registry;
         }
 
-        void collect_ref_target_states(const v2::TimeSeriesReference &ref,
+        void collect_ref_target_states(const TimeSeriesReference &ref,
                                        std::unordered_set<BaseState *> &states) noexcept
         {
             switch (ref.kind()) {
-                case v2::TimeSeriesReference::Kind::EMPTY:
+                case TimeSeriesReference::Kind::EMPTY:
                     return;
 
-                case v2::TimeSeriesReference::Kind::PEERED:
+                case TimeSeriesReference::Kind::PEERED:
                     if (BaseState *state = notification_state_of(ref.target()); state != nullptr) { states.insert(state); }
                     return;
 
-                case v2::TimeSeriesReference::Kind::NON_PEERED:
+                case TimeSeriesReference::Kind::NON_PEERED:
                     for (const auto &item : ref.items()) { collect_ref_target_states(item, states); }
                     return;
             }
@@ -2313,7 +2313,7 @@ namespace hgraph
         }
 
         void sync_collection_ref_from_value(const TSOutputView &target_view,
-                                            const v2::TimeSeriesReference &ref,
+                                            const TimeSeriesReference &ref,
                                             engine_time_t modified_time)
         {
             const TSMeta *target_schema = target_view.ts_schema();
@@ -2322,7 +2322,7 @@ namespace hgraph
             }
 
             switch (ref.kind()) {
-                case v2::TimeSeriesReference::Kind::EMPTY:
+                case TimeSeriesReference::Kind::EMPTY:
                     {
                         switch (target_schema->kind) {
                             case TSKind::TSB:
@@ -2354,11 +2354,11 @@ namespace hgraph
                         return;
                     }
 
-                case v2::TimeSeriesReference::Kind::PEERED:
+                case TimeSeriesReference::Kind::PEERED:
                     sync_collection_ref_from_output(target_view, ref.target_view(modified_time), modified_time);
                     return;
 
-                case v2::TimeSeriesReference::Kind::NON_PEERED:
+                case TimeSeriesReference::Kind::NON_PEERED:
                     {
                         switch (target_schema->kind) {
                             case TSKind::TSB:
@@ -2431,7 +2431,7 @@ namespace hgraph
         }
 
         void update_collection_ref_target_subscription(CollectionRefBinding &binding,
-                                                       const v2::TimeSeriesReference &ref) noexcept
+                                                       const TimeSeriesReference &ref) noexcept
         {
             std::unordered_set<BaseState *> next_target_states;
             collect_ref_target_states(ref, next_target_states);
@@ -2476,7 +2476,7 @@ namespace hgraph
         {
             TSOutputView target_view = output_view_for(binding.target_context, modified_time);
             TSOutputView source_view = output_view_for(binding.source_context, modified_time);
-            const auto *ref = source_view.value().as_atomic().try_as<v2::TimeSeriesReference>();
+            const auto *ref = source_view.value().as_atomic().try_as<TimeSeriesReference>();
             if (ref == nullptr) {
                 throw std::logic_error("TSOutput collection ref binding requires a REF source value");
             }
@@ -2927,7 +2927,7 @@ namespace hgraph
                     throw std::invalid_argument("TSOutput alternative REF wrapping requires matching referenced schema");
                 }
 
-                target_view.value().as_atomic().set(hgraph::v2::TimeSeriesReference::make(source_view));
+                target_view.value().as_atomic().set(hgraph::TimeSeriesReference::make(source_view));
                 if (target_state != nullptr) {
                     const engine_time_t source_modified_time =
                         source_state != nullptr && source_state->last_modified_time != MIN_DT
@@ -3383,7 +3383,7 @@ namespace hgraph
         const TSMeta *schema = view.ts_schema();
         if (schema == nullptr || schema->kind != TSKind::REF) { return; }
 
-        const auto *ref = view.value().as_atomic().try_as<v2::TimeSeriesReference>();
+        const auto *ref = view.value().as_atomic().try_as<TimeSeriesReference>();
         if (ref == nullptr) { return; }
 
         std::unordered_set<BaseState *> target_states;

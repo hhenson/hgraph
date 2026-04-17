@@ -138,16 +138,16 @@ set(HGRAPH_TEST_TIME_SERIES_SOURCES
 )
 
 set(HGRAPH_TEST_V2_RUNTIME_SOURCES
-    ../src/cpp/types/v2/boundary_binding.cpp
-    ../src/cpp/types/v2/child_graph.cpp
-    ../src/cpp/types/v2/evaluation_engine.cpp
-    ../src/cpp/types/v2/graph.cpp
-    ../src/cpp/types/v2/graph_builder.cpp
-    ../src/cpp/types/v2/nested_clock.cpp
-    ../src/cpp/types/v2/node.cpp
-    ../src/cpp/types/v2/node_builder.cpp
-    ../src/cpp/types/v2/python_node_support.cpp
-    ../src/cpp/types/v2/ref.cpp
+    ../src/cpp/types/boundary_binding.cpp
+    ../src/cpp/types/child_graph.cpp
+    ../src/cpp/types/evaluation_engine.cpp
+    ../src/cpp/types/graph.cpp
+    ../src/cpp/types/graph_builder.cpp
+    ../src/cpp/types/nested_clock.cpp
+    ../src/cpp/types/node.cpp
+    ../src/cpp/types/node_builder.cpp
+    ../src/cpp/types/python_node_support.cpp
+    ../src/cpp/types/ref.cpp
 )
 
 add_executable(hgraph_time_series_value_tests

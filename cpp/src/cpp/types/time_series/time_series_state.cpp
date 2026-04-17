@@ -5,8 +5,8 @@
 #include <hgraph/types/time_series/ts_value_builder.h>
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_meta.h>
-#include <hgraph/types/v2/node.h>
-#include <hgraph/types/v2/ref.h>
+#include <hgraph/types/node.h>
+#include <hgraph/types/ref.h>
 
 #include <algorithm>
 #include <type_traits>
@@ -89,7 +89,7 @@ namespace hgraph
             if (state == nullptr || state->storage_kind != TSStorageKind::Native) { return context; }
 
             std::vector<size_t> path;
-            const v2::Node *root_node = nullptr;
+            const Node *root_node = nullptr;
             RootNodePort root_port = RootNodePort::Input;
             const TSInput *root_input = nullptr;
             const TSOutput *root_output = nullptr;
@@ -119,7 +119,7 @@ namespace hgraph
                         cursor = parent;
                         advanced = true;
                     },
-                    [&](v2::Node *parent) {
+                    [&](Node *parent) {
                         root_node = parent;
                         root_port = static_cast<RootNodePort>(cursor->index);
                         cursor = nullptr;
@@ -143,7 +143,7 @@ namespace hgraph
             TSViewContext refreshed = context;
             TSViewContext current;
             if (root_node != nullptr) {
-                auto *node = const_cast<v2::Node *>(root_node);
+                auto *node = const_cast<Node *>(root_node);
                 switch (root_port) {
                     case RootNodePort::Input: current = node->input_view(MIN_DT).context_ref(); break;
                     case RootNodePort::Output: current = node->output_view(MIN_DT).context_ref(); break;
@@ -180,16 +180,16 @@ namespace hgraph
             return refreshed;
         }
 
-        [[nodiscard]] bool reference_value_all_valid(const v2::TimeSeriesReference &ref) noexcept
+        [[nodiscard]] bool reference_value_all_valid(const TimeSeriesReference &ref) noexcept
         {
             switch (ref.kind()) {
-                case v2::TimeSeriesReference::Kind::EMPTY:
+                case TimeSeriesReference::Kind::EMPTY:
                     return false;
 
-                case v2::TimeSeriesReference::Kind::PEERED:
+                case TimeSeriesReference::Kind::PEERED:
                     return ref.target().is_bound() && ref.target_view().all_valid();
 
-                case v2::TimeSeriesReference::Kind::NON_PEERED:
+                case TimeSeriesReference::Kind::NON_PEERED:
                     return !ref.items().empty() &&
                            std::ranges::all_of(ref.items(), [](const auto &item) { return reference_value_all_valid(item); });
             }
@@ -197,55 +197,55 @@ namespace hgraph
             return false;
         }
 
-        [[nodiscard]] v2::TimeSeriesReference materialize_local_reference(const TSMeta &schema, BaseState *state) noexcept
+        [[nodiscard]] TimeSeriesReference materialize_local_reference(const TSMeta &schema, BaseState *state) noexcept
         {
-            if (state == nullptr) { return v2::TimeSeriesReference::make(); }
+            if (state == nullptr) { return TimeSeriesReference::make(); }
 
             if (const LinkedTSContext *target = state->linked_target(); target != nullptr && target->is_bound()) {
-                return v2::TimeSeriesReference::make(output_view_from_target(*target));
+                return TimeSeriesReference::make(output_view_from_target(*target));
             }
 
             switch (schema.kind) {
                 case TSKind::TSB:
                     {
                         const auto &bundle_state = *static_cast<TSBState *>(state);
-                        std::vector<v2::TimeSeriesReference> items;
+                        std::vector<TimeSeriesReference> items;
                         items.reserve(schema.field_count());
                         for (size_t index = 0; index < schema.field_count(); ++index) {
                             const BaseState *child = index < bundle_state.child_states.size() ? state_address(bundle_state.child_states[index]) : nullptr;
                             const TSMeta *child_schema = schema.fields()[index].ts_type;
                             if (child_schema == nullptr) {
-                                items.push_back(v2::TimeSeriesReference::make());
+                                items.push_back(TimeSeriesReference::make());
                                 continue;
                             }
 
-                            v2::TimeSeriesReference item = materialize_local_reference(*child_schema, const_cast<BaseState *>(child));
-                            items.push_back(item.is_valid() ? std::move(item) : v2::TimeSeriesReference::make());
+                            TimeSeriesReference item = materialize_local_reference(*child_schema, const_cast<BaseState *>(child));
+                            items.push_back(item.is_valid() ? std::move(item) : TimeSeriesReference::make());
                         }
-                        return v2::TimeSeriesReference::make(std::move(items));
+                        return TimeSeriesReference::make(std::move(items));
                     }
 
                 case TSKind::TSL:
                     {
                         const auto &list_state = *static_cast<TSLState *>(state);
-                        std::vector<v2::TimeSeriesReference> items;
+                        std::vector<TimeSeriesReference> items;
                         items.reserve(schema.fixed_size());
                         for (size_t index = 0; index < schema.fixed_size(); ++index) {
                             const BaseState *child = index < list_state.child_states.size() ? state_address(list_state.child_states[index]) : nullptr;
                             const TSMeta *child_schema = schema.element_ts();
                             if (child_schema == nullptr) {
-                                items.push_back(v2::TimeSeriesReference::make());
+                                items.push_back(TimeSeriesReference::make());
                                 continue;
                             }
 
-                            v2::TimeSeriesReference item = materialize_local_reference(*child_schema, const_cast<BaseState *>(child));
-                            items.push_back(item.is_valid() ? std::move(item) : v2::TimeSeriesReference::make());
+                            TimeSeriesReference item = materialize_local_reference(*child_schema, const_cast<BaseState *>(child));
+                            items.push_back(item.is_valid() ? std::move(item) : TimeSeriesReference::make());
                         }
-                        return v2::TimeSeriesReference::make(std::move(items));
+                        return TimeSeriesReference::make(std::move(items));
                     }
 
                 default:
-                    return v2::TimeSeriesReference::make();
+                    return TimeSeriesReference::make();
             }
         }
 
@@ -282,7 +282,7 @@ namespace hgraph
             }
 
             const auto view = View{source.value_dispatch, source.value_data, source.schema->value_type}.as_atomic();
-            const auto *value = view.try_as<hgraph::v2::TimeSeriesReference>();
+            const auto *value = view.try_as<hgraph::TimeSeriesReference>();
             return value != nullptr && value->is_peered() ? value->target() : LinkedTSContext::none();
         }
 
@@ -565,14 +565,14 @@ namespace hgraph
         }
 
         if (const Value *materialized = materialized_reference_value(context); materialized != nullptr) {
-            if (const auto *ref = materialized->view().as_atomic().try_as<v2::TimeSeriesReference>()) {
+            if (const auto *ref = materialized->view().as_atomic().try_as<TimeSeriesReference>()) {
                 return reference_value_all_valid(*ref);
             }
             return false;
         }
 
         View value = context.value();
-        if (const auto *ref = value.as_atomic().try_as<v2::TimeSeriesReference>()) { return true; }
+        if (const auto *ref = value.as_atomic().try_as<TimeSeriesReference>()) { return true; }
         return false;
     }
 

@@ -4,7 +4,7 @@
  */
 
 #include <hgraph/types/time_series/ts_type_registry.h>
-#include <hgraph/types/v2/ref.h>
+#include <hgraph/types/ref.h>
 #include <hgraph/types/value/type_meta_bindings.h>
 #include <hgraph/types/value/type_registry.h>
 
@@ -16,7 +16,7 @@ namespace hgraph {
 namespace {
 const value::TypeMeta* ts_reference_type_meta() {
     static const value::TypeMeta* meta = value::TypeRegistry::instance()
-        .register_type<v2::TimeSeriesReference>("TimeSeriesReference");
+        .register_type<TimeSeriesReference>("TimeSeriesReference");
     return meta;
 }
 
@@ -25,7 +25,7 @@ const value::TypeMeta* ts_reference_type_meta() {
 namespace value
 {
     template <>
-    constexpr TypeFlags compute_scalar_flags<v2::TimeSeriesReference>() {
+    constexpr TypeFlags compute_scalar_flags<TimeSeriesReference>() {
         return TypeFlags::Hashable | TypeFlags::Equatable;
     }
 }

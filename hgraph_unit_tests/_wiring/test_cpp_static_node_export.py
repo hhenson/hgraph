@@ -25,7 +25,7 @@ def use_python_graph_builder():
 
 
 def test_cpp_static_compute_node_exports_wiring_signature():
-    static_sum = _hgraph.v2.static_sum
+    static_sum = _hgraph.static_sum
 
     assert isinstance(static_sum, BaseWiringNodeClass)
     assert static_sum.signature.signature == "static_sum(lhs: TS[int], rhs: TS[int]) -> TS[int]"
@@ -34,7 +34,7 @@ def test_cpp_static_compute_node_exports_wiring_signature():
 
 
 def test_cpp_static_compute_node_exports_selector_policy_metadata():
-    static_policy = _hgraph.v2.static_policy
+    static_policy = _hgraph.static_policy
 
     assert isinstance(static_policy, BaseWiringNodeClass)
     assert static_policy.signature.signature == "static_policy(lhs: TS[int], rhs: TS[int], strict: TS[int]) -> TS[int]"
@@ -44,7 +44,7 @@ def test_cpp_static_compute_node_exports_selector_policy_metadata():
 
 
 def test_cpp_static_compute_node_wires_into_python_graph_builder():
-    static_sum = _hgraph.v2.static_sum
+    static_sum = _hgraph.static_sum
 
     @generator
     def src(value: int) -> TS[int]:
@@ -61,7 +61,7 @@ def test_cpp_static_compute_node_wires_into_python_graph_builder():
     with use_python_graph_builder(), WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.NodeBuilder)]
     cpp_builder = next(builder for builder in cpp_builders if builder.implementation_name == "static_sum")
     cpp_node_index = next(index for index, builder in enumerate(graph_builder.node_builders) if builder is cpp_builder)
 
@@ -78,8 +78,8 @@ def test_cpp_static_compute_node_wires_into_python_graph_builder():
 
 
 def test_cpp_static_python_impl_replacement_preserves_operator_overloads():
-    assert tsd_operators.tsd_get_items is _hgraph.v2.tsd_get_items
-    assert tsd_operators.tsd_get_item_default is _hgraph.v2.tsd_get_item_default
+    assert tsd_operators.tsd_get_items is _hgraph.tsd_get_items
+    assert tsd_operators.tsd_get_item_default is _hgraph.tsd_get_item_default
 
     @sink_node
     def sink(ts: TSD[int, REF[TS[int]]]):
@@ -92,12 +92,12 @@ def test_cpp_static_python_impl_replacement_preserves_operator_overloads():
     with WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.NodeBuilder)]
     assert any(builder.implementation_name == "tsd_get_items" for builder in cpp_builders)
 
 
 def test_cpp_static_generic_compute_node_exports_linked_type_vars_and_resolves_on_wiring():
-    static_get_item = _hgraph.v2.static_get_item
+    static_get_item = _hgraph.static_get_item
 
     assert isinstance(static_get_item, BaseWiringNodeClass)
     assert static_get_item.signature.signature == "static_get_item(ts: TSD[K, V], key: TS[K]) -> V"
@@ -114,7 +114,7 @@ def test_cpp_static_generic_compute_node_exports_linked_type_vars_and_resolves_o
     with use_python_graph_builder(), WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.NodeBuilder)]
     cpp_builder = next(builder for builder in cpp_builders if builder.implementation_name == "static_get_item")
     assert cpp_builder.signature.signature == "static_get_item(ts: TSD[int, TS[str]], key: TS[int]) -> TS[str]"
     assert cpp_builder.input_schema is not None
@@ -122,7 +122,7 @@ def test_cpp_static_generic_compute_node_exports_linked_type_vars_and_resolves_o
 
 
 def test_cpp_static_compute_node_exports_state_injectable_metadata():
-    static_typed_state = _hgraph.v2.static_typed_state
+    static_typed_state = _hgraph.static_typed_state
 
     assert isinstance(static_typed_state, BaseWiringNodeClass)
     assert static_typed_state.signature.args == ("lhs", "_state")
@@ -131,7 +131,7 @@ def test_cpp_static_compute_node_exports_state_injectable_metadata():
 
 
 def test_cpp_static_compute_node_exports_recordable_state_builder():
-    static_recordable_state = _hgraph.v2.static_recordable_state
+    static_recordable_state = _hgraph.static_recordable_state
 
     assert isinstance(static_recordable_state, BaseWiringNodeClass)
     assert static_recordable_state.signature.args == ("lhs", "_recordable_state")
@@ -152,13 +152,13 @@ def test_cpp_static_compute_node_exports_recordable_state_builder():
     with use_python_graph_builder(), WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.NodeBuilder)]
     cpp_builder = next(builder for builder in cpp_builders if builder.implementation_name == "static_recordable_state")
     assert cpp_builder.recordable_state_builder is not None
 
 
 def test_cpp_static_compute_node_exports_evaluation_clock_metadata():
-    static_clock = _hgraph.v2.static_clock
+    static_clock = _hgraph.static_clock
 
     assert isinstance(static_clock, BaseWiringNodeClass)
     assert static_clock.signature.args == ("lhs", "_clock")
@@ -166,7 +166,7 @@ def test_cpp_static_compute_node_exports_evaluation_clock_metadata():
 
 
 def test_cpp_static_mixed_graphs_wire_through_v2_builder():
-    static_sum = _hgraph.v2.static_sum
+    static_sum = _hgraph.static_sum
 
     @generator
     def src(value: int) -> TS[int]:
@@ -183,13 +183,13 @@ def test_cpp_static_mixed_graphs_wire_through_v2_builder():
     with WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.NodeBuilder)]
     assert any(builder.implementation_name == "static_sum" for builder in cpp_builders)
 
 
 def test_cpp_static_graphs_wire_with_v2_node_builders():
-    static_tick = _hgraph.v2.static_tick
-    static_sink = _hgraph.v2.static_sink
+    static_tick = _hgraph.static_tick
+    static_sink = _hgraph.static_sink
 
     @graph
     def g():
@@ -197,14 +197,14 @@ def test_cpp_static_graphs_wire_with_v2_node_builders():
 
     with WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
-    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.NodeBuilder)]
     assert {builder.implementation_name for builder in cpp_builders} >= {"static_tick", "static_sink"}
 
-    if not isinstance(graph_builder, _hgraph.v2.GraphBuilder):
+    if not isinstance(graph_builder, _hgraph.GraphBuilder):
         return
 
-    _hgraph.v2.reset_static_sink_state()
+    _hgraph.reset_static_sink_state()
     evaluate_graph(g, GraphConfiguration(end_time=timedelta(milliseconds=1)))
 
-    assert _hgraph.v2.static_sink_call_count() == 1
-    assert _hgraph.v2.static_sink_last_value() == 42
+    assert _hgraph.static_sink_call_count() == 1
+    assert _hgraph.static_sink_last_value() == 42

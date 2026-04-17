@@ -10,7 +10,7 @@
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/value/type_registry.h>
-#include <hgraph/types/v2/ref.h>
+#include <hgraph/types/ref.h>
 
 #include <algorithm>
 #include <chrono>
@@ -1318,8 +1318,8 @@ TEST_CASE("TSOutput wraps TSD values into cached REF alternatives", "[ts_output]
     CHECK(alternative_a.linked_context().value_data == alternative_b.linked_context().value_data);
 
     auto wrapped_dict = alternative_a.as_dict();
-    const auto ref_one = wrapped_dict.at(key_one.view()).value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
-    const auto ref_two = wrapped_dict.at(key_two.view()).value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+    const auto ref_one = wrapped_dict.at(key_one.view()).value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
+    const auto ref_two = wrapped_dict.at(key_two.view()).value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
 
     CHECK(ref_one.is_peered());
     CHECK(ref_two.is_peered());
@@ -1334,7 +1334,7 @@ TEST_CASE("TSOutput wraps TSD values into cached REF alternatives", "[ts_output]
                                                    hgraph::test_detail::tick(201));
 
     const auto updated_ref =
-        alternative_a.as_dict().at(key_one.view()).value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+        alternative_a.as_dict().at(key_one.view()).value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
     CHECK(updated_ref.target_view(hgraph::test_detail::tick(201)).value().as_atomic().as<int>() == 15);
 
     const hgraph::MapDeltaView delta{alternative_a.delta_value()};
@@ -1379,7 +1379,7 @@ TEST_CASE("TSOutput TSD REF alternatives follow key removal and reinsertion", "[
     hgraph::test_detail::mark_output_view_modified(output.view(hgraph::test_detail::tick(212)), hgraph::test_detail::tick(212));
 
     const auto rebound_ref =
-        alternative.as_dict().at(key.view()).value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+        alternative.as_dict().at(key.view()).value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
     CHECK(rebound_ref.is_peered());
     CHECK(rebound_ref.target_view(hgraph::test_detail::tick(212)).value().as_atomic().as<int>() == 30);
 
@@ -1430,7 +1430,7 @@ TEST_CASE("TSOutput TSD REF alternatives do not double-notify the root for child
     CHECK_FALSE(source_delta.slot_updated(source_slot));
 
     const auto updated_ref =
-        alternative.as_dict().at(key.view()).value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+        alternative.as_dict().at(key.view()).value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
     CHECK(updated_ref.target_view(hgraph::test_detail::tick(221)).value().as_atomic().as<int>() == 15);
     CHECK(recorder.notifications == std::vector<hgraph::engine_time_t>{hgraph::test_detail::tick(221)});
 }
@@ -1462,8 +1462,8 @@ TEST_CASE("TSOutput can dereference direct TSD child REF values", "[ts_output][r
 
     {
         auto mutation = dict_output.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
-        mutation.setting(key_one.view(), hgraph::Value{hgraph::v2::TimeSeriesReference::make(first_value.view())}.view());
-        mutation.setting(key_two.view(), hgraph::Value{hgraph::v2::TimeSeriesReference::make(second_value.view())}.view());
+        mutation.setting(key_one.view(), hgraph::Value{hgraph::TimeSeriesReference::make(first_value.view())}.view());
+        mutation.setting(key_two.view(), hgraph::Value{hgraph::TimeSeriesReference::make(second_value.view())}.view());
     }
     hgraph::test_detail::mark_output_view_modified(dict_output.view(hgraph::test_detail::tick(225)), hgraph::test_detail::tick(225));
 
@@ -1478,7 +1478,7 @@ TEST_CASE("TSOutput can dereference direct TSD child REF values", "[ts_output][r
 
     {
         auto mutation = dict_output.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
-        mutation.setting(key_one.view(), hgraph::Value{hgraph::v2::TimeSeriesReference::make(rebound_value.view())}.view());
+        mutation.setting(key_one.view(), hgraph::Value{hgraph::TimeSeriesReference::make(rebound_value.view())}.view());
         mutation.removing(key_two.view());
     }
     hgraph::test_detail::mark_output_view_modified(dict_output.view(hgraph::test_detail::tick(226)), hgraph::test_detail::tick(226));
@@ -1526,22 +1526,22 @@ TEST_CASE("TSOutput dereferenced REF TSD roots can wrap child values as REF alte
     }
     hgraph::test_detail::mark_output_view_modified(second_dict.view(hgraph::test_detail::tick(231)), hgraph::test_detail::tick(231));
 
-    ref_output.atomic_value().set(hgraph::v2::TimeSeriesReference::make(first_dict.view()));
+    ref_output.atomic_value().set(hgraph::TimeSeriesReference::make(first_dict.view()));
     hgraph::test_detail::mark_output_view_modified(ref_output.view(hgraph::test_detail::tick(230)), hgraph::test_detail::tick(230));
 
     const auto alternative = ref_output.bindable_view(ref_output.view(hgraph::test_detail::tick(230)), ref_dict_ts);
     auto wrapped_dict = alternative.as_dict();
 
-    auto first_ref = wrapped_dict.at(key_one.view()).value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>();
+    auto first_ref = wrapped_dict.at(key_one.view()).value().as_atomic().checked_as<hgraph::TimeSeriesReference>();
     CHECK(first_ref.is_peered());
     CHECK(first_ref.target_view(hgraph::test_detail::tick(230)).value().as_atomic().as<int>() == 10);
-    CHECK(wrapped_dict.at(key_two.view()).value().as_atomic().checked_as<hgraph::v2::TimeSeriesReference>()
+    CHECK(wrapped_dict.at(key_two.view()).value().as_atomic().checked_as<hgraph::TimeSeriesReference>()
               .target_view(hgraph::test_detail::tick(230))
               .value()
               .as_atomic()
               .as<int>() == 20);
 
-    ref_output.atomic_value().set(hgraph::v2::TimeSeriesReference::make(second_dict.view()));
+    ref_output.atomic_value().set(hgraph::TimeSeriesReference::make(second_dict.view()));
     hgraph::test_detail::mark_output_view_modified(ref_output.view(hgraph::test_detail::tick(231)), hgraph::test_detail::tick(231));
 
     wrapped_dict = alternative.as_dict();
@@ -1550,7 +1550,7 @@ TEST_CASE("TSOutput dereferenced REF TSD roots can wrap child values as REF alte
     CHECK(wrapped_dict.at(key_one.view())
               .value()
               .as_atomic()
-              .checked_as<hgraph::v2::TimeSeriesReference>()
+              .checked_as<hgraph::TimeSeriesReference>()
               .target_view(hgraph::test_detail::tick(231))
               .value()
               .as_atomic()
@@ -1558,7 +1558,7 @@ TEST_CASE("TSOutput dereferenced REF TSD roots can wrap child values as REF alte
     CHECK(wrapped_dict.at(key_three.view())
               .value()
               .as_atomic()
-              .checked_as<hgraph::v2::TimeSeriesReference>()
+              .checked_as<hgraph::TimeSeriesReference>()
               .target_view(hgraph::test_detail::tick(231))
               .value()
               .as_atomic()
@@ -1606,18 +1606,18 @@ TEST_CASE("TSOutput dereferenced REF TSD roots can dereference child REF values"
 
     {
         auto mutation = first_dict.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
-        mutation.setting(key_one.view(), hgraph::Value{hgraph::v2::TimeSeriesReference::make(first_value.view())}.view());
-        mutation.setting(key_two.view(), hgraph::Value{hgraph::v2::TimeSeriesReference::make(second_value.view())}.view());
+        mutation.setting(key_one.view(), hgraph::Value{hgraph::TimeSeriesReference::make(first_value.view())}.view());
+        mutation.setting(key_two.view(), hgraph::Value{hgraph::TimeSeriesReference::make(second_value.view())}.view());
     }
     hgraph::test_detail::mark_output_view_modified(first_dict.view(hgraph::test_detail::tick(240)), hgraph::test_detail::tick(240));
 
     {
         auto mutation = second_dict.dict_value().begin_mutation(hgraph::test_detail::next_mutation_tick());
-        mutation.setting(key_one.view(), hgraph::Value{hgraph::v2::TimeSeriesReference::make(rebound_value.view())}.view());
+        mutation.setting(key_one.view(), hgraph::Value{hgraph::TimeSeriesReference::make(rebound_value.view())}.view());
     }
     hgraph::test_detail::mark_output_view_modified(second_dict.view(hgraph::test_detail::tick(241)), hgraph::test_detail::tick(241));
 
-    ref_output.atomic_value().set(hgraph::v2::TimeSeriesReference::make(first_dict.view()));
+    ref_output.atomic_value().set(hgraph::TimeSeriesReference::make(first_dict.view()));
     hgraph::test_detail::mark_output_view_modified(ref_output.view(hgraph::test_detail::tick(240)), hgraph::test_detail::tick(240));
 
     const auto alternative = ref_output.bindable_view(ref_output.view(hgraph::test_detail::tick(240)), dict_ts);
@@ -1625,7 +1625,7 @@ TEST_CASE("TSOutput dereferenced REF TSD roots can dereference child REF values"
     CHECK(dict_view.at(key_one.view()).value().as_atomic().as<int>() == 50);
     CHECK(dict_view.at(key_two.view()).value().as_atomic().as<int>() == 60);
 
-    ref_output.atomic_value().set(hgraph::v2::TimeSeriesReference::make(second_dict.view()));
+    ref_output.atomic_value().set(hgraph::TimeSeriesReference::make(second_dict.view()));
     hgraph::test_detail::mark_output_view_modified(ref_output.view(hgraph::test_detail::tick(241)), hgraph::test_detail::tick(241));
 
     dict_view = alternative.as_dict();
@@ -1660,8 +1660,8 @@ TEST_CASE("TSInput active dereferenced bundle child rehomes subscriptions when t
 
     {
         auto mutation = ref_output.bundle_value().begin_mutation();
-        mutation.setting_field("lhs", hgraph::Value{hgraph::v2::TimeSeriesReference::make(first_lhs.view())}.view());
-        mutation.setting_field("rhs", hgraph::Value{hgraph::v2::TimeSeriesReference::make(first_rhs.view())}.view());
+        mutation.setting_field("lhs", hgraph::Value{hgraph::TimeSeriesReference::make(first_lhs.view())}.view());
+        mutation.setting_field("rhs", hgraph::Value{hgraph::TimeSeriesReference::make(first_rhs.view())}.view());
     }
 
     input.view().as_bundle()[0].bind_output(ref_output.view());
@@ -1681,7 +1681,7 @@ TEST_CASE("TSInput active dereferenced bundle child rehomes subscriptions when t
 
     {
         auto mutation = ref_output.bundle_value().begin_mutation();
-        mutation.setting_field("lhs", hgraph::Value{hgraph::v2::TimeSeriesReference::make(rebound_lhs.view())}.view());
+        mutation.setting_field("lhs", hgraph::Value{hgraph::TimeSeriesReference::make(rebound_lhs.view())}.view());
     }
     hgraph::test_detail::mark_output_view_modified(ref_output.view().as_bundle()[0], hgraph::test_detail::tick(52));
     CHECK(recorder.notifications ==
@@ -1724,8 +1724,8 @@ TEST_CASE("TSInput active dereferenced list element rehomes subscriptions when t
 
     {
         auto mutation = ref_output.list_value().begin_mutation();
-        mutation.setting(0, hgraph::Value{hgraph::v2::TimeSeriesReference::make(first_zero.view())}.view());
-        mutation.setting(1, hgraph::Value{hgraph::v2::TimeSeriesReference::make(first_one.view())}.view());
+        mutation.setting(0, hgraph::Value{hgraph::TimeSeriesReference::make(first_zero.view())}.view());
+        mutation.setting(1, hgraph::Value{hgraph::TimeSeriesReference::make(first_one.view())}.view());
     }
 
     input.view().as_bundle()[0].bind_output(ref_output.view());
@@ -1745,7 +1745,7 @@ TEST_CASE("TSInput active dereferenced list element rehomes subscriptions when t
 
     {
         auto mutation = ref_output.list_value().begin_mutation();
-        mutation.setting(1, hgraph::Value{hgraph::v2::TimeSeriesReference::make(rebound_one.view())}.view());
+        mutation.setting(1, hgraph::Value{hgraph::TimeSeriesReference::make(rebound_one.view())}.view());
     }
     hgraph::test_detail::mark_output_view_modified(ref_output.view().as_list()[1], hgraph::test_detail::tick(62));
     CHECK(recorder.notifications ==

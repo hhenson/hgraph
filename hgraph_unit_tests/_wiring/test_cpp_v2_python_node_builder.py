@@ -12,7 +12,7 @@ from hgraph._runtime._traits import Traits
 from hgraph._types._recordable_state import RECORDABLE_STATE
 from hgraph._types._scalar_types import LOGGER, STATE, CompoundScalar
 from hgraph._types._tsb_type import TimeSeriesSchema
-from hgraph.nodes.v2 import const as v2_const
+from hgraph.nodes import const as v2_const
 from hgraph._wiring._graph_builder import wire_graph
 from hgraph._wiring._wiring_node_class import PythonWiringNodeClass
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
@@ -21,7 +21,7 @@ from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
 @contextmanager
 def use_v2_python_node_builder():
     previous_builder = PythonWiringNodeClass.BUILDER_CLASS
-    PythonWiringNodeClass.BUILDER_CLASS = _hgraph.v2.NodeBuilder
+    PythonWiringNodeClass.BUILDER_CLASS = _hgraph.NodeBuilder
     try:
         yield
     finally:
@@ -31,8 +31,8 @@ def use_v2_python_node_builder():
 def test_v2_python_compute_nodes_run_with_core_injectables():
     events = []
 
-    assert _hgraph.v2.NodeBuilder.NODE_SIGNATURE is _hgraph.v2.NodeSignature
-    assert _hgraph.v2.NodeBuilder.NODE_TYPE_ENUM is _hgraph.v2.NodeTypeEnum
+    assert _hgraph.NodeBuilder.NODE_SIGNATURE is _hgraph.NodeSignature
+    assert _hgraph.NodeBuilder.NODE_TYPE_ENUM is _hgraph.NodeTypeEnum
 
     @compute_node
     def py_counter(
@@ -74,15 +74,15 @@ def test_v2_python_compute_nodes_run_with_core_injectables():
     with use_v2_python_node_builder(), WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.v2.NodeBuilder)]
-    if isinstance(graph_builder, _hgraph.v2.GraphBuilder):
+    cpp_builders = [builder for builder in graph_builder.node_builders if isinstance(builder, _hgraph.NodeBuilder)]
+    if isinstance(graph_builder, _hgraph.GraphBuilder):
         assert tuple(builder.implementation_name for builder in cpp_builders) == ("const", "py_counter", "py_sink")
     else:
         assert tuple(builder.implementation_name for builder in cpp_builders) == ("py_counter", "py_sink")
     py_counter_builder = next(builder for builder in cpp_builders if builder.implementation_name == "py_counter")
-    assert py_counter_builder.signature.node_type is _hgraph.v2.NodeTypeEnum.COMPUTE_NODE
+    assert py_counter_builder.signature.node_type is _hgraph.NodeTypeEnum.COMPUTE_NODE
 
-    if not isinstance(graph_builder, _hgraph.v2.GraphBuilder):
+    if not isinstance(graph_builder, _hgraph.GraphBuilder):
         return
 
     with use_v2_python_node_builder():
@@ -122,7 +122,7 @@ def test_v2_python_nodes_can_self_notify_during_start_without_declaring_schedule
     with use_v2_python_node_builder(), WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    if not isinstance(graph_builder, _hgraph.v2.GraphBuilder):
+    if not isinstance(graph_builder, _hgraph.GraphBuilder):
         return
 
     config = GraphConfiguration(end_time=timedelta(milliseconds=1))
@@ -154,7 +154,7 @@ def test_v2_python_unset_output_value_is_none():
     with use_v2_python_node_builder(), WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    if not isinstance(graph_builder, _hgraph.v2.GraphBuilder):
+    if not isinstance(graph_builder, _hgraph.GraphBuilder):
         return
 
     with use_v2_python_node_builder():
@@ -188,7 +188,7 @@ def test_v2_python_recordable_state_is_available():
     with use_v2_python_node_builder(), WiringNodeInstanceContext():
         graph_builder = wire_graph(g)
 
-    if not isinstance(graph_builder, _hgraph.v2.GraphBuilder):
+    if not isinstance(graph_builder, _hgraph.GraphBuilder):
         return
 
     with use_v2_python_node_builder():

@@ -549,8 +549,8 @@ node_id: tuple[int, ...]
 
 The `v2` implementation must support this contract at the method level. Internal representation can differ for efficiency:
 
-1. `v2::Node` currently stores a flat `int64_t node_index` — this remains the local index within a single graph
-2. `v2::Graph` should store its `graph_id` (the `owning_graph_id` for its nodes)
+1. `Node` currently stores a flat `int64_t node_index` — this remains the local index within a single graph
+2. `Graph` should store its `graph_id` (the `owning_graph_id` for its nodes)
 3. `ChildGraphInstance` computes child `graph_id` as `parent_node.node_id`
 4. for keyed operators, the operator manages a key-to-integer mapping for path encoding
 

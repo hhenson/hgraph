@@ -96,7 +96,7 @@ The removed/live distinction comes from the `TSS` / map delta protocol, not from
 Suggested public shape:
 
 ```cpp
-namespace hgraph::v2
+namespace hgraph
 {
     template <typename T>
     class KeyedSlotStore
@@ -173,7 +173,7 @@ For `map_`, the slot payload should be the per-key nested runtime state.
 Suggested initial payload:
 
 ```cpp
-namespace hgraph::v2
+namespace hgraph
 {
     struct MapSlotValue
     {

@@ -16,16 +16,12 @@
 
 namespace hgraph
 {
-    namespace v2
-    {
-        struct Node;
-    }
-
     struct ActiveTrieNode;
 
     struct TSMeta;
     struct TSInput;
     struct TSOutput;
+    struct Node;
     struct TimeSeriesFeatureRegistry;
     struct TSState;
     struct TSLState;
@@ -80,7 +76,7 @@ namespace hgraph
      * root output endpoint.
      */
     using TimeSeriesStateParentPtr =
-        pointer_aligned_discriminated_ptr<TSLState, TSDState, TSBState, SignalState, v2::Node, TSInput, TSOutput>;
+        pointer_aligned_discriminated_ptr<TSLState, TSDState, TSBState, SignalState, Node, TSInput, TSOutput>;
 
     /**
      * Identifies the storage backend carried by a logical TS state node.
