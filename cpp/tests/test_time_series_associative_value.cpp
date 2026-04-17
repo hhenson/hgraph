@@ -2,6 +2,7 @@
 
 #include <hgraph/types/time_series/value/builder.h>
 #include <hgraph/types/time_series/value/value.h>
+#include <hgraph/util/stable_slot_storage.h>
 #include <hgraph/types/value/type_registry.h>
 
 #include <vector>
@@ -232,6 +233,28 @@ TEST_CASE("Delta map value slot payload addresses stay stable across reserve")
 
     CHECK(ExposedValueView{delta.value_at_slot(alpha_slot)}.data() == alpha_value_data);
     CHECK(delta.value_at_slot(alpha_slot).as_atomic().as<int32_t>() == 42);
+}
+
+TEST_CASE("StableSlotStorage preserves existing slot addresses across chained growth")
+{
+    hgraph::StableSlotStorage storage;
+
+    storage.reserve_to(2, sizeof(std::int64_t), alignof(std::int64_t));
+    REQUIRE(storage.slot_capacity() == 2);
+    REQUIRE(storage.slot_data(0) != nullptr);
+    REQUIRE(storage.slot_data(1) != nullptr);
+
+    void *slot0 = storage.slot_data(0);
+    void *slot1 = storage.slot_data(1);
+
+    storage.reserve_to(8, sizeof(std::int64_t), alignof(std::int64_t));
+    CHECK(storage.slot_capacity() == 8);
+    CHECK(storage.slot_data(0) == slot0);
+    CHECK(storage.slot_data(1) == slot1);
+
+    REQUIRE(storage.slot_data(7) != nullptr);
+    CHECK(storage.slot_data(7) != slot0);
+    CHECK(storage.slot_data(7) != slot1);
 }
 
 TEST_CASE("Associative view copy_from supports matching schemas across tracking layouts")

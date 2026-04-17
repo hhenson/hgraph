@@ -2,6 +2,7 @@
 #include <hgraph/types/time_series/value/associative.h>
 #include <hgraph/types/time_series/value/builder.h>
 #include <hgraph/types/time_series/value/value.h>
+#include <hgraph/util/stable_slot_storage.h>
 
 #include <ankerl/unordered_dense.h>
 #include <sul/dynamic_bitset.hpp>
@@ -25,52 +26,6 @@ namespace hgraph
         namespace
         {
             constexpr size_t no_slot = static_cast<size_t>(-1);
-
-            struct AlignedByteDeleter
-            {
-                size_t alignment{alignof(std::max_align_t)};
-
-                void operator()(std::byte *storage) const noexcept
-                {
-                    if (storage != nullptr) { ::operator delete(storage, std::align_val_t{alignment}); }
-                }
-            };
-
-            struct StableValueBlock
-            {
-                using Storage = std::unique_ptr<std::byte, AlignedByteDeleter>;
-
-                Storage storage{};
-                size_t  first_slot{0};
-                size_t  slot_count{0};
-
-                [[nodiscard]] static StableValueBlock allocate(size_t first_slot,
-                                                               size_t slot_count,
-                                                               size_t stride,
-                                                               size_t alignment)
-                {
-                    StableValueBlock block;
-                    block.first_slot = first_slot;
-                    block.slot_count = slot_count;
-                    if (slot_count == 0) { return block; }
-                    block.storage = Storage(static_cast<std::byte *>(
-                                                ::operator new(slot_count * stride, std::align_val_t{alignment})),
-                                            AlignedByteDeleter{alignment});
-                    return block;
-                }
-
-                [[nodiscard]] std::byte *slot_data(size_t slot, size_t stride) const noexcept
-                {
-                    if (!storage || slot < first_slot || slot >= first_slot + slot_count) { return nullptr; }
-                    return storage.get() + (slot - first_slot) * stride;
-                }
-            };
-
-            struct StableValueStorage
-            {
-                std::vector<std::byte *> slots{};
-                std::vector<StableValueBlock> blocks{};
-            };
 
             template <typename TBitset>
             [[nodiscard]] size_t first_set_slot(const TBitset &bitset) noexcept
@@ -296,7 +251,7 @@ namespace hgraph
              * the per-slot payload pointer in `slots`, so existing slot
              * payload addresses remain stable across reserve/growth.
              */
-            StableValueStorage values{};
+            StableSlotStorage values{};
             /**
              * Slots whose values were updated in the current mutation epoch
              * without the key being newly added in that same epoch.
@@ -2001,19 +1956,9 @@ namespace hgraph
             {
                 if (min_capacity <= map.keys.capacity) { return; }
 
-                std::vector<std::byte *> new_slots = map.values.slots;
                 const size_t new_capacity = min_capacity;
                 const size_t old_capacity = map.keys.capacity;
-                new_slots.resize(new_capacity, nullptr);
-                map.values.blocks.reserve(map.values.blocks.size() + 1);
-                StableValueBlock new_block =
-                    StableValueBlock::allocate(old_capacity,
-                                               new_capacity - old_capacity,
-                                               m_value_stride,
-                                               m_value_builder.get().alignment());
-                for (size_t slot = old_capacity; slot < new_capacity; ++slot) {
-                    new_slots[slot] = new_block.slot_data(slot, m_value_stride);
-                }
+                static_cast<void>(old_capacity);
 
                 try {
                     m_keys.reserve_exact(map.keys, new_capacity);
@@ -2021,8 +1966,7 @@ namespace hgraph
                     throw;
                 }
 
-                map.values.slots = std::move(new_slots);
-                if (new_block.slot_count != 0) { map.values.blocks.push_back(std::move(new_block)); }
+                map.values.reserve_to(new_capacity, m_value_stride, m_value_builder.get().alignment());
                 map.updated.resize(new_capacity);
             }
 
@@ -2128,14 +2072,7 @@ namespace hgraph
             void reserve_value_storage(DeltaMapState &map, size_t capacity) const
             {
                 if (capacity == 0) { return; }
-                map.values.slots.resize(capacity, nullptr);
-                map.values.blocks.reserve(map.values.blocks.size() + 1);
-                StableValueBlock block =
-                    StableValueBlock::allocate(0, capacity, m_value_stride, m_value_builder.get().alignment());
-                for (size_t slot = 0; slot < capacity; ++slot) {
-                    map.values.slots[slot] = block.slot_data(slot, m_value_stride);
-                }
-                map.values.blocks.push_back(std::move(block));
+                map.values.reserve_to(capacity, m_value_stride, m_value_builder.get().alignment());
             }
 
             [[nodiscard]] void *value_memory(PlainMapState &map, size_t slot) const noexcept
