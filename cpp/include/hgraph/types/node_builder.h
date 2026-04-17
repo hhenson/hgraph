@@ -75,6 +75,8 @@ namespace hgraph
         [[nodiscard]] const std::vector<size_t> &valid_inputs() const noexcept { return m_valid_inputs; }
         [[nodiscard]] const std::vector<size_t> &all_valid_inputs() const noexcept { return m_all_valid_inputs; }
         [[nodiscard]] bool has_explicit_active_inputs() const noexcept { return m_has_explicit_active_inputs; }
+        [[nodiscard]] bool has_explicit_valid_inputs() const noexcept { return m_has_explicit_valid_inputs; }
+        [[nodiscard]] bool has_explicit_all_valid_inputs() const noexcept { return m_has_explicit_all_valid_inputs; }
 
         NodeBuilder &python_signature(nb::object value);
         NodeBuilder &python_scalars(nb::dict value);

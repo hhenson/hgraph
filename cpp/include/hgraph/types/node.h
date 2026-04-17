@@ -89,6 +89,8 @@ namespace hgraph
         const TSMeta    *error_output_schema{nullptr};
         const TSMeta    *recordable_state_schema{nullptr};
         bool             has_explicit_active_inputs{false};
+        bool             has_explicit_valid_inputs{false};
+        bool             has_explicit_all_valid_inputs{false};
 
         std::span<const size_t> active_inputs{};
         std::span<const size_t> valid_inputs{};

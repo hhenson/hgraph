@@ -871,6 +871,8 @@ namespace hgraph
                 builder.error_output_schema(),
                 builder.recordable_state_schema(),
                 builder.has_explicit_active_inputs(),
+                builder.has_explicit_valid_inputs(),
+                builder.has_explicit_all_valid_inputs(),
                 materialized_active_inputs,
                 materialized_valid_inputs,
                 materialized_all_valid_inputs,

@@ -347,9 +347,21 @@ namespace hgraph
     bool Node::ready_to_eval(engine_time_t evaluation_time) {
         if (!has_input()) { return true; }
 
-        // The selector metadata currently addresses top-level TSB slots only.
-        for (const size_t slot : spec().valid_inputs) {
-            if (!resolve_input_slot(slot, evaluation_time).valid()) { return false; }
+        // Match Python runtime semantics: without an explicit valid selector,
+        // every time-series input must be valid before eval runs.
+        if (spec().has_explicit_valid_inputs) {
+            for (const size_t slot : spec().valid_inputs) {
+                if (!resolve_input_slot(slot, evaluation_time).valid()) { return false; }
+            }
+        } else {
+            const TSMeta *schema = spec().input_schema;
+            if (schema != nullptr && schema->kind == TSKind::TSB) {
+                for (size_t slot = 0; slot < schema->field_count(); ++slot) {
+                    if (!resolve_input_slot(slot, evaluation_time).valid()) { return false; }
+                }
+            } else if (!input_view(evaluation_time).valid()) {
+                return false;
+            }
         }
 
         for (const size_t slot : spec().all_valid_inputs) {
