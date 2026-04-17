@@ -127,7 +127,7 @@ namespace hgraph::v2
                 m_has_recordable_state = true;
                 m_recordable_state_schema = signature::recordable_state_schema();
             }
-            m_uses_scheduler = signature::has_scheduler();
+            if (!m_has_explicit_scheduler) { m_uses_scheduler = signature::has_scheduler(); }
 
             if (m_input_schema != nullptr && m_input_schema->kind == TSKind::TSB) {
                 if (!m_has_explicit_active_inputs && m_active_inputs.empty()) {
@@ -249,6 +249,7 @@ namespace hgraph::v2
         bool m_has_recordable_state{false};
         const TSMeta *m_recordable_state_schema{nullptr};
         bool m_uses_scheduler{false};
+        bool m_has_explicit_scheduler{false};
         std::vector<size_t> m_active_inputs;
         std::vector<size_t> m_valid_inputs;
         std::vector<size_t> m_all_valid_inputs;

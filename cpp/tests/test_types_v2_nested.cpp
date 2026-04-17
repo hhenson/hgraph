@@ -1,6 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
 
-#include <hgraph/types/error_type.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/v2/child_graph.h>
 #include <hgraph/types/v2/graph_builder.h>
@@ -8,8 +7,10 @@
 #include <hgraph/types/v2/nested_node_builder.h>
 #include <hgraph/types/v2/ref.h>
 #include <hgraph/types/value/type_registry.h>
+#include <nanobind/nanobind.h>
 
 #include <chrono>
+#include <filesystem>
 
 namespace hgraph::v2::nested_test
 {
@@ -74,6 +75,57 @@ namespace hgraph::v2::nested_test
             out.set(100 / divisor);
         }
     };
+
+    void ensure_python_hgraph_importable()
+    {
+        setenv("HGRAPH_USE_CPP", "0", 1);
+
+        if (!Py_IsInitialized()) {
+            PyConfig config;
+            PyConfig_InitPythonConfig(&config);
+
+            const auto throw_if_status_error = [&](PyStatus status, const char *action) {
+                if (!PyStatus_Exception(status)) { return; }
+
+                std::string message = action;
+                if (status.err_msg != nullptr) {
+                    message += ": ";
+                    message += status.err_msg;
+                }
+                PyConfig_Clear(&config);
+                throw std::runtime_error(message);
+            };
+
+#ifdef HGRAPH_TEST_PYTHON_EXECUTABLE
+            throw_if_status_error(
+                PyConfig_SetBytesString(&config, &config.program_name, HGRAPH_TEST_PYTHON_EXECUTABLE),
+                "failed to configure Python executable");
+
+            const auto python_home = std::filesystem::path{HGRAPH_TEST_PYTHON_HOME}.string();
+            throw_if_status_error(
+                PyConfig_SetBytesString(&config, &config.home, python_home.c_str()),
+                "failed to configure Python home");
+#endif
+
+            const PyStatus status = Py_InitializeFromConfig(&config);
+            if (PyStatus_Exception(status)) {
+                std::string message = "failed to initialise Python";
+                if (status.err_msg != nullptr) {
+                    message += ": ";
+                    message += status.err_msg;
+                }
+                PyConfig_Clear(&config);
+                throw std::runtime_error(message);
+            }
+
+            PyConfig_Clear(&config);
+        }
+
+        nb::gil_scoped_acquire guard;
+        nb::module_ sys = nb::module_::import_("sys");
+        nb::list path = nb::borrow<nb::list>(sys.attr("path"));
+        path.insert(0, "/Users/hhenson/CLionProjects/hgraph_2");
+    }
 
 }  // namespace hgraph::v2::nested_test
 
@@ -1021,11 +1073,12 @@ TEST_CASE("try_except forwards child output to .out field on success", "[v2][nes
     using namespace hgraph::v2;
     using namespace hgraph::v2::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
+    ensure_python_hgraph_importable();
 
     auto       &value_registry  = hgraph::value::TypeRegistry::instance();
     auto       &ts_registry     = hgraph::TSTypeRegistry::instance();
     const auto *int_type        = value_registry.register_type<int>("int");
-    const auto *node_error_type = value_registry.register_type<hgraph::NodeError>("NodeError");
+    const auto *node_error_type = value_registry.register_type<nanobind::object>("NodeError");
     const auto *scalar_ts       = ts_registry.ts(int_type);
     const auto *node_error_ts   = ts_registry.ts(node_error_type);
 
@@ -1083,11 +1136,12 @@ TEST_CASE("try_except catches exception, stops child, and subsequent evals are n
     using namespace hgraph::v2;
     using namespace hgraph::v2::nested_test;
     ChildTemplateRegistryResetGuard registry_guard;
+    ensure_python_hgraph_importable();
 
     auto       &value_registry      = hgraph::value::TypeRegistry::instance();
     auto       &ts_registry         = hgraph::TSTypeRegistry::instance();
     const auto *int_type            = value_registry.register_type<int>("int");
-    const auto *node_error_type     = value_registry.register_type<hgraph::NodeError>("NodeError");
+    const auto *node_error_type     = value_registry.register_type<nanobind::object>("NodeError");
     const auto *scalar_ts           = ts_registry.ts(int_type);
     const auto *node_error_ts       = ts_registry.ts(node_error_type);
     const auto *output_schema       = ts_registry.tsb({{"exception", node_error_ts}, {"out", scalar_ts}}, "TryExceptResult2");

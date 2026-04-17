@@ -48,6 +48,8 @@ namespace hgraph::v2
 
         [[nodiscard]] LinkedTSContext linked_context_from_input(const TSInputView &input) noexcept
         {
+            if (const LinkedTSContext *target = input.linked_target(); target != nullptr && target->is_bound()) { return *target; }
+
             const TSViewContext &context  = input.context_ref();
             const TSViewContext  resolved = context.resolved();
             return LinkedTSContext{
@@ -211,7 +213,11 @@ namespace hgraph::v2
                     }
 
                 case TSKind::TSB:
-                    if (target != nullptr && target->is_bound()) { return TimeSeriesReference(linked_context_from_input(input)); }
+                    if (target != nullptr && target->is_bound()) {
+                        TimeSeriesReference ref{linked_context_from_input(input)};
+                        ref.m_observed_time = input.last_modified_time();
+                        return ref;
+                    }
                     {
                         std::vector<TimeSeriesReference> refs;
                         auto bundle = input.as_bundle();
@@ -224,7 +230,11 @@ namespace hgraph::v2
                     }
 
                 case TSKind::TSL:
-                    if (target != nullptr && target->is_bound()) { return TimeSeriesReference(linked_context_from_input(input)); }
+                    if (target != nullptr && target->is_bound()) {
+                        TimeSeriesReference ref{linked_context_from_input(input)};
+                        ref.m_observed_time = input.last_modified_time();
+                        return ref;
+                    }
                     {
                         std::vector<TimeSeriesReference> refs;
                         auto list = input.as_list();

@@ -107,14 +107,17 @@ target_link_libraries(hgraph_visitor_tests PRIVATE
 # Set C++ standard
 target_compile_features(hgraph_visitor_tests PRIVATE cxx_std_23)
 
-add_executable(hgraph_time_series_value_tests
-    test_active_trie.cpp
-    test_time_series_associative_value.cpp
-    test_time_series_atomic_value.cpp
-    test_time_series_list_value.cpp
-    test_time_series_record_value.cpp
-    test_time_series_sequence_value.cpp
-    test_time_series_ts_value.cpp
+set(HGRAPH_TEST_CORE_RUNTIME_SOURCES
+    ../src/cpp/types/constants.cpp
+    ../src/cpp/types/traits.cpp
+    ../src/cpp/types/value/type_meta_bindings.cpp
+    ../src/cpp/types/value/type_registry.cpp
+    ../src/cpp/util/lifecycle.cpp
+    ../src/cpp/util/stack_trace.cpp
+    ../src/cpp/util/string_util.cpp
+)
+
+set(HGRAPH_TEST_TIME_SERIES_SOURCES
     ../src/cpp/types/time_series/value/atomic.cpp
     ../src/cpp/types/time_series/value/associative.cpp
     ../src/cpp/types/time_series/value/list.cpp
@@ -132,9 +135,32 @@ add_executable(hgraph_time_series_value_tests
     ../src/cpp/types/time_series/time_series_state.cpp
     ../src/cpp/types/time_series/active_trie.cpp
     ../src/cpp/types/time_series/ts_type_registry.cpp
+)
+
+set(HGRAPH_TEST_V2_RUNTIME_SOURCES
+    ../src/cpp/types/v2/boundary_binding.cpp
+    ../src/cpp/types/v2/child_graph.cpp
+    ../src/cpp/types/v2/evaluation_engine.cpp
+    ../src/cpp/types/v2/graph.cpp
+    ../src/cpp/types/v2/graph_builder.cpp
+    ../src/cpp/types/v2/nested_clock.cpp
+    ../src/cpp/types/v2/node.cpp
+    ../src/cpp/types/v2/node_builder.cpp
+    ../src/cpp/types/v2/python_node_support.cpp
     ../src/cpp/types/v2/ref.cpp
-    ../src/cpp/types/value/type_meta_bindings.cpp
-    ../src/cpp/types/value/type_registry.cpp
+)
+
+add_executable(hgraph_time_series_value_tests
+    test_active_trie.cpp
+    test_time_series_associative_value.cpp
+    test_time_series_atomic_value.cpp
+    test_time_series_list_value.cpp
+    test_time_series_record_value.cpp
+    test_time_series_sequence_value.cpp
+    test_time_series_ts_value.cpp
+    ${HGRAPH_TEST_CORE_RUNTIME_SOURCES}
+    ${HGRAPH_TEST_TIME_SERIES_SOURCES}
+    ${HGRAPH_TEST_V2_RUNTIME_SOURCES}
 )
 
 
@@ -211,38 +237,9 @@ target_compile_features(hgraph_time_series_value_tests PRIVATE cxx_std_23)
 add_executable(hgraph_v2_tests
     test_types_v2_graph.cpp
     test_types_v2_nested.cpp
-    ../src/cpp/builders/builder.cpp
-    ../src/cpp/types/v2/boundary_binding.cpp
-    ../src/cpp/types/v2/child_graph.cpp
-    ../src/cpp/types/v2/evaluation_engine.cpp
-    ../src/cpp/types/v2/nested_clock.cpp
-    ../src/cpp/types/v2/node.cpp
-    ../src/cpp/types/v2/node_builder.cpp
-    ../src/cpp/types/v2/graph.cpp
-    ../src/cpp/types/v2/graph_builder.cpp
-    ../src/cpp/types/v2/python_node_support.cpp
-    ../src/cpp/types/v2/ref.cpp
-    ../src/cpp/types/ref_value.cpp
-    ../src/cpp/types/time_series/value/atomic.cpp
-    ../src/cpp/types/time_series/value/associative.cpp
-    ../src/cpp/types/time_series/value/list.cpp
-    ../src/cpp/types/time_series/value/record.cpp
-    ../src/cpp/types/time_series/value/sequence.cpp
-    ../src/cpp/types/time_series/value/builder.cpp
-    ../src/cpp/types/time_series/value/value.cpp
-    ../src/cpp/types/time_series/ts_value_builder.cpp
-    ../src/cpp/types/time_series/ts_value.cpp
-    ../src/cpp/types/time_series/ts_input_builder.cpp
-    ../src/cpp/types/time_series/ts_input.cpp
-    ../src/cpp/types/time_series/ts_input_view.cpp
-    ../src/cpp/types/time_series/ts_output.cpp
-    ../src/cpp/types/time_series/ts_output_builder.cpp
-    ../src/cpp/types/time_series/time_series_state.cpp
-    ../src/cpp/types/time_series/active_trie.cpp
-    ../src/cpp/types/time_series/ts_type_registry.cpp
-    ../src/cpp/types/traits.cpp
-    ../src/cpp/types/value/type_meta_bindings.cpp
-    ../src/cpp/types/value/type_registry.cpp
+    ${HGRAPH_TEST_CORE_RUNTIME_SOURCES}
+    ${HGRAPH_TEST_TIME_SERIES_SOURCES}
+    ${HGRAPH_TEST_V2_RUNTIME_SOURCES}
 )
 
 target_include_directories(hgraph_v2_tests PRIVATE

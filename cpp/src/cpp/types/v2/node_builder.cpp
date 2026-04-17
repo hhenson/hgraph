@@ -1205,6 +1205,12 @@ namespace hgraph::v2
             if (node.has_error_output()) { node.error_output_view(evaluation_time).from_python(py_error); }
         }
 
+        void stop_try_except_child_after_error(Node &node, engine_time_t evaluation_time) noexcept {
+            try {
+                try_except_node_stop(node, evaluation_time);
+            } catch (...) {}
+        }
+
         void nested_node_eval(Node &node, engine_time_t evaluation_time) {
             auto &runtime = nested_runtime(node);
             if (!runtime.child_instance.is_started()) { return; }
@@ -1227,21 +1233,15 @@ namespace hgraph::v2
             try {
                 runtime.child_instance.evaluate(evaluation_time);
             } catch (const NodeException &e) {
-                try {
-                    runtime.child_instance.stop(evaluation_time);
-                } catch (...) {}
+                stop_try_except_child_after_error(node, evaluation_time);
                 publish_try_except_error(node, evaluation_time, e.error());
                 return;
             } catch (const std::exception &e) {
-                try {
-                    runtime.child_instance.stop(evaluation_time);
-                } catch (...) {}
+                stop_try_except_child_after_error(node, evaluation_time);
                 publish_try_except_error(node, evaluation_time, fallback_try_except_error(node, e.what()));
                 return;
             } catch (...) {
-                try {
-                    runtime.child_instance.stop(evaluation_time);
-                } catch (...) {}
+                stop_try_except_child_after_error(node, evaluation_time);
                 publish_try_except_error(node, evaluation_time,
                                          fallback_try_except_error(node, "Unknown non-standard exception during node evaluation"));
                 return;
@@ -1390,7 +1390,8 @@ namespace hgraph::v2
           m_input_schema(other.m_input_schema), m_output_schema(other.m_output_schema),
           m_error_output_schema(other.m_error_output_schema), m_has_state(other.m_has_state), m_state_schema(other.m_state_schema),
           m_has_recordable_state(other.m_has_recordable_state), m_recordable_state_schema(other.m_recordable_state_schema),
-          m_uses_scheduler(other.m_uses_scheduler), m_active_inputs(other.m_active_inputs), m_valid_inputs(other.m_valid_inputs),
+          m_uses_scheduler(other.m_uses_scheduler), m_has_explicit_scheduler(other.m_has_explicit_scheduler),
+          m_active_inputs(other.m_active_inputs), m_valid_inputs(other.m_valid_inputs),
           m_all_valid_inputs(other.m_all_valid_inputs), m_has_explicit_active_inputs(other.m_has_explicit_active_inputs),
           m_has_explicit_valid_inputs(other.m_has_explicit_valid_inputs),
           m_has_explicit_all_valid_inputs(other.m_has_explicit_all_valid_inputs), m_python_signature(other.m_python_signature),
@@ -1409,7 +1410,8 @@ namespace hgraph::v2
           m_output_schema(other.m_output_schema), m_error_output_schema(other.m_error_output_schema),
           m_has_state(other.m_has_state), m_state_schema(other.m_state_schema),
           m_has_recordable_state(other.m_has_recordable_state), m_recordable_state_schema(other.m_recordable_state_schema),
-          m_uses_scheduler(other.m_uses_scheduler), m_active_inputs(std::move(other.m_active_inputs)),
+          m_uses_scheduler(other.m_uses_scheduler), m_has_explicit_scheduler(other.m_has_explicit_scheduler),
+          m_active_inputs(std::move(other.m_active_inputs)),
           m_valid_inputs(std::move(other.m_valid_inputs)), m_all_valid_inputs(std::move(other.m_all_valid_inputs)),
           m_has_explicit_active_inputs(other.m_has_explicit_active_inputs),
           m_has_explicit_valid_inputs(other.m_has_explicit_valid_inputs),
@@ -1442,6 +1444,7 @@ namespace hgraph::v2
         m_has_recordable_state            = other.m_has_recordable_state;
         m_recordable_state_schema         = other.m_recordable_state_schema;
         m_uses_scheduler                  = other.m_uses_scheduler;
+        m_has_explicit_scheduler          = other.m_has_explicit_scheduler;
         m_active_inputs                   = other.m_active_inputs;
         m_valid_inputs                    = other.m_valid_inputs;
         m_all_valid_inputs                = other.m_all_valid_inputs;
@@ -1480,6 +1483,7 @@ namespace hgraph::v2
         m_has_recordable_state            = other.m_has_recordable_state;
         m_recordable_state_schema         = other.m_recordable_state_schema;
         m_uses_scheduler                  = other.m_uses_scheduler;
+        m_has_explicit_scheduler          = other.m_has_explicit_scheduler;
         m_active_inputs                   = std::move(other.m_active_inputs);
         m_valid_inputs                    = std::move(other.m_valid_inputs);
         m_all_valid_inputs                = std::move(other.m_all_valid_inputs);
@@ -1537,6 +1541,7 @@ namespace hgraph::v2
         builder.m_type_ops       = &nested_ops;
         builder.m_type_state     = make_builder_state(NestedNodeBuilderState{child_template});
         builder.m_uses_scheduler = true;
+        builder.m_has_explicit_scheduler = true;
         return builder;
     }
 
@@ -1557,6 +1562,7 @@ namespace hgraph::v2
         builder.m_type_ops       = &try_except_ops;
         builder.m_type_state     = make_builder_state(NestedNodeBuilderState{child_template});
         builder.m_uses_scheduler = true;
+        builder.m_has_explicit_scheduler = true;
         return builder;
     }
 
@@ -1709,6 +1715,7 @@ namespace hgraph::v2
 
     NodeBuilder &NodeBuilder::uses_scheduler(bool value) noexcept {
         m_uses_scheduler = value;
+        m_has_explicit_scheduler = true;
         return *this;
     }
 
