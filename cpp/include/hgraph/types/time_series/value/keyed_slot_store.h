@@ -8,6 +8,9 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <memory>
+#include <new>
+#include <utility>
 #include <vector>
 
 namespace hgraph::detail
@@ -112,6 +115,55 @@ namespace hgraph::detail
             for (auto *observer : observers) {
                 if (observer != nullptr) { observer->on_clear(); }
             }
+        }
+    };
+
+    /**
+     * Typed payload layer over KeyedSlotStore.
+     *
+     * Stable slot ids still come from the owning keyed runtime. This helper
+     * only manages which of those slots currently hold a constructed payload
+     * of type @p T together with typed emplacement / destruction.
+     */
+    template <typename T> struct KeyedPayloadStore
+    {
+        KeyedSlotStore        storage{};
+        sul::dynamic_bitset<> constructed{};
+
+        void reserve_to(size_t capacity)
+        {
+            storage.reserve_to(capacity, sizeof(T), alignof(T));
+            constructed.resize(capacity);
+        }
+
+        [[nodiscard]] bool has_slot(size_t slot) const noexcept
+        {
+            return slot < constructed.size() && constructed.test(slot);
+        }
+
+        [[nodiscard]] T *try_slot(size_t slot) noexcept
+        {
+            return has_slot(slot) ? std::launder(reinterpret_cast<T *>(storage.value_memory(slot))) : nullptr;
+        }
+
+        [[nodiscard]] const T *try_slot(size_t slot) const noexcept
+        {
+            return has_slot(slot) ? std::launder(reinterpret_cast<const T *>(storage.value_memory(slot))) : nullptr;
+        }
+
+        template <typename... Args> T &emplace_at(size_t slot, Args &&...args)
+        {
+            T *value = std::launder(reinterpret_cast<T *>(storage.value_memory(slot)));
+            new (value) T(std::forward<Args>(args)...);
+            constructed.set(slot);
+            return *value;
+        }
+
+        void destroy_at(size_t slot) noexcept
+        {
+            if (!has_slot(slot)) { return; }
+            std::destroy_at(std::launder(reinterpret_cast<T *>(storage.value_memory(slot))));
+            constructed.reset(slot);
         }
     };
 }  // namespace hgraph::detail

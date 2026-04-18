@@ -193,6 +193,7 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT const TSInputViewOps &default_input_view_ops() noexcept;
         [[nodiscard]] HGRAPH_EXPORT const TSOutputViewOps &default_output_view_ops() noexcept;
         [[nodiscard]] HGRAPH_EXPORT TSOutputView make_missing_dict_child_output_view(const TSOutputView &view, const View &key);
+        [[nodiscard]] HGRAPH_EXPORT TSOutputView ensure_dict_child_output_view(const TSOutputView &view, const View &key);
         [[nodiscard]] HGRAPH_EXPORT nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time);
         [[nodiscard]] HGRAPH_EXPORT nb::object delta_to_python(const TSViewContext &context,
                                                                engine_time_t evaluation_time);
@@ -277,6 +278,7 @@ namespace hgraph
                 resolved_context.value_dispatch = target_context.value_dispatch;
                 resolved_context.ts_dispatch = target_context.ts_dispatch;
                 resolved_context.value_data = target_context.value_data;
+                resolved_context.ts_state = target_context.ts_state;
                 resolved_context.owning_output = target.owning_output != nullptr ? target.owning_output : resolved_context.owning_output;
                 resolved_context.output_view_ops = target.output_view_ops != nullptr ? target.output_view_ops : resolved_context.output_view_ops;
                 resolved_context.notification_state =
@@ -944,7 +946,7 @@ namespace hgraph
 
         const TSViewContext child = key_dispatch->child_key(this->view_ref().context_ref(), key);
         if constexpr (std::same_as<TView, TSOutputView>) {
-            if (!child.is_bound()) { return detail::make_missing_dict_child_output_view(this->view_ref(), key); }
+            if (!child.is_bound()) { return detail::ensure_dict_child_output_view(this->view_ref(), key); }
         }
         return this->view_ref().make_child_view(child);
     }

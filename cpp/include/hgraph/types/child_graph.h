@@ -112,7 +112,11 @@ namespace hgraph
          * @param parent_node  The parent node that owns this instance
          * @param graph_id     The owning_graph_id for child graph nodes
          *                     (= parent_node.node_id for simple nesting,
-         *                      includes key encoding for keyed operators)
+         *                      includes key encoding for keyed operators).
+         *                     Keyed operators currently append negative
+         *                     monotonic child-instance ids so keyed path
+         *                     segments remain distinguishable from ordinary
+         *                     non-negative node ids in the owning graph path.
          * @param label        Instance label (empty = use template default)
          */
         void initialise(const ChildGraphTemplate &tmpl,

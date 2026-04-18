@@ -1,4 +1,6 @@
 #include <hgraph/types/time_series/ts_output_builder.h>
+#include <hgraph/types/time_series/value/keyed_slot_store.h>
+#include <hgraph/types/time_series/value/value.h>
 #include <hgraph/types/boundary_binding.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/nested_node_builder.h>
@@ -14,7 +16,11 @@
 #include <cstring>
 #include <fmt/format.h>
 #include <new>
+#include <optional>
 #include <stdexcept>
+#include <unordered_set>
+
+#include <sul/dynamic_bitset.hpp>
 
 namespace hgraph
 {
@@ -29,20 +35,108 @@ namespace hgraph
         };
 
         [[nodiscard]] TSOutputView bound_output_of(TSInputView view) noexcept {
-            const TSViewContext &context = view.context_ref();
-            BaseState           *state   = context.ts_state;
-            if (state == nullptr || state->storage_kind != TSStorageKind::TargetLink) { return TSOutputView{}; }
-
-            const auto &link_state = *static_cast<const TargetLinkState *>(state);
-            if (!link_state.is_bound()) { return TSOutputView{}; }
+            const TSViewContext source_context = view.context_ref().resolved();
+            if (source_context.schema == nullptr || source_context.value_dispatch == nullptr || source_context.ts_dispatch == nullptr ||
+                source_context.ts_state == nullptr || source_context.owning_output == nullptr) {
+                return TSOutputView{};
+            }
 
             return TSOutputView{
-                TSViewContext{link_state.target},
+                TSViewContext{TSContext{
+                    source_context.schema,
+                    source_context.value_dispatch,
+                    source_context.ts_dispatch,
+                    source_context.value_data,
+                    source_context.ts_state,
+                    source_context.owning_output,
+                    source_context.output_view_ops,
+                    source_context.notification_state != nullptr ? source_context.notification_state : source_context.ts_state,
+                }},
                 TSViewContext::none(),
                 view.evaluation_time(),
-                link_state.target.owning_output,
-                link_state.target.output_view_ops,
+                source_context.owning_output,
+                source_context.output_view_ops != nullptr ? source_context.output_view_ops : &hgraph::detail::default_output_view_ops(),
             };
+        }
+
+        [[nodiscard]] const TSMeta *unwrap_navigation_schema(const TSMeta *schema);
+
+        [[nodiscard]] TSInputView resolve_parent_input_arg(Node &parent, std::string_view arg_name, engine_time_t evaluation_time)
+        {
+            return parent.input_view(evaluation_time).as_bundle().field(arg_name);
+        }
+
+        [[nodiscard]] TSInputView navigate_input(TSInputView view, PathView path)
+        {
+            const TSMeta *schema = view.ts_schema();
+            for (const int64_t slot : path) {
+                const TSMeta *collection_schema = unwrap_navigation_schema(schema);
+                if (collection_schema == nullptr) { throw std::invalid_argument("nested input navigation requires a schema"); }
+
+                if (slot == k_key_set_path) {
+                    if (collection_schema->kind != TSKind::TSD) {
+                        throw std::logic_error("nested input key_set navigation requires a dict schema");
+                    }
+                    view = view.as_dict().key_set().view();
+                    schema = view.ts_schema();
+                    continue;
+                }
+
+                switch (collection_schema->kind) {
+                    case TSKind::TSB: view = view.as_bundle()[static_cast<size_t>(slot)]; break;
+                    case TSKind::TSL: view = view.as_list()[static_cast<size_t>(slot)]; break;
+                    default: throw std::invalid_argument("nested input navigation only supports TSB/TSL/key_set");
+                }
+                schema = view.ts_schema();
+            }
+            return view;
+        }
+
+        [[nodiscard]] TSInputView select_multiplexed_parent_input(TSInputView parent_field, const value::View &key)
+        {
+            const TSMeta *schema = unwrap_navigation_schema(parent_field.ts_schema());
+            if (schema == nullptr) {
+                throw std::logic_error("keyed nested binding requires a collection schema");
+            }
+
+            switch (schema->kind) {
+                case TSKind::TSD: return parent_field.as_dict()[key];
+                case TSKind::TSL: return parent_field.as_list()[static_cast<size_t>(key.as_atomic().as<int>())];
+                default: throw std::logic_error("keyed nested binding only supports TSD and TSL parent inputs");
+            }
+        }
+
+        [[nodiscard]] bool is_live_dict_key(const TSOutputView &view, const value::View &key)
+        {
+            const auto map = view.value().as_map();
+            if (key.schema() != map.key_schema()) { return false; }
+
+            const size_t slot = map.find_slot(key);
+            if (slot == static_cast<size_t>(-1)) { return false; }
+
+            const auto delta = map.delta();
+            return slot < delta.slot_capacity() && delta.slot_occupied(slot) && !delta.slot_removed(slot);
+        }
+
+        [[nodiscard]] TSOutputView ensure_mapped_output_child(const TSOutputView &parent_output,
+                                                              const value::View  &key,
+                                                              engine_time_t       evaluation_time)
+        {
+            if (is_live_dict_key(parent_output, key)) { return parent_output.as_dict().at(key); }
+
+            const TSMeta *schema = parent_output.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSD || schema->element_ts() == nullptr ||
+                schema->element_ts()->value_type == nullptr) {
+                throw std::logic_error("mapped nested output requires a TSD output schema");
+            }
+
+            Value blank_value(*schema->element_ts()->value_type, MutationTracking::Plain);
+            blank_value.reset();
+            {
+                auto mutation = parent_output.value().as_map().begin_mutation(evaluation_time);
+                mutation.set(key, blank_value.view());
+            }
+            return parent_output.as_dict().at(key);
         }
 
         [[nodiscard]] constexpr size_t align_up(size_t value, size_t alignment) noexcept {
@@ -1378,6 +1472,520 @@ namespace hgraph
             return construct_nested_at(builder, memory, node_index, inbound_edges, &k_try_except_runtime_ops, true);
         }
 
+        struct MapSlotRuntime
+        {
+            explicit MapSlotRuntime(Value key_arg)
+                : key(std::move(key_arg))
+            {
+            }
+
+            Value                    key;
+            ChildGraphInstance       child_instance;
+            std::optional<TSOutput>  key_output;
+            bool                     bound{false};
+            engine_time_t            next_scheduled{MAX_DT};
+        };
+
+        using MapSlotStore = detail::KeyedPayloadStore<MapSlotRuntime>;
+
+        [[nodiscard]] constexpr size_t map_slot_store_offset() noexcept
+        {
+            return align_up(sizeof(MapNodeRuntimeData), alignof(MapSlotStore));
+        }
+
+        [[nodiscard]] constexpr size_t map_runtime_storage_size() noexcept
+        {
+            return map_slot_store_offset() + sizeof(MapSlotStore);
+        }
+
+        [[nodiscard]] constexpr size_t map_runtime_storage_alignment() noexcept
+        {
+            return std::max(alignof(MapNodeRuntimeData), alignof(MapSlotStore));
+        }
+
+        [[nodiscard]] int64_t next_map_child_graph_id(MapNodeRuntimeData &runtime) noexcept
+        {
+            // Keyed child graphs append a negative monotonic instance id to the
+            // parent graph path. The sign distinguishes keyed child-instance
+            // path segments from ordinary non-negative node ids while still
+            // satisfying the "unique integer id per key instance" contract.
+            return -runtime.next_child_graph_id++;
+        }
+
+        [[nodiscard]] MapSlotStore &map_slot_store(MapNodeRuntimeData &runtime) noexcept
+        {
+            auto *storage = reinterpret_cast<std::byte *>(&runtime) + map_slot_store_offset();
+            return *std::launder(reinterpret_cast<MapSlotStore *>(storage));
+        }
+
+        [[nodiscard]] MapNodeRuntimeData &map_runtime(Node &node) noexcept
+        {
+            return detail::runtime_data<MapNodeRuntimeData>(node);
+        }
+
+        [[nodiscard]] bool is_multiplexed_arg(const MapNodeRuntimeData &state, std::string_view arg_name)
+        {
+            return std::find(state.multiplexed_args.begin(), state.multiplexed_args.end(), arg_name) != state.multiplexed_args.end();
+        }
+
+        [[nodiscard]] TSOutputView map_target_output(const TSOutputView &parent_output,
+                                                     const value::View  &key,
+                                                     PathView            path,
+                                                     engine_time_t       evaluation_time)
+        {
+            TSOutputView child_output = ensure_mapped_output_child(parent_output, key, evaluation_time);
+            return navigate_output(child_output, path);
+        }
+
+        void stop_map_slot(const ChildGraphTemplate &child_template, MapSlotRuntime &slot, engine_time_t evaluation_time) noexcept
+        {
+            try {
+                if (slot.bound && slot.child_instance.graph() != nullptr) {
+                    BoundaryBindingRuntime::unbind(child_template.boundary_plan, *slot.child_instance.graph());
+                    slot.bound = false;
+                }
+            } catch (...) {}
+            try {
+                if (slot.child_instance.is_started()) { slot.child_instance.stop(evaluation_time); }
+            } catch (...) {}
+            slot.next_scheduled = MAX_DT;
+        }
+
+        void dispose_map_slot(const ChildGraphTemplate &child_template, MapSlotRuntime &slot, engine_time_t evaluation_time) noexcept
+        {
+            stop_map_slot(child_template, slot, evaluation_time);
+            try {
+                slot.child_instance.dispose(evaluation_time);
+            } catch (...) {}
+        }
+
+        void clear_map_output_links(const ChildGraphTemplate &child_template,
+                                    const TSOutputView      &parent_output,
+                                    const value::View       &key)
+        {
+            if (!is_live_dict_key(parent_output, key)) { return; }
+
+            TSOutputView key_output = parent_output.as_dict().at(key);
+            for (const auto &spec : child_template.boundary_plan.outputs) {
+                clear_output_link(navigate_output(key_output, spec.parent_output_path));
+            }
+        }
+
+        void ensure_map_slot_started(Node &node, MapNodeRuntimeData &runtime, MapSlotRuntime &slot, engine_time_t evaluation_time)
+        {
+            if (!slot.child_instance.is_initialised()) {
+                std::vector<int64_t> graph_id = node.node_id();
+                graph_id.push_back(next_map_child_graph_id(runtime));
+
+                slot.child_instance.initialise(*runtime.child_template, node, std::move(graph_id), slot.key.view().to_string());
+            }
+
+            if (!slot.bound && slot.child_instance.graph() != nullptr) {
+                BoundaryBindingRuntime::bind(slot.child_instance.boundary_plan(), *slot.child_instance.graph(), node, MIN_DT);
+                slot.bound = true;
+            }
+
+            if (!slot.child_instance.is_started()) { slot.child_instance.start(evaluation_time); }
+        }
+
+        void rebind_map_slot_inputs(Node                                   &node,
+                                    MapSlotRuntime                         &slot,
+                                    const std::unordered_set<std::string>  &modified_direct_args,
+                                    bool                                    rebind_keyed_inputs,
+                                    engine_time_t                           evaluation_time)
+        {
+            if (!slot.bound || slot.child_instance.graph() == nullptr) { return; }
+
+            for (const auto &arg_name : modified_direct_args) {
+                BoundaryBindingRuntime::rebind(slot.child_instance.boundary_plan(), *slot.child_instance.graph(), node, arg_name,
+                                               evaluation_time);
+            }
+            if (rebind_keyed_inputs) {
+                BoundaryBindingRuntime::bind_keyed(slot.child_instance.boundary_plan(),
+                                                   *slot.child_instance.graph(),
+                                                   node,
+                                                   slot.key.view(),
+                                                   evaluation_time);
+            }
+        }
+
+        void prepare_key_output(MapSlotRuntime &slot, const TSOutputView &target_output, engine_time_t evaluation_time)
+        {
+            if (!slot.key_output.has_value()) {
+                const auto &builder = TSOutputBuilderFactory::checked_builder_for(target_output.ts_schema());
+                slot.key_output.emplace();
+                builder.construct_output(*slot.key_output);
+                TSOutputView key_source = slot.key_output->view(evaluation_time);
+                key_source.value().copy_from(slot.key.view());
+                mark_output_view_modified(key_source, evaluation_time);
+            }
+        }
+
+        [[nodiscard]] bool forward_map_slot_outputs(Node &node,
+                                                    const MapNodeRuntimeData &runtime,
+                                                    const TSOutputView &parent_output,
+                                                    MapSlotRuntime &slot,
+                                                    engine_time_t evaluation_time)
+        {
+            const auto &plan = slot.child_instance.boundary_plan();
+            bool        slot_value_changed = false;
+            for (const auto &spec : plan.outputs) {
+                TSOutputView source_output;
+                switch (spec.mode) {
+                    case OutputBindingMode::ALIAS_CHILD_OUTPUT:
+                        {
+                            if (spec.child_node_index < 0 || slot.child_instance.graph() == nullptr) { continue; }
+                            auto &child_node = slot.child_instance.graph()->node_at(static_cast<size_t>(spec.child_node_index));
+                            source_output = navigate_output(child_node.output_view(evaluation_time), spec.child_output_path);
+                            break;
+                        }
+                    case OutputBindingMode::ALIAS_PARENT_INPUT:
+                        {
+                            TSInputView parent_input = resolve_parent_input_arg(node, spec.parent_arg_name, evaluation_time);
+                            if (is_multiplexed_arg(runtime, spec.parent_arg_name)) {
+                                parent_input = select_multiplexed_parent_input(parent_input, slot.key.view());
+                            }
+                            source_output = bound_output_of(parent_input);
+                            if (source_output.ts_schema() == nullptr) {
+                                const TSMeta *parent_schema = parent_input.ts_schema();
+                                if (parent_schema != nullptr && parent_schema->kind == TSKind::REF) {
+                                    const TimeSeriesReference reference = TimeSeriesReference::make(parent_input);
+                                    if (reference.is_peered()) { source_output = reference.target_view(evaluation_time); }
+                                }
+                            }
+                            if (source_output.ts_schema() != nullptr) {
+                                source_output = navigate_output(source_output, spec.child_output_path);
+                            }
+                            break;
+                        }
+                    case OutputBindingMode::ALIAS_KEY_VALUE:
+                        {
+                            TSOutputView target_output =
+                                map_target_output(parent_output, slot.key.view(), spec.parent_output_path, evaluation_time);
+                            prepare_key_output(slot, target_output, evaluation_time);
+                            source_output = slot.key_output->view(evaluation_time);
+                            break;
+                        }
+                }
+
+                if (source_output.ts_schema() == nullptr) {
+                    if (is_live_dict_key(parent_output, slot.key.view())) {
+                        TSOutputView target_output =
+                            navigate_output(parent_output.as_dict().at(slot.key.view()), spec.parent_output_path);
+                        clear_output_link(target_output);
+                        slot_value_changed = true;
+                    }
+                    continue;
+                }
+
+                TSOutputView target_output =
+                    map_target_output(parent_output, slot.key.view(), spec.parent_output_path, evaluation_time);
+
+                if (const auto *parent_schema = target_output.ts_schema();
+                    parent_schema != nullptr && source_output.ts_schema() != parent_schema &&
+                    source_output.owning_output() != nullptr) {
+                    source_output = source_output.owning_output()->bindable_view(source_output, parent_schema);
+                }
+
+                const bool rebound = bind_output_link(target_output, source_output);
+                if (evaluation_time != MIN_DT && (rebound || source_output.modified())) { slot_value_changed = true; }
+            }
+            return slot_value_changed;
+        }
+
+        void publish_map_slot_output_updates(const MapNodeRuntimeData  &runtime,
+                                             const TSOutputView       &parent_output,
+                                             const MapSlotStore       &slot_store,
+                                             const std::vector<size_t> &changed_slots,
+                                             engine_time_t             evaluation_time)
+        {
+            if (evaluation_time == MIN_DT || changed_slots.empty()) { return; }
+
+            for (size_t slot_index : changed_slots) {
+                const MapSlotRuntime *slot = slot_store.try_slot(slot_index);
+                if (slot == nullptr) { continue; }
+
+                for (const auto &spec : runtime.child_template->boundary_plan.outputs) {
+                    TSOutputView target_output =
+                        map_target_output(parent_output, slot->key.view(), spec.parent_output_path, evaluation_time);
+                    mark_output_view_modified(target_output, evaluation_time);
+                }
+            }
+        }
+
+        [[nodiscard]] bool has_modified_multiplexed_input(Node &node, const MapSlotRuntime &slot, engine_time_t evaluation_time)
+        {
+            if (!node.has_input()) { return false; }
+
+            const auto &plan = slot.child_instance.boundary_plan();
+            for (const auto &spec : plan.inputs) {
+                if (spec.mode != InputBindingMode::BIND_MULTIPLEXED_ELEMENT) { continue; }
+
+                TSInputView parent_field = resolve_parent_input_arg(node, spec.arg_name, evaluation_time);
+                TSInputView parent_item = select_multiplexed_parent_input(parent_field, slot.key.view());
+                if (!spec.parent_input_path.empty()) { parent_item = navigate_input(parent_item, spec.parent_input_path); }
+                TSOutputView parent_output = bound_output_of(parent_item);
+                if (parent_output.ts_schema() != nullptr) {
+                    if (parent_output.modified()) { return true; }
+                } else if (parent_item.modified()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        [[nodiscard]] bool map_has_input(const Node &node) noexcept
+        {
+            return node.data() != nullptr && map_runtime(const_cast<Node &>(node)).input != nullptr;
+        }
+
+        [[nodiscard]] bool map_has_output(const Node &node) noexcept
+        {
+            return node.data() != nullptr && map_runtime(const_cast<Node &>(node)).output != nullptr;
+        }
+
+        [[nodiscard]] bool map_has_error_output(const Node &node) noexcept
+        {
+            return node.data() != nullptr && map_runtime(const_cast<Node &>(node)).error_output != nullptr;
+        }
+
+        [[nodiscard]] bool map_has_recordable_state(const Node & /*node*/) noexcept { return false; }
+
+        [[nodiscard]] TSInputView map_input_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!map_has_input(node)) { return detail::invalid_input_view(evaluation_time); }
+            return map_runtime(node).input->view(&node, evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView map_output_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!map_has_output(node)) { return detail::invalid_output_view(evaluation_time); }
+            return map_runtime(node).output->view(evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView map_error_output_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!map_has_error_output(node)) { return detail::invalid_output_view(evaluation_time); }
+            return map_runtime(node).error_output->view(evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView map_recordable_state_view(Node & /*node*/, engine_time_t evaluation_time)
+        {
+            return detail::invalid_output_view(evaluation_time);
+        }
+
+        void map_node_start(Node & /*node*/, engine_time_t /*evaluation_time*/) {}
+
+        void map_node_stop(Node &node, engine_time_t evaluation_time)
+        {
+            auto &runtime = map_runtime(node);
+            auto &slot_store = map_slot_store(runtime);
+            TSOutputView parent_output = node.has_output() ? node.output_view(evaluation_time) : detail::invalid_output_view(evaluation_time);
+
+            for (size_t slot = 0; slot < slot_store.constructed.size(); ++slot) {
+                MapSlotRuntime *payload = slot_store.try_slot(slot);
+                if (payload == nullptr) { continue; }
+                if (node.has_output()) { clear_map_output_links(*runtime.child_template, parent_output, payload->key.view()); }
+                stop_map_slot(*runtime.child_template, *payload, evaluation_time);
+            }
+        }
+
+        void destruct_map_node(Node &node) noexcept
+        {
+            const BuiltNodeSpec &spec = node.spec();
+            auto &runtime_data = detail::runtime_data<MapNodeRuntimeData>(node);
+            auto &slot_store = map_slot_store(runtime_data);
+
+            if (runtime_data.child_template != nullptr) {
+                for (size_t slot = 0; slot < slot_store.constructed.size(); ++slot) {
+                    if (MapSlotRuntime *payload = slot_store.try_slot(slot); payload != nullptr) {
+                        dispose_map_slot(*runtime_data.child_template, *payload, MIN_DT);
+                        slot_store.destroy_at(slot);
+                    }
+                }
+            }
+
+            std::destroy_at(&slot_store);
+            if (runtime_data.recordable_state != nullptr) { runtime_data.recordable_state->~TSOutput(); }
+            if (runtime_data.error_output != nullptr) { runtime_data.error_output->~TSOutput(); }
+            if (runtime_data.output != nullptr) { runtime_data.output->~TSOutput(); }
+            if (runtime_data.input != nullptr) { runtime_data.input->~TSInput(); }
+            if (auto *scheduler = node.scheduler_if_present(); scheduler != nullptr) { std::destroy_at(scheduler); }
+            std::destroy_at(const_cast<BuiltNodeSpec *>(&spec));
+            std::destroy_at(&runtime_data);
+        }
+
+        void map_node_eval(Node &node, engine_time_t evaluation_time)
+        {
+            auto &runtime = map_runtime(node);
+            auto &slot_store = map_slot_store(runtime);
+            TSInputView keys_input = resolve_parent_input_arg(node, runtime.keys_arg, evaluation_time);
+            const auto keys_delta = keys_input.value().as_set().delta();
+            const bool keys_modified = keys_input.modified();
+
+            slot_store.reserve_to(keys_delta.slot_capacity());
+
+            TSOutputView parent_output = node.has_output() ? node.output_view(evaluation_time) : detail::invalid_output_view(evaluation_time);
+
+            if (keys_modified) {
+                for (size_t slot = 0; slot < keys_delta.slot_capacity(); ++slot) {
+                    if (slot_store.has_slot(slot) && !keys_delta.slot_occupied(slot)) {
+                        MapSlotRuntime &payload = *slot_store.try_slot(slot);
+                        dispose_map_slot(*runtime.child_template, payload, evaluation_time);
+                        slot_store.destroy_at(slot);
+                    }
+                }
+            }
+
+            sul::dynamic_bitset<> added_slots(keys_delta.slot_capacity());
+            if (keys_modified) {
+                for (size_t slot = 0; slot < keys_delta.slot_capacity(); ++slot) {
+                    if (!keys_delta.slot_occupied(slot) || !keys_delta.slot_added(slot) || keys_delta.slot_removed(slot)) { continue; }
+                    added_slots.set(slot);
+                    if (slot_store.has_slot(slot)) {
+                        dispose_map_slot(*runtime.child_template, *slot_store.try_slot(slot), evaluation_time);
+                        slot_store.destroy_at(slot);
+                    }
+                    slot_store.emplace_at(slot, keys_delta.at_slot(slot).clone());
+                    MapSlotRuntime &payload = *slot_store.try_slot(slot);
+                    ensure_map_slot_started(node, runtime, payload, evaluation_time);
+                }
+
+                for (size_t slot = 0; slot < keys_delta.slot_capacity(); ++slot) {
+                    if (!keys_delta.slot_occupied(slot) || !keys_delta.slot_removed(slot)) { continue; }
+                    MapSlotRuntime *payload = slot_store.try_slot(slot);
+                    if (payload == nullptr) { continue; }
+                    if (node.has_output()) {
+                        clear_map_output_links(*runtime.child_template, parent_output, payload->key.view());
+                        if (is_live_dict_key(parent_output, payload->key.view())) { parent_output.as_dict().erase(payload->key.view()); }
+                    }
+                    stop_map_slot(*runtime.child_template, *payload, evaluation_time);
+                }
+            }
+
+            std::unordered_set<std::string> modified_direct_args;
+            for (const auto &spec : runtime.child_template->boundary_plan.inputs) {
+                if (spec.mode != InputBindingMode::BIND_DIRECT && spec.mode != InputBindingMode::CLONE_REF_BINDING) { continue; }
+                if (resolve_parent_input_arg(node, spec.arg_name, evaluation_time).modified()) {
+                    modified_direct_args.insert(spec.arg_name);
+                }
+            }
+
+            std::vector<size_t> changed_output_slots;
+            for (size_t slot = 0; slot < keys_delta.slot_capacity(); ++slot) {
+                if (!keys_delta.slot_occupied(slot) || keys_delta.slot_removed(slot)) { continue; }
+	                MapSlotRuntime *payload = slot_store.try_slot(slot);
+	                if (payload == nullptr) { continue; }
+
+	                const bool added = added_slots.test(slot);
+	                const bool scheduled_now =
+	                    payload->next_scheduled != MAX_DT && payload->next_scheduled <= evaluation_time;
+	                const bool multiplexed_modified = has_modified_multiplexed_input(node, *payload, evaluation_time);
+	                const bool should_eval =
+	                    added || scheduled_now || !modified_direct_args.empty() || multiplexed_modified;
+
+                if (!should_eval) { continue; }
+
+	                ensure_map_slot_started(node, runtime, *payload, evaluation_time);
+	                rebind_map_slot_inputs(node, *payload, modified_direct_args, added || multiplexed_modified, evaluation_time);
+	                payload->child_instance.evaluate(evaluation_time);
+                payload->next_scheduled = payload->child_instance.next_scheduled_time();
+                if (node.has_output()) {
+                    if (forward_map_slot_outputs(node, runtime, parent_output, *payload, evaluation_time)) {
+                        changed_output_slots.push_back(slot);
+                    }
+                }
+            }
+
+            if (node.has_output()) {
+                publish_map_slot_output_updates(runtime, parent_output, slot_store, changed_output_slots, evaluation_time);
+            }
+
+            node.scheduler().un_schedule("map");
+            engine_time_t next_schedule = MAX_DT;
+            for (size_t slot = 0; slot < slot_store.constructed.size(); ++slot) {
+                const MapSlotRuntime *payload = slot_store.try_slot(slot);
+                if (payload == nullptr) { continue; }
+                if (payload->next_scheduled != MAX_DT && payload->next_scheduled < next_schedule) {
+                    next_schedule = payload->next_scheduled;
+                }
+            }
+            if (next_schedule != MAX_DT) { node.scheduler().schedule(next_schedule, std::string{"map"}); }
+        }
+
+        const NodeRuntimeOps k_map_runtime_ops{
+            &map_node_start,
+            &map_node_stop,
+            &map_node_eval,
+            &map_has_input,
+            &map_has_output,
+            &map_has_error_output,
+            &map_has_recordable_state,
+            &map_input_view,
+            &map_output_view,
+            &map_error_output_view,
+            &map_recordable_state_view,
+            &nested_runtime_label,
+        };
+
+        void validate_map_contract(const NodeBuilder & /*builder*/) {}
+
+        [[nodiscard]] size_t map_builder_size(const NodeBuilder &builder,
+                                              const std::vector<TSInputConstructionEdge> &inbound_edges)
+        {
+            const auto builders = resolve_builders(builder, inbound_edges);
+            return describe_layout(builder, map_runtime_storage_size(), map_runtime_storage_alignment(), builders).total_size;
+        }
+
+        [[nodiscard]] size_t map_builder_alignment(const NodeBuilder &builder,
+                                                   const std::vector<TSInputConstructionEdge> &inbound_edges)
+        {
+            const auto builders = resolve_builders(builder, inbound_edges);
+            return describe_layout(builder, map_runtime_storage_size(), map_runtime_storage_alignment(), builders).alignment;
+        }
+
+        [[nodiscard]] Node *map_construct_at(const NodeBuilder &builder, void *memory, int64_t node_index,
+                                             const std::vector<TSInputConstructionEdge> &inbound_edges)
+        {
+            const auto &state = detail::node_builder_type_state<MapNodeBuilderState>(builder);
+
+            struct RuntimeLifecycle
+            {
+                const ChildGraphTemplate *child_template;
+                std::string key_arg;
+                std::string keys_arg;
+                std::vector<std::string> multiplexed_args;
+
+                void destroy(void *runtime_data) const
+                {
+                    auto *runtime = static_cast<MapNodeRuntimeData *>(runtime_data);
+                    std::destroy_at(&map_slot_store(*runtime));
+                    std::destroy_at(runtime);
+                }
+
+                void initialise(const NodeBuilder & /*builder*/, void *runtime_data_ptr, Node * /*node*/, TSInput * /*input*/,
+                                TSOutput * /*output*/, TSOutput * /*error_output*/, TSOutput * /*recordable_state*/) const
+                {
+                    auto &runtime = *static_cast<MapNodeRuntimeData *>(runtime_data_ptr);
+                    runtime.child_template = child_template;
+                    runtime.key_arg = key_arg;
+                    runtime.keys_arg = keys_arg;
+                    runtime.multiplexed_args = multiplexed_args;
+                    new (&map_slot_store(runtime)) MapSlotStore{};
+                }
+            };
+
+            return construct_node_chunk<MapNodeBuilderState>(
+                builder, memory, node_index, inbound_edges, &k_map_runtime_ops, nullptr, &destruct_map_node,
+                map_runtime_storage_size(),
+                map_runtime_storage_alignment(),
+                [](void *storage, const ResolvedNodeBuilders &, TSInput *input, TSOutput *output, TSOutput *error_output,
+                   void * /*state_memory*/, TSOutput *recordable_state) -> void * {
+                    return new (storage) MapNodeRuntimeData{input, output, error_output, recordable_state, nullptr, {}, {}, {}, 1};
+                },
+                RuntimeLifecycle{state.child_template, state.key_arg, state.keys_arg, state.multiplexed_args});
+        }
+
     }  // namespace
 
     namespace detail
@@ -1563,6 +2171,32 @@ namespace hgraph
         builder.reset_type_state();
         builder.m_type_ops       = &try_except_ops;
         builder.m_type_state     = make_builder_state(NestedNodeBuilderState{child_template});
+        builder.m_uses_scheduler = true;
+        builder.m_has_explicit_scheduler = true;
+        return builder;
+    }
+
+    NodeBuilder &map_graph_implementation(NodeBuilder &builder,
+                                          const ChildGraphTemplate *child_template,
+                                          std::string key_arg,
+                                          std::string keys_arg,
+                                          std::vector<std::string> multiplexed_args) {
+        if (child_template == nullptr) {
+            throw std::invalid_argument("map_graph_implementation requires a non-null child template");
+        }
+        static const NodeBuilder::TypeOps map_ops{
+            &validate_map_contract,
+            &map_builder_size,
+            &map_builder_alignment,
+            &map_construct_at,
+            &destruct_builder_node,
+            &clone_builder_state<MapNodeBuilderState>,
+            &destroy_builder_state<MapNodeBuilderState>,
+        };
+        builder.reset_type_state();
+        builder.m_type_ops = &map_ops;
+        builder.m_type_state =
+            make_builder_state(MapNodeBuilderState{child_template, std::move(key_arg), std::move(keys_arg), std::move(multiplexed_args)});
         builder.m_uses_scheduler = true;
         builder.m_has_explicit_scheduler = true;
         return builder;

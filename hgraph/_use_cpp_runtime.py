@@ -157,7 +157,42 @@ if is_feature_enabled("use_cpp"):
         _pull_source.PythonLastValuePullWiringNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("last_value_source_node")
         _context_wiring.ContextNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("context output nodes")
         _component.ComponentNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("component nodes")
-        _map.TsdMapWiringNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("map_ / TSD map nodes")
+        def _create_tsd_map_builder_factory(
+            signature,
+            scalars,
+            input_builder,
+            output_builder,
+            error_builder,
+            recordable_state_builder=None,
+            nested_graph=None,
+            input_node_ids=None,
+            output_node_id=None,
+            multiplexed_args=None,
+            key_arg=None,
+            key_tp=None,
+        ):
+            input_node_ids = dict(input_node_ids) if input_node_ids is not None else {}
+
+            if isinstance(nested_graph, _hgraph.GraphBuilder):
+                return _hgraph.build_map_node(
+                    signature,
+                    scalars,
+                    input_builder,
+                    output_builder,
+                    error_builder,
+                    nested_graph,
+                    input_node_ids,
+                    output_node_id,
+                    multiplexed_args,
+                    key_arg,
+                )
+
+            raise NotImplementedError(
+                "map_ requires a nested graph builder in C++ mode. "
+                "Use HGRAPH_USE_CPP=0 for the Python runtime or implement the missing builder."
+            )
+
+        _map.TsdMapWiringNodeClass.BUILDER_CLASS = _create_tsd_map_builder_factory
         _reduce.TsdReduceWiringNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("reduce nodes")
         _reduce.TsdNonAssociativeReduceWiringNodeClass.BUILDER_CLASS = _unsupported_cpp_builder(
             "non-associative reduce nodes"

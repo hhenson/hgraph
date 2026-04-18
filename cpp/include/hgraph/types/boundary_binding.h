@@ -26,6 +26,7 @@ namespace hgraph
     {
         ALIAS_CHILD_OUTPUT,         // Expose child output as parent output
         ALIAS_PARENT_INPUT,         // Expose one of the parent's inputs as parent output
+        ALIAS_KEY_VALUE,           // Expose the operator-owned key value as parent output
     };
 
     enum class ContextBindingMode : uint8_t

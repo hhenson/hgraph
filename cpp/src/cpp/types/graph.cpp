@@ -21,7 +21,9 @@ namespace hgraph
         other.m_node_count            = 0;
         other.m_push_source_nodes_end = 0;
         other.m_started               = false;
+        other.m_is_evaluating         = false;
         other.m_storage_alignment     = alignof(std::max_align_t);
+        other.m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
         other.m_last_evaluation_time  = MIN_DT;
         other.m_evaluation_engine     = {};
         other.m_parent_node           = nullptr;
@@ -36,7 +38,9 @@ namespace hgraph
             m_node_count            = other.m_node_count;
             m_push_source_nodes_end = other.m_push_source_nodes_end;
             m_started               = other.m_started;
+            m_is_evaluating         = false;
             m_storage_alignment     = other.m_storage_alignment;
+            m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
             m_last_evaluation_time  = other.m_last_evaluation_time;
             m_evaluation_engine     = other.m_evaluation_engine;
             m_traits                = std::move(other.m_traits);
@@ -48,7 +52,9 @@ namespace hgraph
             other.m_node_count            = 0;
             other.m_push_source_nodes_end = 0;
             other.m_started               = false;
+            other.m_is_evaluating         = false;
             other.m_storage_alignment     = alignof(std::max_align_t);
+            other.m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
             other.m_last_evaluation_time  = MIN_DT;
             other.m_evaluation_engine     = {};
             other.m_parent_node           = nullptr;
@@ -108,7 +114,9 @@ namespace hgraph
         m_node_count            = node_count;
         m_push_source_nodes_end = push_source_nodes_end;
         m_started               = false;
+        m_is_evaluating         = false;
         m_storage_alignment     = storage_alignment;
+        m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
         m_last_evaluation_time  = MIN_DT;
         m_storage               = storage;
         attach_nodes();
@@ -133,7 +141,9 @@ namespace hgraph
         m_node_count            = 0;
         m_push_source_nodes_end = 0;
         m_started               = false;
+        m_is_evaluating         = false;
         m_storage_alignment     = alignof(std::max_align_t);
+        m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
         m_last_evaluation_time  = MIN_DT;
         m_evaluation_engine     = {};
         m_graph_id.clear();
@@ -223,6 +233,12 @@ namespace hgraph
 
         clock.set_evaluation_time(when);
         m_last_evaluation_time = when;
+        m_is_evaluating     = true;
+        m_evaluation_cursor = INVALID_EVALUATION_CURSOR;
+        auto reset_eval_state = hgraph::make_scope_exit([&] {
+            m_is_evaluating     = false;
+            m_evaluation_cursor = INVALID_EVALUATION_CURSOR;
+        });
         m_evaluation_engine.notify_before_graph_evaluation(*this);
         auto after_graph_evaluation = UnwindCleanupGuard([&] { m_evaluation_engine.notify_after_graph_evaluation(*this); });
 
@@ -231,6 +247,7 @@ namespace hgraph
         for (size_t index = static_cast<size_t>(m_push_source_nodes_end); index < m_node_count; ++index) {
             auto &entry = entry_storage()[index];
             if (entry.scheduled == when) {
+                m_evaluation_cursor = index;
                 m_evaluation_engine.notify_before_node_evaluation(*entry.node);
                 auto after_node_evaluation =
                     UnwindCleanupGuard([&] { m_evaluation_engine.notify_after_node_evaluation(*entry.node); });
@@ -257,6 +274,12 @@ namespace hgraph
 
         engine_time_t &scheduled_time = entry_storage()[node_index].scheduled;
         if (force_set || scheduled_time <= current_time || when < scheduled_time) { scheduled_time = when; }
-        clock.update_next_scheduled_evaluation_time(when);
+
+        const bool later_same_tick_in_current_pass =
+            m_is_evaluating && current_time != MIN_DT && when == current_time &&
+            m_evaluation_cursor != INVALID_EVALUATION_CURSOR && static_cast<size_t>(node_index) > m_evaluation_cursor;
+        if (!later_same_tick_in_current_pass) {
+            clock.update_next_scheduled_evaluation_time(when);
+        }
     }
 }  // namespace hgraph

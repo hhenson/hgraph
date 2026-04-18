@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <memory>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string_view>
 #include <type_traits>
@@ -1437,10 +1438,55 @@ namespace hgraph
             }
         }
 
-        [[nodiscard]] TSOutputView traverse_output_path(TSOutputView view, const TSMeta *schema, const TSPath &path)
+        [[nodiscard]] std::vector<Value> capture_dict_traversal_keys(const TSOutputView &view, const TSMeta *schema, const TSPath &path)
         {
+            std::vector<Value> dict_keys;
+            dict_keys.reserve(path.size());
+
+            TSOutputView current_view = view;
             const TSMeta *current_schema = schema;
             for (const size_t slot : path) {
+                dict_keys.emplace_back();
+                if (current_schema == nullptr) { throw std::invalid_argument("TSOutput alternative traversal requires a schema"); }
+
+                switch (current_schema->kind) {
+                    case TSKind::TSB:
+                        current_view = current_view.as_bundle()[slot];
+                        break;
+
+                    case TSKind::TSL:
+                        current_view = current_view.as_list()[slot];
+                        break;
+
+                    case TSKind::TSD:
+                        {
+                            const auto delta = current_view.value().as_map().delta();
+                            if (slot >= delta.slot_capacity() || !delta.slot_occupied(slot) || delta.slot_removed(slot)) {
+                                throw std::out_of_range("TSOutput alternative traversal slot is not live for TSD");
+                            }
+                            dict_keys.back() = delta.key_at_slot(slot).clone();
+                            current_view = detail::ensure_dict_child_output_view(current_view, dict_keys.back().view());
+                            break;
+                        }
+
+                    default:
+                        throw std::invalid_argument("TSOutput alternative traversal only supports TSB, fixed-size TSL, and TSD");
+                }
+
+                current_schema = child_schema_at(*current_schema, slot);
+            }
+
+            return dict_keys;
+        }
+
+        [[nodiscard]] TSOutputView traverse_output_path(TSOutputView view,
+                                                        const TSMeta *schema,
+                                                        const TSPath &path,
+                                                        std::span<const Value> dict_keys = {})
+        {
+            const TSMeta *current_schema = schema;
+            for (size_t depth = 0; depth < path.size(); ++depth) {
+                const size_t slot = path[depth];
                 if (current_schema == nullptr) { throw std::invalid_argument("TSOutput alternative traversal requires a schema"); }
 
                 switch (current_schema->kind) {
@@ -1454,11 +1500,10 @@ namespace hgraph
 
                     case TSKind::TSD:
                         {
-                            const auto delta = view.value().as_map().delta();
-                            if (slot >= delta.slot_capacity() || !delta.slot_occupied(slot) || delta.slot_removed(slot)) {
-                                throw std::out_of_range("TSOutput alternative traversal slot is not live for TSD");
+                            if (depth >= dict_keys.size() || !dict_keys[depth].has_value()) {
+                                throw std::out_of_range("TSOutput alternative traversal key is missing for TSD");
                             }
-                            view = view.as_dict().at(delta.key_at_slot(slot));
+                            view = detail::ensure_dict_child_output_view(view, dict_keys[depth].view());
                             break;
                         }
 
@@ -1543,6 +1588,34 @@ namespace hgraph
             auto ops = std::make_shared<PendingDictChildViewOps>(view.linked_context(), key.clone());
             child_context.output_view_ops = ops.get();
             return view.make_child_view_impl(child_context, view.context_ref(), view.evaluation_time(), std::move(ops));
+        }
+
+        TSOutputView ensure_dict_child_output_view(const TSOutputView &view, const View &key)
+        {
+            const TSViewContext &context = view.context_ref();
+            const auto *collection = context.resolved().ts_dispatch != nullptr ? context.resolved().ts_dispatch->as_collection() : nullptr;
+            const auto *key_dispatch = collection != nullptr ? collection->as_keys() : nullptr;
+            if (key_dispatch == nullptr || !view.value().has_value() || !key.has_value()) {
+                return view.make_child_view_impl(TSViewContext::none(), context, view.evaluation_time());
+            }
+
+            const MapView map = view.value().as_map();
+            if (key.schema() != map.key_schema()) { return view.make_child_view_impl(TSViewContext::none(), context, view.evaluation_time()); }
+
+            TSViewContext child = key_dispatch->child_key(context, key);
+            if (child.is_bound()) { return view.make_child_view_impl(child, context, view.evaluation_time()); }
+
+            BaseState *state = context.ts_state != nullptr ? context.ts_state->resolved_state() : nullptr;
+            if (state != nullptr && state->storage_kind == TSStorageKind::Native) {
+                const size_t slot = map.find_slot(key);
+                if (slot != static_cast<size_t>(-1)) {
+                    static_cast<TSDState *>(state)->on_insert(slot);
+                    child = key_dispatch->child_key(context, key);
+                    if (child.is_bound()) { return view.make_child_view_impl(child, context, view.evaluation_time()); }
+                }
+            }
+
+            return make_missing_dict_child_output_view(view, key);
         }
     }  // namespace detail
 
@@ -1689,7 +1762,8 @@ namespace hgraph
             if (inserted) { it->second.reset(new AlternativeOutput(root_source, *alternative_schema)); }
 
             TSOutputView alternative_view = it->second->view(owning_output, source.evaluation_time());
-            return traverse_output_path(alternative_view, alternative_schema, source_path);
+            const auto dict_keys = capture_dict_traversal_keys(root_source, root_source_schema, source_path);
+            return traverse_output_path(alternative_view, alternative_schema, source_path, dict_keys);
         }
 
         void notify(engine_time_t modified_time) override
@@ -3352,7 +3426,8 @@ namespace hgraph
         if (inserted) { it->second.reset(new AlternativeOutput(root_source, *alternative_schema)); }
 
         TSOutputView alternative_view = it->second->view(this, source.evaluation_time());
-        return traverse_output_path(alternative_view, alternative_schema, source_path);
+        const auto dict_keys = capture_dict_traversal_keys(root_source, root_source_schema, source_path);
+        return traverse_output_path(alternative_view, alternative_schema, source_path, dict_keys);
     }
 
     void TSOutput::clear_storage() noexcept

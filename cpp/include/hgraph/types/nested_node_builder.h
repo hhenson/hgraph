@@ -17,6 +17,14 @@ namespace hgraph
         const ChildGraphTemplate *child_template{nullptr};
     };
 
+    struct MapNodeBuilderState
+    {
+        const ChildGraphTemplate *child_template{nullptr};
+        std::string key_arg;
+        std::string keys_arg;
+        std::vector<std::string> multiplexed_args;
+    };
+
     /**
      * Per-instance runtime data for a nested graph node, placed in the slab chunk.
      *
@@ -32,6 +40,19 @@ namespace hgraph
         const ChildGraphTemplate *child_template{nullptr};
         ChildGraphInstance child_instance;
         bool               bound{false};
+    };
+
+    struct MapNodeRuntimeData
+    {
+        TSInput           *input{nullptr};
+        TSOutput          *output{nullptr};
+        TSOutput          *error_output{nullptr};
+        TSOutput          *recordable_state{nullptr};
+        const ChildGraphTemplate *child_template{nullptr};
+        std::string        key_arg;
+        std::string        keys_arg;
+        std::vector<std::string> multiplexed_args;
+        int64_t            next_child_graph_id{1};
     };
 
     /**
@@ -62,5 +83,11 @@ namespace hgraph
      * `TS[NodeError]`.
      */
     HGRAPH_EXPORT NodeBuilder &try_except_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
+
+    HGRAPH_EXPORT NodeBuilder &map_graph_implementation(NodeBuilder &builder,
+                                                        const ChildGraphTemplate *child_template,
+                                                        std::string key_arg,
+                                                        std::string keys_arg,
+                                                        std::vector<std::string> multiplexed_args);
 
 }  // namespace hgraph

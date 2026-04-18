@@ -86,7 +86,7 @@ namespace hgraph
         [[nodiscard]] TSViewContext context_from_root_state(const TSViewContext &context) noexcept
         {
             BaseState *state = context.ts_state;
-            if (state == nullptr || state->storage_kind != TSStorageKind::Native) { return context; }
+            if (state == nullptr) { return context; }
 
             std::vector<size_t> path;
             const Node *root_node = nullptr;
@@ -177,6 +177,10 @@ namespace hgraph
             refreshed.ts_dispatch = current.ts_dispatch != nullptr ? current.ts_dispatch : refreshed.ts_dispatch;
             refreshed.value_data = current.value_data;
             refreshed.ts_state = current.ts_state != nullptr ? current.ts_state : refreshed.ts_state;
+            refreshed.owning_output = current.owning_output != nullptr ? current.owning_output : refreshed.owning_output;
+            refreshed.output_view_ops = current.output_view_ops != nullptr ? current.output_view_ops : refreshed.output_view_ops;
+            refreshed.notification_state =
+                current.notification_state != nullptr ? current.notification_state : refreshed.notification_state;
             return refreshed;
         }
 
@@ -599,6 +603,9 @@ namespace hgraph
 
     void TSDState::child_modified(size_t child_index, engine_time_t modified_time) noexcept
     {
+        if (map_dispatch != nullptr && map_value_data != nullptr) {
+            map_dispatch->mark_value_updated(map_value_data, child_index, modified_time);
+        }
         BaseCollectionState::child_modified(child_index, modified_time);
     }
 

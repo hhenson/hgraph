@@ -221,7 +221,6 @@ namespace hgraph
                         context.notification_state = &link_state;
                     }
                     const LinkedTSContext previous_target = link_state.target;
-                    const bool had_binding = link_state.is_bound();
                     const engine_time_t evaluation_time = view.evaluation_time();
                     link_state.set_target(output_context);
                     link_state.last_modified_time = output_context.ts_state != nullptr ? output_context.ts_state->last_modified_time : MIN_DT;

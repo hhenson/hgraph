@@ -180,6 +180,11 @@ namespace hgraph
         friend struct GraphBuilder;
         friend NodeBuilder &nested_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
         friend NodeBuilder &try_except_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
+        friend NodeBuilder &map_graph_implementation(NodeBuilder &builder,
+                                                     const ChildGraphTemplate *child_template,
+                                                     std::string key_arg,
+                                                     std::string keys_arg,
+                                                     std::vector<std::string> multiplexed_args);
         template <typename TState>
         friend const TState &detail::node_builder_type_state(const NodeBuilder &builder);
 

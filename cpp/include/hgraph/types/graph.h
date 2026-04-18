@@ -6,6 +6,7 @@
 #include <hgraph/types/node.h>
 
 #include <cstddef>
+#include <limits>
 #include <memory>
 #include <span>
 #include <string>
@@ -83,10 +84,14 @@ namespace hgraph
         [[nodiscard]] NodeEntry       *entry_storage() noexcept;
         [[nodiscard]] const NodeEntry *entry_storage() const noexcept;
 
+        static constexpr size_t INVALID_EVALUATION_CURSOR = std::numeric_limits<size_t>::max();
+
         size_t                          m_node_count{0};
         int64_t                         m_push_source_nodes_end{0};
         bool                            m_started{false};
+        bool                            m_is_evaluating{false};
         size_t                          m_storage_alignment{alignof(std::max_align_t)};
+        size_t                          m_evaluation_cursor{INVALID_EVALUATION_CURSOR};
         engine_time_t                   m_last_evaluation_time{MIN_DT};
         GraphEvaluationEngine           m_evaluation_engine;
         mutable std::unique_ptr<Traits> m_traits;
