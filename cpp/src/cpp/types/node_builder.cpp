@@ -26,6 +26,14 @@ namespace hgraph
 {
     namespace
     {
+        [[nodiscard]] std::string schema_debug_label(const value::TypeMeta *schema)
+        {
+            if (schema == nullptr) { return "<null>"; }
+            return fmt::format("{}@{:p}[kind={}]", schema->name != nullptr ? schema->name : "<unnamed>",
+                               static_cast<const void *>(schema),
+                               static_cast<int>(schema->kind));
+        }
+
         enum class RootNodePort : size_t
         {
             Input = 0,
@@ -57,6 +65,32 @@ namespace hgraph
                 source_context.owning_output,
                 source_context.output_view_ops != nullptr ? source_context.output_view_ops : &hgraph::detail::default_output_view_ops(),
             };
+        }
+
+        [[nodiscard]] TSOutputView live_bound_output_of(TSInputView view) noexcept
+        {
+            if (const LinkedTSContext *target = view.linked_target(); target != nullptr && target->is_bound() &&
+                target->schema != nullptr && target->value_dispatch != nullptr && target->ts_dispatch != nullptr &&
+                target->ts_state != nullptr && target->owning_output != nullptr) {
+                return TSOutputView{
+                    TSViewContext{TSContext{
+                        target->schema,
+                        target->value_dispatch,
+                        target->ts_dispatch,
+                        target->value_data,
+                        target->ts_state,
+                        target->owning_output,
+                        target->output_view_ops,
+                        target->notification_state != nullptr ? target->notification_state : target->ts_state,
+                    }},
+                    TSViewContext::none(),
+                    view.evaluation_time(),
+                    target->owning_output,
+                    target->output_view_ops != nullptr ? target->output_view_ops : &hgraph::detail::default_output_view_ops(),
+                };
+            }
+
+            return bound_output_of(view);
         }
 
         [[nodiscard]] const TSMeta *unwrap_navigation_schema(const TSMeta *schema);
@@ -276,6 +310,29 @@ namespace hgraph
             TSOutput            *error_output{nullptr};
             TSOutput            *recordable_state{nullptr};
             PythonNodeHeapState *heap_state{nullptr};
+        };
+
+        struct SwitchNodeBuilderState
+        {
+            std::vector<SwitchBranchTemplate> branches;
+            bool reload_on_ticked{false};
+        };
+
+        struct SwitchNodeRuntimeData
+        {
+            TSInput            *input{nullptr};
+            TSOutput           *output{nullptr};
+            TSOutput           *error_output{nullptr};
+            TSOutput           *recordable_state{nullptr};
+            std::vector<SwitchBranchTemplate> branches;
+            ChildGraphInstance  child_instance;
+            std::optional<Value> active_key;
+            size_t              active_branch_index{static_cast<size_t>(-1)};
+            int64_t             next_child_graph_id{1};
+            size_t              child_graph_storage_size{0};
+            size_t              child_graph_storage_alignment{alignof(std::max_align_t)};
+            bool                reload_on_ticked{false};
+            bool                bound{false};
         };
 
         [[nodiscard]] nb::object push_queue_remove_sentinel() {
@@ -1472,6 +1529,391 @@ namespace hgraph
             return construct_nested_at(builder, memory, node_index, inbound_edges, &k_try_except_runtime_ops, true);
         }
 
+        [[nodiscard]] SwitchNodeRuntimeData &switch_runtime(Node &node)
+        {
+            return *static_cast<SwitchNodeRuntimeData *>(node.data());
+        }
+
+        [[nodiscard]] const SwitchBranchTemplate *active_switch_branch(const SwitchNodeRuntimeData &runtime) noexcept
+        {
+            return runtime.active_branch_index < runtime.branches.size() ? &runtime.branches[runtime.active_branch_index] : nullptr;
+        }
+
+        [[nodiscard]] int64_t next_switch_child_graph_id(SwitchNodeRuntimeData &runtime) noexcept
+        {
+            return -runtime.next_child_graph_id++;
+        }
+
+        struct SwitchChildGraphStorageLayout
+        {
+            size_t size{0};
+            size_t alignment{alignof(std::max_align_t)};
+        };
+
+        [[nodiscard]] SwitchChildGraphStorageLayout
+        describe_switch_child_graph_storage(const std::vector<SwitchBranchTemplate> &branches)
+        {
+            SwitchChildGraphStorageLayout layout;
+            for (const auto &branch : branches) {
+                if (branch.child_template == nullptr) { continue; }
+                layout.size = std::max(layout.size, branch.child_template->graph_builder.memory_size());
+                layout.alignment = std::max(layout.alignment, branch.child_template->graph_builder.alignment());
+            }
+            return layout;
+        }
+
+        [[nodiscard]] size_t switch_runtime_storage_size(const std::vector<SwitchBranchTemplate> &branches)
+        {
+            const auto layout = describe_switch_child_graph_storage(branches);
+            return align_up(sizeof(SwitchNodeRuntimeData), layout.alignment) + layout.size;
+        }
+
+        [[nodiscard]] size_t switch_runtime_storage_alignment(const std::vector<SwitchBranchTemplate> &branches)
+        {
+            return std::max(alignof(SwitchNodeRuntimeData), describe_switch_child_graph_storage(branches).alignment);
+        }
+
+        [[nodiscard]] GraphStorageReservation switch_child_graph_storage(SwitchNodeRuntimeData &runtime) noexcept
+        {
+            if (runtime.child_graph_storage_size == 0) { return {}; }
+
+            auto *storage = reinterpret_cast<std::byte *>(&runtime) +
+                            align_up(sizeof(SwitchNodeRuntimeData), runtime.child_graph_storage_alignment);
+            return GraphStorageReservation{storage, runtime.child_graph_storage_size, runtime.child_graph_storage_alignment};
+        }
+
+        [[nodiscard]] size_t select_switch_branch(const SwitchNodeRuntimeData &runtime, const value::View &selector)
+        {
+            size_t default_branch_index = static_cast<size_t>(-1);
+            for (size_t index = 0; index < runtime.branches.size(); ++index) {
+                const auto &branch = runtime.branches[index];
+                if (branch.is_default) {
+                    default_branch_index = index;
+                    continue;
+                }
+                if (branch.selector_value.has_value() && branch.selector_value.view() == selector) { return index; }
+            }
+
+            if (default_branch_index != static_cast<size_t>(-1)) { return default_branch_index; }
+            throw std::runtime_error(fmt::format("switch_ has no graph defined for selector {}", selector.to_string()));
+        }
+
+        [[nodiscard]] TSOutputView resolve_switch_source_output(Node &node,
+                                                                SwitchNodeRuntimeData &runtime,
+                                                                const OutputBindingSpec &spec,
+                                                                engine_time_t evaluation_time)
+        {
+            switch (spec.mode) {
+                case OutputBindingMode::ALIAS_CHILD_OUTPUT:
+                    {
+                        if (spec.child_node_index < 0 || runtime.child_instance.graph() == nullptr) { return {}; }
+                        auto &child_node = runtime.child_instance.graph()->node_at(static_cast<size_t>(spec.child_node_index));
+                        return navigate_output(child_node.output_view(evaluation_time), spec.child_output_path);
+                    }
+                case OutputBindingMode::ALIAS_PARENT_INPUT:
+                    {
+                        if (runtime.input == nullptr) {
+                            throw std::logic_error("switch parent-input output alias requires a parent input");
+                        }
+                        auto parent_input = runtime.input->view(&node, evaluation_time);
+                        TSOutputView source_output = bound_output_of(parent_input.as_bundle().field(spec.parent_arg_name));
+                        if (source_output.ts_schema() == nullptr) { return {}; }
+                        return navigate_output(source_output, spec.child_output_path);
+                    }
+                default:
+                    throw std::logic_error("switch output binding mode is not supported");
+            }
+        }
+
+        void clear_output_value(TSOutputView output);
+
+        void clear_switch_output_links(Node &node, SwitchNodeRuntimeData &runtime, engine_time_t evaluation_time)
+        {
+            if (!node.has_output()) { return; }
+            const auto *branch = active_switch_branch(runtime);
+            if (branch == nullptr) { return; }
+
+            TSOutputView parent_output = node.output_view(evaluation_time);
+            for (const auto &spec : branch->child_template->boundary_plan.outputs) {
+                TSOutputView target_output = navigate_output(parent_output, spec.parent_output_path);
+                clear_output_link(target_output);
+                if (evaluation_time != MIN_DT) { clear_output_value(target_output); }
+            }
+        }
+
+        void stop_switch_child(Node &node, SwitchNodeRuntimeData &runtime, engine_time_t evaluation_time) noexcept
+        {
+            try {
+                clear_switch_output_links(node, runtime, evaluation_time);
+            } catch (...) {}
+            try {
+                if (runtime.child_instance.is_started()) { runtime.child_instance.stop(evaluation_time); }
+            } catch (...) {}
+            try {
+                if (runtime.bound && runtime.child_instance.graph() != nullptr) {
+                    BoundaryBindingRuntime::unbind(runtime.child_instance.boundary_plan(), *runtime.child_instance.graph());
+                }
+            } catch (...) {}
+            runtime.bound = false;
+        }
+
+        [[nodiscard]] bool ensure_switch_child_bound(Node &node, SwitchNodeRuntimeData &runtime, engine_time_t evaluation_time)
+        {
+            if (runtime.bound || runtime.child_instance.graph() == nullptr) { return false; }
+            BoundaryBindingRuntime::bind(runtime.child_instance.boundary_plan(), *runtime.child_instance.graph(), node, evaluation_time);
+            runtime.bound = true;
+            return true;
+        }
+
+        void forward_switch_child_outputs(Node &node, TSOutputView parent_output, SwitchNodeRuntimeData &runtime,
+                                          engine_time_t evaluation_time)
+        {
+            const auto &plan = runtime.child_instance.boundary_plan();
+            for (const auto &spec : plan.outputs) {
+                TSOutputView source_output = resolve_switch_source_output(node, runtime, spec, evaluation_time);
+
+                TSOutputView target_output = navigate_output(parent_output, spec.parent_output_path);
+                if (source_output.ts_schema() == nullptr) {
+                    clear_output_link(target_output);
+                    if (evaluation_time != MIN_DT) { clear_output_value(target_output); }
+                    continue;
+                }
+
+                if (!source_output.valid()) {
+                    if (evaluation_time != MIN_DT && source_output.modified()) {
+                        clear_output_link(target_output);
+                        clear_output_value(target_output);
+                    }
+                    continue;
+                }
+
+                if (const auto *parent_schema = target_output.ts_schema();
+                    parent_schema != nullptr && source_output.ts_schema() != parent_schema &&
+                    source_output.owning_output() != nullptr) {
+                    source_output = source_output.owning_output()->bindable_view(source_output, parent_schema);
+                }
+
+                const bool rebound = bind_output_link(target_output, source_output);
+                if (evaluation_time != MIN_DT && (rebound || source_output.modified())) {
+                    mark_output_view_modified(target_output, evaluation_time);
+                }
+            }
+        }
+
+        void clear_output_value(TSOutputView output)
+        {
+            const TSMeta *schema = output.ts_schema();
+            if (schema == nullptr) { return; }
+
+            switch (schema->kind) {
+                case TSKind::TSB:
+                case TSKind::TSL:
+                case TSKind::TSD:
+                case TSKind::TSS:
+                    output.clear();
+                    break;
+                default:
+                    output.invalidate();
+                    break;
+            }
+        }
+
+        void activate_switch_branch(Node &node, SwitchNodeRuntimeData &runtime, size_t branch_index, const value::View &selector,
+                                    engine_time_t evaluation_time)
+        {
+            stop_switch_child(node, runtime, evaluation_time);
+            runtime.child_instance = ChildGraphInstance{};
+
+            const auto &branch = runtime.branches[branch_index];
+            std::vector<int64_t> graph_id = node.node_id();
+            graph_id.push_back(next_switch_child_graph_id(runtime));
+
+            runtime.child_instance.initialise(*branch.child_template, node, std::move(graph_id), selector.to_string(),
+                                              switch_child_graph_storage(runtime));
+            static_cast<void>(ensure_switch_child_bound(node, runtime, evaluation_time));
+            runtime.child_instance.start(evaluation_time);
+            runtime.active_branch_index = branch_index;
+            runtime.active_key = selector.clone(MutationTracking::Plain);
+        }
+
+        [[nodiscard]] bool switch_has_input(const Node &node) noexcept
+        {
+            return node.data() != nullptr && switch_runtime(const_cast<Node &>(node)).input != nullptr;
+        }
+
+        [[nodiscard]] bool switch_has_output(const Node &node) noexcept
+        {
+            return node.data() != nullptr && switch_runtime(const_cast<Node &>(node)).output != nullptr;
+        }
+
+        [[nodiscard]] bool switch_has_error_output(const Node &node) noexcept
+        {
+            return node.data() != nullptr && switch_runtime(const_cast<Node &>(node)).error_output != nullptr;
+        }
+
+        [[nodiscard]] bool switch_has_recordable_state(const Node & /*node*/) noexcept { return false; }
+
+        [[nodiscard]] TSInputView switch_input_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!switch_has_input(node)) { return detail::invalid_input_view(evaluation_time); }
+            return switch_runtime(node).input->view(&node, evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView switch_output_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!switch_has_output(node)) { return detail::invalid_output_view(evaluation_time); }
+            return switch_runtime(node).output->view(evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView switch_error_output_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!switch_has_error_output(node)) { return detail::invalid_output_view(evaluation_time); }
+            return switch_runtime(node).error_output->view(evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView switch_recordable_state_view(Node & /*node*/, engine_time_t evaluation_time)
+        {
+            return detail::invalid_output_view(evaluation_time);
+        }
+
+        void switch_node_start(Node & /*node*/, engine_time_t /*evaluation_time*/) {}
+
+        void switch_node_stop(Node &node, engine_time_t evaluation_time)
+        {
+            auto &runtime = switch_runtime(node);
+            stop_switch_child(node, runtime, evaluation_time);
+        }
+
+        void switch_node_eval(Node &node, engine_time_t evaluation_time)
+        {
+            auto &runtime = switch_runtime(node);
+            TSInputView selector_input = resolve_parent_input_arg(node, "key", evaluation_time);
+            if (!selector_input.valid()) { return; }
+
+            const value::View selector = selector_input.value();
+            const size_t branch_index = select_switch_branch(runtime, selector);
+            const bool raw_selector_changed =
+                selector_input.modified() && (runtime.reload_on_ticked || !runtime.active_key.has_value() ||
+                                              runtime.active_key->view() != selector);
+            const bool branch_changed =
+                runtime.active_branch_index == static_cast<size_t>(-1) || runtime.active_branch_index != branch_index ||
+                raw_selector_changed || !runtime.child_instance.is_initialised();
+
+            if (branch_changed) { activate_switch_branch(node, runtime, branch_index, selector, evaluation_time); }
+            if (!runtime.child_instance.is_started()) { return; }
+
+            if (node.has_output()) {
+                if (branch_changed) {
+                    forward_switch_child_outputs(node, node.output_view(evaluation_time), runtime, MIN_DT);
+                } else if (ensure_switch_child_bound(node, runtime, evaluation_time)) {
+                    forward_switch_child_outputs(node, node.output_view(evaluation_time), runtime, MIN_DT);
+                }
+            } else {
+                static_cast<void>(ensure_switch_child_bound(node, runtime, evaluation_time));
+            }
+
+            runtime.child_instance.evaluate(evaluation_time);
+            if (node.has_output()) {
+                TSOutputView output = node.output_view(evaluation_time);
+                forward_switch_child_outputs(node, output, runtime, evaluation_time);
+                if (branch_changed && !output.modified()) { clear_output_value(output); }
+            }
+        }
+
+        const NodeRuntimeOps k_switch_runtime_ops{
+            &switch_node_start,
+            &switch_node_stop,
+            &switch_node_eval,
+            &switch_has_input,
+            &switch_has_output,
+            &switch_has_error_output,
+            &switch_has_recordable_state,
+            &switch_input_view,
+            &switch_output_view,
+            &switch_error_output_view,
+            &switch_recordable_state_view,
+            &nested_runtime_label,
+        };
+
+        void destruct_switch_node(Node &node) noexcept
+        {
+            const BuiltNodeSpec &spec = node.spec();
+            auto &runtime_data = detail::runtime_data<SwitchNodeRuntimeData>(node);
+
+            if (runtime_data.recordable_state != nullptr) { runtime_data.recordable_state->~TSOutput(); }
+            if (runtime_data.error_output != nullptr) { runtime_data.error_output->~TSOutput(); }
+            if (runtime_data.output != nullptr) { runtime_data.output->~TSOutput(); }
+            if (runtime_data.input != nullptr) { runtime_data.input->~TSInput(); }
+
+            if (auto *scheduler = node.scheduler_if_present(); scheduler != nullptr) { std::destroy_at(scheduler); }
+            std::destroy_at(const_cast<BuiltNodeSpec *>(&spec));
+            std::destroy_at(&runtime_data);
+        }
+
+        void validate_switch_contract(const NodeBuilder & /*builder*/) {}
+
+        [[nodiscard]] size_t switch_builder_size(const NodeBuilder &builder,
+                                                 const std::vector<TSInputConstructionEdge> &inbound_edges)
+        {
+            const auto &state = detail::node_builder_type_state<SwitchNodeBuilderState>(builder);
+            const auto builders = resolve_builders(builder, inbound_edges);
+            return describe_layout(builder, switch_runtime_storage_size(state.branches),
+                                   switch_runtime_storage_alignment(state.branches), builders)
+                .total_size;
+        }
+
+        [[nodiscard]] size_t switch_builder_alignment(const NodeBuilder &builder,
+                                                      const std::vector<TSInputConstructionEdge> &inbound_edges)
+        {
+            const auto &state = detail::node_builder_type_state<SwitchNodeBuilderState>(builder);
+            const auto builders = resolve_builders(builder, inbound_edges);
+            return describe_layout(builder, switch_runtime_storage_size(state.branches),
+                                   switch_runtime_storage_alignment(state.branches), builders)
+                .alignment;
+        }
+
+        [[nodiscard]] Node *switch_construct_at(const NodeBuilder &builder, void *memory, int64_t node_index,
+                                                const std::vector<TSInputConstructionEdge> &inbound_edges)
+        {
+            const auto &state = detail::node_builder_type_state<SwitchNodeBuilderState>(builder);
+
+            struct RuntimeLifecycle
+            {
+                const std::vector<SwitchBranchTemplate> *branches;
+                bool reload_on_ticked;
+                size_t child_graph_storage_size;
+                size_t child_graph_storage_alignment;
+
+                void destroy(void *runtime_data) const { std::destroy_at(static_cast<SwitchNodeRuntimeData *>(runtime_data)); }
+
+                void initialise(const NodeBuilder & /*builder*/, void *runtime_data_ptr, Node * /*node*/, TSInput * /*input*/,
+                                TSOutput * /*output*/, TSOutput * /*error_output*/, TSOutput * /*recordable_state*/) const
+                {
+                    auto &runtime = *static_cast<SwitchNodeRuntimeData *>(runtime_data_ptr);
+                    runtime.branches = *branches;
+                    runtime.reload_on_ticked = reload_on_ticked;
+                    runtime.child_graph_storage_size = child_graph_storage_size;
+                    runtime.child_graph_storage_alignment = child_graph_storage_alignment;
+                }
+            };
+
+            const auto child_graph_storage = describe_switch_child_graph_storage(state.branches);
+
+            return construct_node_chunk<SwitchNodeBuilderState>(
+                builder, memory, node_index, inbound_edges, &k_switch_runtime_ops, nullptr, &destruct_switch_node,
+                switch_runtime_storage_size(state.branches), switch_runtime_storage_alignment(state.branches),
+                [](void *storage, const ResolvedNodeBuilders &, TSInput *input, TSOutput *output, TSOutput *error_output,
+                   void * /*state_memory*/, TSOutput *recordable_state) -> void * {
+                    return new (storage) SwitchNodeRuntimeData{input, output, error_output, recordable_state};
+                },
+                RuntimeLifecycle{
+                    &state.branches,
+                    state.reload_on_ticked,
+                    child_graph_storage.size,
+                    child_graph_storage.alignment,
+                });
+        }
+
         struct MapSlotRuntime
         {
             explicit MapSlotRuntime(Value key_arg)
@@ -1588,6 +2030,21 @@ namespace hgraph
             if (!slot.child_instance.is_started()) { slot.child_instance.start(evaluation_time); }
         }
 
+        [[nodiscard]] TSOutputView ensure_key_output(MapSlotRuntime &slot, const TSMeta *ts_schema, engine_time_t evaluation_time);
+
+        void clear_map_slot_target_output(const TSOutputView &parent_output,
+                                          const value::View  &key,
+                                          PathView            parent_output_path,
+                                          engine_time_t       evaluation_time)
+        {
+            if (!is_live_dict_key(parent_output, key)) { return; }
+
+            TSOutputView key_output = parent_output.as_dict().at(key);
+            TSOutputView target_output = navigate_output(key_output, parent_output_path);
+            clear_output_link(target_output);
+            if (evaluation_time != MIN_DT && !key_output.valid()) { parent_output.as_dict().erase(key); }
+        }
+
         void rebind_map_slot_inputs(Node                                   &node,
                                     MapSlotRuntime                         &slot,
                                     const std::unordered_set<std::string>  &modified_direct_args,
@@ -1604,21 +2061,42 @@ namespace hgraph
                 BoundaryBindingRuntime::bind_keyed(slot.child_instance.boundary_plan(),
                                                    *slot.child_instance.graph(),
                                                    node,
+                                                   ensure_key_output(slot, TSTypeRegistry::instance().ts(slot.key.schema()),
+                                                                     evaluation_time),
                                                    slot.key.view(),
                                                    evaluation_time);
             }
         }
 
-        void prepare_key_output(MapSlotRuntime &slot, const TSOutputView &target_output, engine_time_t evaluation_time)
+        [[nodiscard]] TSOutputView ensure_key_output(MapSlotRuntime &slot, const TSMeta *ts_schema, engine_time_t evaluation_time)
         {
+            if (ts_schema == nullptr) { throw std::logic_error("map key output requires a target schema"); }
+
             if (!slot.key_output.has_value()) {
-                const auto &builder = TSOutputBuilderFactory::checked_builder_for(target_output.ts_schema());
+                const auto &builder = TSOutputBuilderFactory::checked_builder_for(ts_schema);
                 slot.key_output.emplace();
                 builder.construct_output(*slot.key_output);
                 TSOutputView key_source = slot.key_output->view(evaluation_time);
+                if (key_source.value().schema() != slot.key.view().schema()) {
+                    throw std::logic_error(fmt::format("map key output schema mismatch: {} != {}",
+                                                       schema_debug_label(key_source.value().schema()),
+                                                       schema_debug_label(slot.key.view().schema())));
+                }
                 key_source.value().copy_from(slot.key.view());
                 mark_output_view_modified(key_source, evaluation_time);
             }
+
+            TSOutputView key_source = slot.key_output->view(evaluation_time);
+            if (key_source.ts_schema() != ts_schema) {
+                throw std::logic_error("map key output time-series schema mismatch");
+            }
+            if (key_source.value().schema() != slot.key.view().schema()) {
+                throw std::logic_error(fmt::format("map key output schema mismatch: {} != {}",
+                                                   schema_debug_label(key_source.value().schema()),
+                                                   schema_debug_label(slot.key.view().schema())));
+            }
+
+            return key_source;
         }
 
         [[nodiscard]] bool forward_map_slot_outputs(Node &node,
@@ -1662,19 +2140,18 @@ namespace hgraph
                         {
                             TSOutputView target_output =
                                 map_target_output(parent_output, slot.key.view(), spec.parent_output_path, evaluation_time);
-                            prepare_key_output(slot, target_output, evaluation_time);
-                            source_output = slot.key_output->view(evaluation_time);
+                            source_output = ensure_key_output(slot, target_output.ts_schema(), evaluation_time);
                             break;
                         }
                 }
 
                 if (source_output.ts_schema() == nullptr) {
-                    if (is_live_dict_key(parent_output, slot.key.view())) {
-                        TSOutputView target_output =
-                            navigate_output(parent_output.as_dict().at(slot.key.view()), spec.parent_output_path);
-                        clear_output_link(target_output);
-                        slot_value_changed = true;
-                    }
+                    clear_map_slot_target_output(parent_output, slot.key.view(), spec.parent_output_path, evaluation_time);
+                    continue;
+                }
+
+                if (!source_output.valid()) {
+                    clear_map_slot_target_output(parent_output, slot.key.view(), spec.parent_output_path, evaluation_time);
                     continue;
                 }
 
@@ -1820,8 +2297,10 @@ namespace hgraph
             auto &runtime = map_runtime(node);
             auto &slot_store = map_slot_store(runtime);
             TSInputView keys_input = resolve_parent_input_arg(node, runtime.keys_arg, evaluation_time);
-            const auto keys_delta = keys_input.value().as_set().delta();
-            const bool keys_modified = keys_input.modified();
+            TSOutputView keys_output = live_bound_output_of(keys_input);
+            const View keys_value = keys_output.ts_schema() != nullptr ? keys_output.value() : keys_input.value();
+            const auto keys_delta = keys_value.as_set().delta();
+            const bool keys_modified = keys_output.ts_schema() != nullptr ? keys_output.modified() : keys_input.modified();
 
             slot_store.reserve_to(keys_delta.slot_capacity());
 
@@ -1899,6 +2378,13 @@ namespace hgraph
 
             if (node.has_output()) {
                 publish_map_slot_output_updates(runtime, parent_output, slot_store, changed_output_slots, evaluation_time);
+                if (keys_modified && !parent_output.modified()) {
+                    if (!parent_output.valid()) {
+                        parent_output.clear();
+                    } else {
+                        mark_output_view_modified(parent_output, evaluation_time);
+                    }
+                }
             }
 
             node.scheduler().un_schedule("map");
@@ -2197,6 +2683,36 @@ namespace hgraph
         builder.m_type_ops = &map_ops;
         builder.m_type_state =
             make_builder_state(MapNodeBuilderState{child_template, std::move(key_arg), std::move(keys_arg), std::move(multiplexed_args)});
+        builder.m_uses_scheduler = true;
+        builder.m_has_explicit_scheduler = true;
+        return builder;
+    }
+
+    NodeBuilder &switch_graph_implementation(NodeBuilder &builder,
+                                             std::vector<SwitchBranchTemplate> branches,
+                                             bool reload_on_ticked)
+    {
+        if (branches.empty()) {
+            throw std::invalid_argument("switch_graph_implementation requires at least one branch template");
+        }
+        for (const auto &branch : branches) {
+            if (branch.child_template == nullptr) {
+                throw std::invalid_argument("switch_graph_implementation requires non-null branch templates");
+            }
+        }
+
+        static const NodeBuilder::TypeOps switch_ops{
+            &validate_switch_contract,
+            &switch_builder_size,
+            &switch_builder_alignment,
+            &switch_construct_at,
+            &destruct_builder_node,
+            &clone_builder_state<SwitchNodeBuilderState>,
+            &destroy_builder_state<SwitchNodeBuilderState>,
+        };
+        builder.reset_type_state();
+        builder.m_type_ops = &switch_ops;
+        builder.m_type_state = make_builder_state(SwitchNodeBuilderState{std::move(branches), reload_on_ticked});
         builder.m_uses_scheduler = true;
         builder.m_has_explicit_scheduler = true;
         return builder;

@@ -14,7 +14,8 @@ namespace hgraph
 
     Graph::Graph(Graph &&other) noexcept
         : m_node_count(other.m_node_count), m_push_source_nodes_end(other.m_push_source_nodes_end), m_started(other.m_started),
-          m_storage_alignment(other.m_storage_alignment), m_last_evaluation_time(other.m_last_evaluation_time),
+          m_owns_storage(other.m_owns_storage), m_storage_alignment(other.m_storage_alignment),
+          m_last_evaluation_time(other.m_last_evaluation_time),
           m_evaluation_engine(other.m_evaluation_engine), m_traits(std::move(other.m_traits)),
           m_graph_id(std::move(other.m_graph_id)), m_parent_node(other.m_parent_node), m_label(std::move(other.m_label)),
           m_storage(other.m_storage) {
@@ -22,6 +23,7 @@ namespace hgraph
         other.m_push_source_nodes_end = 0;
         other.m_started               = false;
         other.m_is_evaluating         = false;
+        other.m_owns_storage          = false;
         other.m_storage_alignment     = alignof(std::max_align_t);
         other.m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
         other.m_last_evaluation_time  = MIN_DT;
@@ -39,6 +41,7 @@ namespace hgraph
             m_push_source_nodes_end = other.m_push_source_nodes_end;
             m_started               = other.m_started;
             m_is_evaluating         = false;
+            m_owns_storage          = other.m_owns_storage;
             m_storage_alignment     = other.m_storage_alignment;
             m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
             m_last_evaluation_time  = other.m_last_evaluation_time;
@@ -53,6 +56,7 @@ namespace hgraph
             other.m_push_source_nodes_end = 0;
             other.m_started               = false;
             other.m_is_evaluating         = false;
+            other.m_owns_storage          = false;
             other.m_storage_alignment     = alignof(std::max_align_t);
             other.m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
             other.m_last_evaluation_time  = MIN_DT;
@@ -109,12 +113,14 @@ namespace hgraph
         return entry_storage()[index].scheduled;
     }
 
-    void Graph::adopt_storage(void *storage, size_t storage_alignment, size_t node_count, int64_t push_source_nodes_end) noexcept {
+    void Graph::adopt_storage(void *storage, size_t storage_alignment, size_t node_count, int64_t push_source_nodes_end,
+                              bool owns_storage) noexcept {
         clear_storage();
         m_node_count            = node_count;
         m_push_source_nodes_end = push_source_nodes_end;
         m_started               = false;
         m_is_evaluating         = false;
+        m_owns_storage          = owns_storage;
         m_storage_alignment     = storage_alignment;
         m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
         m_last_evaluation_time  = MIN_DT;
@@ -137,11 +143,12 @@ namespace hgraph
             }
         }
 
-        ::operator delete(m_storage, std::align_val_t(m_storage_alignment));
+        if (m_owns_storage) { ::operator delete(m_storage, std::align_val_t(m_storage_alignment)); }
         m_node_count            = 0;
         m_push_source_nodes_end = 0;
         m_started               = false;
         m_is_evaluating         = false;
+        m_owns_storage          = false;
         m_storage_alignment     = alignof(std::max_align_t);
         m_evaluation_cursor     = INVALID_EVALUATION_CURSOR;
         m_last_evaluation_time  = MIN_DT;

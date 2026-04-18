@@ -87,6 +87,14 @@ namespace hgraph
         {
             BaseState *state = context.ts_state;
             if (state == nullptr) { return context; }
+            bool is_root_output_state = false;
+            hgraph::visit(state->parent, [&](TSOutput *) { is_root_output_state = true; }, [] {});
+            if (state->linked_target() != nullptr && state->index == 0 && is_root_output_state) {
+                // Root output links already resolve through their bound target.
+                // Re-rooting them through the owning output would reintroduce
+                // the local output storage and discard the live target context.
+                return context;
+            }
 
             std::vector<size_t> path;
             const Node *root_node = nullptr;
@@ -388,6 +396,52 @@ namespace hgraph
         return linked_context_equal_impl(lhs, rhs);
     }
 
+    detail::LinkTransitionSnapshot detail::transition_snapshot(const TSViewContext &context) noexcept
+    {
+        const BaseState *state = context.ts_state;
+        while (state != nullptr) {
+            switch (state->storage_kind) {
+                case TSStorageKind::OutputLink:
+                    {
+                        const auto &link = *static_cast<const OutputLinkState *>(state);
+                        if (link.switch_modified_time != MIN_DT && link.previous_target_value.has_value()) {
+                            return {&link.previous_target_value, link.switch_modified_time};
+                        }
+                        const LinkedTSContext *target = link.linked_target();
+                        state = target != nullptr ? target->ts_state : nullptr;
+                        break;
+                    }
+
+                case TSStorageKind::TargetLink:
+                    {
+                        const auto &link = *static_cast<const TargetLinkState *>(state);
+                        if (link.switch_modified_time != MIN_DT && link.previous_target_value.has_value()) {
+                            return {&link.previous_target_value, link.switch_modified_time};
+                        }
+                        const LinkedTSContext *target = link.linked_target();
+                        state = target != nullptr ? target->ts_state : nullptr;
+                        break;
+                    }
+
+                case TSStorageKind::RefLink:
+                    {
+                        const auto &link = *static_cast<const RefLinkState *>(state);
+                        if (link.switch_modified_time != MIN_DT && link.previous_target_value.has_value()) {
+                            return {&link.previous_target_value, link.switch_modified_time};
+                        }
+                        state = nullptr;
+                        break;
+                    }
+
+                case TSStorageKind::Native:
+                    state = nullptr;
+                    break;
+            }
+        }
+
+        return {};
+    }
+
     TSViewContext detail::refresh_native_context(const TSViewContext &context) noexcept
     {
         return context_from_root_state(context);
@@ -677,7 +731,13 @@ namespace hgraph
 
     void OutputLinkState::TargetNotifiable::notify(engine_time_t modified_time)
     {
-        if (self != nullptr) { self->mark_modified(modified_time); }
+        if (self != nullptr) {
+            if (self->switch_modified_time != modified_time) {
+                self->previous_target_value = {};
+                self->switch_modified_time = MIN_DT;
+            }
+            self->mark_modified(modified_time);
+        }
     }
 
     OutputLinkState::OutputLinkState() noexcept : target_notifiable(this) {}
@@ -696,6 +756,8 @@ namespace hgraph
         storage_kind = other.storage_kind;
         subscribers = std::move(other.subscribers);
         feature_registry = std::move(other.feature_registry);
+        previous_target_value = std::move(other.previous_target_value);
+        switch_modified_time = other.switch_modified_time;
 
         if (other.target.is_bound()) {
             const LinkedTSContext bound_target = other.target;
@@ -704,6 +766,9 @@ namespace hgraph
             register_with_target();
             other.target.clear();
         }
+
+        other.previous_target_value = {};
+        other.switch_modified_time = MIN_DT;
     }
 
     OutputLinkState &OutputLinkState::operator=(OutputLinkState &&other) noexcept
@@ -717,6 +782,8 @@ namespace hgraph
         storage_kind = other.storage_kind;
         subscribers = std::move(other.subscribers);
         feature_registry = std::move(other.feature_registry);
+        previous_target_value = std::move(other.previous_target_value);
+        switch_modified_time = other.switch_modified_time;
 
         if (other.target.is_bound()) {
             const LinkedTSContext bound_target = other.target;
@@ -726,22 +793,33 @@ namespace hgraph
             other.target.clear();
         }
 
+        other.previous_target_value = {};
+        other.switch_modified_time = MIN_DT;
+
         return *this;
     }
 
-    void OutputLinkState::set_target(LinkedTSContext target_state) noexcept
+    void OutputLinkState::set_target(LinkedTSContext target_state, engine_time_t modified_time) noexcept
     {
+        const bool target_changed = !linked_context_equal_impl(target, target_state);
+        Value transition_value =
+            target_changed && modified_time != MIN_DT ? snapshot_target_value_impl(target, modified_time) : Value{};
+
         unregister_from_target();
         target = std::move(target_state);
         last_modified_time = target.ts_state != nullptr ? target.ts_state->last_modified_time : MIN_DT;
+        previous_target_value = std::move(transition_value);
+        switch_modified_time = previous_target_value.has_value() ? modified_time : MIN_DT;
         register_with_target();
     }
 
-    void OutputLinkState::reset_target() noexcept
+    void OutputLinkState::reset_target(engine_time_t modified_time) noexcept
     {
+        previous_target_value = modified_time != MIN_DT ? snapshot_target_value_impl(target, modified_time) : Value{};
+        switch_modified_time = previous_target_value.has_value() ? modified_time : MIN_DT;
         unregister_from_target();
         target.clear();
-        last_modified_time = MIN_DT;
+        last_modified_time = switch_modified_time != MIN_DT ? switch_modified_time : MIN_DT;
     }
 
     void OutputLinkState::register_with_target() noexcept

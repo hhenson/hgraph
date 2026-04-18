@@ -769,31 +769,14 @@ namespace hgraph
             return state != nullptr && state->modified_children.contains(index);
         }
 
-        [[nodiscard]] const RefLinkState *switching_ref_state(const TSViewContext &context) noexcept
+        [[nodiscard]] detail::LinkTransitionSnapshot set_transition_snapshot(const TSViewContext &context) noexcept
         {
-            const BaseState *state = context.ts_state;
-            while (state != nullptr &&
-                   (state->storage_kind == TSStorageKind::TargetLink || state->storage_kind == TSStorageKind::OutputLink)) {
-                const LinkedTSContext *target = state->linked_target();
-                state = target != nullptr ? target->ts_state : nullptr;
+            const auto snapshot = detail::transition_snapshot(context);
+            if (!snapshot.active() || snapshot.previous_value->schema() == nullptr ||
+                snapshot.previous_value->schema()->kind != value::TypeKind::Set) {
+                return {};
             }
-
-            return state != nullptr && state->storage_kind == TSStorageKind::RefLink
-                       ? static_cast<const RefLinkState *>(state)
-                       : nullptr;
-        }
-
-        [[nodiscard]] const RefLinkState *switching_set_ref_state(const TSViewContext &context) noexcept
-        {
-            const auto *ref_state = switching_ref_state(context);
-            if (ref_state == nullptr || ref_state->switch_modified_time == MIN_DT || !ref_state->previous_target_value.has_value()) {
-                return nullptr;
-            }
-
-            return ref_state->previous_target_value.schema() != nullptr &&
-                           ref_state->previous_target_value.schema()->kind == value::TypeKind::Set
-                       ? ref_state
-                       : nullptr;
+            return snapshot;
         }
 
         [[nodiscard]] bool signal_has_children(const TSViewContext &context) noexcept
@@ -1418,11 +1401,10 @@ namespace hgraph
             {
                 if (detail::TSDispatch::valid(context)) { return true; }
 
-                const auto *ref_state = switching_set_ref_state(context);
-                if (ref_state == nullptr) { return false; }
+                const auto snapshot = set_transition_snapshot(context);
+                if (!snapshot.active()) { return false; }
 
-                return ref_state->switch_modified_time == last_modified_time(context) &&
-                       ref_state->previous_target_value.has_value();
+                return snapshot.modified_time == last_modified_time(context);
             }
 
             void from_python(const TSOutputView &view, nb::handle value) const override
@@ -1492,20 +1474,20 @@ namespace hgraph
 
             [[nodiscard]] Range<View> added_values(const TSViewContext &context) const noexcept override
             {
-                if (const auto *ref_state = switching_set_ref_state(context); ref_state != nullptr) {
+                if (const auto snapshot = set_transition_snapshot(context); snapshot.active()) {
                     const size_t slot_capacity =
                         context.value().has_value() ? context.value().as_set().delta().slot_capacity() : 0;
                     return Range<View>{&context,
                                        slot_capacity,
                                        [](const void *opaque, size_t slot) {
                                            const auto &context = *static_cast<const TSViewContext *>(opaque);
-                                           const auto *ref_state = switching_set_ref_state(context);
-                                           if (ref_state == nullptr || !context.value().has_value()) { return false; }
+                                           const auto snapshot = set_transition_snapshot(context);
+                                           if (!snapshot.active() || !context.value().has_value()) { return false; }
 
                                            const auto current = context.value().as_set();
                                            const auto delta = current.delta();
                                            return slot < delta.slot_capacity() && delta.slot_occupied(slot) && !delta.slot_removed(slot) &&
-                                                  !ref_state->previous_target_value.view().as_set().contains(delta.at_slot(slot));
+                                                  !snapshot.previous_value->view().as_set().contains(delta.at_slot(slot));
                                        },
                                        [](const void *opaque, size_t slot) {
                                            const auto &context = *static_cast<const TSViewContext *>(opaque);
@@ -1530,22 +1512,22 @@ namespace hgraph
 
             [[nodiscard]] Range<View> removed_values(const TSViewContext &context) const noexcept override
             {
-                if (const auto *ref_state = switching_set_ref_state(context); ref_state != nullptr) {
+                if (const auto snapshot = set_transition_snapshot(context); snapshot.active()) {
                     return Range<View>{&context,
-                                       ref_state->previous_target_value.view().as_set().delta().slot_capacity(),
+                                       snapshot.previous_value->view().as_set().delta().slot_capacity(),
                                        [](const void *opaque, size_t slot) {
                                            const auto &context = *static_cast<const TSViewContext *>(opaque);
-                                           const auto *ref_state = switching_set_ref_state(context);
-                                           if (ref_state == nullptr) { return false; }
+                                           const auto snapshot = set_transition_snapshot(context);
+                                           if (!snapshot.active()) { return false; }
 
-                                           const auto previous = ref_state->previous_target_value.view().as_set().delta();
+                                           const auto previous = snapshot.previous_value->view().as_set().delta();
                                            return slot < previous.slot_capacity() && previous.slot_occupied(slot) && !previous.slot_removed(slot) &&
                                                   (!context.value().has_value() ||
                                                    !context.value().as_set().contains(previous.at_slot(slot)));
                                        },
                                        [](const void *opaque, size_t slot) {
                                            const auto &context = *static_cast<const TSViewContext *>(opaque);
-                                           return switching_set_ref_state(context)->previous_target_value.view().as_set().delta().at_slot(slot);
+                                           return set_transition_snapshot(context).previous_value->view().as_set().delta().at_slot(slot);
                                        }};
                 }
 

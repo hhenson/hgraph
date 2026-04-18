@@ -63,6 +63,7 @@ struct HGRAPH_EXPORT TSOutput : TSValue {
 protected:
 private:
     friend struct TSOutputBuilder;
+    friend struct TSOutputView;
     friend void mark_output_view_modified(const TSOutputView &view, engine_time_t evaluation_time);
 
     struct AlternativeOutput;

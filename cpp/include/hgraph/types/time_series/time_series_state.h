@@ -45,6 +45,17 @@ namespace hgraph
         struct TSOutputViewOps;
         struct ViewDispatch;
 
+        struct LinkTransitionSnapshot
+        {
+            const Value *previous_value{nullptr};
+            engine_time_t modified_time{MIN_DT};
+
+            [[nodiscard]] bool active() const noexcept
+            {
+                return previous_value != nullptr && modified_time != MIN_DT;
+            }
+        };
+
         [[nodiscard]] HGRAPH_EXPORT bool has_local_reference_binding(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT bool linked_context_valid(const LinkedTSContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT bool linked_context_all_valid(const LinkedTSContext &context) noexcept;
@@ -52,6 +63,7 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT const Value *materialized_reference_value(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT bool reference_all_valid(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT bool linked_context_equal(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT LinkTransitionSnapshot transition_snapshot(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT TSViewContext refresh_native_context(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT Value snapshot_target_value(const LinkedTSContext &target,
                                                                engine_time_t modified_time = MIN_DT);
@@ -443,10 +455,12 @@ namespace hgraph
         OutputLinkState(const OutputLinkState &) = delete;
         OutputLinkState &operator=(const OutputLinkState &) = delete;
 
-        void set_target(LinkedTSContext target_state) noexcept;
-        void reset_target() noexcept;
+        void set_target(LinkedTSContext target_state, engine_time_t modified_time = MIN_DT) noexcept;
+        void reset_target(engine_time_t modified_time = MIN_DT) noexcept;
 
         LinkedTSContext target;
+        Value previous_target_value;
+        engine_time_t switch_modified_time{MIN_DT};
         TargetNotifiable target_notifiable;
 
       private:

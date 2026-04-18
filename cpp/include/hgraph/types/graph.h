@@ -77,7 +77,8 @@ namespace hgraph
         friend struct GraphBuilder;
 
         explicit Graph(GraphEvaluationEngine evaluation_engine) noexcept;
-        void adopt_storage(void *storage, size_t storage_alignment, size_t node_count, int64_t push_source_nodes_end) noexcept;
+        void adopt_storage(void *storage, size_t storage_alignment, size_t node_count, int64_t push_source_nodes_end,
+                           bool owns_storage) noexcept;
         void clear_storage() noexcept;
         void attach_nodes() noexcept;
         void stop_nodes(size_t nodes_end);
@@ -90,6 +91,7 @@ namespace hgraph
         int64_t                         m_push_source_nodes_end{0};
         bool                            m_started{false};
         bool                            m_is_evaluating{false};
+        bool                            m_owns_storage{false};
         size_t                          m_storage_alignment{alignof(std::max_align_t)};
         size_t                          m_evaluation_cursor{INVALID_EVALUATION_CURSOR};
         engine_time_t                   m_last_evaluation_time{MIN_DT};

@@ -18,6 +18,7 @@ namespace hgraph
 {
     struct NodeBuilder;
     struct ChildGraphTemplate;
+    struct SwitchBranchTemplate;
 
     namespace detail
     {
@@ -185,6 +186,9 @@ namespace hgraph
                                                      std::string key_arg,
                                                      std::string keys_arg,
                                                      std::vector<std::string> multiplexed_args);
+        friend NodeBuilder &switch_graph_implementation(NodeBuilder &builder,
+                                                        std::vector<SwitchBranchTemplate> branches,
+                                                        bool reload_on_ticked);
         template <typename TState>
         friend const TState &detail::node_builder_type_state(const NodeBuilder &builder);
 

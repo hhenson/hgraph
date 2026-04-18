@@ -114,6 +114,7 @@ namespace hgraph
         static void bind_keyed(const BoundaryBindingPlan &plan,
                                Graph &child,
                                Node &parent,
+                               const TSOutputView &key_source,
                                const value::View &key,
                                engine_time_t eval_time);
 

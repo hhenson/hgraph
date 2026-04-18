@@ -2,15 +2,31 @@
 #include <hgraph/types/time_series/value/builder.h>
 #include <hgraph/types/time_series/value/value.h>
 
+#include <fmt/format.h>
+
 #include <stdexcept>
 
 namespace hgraph
 {
+    namespace
+    {
+        [[nodiscard]] const char *schema_name(const value::TypeMeta *schema) noexcept
+        {
+            if (schema == nullptr || schema->name == nullptr) { return "<null>"; }
+            return schema->name;
+        }
+    }
+
     void View::copy_from(const View &other)
     {
         if (!has_value() || !other.has_value()) { throw std::runtime_error("View::copy_from requires non-empty views"); }
         if (data() == data_of(other)) { return; }
-        if (schema() != other.schema()) { throw std::invalid_argument("View::copy_from requires matching schemas"); }
+        if (schema() != other.schema()) {
+            throw std::invalid_argument(
+                fmt::format("View::copy_from requires matching schemas: {} != {}",
+                            schema_name(schema()),
+                            schema_name(other.schema())));
+        }
 
         dispatch()->copy_from(data(), other);
     }

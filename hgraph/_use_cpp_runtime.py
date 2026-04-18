@@ -11,6 +11,7 @@ if is_feature_enabled("use_cpp"):
     print("\n>>>>>>>>>>>>>>>>>>>\nC++ Runtime enabled\n<<<<<<<<<<<<<<<<<<<")
     try:
         import warnings
+        from frozendict import frozendict
 
         import hgraph
         import hgraph._hgraph as _hgraph
@@ -193,12 +194,46 @@ if is_feature_enabled("use_cpp"):
             )
 
         _map.TsdMapWiringNodeClass.BUILDER_CLASS = _create_tsd_map_builder_factory
+        def _create_switch_builder_factory(
+            signature,
+            scalars,
+            input_builder,
+            output_builder,
+            error_builder,
+            recordable_state_builder=None,
+            nested_graphs=None,
+            input_node_ids=None,
+            output_node_id=None,
+            reload_on_ticked=False,
+        ):
+            nested_graphs = frozendict(nested_graphs) if nested_graphs is not None else frozendict()
+            input_node_ids = frozendict(input_node_ids) if input_node_ids is not None else frozendict()
+            output_node_id = frozendict(output_node_id) if output_node_id is not None else frozendict()
+
+            if all(isinstance(graph, _hgraph.GraphBuilder) for graph in nested_graphs.values()):
+                return _hgraph.build_switch_node(
+                    signature,
+                    scalars,
+                    input_builder,
+                    output_builder,
+                    error_builder,
+                    nested_graphs,
+                    input_node_ids,
+                    output_node_id,
+                    reload_on_ticked,
+                )
+
+            raise NotImplementedError(
+                "switch_ requires nested graph builders in C++ mode. "
+                "Use HGRAPH_USE_CPP=0 for the Python runtime or implement the missing builder."
+            )
+
         _reduce.TsdReduceWiringNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("reduce nodes")
         _reduce.TsdNonAssociativeReduceWiringNodeClass.BUILDER_CLASS = _unsupported_cpp_builder(
             "non-associative reduce nodes"
         )
         _mesh.MeshWiringNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("mesh nodes")
-        _switch.SwitchWiringNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("switch nodes")
+        _switch.SwitchWiringNodeClass.BUILDER_CLASS = _create_switch_builder_factory
         _service_impl.ServiceImplNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("service implementation nodes")
 
     except ImportError as e:

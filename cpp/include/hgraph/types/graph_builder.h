@@ -41,6 +41,10 @@ namespace hgraph
         [[nodiscard]] size_t alignment() const;
         [[nodiscard]] size_t memory_size() const;
         [[nodiscard]] Graph make_graph(GraphEvaluationEngine evaluation_engine) const;
+        [[nodiscard]] Graph make_graph_in_storage(GraphEvaluationEngine evaluation_engine,
+                                                  void *storage,
+                                                  size_t storage_size,
+                                                  size_t storage_alignment) const;
 
         [[nodiscard]] size_t node_builder_count() const noexcept { return m_node_builders.size(); }
         [[nodiscard]] const NodeBuilder &node_builder_at(size_t index) const;

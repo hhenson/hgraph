@@ -239,8 +239,20 @@ namespace hgraph
             const auto *state = ts_state;
             if (state == nullptr) { return resolved_context; }
 
-            const auto apply_target = [&resolved_context](LinkedTSContext target) noexcept {
+            const auto apply_target = [&resolved_context, state](LinkedTSContext target) noexcept {
                 if (!target.is_bound()) {
+                    if (state->storage_kind == TSStorageKind::OutputLink) {
+                        resolved_context.schema =
+                            target.schema != nullptr ? target.schema : resolved_context.schema;
+                        resolved_context.value_dispatch =
+                            target.value_dispatch != nullptr ? target.value_dispatch : resolved_context.value_dispatch;
+                        resolved_context.ts_dispatch =
+                            target.ts_dispatch != nullptr ? target.ts_dispatch : resolved_context.ts_dispatch;
+                        resolved_context.ts_state = const_cast<BaseState *>(state);
+                        resolved_context.notification_state = resolved_context.ts_state;
+                        return;
+                    }
+
                     resolved_context.value_data = nullptr;
                     return;
                 }
@@ -722,6 +734,9 @@ namespace hgraph
             if (detail::materialized_target_link_value(context) != nullptr) {
                 return last_modified_time(context) != MIN_DT && context.value().has_value();
             }
+
+            const auto snapshot = detail::transition_snapshot(context);
+            if (snapshot.active() && snapshot.modified_time == last_modified_time(context)) { return true; }
 
             if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr) {
                 return detail::linked_context_valid(*target);

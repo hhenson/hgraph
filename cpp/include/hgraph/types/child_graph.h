@@ -85,6 +85,13 @@ namespace hgraph
         std::deque<ChildGraphTemplate> m_templates;
     };
 
+    struct GraphStorageReservation
+    {
+        void *data{nullptr};
+        size_t size{0};
+        size_t alignment{alignof(std::max_align_t)};
+    };
+
     // ---- ChildGraphInstance ----
 
     /**
@@ -122,7 +129,8 @@ namespace hgraph
         void initialise(const ChildGraphTemplate &tmpl,
                         Node &parent_node,
                         std::vector<int64_t> graph_id,
-                        std::string label = {});
+                        std::string label = {},
+                        GraphStorageReservation storage = {});
 
         /**
          * Start the child graph. Starts all child nodes.

@@ -3,12 +3,22 @@
 #include <hgraph/types/path_constants.h>
 #include <hgraph/types/ref.h>
 
+#include <fmt/format.h>
+
 #include <stdexcept>
 
 namespace hgraph
 {
     namespace
     {
+        [[nodiscard]] std::string schema_debug_label(const value::TypeMeta *schema)
+        {
+            if (schema == nullptr) { return "<null>"; }
+            return fmt::format("{}@{:p}[kind={}]", schema->name != nullptr ? schema->name : "<unnamed>",
+                               static_cast<const void *>(schema),
+                               static_cast<int>(schema->kind));
+        }
+
         [[nodiscard]] TSOutputView bound_output_of(TSInputView view, const TSMeta *required_schema = nullptr) {
             const TSViewContext &input_context = view.context_ref();
             const TSViewContext source_context = input_context.resolved();
@@ -172,6 +182,11 @@ namespace hgraph
             clear_target_link_history(state);
 
             View local_value{context.value_dispatch, context.value_data, context.schema->value_type};
+            if (local_value.schema() != value.schema()) {
+                throw std::logic_error(fmt::format("BoundaryBindingRuntime local input assignment schema mismatch: {} != {}",
+                                                   schema_debug_label(local_value.schema()),
+                                                   schema_debug_label(value.schema())));
+            }
             local_value.copy_from(value);
             state->mark_modified(eval_time);
         }
@@ -305,8 +320,8 @@ namespace hgraph
         }
     }
 
-    void BoundaryBindingRuntime::bind_keyed(const BoundaryBindingPlan &plan, Graph &child, Node &parent, const value::View &key,
-                                            engine_time_t eval_time) {
+    void BoundaryBindingRuntime::bind_keyed(const BoundaryBindingPlan &plan, Graph &child, Node &parent, const TSOutputView &key_source,
+                                            const value::View &key, engine_time_t eval_time) {
         for (const auto &spec : plan.inputs) {
             if (spec.child_node_index < 0) { continue; }
 
@@ -366,8 +381,24 @@ namespace hgraph
                     }
                 case InputBindingMode::BIND_KEY_VALUE:
                     {
-                        set_local_value(child_input, key, eval_time);
-                        child_input.make_active();
+                        if (key_source.ts_schema() != nullptr) {
+                            if (const TSMeta *child_schema = child_input.ts_schema();
+                                child_schema != nullptr && child_schema->kind == TSKind::REF) {
+                                set_local_reference_value(child_input, TimeSeriesReference::make(key_source), eval_time);
+                                child_input.make_active();
+                                break;
+                            }
+
+                            TSOutputView source_output = key_source;
+                            if (child_input.ts_schema() != nullptr && source_output.ts_schema() != child_input.ts_schema() &&
+                                source_output.owning_output() != nullptr) {
+                                source_output = source_output.owning_output()->bindable_view(source_output, child_input.ts_schema());
+                            }
+                            bind_child_to_output(child_input, source_output);
+                        } else {
+                            set_local_value(child_input, key, eval_time);
+                            child_input.make_active();
+                        }
                         break;
                     }
                 case InputBindingMode::DETACH_RESTORE_BLANK:

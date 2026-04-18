@@ -996,6 +996,12 @@ namespace
                    : InputBindingMode::BIND_DIRECT;
     }
 
+    [[nodiscard]] Path output_parent_path_from_stub_input(PathView stub_input_path)
+    {
+        if (stub_input_path.empty()) { return {}; }
+        return Path{stub_input_path.begin() + 1, stub_input_path.end()};
+    }
+
     [[nodiscard]] const TSMeta *output_schema_from_node_signature(nb::handle node_signature)
     {
         return cpp_ts_meta_or_none(nb::borrow(node_signature).attr("time_series_output"));
@@ -1304,6 +1310,7 @@ namespace
                         .mode              = OutputBindingMode::ALIAS_CHILD_OUTPUT,
                         .child_node_index  = old_to_new.at(edge.src_node),
                         .child_output_path = edge.output_path,
+                        .parent_output_path = output_parent_path_from_stub_input(edge.input_path),
                     });
                     continue;
                 }
@@ -1319,7 +1326,7 @@ namespace
                         .parent_arg_name    = arg_name,
                         .child_node_index   = -1,
                         .child_output_path  = edge.output_path,
-                        .parent_output_path = {},
+                        .parent_output_path = output_parent_path_from_stub_input(edge.input_path),
                     });
                     break;
                 }
@@ -1358,7 +1365,7 @@ namespace
         }
 
         const TSMeta *input_schema = input_schema_from_node_signature(unwrapped_signature);
-        const TSMeta *output_schema = output_schema_from_node_signature(unwrapped_signature);
+        const TSMeta *output_schema = TSTypeRegistry::instance().dereference(output_schema_from_node_signature(signature));
         const TSMeta *error_output_schema = error_output_schema_from_node_signature(unwrapped_signature);
 
         NodeBuilder builder;
@@ -1479,6 +1486,7 @@ namespace
                         .mode = OutputBindingMode::ALIAS_CHILD_OUTPUT,
                         .child_node_index = old_to_new.at(edge.src_node),
                         .child_output_path = edge.output_path,
+                        .parent_output_path = output_parent_path_from_stub_input(edge.input_path),
                     });
                     continue;
                 }
@@ -1495,7 +1503,7 @@ namespace
                         .parent_arg_name = arg_name,
                         .child_node_index = -1,
                         .child_output_path = edge.output_path,
-                        .parent_output_path = {},
+                        .parent_output_path = output_parent_path_from_stub_input(edge.input_path),
                     });
                     break;
                 }
@@ -1552,6 +1560,187 @@ namespace
         if (error_output_schema != nullptr) { builder.error_output_schema(error_output_schema); }
         apply_selector_policies(builder, unwrapped_signature, input_schema);
         hgraph::map_graph_implementation(builder, tmpl, key_arg, keys_arg, std::move(multiplexed_arg_list));
+        return builder;
+    }
+
+    [[nodiscard]] NodeBuilder make_switch_node_builder(nb::object signature,
+                                                       nb::handle scalars,
+                                                       nb::object input_builder,
+                                                       nb::object output_builder,
+                                                       nb::object error_builder,
+                                                       nb::object nested_graphs_obj,
+                                                       nb::object input_node_ids_obj,
+                                                       nb::object output_node_ids_obj,
+                                                       bool reload_on_ticked)
+    {
+        const nb::dict nested_graphs = nb::cast<nb::dict>(nested_graphs_obj);
+        const nb::dict input_node_ids = nb::cast<nb::dict>(input_node_ids_obj);
+        const nb::dict output_node_ids =
+            output_node_ids_obj.is_valid() && !output_node_ids_obj.is_none() ? nb::cast<nb::dict>(output_node_ids_obj) : nb::dict();
+
+        const TSMeta *key_ts_schema = input_schema_for_arg(signature, "key");
+        if (key_ts_schema == nullptr || key_ts_schema->value_type == nullptr) {
+            throw std::invalid_argument("switch_ requires a valid key input schema");
+        }
+
+        nb::object default_marker = nb::module_::import_("hgraph._types._scalar_types").attr("DEFAULT");
+        std::vector<SwitchBranchTemplate> branches;
+        branches.reserve(nested_graphs.size());
+
+        for (auto item : nested_graphs.items()) {
+            const nb::tuple pair = nb::borrow<nb::tuple>(item);
+            const nb::object case_key = nb::borrow(pair[0]);
+            const auto nested_graph = nb::cast<GraphBuilder>(nb::borrow(pair[1]));
+            const nb::dict branch_input_node_ids = nb::cast<nb::dict>(nb::borrow(input_node_ids[case_key]));
+
+            int64_t output_node_id = -1;
+            if (PyMapping_HasKey(output_node_ids.ptr(), case_key.ptr())) {
+                output_node_id = nb::cast<int64_t>(nb::borrow(output_node_ids[case_key]));
+            }
+
+            std::unordered_set<int64_t> stub_indices;
+            for (auto input_item : branch_input_node_ids.items()) {
+                stub_indices.insert(nb::cast<int64_t>(nb::borrow<nb::tuple>(input_item)[1]));
+            }
+            if (output_node_id >= 0) { stub_indices.insert(output_node_id); }
+
+            std::unordered_map<int64_t, int64_t> old_to_new;
+            std::vector<NodeBuilder> clean_builders;
+            clean_builders.reserve(nested_graph.node_builder_count());
+
+            int64_t new_index = 0;
+            for (size_t old_index = 0; old_index < nested_graph.node_builder_count(); ++old_index) {
+                const int64_t old_index_i64 = static_cast<int64_t>(old_index);
+                if (stub_indices.contains(old_index_i64)) { continue; }
+
+                NodeBuilder builder = nested_graph.node_builder_at(old_index);
+                builder.public_node_index(old_index_i64);
+                clean_builders.push_back(std::move(builder));
+                old_to_new.emplace(old_index_i64, new_index++);
+            }
+
+            std::vector<Edge> clean_edges;
+            clean_edges.reserve(nested_graph.edges().size());
+            for (const auto &edge : nested_graph.edges()) {
+                if (stub_indices.contains(edge.src_node) || stub_indices.contains(edge.dst_node)) { continue; }
+                clean_edges.emplace_back(old_to_new.at(edge.src_node), edge.output_path, old_to_new.at(edge.dst_node), edge.input_path);
+            }
+
+            BoundaryBindingPlan plan;
+            for (auto input_item : branch_input_node_ids.items()) {
+                const nb::tuple input_pair = nb::borrow<nb::tuple>(input_item);
+                const auto arg_name = nb::cast<std::string>(input_pair[0]);
+                const auto stub_idx = nb::cast<int64_t>(input_pair[1]);
+                const TSMeta *arg_schema = input_schema_for_arg(signature, arg_name);
+
+                for (const auto &edge : nested_graph.edges()) {
+                    if (edge.src_node != stub_idx || !old_to_new.contains(edge.dst_node)) { continue; }
+
+                    const TSMeta *source_schema = navigate_bound_source_schema(arg_schema, edge.output_path);
+                    plan.inputs.push_back(InputBindingSpec{
+                        .arg_name = arg_name,
+                        .mode = infer_nested_input_binding_mode(source_schema),
+                        .child_node_index = old_to_new.at(edge.dst_node),
+                        .parent_input_path = edge.output_path,
+                        .child_input_path = edge.input_path,
+                        .ts_schema = source_schema,
+                    });
+                }
+            }
+
+            if (output_node_id >= 0) {
+                for (const auto &edge : nested_graph.edges()) {
+                    if (edge.dst_node != output_node_id) { continue; }
+
+                    if (old_to_new.contains(edge.src_node)) {
+                        plan.outputs.push_back(OutputBindingSpec{
+                            .mode = OutputBindingMode::ALIAS_CHILD_OUTPUT,
+                            .child_node_index = old_to_new.at(edge.src_node),
+                            .child_output_path = edge.output_path,
+                            .parent_output_path = output_parent_path_from_stub_input(edge.input_path),
+                        });
+                        continue;
+                    }
+
+                    for (auto input_item : branch_input_node_ids.items()) {
+                        const nb::tuple input_pair = nb::borrow<nb::tuple>(input_item);
+                        const auto arg_name = nb::cast<std::string>(input_pair[0]);
+                        const auto stub_idx = nb::cast<int64_t>(input_pair[1]);
+                        if (edge.src_node != stub_idx) { continue; }
+
+                        plan.outputs.push_back(OutputBindingSpec{
+                            .mode = OutputBindingMode::ALIAS_PARENT_INPUT,
+                            .parent_arg_name = arg_name,
+                            .child_node_index = -1,
+                            .child_output_path = edge.output_path,
+                            .parent_output_path = output_parent_path_from_stub_input(edge.input_path),
+                        });
+                        break;
+                    }
+                }
+            }
+
+            const auto *tmpl = ChildGraphTemplate::create(
+                GraphBuilder{std::move(clean_builders), std::move(clean_edges)},
+                std::move(plan),
+                nb::cast<std::string>(signature.attr("name")),
+                ChildGraphTemplateFlags{.has_output = output_node_id >= 0});
+
+            SwitchBranchTemplate branch;
+            branch.child_template = tmpl;
+            branch.is_default = case_key.is(default_marker);
+            if (!branch.is_default) {
+                branch.selector_value = Value(*key_ts_schema->value_type, MutationTracking::Plain);
+                branch.selector_value.reset();
+                branch.selector_value.from_python(case_key);
+            }
+            branches.push_back(std::move(branch));
+        }
+
+        nb::object unwrapped_signature = unwrap_nested_signature(signature);
+
+        nb::object unwrapped_input_builder = std::move(input_builder);
+        nb::object unwrapped_output_builder = std::move(output_builder);
+        nb::object unwrapped_error_builder = std::move(error_builder);
+
+        try {
+            nb::object create_builders =
+                nb::module_::import_("hgraph._wiring._wiring_node_class._wiring_node_class").attr("create_input_output_builders");
+            nb::tuple builders = nb::cast<nb::tuple>(create_builders(unwrapped_signature, nb::none()));
+            unwrapped_input_builder = nb::borrow(builders[0]);
+            unwrapped_output_builder = nb::borrow(builders[1]);
+            unwrapped_error_builder = nb::borrow(builders[2]);
+        } catch (const nb::python_error &) {}
+
+        const TSMeta *input_schema = input_schema_from_node_signature(unwrapped_signature);
+        const TSMeta *output_schema = TSTypeRegistry::instance().dereference(output_schema_from_node_signature(signature));
+        const TSMeta *error_output_schema = error_output_schema_from_node_signature(unwrapped_signature);
+
+        hgraph::NodeTypeEnum node_type = hgraph::NodeTypeEnum::COMPUTE_NODE;
+        const std::string node_type_name = nb::cast<std::string>(signature.attr("node_type").attr("name"));
+        if (node_type_name == "PUSH_SOURCE_NODE") {
+            node_type = hgraph::NodeTypeEnum::PUSH_SOURCE_NODE;
+        } else if (node_type_name == "PULL_SOURCE_NODE") {
+            node_type = hgraph::NodeTypeEnum::PULL_SOURCE_NODE;
+        } else if (node_type_name == "SINK_NODE") {
+            node_type = hgraph::NodeTypeEnum::SINK_NODE;
+        }
+
+        NodeBuilder builder;
+        builder.node_type(node_type)
+            .python_signature(nb::borrow(unwrapped_signature))
+            .python_scalars(dict_or_empty(nb::borrow(scalars)))
+            .python_input_builder(std::move(unwrapped_input_builder))
+            .python_output_builder(std::move(unwrapped_output_builder))
+            .python_error_builder(std::move(unwrapped_error_builder))
+            .implementation_name(nb::cast<std::string>(signature.attr("name")))
+            .requires_resolved_schemas(true);
+
+        if (input_schema != nullptr) { builder.input_schema(input_schema); }
+        if (output_schema != nullptr) { builder.output_schema(output_schema); }
+        if (error_output_schema != nullptr) { builder.error_output_schema(error_output_schema); }
+        apply_selector_policies(builder, unwrapped_signature, input_schema);
+        hgraph::switch_graph_implementation(builder, std::move(branches), reload_on_ticked);
         return builder;
     }
 
@@ -1905,6 +2094,18 @@ void export_nodes(nb::module_ &m) {
         "output_node_id"_a = nb::none(),
         "multiplexed_args"_a = nb::none(),
         "key_arg"_a = nb::none());
+    m.def(
+        "build_switch_node",
+        &make_switch_node_builder,
+        "signature"_a,
+        "scalars"_a,
+        "input_builder"_a = nb::none(),
+        "output_builder"_a = nb::none(),
+        "error_builder"_a = nb::none(),
+        "nested_graphs"_a,
+        "input_node_ids"_a,
+        "output_node_ids"_a = nb::none(),
+        "reload_on_ticked"_a = false);
     m.def(
         "build_tsd_map_node",
         &make_map_node_builder,

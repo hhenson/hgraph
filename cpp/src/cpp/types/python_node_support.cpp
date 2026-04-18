@@ -420,7 +420,20 @@ namespace hgraph
 
             [[nodiscard]] nb::object delta_value() const {
                 if (m_schema != nullptr && m_schema->kind == TSKind::TSValue && !valid()) { return nb::none(); }
-                return m_input != nullptr ? input_view().delta_to_python() : output_view().delta_to_python();
+                if (m_input != nullptr) {
+                    TSInputView view = input_view();
+                    nb::object delta = view.delta_to_python();
+                    if (delta.is_none() && m_schema != nullptr && m_schema->kind == TSKind::TSD && view.modified() && view.valid()) {
+                        return view.to_python();
+                    }
+                    return delta;
+                }
+                TSOutputView view = output_view();
+                nb::object delta = view.delta_to_python();
+                if (delta.is_none() && m_schema != nullptr && m_schema->kind == TSKind::TSD && view.modified() && view.valid()) {
+                    return view.to_python();
+                }
+                return delta;
             }
 
             [[nodiscard]] bool modified() const {

@@ -158,19 +158,6 @@ namespace hgraph
             return slot < delta.slot_capacity() && delta.slot_occupied(slot) && !delta.slot_removed(slot);
         }
 
-        [[nodiscard]] const RefLinkState *switching_ref_state(const TSViewContext &context) noexcept
-        {
-            const BaseState *state = context.ts_state;
-            while (state != nullptr &&
-                   (state->storage_kind == TSStorageKind::TargetLink || state->storage_kind == TSStorageKind::OutputLink)) {
-                const LinkedTSContext *target = state->linked_target();
-                state = target != nullptr ? target->ts_state : nullptr;
-            }
-            return state != nullptr && state->storage_kind == TSStorageKind::RefLink
-                       ? static_cast<const RefLinkState *>(state)
-                       : nullptr;
-        }
-
         [[nodiscard]] bool context_valid(const TSViewContext &context) noexcept
         {
             if (context.ts_state == nullptr) { return context.value().has_value(); }
@@ -438,19 +425,26 @@ namespace hgraph
         [[nodiscard]] nb::object dict_delta_to_python(const TSViewContext &context, engine_time_t evaluation_time)
         {
             nb::dict out;
+            const TSViewContext resolved = context.resolved();
             const auto *dispatch = context.resolved().ts_dispatch != nullptr
                                        ? context.resolved().ts_dispatch->as_collection()
                                        : nullptr;
             const auto *key_dispatch = dispatch != nullptr ? dispatch->as_keys() : nullptr;
-            if (key_dispatch == nullptr || !context.value().has_value()) { return nb::none(); }
+            if (key_dispatch == nullptr) { return nb::none(); }
 
             const auto *ts_dispatch = context.resolved().ts_dispatch;
             const engine_time_t last_modified_time = ts_dispatch != nullptr ? ts_dispatch->last_modified_time(context) : MIN_DT;
-            if (const auto *ref_state = switching_ref_state(context);
-                ref_state != nullptr && ref_state->switch_modified_time == last_modified_time &&
-                ref_state->previous_target_value.has_value()) {
+            if (!context.value().has_value()) {
+                const engine_time_t resolved_last_modified = resolved.ts_state != nullptr ? resolved.ts_state->last_modified_time : MIN_DT;
+                return (resolved_last_modified == evaluation_time && context_valid(context)) ? nb::object{std::move(out)}
+                                                                                            : nb::none();
+            }
+            if (const auto snapshot = detail::transition_snapshot(context);
+                snapshot.active() && snapshot.modified_time == last_modified_time &&
+                snapshot.previous_value->schema() != nullptr &&
+                snapshot.previous_value->schema()->kind == value::TypeKind::Map) {
                 const auto current = context.value().as_map();
-                const auto previous = ref_state->previous_target_value.view().as_map();
+                const auto previous = snapshot.previous_value->view().as_map();
                 constexpr size_t no_slot = static_cast<size_t>(-1);
 
                 for (size_t slot = current.first_live_slot(); slot != no_slot; slot = current.next_live_slot(slot)) {
@@ -467,6 +461,9 @@ namespace hgraph
                     if (!current.contains(key)) { out[key.to_python()] = remove_sentinel(); }
                 }
 
+                if (out.empty() && last_modified_time == evaluation_time && context_valid(context) && current.empty()) {
+                    return nb::object{std::move(out)};
+                }
                 return out.empty() ? nb::none() : nb::object{std::move(out)};
             }
 
@@ -487,6 +484,10 @@ namespace hgraph
                 out[delta.key_at_slot(slot).to_python()] = remove_sentinel();
             }
 
+            if (out.empty() && last_modified_time == evaluation_time && context_valid(context) &&
+                context.value().as_map().empty()) {
+                return nb::object{std::move(out)};
+            }
             return out.empty() ? nb::none() : nb::object{std::move(out)};
         }
 
@@ -3156,10 +3157,54 @@ namespace hgraph
             const TimeSeriesStateParentPtr parent = target_state->parent;
             const size_t index = target_state->index;
             const engine_time_t last_modified_time = target_state->last_modified_time;
+            auto subscribers = std::move(target_state->subscribers);
+            auto feature_registry = std::move(target_state->feature_registry);
             auto &new_state = slot->emplace<OutputLinkState>();
             initialize_base_state(new_state, parent, index, last_modified_time, TSStorageKind::OutputLink);
+            new_state.subscribers = std::move(subscribers);
+            new_state.feature_registry = std::move(feature_registry);
             new_state.target.clear();
             return &new_state;
+        }
+
+        void materialize_output_link_transition_delta(const TSOutputView &target, const Value &previous_value)
+        {
+            if (!previous_value.has_value()) { return; }
+
+            const TSMeta *schema = target.ts_schema();
+            if (schema == nullptr) { return; }
+
+            target.from_python(previous_value.to_python());
+
+            switch (schema->kind) {
+                case TSKind::TSS:
+                    {
+                        auto set_view = target.value().as_set();
+                        std::vector<Value> items;
+                        for (const View &item : set_view.values()) { items.emplace_back(item.clone()); }
+                        set_view.clear_delta_tracking();
+                        auto mutation = set_view.begin_mutation(target.evaluation_time());
+                        for (const auto &item : items) { static_cast<void>(mutation.remove(item.view())); }
+                        break;
+                    }
+
+                case TSKind::TSD:
+                    {
+                        auto map_view = target.value().as_map();
+                        std::vector<Value> keys;
+                        constexpr size_t no_slot = static_cast<size_t>(-1);
+                        for (size_t slot = map_view.first_live_slot(); slot != no_slot; slot = map_view.next_live_slot(slot)) {
+                            keys.emplace_back(map_view.delta().key_at_slot(slot).clone());
+                        }
+                        map_view.clear_delta_tracking();
+                        auto mutation = map_view.begin_mutation(target.evaluation_time());
+                        for (const auto &key : keys) { static_cast<void>(mutation.remove(key.view())); }
+                        break;
+                    }
+
+                default:
+                    break;
+            }
         }
     }
 
@@ -3182,7 +3227,7 @@ namespace hgraph
 
         const LinkedTSContext source_context = source.linked_context();
         if (detail::linked_context_equal(link_state->target, source_context)) { return false; }
-        link_state->set_target(source_context);
+        link_state->set_target(source_context, target.evaluation_time());
         return true;
     }
 
@@ -3190,7 +3235,21 @@ namespace hgraph
     {
         BaseState *target_state = target.context_ref().ts_state;
         if (target_state == nullptr || target_state->storage_kind != TSStorageKind::OutputLink) { return; }
-        static_cast<OutputLinkState *>(target_state)->reset_target();
+        auto &link_state = *static_cast<OutputLinkState *>(target_state);
+        const engine_time_t evaluation_time = target.evaluation_time();
+        link_state.reset_target(evaluation_time);
+        bool materialized_transition = false;
+        if (evaluation_time != MIN_DT && link_state.switch_modified_time == evaluation_time &&
+            link_state.previous_target_value.has_value()) {
+            const TSMeta *schema = target.ts_schema();
+            if (schema != nullptr && (schema->kind == TSKind::TSS || schema->kind == TSKind::TSD)) {
+                materialize_output_link_transition_delta(target, link_state.previous_target_value);
+                materialized_transition = true;
+            }
+        }
+        if (evaluation_time != MIN_DT && link_state.switch_modified_time == evaluation_time) {
+            if (!materialized_transition) { link_state.mark_modified(evaluation_time); }
+        }
     }
 
     nb::object detail::TSDispatch::to_python(const TSViewContext &context, engine_time_t) const
@@ -3270,6 +3329,27 @@ namespace hgraph
             return;
         }
         dispatch->clear(*this);
+    }
+
+    void TSOutputView::invalidate() const
+    {
+        LinkedTSContext context = linked_context();
+        BaseState      *state   = context.ts_state;
+        if (state == nullptr) { return; }
+
+        const engine_time_t evaluation_time          = this->evaluation_time();
+        const engine_time_t previous_modified_time   = state->last_modified_time;
+        const bool          already_invalid          = previous_modified_time == MIN_DT;
+        const bool          already_notified_this_tick =
+            evaluation_time != MIN_DT && previous_modified_time == evaluation_time;
+
+        if (already_invalid) { return; }
+
+        if (!already_notified_this_tick && evaluation_time != MIN_DT) {
+            if (TSOutput *owner = owning_output(); owner != nullptr) { owner->sync_ref_target_subscriptions(evaluation_time); }
+            state->mark_modified_local(evaluation_time);
+        }
+        state->last_modified_time = MIN_DT;
     }
 
     void TSOutputView::from_python(nb::handle value) const

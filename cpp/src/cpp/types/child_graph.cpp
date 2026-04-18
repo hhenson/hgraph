@@ -205,7 +205,7 @@ namespace hgraph
     }
 
     void ChildGraphInstance::initialise(const ChildGraphTemplate &tmpl, Node &parent_node, std::vector<int64_t> graph_id_arg,
-                                        std::string label) {
+                                        std::string label, GraphStorageReservation storage) {
         if (m_template != nullptr) {
             throw std::logic_error("ChildGraphInstance::initialise called on already-initialised instance");
         }
@@ -232,7 +232,11 @@ namespace hgraph
         }
 
         GraphEvaluationEngine nested_engine{engine_state, &s_nested_engine_ops};
-        m_graph.emplace(tmpl.graph_builder.make_graph(nested_engine));
+        if (storage.data != nullptr) {
+            m_graph.emplace(tmpl.graph_builder.make_graph_in_storage(nested_engine, storage.data, storage.size, storage.alignment));
+        } else {
+            m_graph.emplace(tmpl.graph_builder.make_graph(nested_engine));
+        }
         m_graph->set_identity(m_graph_id, &parent_node, m_label);
     }
 

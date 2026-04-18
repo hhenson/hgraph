@@ -83,6 +83,12 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
     void clear() const;
 
     /**
+     * Mark the represented output position invalid without routing through the
+     * Python bridge.
+     */
+    void invalidate() const;
+
+    /**
      * Internal helper used by collection wrappers to preserve output-specific
      * runtime state when navigating to a child TS position.
      */

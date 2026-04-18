@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <new>
 #include <stdexcept>
 
@@ -299,6 +300,7 @@ namespace hgraph
 
             return push_source_nodes_end;
         }
+
     }  // namespace
 
     bool Edge::operator<(const Edge &other) const noexcept
@@ -360,37 +362,103 @@ namespace hgraph
 
         const auto inbound_edges = compile_inbound_edges(*this, m_edges);
         const auto layout = describe_layout(*this, inbound_edges);
-
-        Graph graph(evaluation_engine);
-        if (m_node_builders.empty()) { return graph; }
+        if (m_node_builders.empty()) { return Graph(evaluation_engine); }
 
         void *storage = ::operator new(layout.total_size, std::align_val_t(layout.alignment));
-        auto *base = static_cast<std::byte *>(storage);
+        auto cleanup_storage = UnwindCleanupGuard([&] { ::operator delete(storage, std::align_val_t(layout.alignment)); });
+        Graph graph(evaluation_engine);
+        auto *base    = static_cast<std::byte *>(storage);
         auto *entries = reinterpret_cast<NodeEntry *>(base);
         size_t constructed_nodes = 0;
-
-        {
-            auto cleanup_storage = UnwindCleanupGuard([&] { ::operator delete(storage, std::align_val_t(layout.alignment)); });
-            auto cleanup_nodes = UnwindCleanupGuard([&] {
-                for (size_t i = constructed_nodes; i > 0; --i) {
-                    const size_t order_index = i - 1;
-                    node_builder_at(order_index).destruct_at(*entries[order_index].node);
-                }
-            });
-
-            for (size_t i = 0; i < m_node_builders.size(); ++i) {
-                auto *node =
-                    node_builder_at(i).construct_at(base + layout.node_offsets[i], static_cast<int64_t>(i), inbound_edges[i]);
-                entries[i] = NodeEntry{MIN_DT, node};
-                ++constructed_nodes;
+        auto cleanup_nodes = UnwindCleanupGuard([&] {
+            for (size_t i = constructed_nodes; i > 0; --i) {
+                const size_t order_index = i - 1;
+                node_builder_at(order_index).destruct_at(*entries[order_index].node);
             }
+        });
 
-            const int64_t push_source_nodes_end = validate_push_source_nodes(entries, m_node_builders.size());
-            if (push_source_nodes_end > 0 && evaluation_engine.push_message_receiver() == nullptr) {
-                throw std::logic_error("v2 push-source graphs require an attached push-message receiver");
-            }
-            graph.adopt_storage(storage, layout.alignment, m_node_builders.size(), push_source_nodes_end);
+        for (size_t i = 0; i < m_node_builders.size(); ++i) {
+            auto *node = node_builder_at(i).construct_at(base + layout.node_offsets[i], static_cast<int64_t>(i), inbound_edges[i]);
+            entries[i] = NodeEntry{MIN_DT, node};
+            ++constructed_nodes;
         }
+
+        const int64_t push_source_nodes_end = validate_push_source_nodes(entries, m_node_builders.size());
+        if (push_source_nodes_end > 0 && evaluation_engine.push_message_receiver() == nullptr) {
+            throw std::logic_error("v2 push-source graphs require an attached push-message receiver");
+        }
+
+        graph.adopt_storage(storage, layout.alignment, m_node_builders.size(), push_source_nodes_end, true);
+        cleanup_nodes.release();
+
+        for (const auto &edge : m_edges) {
+            auto &src_node = graph.node_at(static_cast<size_t>(edge.src_node));
+            auto &dst_node = graph.node_at(static_cast<size_t>(edge.dst_node));
+
+            if (edge.input_path.empty()) { continue; }
+            if (!dst_node.has_input()) { throw std::logic_error("v2 graph builder destination node has no input"); }
+
+            auto [source_view, source_schema] = select_source_output(src_node, edge);
+            const auto navigation_path =
+                !edge.output_path.empty() && (edge.output_path.front() == error_path || edge.output_path.front() == state_path)
+                    ? PathView{edge.output_path}.subspan(1)
+                    : PathView{edge.output_path};
+
+            TSOutputView output = traverse_output(source_view, source_schema, navigation_path);
+            TSInputView input = traverse_input(dst_node.input_view(MIN_DT), dst_node.input_schema(), edge.input_path);
+            input.bind_output(output);
+        }
+
+        cleanup_storage.release();
+        return graph;
+    }
+
+    Graph GraphBuilder::make_graph_in_storage(GraphEvaluationEngine evaluation_engine,
+                                              void *storage,
+                                              size_t storage_size,
+                                              size_t storage_alignment) const
+    {
+        if (!evaluation_engine) { throw std::logic_error("v2 graph builder requires an attached evaluation engine"); }
+        if (m_node_builders.empty()) { return Graph(evaluation_engine); }
+
+        const auto inbound_edges = compile_inbound_edges(*this, m_edges);
+        const auto layout = describe_layout(*this, inbound_edges);
+
+        if (storage == nullptr) { throw std::invalid_argument("v2 graph builder requires non-null graph storage"); }
+        if (storage_size < layout.total_size) {
+            throw std::invalid_argument("v2 graph builder caller-owned storage is too small");
+        }
+        if (storage_alignment < layout.alignment) {
+            throw std::invalid_argument("v2 graph builder caller-owned storage alignment is insufficient");
+        }
+        if (reinterpret_cast<std::uintptr_t>(storage) % layout.alignment != 0) {
+            throw std::invalid_argument("v2 graph builder caller-owned storage pointer is misaligned");
+        }
+
+        Graph graph(evaluation_engine);
+        auto *base    = static_cast<std::byte *>(storage);
+        auto *entries = reinterpret_cast<NodeEntry *>(base);
+        size_t constructed_nodes = 0;
+        auto cleanup_nodes = UnwindCleanupGuard([&] {
+            for (size_t i = constructed_nodes; i > 0; --i) {
+                const size_t order_index = i - 1;
+                node_builder_at(order_index).destruct_at(*entries[order_index].node);
+            }
+        });
+
+        for (size_t i = 0; i < m_node_builders.size(); ++i) {
+            auto *node = node_builder_at(i).construct_at(base + layout.node_offsets[i], static_cast<int64_t>(i), inbound_edges[i]);
+            entries[i] = NodeEntry{MIN_DT, node};
+            ++constructed_nodes;
+        }
+
+        const int64_t push_source_nodes_end = validate_push_source_nodes(entries, m_node_builders.size());
+        if (push_source_nodes_end > 0 && evaluation_engine.push_message_receiver() == nullptr) {
+            throw std::logic_error("v2 push-source graphs require an attached push-message receiver");
+        }
+
+        graph.adopt_storage(storage, storage_alignment, m_node_builders.size(), push_source_nodes_end, false);
+        cleanup_nodes.release();
 
         for (const auto &edge : m_edges) {
             auto &src_node = graph.node_at(static_cast<size_t>(edge.src_node));

@@ -3,6 +3,7 @@
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/child_graph.h>
 #include <hgraph/types/node_builder.h>
+#include <hgraph/types/time_series/value/value.h>
 
 namespace hgraph
 {
@@ -23,6 +24,13 @@ namespace hgraph
         std::string key_arg;
         std::string keys_arg;
         std::vector<std::string> multiplexed_args;
+    };
+
+    struct SwitchBranchTemplate
+    {
+        Value selector_value;
+        const ChildGraphTemplate *child_template{nullptr};
+        bool is_default{false};
     };
 
     /**
@@ -89,5 +97,9 @@ namespace hgraph
                                                         std::string key_arg,
                                                         std::string keys_arg,
                                                         std::vector<std::string> multiplexed_args);
+
+    HGRAPH_EXPORT NodeBuilder &switch_graph_implementation(NodeBuilder &builder,
+                                                           std::vector<SwitchBranchTemplate> branches,
+                                                           bool reload_on_ticked);
 
 }  // namespace hgraph
