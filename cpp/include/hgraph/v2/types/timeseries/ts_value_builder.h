@@ -1,0 +1,12 @@
+//
+// Created by Howard Henson on 20/04/2026.
+//
+
+#ifndef HGRAPH_CPP_ROOT_TS_VALUE_BUILDER_H
+#define HGRAPH_CPP_ROOT_TS_VALUE_BUILDER_H
+
+namespace hgraph
+{
+    struct TsValueBuilder {};
+}
+#endif //HGRAPH_CPP_ROOT_TS_VALUE_BUILDER_H
