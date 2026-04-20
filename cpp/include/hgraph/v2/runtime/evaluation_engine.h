@@ -7,7 +7,10 @@
 
 namespace hgraph
 {
-    struct EvaluationEngine {};
+    struct EvaluationEngine
+    {
+        void run();
+    };
 }
 
 #endif //HGRAPH_CPP_ROOT_EVALUATION_ENGINE_H

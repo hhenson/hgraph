@@ -7,7 +7,7 @@
 
 namespace hgraph
 {
-    struct View {};
+    struct ValueView {};
 }
 
 #endif //HGRAPH_CPP_ROOT_VIEW_H
