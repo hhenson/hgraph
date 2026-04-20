@@ -5,6 +5,9 @@
 
 During the C++ port, Python behavior is the reference implementation. If Python and C++ differ, align C++ to Python unless requirements explicitly state otherwise.
 
+## Project Memory
+Read `.codex/project-memory.md` at the start of work for durable repo-specific context. When you learn a stable project-wide convention, decision, or recurring gotcha that should persist across sessions, update that file. Keep it concise and avoid task-specific notes.
+
 ## Environment & Feature Switches
 Use Python 3.12 with `uv`:
 - `uv venv --python 3.12`
