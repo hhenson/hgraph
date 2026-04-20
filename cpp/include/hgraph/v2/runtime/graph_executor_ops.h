@@ -5,4 +5,8 @@
 #ifndef HGRAPH_CPP_ROOT_EVALUATION_ENGINE_OPS_H
 #define HGRAPH_CPP_ROOT_EVALUATION_ENGINE_OPS_H
 
+namespace hgraph::v2
+{
+    struct GraphExecutorOps {};
+}
 #endif //HGRAPH_CPP_ROOT_EVALUATION_ENGINE_OPS_H

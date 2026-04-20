@@ -7,7 +7,7 @@
 
 namespace hgraph::v2
 {
-    struct EvaluationEngine
+    struct GraphExecutor
     {
         void run();
     };

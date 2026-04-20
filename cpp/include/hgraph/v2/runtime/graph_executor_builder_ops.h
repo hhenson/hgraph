@@ -7,7 +7,7 @@
 
 namespace hgraph::v2
 {
-    struct EvaluationEngineBuilderOps {};
+    struct GraphExecutorBuilderOps {};
 }
 
 #endif //HGRAPH_CPP_ROOT_EVALUATION_ENGINE_BUILDER_OPS_H
