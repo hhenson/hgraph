@@ -302,6 +302,45 @@ set(HGRAPH_INCLUDES
         include/hgraph/runtime/observers/evaluation_profiler.h
         include/hgraph/runtime/observers/evaluation_trace.h
         include/hgraph/runtime/observers/inspection_observer.h
+        include/hgraph/v2/runtime/evaluation_life_cycle_observer.h
+        include/hgraph/v2/runtime/graph_executor.h
+        include/hgraph/v2/runtime/graph_executor_builder.h
+        include/hgraph/v2/runtime/graph_executor_builder_ops.h
+        include/hgraph/v2/runtime/graph_executor_ops.h
+        include/hgraph/v2/runtime/realtime_evaluation_engine_ops.h
+        include/hgraph/v2/runtime/simulation_evaluation_engine_ops.h
+        include/hgraph/v2/types/graph/graph.h
+        include/hgraph/v2/types/graph/graph_builder.h
+        include/hgraph/v2/types/graph/graph_builder_ops.h
+        include/hgraph/v2/types/graph/graph_ops.h
+        include/hgraph/v2/types/graph/node.h
+        include/hgraph/v2/types/graph/node_builder.h
+        include/hgraph/v2/types/graph/node_builder_ops.h
+        include/hgraph/v2/types/graph/node_ops.h
+        include/hgraph/v2/types/metadata/ts_value_type_meta_data.h
+        include/hgraph/v2/types/metadata/type_meta_data.h
+        include/hgraph/v2/types/metadata/type_registry.h
+        include/hgraph/v2/types/metadata/value_type_meta_data.h
+        include/hgraph/v2/types/timeseries/ts_input.h
+        include/hgraph/v2/types/timeseries/ts_input_builder.h
+        include/hgraph/v2/types/timeseries/ts_input_builder_ops.h
+        include/hgraph/v2/types/timeseries/ts_input_ops.h
+        include/hgraph/v2/types/timeseries/ts_input_view.h
+        include/hgraph/v2/types/timeseries/ts_ouptut_builder.h
+        include/hgraph/v2/types/timeseries/ts_output.h
+        include/hgraph/v2/types/timeseries/ts_output_builder_ops.h
+        include/hgraph/v2/types/timeseries/ts_output_ops.h
+        include/hgraph/v2/types/timeseries/ts_output_view.h
+        include/hgraph/v2/types/timeseries/ts_value.h
+        include/hgraph/v2/types/timeseries/ts_value_builder.h
+        include/hgraph/v2/types/timeseries/ts_value_builder_ops.h
+        include/hgraph/v2/types/timeseries/ts_value_ops.h
+        include/hgraph/v2/types/timeseries/ts_view.h
+        include/hgraph/v2/types/value/value.h
+        include/hgraph/v2/types/value/value_builder.h
+        include/hgraph/v2/types/value/value_builder_ops.h
+        include/hgraph/v2/types/value/value_ops.h
+        include/hgraph/v2/types/value/view.h
         include/hgraph/types/base_time_series.h
         include/hgraph/types/constants.h
         include/hgraph/types/error_type.h

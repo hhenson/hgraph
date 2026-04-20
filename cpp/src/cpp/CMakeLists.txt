@@ -86,6 +86,50 @@ set(HGRAPH_SOURCES
         runtime/observers/inspection_observer.cpp
         runtime/observers/observers_bindings.cpp
 
+        v2/runtime/evaluation_life_cycle_observer.cpp
+        v2/runtime/graph_executor.cpp
+        v2/runtime/graph_executor_builder.cpp
+        v2/runtime/graph_executor_builder_ops.cpp
+        v2/runtime/graph_executor_ops.cpp
+        v2/runtime/realtime_evaluation_engine_ops.cpp
+        v2/runtime/simulation_evaluation_engine_ops.cpp
+
+        v2/types/graph/graph.cpp
+        v2/types/graph/graph_builder.cpp
+        v2/types/graph/graph_builder_ops.cpp
+        v2/types/graph/graph_ops.cpp
+        v2/types/graph/node.cpp
+        v2/types/graph/node_builder.cpp
+        v2/types/graph/node_builder_ops.cpp
+        v2/types/graph/node_ops.cpp
+
+        v2/types/metadata/ts_value_type_meta_data.cpp
+        v2/types/metadata/type_meta_data.cpp
+        v2/types/metadata/type_registry.cpp
+        v2/types/metadata/value_type_meta_data.cpp
+
+        v2/types/timeseries/ts_input.cpp
+        v2/types/timeseries/ts_input_builder.cpp
+        v2/types/timeseries/ts_input_builder_ops.cpp
+        v2/types/timeseries/ts_input_ops.cpp
+        v2/types/timeseries/ts_input_view.cpp
+        v2/types/timeseries/ts_ouptut_builder.cpp
+        v2/types/timeseries/ts_output.cpp
+        v2/types/timeseries/ts_output_builder_ops.cpp
+        v2/types/timeseries/ts_output_ops.cpp
+        v2/types/timeseries/ts_output_view.cpp
+        v2/types/timeseries/ts_value.cpp
+        v2/types/timeseries/ts_value_builder.cpp
+        v2/types/timeseries/ts_value_builder_ops.cpp
+        v2/types/timeseries/ts_value_ops.cpp
+        v2/types/timeseries/ts_view.cpp
+
+        v2/types/value/value.cpp
+        v2/types/value/value_builder.cpp
+        v2/types/value/value_builder_ops.cpp
+        v2/types/value/value_ops.cpp
+        v2/types/value/view.cpp
+
         types/base_time_series.cpp
         types/constants.cpp
         types/error_type.cpp
