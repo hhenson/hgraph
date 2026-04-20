@@ -7,7 +7,9 @@
 
 namespace hgraph::v2
 {
-    struct GraphBuilder {};
-}
+    struct GraphBuilder
+    {};
 
-#endif //HGRAPH_CPP_ROOT_GRAPH_BUILDER_H
+}  // namespace hgraph::v2
+
+#endif  // HGRAPH_CPP_ROOT_GRAPH_BUILDER_H
