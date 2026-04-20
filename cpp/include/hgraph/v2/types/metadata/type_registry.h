@@ -5,7 +5,7 @@
 #ifndef HGRAPH_CPP_ROOT_TYPE_REGISTRY_H
 #define HGRAPH_CPP_ROOT_TYPE_REGISTRY_H
 
-namespace hgraph
+namespace hgraph::v2
 {
     /**
      * Holds the type and schema information to ensure all "type" data is cached and can be used as interned values.
@@ -14,7 +14,6 @@ namespace hgraph
      * this is a good tradeoff.
      */
     struct TypeRegistry {};
-
 }
 
 #endif //HGRAPH_CPP_ROOT_TYPE_REGISTRY_H

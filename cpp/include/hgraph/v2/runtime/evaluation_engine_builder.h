@@ -11,7 +11,7 @@
 #include <hgraph/v2/runtime/evaluation_engine.h>
 #include <hgraph/v2/types/value/view.h>
 
-namespace hgraph
+namespace hgraph::v2
 {
     /**
      * This allows for building an evaluation engine.
@@ -41,6 +41,6 @@ namespace hgraph
          */
         EvaluationEngine build() const;
     };
-}  // namespace hgraph
+}  // namespace hgraph::v2
 
 #endif  // HGRAPH_CPP_ROOT_EVALUATION_ENGINE_BUILDER_H

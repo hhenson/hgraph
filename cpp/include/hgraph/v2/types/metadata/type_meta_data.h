@@ -5,7 +5,7 @@
 #ifndef HGRAPH_CPP_ROOT_TYPE_META_DATA_H
 #define HGRAPH_CPP_ROOT_TYPE_META_DATA_H
 
-namespace hgraph {
+namespace hgraph::v2 {
 
     struct TypeMetaData {};
     

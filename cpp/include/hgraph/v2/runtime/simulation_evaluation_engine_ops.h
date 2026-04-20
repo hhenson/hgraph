@@ -5,7 +5,7 @@
 #ifndef HGRAPH_CPP_ROOT_SIMULATION_EVALUATION_ENGINE_OPS_H
 #define HGRAPH_CPP_ROOT_SIMULATION_EVALUATION_ENGINE_OPS_H
 
-namespace
+namespace hgraph::v2
 {
     struct SimulationEvaluationEngineOps {};
 }

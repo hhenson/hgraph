@@ -5,7 +5,7 @@
 #ifndef HGRAPH_CPP_ROOT_TS_OUPTUT_BUILDER_H
 #define HGRAPH_CPP_ROOT_TS_OUPTUT_BUILDER_H
 
-namespace hgraph
+namespace hgraph::v2
 {
     struct TsOutputBuilder {};
 }
