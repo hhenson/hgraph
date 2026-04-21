@@ -119,11 +119,12 @@ namespace hgraph
             return &static_cast<const NestedClockState *>(impl)->evaluation_time;
         }
 
-        const EngineEvaluationClockOps s_nested_clock_ops{
+        const EngineEvaluationClockOps s_nested_clock_ops{{
             evaluation_time_impl,
             now_impl,
             cycle_time_impl,
             next_cycle_evaluation_time_impl,
+        },
             set_evaluation_time_impl,
             next_scheduled_evaluation_time_impl,
             update_next_scheduled_evaluation_time_impl,

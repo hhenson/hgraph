@@ -2308,11 +2308,6 @@ namespace hgraph
             return runtime.leaf_capacity > 0 ? runtime.leaf_capacity - 1 : 0;
         }
 
-        [[nodiscard]] size_t reduce_total_tree_size(const ReduceNodeRuntimeData &runtime) noexcept
-        {
-            return reduce_internal_node_count(runtime) + runtime.leaf_capacity;
-        }
-
         void stop_reduce_op(const ChildGraphTemplate &child_template,
                             ReduceOpRuntime          &op,
                             engine_time_t             evaluation_time,
@@ -2478,16 +2473,6 @@ namespace hgraph
         void publish_reduce_aggregate_output(const TSOutputView &target_output,
                                              const TSOutputView &source_output,
                                              engine_time_t       evaluation_time);
-
-        void ensure_reduce_op_started(Node &node, ReduceNodeRuntimeData &runtime, ReduceOpRuntime &op, engine_time_t evaluation_time)
-        {
-            if (!op.child_instance.is_initialised()) {
-                std::vector<int64_t> graph_id = node.node_id();
-                graph_id.push_back(next_reduce_child_graph_id(runtime));
-                op.child_instance.initialise(*runtime.child_template, node, std::move(graph_id), "reduce");
-            }
-            if (!op.child_instance.is_started()) { op.child_instance.start(evaluation_time); }
-        }
 
         void bind_reduce_op_inputs(const ChildGraphTemplate &child_template,
                                    Graph                    &child,

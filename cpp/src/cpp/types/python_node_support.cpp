@@ -218,29 +218,6 @@ namespace hgraph
             return previous;
         }
 
-        [[nodiscard]] bool sampled_input_context(const TSViewContext &context) noexcept
-        {
-            const BaseState *state = context.ts_state;
-            while (state != nullptr && state->storage_kind == TSStorageKind::OutputLink) {
-                const LinkedTSContext *target = state->linked_target();
-                state = target != nullptr ? target->ts_state : nullptr;
-            }
-
-            if (state == nullptr) { return false; }
-
-            switch (state->storage_kind) {
-                case TSStorageKind::TargetLink:
-                    return static_cast<const TargetLinkState *>(state)->is_sampled();
-                case TSStorageKind::RefLink:
-                    return static_cast<const RefLinkState *>(state)->is_sampled();
-                case TSStorageKind::Native:
-                case TSStorageKind::OutputLink:
-                    return false;
-            }
-
-            return false;
-        }
-
         [[nodiscard]] Value ts_nested_value_from_python(const value::TypeMeta &schema, const nb::handle &value) {
             Value nested_value(schema, MutationTracking::Plain);
             nested_value.reset();

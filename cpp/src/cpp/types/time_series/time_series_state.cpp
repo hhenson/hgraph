@@ -793,7 +793,7 @@ namespace hgraph
         }
 
         View value = context.value();
-        if (const auto *ref = value.as_atomic().try_as<TimeSeriesReference>()) { return true; }
+        if (value.as_atomic().try_as<TimeSeriesReference>() != nullptr) { return true; }
         return false;
     }
 

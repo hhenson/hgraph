@@ -805,7 +805,7 @@ TEST_CASE("v2 graph wires scalar sources into a compute node with validity gatin
 
     const auto *int_type = value_registry.register_type<int>("int");
     const auto *scalar_ts = ts_registry.ts(int_type);
-    const auto *input_schema = ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Inputs");
+    static_cast<void>(ts_registry.tsb({{"lhs", scalar_ts}, {"rhs", scalar_ts}}, "Inputs"));
 
     hgraph::GraphBuilder builder;
     builder

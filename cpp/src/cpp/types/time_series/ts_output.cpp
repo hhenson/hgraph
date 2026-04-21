@@ -1179,8 +1179,6 @@ namespace hgraph
 
     namespace
     {
-        [[nodiscard]] TSOutputView traverse_output_path(TSOutputView view, const TSMeta *schema, const TSPath &path);
-
         struct RootRefValueNotifier final : Notifiable
         {
             explicit RootRefValueNotifier(TSOutput *owner_) noexcept : owner(owner_) {}

@@ -760,7 +760,8 @@ TEST_CASE("BoundaryBindingRuntime bind_keyed binds a multiplexed list element", 
     ChildGraphInstance child;
     child.initialise(*tmpl, parent_graph.node_at(2), {2, 0}, "keyed_child");
     hgraph::Value key_value{1};
-    BoundaryBindingRuntime::bind_keyed(child.boundary_plan(), *child.graph(), parent_graph.node_at(2), key_value.view(), tick(1));
+    BoundaryBindingRuntime::bind_keyed(
+        child.boundary_plan(), *child.graph(), parent_graph.node_at(2), parent_graph.node_at(2).output_view(tick(1)), key_value.view(), tick(1));
     child.start(tick(1));
     child.graph()->schedule_node(0, tick(1));
     child.evaluate(tick(1));
@@ -806,7 +807,8 @@ TEST_CASE("BoundaryBindingRuntime bind_keyed injects key values and detach_resto
     ChildGraphInstance child;
     child.initialise(*tmpl, parent_graph.node_at(0), {0, 0}, "key_child");
     hgraph::Value key_value{7};
-    BoundaryBindingRuntime::bind_keyed(child.boundary_plan(), *child.graph(), parent_graph.node_at(0), key_value.view(), tick(1));
+    BoundaryBindingRuntime::bind_keyed(
+        child.boundary_plan(), *child.graph(), parent_graph.node_at(0), parent_graph.node_at(0).output_view(tick(1)), key_value.view(), tick(1));
     child.start(tick(1));
     child.graph()->schedule_node(0, tick(1));
     child.evaluate(tick(1));

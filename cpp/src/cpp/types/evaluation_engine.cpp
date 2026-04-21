@@ -265,11 +265,12 @@ namespace hgraph
         };
 
         template <typename TClockState>
-        const EngineEvaluationClockOps ClockDispatch<TClockState>::value{
+        const EngineEvaluationClockOps ClockDispatch<TClockState>::value{{
             &ClockDispatch<TClockState>::evaluation_time_impl,
             &ClockDispatch<TClockState>::now_impl,
             &ClockDispatch<TClockState>::cycle_time_impl,
             &ClockDispatch<TClockState>::next_cycle_evaluation_time_impl,
+        },
             &ClockDispatch<TClockState>::set_evaluation_time_impl,
             &ClockDispatch<TClockState>::next_scheduled_evaluation_time_impl,
             &ClockDispatch<TClockState>::update_next_scheduled_evaluation_time_impl,
