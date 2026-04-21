@@ -103,10 +103,20 @@ class WiringNodeClass:
         return arrow(self) >> arrow(item)
 
     def __eq__(self, other):
-        return self.signature == other.signature and self.fn == other.fn
+        return (
+            self.signature == other.signature
+            and self.fn == other.fn
+            and self._identity_eq_key() == other._identity_eq_key()
+        )
 
     def __hash__(self):
-        return hash(self.signature) ^ hash(self.fn)
+        return hash((self.signature, self.fn, self._identity_hash_key()))
+
+    def _identity_eq_key(self) -> tuple:
+        return ()
+
+    def _identity_hash_key(self) -> tuple:
+        return self._identity_eq_key()
 
     def resolve_signature(
         self, *args, __pre_resolved_types__: dict[TypeVar, HgTypeMetaData | Callable] = None, **kwargs

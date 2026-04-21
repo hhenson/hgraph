@@ -300,7 +300,7 @@ namespace hgraph
                 dst_state.previous_target_value = src_state.previous_target_value;
                 dst_state.switch_modified_time = src_state.switch_modified_time;
                 dst_state.scheduling_notifier.set_target(src_state.scheduling_notifier.get_target());
-                if (src_state.target.is_bound()) {
+                if (src_state.target.schema != nullptr || src_state.target.ts_state != nullptr || src_state.target.output_view_ops != nullptr) {
                     dst_state.set_target(src_state.target);
                 } else {
                     dst_state.target.clear();

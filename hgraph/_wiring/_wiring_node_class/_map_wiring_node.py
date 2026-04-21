@@ -41,6 +41,22 @@ class TslMapWiringSignature(WiringNodeSignature):
 class TsdMapWiringNodeClass(BaseWiringNodeClass):
     signature: TsdMapWiringSignature
 
+    def _identity_eq_key(self) -> tuple:
+        return (
+            self.signature.inner_graph,
+            self.signature.multiplexed_args,
+            self.signature.key_arg,
+            self.signature.key_tp,
+        )
+
+    def _identity_hash_key(self) -> tuple:
+        return (
+            id(self.signature.inner_graph),
+            self.signature.multiplexed_args,
+            self.signature.key_arg,
+            self.signature.key_tp,
+        )
+
     def create_node_builder_instance(
         self,
         resolved_wiring_signature: "WiringNodeSignature",

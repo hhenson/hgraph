@@ -10,10 +10,11 @@ from hgraph._feature_switch import is_feature_enabled
 if is_feature_enabled("use_cpp"):
     print("\n>>>>>>>>>>>>>>>>>>>\nC++ Runtime enabled\n<<<<<<<<<<<<<<<<<<<")
     try:
+        import sys
         import warnings
         from frozendict import frozendict
 
-        import hgraph
+        hgraph = sys.modules["hgraph"]
         import hgraph._hgraph as _hgraph
 
         from hgraph._wiring import _context_wiring
@@ -228,10 +229,62 @@ if is_feature_enabled("use_cpp"):
                 "Use HGRAPH_USE_CPP=0 for the Python runtime or implement the missing builder."
             )
 
-        _reduce.TsdReduceWiringNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("reduce nodes")
-        _reduce.TsdNonAssociativeReduceWiringNodeClass.BUILDER_CLASS = _unsupported_cpp_builder(
-            "non-associative reduce nodes"
-        )
+        def _create_reduce_builder_factory(
+            signature,
+            scalars,
+            input_builder,
+            output_builder,
+            error_builder,
+            recordable_state_builder=None,
+            nested_graph=None,
+            input_node_ids=None,
+            output_node_id=None,
+            associative=True,
+        ):
+            if isinstance(nested_graph, _hgraph.GraphBuilder):
+                return _hgraph.build_reduce_node(
+                    signature,
+                    scalars,
+                    input_builder,
+                    output_builder,
+                    error_builder,
+                    nested_graph,
+                    input_node_ids,
+                    output_node_id,
+                    associative,
+                )
+
+            raise NotImplementedError(
+                "reduce requires a nested graph builder in C++ mode. "
+                "Use HGRAPH_USE_CPP=0 for the Python runtime or implement the missing builder."
+            )
+
+        _reduce.TsdReduceWiringNodeClass.BUILDER_CLASS = _create_reduce_builder_factory
+        def _create_non_associative_reduce_builder_factory(
+            signature,
+            scalars,
+            input_builder,
+            output_builder,
+            error_builder,
+            recordable_state_builder=None,
+            nested_graph=None,
+            input_node_ids=None,
+            output_node_id=None,
+        ):
+            return _create_reduce_builder_factory(
+                signature,
+                scalars,
+                input_builder,
+                output_builder,
+                error_builder,
+                recordable_state_builder=recordable_state_builder,
+                nested_graph=nested_graph,
+                input_node_ids=input_node_ids,
+                output_node_id=output_node_id,
+                associative=False,
+            )
+
+        _reduce.TsdNonAssociativeReduceWiringNodeClass.BUILDER_CLASS = _create_non_associative_reduce_builder_factory
         _mesh.MeshWiringNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("mesh nodes")
         _switch.SwitchWiringNodeClass.BUILDER_CLASS = _create_switch_builder_factory
         _service_impl.ServiceImplNodeClass.BUILDER_CLASS = _unsupported_cpp_builder("service implementation nodes")

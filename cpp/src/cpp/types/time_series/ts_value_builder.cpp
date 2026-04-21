@@ -41,6 +41,49 @@ namespace hgraph
 
     namespace
     {
+        [[nodiscard]] const char *safe_type_name(const value::TypeMeta *schema) noexcept
+        {
+            return schema != nullptr && schema->name != nullptr ? schema->name : "?";
+        }
+
+        [[nodiscard]] std::string schema_debug_name(const TSMeta *schema)
+        {
+            if (schema == nullptr) { return "<null>"; }
+
+            switch (schema->kind) {
+                case TSKind::TSValue:
+                    return std::string{"TS["} + safe_type_name(schema->value_type) + "]";
+                case TSKind::TSS:
+                    return std::string{"TSS["} +
+                           (schema->value_type != nullptr && schema->value_type->element_type != nullptr
+                                ? safe_type_name(schema->value_type->element_type)
+                                : "?") +
+                           "]";
+                case TSKind::TSD:
+                    return std::string{"TSD["} + safe_type_name(schema->key_type()) + ", " +
+                           (schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?") + "]";
+                case TSKind::TSL:
+                    return std::string{"TSL["} + (schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?") +
+                           ", " + std::to_string(schema->fixed_size()) + "]";
+                case TSKind::TSW:
+                    return std::string{"TSW["} +
+                           (schema->value_type != nullptr && schema->value_type->field_count > 1 &&
+                                    schema->value_type->fields[1].type != nullptr &&
+                                    schema->value_type->fields[1].type->element_type != nullptr
+                                ? safe_type_name(schema->value_type->fields[1].type->element_type)
+                                : "?") +
+                           "]";
+                case TSKind::TSB:
+                    return schema->bundle_name() != nullptr ? std::string{schema->bundle_name()} : "TSB[?]";
+                case TSKind::REF:
+                    return std::string{"REF["} + (schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?") + "]";
+                case TSKind::SIGNAL:
+                    return "SIGNAL";
+            }
+
+            return "<?>";
+        }
+
         [[nodiscard]] size_t align_up(size_t value, size_t alignment) noexcept
         {
             const size_t mask = alignment - 1;
@@ -201,12 +244,18 @@ namespace hgraph
             return index < delta.slot_capacity() && (delta.slot_added(index) || delta.slot_updated(index));
         }
 
+        [[nodiscard]] MutationTracking nested_ts_value_tracking(const value::TypeMeta &schema) noexcept
+        {
+            switch (schema.kind) {
+                case value::TypeKind::Atomic: return MutationTracking::Plain;
+                default: return MutationTracking::Delta;
+            }
+        }
+
         [[nodiscard]] bool collection_has_valid_child(const TSViewContext &context,
                                                       const detail::TSCollectionDispatch &dispatch,
                                                       size_t size) noexcept
         {
-            if (!context.value().has_value()) { return false; }
-
             for (size_t index = 0; index < size; ++index) {
                 const TSViewContext child = dispatch.child_at(context, index);
                 if (!child.is_bound()) { continue; }
@@ -222,37 +271,47 @@ namespace hgraph
                                                          BaseState *local_state,
                                                          const TSMeta &schema,
                                                          const detail::ViewDispatch &value_dispatch,
-                                                         const detail::TSDispatch &ts_dispatch) noexcept
+                                                         const detail::TSDispatch &ts_dispatch,
+                                                         const TSViewContext &parent_context) noexcept
         {
-            return TSViewContext{
+            return TSViewContext{TSContext{
                 target.schema != nullptr ? target.schema : &schema,
                 target.value_dispatch != nullptr ? target.value_dispatch : &value_dispatch,
                 target.ts_dispatch != nullptr ? target.ts_dispatch : &ts_dispatch,
                 target.value_data,
                 local_state,
-            };
+                target.owning_output != nullptr ? target.owning_output : parent_context.owning_output,
+                target.output_view_ops != nullptr ? target.output_view_ops : parent_context.output_view_ops,
+                local_state != nullptr ? local_state
+                                       : (target.notification_state != nullptr ? target.notification_state
+                                                                              : parent_context.notification_state),
+            }};
         }
 
         [[nodiscard]] TSViewContext child_context_from_slot(const std::unique_ptr<TimeSeriesStateV> &slot,
                                                             const TSMeta &schema,
                                                             const detail::ViewDispatch &value_dispatch,
                                                             const detail::TSDispatch &ts_dispatch,
-                                                            void *native_value_data) noexcept
+                                                            void *native_value_data,
+                                                            const TSViewContext &parent_context) noexcept
         {
             BaseState *local_state = state_address(slot);
             if (local_state != nullptr) {
                 if (const LinkedTSContext *target = local_state->linked_target(); target != nullptr) {
-                    return linked_child_context(*target, local_state, schema, value_dispatch, ts_dispatch);
+                    return linked_child_context(*target, local_state, schema, value_dispatch, ts_dispatch, parent_context);
                 }
             }
 
-            return TSViewContext{
+            return TSViewContext{TSContext{
                 &schema,
                 &value_dispatch,
                 &ts_dispatch,
                 native_value_data,
                 local_state,
-            };
+                parent_context.owning_output,
+                parent_context.output_view_ops,
+                local_state != nullptr ? local_state : parent_context.notification_state,
+            }};
         }
 
         [[nodiscard]] TimeSeriesStateParentPtr parent_ptr(TSLState &state) noexcept { return &state; }
@@ -405,7 +464,8 @@ namespace hgraph
                                            *state.element_schema,
                                            slot_value_dispatch,
                                            child_builder.ts_dispatch(),
-                                           slot_value_data);
+                                           slot_value_data,
+                                           TSViewContext::none());
         }
 
         void replay_active_subtree(const TSViewContext &context, ActiveTrieNode *trie_node, Notifiable *notifier, bool subscribe)
@@ -552,7 +612,7 @@ namespace hgraph
                             }
                             const auto &child_value_dispatch = ValueBuilderFactory::checked_builder_for(
                                 child_schema->value_type,
-                                MutationTracking::Plain).dispatch();
+                                nested_ts_value_tracking(*child_schema->value_type)).dispatch();
                             bind_dynamic_dict_states_recursive(*child_schema,
                                                                *typed_state.child_states[index],
                                                                child_value_dispatch,
@@ -573,7 +633,7 @@ namespace hgraph
                             }
                             const auto &child_value_dispatch = ValueBuilderFactory::checked_builder_for(
                                 child_schema->value_type,
-                                MutationTracking::Plain).dispatch();
+                                nested_ts_value_tracking(*child_schema->value_type)).dispatch();
                             bind_dynamic_dict_states_recursive(*child_schema,
                                                                *typed_state.child_states[index],
                                                                child_value_dispatch,
@@ -861,6 +921,22 @@ namespace hgraph
                 return value.has_value() && value.as_atomic().try_as<TimeSeriesReference>() != nullptr;
             }
 
+            [[nodiscard]] engine_time_t last_modified_time(const TSViewContext &context) const noexcept override
+            {
+                if (context.schema == nullptr || context.schema->kind != TSKind::REF) {
+                    return detail::TSDispatch::last_modified_time(context);
+                }
+
+                if (context.ts_state != nullptr) {
+                    if (const LinkedTSContext *target = context.ts_state->linked_target(); target != nullptr && target->is_bound()) {
+                        BaseState *state = target->notification_state != nullptr ? target->notification_state : target->ts_state;
+                        if (state != nullptr) { return state->last_modified_time; }
+                    }
+                }
+
+                return detail::TSDispatch::last_modified_time(context);
+            }
+
             [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
             {
                 return detail::reference_all_valid(context);
@@ -880,8 +956,9 @@ namespace hgraph
 
             [[nodiscard]] size_t size(const TSViewContext &context) const noexcept override
             {
-                if (!context.value().has_value()) { return 0; }
-                return context.value().as_list().size();
+                if (context.value().has_value()) { return context.value().as_list().size(); }
+                const TSMeta *schema = context.resolved().schema;
+                return schema != nullptr ? schema->fixed_size() : 0;
             }
 
             [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override
@@ -904,7 +981,9 @@ namespace hgraph
 
             [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override
             {
-                if (!detail::TSDispatch::valid(context)) { return false; }
+                if (!detail::TSDispatch::valid(context)) {
+                    if (context.ts_state == nullptr || context.value().has_value()) { return false; }
+                }
                 return collection_has_valid_child(context, *this, size(context));
             }
 
@@ -981,13 +1060,19 @@ namespace hgraph
                                                         m_element_schema.get(),
                                                         m_element_value_dispatch.get(),
                                                         m_element_ts_dispatch.get(),
-                                                        RawViewAccess::data_of(child_value));
+                                                        RawViewAccess::data_of(child_value),
+                                                        context);
                     } else {
-                        child = TSViewContext{&m_element_schema.get(),
-                                              &m_element_value_dispatch.get(),
-                                              &m_element_ts_dispatch.get(),
-                                              RawViewAccess::data_of(child_value),
-                                              nullptr};
+                        child = TSViewContext{TSContext{
+                            &m_element_schema.get(),
+                            &m_element_value_dispatch.get(),
+                            &m_element_ts_dispatch.get(),
+                            RawViewAccess::data_of(child_value),
+                            nullptr,
+                            context.owning_output,
+                            context.output_view_ops,
+                            context.notification_state != nullptr ? context.notification_state : context.ts_state,
+                        }};
                     }
                     if (!m_element_ts_dispatch.get().valid(child)) { return false; }
                 }
@@ -1036,7 +1121,8 @@ namespace hgraph
                                                m_element_schema.get(),
                                                m_element_value_dispatch.get(),
                                                m_element_ts_dispatch.get(),
-                                               child_value_data);
+                                               child_value_data,
+                                               context);
             }
 
           private:
@@ -1083,7 +1169,9 @@ namespace hgraph
 
             [[nodiscard]] bool valid(const TSViewContext &context) const noexcept override
             {
-                if (!detail::TSDispatch::valid(context)) { return false; }
+                if (!detail::TSDispatch::valid(context)) {
+                    if (context.ts_state == nullptr || context.value().has_value()) { return false; }
+                }
                 return collection_has_valid_child(context, *this, m_fields.size());
             }
 
@@ -1159,13 +1247,19 @@ namespace hgraph
                                                         m_fields[index].schema.get(),
                                                         m_fields[index].value_dispatch.get(),
                                                         m_fields[index].ts_dispatch.get(),
-                                                        RawViewAccess::data_of(child_value));
+                                                        RawViewAccess::data_of(child_value),
+                                                        context);
                     } else {
-                        child = TSViewContext{&m_fields[index].schema.get(),
-                                              &m_fields[index].value_dispatch.get(),
-                                              &m_fields[index].ts_dispatch.get(),
-                                              RawViewAccess::data_of(child_value),
-                                              nullptr};
+                        child = TSViewContext{TSContext{
+                            &m_fields[index].schema.get(),
+                            &m_fields[index].value_dispatch.get(),
+                            &m_fields[index].ts_dispatch.get(),
+                            RawViewAccess::data_of(child_value),
+                            nullptr,
+                            context.owning_output,
+                            context.output_view_ops,
+                            context.notification_state != nullptr ? context.notification_state : context.ts_state,
+                        }};
                     }
                     if (!m_fields[index].ts_dispatch.get().valid(child)) { return false; }
                 }
@@ -1211,7 +1305,8 @@ namespace hgraph
                                                m_fields[index].schema.get(),
                                                m_fields[index].value_dispatch.get(),
                                                m_fields[index].ts_dispatch.get(),
-                                               child_value_data);
+                                               child_value_data,
+                                               context);
             }
 
             [[nodiscard]] TSViewContext child_field(const TSViewContext &context, std::string_view name) const override
@@ -1244,12 +1339,23 @@ namespace hgraph
 
             [[nodiscard]] size_t size(const TSViewContext &context) const noexcept override
             {
-                return context.value().as_map().size();
+                if (context.value().has_value()) { return context.value().as_map().size(); }
+                if (TSDState *state = dict_state(context);
+                    state != nullptr && state->map_dispatch != nullptr && state->map_value_data != nullptr) {
+                    return state->map_dispatch->size(state->map_value_data);
+                }
+                return 0;
             }
 
             [[nodiscard]] View delta_value(const TSViewContext &context) const noexcept override
             {
-                return context.value().as_map().delta();
+                if (context.value().has_value()) { return context.value().as_map().delta(); }
+                if (TSDState *state = dict_state(context);
+                    state != nullptr && state->map_dispatch != nullptr && state->map_value_data != nullptr) {
+                    const auto *schema = context.resolved().schema;
+                    return View{state->map_dispatch, state->map_value_data, schema != nullptr ? schema->value_type : nullptr};
+                }
+                return View::invalid_for(context.resolved().schema != nullptr ? context.resolved().schema->value_type : nullptr);
             }
 
             [[nodiscard]] nb::object to_python(const TSViewContext &context, engine_time_t evaluation_time) const override
@@ -1299,54 +1405,116 @@ namespace hgraph
 
             [[nodiscard]] bool all_valid(const TSViewContext &context) const noexcept override
             {
-                if (!context.value().has_value()) { return false; }
-
-                MapDeltaView delta = context.value().as_map().delta();
-                for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
-                    if (!detail::dict_slot_is_live(delta, slot)) { continue; }
-                    if (!m_value_ts_dispatch.get().all_valid(child_at_slot(context, delta, slot))) { return false; }
+                if (context.value().has_value()) {
+                    MapDeltaView delta = context.value().as_map().delta();
+                    for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
+                        if (!detail::dict_slot_is_live(delta, slot)) { continue; }
+                        if (!m_value_ts_dispatch.get().all_valid(child_at_slot(context, delta, slot))) { return false; }
+                    }
+                    return true;
                 }
 
-                return true;
+                if (TSDState *state = dict_state(context);
+                    state != nullptr && state->map_dispatch != nullptr && state->map_value_data != nullptr) {
+                    const size_t slot_capacity = state->map_dispatch->slot_capacity(state->map_value_data);
+                    for (size_t slot = 0; slot < slot_capacity; ++slot) {
+                        if (!state->map_dispatch->slot_occupied(state->map_value_data, slot) ||
+                            state->map_dispatch->slot_removed(state->map_value_data, slot)) {
+                            continue;
+                        }
+                        if (!m_value_ts_dispatch.get().all_valid(child_at_slot(context, *state, slot))) { return false; }
+                    }
+                    return true;
+                }
+
+                return false;
             }
 
             [[nodiscard]] TSViewContext child_at(const TSViewContext &context, size_t index) const override
             {
-                if (!context.value().has_value()) { return TSViewContext::none(); }
-                MapDeltaView delta = context.value().as_map().delta();
-                if (index >= delta.slot_capacity() || !delta.slot_occupied(index)) { return TSViewContext::none(); }
-                return child_at_slot(context, delta, index);
+                if (context.value().has_value()) {
+                    MapDeltaView delta = context.value().as_map().delta();
+                    if (index >= delta.slot_capacity() || !delta.slot_occupied(index)) { return TSViewContext::none(); }
+                    return child_at_slot(context, delta, index);
+                }
+
+                TSDState *state = dict_state(context);
+                if (state == nullptr || state->map_dispatch == nullptr || state->map_value_data == nullptr ||
+                    index >= state->map_dispatch->slot_capacity(state->map_value_data) ||
+                    !state->map_dispatch->slot_occupied(state->map_value_data, index)) {
+                    return TSViewContext::none();
+                }
+                return child_at_slot(context, *state, index);
             }
 
             [[nodiscard]] TSViewContext child_key(const TSViewContext &context, const View &key) const override
             {
-                if (!context.value().has_value()) { return TSViewContext::none(); }
-                RawMapAccess map{context.value()};
-                const auto *dispatch = map.map_dispatch();
-                const size_t slot = dispatch->find(map.data(), RawMapAccess::data_of(key));
-                if (slot == static_cast<size_t>(-1)) { return TSViewContext::none(); }
+                if (context.value().has_value()) {
+                    RawMapAccess map{context.value()};
+                    const auto *dispatch = map.map_dispatch();
+                    const size_t slot = dispatch->find(map.data(), RawMapAccess::data_of(key));
+                    if (slot == static_cast<size_t>(-1)) { return TSViewContext::none(); }
 
-                MapDeltaView delta = map.delta();
-                if (!detail::dict_slot_is_live(delta, slot)) { return TSViewContext::none(); }
-                return child_at_slot(context, delta, slot);
+                    MapDeltaView delta = map.delta();
+                    if (!detail::dict_slot_is_live(delta, slot)) { return TSViewContext::none(); }
+                    return child_at_slot(context, delta, slot);
+                }
+
+                TSDState *state = dict_state(context);
+                if (state == nullptr || state->map_dispatch == nullptr || state->map_value_data == nullptr) {
+                    return TSViewContext::none();
+                }
+
+                const size_t slot = state->map_dispatch->find(state->map_value_data, RawViewAccess::data_of(key));
+                if (slot == static_cast<size_t>(-1) || !state->map_dispatch->slot_occupied(state->map_value_data, slot) ||
+                    state->map_dispatch->slot_removed(state->map_value_data, slot)) {
+                    return TSViewContext::none();
+                }
+                return child_at_slot(context, *state, slot);
             }
 
             [[nodiscard]] size_t iteration_limit(const TSViewContext &context) const noexcept override
             {
-                return context.value().as_map().delta().slot_capacity();
+                if (context.value().has_value()) { return context.value().as_map().delta().slot_capacity(); }
+                if (TSDState *state = dict_state(context);
+                    state != nullptr && state->map_dispatch != nullptr && state->map_value_data != nullptr) {
+                    return state->map_dispatch->slot_capacity(state->map_value_data);
+                }
+                return 0;
             }
 
             [[nodiscard]] bool slot_is_live(const TSViewContext &context, size_t slot) const noexcept override
             {
-                MapDeltaView delta = context.value().as_map().delta();
-                return slot < delta.slot_capacity() && detail::dict_slot_is_live(delta, slot);
+                if (context.value().has_value()) {
+                    MapDeltaView delta = context.value().as_map().delta();
+                    return slot < delta.slot_capacity() && detail::dict_slot_is_live(delta, slot);
+                }
+                if (TSDState *state = dict_state(context);
+                    state != nullptr && state->map_dispatch != nullptr && state->map_value_data != nullptr) {
+                    return slot < state->map_dispatch->slot_capacity(state->map_value_data) &&
+                           state->map_dispatch->slot_occupied(state->map_value_data, slot) &&
+                           !state->map_dispatch->slot_removed(state->map_value_data, slot);
+                }
+                return false;
             }
 
             [[nodiscard]] View key_at_slot(const TSViewContext &context, size_t slot) const override
             {
-                MapDeltaView delta = context.value().as_map().delta();
-                return slot < delta.slot_capacity() ? delta.key_at_slot(slot)
-                                                    : View::invalid_for(context.value().as_map().key_schema());
+                if (context.value().has_value()) {
+                    MapDeltaView delta = context.value().as_map().delta();
+                    return slot < delta.slot_capacity() ? delta.key_at_slot(slot)
+                                                        : View::invalid_for(context.value().as_map().key_schema());
+                }
+                if (TSDState *state = dict_state(context);
+                    state != nullptr && state->map_dispatch != nullptr && state->map_value_data != nullptr) {
+                    return slot < state->map_dispatch->slot_capacity(state->map_value_data)
+                               ? View{&state->map_dispatch->key_dispatch(),
+                                      const_cast<void *>(state->map_dispatch->key_data(state->map_value_data, slot)),
+                                      &state->map_dispatch->key_schema()}
+                               : View::invalid_for(&state->map_dispatch->key_schema());
+                }
+                const TSMeta *schema = context.resolved().schema;
+                return View::invalid_for(schema != nullptr ? schema->key_type() : nullptr);
             }
 
           private:
@@ -1355,29 +1523,59 @@ namespace hgraph
                                                       size_t slot) const
             {
                 TSDState *state = dict_state(context);
-                const View child_value = delta.value_at_slot(slot);
-                if (state == nullptr) {
-                    return TSViewContext{&m_value_schema.get(),
-                                         &m_value_dispatch.get(),
-                                         &m_value_ts_dispatch.get(),
-                                         RawViewAccess::data_of(child_value),
-                                         nullptr};
-                }
-                if (state->child_states.size() <= slot || state->child_states[slot] == nullptr) {
-                    const void *child_value_data = RawViewAccess::data_of(child_value);
-                    if (child_value_data == nullptr) { return TSViewContext::none(); }
-                    return TSViewContext{&m_value_schema.get(),
-                                         &m_value_dispatch.get(),
-                                         &m_value_ts_dispatch.get(),
-                                         const_cast<void *>(child_value_data),
-                                         nullptr};
+                if (state != nullptr) {
+                    if (state->child_states.size() <= slot || state->child_states[slot] == nullptr) {
+                        state->on_insert(slot);
+                    }
+
+                    TSViewContext child = child_context_for_dict_slot(*state, slot);
+                    if (child.is_bound() || child.value().has_value()) { return child; }
                 }
 
-                return child_context_from_slot(state->child_states[slot],
-                                               m_value_schema.get(),
-                                               m_value_dispatch.get(),
-                                               m_value_ts_dispatch.get(),
-                                               RawViewAccess::data_of(child_value));
+                const View  child_value      = delta.value_at_slot(slot);
+                const void *child_value_data = RawViewAccess::data_of(child_value);
+                if (child_value_data == nullptr) { return TSViewContext::none(); }
+
+                return TSViewContext{TSContext{
+                    &m_value_schema.get(),
+                    &m_value_dispatch.get(),
+                    &m_value_ts_dispatch.get(),
+                    const_cast<void *>(child_value_data),
+                    nullptr,
+                    context.owning_output,
+                    context.output_view_ops,
+                    context.notification_state != nullptr ? context.notification_state : context.ts_state,
+                }};
+            }
+
+            [[nodiscard]] TSViewContext child_at_slot(const TSViewContext &context, TSDState &state, size_t slot) const
+            {
+                if (state.child_states.size() <= slot || state.child_states[slot] == nullptr) {
+                    state.on_insert(slot);
+                }
+
+                TSViewContext child = child_context_for_dict_slot(state, slot);
+                if (child.is_bound() || child.value().has_value()) { return child; }
+
+                if (state.map_dispatch == nullptr || state.map_value_data == nullptr ||
+                    !state.map_dispatch->slot_occupied(state.map_value_data, slot) ||
+                    state.map_dispatch->slot_removed(state.map_value_data, slot)) {
+                    return TSViewContext::none();
+                }
+
+                const void *child_value_data = state.map_dispatch->value_data(state.map_value_data, slot);
+                if (child_value_data == nullptr) { return TSViewContext::none(); }
+
+                return TSViewContext{TSContext{
+                    &m_value_schema.get(),
+                    &m_value_dispatch.get(),
+                    &m_value_ts_dispatch.get(),
+                    const_cast<void *>(child_value_data),
+                    nullptr,
+                    context.owning_output,
+                    context.output_view_ops,
+                    context.notification_state != nullptr ? context.notification_state : context.ts_state,
+                }};
             }
 
             std::reference_wrapper<const TSMeta>               m_value_schema;
@@ -1844,7 +2042,9 @@ namespace hgraph
 
                         dispatch = std::make_unique<ListTSDispatch>(
                             *element_schema,
-                            ValueBuilderFactory::checked_builder_for(element_schema->value_type, MutationTracking::Plain).dispatch(),
+                            ValueBuilderFactory::checked_builder_for(
+                                element_schema->value_type,
+                                nested_ts_value_tracking(*element_schema->value_type)).dispatch(),
                             checked_dispatch_for(*element_schema));
                         break;
                     }
@@ -1864,7 +2064,8 @@ namespace hgraph
                                 .name = schema.fields()[index].name,
                                 .schema = std::cref(*field_schema),
                                 .value_dispatch = std::cref(
-                                    ValueBuilderFactory::checked_builder_for(field_schema->value_type, MutationTracking::Plain)
+                                    ValueBuilderFactory::checked_builder_for(field_schema->value_type,
+                                                                            nested_ts_value_tracking(*field_schema->value_type))
                                         .dispatch()),
                                 .ts_dispatch = std::cref(checked_dispatch_for(*field_schema)),
                             });
@@ -1883,7 +2084,9 @@ namespace hgraph
 
                         dispatch = std::make_unique<DictTSDispatch>(
                             *value_schema,
-                            ValueBuilderFactory::checked_builder_for(value_schema->value_type, MutationTracking::Plain).dispatch(),
+                            ValueBuilderFactory::checked_builder_for(
+                                value_schema->value_type,
+                                nested_ts_value_tracking(*value_schema->value_type)).dispatch(),
                             checked_dispatch_for(*value_schema));
                         break;
                     }
@@ -1954,6 +2157,82 @@ namespace hgraph
         return make_state_node([&](TimeSeriesStateV &state) { initialize_state_tree(state, schema, parent, index); });
     }
 
+    TSDState::TSDState() noexcept : slot_observer(this) {}
+
+    TSDState::TSDState(TSDState &&other) noexcept
+        : BaseCollectionState(std::move(other)),
+          active_tries(std::move(other.active_tries)),
+          element_schema(other.element_schema),
+          map_dispatch(other.map_dispatch),
+          map_value_data(other.map_value_data),
+          slot_observer_registered(other.slot_observer_registered),
+          slot_observer(this)
+    {
+        if (slot_observer_registered && map_dispatch != nullptr && map_value_data != nullptr) {
+            map_dispatch->remove_slot_observer(map_value_data, &other.slot_observer);
+            map_dispatch->add_slot_observer(map_value_data, &slot_observer);
+        }
+
+        other.active_tries.clear();
+        other.element_schema = nullptr;
+        other.map_dispatch = nullptr;
+        other.map_value_data = nullptr;
+        other.slot_observer_registered = false;
+        other.slot_observer.owner = &other;
+    }
+
+    TSDState &TSDState::operator=(TSDState &&other) noexcept
+    {
+        if (this == &other) { return *this; }
+
+        unbind_value_storage();
+        BaseCollectionState::operator=(std::move(other));
+        active_tries = std::move(other.active_tries);
+        element_schema = other.element_schema;
+        map_dispatch = other.map_dispatch;
+        map_value_data = other.map_value_data;
+        slot_observer_registered = other.slot_observer_registered;
+        slot_observer.owner = this;
+
+        if (slot_observer_registered && map_dispatch != nullptr && map_value_data != nullptr) {
+            map_dispatch->remove_slot_observer(map_value_data, &other.slot_observer);
+            map_dispatch->add_slot_observer(map_value_data, &slot_observer);
+        }
+
+        other.active_tries.clear();
+        other.element_schema = nullptr;
+        other.map_dispatch = nullptr;
+        other.map_value_data = nullptr;
+        other.slot_observer_registered = false;
+        other.slot_observer.owner = &other;
+        return *this;
+    }
+
+    void TSDState::SlotObserverAdapter::on_capacity(size_t old_capacity, size_t new_capacity)
+    {
+        if (owner != nullptr) { owner->on_capacity(old_capacity, new_capacity); }
+    }
+
+    void TSDState::SlotObserverAdapter::on_insert(size_t slot)
+    {
+        if (owner != nullptr) { owner->on_insert(slot); }
+    }
+
+    void TSDState::SlotObserverAdapter::on_remove(size_t slot)
+    {
+        if (owner != nullptr) { owner->on_remove(slot); }
+    }
+
+    void TSDState::SlotObserverAdapter::on_erase(size_t slot)
+    {
+        if (owner != nullptr) { owner->on_erase(slot); }
+    }
+
+    void TSDState::SlotObserverAdapter::on_clear()
+    {
+        if (owner != nullptr) { owner->on_clear(); }
+    }
+
     void TSDState::bind_value_storage(const TSMeta &element_schema_,
                                       const detail::MapViewDispatch &dispatch,
                                       void *value_data,
@@ -1971,7 +2250,7 @@ namespace hgraph
         element_schema = &element_schema_;
         map_dispatch = &dispatch;
         map_value_data = value_data;
-        map_dispatch->add_slot_observer(map_value_data, this);
+        map_dispatch->add_slot_observer(map_value_data, &slot_observer);
         slot_observer_registered = true;
         sync_with_value_storage();
     }
@@ -1979,7 +2258,7 @@ namespace hgraph
     void TSDState::unbind_value_storage() noexcept
     {
         if (slot_observer_registered && map_dispatch != nullptr && map_value_data != nullptr) {
-            map_dispatch->remove_slot_observer(map_value_data, this);
+            map_dispatch->remove_slot_observer(map_value_data, &slot_observer);
         }
 
         detach_value_storage();
@@ -2050,6 +2329,12 @@ namespace hgraph
         if (child_states.size() < slot + 1) { child_states.resize(slot + 1); }
         if (child_states[slot] == nullptr) {
             child_states[slot] = make_time_series_state_node(*element_schema, this, slot);
+        }
+
+        if (BaseState *child_state = state_address(child_states[slot]);
+            child_state != nullptr && child_state->last_modified_time == MIN_DT) {
+            const bool slot_modified = map_dispatch->slot_added(map_value_data, slot) || map_dispatch->slot_updated(map_value_data, slot);
+            child_state->last_modified_time = slot_modified && last_modified_time != MIN_DT ? last_modified_time : MIN_ST;
         }
 
         const TSViewContext child = child_context_for_dict_slot(*this, slot);
@@ -2280,6 +2565,12 @@ namespace hgraph
     const TSValueBuilder &TSValueBuilderFactory::checked_builder_for(const TSMeta *schema)
     {
         if (const auto *builder = builder_for(schema); builder != nullptr) { return *builder; }
-        throw std::invalid_argument("TSValueBuilderFactory requires a schema with a value_type");
+        std::string message = "TSValueBuilderFactory requires a schema with a value_type";
+        message += " (schema=" + schema_debug_name(schema) + ")";
+        if (schema != nullptr) {
+            message += ", kind=" + std::to_string(static_cast<int>(schema->kind));
+            message += ", value_type=" + std::string{safe_type_name(schema->value_type)};
+        }
+        throw std::invalid_argument(message);
     }
 }  // namespace hgraph

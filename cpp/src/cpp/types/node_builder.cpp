@@ -1,3 +1,4 @@
+#include <hgraph/types/time_series/time_series_state.h>
 #include <hgraph/types/time_series/ts_output_builder.h>
 #include <hgraph/types/time_series/value/keyed_slot_store.h>
 #include <hgraph/types/time_series/value/value.h>
@@ -7,6 +8,7 @@
 #include <hgraph/types/node_builder.h>
 #include <hgraph/types/path_constants.h>
 #include <hgraph/types/python_node_support.h>
+#include <hgraph/types/ref.h>
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/util/scope.h>
 
@@ -43,9 +45,31 @@ namespace hgraph
         };
 
         [[nodiscard]] TSOutputView bound_output_of(TSInputView view) noexcept {
+            if (const LinkedTSContext *target = view.linked_target();
+                target != nullptr && target->is_bound() && target->schema != nullptr && target->value_dispatch != nullptr &&
+                target->ts_dispatch != nullptr && target->owning_output != nullptr) {
+                return TSOutputView{
+                    TSViewContext{TSContext{
+                        target->schema,
+                        target->value_dispatch,
+                        target->ts_dispatch,
+                        target->value_data,
+                        target->ts_state,
+                        target->owning_output,
+                        target->output_view_ops,
+                        target->notification_state != nullptr ? target->notification_state : target->ts_state,
+                        target->pending_dict_child,
+                    }},
+                    TSViewContext::none(),
+                    view.evaluation_time(),
+                    target->owning_output,
+                    target->output_view_ops != nullptr ? target->output_view_ops : &hgraph::detail::default_output_view_ops(),
+                };
+            }
+
             const TSViewContext source_context = view.context_ref().resolved();
             if (source_context.schema == nullptr || source_context.value_dispatch == nullptr || source_context.ts_dispatch == nullptr ||
-                source_context.ts_state == nullptr || source_context.owning_output == nullptr) {
+                source_context.owning_output == nullptr) {
                 return TSOutputView{};
             }
 
@@ -59,6 +83,7 @@ namespace hgraph
                     source_context.owning_output,
                     source_context.output_view_ops,
                     source_context.notification_state != nullptr ? source_context.notification_state : source_context.ts_state,
+                    source_context.pending_dict_child,
                 }},
                 TSViewContext::none(),
                 view.evaluation_time(),
@@ -71,7 +96,7 @@ namespace hgraph
         {
             if (const LinkedTSContext *target = view.linked_target(); target != nullptr && target->is_bound() &&
                 target->schema != nullptr && target->value_dispatch != nullptr && target->ts_dispatch != nullptr &&
-                target->ts_state != nullptr && target->owning_output != nullptr) {
+                target->owning_output != nullptr) {
                 return TSOutputView{
                     TSViewContext{TSContext{
                         target->schema,
@@ -82,6 +107,7 @@ namespace hgraph
                         target->owning_output,
                         target->output_view_ops,
                         target->notification_state != nullptr ? target->notification_state : target->ts_state,
+                        target->pending_dict_child,
                     }},
                     TSViewContext::none(),
                     view.evaluation_time(),
@@ -91,6 +117,27 @@ namespace hgraph
             }
 
             return bound_output_of(view);
+        }
+
+        [[nodiscard]] bool sampled_this_tick(const TSViewContext &context, engine_time_t evaluation_time) noexcept
+        {
+            const auto snapshot = detail::transition_snapshot(context);
+            return snapshot.active() && snapshot.modified_time == evaluation_time;
+        }
+
+        [[nodiscard]] bool input_changed(TSInputView view) noexcept
+        {
+            return view.modified() || sampled_this_tick(view.context_ref(), view.evaluation_time());
+        }
+
+        [[nodiscard]] bool output_changed(TSOutputView view) noexcept
+        {
+            return view.modified() || sampled_this_tick(view.context_ref(), view.evaluation_time());
+        }
+
+        [[nodiscard]] LinkedTSContext bound_output_context(const TSOutputView &view) noexcept
+        {
+            return view.ts_schema() != nullptr ? view.linked_context() : LinkedTSContext{};
         }
 
         [[nodiscard]] const TSMeta *unwrap_navigation_schema(const TSMeta *schema);
@@ -359,6 +406,29 @@ namespace hgraph
             const nb::str py_key{key.data(), key.size()};
             if (!PyMapping_HasKey(scalars.ptr(), py_key.ptr())) { return default_value; }
             return nb::cast<bool>(nb::steal<nb::object>(PyObject_GetItem(scalars.ptr(), py_key.ptr())));
+        }
+
+        [[nodiscard]] nb::object normalize_python_ref_result(const TSMeta *output_schema,
+                                                             nb::object result,
+                                                             engine_time_t evaluation_time)
+        {
+            if (!result.is_valid() || result.is_none() || output_schema == nullptr || output_schema->kind != TSKind::REF ||
+                !nb::isinstance<TimeSeriesReference>(result)) {
+                return result;
+            }
+
+            const TimeSeriesReference ref = nb::cast<TimeSeriesReference>(result);
+            if (!ref.is_peered() || ref.target().schema == nullptr || ref.target().schema->kind != TSKind::REF) { return result; }
+
+            TSOutputView target_view = ref.target_view(evaluation_time);
+            const View target_value = target_view.value();
+            if (target_value.has_value()) {
+                if (const auto *inner_ref = target_value.as_atomic().template try_as<TimeSeriesReference>(); inner_ref != nullptr) {
+                    return nb::cast(*inner_ref);
+                }
+            }
+
+            return result;
         }
 
         [[nodiscard]] bool python_push_source_apply_message(Node &node, PythonNodeRuntimeData &runtime_data,
@@ -825,8 +895,71 @@ namespace hgraph
                 }
 
                 nb::object out = call_python_node_eval(heap_state.python_signature, heap_state.eval_fn, heap_state.kwargs);
+                if (std::getenv("HGRAPH_DEBUG_PY_NODE") != nullptr && heap_state.python_signature.is_valid() &&
+                    !heap_state.python_signature.is_none()) {
+                    const std::string node_name = nb::cast<std::string>(heap_state.python_signature.attr("name"));
+                    std::fprintf(stderr, "python_node_eval name=%s out=%s\n", node_name.c_str(), nb::str(out).c_str());
+                    std::fflush(stderr);
+                    if (node_name == "union_multiple_tss") {
+                        auto summarize_tss = [](nb::handle value) {
+                            if (!value.is_valid() || value.is_none()) { return std::string{"<none>"}; }
+                            nb::object valid = nb::getattr(value, "valid", nb::none());
+                            nb::object current = nb::getattr(value, "value", nb::none());
+                            nb::object added = nb::none();
+                            nb::object removed = nb::none();
+                            if (PyObject_HasAttrString(value.ptr(), "added")) { added = value.attr("added")(); }
+                            if (PyObject_HasAttrString(value.ptr(), "removed")) { removed = value.attr("removed")(); }
+                            return fmt::format("valid={} value={} added={} removed={}",
+                                               nb::str(valid).c_str(),
+                                               nb::str(current).c_str(),
+                                               nb::str(added).c_str(),
+                                               nb::str(removed).c_str());
+                        };
+                        auto summarize_iter = [&](nb::handle iterable) {
+                            if (!iterable.is_valid() || iterable.is_none()) { return std::string{"<none>"}; }
+                            std::vector<std::string> parts;
+                            for (auto item : iterable) { parts.push_back(summarize_tss(nb::borrow(item))); }
+                            return fmt::format("[{}]", fmt::join(parts, "; "));
+                        };
+                        nb::object tsl = nb::steal<nb::object>(PyObject_GetItem(heap_state.kwargs.ptr(), nb::str("tsl").ptr()));
+                        PyObject *output_item = PyObject_GetItem(heap_state.kwargs.ptr(), nb::str("_output").ptr());
+                        nb::object output = output_item != nullptr ? nb::steal<nb::object>(output_item) : nb::none();
+                        std::fprintf(stderr,
+                                     "python_node_eval union_multiple_tss modified=%s valid=%s output_value=%s out=%s\n",
+                                     summarize_iter(tsl.attr("modified_values")()).c_str(),
+                                     summarize_iter(tsl.attr("valid_values")()).c_str(),
+                                     summarize_tss(output).c_str(),
+                                     nb::str(out).c_str());
+                        std::fflush(stderr);
+                    } else if (node_name == "bit_or_tsss") {
+                        auto render_arg = [&](const char *name) {
+                            if (!PyObject_HasAttrString(heap_state.kwargs.ptr(), name)) { return std::string{"<missing>"}; }
+                            nb::object arg = nb::steal<nb::object>(PyObject_GetItem(heap_state.kwargs.ptr(), nb::str(name).ptr()));
+                            if (!arg.is_valid() || arg.is_none()) { return std::string{"<none>"}; }
+                            nb::object valid = nb::getattr(arg, "valid", nb::none());
+                            nb::object value = nb::getattr(arg, "value", nb::none());
+                            nb::object added = nb::none();
+                            nb::object removed = nb::none();
+                            if (PyObject_HasAttrString(arg.ptr(), "added")) { added = arg.attr("added")(); }
+                            if (PyObject_HasAttrString(arg.ptr(), "removed")) { removed = arg.attr("removed")(); }
+                            return fmt::format("valid={} value={} added={} removed={}",
+                                               nb::str(valid).c_str(),
+                                               nb::str(value).c_str(),
+                                               nb::str(added).c_str(),
+                                               nb::str(removed).c_str());
+                        };
+                        std::fprintf(stderr,
+                                     "python_node_eval bit_or_tsss lhs=%s rhs=%s out=%s\n",
+                                     render_arg("lhs").c_str(),
+                                     render_arg("rhs").c_str(),
+                                     nb::str(out).c_str());
+                        std::fflush(stderr);
+                    }
+                }
                 if (!out.is_none() && runtime_data.output != nullptr && heap_state.output_handle.is_valid() &&
                     !heap_state.output_handle.is_none()) {
+                    const TSMeta *output_schema = runtime_data.output->view(node.evaluation_time()).ts_schema();
+                    out = normalize_python_ref_result(output_schema, std::move(out), node.evaluation_time());
                     heap_state.output_handle.attr("apply_result")(out);
                 }
             } catch (const NodeException &) { throw; } catch (const std::exception &e) {
@@ -1248,6 +1381,39 @@ namespace hgraph
             }
         }
 
+        void rebind_nested_direct_inputs(Node &node, NestedNodeRuntimeData &runtime, engine_time_t evaluation_time)
+        {
+            if (!runtime.bound || runtime.child_instance.graph() == nullptr) { return; }
+
+            std::unordered_set<std::string> changed_args;
+            for (const auto &spec : runtime.child_instance.boundary_plan().inputs) {
+                if (spec.child_node_index < 0) { continue; }
+
+                switch (spec.mode) {
+                    case InputBindingMode::BIND_DIRECT:
+                    case InputBindingMode::CLONE_REF_BINDING:
+                    case InputBindingMode::DETACH_RESTORE_BLANK:
+                        {
+                            TSInputView parent_input = resolve_parent_input_arg(node, spec.arg_name, evaluation_time);
+                            if (!spec.parent_input_path.empty()) { parent_input = navigate_input(parent_input, spec.parent_input_path); }
+                            if (input_changed(parent_input)) { changed_args.emplace(spec.arg_name); }
+                            break;
+                        }
+                    case InputBindingMode::BIND_MULTIPLEXED_ELEMENT:
+                    case InputBindingMode::BIND_KEY_VALUE:
+                        break;
+                }
+            }
+
+            for (const std::string &arg_name : changed_args) {
+                BoundaryBindingRuntime::rebind(runtime.child_instance.boundary_plan(),
+                                              *runtime.child_instance.graph(),
+                                              node,
+                                              arg_name,
+                                              evaluation_time);
+            }
+        }
+
         void prepare_child_output_links(TSOutput *output, const ChildGraphTemplate *child_template, bool try_except_output_root) {
             if (output == nullptr || child_template == nullptr) { return; }
 
@@ -1289,6 +1455,10 @@ namespace hgraph
             return true;
         }
 
+        void publish_reduce_aggregate_output(const TSOutputView &target_output,
+                                             const TSOutputView &source_output,
+                                             engine_time_t       evaluation_time);
+
         void forward_child_outputs(Node &node, TSOutputView parent_output, NestedNodeRuntimeData &runtime, engine_time_t evaluation_time) {
             const auto &plan = runtime.child_instance.boundary_plan();
             for (const auto &spec : plan.outputs) {
@@ -1318,21 +1488,21 @@ namespace hgraph
 
                 TSOutputView target_output = navigate_output(parent_output, spec.parent_output_path);
 
-                if (source_output.ts_schema() == nullptr) {
-                    clear_output_link(target_output);
-                    continue;
-                }
-
                 if (const auto *parent_schema = target_output.ts_schema(); parent_schema != nullptr &&
-                                                                           source_output.ts_schema() != parent_schema &&
+                                                                           !binding_compatible_ts_schema(source_output.ts_schema(), parent_schema) &&
                                                                            source_output.owning_output() != nullptr) {
+                    if (std::getenv("HGRAPH_DEBUG_BINDABLE") != nullptr) {
+                        std::fprintf(stderr,
+                                     "bindable site=node_builder:1355 bound=%d valid=%d source_kind=%d target_kind=%d\n",
+                                     source_output.context_ref().is_bound(),
+                                     source_output.valid(),
+                                     source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
+                                     parent_schema != nullptr ? static_cast<int>(parent_schema->kind) : -1);
+                    }
                     source_output = source_output.owning_output()->bindable_view(source_output, parent_schema);
                 }
 
-                const bool rebound = bind_output_link(target_output, source_output);
-                if (evaluation_time != MIN_DT && (rebound || source_output.modified())) {
-                    mark_output_view_modified(target_output, evaluation_time);
-                }
+                publish_reduce_aggregate_output(target_output, source_output, evaluation_time);
             }
         }
 
@@ -1371,6 +1541,7 @@ namespace hgraph
             if (ensure_nested_child_bound(node, runtime, evaluation_time)) {
                 forward_child_outputs(node, node.output_view(evaluation_time), runtime, MIN_DT);
             }
+            rebind_nested_direct_inputs(node, runtime, evaluation_time);
             runtime.child_instance.evaluate(evaluation_time);
             forward_child_outputs(node, node.output_view(evaluation_time), runtime, evaluation_time);
         }
@@ -1382,6 +1553,7 @@ namespace hgraph
             if (ensure_nested_child_bound(node, runtime, evaluation_time)) {
                 forward_child_outputs(node, node.output_view(evaluation_time).as_bundle().field("out"), runtime, MIN_DT);
             }
+            rebind_nested_direct_inputs(node, runtime, evaluation_time);
 
             try {
                 runtime.child_instance.evaluate(evaluation_time);
@@ -1627,6 +1799,40 @@ namespace hgraph
 
         void clear_output_value(TSOutputView output);
 
+        void clear_output_links_tree(TSOutputView output, bool clear_values)
+        {
+            const TSMeta *schema = output.ts_schema();
+            if (schema != nullptr) {
+                switch (schema->kind) {
+                    case TSKind::TSB:
+                        for (size_t index = 0; index < schema->field_count(); ++index) {
+                            clear_output_links_tree(output.as_bundle()[index], clear_values);
+                        }
+                        break;
+                    case TSKind::TSL:
+                        for (size_t index = 0; index < schema->fixed_size(); ++index) {
+                            clear_output_links_tree(output.as_list()[index], clear_values);
+                        }
+                        break;
+                    case TSKind::TSD:
+                        if (output.valid()) {
+                            constexpr size_t no_slot = static_cast<size_t>(-1);
+                            auto map = output.value().as_map();
+                            for (size_t slot = map.first_live_slot(); slot != no_slot; slot = map.next_live_slot(slot)) {
+                                Value key = map.delta().key_at_slot(slot).clone();
+                                clear_output_links_tree(detail::ensure_dict_child_output_view(output, key.view()), clear_values);
+                            }
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            clear_output_link(output);
+            if (clear_values) { clear_output_value(output); }
+        }
+
         void clear_switch_output_links(Node &node, SwitchNodeRuntimeData &runtime, engine_time_t evaluation_time)
         {
             if (!node.has_output()) { return; }
@@ -1636,8 +1842,7 @@ namespace hgraph
             TSOutputView parent_output = node.output_view(evaluation_time);
             for (const auto &spec : branch->child_template->boundary_plan.outputs) {
                 TSOutputView target_output = navigate_output(parent_output, spec.parent_output_path);
-                clear_output_link(target_output);
-                if (evaluation_time != MIN_DT) { clear_output_value(target_output); }
+                clear_output_links_tree(target_output, evaluation_time != MIN_DT);
             }
         }
 
@@ -1673,28 +1878,57 @@ namespace hgraph
                 TSOutputView source_output = resolve_switch_source_output(node, runtime, spec, evaluation_time);
 
                 TSOutputView target_output = navigate_output(parent_output, spec.parent_output_path);
-                if (source_output.ts_schema() == nullptr) {
-                    clear_output_link(target_output);
-                    if (evaluation_time != MIN_DT) { clear_output_value(target_output); }
+
+                if (const auto *parent_schema = target_output.ts_schema();
+                    parent_schema != nullptr && !binding_compatible_ts_schema(source_output.ts_schema(), parent_schema) &&
+                    source_output.owning_output() != nullptr) {
+                    if (std::getenv("HGRAPH_DEBUG_BINDABLE") != nullptr) {
+                        std::fprintf(stderr,
+                                     "bindable site=node_builder:1720 bound=%d valid=%d source_kind=%d target_kind=%d\n",
+                                     source_output.context_ref().is_bound(),
+                                     source_output.valid(),
+                                     source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
+                                     parent_schema != nullptr ? static_cast<int>(parent_schema->kind) : -1);
+                    }
+                    source_output = source_output.owning_output()->bindable_view(source_output, parent_schema);
+                }
+
+                if (std::getenv("HGRAPH_DEBUG_SWITCH") != nullptr) {
+                    std::fprintf(stderr,
+                                 "switch_forward eval=%lld source_schema=%p source_valid=%d source_modified=%d target_schema=%p\n",
+                                 static_cast<long long>(evaluation_time.time_since_epoch().count()),
+                                 static_cast<const void *>(source_output.ts_schema()),
+                                 source_output.valid(),
+                                 output_changed(source_output),
+                                 static_cast<const void *>(target_output.ts_schema()));
+                }
+
+                if (!source_output.ts_schema()) {
+                    clear_output_links_tree(target_output, evaluation_time != MIN_DT);
+                    if (evaluation_time != MIN_DT) { mark_output_view_modified(target_output, evaluation_time); }
                     continue;
                 }
 
                 if (!source_output.valid()) {
-                    if (evaluation_time != MIN_DT && source_output.modified()) {
-                        clear_output_link(target_output);
-                        clear_output_value(target_output);
-                    }
+                    clear_output_links_tree(target_output, evaluation_time != MIN_DT);
+                    if (evaluation_time != MIN_DT) { mark_output_view_modified(target_output, evaluation_time); }
                     continue;
                 }
 
-                if (const auto *parent_schema = target_output.ts_schema();
-                    parent_schema != nullptr && source_output.ts_schema() != parent_schema &&
-                    source_output.owning_output() != nullptr) {
-                    source_output = source_output.owning_output()->bindable_view(source_output, parent_schema);
+                if (const auto *schema = source_output.ts_schema();
+                    schema != nullptr &&
+                    (schema->kind == TSKind::TSB || schema->kind == TSKind::TSD || schema->kind == TSKind::TSS)) {
+                    publish_reduce_aggregate_output(target_output, source_output, evaluation_time);
+                    continue;
                 }
 
                 const bool rebound = bind_output_link(target_output, source_output);
-                if (evaluation_time != MIN_DT && (rebound || source_output.modified())) {
+                if (std::getenv("HGRAPH_DEBUG_SWITCH") != nullptr) {
+                    std::fprintf(stderr, "switch_forward_bound eval=%lld rebound=%d target_valid=%d\n",
+                                 static_cast<long long>(evaluation_time.time_since_epoch().count()), rebound,
+                                 target_output.valid());
+                }
+                if (evaluation_time != MIN_DT && (rebound || output_changed(source_output))) {
                     mark_output_view_modified(target_output, evaluation_time);
                 }
             }
@@ -1721,6 +1955,9 @@ namespace hgraph
         void activate_switch_branch(Node &node, SwitchNodeRuntimeData &runtime, size_t branch_index, const value::View &selector,
                                     engine_time_t evaluation_time)
         {
+            // Switching branches must publish the delta from the old child to
+            // the new child in the current tick. Clearing the old branch at
+            // MIN_DT suppresses removals for collection outputs.
             stop_switch_child(node, runtime, evaluation_time);
             runtime.child_instance = ChildGraphInstance{};
 
@@ -1788,13 +2025,31 @@ namespace hgraph
         {
             auto &runtime = switch_runtime(node);
             TSInputView selector_input = resolve_parent_input_arg(node, "key", evaluation_time);
-            if (!selector_input.valid()) { return; }
+            if (std::getenv("HGRAPH_DEBUG_SWITCH") != nullptr) {
+                std::fprintf(stderr,
+                             "switch_eval eval=%lld selector_valid=%d selector_modified=%d child_started=%d active_branch=%zu\n",
+                             static_cast<long long>(evaluation_time.time_since_epoch().count()),
+                             selector_input.valid(),
+                             selector_input.modified(),
+                             runtime.child_instance.is_started(),
+                             runtime.active_branch_index);
+            }
+            if (!selector_input.valid()) {
+                if (!runtime.child_instance.is_started()) { return; }
+
+                runtime.child_instance.evaluate(evaluation_time);
+                if (node.has_output()) {
+                    TSOutputView output = node.output_view(evaluation_time);
+                    forward_switch_child_outputs(node, output, runtime, evaluation_time);
+                }
+                return;
+            }
 
             const value::View selector = selector_input.value();
             const size_t branch_index = select_switch_branch(runtime, selector);
             const bool raw_selector_changed =
-                selector_input.modified() && (runtime.reload_on_ticked || !runtime.active_key.has_value() ||
-                                              runtime.active_key->view() != selector);
+                input_changed(selector_input) && (runtime.reload_on_ticked || !runtime.active_key.has_value() ||
+                                                  runtime.active_key->view() != selector);
             const bool branch_changed =
                 runtime.active_branch_index == static_cast<size_t>(-1) || runtime.active_branch_index != branch_index ||
                 raw_selector_changed || !runtime.child_instance.is_initialised();
@@ -1803,13 +2058,41 @@ namespace hgraph
             if (!runtime.child_instance.is_started()) { return; }
 
             if (node.has_output()) {
-                if (branch_changed) {
-                    forward_switch_child_outputs(node, node.output_view(evaluation_time), runtime, MIN_DT);
-                } else if (ensure_switch_child_bound(node, runtime, evaluation_time)) {
+                if (!branch_changed && ensure_switch_child_bound(node, runtime, evaluation_time)) {
                     forward_switch_child_outputs(node, node.output_view(evaluation_time), runtime, MIN_DT);
                 }
             } else {
                 static_cast<void>(ensure_switch_child_bound(node, runtime, evaluation_time));
+            }
+
+            if (runtime.bound) {
+                std::unordered_set<std::string> changed_args;
+                for (const auto &spec : runtime.child_instance.boundary_plan().inputs) {
+                    if (spec.child_node_index < 0 || spec.arg_name == "key") { continue; }
+
+                    switch (spec.mode) {
+                        case InputBindingMode::BIND_DIRECT:
+                        case InputBindingMode::CLONE_REF_BINDING:
+                        case InputBindingMode::DETACH_RESTORE_BLANK:
+                            {
+                                TSInputView parent_input = resolve_parent_input_arg(node, spec.arg_name, evaluation_time);
+                                if (!spec.parent_input_path.empty()) { parent_input = navigate_input(parent_input, spec.parent_input_path); }
+                                if (input_changed(parent_input)) { changed_args.emplace(spec.arg_name); }
+                                break;
+                            }
+                        case InputBindingMode::BIND_MULTIPLEXED_ELEMENT:
+                        case InputBindingMode::BIND_KEY_VALUE:
+                            break;
+                    }
+                }
+
+                for (const std::string &arg_name : changed_args) {
+                    BoundaryBindingRuntime::rebind(runtime.child_instance.boundary_plan(),
+                                                  *runtime.child_instance.graph(),
+                                                  node,
+                                                  arg_name,
+                                                  evaluation_time);
+                }
             }
 
             runtime.child_instance.evaluate(evaluation_time);
@@ -1914,6 +2197,1662 @@ namespace hgraph
                 });
         }
 
+        struct ReduceAggregateRef
+        {
+            enum class Kind : uint8_t
+            {
+                Empty,
+                Zero,
+                Leaf,
+                Node,
+            };
+
+            Kind kind{Kind::Empty};
+            size_t index{static_cast<size_t>(-1)};
+
+            [[nodiscard]] static ReduceAggregateRef empty() noexcept { return {}; }
+            [[nodiscard]] static ReduceAggregateRef zero() noexcept { return {Kind::Zero, 0}; }
+            [[nodiscard]] static ReduceAggregateRef leaf(size_t index) noexcept { return {Kind::Leaf, index}; }
+            [[nodiscard]] static ReduceAggregateRef node(size_t index) noexcept { return {Kind::Node, index}; }
+            [[nodiscard]] bool active() const noexcept { return kind != Kind::Empty; }
+            [[nodiscard]] bool operator==(const ReduceAggregateRef &) const noexcept = default;
+        };
+
+        struct ReduceSourceSlotRuntime
+        {
+            explicit ReduceSourceSlotRuntime(Value key_arg)
+                : key(std::move(key_arg))
+            {
+            }
+
+            Value  key;
+            size_t dense_leaf{static_cast<size_t>(-1)};
+            bool   live{false};
+        };
+
+        struct ReduceOpRuntime
+        {
+            ChildGraphInstance child_instance;
+            std::optional<TSOutput> published_output;
+            ReduceAggregateRef left_source{};
+            ReduceAggregateRef right_source{};
+            LinkedTSContext    left_bound_context{};
+            LinkedTSContext    right_bound_context{};
+            engine_time_t      next_scheduled{MAX_DT};
+            bool               bound{false};
+        };
+
+        struct ReduceNodeRuntimeData
+        {
+            TSInput           *input{nullptr};
+            TSOutput          *output{nullptr};
+            TSOutput          *error_output{nullptr};
+            TSOutput          *recordable_state{nullptr};
+            const ChildGraphTemplate *child_template{nullptr};
+            const TSOutputBuilder *output_builder{nullptr};
+            int64_t            next_child_graph_id{1};
+            size_t             live_leaf_count{0};
+            size_t             leaf_capacity{1};
+            std::vector<size_t> dense_to_source_slot{};
+            bool               structure_changed{false};
+            bool               stores_initialized{false};
+        };
+
+        using ReduceSourceSlotStore = detail::KeyedPayloadStore<ReduceSourceSlotRuntime>;
+        using ReduceOpStore = detail::StablePayloadStore<ReduceOpRuntime>;
+
+        [[nodiscard]] constexpr size_t reduce_source_slot_store_offset() noexcept
+        {
+            return align_up(sizeof(ReduceNodeRuntimeData), alignof(ReduceSourceSlotStore));
+        }
+
+        [[nodiscard]] constexpr size_t reduce_op_store_offset() noexcept
+        {
+            return align_up(reduce_source_slot_store_offset() + sizeof(ReduceSourceSlotStore), alignof(ReduceOpStore));
+        }
+
+        [[nodiscard]] constexpr size_t reduce_runtime_storage_size() noexcept
+        {
+            return reduce_op_store_offset() + sizeof(ReduceOpStore);
+        }
+
+        [[nodiscard]] constexpr size_t reduce_runtime_storage_alignment() noexcept
+        {
+            return std::max({alignof(ReduceNodeRuntimeData), alignof(ReduceSourceSlotStore), alignof(ReduceOpStore)});
+        }
+
+        [[nodiscard]] ReduceNodeRuntimeData &reduce_runtime(Node &node) noexcept
+        {
+            return detail::runtime_data<ReduceNodeRuntimeData>(node);
+        }
+
+        [[nodiscard]] ReduceSourceSlotStore &reduce_source_slots(ReduceNodeRuntimeData &runtime) noexcept
+        {
+            auto *storage = reinterpret_cast<std::byte *>(&runtime) + reduce_source_slot_store_offset();
+            return *std::launder(reinterpret_cast<ReduceSourceSlotStore *>(storage));
+        }
+
+        [[nodiscard]] ReduceOpStore &reduce_op_store(ReduceNodeRuntimeData &runtime) noexcept
+        {
+            auto *storage = reinterpret_cast<std::byte *>(&runtime) + reduce_op_store_offset();
+            return *std::launder(reinterpret_cast<ReduceOpStore *>(storage));
+        }
+
+        [[nodiscard]] int64_t next_reduce_child_graph_id(ReduceNodeRuntimeData &runtime) noexcept
+        {
+            return -runtime.next_child_graph_id++;
+        }
+
+        [[nodiscard]] size_t reduce_internal_node_count(const ReduceNodeRuntimeData &runtime) noexcept
+        {
+            return runtime.leaf_capacity > 0 ? runtime.leaf_capacity - 1 : 0;
+        }
+
+        [[nodiscard]] size_t reduce_total_tree_size(const ReduceNodeRuntimeData &runtime) noexcept
+        {
+            return reduce_internal_node_count(runtime) + runtime.leaf_capacity;
+        }
+
+        void stop_reduce_op(const ChildGraphTemplate &child_template,
+                            ReduceOpRuntime          &op,
+                            engine_time_t             evaluation_time,
+                            bool                      clear_published_output = true,
+                            bool                      release_child_bindings = true) noexcept
+        {
+            try {
+                static_cast<void>(child_template);
+                static_cast<void>(release_child_bindings);
+            } catch (...) {}
+            try {
+                if (op.child_instance.is_started()) { op.child_instance.stop(evaluation_time); }
+            } catch (...) {}
+            try {
+                if (op.published_output.has_value()) {
+                    TSOutputView published_output = op.published_output->view(evaluation_time);
+                    if (clear_published_output) {
+                        clear_output_links_tree(published_output, evaluation_time != MIN_DT);
+                    } else if (release_child_bindings) {
+                        clear_output_links_tree(published_output, false);
+                    }
+                }
+            } catch (...) {}
+            op.bound = false;
+            op.left_source = {};
+            op.right_source = {};
+            op.left_bound_context = {};
+            op.right_bound_context = {};
+            op.next_scheduled = MAX_DT;
+        }
+
+        void dispose_reduce_op(const ChildGraphTemplate &child_template, ReduceOpRuntime &op, engine_time_t evaluation_time) noexcept
+        {
+            stop_reduce_op(child_template, op, evaluation_time, true, false);
+            try {
+                if (op.child_instance.is_initialised()) { op.child_instance.dispose(evaluation_time); }
+            } catch (...) {}
+            op.child_instance = ChildGraphInstance{};
+        }
+
+        void recycle_reduce_op(const ChildGraphTemplate &child_template, ReduceOpRuntime &op, engine_time_t evaluation_time) noexcept
+        {
+            stop_reduce_op(child_template, op, evaluation_time, false, true);
+            try {
+                if (op.child_instance.is_initialised()) { op.child_instance.dispose(evaluation_time); }
+            } catch (...) {}
+            op.child_instance = ChildGraphInstance{};
+        }
+
+        [[nodiscard]] bool reduce_has_input(const Node &node) noexcept
+        {
+            return node.data() != nullptr && reduce_runtime(const_cast<Node &>(node)).input != nullptr;
+        }
+
+        [[nodiscard]] bool reduce_has_output(const Node &node) noexcept
+        {
+            return node.data() != nullptr && reduce_runtime(const_cast<Node &>(node)).output != nullptr;
+        }
+
+        [[nodiscard]] bool reduce_has_error_output(const Node &node) noexcept
+        {
+            return node.data() != nullptr && reduce_runtime(const_cast<Node &>(node)).error_output != nullptr;
+        }
+
+        [[nodiscard]] bool reduce_has_recordable_state(const Node & /*node*/) noexcept { return false; }
+
+        [[nodiscard]] TSInputView reduce_input_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!reduce_has_input(node)) { return detail::invalid_input_view(evaluation_time); }
+            return reduce_runtime(node).input->view(&node, evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView reduce_output_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!reduce_has_output(node)) { return detail::invalid_output_view(evaluation_time); }
+            return reduce_runtime(node).output->view(evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView reduce_error_output_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!reduce_has_error_output(node)) { return detail::invalid_output_view(evaluation_time); }
+            return reduce_runtime(node).error_output->view(evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView reduce_recordable_state_view(Node & /*node*/, engine_time_t evaluation_time)
+        {
+            return detail::invalid_output_view(evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView reduce_bound_source_output(Node &node, std::string_view arg_name, engine_time_t evaluation_time)
+        {
+            TSInputView input = resolve_parent_input_arg(node, arg_name, evaluation_time);
+            TSOutputView output = bound_output_of(input);
+            if (output.ts_schema() != nullptr) {
+                if (output.ts_schema()->kind != TSKind::REF) { return output; }
+                if (!output.valid()) { return detail::invalid_output_view(evaluation_time); }
+
+                const TimeSeriesReference reference = TimeSeriesReference::make(output);
+                return reference.is_peered() ? reference.target_view(evaluation_time)
+                                             : detail::invalid_output_view(evaluation_time);
+            }
+
+            if (const TSMeta *schema = input.ts_schema(); schema != nullptr && schema->kind == TSKind::REF) {
+                const TimeSeriesReference reference = TimeSeriesReference::make(input);
+                if (reference.is_peered()) { return reference.target_view(evaluation_time); }
+            }
+            return detail::invalid_output_view(evaluation_time);
+        }
+
+        void reduce_remove_live_leaf(ReduceNodeRuntimeData &runtime,
+                                     ReduceSourceSlotStore &source_slots,
+                                     size_t                 source_slot) noexcept
+        {
+            ReduceSourceSlotRuntime *payload = source_slots.try_slot(source_slot);
+            if (payload == nullptr || !payload->live || payload->dense_leaf == static_cast<size_t>(-1) ||
+                runtime.live_leaf_count == 0) {
+                return;
+            }
+
+            const size_t dense_leaf = payload->dense_leaf;
+            const size_t last_leaf = runtime.live_leaf_count - 1;
+            if (dense_leaf != last_leaf) {
+                const size_t moved_source_slot = runtime.dense_to_source_slot[last_leaf];
+                runtime.dense_to_source_slot[dense_leaf] = moved_source_slot;
+                if (ReduceSourceSlotRuntime *moved = source_slots.try_slot(moved_source_slot); moved != nullptr) {
+                    moved->dense_leaf = dense_leaf;
+                }
+            }
+            runtime.dense_to_source_slot.pop_back();
+            runtime.live_leaf_count = last_leaf;
+            payload->dense_leaf = static_cast<size_t>(-1);
+            payload->live = false;
+            runtime.structure_changed = true;
+        }
+
+        [[nodiscard]] ReduceAggregateRef reduce_leaf_ref(const ReduceNodeRuntimeData &runtime, size_t dense_leaf) noexcept
+        {
+            return dense_leaf < runtime.live_leaf_count && dense_leaf < runtime.dense_to_source_slot.size()
+                       ? ReduceAggregateRef::leaf(runtime.dense_to_source_slot[dense_leaf])
+                       : ReduceAggregateRef::empty();
+        }
+
+        [[nodiscard]] ReduceAggregateRef reduce_tree_child_ref(const ReduceNodeRuntimeData      &runtime,
+                                                               const std::vector<ReduceAggregateRef> &internal_refs,
+                                                               size_t                           child_position) noexcept
+        {
+            const size_t internal_count = reduce_internal_node_count(runtime);
+            if (child_position < internal_count) { return internal_refs[child_position]; }
+            return reduce_leaf_ref(runtime, child_position - internal_count);
+        }
+
+        void ensure_reduce_leaf_capacity(ReduceNodeRuntimeData &runtime, size_t required_leaf_count)
+        {
+            if (required_leaf_count == 0) { return; }
+            while (runtime.leaf_capacity < required_leaf_count) { runtime.leaf_capacity *= 2; }
+        }
+
+        [[nodiscard]] TSOutputView reduce_resolve_aggregate_output(Node                            &node,
+                                                                   ReduceNodeRuntimeData           &runtime,
+                                                                   const std::vector<ReduceAggregateRef> &internal_refs,
+                                                                   const ReduceAggregateRef        &ref,
+                                                                   engine_time_t                    evaluation_time);
+        void publish_reduce_aggregate_output(const TSOutputView &target_output,
+                                             const TSOutputView &source_output,
+                                             engine_time_t       evaluation_time);
+
+        void ensure_reduce_op_started(Node &node, ReduceNodeRuntimeData &runtime, ReduceOpRuntime &op, engine_time_t evaluation_time)
+        {
+            if (!op.child_instance.is_initialised()) {
+                std::vector<int64_t> graph_id = node.node_id();
+                graph_id.push_back(next_reduce_child_graph_id(runtime));
+                op.child_instance.initialise(*runtime.child_template, node, std::move(graph_id), "reduce");
+            }
+            if (!op.child_instance.is_started()) { op.child_instance.start(evaluation_time); }
+        }
+
+        void bind_reduce_op_inputs(const ChildGraphTemplate &child_template,
+                                   Graph                    &child,
+                                   const TSOutputView       &lhs_output,
+                                   const TSOutputView       &rhs_output,
+                                   engine_time_t             evaluation_time)
+        {
+            for (const auto &spec : child_template.boundary_plan.inputs) {
+                if (spec.child_node_index < 0) { continue; }
+                auto &child_node = child.node_at(static_cast<size_t>(spec.child_node_index));
+                TSInputView child_input = navigate_input(child_node.input_view(evaluation_time), spec.child_input_path);
+
+                if (child_input.active()) { child_input.make_passive(); }
+                if (child_input.linked_target() != nullptr && child_input.linked_target()->is_bound()) {
+                    child_input.unbind_output();
+                }
+
+                TSOutputView source_output = spec.arg_name == "lhs" ? lhs_output : rhs_output;
+                if (source_output.ts_schema() != nullptr && !spec.parent_input_path.empty()) {
+                    source_output = navigate_output(source_output, spec.parent_input_path);
+                }
+
+                if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
+                    const TSViewContext source_resolved = source_output.context_ref().resolved();
+                    std::fprintf(stderr,
+                                 "bind_reduce_op_inputs arg=%.*s child_node=%lld source_schema_kind=%d source_state=%p resolved_state=%p owning_output=%p\n",
+                                 static_cast<int>(spec.arg_name.size()),
+                                 spec.arg_name.data(),
+                                 static_cast<long long>(spec.child_node_index),
+                                 source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
+                                 static_cast<void *>(source_output.context_ref().ts_state),
+                                 static_cast<void *>(source_resolved.ts_state),
+                                 static_cast<void *>(source_output.owning_output()));
+                }
+
+                switch (spec.mode) {
+                    case InputBindingMode::BIND_DIRECT:
+                    case InputBindingMode::CLONE_REF_BINDING:
+                        BoundaryBindingRuntime::bind_from_output(child_input, source_output, spec.mode, evaluation_time);
+                        break;
+                    case InputBindingMode::DETACH_RESTORE_BLANK:
+                        BoundaryBindingRuntime::bind_from_output(child_input, source_output, spec.mode, evaluation_time);
+                        break;
+                    case InputBindingMode::BIND_MULTIPLEXED_ELEMENT:
+                    case InputBindingMode::BIND_KEY_VALUE:
+                        throw std::logic_error("reduce child input binding requires keyed handling before evaluation");
+                }
+                child_node.notify(evaluation_time);
+            }
+        }
+
+        void propagate_reduce_op_input_updates(const ChildGraphTemplate &child_template,
+                                               Graph                    &child,
+                                               bool                      lhs_changed,
+                                               bool                      rhs_changed,
+                                               engine_time_t             evaluation_time)
+        {
+            for (const auto &spec : child_template.boundary_plan.inputs) {
+                if (spec.child_node_index < 0) { continue; }
+
+                const bool changed =
+                    spec.arg_name == "lhs" ? lhs_changed : (spec.arg_name == "rhs" ? rhs_changed : false);
+                if (!changed) { continue; }
+
+                auto &child_node = child.node_at(static_cast<size_t>(spec.child_node_index));
+                TSInputView child_input = navigate_input(child_node.input_view(evaluation_time), spec.child_input_path);
+                if (BaseState *state = child_input.context_mutable().ts_state; state != nullptr) {
+                    state->mark_modified(evaluation_time);
+                }
+                child_node.notify(evaluation_time);
+            }
+        }
+
+        [[nodiscard]] TSOutputView reduce_resolve_op_output_source(Node                                  &node,
+                                                                   ReduceNodeRuntimeData                 &runtime,
+                                                                   const std::vector<ReduceAggregateRef> &internal_refs,
+                                                                   ReduceOpRuntime                       &op,
+                                                                   const OutputBindingSpec               &spec,
+                                                                   engine_time_t                          evaluation_time)
+        {
+            switch (spec.mode) {
+                case OutputBindingMode::ALIAS_CHILD_OUTPUT:
+                    {
+                        if (spec.child_node_index < 0 || op.child_instance.graph() == nullptr) {
+                            return detail::invalid_output_view(evaluation_time);
+                        }
+                        auto &child_node = op.child_instance.graph()->node_at(static_cast<size_t>(spec.child_node_index));
+                        return navigate_output(child_node.output_view(evaluation_time), spec.child_output_path);
+                    }
+                case OutputBindingMode::ALIAS_PARENT_INPUT:
+                    {
+                        const ReduceAggregateRef source_ref =
+                            spec.parent_arg_name == "lhs" ? op.left_source : op.right_source;
+                        TSOutputView source = reduce_resolve_aggregate_output(node, runtime, internal_refs, source_ref, evaluation_time);
+                        return source.ts_schema() != nullptr ? navigate_output(source, spec.child_output_path)
+                                                             : detail::invalid_output_view(evaluation_time);
+                    }
+                default:
+                    return detail::invalid_output_view(evaluation_time);
+            }
+        }
+
+        [[nodiscard]] TSOutputView ensure_reduce_op_published_output(ReduceNodeRuntimeData &runtime,
+                                                                     ReduceOpRuntime       &op,
+                                                                     engine_time_t          evaluation_time)
+        {
+            if (runtime.output_builder == nullptr) {
+                throw std::logic_error("reduce published output requires an output builder");
+            }
+            if (!op.published_output.has_value()) {
+                op.published_output.emplace();
+                runtime.output_builder->construct_output(*op.published_output);
+            }
+            return op.published_output->view(evaluation_time);
+        }
+
+        void publish_reduce_op_output(Node                                  &node,
+                                      ReduceNodeRuntimeData                 &runtime,
+                                      const std::vector<ReduceAggregateRef> &internal_refs,
+                                      ReduceOpRuntime                       &op,
+                                      const TSOutputView                    &published_output,
+                                      engine_time_t                          evaluation_time)
+        {
+            const auto &plan = runtime.child_template->boundary_plan;
+            if (plan.outputs.empty()) {
+                clear_output_link(published_output);
+                if (evaluation_time != MIN_DT) { clear_output_value(published_output); }
+                return;
+            }
+
+            for (const auto &spec : plan.outputs) {
+                TSOutputView source_output =
+                    reduce_resolve_op_output_source(node, runtime, internal_refs, op, spec, evaluation_time);
+                TSOutputView target_output = navigate_output(published_output, spec.parent_output_path);
+                if (std::getenv("HGRAPH_DEBUG_REDUCE_VALUES") != nullptr) {
+                    nb::gil_scoped_acquire guard;
+                    std::string source_repr = "<invalid>";
+                    if (source_output.ts_schema() != nullptr && source_output.valid()) {
+                        source_repr = nb::cast<std::string>(nb::str(source_output.to_python()));
+                    }
+                    std::fprintf(stderr,
+                                 "reduce_publish_spec mode=%d parent_path_size=%zu source_schema=%d source_valid=%d value=%s\n",
+                                 static_cast<int>(spec.mode),
+                                 spec.parent_output_path.size(),
+                                 source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
+                                 source_output.valid(),
+                                 source_repr.c_str());
+                }
+                publish_reduce_aggregate_output(target_output, source_output, evaluation_time);
+            }
+        }
+
+        void publish_reduce_aggregate_output(const TSOutputView &target_output,
+                                             const TSOutputView &source_output,
+                                             engine_time_t       evaluation_time)
+        {
+            if (!source_output.ts_schema()) {
+                if (evaluation_time != MIN_DT) { clear_output_value(target_output); }
+                clear_output_link(target_output);
+                return;
+            }
+
+            if (!source_output.valid()) {
+                if (evaluation_time != MIN_DT) { clear_output_value(target_output); }
+                clear_output_link(target_output);
+                return;
+            }
+
+            if (const auto *output_schema = target_output.ts_schema();
+                output_schema != nullptr && output_schema->kind == TSKind::TSB &&
+                source_output.ts_schema() != nullptr && source_output.ts_schema()->kind == TSKind::TSB) {
+                const bool target_was_valid = target_output.valid();
+                if (!target_was_valid) { target_output.clear(); }
+                bool root_changed = !target_was_valid || output_changed(source_output);
+                for (size_t index = 0; index < output_schema->field_count(); ++index) {
+                    TSOutputView source_child = source_output.as_bundle()[index];
+                    TSOutputView target_child = target_output.as_bundle()[index];
+
+                    if (!source_child.valid()) {
+                        if (evaluation_time != MIN_DT) {
+                            clear_output_value(target_child);
+                            root_changed = true;
+                        }
+                        clear_output_link(target_child);
+                        continue;
+                    }
+
+                    const bool rebound = bind_output_link(target_child, source_child);
+                    if (evaluation_time != MIN_DT && (rebound || output_changed(source_child) || !target_child.valid())) {
+                        mark_output_view_modified(target_child, evaluation_time);
+                        root_changed = true;
+                    }
+                }
+                if (evaluation_time != MIN_DT && root_changed) { mark_output_view_modified(target_output, evaluation_time); }
+                return;
+            }
+
+            if (const auto *output_schema = target_output.ts_schema();
+                output_schema != nullptr && output_schema->kind == TSKind::TSD &&
+                source_output.ts_schema() != nullptr && source_output.ts_schema()->kind == TSKind::TSD) {
+                const bool target_was_valid = target_output.valid();
+                if (!target_was_valid) { target_output.clear(); }
+                bool root_changed = !target_was_valid || output_changed(source_output);
+                auto source_map = source_output.value().as_map();
+                const bool source_sampled = sampled_this_tick(source_output.context_ref(), evaluation_time);
+
+                std::vector<Value> target_keys_to_remove;
+                constexpr size_t no_slot = static_cast<size_t>(-1);
+                auto target_map = target_output.value().as_map();
+                auto target_mutation = target_map.begin_mutation(evaluation_time);
+                for (size_t slot = target_map.first_live_slot(); slot != no_slot; slot = target_map.next_live_slot(slot)) {
+                    Value key = target_map.delta().key_at_slot(slot).clone();
+                    const size_t source_slot = source_map.find_slot(key.view());
+                    if (source_slot == no_slot || source_map.delta().slot_removed(source_slot)) {
+                        target_keys_to_remove.push_back(std::move(key));
+                    }
+                }
+
+                for (const Value &key : target_keys_to_remove) {
+                    TSOutputView target_child = detail::ensure_dict_child_output_view(target_output, key.view());
+                    if (evaluation_time != MIN_DT) { clear_output_value(target_child); }
+                    clear_output_link(target_child);
+                    if (is_live_dict_key(target_output, key.view())) {
+                        target_output.as_dict().erase(key.view());
+                        root_changed = true;
+                    }
+                }
+
+                for (size_t slot = source_map.first_live_slot(); slot != no_slot; slot = source_map.next_live_slot(slot)) {
+                    Value key = source_map.delta().key_at_slot(slot).clone();
+                    TSOutputView source_child = detail::ensure_dict_child_output_view(source_output, key.view());
+                    TSOutputView target_child = ensure_mapped_output_child(target_output, key.view(), evaluation_time);
+
+                    if (const auto *target_child_schema = target_child.ts_schema();
+                        target_child_schema != nullptr &&
+                        !binding_compatible_ts_schema(source_child.ts_schema(), target_child_schema) &&
+                        source_child.owning_output() != nullptr) {
+                        source_child = source_child.owning_output()->bindable_view(source_child, target_child_schema);
+                    }
+
+                    const bool rebound = bind_output_link(target_child, source_child);
+                    const bool source_slot_changed =
+                        source_sampled || source_map.delta().slot_added(slot) || source_map.delta().slot_updated(slot);
+                    if (evaluation_time != MIN_DT && (rebound || source_slot_changed || !target_child.valid())) {
+                        mark_output_view_modified(target_child, evaluation_time);
+                        root_changed = true;
+                    }
+                }
+                if (evaluation_time != MIN_DT && root_changed) { mark_output_view_modified(target_output, evaluation_time); }
+                return;
+            }
+
+            if (const auto *output_schema = target_output.ts_schema();
+                output_schema != nullptr && output_schema->kind == TSKind::TSS &&
+                source_output.ts_schema() != nullptr && source_output.ts_schema()->kind == TSKind::TSS) {
+                const bool target_was_valid = target_output.valid();
+                if (!target_was_valid) { target_output.clear(); }
+                bool root_changed = !target_was_valid || output_changed(source_output);
+
+                auto source_set = source_output.value().as_set();
+                auto target_set = target_output.value().as_set();
+                auto mutation = target_set.begin_mutation(evaluation_time);
+
+                std::vector<Value> values_to_remove;
+                for (const View &value : target_set.values()) {
+                    if (!source_set.contains(value)) { values_to_remove.emplace_back(value.clone()); }
+                }
+                for (const Value &value : values_to_remove) {
+                    if (mutation.remove(value.view())) { root_changed = true; }
+                }
+
+                for (const View &value : source_set.values()) {
+                    if (!target_set.contains(value)) {
+                        if (mutation.add(value)) { root_changed = true; }
+                    }
+                }
+
+                if (evaluation_time != MIN_DT && root_changed) { mark_output_view_modified(target_output, evaluation_time); }
+                return;
+            }
+
+            TSOutputView bindable_source = source_output;
+            if (const auto *parent_schema = target_output.ts_schema();
+                parent_schema != nullptr && !binding_compatible_ts_schema(source_output.ts_schema(), parent_schema) &&
+                source_output.owning_output() != nullptr) {
+                bindable_source = source_output.owning_output()->bindable_view(source_output, parent_schema);
+            }
+
+            const bool rebound = bind_output_link(target_output, bindable_source);
+            if (evaluation_time != MIN_DT && (rebound || output_changed(bindable_source) || !target_output.valid())) {
+                mark_output_view_modified(target_output, evaluation_time);
+            }
+        }
+
+        [[nodiscard]] bool publish_reduce_reference_output(const TSOutputView       &target_output,
+                                                           const TimeSeriesReference &source_ref,
+                                                           engine_time_t             evaluation_time)
+        {
+            if (source_ref.is_empty()) {
+                const bool changed = target_output.valid();
+                clear_output_link(target_output);
+                if (changed && evaluation_time != MIN_DT) {
+                    clear_output_value(target_output);
+                    mark_output_view_modified(target_output, evaluation_time);
+                }
+                return changed;
+            }
+
+            if (source_ref.is_peered()) {
+                publish_reduce_aggregate_output(target_output, source_ref.target_view(evaluation_time), evaluation_time);
+                return true;
+            }
+
+            const TSMeta *target_schema = target_output.ts_schema();
+            if (target_schema == nullptr) { return false; }
+
+            switch (target_schema->kind) {
+                case TSKind::TSB:
+                    {
+                        const bool target_was_valid = target_output.valid();
+                        if (!target_was_valid) { target_output.clear(); }
+                        bool root_changed = !target_was_valid;
+                        for (size_t index = 0; index < target_schema->field_count(); ++index) {
+                            TSOutputView target_child = target_output.as_bundle()[index];
+                            const TimeSeriesReference &item =
+                                index < source_ref.items().size() ? source_ref[index] : TimeSeriesReference::empty();
+                            root_changed = publish_reduce_reference_output(target_child, item, evaluation_time) || root_changed;
+                        }
+                        if (evaluation_time != MIN_DT && root_changed) { mark_output_view_modified(target_output, evaluation_time); }
+                        return root_changed;
+                    }
+
+                case TSKind::TSL:
+                    {
+                        const bool target_was_valid = target_output.valid();
+                        if (!target_was_valid) { target_output.clear(); }
+                        bool root_changed = !target_was_valid;
+                        const size_t count = target_schema->fixed_size();
+                        for (size_t index = 0; index < count; ++index) {
+                            TSOutputView target_child = target_output.as_list()[index];
+                            const TimeSeriesReference &item =
+                                index < source_ref.items().size() ? source_ref[index] : TimeSeriesReference::empty();
+                            root_changed = publish_reduce_reference_output(target_child, item, evaluation_time) || root_changed;
+                        }
+                        if (evaluation_time != MIN_DT && root_changed) { mark_output_view_modified(target_output, evaluation_time); }
+                        return root_changed;
+                    }
+
+                default:
+                    throw std::logic_error("publish_reduce_reference_output only supports collection references");
+            }
+        }
+
+        [[nodiscard]] TSOutputView reduce_resolve_leaf_output(Node                  &node,
+                                                              ReduceNodeRuntimeData &runtime,
+                                                              size_t                 source_slot,
+                                                              engine_time_t          evaluation_time)
+        {
+            ReduceSourceSlotStore &source_slots = reduce_source_slots(runtime);
+            const ReduceSourceSlotRuntime *payload = source_slots.try_slot(source_slot);
+            if (payload == nullptr) { return detail::invalid_output_view(evaluation_time); }
+
+            TSOutputView source_root = reduce_bound_source_output(node, "ts", evaluation_time);
+            if (source_root.ts_schema() == nullptr) { return detail::invalid_output_view(evaluation_time); }
+
+            TSOutputView source_child = detail::ensure_dict_child_output_view(source_root, payload->key.view());
+            if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
+                const TSViewContext resolved = source_child.context_ref().resolved();
+                std::fprintf(stderr,
+                             "reduce_resolve_leaf_output slot=%zu key=%s child_schema_kind=%d child_state=%p resolved_state=%p owning_output=%p\n",
+                             source_slot,
+                             payload->key.view().to_string().c_str(),
+                             source_child.ts_schema() != nullptr ? static_cast<int>(source_child.ts_schema()->kind) : -1,
+                             static_cast<void *>(source_child.context_ref().ts_state),
+                             static_cast<void *>(resolved.ts_state),
+                             static_cast<void *>(source_child.owning_output()));
+            }
+            if (const TSMeta *child_schema = source_child.ts_schema(); child_schema != nullptr && child_schema->kind == TSKind::REF) {
+                if (!source_child.valid()) { return detail::invalid_output_view(evaluation_time); }
+                const auto *ref = source_child.value().as_atomic().template try_as<TimeSeriesReference>();
+                if (ref != nullptr && ref->is_peered()) { return ref->target_view(evaluation_time); }
+                return detail::invalid_output_view(evaluation_time);
+            }
+            return source_child;
+        }
+
+        [[nodiscard]] TSOutputView reduce_resolve_aggregate_output(Node                            &node,
+                                                                   ReduceNodeRuntimeData           &runtime,
+                                                                   const std::vector<ReduceAggregateRef> &internal_refs,
+                                                                   const ReduceAggregateRef        &ref,
+                                                                   engine_time_t                    evaluation_time)
+        {
+            if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
+                std::fprintf(stderr,
+                             "reduce_resolve_aggregate_output kind=%d index=%zu\n",
+                             static_cast<int>(ref.kind),
+                             ref.index);
+            }
+            switch (ref.kind) {
+                case ReduceAggregateRef::Kind::Empty:
+                    return detail::invalid_output_view(evaluation_time);
+                case ReduceAggregateRef::Kind::Zero:
+                    return reduce_bound_source_output(node, "zero", evaluation_time);
+                case ReduceAggregateRef::Kind::Leaf:
+                    return reduce_resolve_leaf_output(node, runtime, ref.index, evaluation_time);
+                case ReduceAggregateRef::Kind::Node:
+                    {
+                        ReduceOpStore &op_store = reduce_op_store(runtime);
+                        ReduceOpRuntime *op = op_store.try_slot(ref.index);
+                        if (op == nullptr) { return detail::invalid_output_view(evaluation_time); }
+                        if (!op->published_output.has_value()) { return detail::invalid_output_view(evaluation_time); }
+                        return op->published_output->view(evaluation_time);
+                    }
+            }
+            return detail::invalid_output_view(evaluation_time);
+        }
+
+        [[nodiscard]] ReduceAggregateRef reduce_root_ref(const ReduceNodeRuntimeData           &runtime,
+                                                         const std::vector<ReduceAggregateRef> &internal_refs) noexcept
+        {
+            if (runtime.live_leaf_count == 0) { return ReduceAggregateRef::zero(); }
+            if (reduce_internal_node_count(runtime) == 0) {
+                return !runtime.dense_to_source_slot.empty()
+                           ? ReduceAggregateRef::leaf(runtime.dense_to_source_slot.front())
+                           : ReduceAggregateRef::empty();
+            }
+            return internal_refs.front();
+        }
+
+        void reduce_refresh_source_slots(Node &node, ReduceNodeRuntimeData &runtime, engine_time_t evaluation_time)
+        {
+            runtime.structure_changed = false;
+            ReduceSourceSlotStore &source_slots = reduce_source_slots(runtime);
+            TSOutputView source_root = reduce_bound_source_output(node, "ts", evaluation_time);
+            const TSMeta *schema = source_root.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSD || !source_root.valid()) {
+                for (size_t slot = 0; slot < source_slots.constructed.size(); ++slot) {
+                    if (!source_slots.has_slot(slot)) { continue; }
+                    reduce_remove_live_leaf(runtime, source_slots, slot);
+                    source_slots.destroy_at(slot);
+                }
+                runtime.dense_to_source_slot.clear();
+                runtime.live_leaf_count = 0;
+                runtime.structure_changed = true;
+                return;
+            }
+
+            const auto delta = source_root.value().as_map().delta();
+            source_slots.reserve_to(delta.slot_capacity());
+
+            for (size_t slot = 0; slot < source_slots.constructed.size(); ++slot) {
+                if (source_slots.has_slot(slot) && !delta.slot_occupied(slot)) {
+                    reduce_remove_live_leaf(runtime, source_slots, slot);
+                    source_slots.destroy_at(slot);
+                }
+            }
+
+            for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
+                if (!delta.slot_occupied(slot) || !delta.slot_removed(slot)) { continue; }
+                reduce_remove_live_leaf(runtime, source_slots, slot);
+            }
+
+            for (size_t slot = 0; slot < delta.slot_capacity(); ++slot) {
+                if (!delta.slot_occupied(slot) || delta.slot_removed(slot)) { continue; }
+
+                bool slot_live = true;
+                if (schema->element_ts() != nullptr && schema->element_ts()->kind == TSKind::REF) {
+                    TSOutputView source_child = detail::ensure_dict_child_output_view(source_root, delta.key_at_slot(slot));
+                    slot_live = source_child.valid();
+                }
+
+                if (!slot_live) {
+                    reduce_remove_live_leaf(runtime, source_slots, slot);
+                    continue;
+                }
+
+                if (!source_slots.has_slot(slot)) {
+                    source_slots.emplace_at(slot, delta.key_at_slot(slot).clone());
+                }
+
+                ReduceSourceSlotRuntime *payload = source_slots.try_slot(slot);
+                if (payload == nullptr) { continue; }
+                if (!payload->live) {
+                    payload->key = delta.key_at_slot(slot).clone();
+                }
+                if (payload->live) { continue; }
+
+                payload->dense_leaf = runtime.live_leaf_count;
+                payload->live = true;
+                runtime.dense_to_source_slot.push_back(slot);
+                ++runtime.live_leaf_count;
+                runtime.structure_changed = true;
+            }
+
+            ensure_reduce_leaf_capacity(runtime, runtime.live_leaf_count);
+
+            if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                std::fprintf(stderr, "reduce_refresh_source_slots live=%zu capacity=%zu dense=[",
+                             runtime.live_leaf_count, runtime.leaf_capacity);
+                for (size_t i = 0; i < runtime.dense_to_source_slot.size(); ++i) {
+                    std::fprintf(stderr, "%s%zu", i == 0 ? "" : ",", runtime.dense_to_source_slot[i]);
+                }
+                std::fprintf(stderr, "]\n");
+            }
+        }
+
+        void reduce_evaluate_internal_nodes(Node                            &node,
+                                            ReduceNodeRuntimeData           &runtime,
+                                            std::vector<ReduceAggregateRef> &internal_refs,
+                                            engine_time_t                    evaluation_time)
+        {
+            const size_t internal_count = reduce_internal_node_count(runtime);
+            ReduceOpStore &op_store = reduce_op_store(runtime);
+            for (size_t slot = internal_count; slot < op_store.constructed.size(); ++slot) {
+                if (ReduceOpRuntime *op = op_store.try_slot(slot); op != nullptr) {
+                    recycle_reduce_op(*runtime.child_template, *op, evaluation_time);
+                }
+            }
+            op_store.reserve_to(internal_count);
+
+            for (size_t index = internal_count; index-- > 0;) {
+                const ReduceAggregateRef left_ref = reduce_tree_child_ref(runtime, internal_refs, 2 * index + 1);
+                const ReduceAggregateRef right_ref = reduce_tree_child_ref(runtime, internal_refs, 2 * index + 2);
+
+                if (!left_ref.active() && !right_ref.active()) {
+                    if (ReduceOpRuntime *op = op_store.try_slot(index); op != nullptr) {
+                        recycle_reduce_op(*runtime.child_template, *op, evaluation_time);
+                    }
+                    internal_refs[index] = ReduceAggregateRef::empty();
+                    continue;
+                }
+
+                if (!left_ref.active() || !right_ref.active()) {
+                    if (ReduceOpRuntime *op = op_store.try_slot(index); op != nullptr) {
+                        recycle_reduce_op(*runtime.child_template, *op, evaluation_time);
+                    }
+                    internal_refs[index] = left_ref.active() ? left_ref : right_ref;
+                    continue;
+                }
+
+                ReduceOpRuntime *op = op_store.try_slot(index);
+                TSOutputView left_output = reduce_resolve_aggregate_output(node, runtime, internal_refs, left_ref, evaluation_time);
+                TSOutputView right_output = reduce_resolve_aggregate_output(node, runtime, internal_refs, right_ref, evaluation_time);
+                const LinkedTSContext left_context = bound_output_context(left_output);
+                const LinkedTSContext right_context = bound_output_context(right_output);
+                const bool binding_changed =
+                    op == nullptr || !op->bound || op->left_source != left_ref || op->right_source != right_ref ||
+                    !detail::linked_context_equal(op->left_bound_context, left_context) ||
+                    !detail::linked_context_equal(op->right_bound_context, right_context);
+                const bool force_recompute = runtime.structure_changed;
+                const bool effective_binding_changed = binding_changed || force_recompute;
+                if (op == nullptr) { op = &op_store.emplace_at(index); }
+                if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                    std::fprintf(stderr,
+                                 "reduce_internal index=%zu left=(kind=%d,index=%zu) right=(kind=%d,index=%zu) binding_changed=%d started=%d bound=%d\n",
+                                 index,
+                                 static_cast<int>(left_ref.kind),
+                                 left_ref.index,
+                                 static_cast<int>(right_ref.kind),
+                                 right_ref.index,
+                                 binding_changed,
+                                 op->child_instance.is_started(),
+                                 op->bound);
+                }
+                if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
+                    std::fprintf(stderr,
+                                 "reduce_evaluate_internal_nodes index=%zu binding_changed=%d left=(kind=%d,index=%zu,state=%p,resolved=%p) right=(kind=%d,index=%zu,state=%p,resolved=%p)\n",
+                                 index,
+                                 binding_changed,
+                                 static_cast<int>(left_ref.kind),
+                                 left_ref.index,
+                                 static_cast<void *>(left_output.context_ref().ts_state),
+                                 static_cast<void *>(left_output.context_ref().resolved().ts_state),
+                                 static_cast<int>(right_ref.kind),
+                                 right_ref.index,
+                                 static_cast<void *>(right_output.context_ref().ts_state),
+                                 static_cast<void *>(right_output.context_ref().resolved().ts_state));
+                }
+                const bool scheduled_now = op->next_scheduled != MAX_DT && op->next_scheduled <= evaluation_time;
+
+                if (!op->child_instance.is_initialised()) {
+                    std::vector<int64_t> graph_id = node.node_id();
+                    graph_id.push_back(next_reduce_child_graph_id(runtime));
+                    op->child_instance.initialise(*runtime.child_template, node, std::move(graph_id), "reduce");
+                }
+                if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                    std::fprintf(stderr,
+                                 "reduce_internal_prepare index=%zu initialised=%d started=%d bound=%d\n",
+                                 index,
+                                 op->child_instance.is_initialised(),
+                                 op->child_instance.is_started(),
+                                 op->bound);
+                }
+                if (!op->child_instance.is_started()) { op->child_instance.start(evaluation_time); }
+                if (effective_binding_changed) {
+                    if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                        std::fprintf(stderr, "reduce_internal_bind index=%zu\n", index);
+                    }
+                    bind_reduce_op_inputs(*runtime.child_template, *op->child_instance.graph(), left_output, right_output, evaluation_time);
+                    op->left_source = left_ref;
+                    op->right_source = right_ref;
+                    op->left_bound_context = left_context;
+                    op->right_bound_context = right_context;
+                    op->bound = true;
+                }
+
+                if (effective_binding_changed || output_changed(left_output) || output_changed(right_output) || scheduled_now) {
+                    const bool lhs_changed = effective_binding_changed || output_changed(left_output);
+                    const bool rhs_changed = effective_binding_changed || output_changed(right_output);
+                    if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                        std::fprintf(stderr,
+                                     "reduce_internal_eval index=%zu left_modified=%d right_modified=%d scheduled_now=%d force_recompute=%d\n",
+                                     index,
+                                     output_changed(left_output),
+                                     output_changed(right_output),
+                                     scheduled_now,
+                                     force_recompute);
+                    }
+                    if (!effective_binding_changed) {
+                        propagate_reduce_op_input_updates(*runtime.child_template,
+                                                          *op->child_instance.graph(),
+                                                          lhs_changed,
+                                                          rhs_changed,
+                                                          evaluation_time);
+                    }
+                    op->child_instance.evaluate(evaluation_time);
+                    if (effective_binding_changed) {
+                        op->child_instance.evaluate(evaluation_time);
+                    }
+                    TSOutputView published_output = ensure_reduce_op_published_output(runtime, *op, evaluation_time);
+                    publish_reduce_op_output(node, runtime, internal_refs, *op, published_output, evaluation_time);
+                    if (std::getenv("HGRAPH_DEBUG_REDUCE_VALUES") != nullptr) {
+                        nb::gil_scoped_acquire guard;
+                        TSOutputView op_output = published_output;
+                        std::string output_repr = "<invalid>";
+                        if (op_output.ts_schema() != nullptr && op_output.valid()) {
+                            output_repr = nb::cast<std::string>(nb::str(op_output.to_python()));
+                        }
+                        std::fprintf(stderr,
+                                     "reduce_internal_value index=%zu value=%s\n",
+                                     index,
+                                     output_repr.c_str());
+                    }
+                }
+                op->next_scheduled = op->child_instance.next_scheduled_time();
+                internal_refs[index] = ReduceAggregateRef::node(index);
+            }
+        }
+
+        void reduce_publish_output(Node                            &node,
+                                   ReduceNodeRuntimeData           &runtime,
+                                   const std::vector<ReduceAggregateRef> &internal_refs,
+                                    engine_time_t                    evaluation_time)
+        {
+            if (!node.has_output()) { return; }
+
+            TSOutputView output = node.output_view(evaluation_time);
+            const ReduceAggregateRef root_ref = reduce_root_ref(runtime, internal_refs);
+            TSOutputView source_output = reduce_resolve_aggregate_output(node, runtime, internal_refs, root_ref, evaluation_time);
+            const bool force_publish = runtime.structure_changed && evaluation_time != MIN_DT;
+            if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                std::fprintf(stderr,
+                             "reduce_publish_output root_kind=%d root_index=%zu source_schema=%d source_valid=%d source_modified=%d source_last_modified=%lld output_valid=%d output_modified=%d\n",
+                             static_cast<int>(root_ref.kind),
+                             root_ref.index,
+                             source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
+                             source_output.valid(),
+                             source_output.modified(),
+                             source_output.last_modified_time() == MIN_DT
+                                 ? -1LL
+                                 : static_cast<long long>(source_output.last_modified_time().time_since_epoch().count()),
+                             output.valid(),
+                             output.modified());
+            }
+
+            if (source_output.ts_schema() != nullptr && source_output.ts_schema()->kind == TSKind::REF) {
+                const TimeSeriesReference source_ref = TimeSeriesReference::make(source_output);
+                static_cast<void>(publish_reduce_reference_output(output, source_ref, evaluation_time));
+                if (force_publish && source_output.valid()) {
+                    if (BaseState *output_state = output.context_ref().ts_state; output_state != nullptr) {
+                        output_state->mark_modified(evaluation_time);
+                    }
+                }
+                return;
+            }
+
+            if (!source_output.ts_schema()) {
+                clear_output_link(output);
+                if (evaluation_time != MIN_DT) { clear_output_value(output); }
+                return;
+            }
+
+            publish_reduce_aggregate_output(output, source_output, evaluation_time);
+            if (force_publish && source_output.valid()) {
+                if (BaseState *output_state = output.context_ref().ts_state; output_state != nullptr) {
+                    output_state->mark_modified(evaluation_time);
+                }
+            }
+        }
+
+        void reduce_schedule(Node &node, ReduceNodeRuntimeData &runtime)
+        {
+            ReduceOpStore &op_store = reduce_op_store(runtime);
+            node.scheduler().un_schedule("reduce");
+            engine_time_t next_schedule = MAX_DT;
+            for (size_t slot = 0; slot < op_store.constructed.size(); ++slot) {
+                const ReduceOpRuntime *op = op_store.try_slot(slot);
+                if (op == nullptr) { continue; }
+                if (op->next_scheduled != MAX_DT && op->next_scheduled < next_schedule) {
+                    next_schedule = op->next_scheduled;
+                }
+            }
+            if (next_schedule != MAX_DT) { node.scheduler().schedule(next_schedule, std::string{"reduce"}); }
+        }
+
+        void reduce_node_start(Node &node, engine_time_t evaluation_time)
+        {
+            auto &runtime = reduce_runtime(node);
+            node.notify(evaluation_time);
+            reduce_schedule(node, runtime);
+        }
+
+        void reduce_node_stop(Node &node, engine_time_t evaluation_time)
+        {
+            auto &runtime = reduce_runtime(node);
+            ReduceOpStore &op_store = reduce_op_store(runtime);
+            for (size_t slot = 0; slot < op_store.constructed.size(); ++slot) {
+                if (ReduceOpRuntime *op = op_store.try_slot(slot); op != nullptr) {
+                    stop_reduce_op(*runtime.child_template, *op, evaluation_time);
+                }
+            }
+            if (node.has_output()) { clear_output_link(node.output_view(evaluation_time)); }
+        }
+
+        void destruct_reduce_node(Node &node) noexcept
+        {
+            const BuiltNodeSpec &spec = node.spec();
+            auto &runtime_data = detail::runtime_data<ReduceNodeRuntimeData>(node);
+            ReduceSourceSlotStore *source_slots = runtime_data.stores_initialized ? &reduce_source_slots(runtime_data) : nullptr;
+            ReduceOpStore *op_store = runtime_data.stores_initialized ? &reduce_op_store(runtime_data) : nullptr;
+
+            if (runtime_data.child_template != nullptr && op_store != nullptr) {
+                for (size_t slot = 0; slot < op_store->constructed.size(); ++slot) {
+                    if (ReduceOpRuntime *op = op_store->try_slot(slot); op != nullptr) {
+                        dispose_reduce_op(*runtime_data.child_template, *op, MIN_DT);
+                        op_store->destroy_at(slot);
+                    }
+                }
+            }
+            if (source_slots != nullptr) {
+                for (size_t slot = 0; slot < source_slots->constructed.size(); ++slot) {
+                    if (source_slots->has_slot(slot)) { source_slots->destroy_at(slot); }
+                }
+            }
+
+            if (op_store != nullptr) { std::destroy_at(op_store); }
+            if (source_slots != nullptr) { std::destroy_at(source_slots); }
+            runtime_data.stores_initialized = false;
+            if (runtime_data.recordable_state != nullptr) { runtime_data.recordable_state->~TSOutput(); }
+            if (runtime_data.error_output != nullptr) { runtime_data.error_output->~TSOutput(); }
+            if (runtime_data.output != nullptr) { runtime_data.output->~TSOutput(); }
+            if (runtime_data.input != nullptr) { runtime_data.input->~TSInput(); }
+            if (auto *scheduler = node.scheduler_if_present(); scheduler != nullptr) { std::destroy_at(scheduler); }
+            std::destroy_at(const_cast<BuiltNodeSpec *>(&spec));
+            std::destroy_at(&runtime_data);
+        }
+
+        void reduce_node_eval(Node &node, engine_time_t evaluation_time)
+        {
+            auto &runtime = reduce_runtime(node);
+            reduce_refresh_source_slots(node, runtime, evaluation_time);
+
+            std::vector<ReduceAggregateRef> internal_refs(reduce_internal_node_count(runtime), ReduceAggregateRef::empty());
+            reduce_evaluate_internal_nodes(node, runtime, internal_refs, evaluation_time);
+            reduce_publish_output(node, runtime, internal_refs, evaluation_time);
+            reduce_schedule(node, runtime);
+        }
+
+        const NodeRuntimeOps k_reduce_runtime_ops{
+            &reduce_node_start,
+            &reduce_node_stop,
+            &reduce_node_eval,
+            &reduce_has_input,
+            &reduce_has_output,
+            &reduce_has_error_output,
+            &reduce_has_recordable_state,
+            &reduce_input_view,
+            &reduce_output_view,
+            &reduce_error_output_view,
+            &reduce_recordable_state_view,
+            &nested_runtime_label,
+        };
+
+        void validate_reduce_contract(const NodeBuilder & /*builder*/) {}
+
+        [[nodiscard]] size_t reduce_builder_size(const NodeBuilder &builder,
+                                                 const std::vector<TSInputConstructionEdge> &inbound_edges)
+        {
+            const auto builders = resolve_builders(builder, inbound_edges);
+            return describe_layout(builder, reduce_runtime_storage_size(), reduce_runtime_storage_alignment(), builders).total_size;
+        }
+
+        [[nodiscard]] size_t reduce_builder_alignment(const NodeBuilder &builder,
+                                                      const std::vector<TSInputConstructionEdge> &inbound_edges)
+        {
+            const auto builders = resolve_builders(builder, inbound_edges);
+            return describe_layout(builder, reduce_runtime_storage_size(), reduce_runtime_storage_alignment(), builders).alignment;
+        }
+
+        [[nodiscard]] Node *reduce_construct_at(const NodeBuilder &builder, void *memory, int64_t node_index,
+                                                const std::vector<TSInputConstructionEdge> &inbound_edges)
+        {
+            const auto &state = detail::node_builder_type_state<ReduceNodeBuilderState>(builder);
+
+            struct RuntimeLifecycle
+            {
+                const ChildGraphTemplate *child_template;
+
+                void destroy(void *runtime_data) const
+                {
+                    auto *runtime = static_cast<ReduceNodeRuntimeData *>(runtime_data);
+                    if (runtime->stores_initialized) {
+                        std::destroy_at(&reduce_op_store(*runtime));
+                        std::destroy_at(&reduce_source_slots(*runtime));
+                    }
+                    std::destroy_at(runtime);
+                }
+
+                void initialise(const NodeBuilder & /*builder*/, void *runtime_data_ptr, Node * /*node*/, TSInput * /*input*/,
+                                TSOutput * /*output*/, TSOutput * /*error_output*/, TSOutput * /*recordable_state*/) const
+                {
+                    auto &runtime = *static_cast<ReduceNodeRuntimeData *>(runtime_data_ptr);
+                    if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr && runtime.output != nullptr) {
+                        TSOutputView output_view = runtime.output->view(MIN_DT);
+                        const auto &root_state = std::get<TSDState>(runtime.output->root_state_variant());
+                        std::fprintf(stderr,
+                                     "reduce_runtime.initialise before output_owner=%p output_state=%p variant_index=%zu root_state_addr=%p root_storage_kind=%d\n",
+                                     static_cast<void *>(runtime.output),
+                                     static_cast<void *>(output_view.context_ref().ts_state),
+                                     runtime.output->root_state_variant().index(),
+                                     static_cast<const void *>(&root_state),
+                                     static_cast<int>(root_state.storage_kind));
+                    }
+                    new (&reduce_source_slots(runtime)) ReduceSourceSlotStore{};
+                    new (&reduce_op_store(runtime)) ReduceOpStore{};
+                    runtime.stores_initialized = true;
+                    runtime.child_template = child_template;
+                    if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr && runtime.output != nullptr) {
+                        TSOutputView output_view = runtime.output->view(MIN_DT);
+                        const auto &root_state = std::get<TSDState>(runtime.output->root_state_variant());
+                        std::fprintf(stderr,
+                                     "reduce_runtime.initialise after output_owner=%p output_state=%p variant_index=%zu root_state_addr=%p root_storage_kind=%d source_slots=%p op_store=%p\n",
+                                     static_cast<void *>(runtime.output),
+                                     static_cast<void *>(output_view.context_ref().ts_state),
+                                     runtime.output->root_state_variant().index(),
+                                     static_cast<const void *>(&root_state),
+                                     static_cast<int>(root_state.storage_kind),
+                                     static_cast<void *>(&reduce_source_slots(runtime)),
+                                     static_cast<void *>(&reduce_op_store(runtime)));
+                    }
+                }
+            };
+
+            Node *node = construct_node_chunk<ReduceNodeBuilderState>(
+                builder, memory, node_index, inbound_edges, &k_reduce_runtime_ops, nullptr, &destruct_reduce_node,
+                reduce_runtime_storage_size(),
+                reduce_runtime_storage_alignment(),
+                [](void *storage, const ResolvedNodeBuilders &builders, TSInput *input, TSOutput *output, TSOutput *error_output,
+                   void * /*state_memory*/, TSOutput *recordable_state) -> void * {
+                    return new (storage) ReduceNodeRuntimeData{
+                        input, output, error_output, recordable_state, nullptr, builders.output_builder};
+                },
+                RuntimeLifecycle{state.child_template});
+            if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr && node != nullptr && node->has_output()) {
+                auto &runtime = reduce_runtime(*node);
+                TSOutputView output = node->output_view(MIN_DT);
+                const auto &root_state = std::get<TSDState>(runtime.output->root_state_variant());
+                std::fprintf(stderr,
+                             "reduce_construct_at node=%lld output_owner=%p output_state=%p variant_index=%zu root_state_addr=%p root_storage_kind=%d source_slots=%p op_store=%p runtime=%p runtime_storage_size=%zu\n",
+                             static_cast<long long>(node_index),
+                             static_cast<void *>(runtime.output),
+                             static_cast<void *>(output.context_ref().ts_state),
+                             runtime.output->root_state_variant().index(),
+                             static_cast<const void *>(&root_state),
+                             static_cast<int>(root_state.storage_kind),
+                             static_cast<void *>(&reduce_source_slots(runtime)),
+                             static_cast<void *>(&reduce_op_store(runtime)),
+                             static_cast<void *>(&runtime),
+                             reduce_runtime_storage_size());
+            }
+            return node;
+        }
+
+        struct NonAssociativeReduceNodeRuntimeData
+        {
+            TSInput           *input{nullptr};
+            TSOutput          *output{nullptr};
+            TSOutput          *error_output{nullptr};
+            TSOutput          *recordable_state{nullptr};
+            const ChildGraphTemplate *child_template{nullptr};
+            int64_t            next_child_graph_id{1};
+            size_t             active_count{0};
+            bool               store_initialized{false};
+        };
+
+        using NonAssociativeReduceOpStore = detail::StablePayloadStore<ReduceOpRuntime>;
+
+        [[nodiscard]] constexpr size_t non_associative_reduce_op_store_offset() noexcept
+        {
+            return align_up(sizeof(NonAssociativeReduceNodeRuntimeData), alignof(NonAssociativeReduceOpStore));
+        }
+
+        [[nodiscard]] constexpr size_t non_associative_reduce_runtime_storage_size() noexcept
+        {
+            return non_associative_reduce_op_store_offset() + sizeof(NonAssociativeReduceOpStore);
+        }
+
+        [[nodiscard]] constexpr size_t non_associative_reduce_runtime_storage_alignment() noexcept
+        {
+            return std::max(alignof(NonAssociativeReduceNodeRuntimeData), alignof(NonAssociativeReduceOpStore));
+        }
+
+        [[nodiscard]] NonAssociativeReduceNodeRuntimeData &non_associative_reduce_runtime(Node &node) noexcept
+        {
+            return detail::runtime_data<NonAssociativeReduceNodeRuntimeData>(node);
+        }
+
+        [[nodiscard]] NonAssociativeReduceOpStore &non_associative_reduce_op_store(NonAssociativeReduceNodeRuntimeData &runtime) noexcept
+        {
+            auto *storage = reinterpret_cast<std::byte *>(&runtime) + non_associative_reduce_op_store_offset();
+            return *std::launder(reinterpret_cast<NonAssociativeReduceOpStore *>(storage));
+        }
+
+        [[nodiscard]] int64_t next_non_associative_reduce_child_graph_id(NonAssociativeReduceNodeRuntimeData &runtime) noexcept
+        {
+            return -runtime.next_child_graph_id++;
+        }
+
+        [[nodiscard]] bool non_associative_reduce_has_input(const Node &node) noexcept
+        {
+            return node.data() != nullptr && non_associative_reduce_runtime(const_cast<Node &>(node)).input != nullptr;
+        }
+
+        [[nodiscard]] bool non_associative_reduce_has_output(const Node &node) noexcept
+        {
+            return node.data() != nullptr && non_associative_reduce_runtime(const_cast<Node &>(node)).output != nullptr;
+        }
+
+        [[nodiscard]] bool non_associative_reduce_has_error_output(const Node &node) noexcept
+        {
+            return node.data() != nullptr && non_associative_reduce_runtime(const_cast<Node &>(node)).error_output != nullptr;
+        }
+
+        [[nodiscard]] bool non_associative_reduce_has_recordable_state(const Node & /*node*/) noexcept { return false; }
+
+        [[nodiscard]] TSInputView non_associative_reduce_input_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!non_associative_reduce_has_input(node)) { return detail::invalid_input_view(evaluation_time); }
+            return non_associative_reduce_runtime(node).input->view(&node, evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView non_associative_reduce_output_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!non_associative_reduce_has_output(node)) { return detail::invalid_output_view(evaluation_time); }
+            return non_associative_reduce_runtime(node).output->view(evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView non_associative_reduce_error_output_view(Node &node, engine_time_t evaluation_time)
+        {
+            if (!non_associative_reduce_has_error_output(node)) { return detail::invalid_output_view(evaluation_time); }
+            return non_associative_reduce_runtime(node).error_output->view(evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView non_associative_reduce_recordable_state_view(Node & /*node*/, engine_time_t evaluation_time)
+        {
+            return detail::invalid_output_view(evaluation_time);
+        }
+
+        [[nodiscard]] TSOutputView non_associative_reduce_leaf_output(Node &node,
+                                                                      size_t index,
+                                                                      engine_time_t evaluation_time)
+        {
+            TSOutputView source_root = reduce_bound_source_output(node, "ts", evaluation_time);
+            const TSMeta *schema = source_root.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSD || !source_root.value().has_value()) {
+                return detail::invalid_output_view(evaluation_time);
+            }
+
+            Value key{*schema->key_type(), MutationTracking::Plain};
+            key.reset();
+            key.view().set_scalar(static_cast<int64_t>(index));
+
+            TSOutputView source_child = detail::ensure_dict_child_output_view(source_root, key.view());
+            if (const TSMeta *child_schema = source_child.ts_schema(); child_schema != nullptr && child_schema->kind == TSKind::REF) {
+                if (!source_child.valid()) { return detail::invalid_output_view(evaluation_time); }
+                if (const auto *ref = source_child.value().as_atomic().template try_as<TimeSeriesReference>();
+                    ref != nullptr && ref->is_peered()) {
+                    return ref->target_view(evaluation_time);
+                }
+                return detail::invalid_output_view(evaluation_time);
+            }
+            return source_child;
+        }
+
+        [[nodiscard]] TSOutputView non_associative_reduce_op_output_source(const ChildGraphTemplate &child_template,
+                                                                           ReduceOpRuntime          &op,
+                                                                           const TSOutputView       &lhs_output,
+                                                                           const TSOutputView       &rhs_output,
+                                                                           engine_time_t             evaluation_time)
+        {
+            const auto &plan = child_template.boundary_plan;
+            if (plan.outputs.empty()) { return detail::invalid_output_view(evaluation_time); }
+
+            const auto &spec = plan.outputs.front();
+            switch (spec.mode) {
+                case OutputBindingMode::ALIAS_CHILD_OUTPUT:
+                    {
+                        if (spec.child_node_index < 0 || op.child_instance.graph() == nullptr) {
+                            return detail::invalid_output_view(evaluation_time);
+                        }
+                        auto &child_node = op.child_instance.graph()->node_at(static_cast<size_t>(spec.child_node_index));
+                        return navigate_output(child_node.output_view(evaluation_time), spec.child_output_path);
+                    }
+                case OutputBindingMode::ALIAS_PARENT_INPUT:
+                    {
+                        const TSOutputView &source = spec.parent_arg_name == "lhs" ? lhs_output : rhs_output;
+                        return source.ts_schema() != nullptr ? navigate_output(source, spec.child_output_path)
+                                                             : detail::invalid_output_view(evaluation_time);
+                    }
+                default:
+                    return detail::invalid_output_view(evaluation_time);
+            }
+        }
+
+        [[nodiscard]] size_t non_associative_reduce_source_size(Node &node, engine_time_t evaluation_time) noexcept
+        {
+            TSOutputView source_root = reduce_bound_source_output(node, "ts", evaluation_time);
+            const TSMeta *schema = source_root.ts_schema();
+            if (schema == nullptr || schema->kind != TSKind::TSD || !source_root.value().has_value()) { return 0; }
+            return source_root.value().as_map().size();
+        }
+
+        void non_associative_reduce_resize_chain(Node &node,
+                                                 NonAssociativeReduceNodeRuntimeData &runtime,
+                                                 engine_time_t evaluation_time)
+        {
+            const size_t required_count = non_associative_reduce_source_size(node, evaluation_time);
+            NonAssociativeReduceOpStore &op_store = non_associative_reduce_op_store(runtime);
+
+            for (size_t index = runtime.active_count; index-- > required_count;) {
+                if (ReduceOpRuntime *op = op_store.try_slot(index); op != nullptr) {
+                    dispose_reduce_op(*runtime.child_template, *op, evaluation_time);
+                    op_store.destroy_at(index);
+                }
+            }
+
+            op_store.reserve_to(required_count);
+            for (size_t index = runtime.active_count; index < required_count; ++index) {
+                op_store.emplace_at(index);
+            }
+
+            runtime.active_count = required_count;
+        }
+
+        [[nodiscard]] TSOutputView non_associative_reduce_resolve_output(Node &node,
+                                                                         NonAssociativeReduceNodeRuntimeData &runtime,
+                                                                         size_t index,
+                                                                         const TSOutputView &lhs_output,
+                                                                         const TSOutputView &rhs_output,
+                                                                         engine_time_t evaluation_time)
+        {
+            NonAssociativeReduceOpStore &op_store = non_associative_reduce_op_store(runtime);
+            ReduceOpRuntime *op = op_store.try_slot(index);
+            if (op == nullptr) { return detail::invalid_output_view(evaluation_time); }
+            return non_associative_reduce_op_output_source(*runtime.child_template, *op, lhs_output, rhs_output, evaluation_time);
+        }
+
+        void non_associative_reduce_evaluate_chain(Node &node,
+                                                   NonAssociativeReduceNodeRuntimeData &runtime,
+                                                   engine_time_t evaluation_time)
+        {
+            TSOutputView lhs_output = reduce_bound_source_output(node, "zero", evaluation_time);
+            NonAssociativeReduceOpStore &op_store = non_associative_reduce_op_store(runtime);
+
+            for (size_t index = 0; index < runtime.active_count; ++index) {
+                TSOutputView rhs_output = non_associative_reduce_leaf_output(node, index, evaluation_time);
+                if (!rhs_output.ts_schema()) {
+                    throw std::runtime_error("non-associative reduce requires contiguous integer keyed inputs");
+                }
+
+                ReduceOpRuntime *op = op_store.try_slot(index);
+                if (op == nullptr) {
+                    throw std::logic_error("non-associative reduce missing runtime op slot");
+                }
+
+                const bool scheduled_now = op->next_scheduled != MAX_DT && op->next_scheduled <= evaluation_time;
+                const LinkedTSContext lhs_context = bound_output_context(lhs_output);
+                const LinkedTSContext rhs_context = bound_output_context(rhs_output);
+                if (!op->child_instance.is_initialised()) {
+                    std::vector<int64_t> graph_id = node.node_id();
+                    graph_id.push_back(next_non_associative_reduce_child_graph_id(runtime));
+                    op->child_instance.initialise(*runtime.child_template, node, std::move(graph_id), "reduce");
+                }
+                const bool binding_changed =
+                    !op->bound ||
+                    !detail::linked_context_equal(op->left_bound_context, lhs_context) ||
+                    !detail::linked_context_equal(op->right_bound_context, rhs_context);
+                if (!op->child_instance.is_started()) { op->child_instance.start(evaluation_time); }
+                if (binding_changed) {
+                    bind_reduce_op_inputs(*runtime.child_template, *op->child_instance.graph(), lhs_output, rhs_output, evaluation_time);
+                    op->left_bound_context = lhs_context;
+                    op->right_bound_context = rhs_context;
+                    op->bound = true;
+                }
+
+                if (!lhs_output.ts_schema()) {
+                    throw std::runtime_error("non-associative reduce requires a bound zero input");
+                }
+
+                if (binding_changed || output_changed(lhs_output) || output_changed(rhs_output) || scheduled_now) {
+                    const bool lhs_changed = binding_changed || output_changed(lhs_output);
+                    const bool rhs_changed = binding_changed || output_changed(rhs_output);
+                    if (!binding_changed) {
+                        propagate_reduce_op_input_updates(*runtime.child_template,
+                                                          *op->child_instance.graph(),
+                                                          lhs_changed,
+                                                          rhs_changed,
+                                                          evaluation_time);
+                    }
+                    op->child_instance.evaluate(evaluation_time);
+                }
+                op->next_scheduled = op->child_instance.next_scheduled_time();
+                lhs_output = non_associative_reduce_resolve_output(node, runtime, index, lhs_output, rhs_output, evaluation_time);
+            }
+        }
+
+        void non_associative_reduce_publish_output(Node &node,
+                                                   NonAssociativeReduceNodeRuntimeData &runtime,
+                                                   engine_time_t evaluation_time)
+        {
+            if (!node.has_output()) { return; }
+
+            TSOutputView output = node.output_view(evaluation_time);
+            TSOutputView source_output = reduce_bound_source_output(node, "zero", evaluation_time);
+            if (runtime.active_count > 0) {
+                NonAssociativeReduceOpStore &op_store = non_associative_reduce_op_store(runtime);
+                for (size_t index = 0; index < runtime.active_count; ++index) {
+                    ReduceOpRuntime *op = op_store.try_slot(index);
+                    if (op == nullptr) { break; }
+                    TSOutputView rhs_output = non_associative_reduce_leaf_output(node, index, evaluation_time);
+                    source_output = non_associative_reduce_op_output_source(
+                        *runtime.child_template, *op, source_output, rhs_output, evaluation_time);
+                }
+            }
+
+            if (!source_output.ts_schema()) {
+                if (evaluation_time != MIN_DT) { clear_output_value(output); }
+                clear_output_link(output);
+                return;
+            }
+
+            if (source_output.ts_schema()->kind == TSKind::REF) {
+                const TimeSeriesReference source_ref = TimeSeriesReference::make(source_output);
+                static_cast<void>(publish_reduce_reference_output(output, source_ref, evaluation_time));
+                return;
+            }
+
+            if (!source_output.valid()) {
+                if (evaluation_time != MIN_DT && output_changed(source_output)) { clear_output_value(output); }
+                clear_output_link(output);
+                return;
+            }
+
+            if (const auto *parent_schema = output.ts_schema();
+                parent_schema != nullptr && !binding_compatible_ts_schema(source_output.ts_schema(), parent_schema) &&
+                source_output.owning_output() != nullptr) {
+                if (std::getenv("HGRAPH_DEBUG_BINDABLE") != nullptr) {
+                    std::fprintf(stderr,
+                                 "bindable site=node_builder:2962 bound=%d valid=%d source_kind=%d target_kind=%d\n",
+                                 source_output.context_ref().is_bound(),
+                                 source_output.valid(),
+                                 source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
+                                 parent_schema != nullptr ? static_cast<int>(parent_schema->kind) : -1);
+                }
+                source_output = source_output.owning_output()->bindable_view(source_output, parent_schema);
+            }
+
+            const bool rebound = bind_output_link(output, source_output);
+            output = node.output_view(evaluation_time);
+            if (evaluation_time != MIN_DT && (rebound || output_changed(source_output) || !output.valid())) {
+                mark_output_view_modified(output, evaluation_time);
+            }
+        }
+
+        void non_associative_reduce_schedule(Node &node, NonAssociativeReduceNodeRuntimeData &runtime)
+        {
+            NonAssociativeReduceOpStore &op_store = non_associative_reduce_op_store(runtime);
+            node.scheduler().un_schedule("reduce");
+            engine_time_t next_schedule = MAX_DT;
+            for (size_t slot = 0; slot < op_store.constructed.size(); ++slot) {
+                const ReduceOpRuntime *op = op_store.try_slot(slot);
+                if (op == nullptr) { continue; }
+                if (op->next_scheduled != MAX_DT && op->next_scheduled < next_schedule) {
+                    next_schedule = op->next_scheduled;
+                }
+            }
+            if (next_schedule != MAX_DT) { node.scheduler().schedule(next_schedule, std::string{"reduce"}); }
+        }
+
+        void non_associative_reduce_node_start(Node &node, engine_time_t evaluation_time)
+        {
+            auto &runtime = non_associative_reduce_runtime(node);
+            if (node.has_output()) {
+                const TSMeta *schema = node.output_view(evaluation_time).ts_schema();
+                const bool publish_on_start =
+                    schema != nullptr && schema->kind != TSKind::TSB && schema->kind != TSKind::TSL &&
+                    schema->kind != TSKind::TSD && schema->kind != TSKind::TSS;
+                if (publish_on_start) { non_associative_reduce_publish_output(node, runtime, evaluation_time); }
+            }
+            non_associative_reduce_schedule(node, runtime);
+        }
+
+        void non_associative_reduce_node_stop(Node &node, engine_time_t evaluation_time)
+        {
+            auto &runtime = non_associative_reduce_runtime(node);
+            NonAssociativeReduceOpStore &op_store = non_associative_reduce_op_store(runtime);
+            for (size_t slot = 0; slot < op_store.constructed.size(); ++slot) {
+                if (ReduceOpRuntime *op = op_store.try_slot(slot); op != nullptr) {
+                    dispose_reduce_op(*runtime.child_template, *op, evaluation_time);
+                    op_store.destroy_at(slot);
+                }
+            }
+            runtime.active_count = 0;
+            if (node.has_output()) { clear_output_link(node.output_view(evaluation_time)); }
+        }
+
+        void destruct_non_associative_reduce_node(Node &node) noexcept
+        {
+            const BuiltNodeSpec &spec = node.spec();
+            auto &runtime_data = detail::runtime_data<NonAssociativeReduceNodeRuntimeData>(node);
+            NonAssociativeReduceOpStore *op_store =
+                runtime_data.store_initialized ? &non_associative_reduce_op_store(runtime_data) : nullptr;
+
+            if (runtime_data.child_template != nullptr && op_store != nullptr) {
+                for (size_t slot = 0; slot < op_store->constructed.size(); ++slot) {
+                    if (ReduceOpRuntime *op = op_store->try_slot(slot); op != nullptr) {
+                        dispose_reduce_op(*runtime_data.child_template, *op, MIN_DT);
+                        op_store->destroy_at(slot);
+                    }
+                }
+            }
+
+            if (op_store != nullptr) { std::destroy_at(op_store); }
+            runtime_data.store_initialized = false;
+            if (runtime_data.recordable_state != nullptr) { runtime_data.recordable_state->~TSOutput(); }
+            if (runtime_data.error_output != nullptr) { runtime_data.error_output->~TSOutput(); }
+            if (runtime_data.output != nullptr) { runtime_data.output->~TSOutput(); }
+            if (runtime_data.input != nullptr) { runtime_data.input->~TSInput(); }
+            if (auto *scheduler = node.scheduler_if_present(); scheduler != nullptr) { std::destroy_at(scheduler); }
+            std::destroy_at(const_cast<BuiltNodeSpec *>(&spec));
+            std::destroy_at(&runtime_data);
+        }
+
+        void non_associative_reduce_node_eval(Node &node, engine_time_t evaluation_time)
+        {
+            auto &runtime = non_associative_reduce_runtime(node);
+            non_associative_reduce_resize_chain(node, runtime, evaluation_time);
+            non_associative_reduce_evaluate_chain(node, runtime, evaluation_time);
+            non_associative_reduce_publish_output(node, runtime, evaluation_time);
+            non_associative_reduce_schedule(node, runtime);
+        }
+
+        const NodeRuntimeOps k_non_associative_reduce_runtime_ops{
+            &non_associative_reduce_node_start,
+            &non_associative_reduce_node_stop,
+            &non_associative_reduce_node_eval,
+            &non_associative_reduce_has_input,
+            &non_associative_reduce_has_output,
+            &non_associative_reduce_has_error_output,
+            &non_associative_reduce_has_recordable_state,
+            &non_associative_reduce_input_view,
+            &non_associative_reduce_output_view,
+            &non_associative_reduce_error_output_view,
+            &non_associative_reduce_recordable_state_view,
+            &nested_runtime_label,
+        };
+
+        void validate_non_associative_reduce_contract(const NodeBuilder & /*builder*/) {}
+
+        [[nodiscard]] size_t non_associative_reduce_builder_size(const NodeBuilder &builder,
+                                                                 const std::vector<TSInputConstructionEdge> &inbound_edges)
+        {
+            const auto builders = resolve_builders(builder, inbound_edges);
+            return describe_layout(
+                       builder,
+                       non_associative_reduce_runtime_storage_size(),
+                       non_associative_reduce_runtime_storage_alignment(),
+                       builders)
+                .total_size;
+        }
+
+        [[nodiscard]] size_t non_associative_reduce_builder_alignment(
+            const NodeBuilder &builder,
+            const std::vector<TSInputConstructionEdge> &inbound_edges)
+        {
+            const auto builders = resolve_builders(builder, inbound_edges);
+            return describe_layout(
+                       builder,
+                       non_associative_reduce_runtime_storage_size(),
+                       non_associative_reduce_runtime_storage_alignment(),
+                       builders)
+                .alignment;
+        }
+
+        [[nodiscard]] Node *non_associative_reduce_construct_at(const NodeBuilder &builder,
+                                                                void *memory,
+                                                                int64_t node_index,
+                                                                const std::vector<TSInputConstructionEdge> &inbound_edges)
+        {
+            const auto &state = detail::node_builder_type_state<NonAssociativeReduceNodeBuilderState>(builder);
+
+            struct RuntimeLifecycle
+            {
+                const ChildGraphTemplate *child_template;
+
+                void destroy(void *runtime_data) const
+                {
+                    auto *runtime = static_cast<NonAssociativeReduceNodeRuntimeData *>(runtime_data);
+                    if (runtime->store_initialized) { std::destroy_at(&non_associative_reduce_op_store(*runtime)); }
+                    std::destroy_at(runtime);
+                }
+
+                void initialise(const NodeBuilder & /*builder*/,
+                                void *runtime_data_ptr,
+                                Node * /*node*/,
+                                TSInput * /*input*/,
+                                TSOutput * /*output*/,
+                                TSOutput * /*error_output*/,
+                                TSOutput * /*recordable_state*/) const
+                {
+                    auto &runtime = *static_cast<NonAssociativeReduceNodeRuntimeData *>(runtime_data_ptr);
+                    new (&non_associative_reduce_op_store(runtime)) NonAssociativeReduceOpStore{};
+                    runtime.store_initialized = true;
+                    runtime.child_template = child_template;
+                }
+            };
+
+            return construct_node_chunk<NonAssociativeReduceNodeBuilderState>(
+                builder,
+                memory,
+                node_index,
+                inbound_edges,
+                &k_non_associative_reduce_runtime_ops,
+                nullptr,
+                &destruct_non_associative_reduce_node,
+                non_associative_reduce_runtime_storage_size(),
+                non_associative_reduce_runtime_storage_alignment(),
+                [](void *storage, const ResolvedNodeBuilders &, TSInput *input, TSOutput *output, TSOutput *error_output,
+                   void * /*state_memory*/, TSOutput *recordable_state) -> void * {
+                    return new (storage) NonAssociativeReduceNodeRuntimeData{
+                        input, output, error_output, recordable_state};
+                },
+                RuntimeLifecycle{state.child_template});
+        }
+
         struct MapSlotRuntime
         {
             explicit MapSlotRuntime(Value key_arg)
@@ -1979,6 +3918,8 @@ namespace hgraph
             return navigate_output(child_output, path);
         }
 
+        [[nodiscard]] TSOutputView ensure_key_output(MapSlotRuntime &slot, const TSMeta *ts_schema, engine_time_t evaluation_time);
+
         void stop_map_slot(const ChildGraphTemplate &child_template, MapSlotRuntime &slot, engine_time_t evaluation_time) noexcept
         {
             try {
@@ -2022,12 +3963,19 @@ namespace hgraph
                 slot.child_instance.initialise(*runtime.child_template, node, std::move(graph_id), slot.key.view().to_string());
             }
 
+            if (!slot.child_instance.is_started()) { slot.child_instance.start(evaluation_time); }
+
             if (!slot.bound && slot.child_instance.graph() != nullptr) {
-                BoundaryBindingRuntime::bind(slot.child_instance.boundary_plan(), *slot.child_instance.graph(), node, MIN_DT);
+                BoundaryBindingRuntime::bind(slot.child_instance.boundary_plan(), *slot.child_instance.graph(), node, evaluation_time);
+                BoundaryBindingRuntime::bind_keyed(slot.child_instance.boundary_plan(),
+                                                   *slot.child_instance.graph(),
+                                                   node,
+                                                   ensure_key_output(slot, TSTypeRegistry::instance().ts(slot.key.schema()),
+                                                                     evaluation_time),
+                                                   slot.key.view(),
+                                                   evaluation_time);
                 slot.bound = true;
             }
-
-            if (!slot.child_instance.is_started()) { slot.child_instance.start(evaluation_time); }
         }
 
         [[nodiscard]] TSOutputView ensure_key_output(MapSlotRuntime &slot, const TSMeta *ts_schema, engine_time_t evaluation_time);
@@ -2042,7 +3990,7 @@ namespace hgraph
             TSOutputView key_output = parent_output.as_dict().at(key);
             TSOutputView target_output = navigate_output(key_output, parent_output_path);
             clear_output_link(target_output);
-            if (evaluation_time != MIN_DT && !key_output.valid()) { parent_output.as_dict().erase(key); }
+            static_cast<void>(evaluation_time);
         }
 
         void rebind_map_slot_inputs(Node                                   &node,
@@ -2146,11 +4094,32 @@ namespace hgraph
                 }
 
                 if (source_output.ts_schema() == nullptr) {
+                    if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                        std::fprintf(stderr,
+                                     "forward_map_slot_outputs key=%s source_schema=null mode=%d arg=%.*s\n",
+                                     slot.key.view().to_string().c_str(),
+                                     static_cast<int>(spec.mode),
+                                     static_cast<int>(spec.parent_arg_name.size()),
+                                     spec.parent_arg_name.data());
+                    }
                     clear_map_slot_target_output(parent_output, slot.key.view(), spec.parent_output_path, evaluation_time);
                     continue;
                 }
 
                 if (!source_output.valid()) {
+                    if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                        std::fprintf(stderr,
+                                     "forward_map_slot_outputs key=%s source_invalid schema_kind=%d source_modified=%d source_last_modified=%lld mode=%d arg=%.*s\n",
+                                     slot.key.view().to_string().c_str(),
+                                     source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
+                                     source_output.modified(),
+                                     source_output.last_modified_time() == MIN_DT
+                                         ? -1LL
+                                         : static_cast<long long>(source_output.last_modified_time().time_since_epoch().count()),
+                                     static_cast<int>(spec.mode),
+                                     static_cast<int>(spec.parent_arg_name.size()),
+                                     spec.parent_arg_name.data());
+                    }
                     clear_map_slot_target_output(parent_output, slot.key.view(), spec.parent_output_path, evaluation_time);
                     continue;
                 }
@@ -2159,12 +4128,42 @@ namespace hgraph
                     map_target_output(parent_output, slot.key.view(), spec.parent_output_path, evaluation_time);
 
                 if (const auto *parent_schema = target_output.ts_schema();
-                    parent_schema != nullptr && source_output.ts_schema() != parent_schema &&
+                    parent_schema != nullptr && !binding_compatible_ts_schema(source_output.ts_schema(), parent_schema) &&
                     source_output.owning_output() != nullptr) {
+                    if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                        std::fprintf(stderr,
+                                     "forward_map_slot_outputs adapt key=%s source_kind=%d target_kind=%d mode=%d arg=%.*s\n",
+                                     slot.key.view().to_string().c_str(),
+                                     source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
+                                     parent_schema != nullptr ? static_cast<int>(parent_schema->kind) : -1,
+                                     static_cast<int>(spec.mode),
+                                     static_cast<int>(spec.parent_arg_name.size()),
+                                     spec.parent_arg_name.data());
+                    }
+                    if (std::getenv("HGRAPH_DEBUG_BINDABLE") != nullptr) {
+                        std::fprintf(stderr,
+                                     "bindable site=node_builder:3427 bound=%d valid=%d source_kind=%d target_kind=%d\n",
+                                     source_output.context_ref().is_bound(),
+                                     source_output.valid(),
+                                     source_output.ts_schema() != nullptr ? static_cast<int>(source_output.ts_schema()->kind) : -1,
+                                     parent_schema != nullptr ? static_cast<int>(parent_schema->kind) : -1);
+                    }
                     source_output = source_output.owning_output()->bindable_view(source_output, parent_schema);
                 }
 
                 const bool rebound = bind_output_link(target_output, source_output);
+                if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                    std::fprintf(stderr,
+                                 "forward_map_slot_outputs key=%s rebound=%d source_valid=%d source_modified=%d source_last_modified=%lld target_valid=%d\n",
+                                 slot.key.view().to_string().c_str(),
+                                 rebound,
+                                 source_output.valid(),
+                                 source_output.modified(),
+                                 source_output.last_modified_time() == MIN_DT
+                                     ? -1LL
+                                     : static_cast<long long>(source_output.last_modified_time().time_since_epoch().count()),
+                                 target_output.valid());
+                }
                 if (evaluation_time != MIN_DT && (rebound || source_output.modified())) { slot_value_changed = true; }
             }
             return slot_value_changed;
@@ -2178,6 +4177,7 @@ namespace hgraph
         {
             if (evaluation_time == MIN_DT || changed_slots.empty()) { return; }
 
+            bool parent_changed = false;
             for (size_t slot_index : changed_slots) {
                 const MapSlotRuntime *slot = slot_store.try_slot(slot_index);
                 if (slot == nullptr) { continue; }
@@ -2186,8 +4186,10 @@ namespace hgraph
                     TSOutputView target_output =
                         map_target_output(parent_output, slot->key.view(), spec.parent_output_path, evaluation_time);
                     mark_output_view_modified(target_output, evaluation_time);
+                    parent_changed = true;
                 }
             }
+            if (parent_changed) { mark_output_view_modified(parent_output, evaluation_time); }
         }
 
         [[nodiscard]] bool has_modified_multiplexed_input(Node &node, const MapSlotRuntime &slot, engine_time_t evaluation_time)
@@ -2203,8 +4205,8 @@ namespace hgraph
                 if (!spec.parent_input_path.empty()) { parent_item = navigate_input(parent_item, spec.parent_input_path); }
                 TSOutputView parent_output = bound_output_of(parent_item);
                 if (parent_output.ts_schema() != nullptr) {
-                    if (parent_output.modified()) { return true; }
-                } else if (parent_item.modified()) {
+                    if (output_changed(parent_output) || input_changed(parent_item)) { return true; }
+                } else if (input_changed(parent_item)) {
                     return true;
                 }
             }
@@ -2271,18 +4273,19 @@ namespace hgraph
         {
             const BuiltNodeSpec &spec = node.spec();
             auto &runtime_data = detail::runtime_data<MapNodeRuntimeData>(node);
-            auto &slot_store = map_slot_store(runtime_data);
+            MapSlotStore *slot_store = runtime_data.slot_store_initialized ? &map_slot_store(runtime_data) : nullptr;
 
-            if (runtime_data.child_template != nullptr) {
-                for (size_t slot = 0; slot < slot_store.constructed.size(); ++slot) {
-                    if (MapSlotRuntime *payload = slot_store.try_slot(slot); payload != nullptr) {
+            if (runtime_data.child_template != nullptr && slot_store != nullptr) {
+                for (size_t slot = 0; slot < slot_store->constructed.size(); ++slot) {
+                    if (MapSlotRuntime *payload = slot_store->try_slot(slot); payload != nullptr) {
                         dispose_map_slot(*runtime_data.child_template, *payload, MIN_DT);
-                        slot_store.destroy_at(slot);
+                        slot_store->destroy_at(slot);
                     }
                 }
             }
 
-            std::destroy_at(&slot_store);
+            if (slot_store != nullptr) { std::destroy_at(slot_store); }
+            runtime_data.slot_store_initialized = false;
             if (runtime_data.recordable_state != nullptr) { runtime_data.recordable_state->~TSOutput(); }
             if (runtime_data.error_output != nullptr) { runtime_data.error_output->~TSOutput(); }
             if (runtime_data.output != nullptr) { runtime_data.output->~TSOutput(); }
@@ -2297,19 +4300,101 @@ namespace hgraph
             auto &runtime = map_runtime(node);
             auto &slot_store = map_slot_store(runtime);
             TSInputView keys_input = resolve_parent_input_arg(node, runtime.keys_arg, evaluation_time);
+            if (std::getenv("HGRAPH_DEBUG_KEY_SET") != nullptr) {
+                const auto &graph_id = node.owning_graph_id();
+                std::fprintf(stderr,
+                             "map_node_eval graph_tail=%lld node=%lld label=%.*s keys_arg=%s schema_kind=%d valid=%d modified=%d linked_target=%p\n",
+                             static_cast<long long>(graph_id.empty() ? -1 : graph_id.back()),
+                             static_cast<long long>(node.public_node_index()),
+                             static_cast<int>(node.label().size()),
+                             node.label().data(),
+                             runtime.keys_arg.c_str(),
+                             keys_input.ts_schema() != nullptr ? static_cast<int>(keys_input.ts_schema()->kind) : -1,
+                             keys_input.valid(),
+                             keys_input.modified(),
+                             static_cast<const void *>(keys_input.linked_target()));
+                TSInputView node_input = node.input_view(evaluation_time);
+                if (node_input.ts_schema() != nullptr && node_input.ts_schema()->kind == TSKind::TSB) {
+                    auto input_bundle = node_input.as_bundle();
+                    for (size_t field_index = 0; field_index < node.input_schema()->field_count(); ++field_index) {
+                        TSInputView field = input_bundle[field_index];
+                        std::fprintf(stderr,
+                                     "  field[%zu] name=%s schema_kind=%d valid=%d modified=%d bound=%d active=%d\n",
+                                     field_index,
+                                     node.input_schema()->fields()[field_index].name,
+                                     field.ts_schema() != nullptr ? static_cast<int>(field.ts_schema()->kind) : -1,
+                                     field.valid(),
+                                     field.modified(),
+                                     field.linked_target() != nullptr && field.linked_target()->is_bound(),
+                                     field.active());
+                        if (field.ts_schema() != nullptr && field.ts_schema()->kind == TSKind::TSD && field.valid()) {
+                            auto key_set = field.as_dict().key_set();
+                            std::vector<std::string> field_keys;
+                            if (key_set.view().value().has_value()) {
+                                for (const View &key : key_set.values()) {
+                                    field_keys.emplace_back(key.to_string());
+                                }
+                            }
+                            std::fprintf(stderr, "    field_keys=[%s]\n", fmt::format("{}", fmt::join(field_keys, ",")).c_str());
+                        }
+                    }
+                }
+                std::fflush(stderr);
+            }
             TSOutputView keys_output = live_bound_output_of(keys_input);
             const View keys_value = keys_output.ts_schema() != nullptr ? keys_output.value() : keys_input.value();
             const auto keys_delta = keys_value.as_set().delta();
-            const bool keys_modified = keys_output.ts_schema() != nullptr ? keys_output.modified() : keys_input.modified();
+            const bool keys_modified = input_changed(keys_input);
+            if (std::getenv("HGRAPH_DEBUG_KEY_SET") != nullptr && keys_value.has_value()) {
+                std::vector<std::string> live_keys;
+                for (const View &key : keys_value.as_set().values()) {
+                    live_keys.emplace_back(key.to_string());
+                }
+                std::fprintf(stderr,
+                             "map_node_eval keys_live=[%s]\n",
+                             fmt::format("{}", fmt::join(live_keys, ",")).c_str());
+                std::fflush(stderr);
+            }
+            if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                size_t occupied_slots = 0;
+                size_t live_slots = 0;
+                size_t added_slots_count = 0;
+                size_t removed_slots_count = 0;
+                for (size_t slot = 0; slot < keys_delta.slot_capacity(); ++slot) {
+                    if (!keys_delta.slot_occupied(slot)) { continue; }
+                    ++occupied_slots;
+                    if (!keys_delta.slot_removed(slot)) { ++live_slots; }
+                    if (keys_delta.slot_added(slot)) { ++added_slots_count; }
+                    if (keys_delta.slot_removed(slot)) { ++removed_slots_count; }
+                }
+                std::fprintf(stderr,
+                             "map_node_eval keys slot_capacity=%zu occupied=%zu live=%zu added=%zu removed=%zu keys_output_valid=%d keys_output_modified=%d keys_input_valid=%d keys_input_modified=%d\n",
+                             keys_delta.slot_capacity(),
+                             occupied_slots,
+                             live_slots,
+                             added_slots_count,
+                             removed_slots_count,
+                             keys_output.valid(),
+                             keys_output.ts_schema() != nullptr ? keys_output.modified() : 0,
+                             keys_input.valid(),
+                             keys_input.modified());
+            }
 
             slot_store.reserve_to(keys_delta.slot_capacity());
 
             TSOutputView parent_output = node.has_output() ? node.output_view(evaluation_time) : detail::invalid_output_view(evaluation_time);
+            std::optional<MapMutationView> parent_output_mutation;
+            if (parent_output.ts_schema() != nullptr && parent_output.ts_schema()->kind == TSKind::TSD && parent_output.valid()) {
+                parent_output_mutation.emplace(parent_output.value().as_map().begin_mutation(evaluation_time));
+            }
 
             if (keys_modified) {
                 for (size_t slot = 0; slot < keys_delta.slot_capacity(); ++slot) {
                     if (slot_store.has_slot(slot) && !keys_delta.slot_occupied(slot)) {
                         MapSlotRuntime &payload = *slot_store.try_slot(slot);
+                        if (node.has_output()) {
+                            clear_map_output_links(*runtime.child_template, parent_output, payload.key.view());
+                        }
                         dispose_map_slot(*runtime.child_template, payload, evaluation_time);
                         slot_store.destroy_at(slot);
                     }
@@ -2322,7 +4407,11 @@ namespace hgraph
                     if (!keys_delta.slot_occupied(slot) || !keys_delta.slot_added(slot) || keys_delta.slot_removed(slot)) { continue; }
                     added_slots.set(slot);
                     if (slot_store.has_slot(slot)) {
-                        dispose_map_slot(*runtime.child_template, *slot_store.try_slot(slot), evaluation_time);
+                        MapSlotRuntime &payload = *slot_store.try_slot(slot);
+                        if (node.has_output()) {
+                            clear_map_output_links(*runtime.child_template, parent_output, payload.key.view());
+                        }
+                        dispose_map_slot(*runtime.child_template, payload, evaluation_time);
                         slot_store.destroy_at(slot);
                     }
                     slot_store.emplace_at(slot, keys_delta.at_slot(slot).clone());
@@ -2336,17 +4425,44 @@ namespace hgraph
                     if (payload == nullptr) { continue; }
                     if (node.has_output()) {
                         clear_map_output_links(*runtime.child_template, parent_output, payload->key.view());
-                        if (is_live_dict_key(parent_output, payload->key.view())) { parent_output.as_dict().erase(payload->key.view()); }
+                        if (is_live_dict_key(parent_output, payload->key.view())) {
+                            parent_output.as_dict().erase(payload->key.view());
+                        }
                     }
                     stop_map_slot(*runtime.child_template, *payload, evaluation_time);
+                }
+
+                // Sync stale slots: when the input was rebound (keys_modified but
+                // the underlying delta only has incremental changes), add live keys
+                // from the map that aren't yet in the slot_store.
+                if (keys_value.has_value() && keys_value.schema() != nullptr &&
+                    keys_value.schema()->kind == value::TypeKind::Map) {
+                    const auto map = keys_value.as_map();
+                    for (const View &key : keys_value.as_set().values()) {
+                        const size_t slot = map.find_slot(key);
+                        if (slot == static_cast<size_t>(-1)) { continue; }
+                        if (slot_store.has_slot(slot)) { continue; }
+                        if (added_slots.size() > slot && added_slots.test(slot)) { continue; }
+                        if (added_slots.size() <= slot) { added_slots.resize(slot + 1); }
+                        added_slots.set(slot);
+                        slot_store.reserve_to(slot + 1);
+                        slot_store.emplace_at(slot, key.clone());
+                        MapSlotRuntime &payload = *slot_store.try_slot(slot);
+                        ensure_map_slot_started(node, runtime, payload, evaluation_time);
+                    }
                 }
             }
 
             std::unordered_set<std::string> modified_direct_args;
+            std::unordered_set<std::string> modified_keyed_args;
             for (const auto &spec : runtime.child_template->boundary_plan.inputs) {
-                if (spec.mode != InputBindingMode::BIND_DIRECT && spec.mode != InputBindingMode::CLONE_REF_BINDING) { continue; }
-                if (resolve_parent_input_arg(node, spec.arg_name, evaluation_time).modified()) {
+                const bool arg_modified = input_changed(resolve_parent_input_arg(node, spec.arg_name, evaluation_time));
+                if (!arg_modified) { continue; }
+
+                if (spec.mode == InputBindingMode::BIND_DIRECT || spec.mode == InputBindingMode::CLONE_REF_BINDING) {
                     modified_direct_args.insert(spec.arg_name);
+                } else if (spec.mode == InputBindingMode::BIND_MULTIPLEXED_ELEMENT) {
+                    modified_keyed_args.insert(spec.arg_name);
                 }
             }
 
@@ -2360,14 +4476,62 @@ namespace hgraph
 	                const bool scheduled_now =
 	                    payload->next_scheduled != MAX_DT && payload->next_scheduled <= evaluation_time;
 	                const bool multiplexed_modified = has_modified_multiplexed_input(node, *payload, evaluation_time);
+                    const bool keyed_rebind_required = !modified_keyed_args.empty();
 	                const bool should_eval =
-	                    added || scheduled_now || !modified_direct_args.empty() || multiplexed_modified;
+	                    added || scheduled_now || !modified_direct_args.empty() || keyed_rebind_required || multiplexed_modified;
 
                 if (!should_eval) { continue; }
 
 	                ensure_map_slot_started(node, runtime, *payload, evaluation_time);
-	                rebind_map_slot_inputs(node, *payload, modified_direct_args, added || multiplexed_modified, evaluation_time);
+	                rebind_map_slot_inputs(node,
+                                           *payload,
+                                           modified_direct_args,
+                                           added || keyed_rebind_required || multiplexed_modified,
+                                           evaluation_time);
 	                payload->child_instance.evaluate(evaluation_time);
+                if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr && payload->child_instance.graph() != nullptr) {
+                    Graph &child_graph = *payload->child_instance.graph();
+                    for (size_t child_index = 0; child_index < child_graph.entries().size(); ++child_index) {
+                        Node &child_node = child_graph.node_at(child_index);
+                        if (child_node.has_input() && child_node.input_schema() != nullptr &&
+                            child_node.input_schema()->kind == TSKind::TSB) {
+                            TSInputView child_input = child_node.input_view(evaluation_time);
+                            auto input_bundle = child_input.as_bundle();
+                            for (size_t input_slot = 0; input_slot < child_node.input_schema()->field_count(); ++input_slot) {
+                                TSInputView field = input_bundle[input_slot];
+                                std::fprintf(stderr,
+                                             "map_slot_child_input key=%s node=%zu slot=%zu label=%.*s schema_kind=%d valid=%d modified=%d last_modified=%lld active=%d bound=%d\n",
+                                             payload->key.view().to_string().c_str(),
+                                             child_index,
+                                             input_slot,
+                                             static_cast<int>(child_node.label().size()),
+                                             child_node.label().data(),
+                                             field.ts_schema() != nullptr ? static_cast<int>(field.ts_schema()->kind) : -1,
+                                             field.valid(),
+                                             field.modified(),
+                                             field.last_modified_time() == MIN_DT
+                                                 ? -1LL
+                                                 : static_cast<long long>(field.last_modified_time().time_since_epoch().count()),
+                                             field.active(),
+                                             field.linked_target() != nullptr && field.linked_target()->is_bound());
+                            }
+                        }
+                        if (!child_node.has_output()) { continue; }
+                        TSOutputView child_output = child_node.output_view(evaluation_time);
+                        std::fprintf(stderr,
+                                     "map_slot_child_output key=%s node=%zu label=%.*s schema_kind=%d valid=%d modified=%d last_modified=%lld\n",
+                                     payload->key.view().to_string().c_str(),
+                                     child_index,
+                                     static_cast<int>(child_node.label().size()),
+                                     child_node.label().data(),
+                                     child_output.ts_schema() != nullptr ? static_cast<int>(child_output.ts_schema()->kind) : -1,
+                                     child_output.valid(),
+                                     child_output.modified(),
+                                     child_output.last_modified_time() == MIN_DT
+                                         ? -1LL
+                                         : static_cast<long long>(child_output.last_modified_time().time_since_epoch().count()));
+                    }
+                }
                 payload->next_scheduled = payload->child_instance.next_scheduled_time();
                 if (node.has_output()) {
                     if (forward_map_slot_outputs(node, runtime, parent_output, *payload, evaluation_time)) {
@@ -2378,6 +4542,18 @@ namespace hgraph
 
             if (node.has_output()) {
                 publish_map_slot_output_updates(runtime, parent_output, slot_store, changed_output_slots, evaluation_time);
+                if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                    std::fprintf(stderr,
+                                 "map_node_eval output_specs=%zu slot_capacity=%zu changed_output_slots=%zu keys_modified=%d modified_direct=%zu modified_keyed=%zu parent_valid=%d parent_modified=%d\n",
+                                 runtime.child_template->boundary_plan.outputs.size(),
+                                 keys_delta.slot_capacity(),
+                                 changed_output_slots.size(),
+                                 keys_modified,
+                                 modified_direct_args.size(),
+                                 modified_keyed_args.size(),
+                                 parent_output.valid(),
+                                 parent_output.modified());
+                }
                 if (keys_modified && !parent_output.modified()) {
                     if (!parent_output.valid()) {
                         parent_output.clear();
@@ -2445,7 +4621,7 @@ namespace hgraph
                 void destroy(void *runtime_data) const
                 {
                     auto *runtime = static_cast<MapNodeRuntimeData *>(runtime_data);
-                    std::destroy_at(&map_slot_store(*runtime));
+                    if (runtime->slot_store_initialized) { std::destroy_at(&map_slot_store(*runtime)); }
                     std::destroy_at(runtime);
                 }
 
@@ -2453,11 +4629,12 @@ namespace hgraph
                                 TSOutput * /*output*/, TSOutput * /*error_output*/, TSOutput * /*recordable_state*/) const
                 {
                     auto &runtime = *static_cast<MapNodeRuntimeData *>(runtime_data_ptr);
+                    new (&map_slot_store(runtime)) MapSlotStore{};
+                    runtime.slot_store_initialized = true;
                     runtime.child_template = child_template;
                     runtime.key_arg = key_arg;
                     runtime.keys_arg = keys_arg;
                     runtime.multiplexed_args = multiplexed_args;
-                    new (&map_slot_store(runtime)) MapSlotStore{};
                 }
             };
 
@@ -2683,6 +4860,50 @@ namespace hgraph
         builder.m_type_ops = &map_ops;
         builder.m_type_state =
             make_builder_state(MapNodeBuilderState{child_template, std::move(key_arg), std::move(keys_arg), std::move(multiplexed_args)});
+        builder.m_uses_scheduler = true;
+        builder.m_has_explicit_scheduler = true;
+        return builder;
+    }
+
+    NodeBuilder &reduce_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template)
+    {
+        if (child_template == nullptr) {
+            throw std::invalid_argument("reduce_graph_implementation requires a non-null child template");
+        }
+        static const NodeBuilder::TypeOps reduce_ops{
+            &validate_reduce_contract,
+            &reduce_builder_size,
+            &reduce_builder_alignment,
+            &reduce_construct_at,
+            &destruct_builder_node,
+            &clone_builder_state<ReduceNodeBuilderState>,
+            &destroy_builder_state<ReduceNodeBuilderState>,
+        };
+        builder.reset_type_state();
+        builder.m_type_ops = &reduce_ops;
+        builder.m_type_state = make_builder_state(ReduceNodeBuilderState{child_template});
+        builder.m_uses_scheduler = true;
+        builder.m_has_explicit_scheduler = true;
+        return builder;
+    }
+
+    NodeBuilder &non_associative_reduce_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template)
+    {
+        if (child_template == nullptr) {
+            throw std::invalid_argument("non_associative_reduce_graph_implementation requires a non-null child template");
+        }
+        static const NodeBuilder::TypeOps non_associative_reduce_ops{
+            &validate_non_associative_reduce_contract,
+            &non_associative_reduce_builder_size,
+            &non_associative_reduce_builder_alignment,
+            &non_associative_reduce_construct_at,
+            &destruct_builder_node,
+            &clone_builder_state<NonAssociativeReduceNodeBuilderState>,
+            &destroy_builder_state<NonAssociativeReduceNodeBuilderState>,
+        };
+        builder.reset_type_state();
+        builder.m_type_ops = &non_associative_reduce_ops;
+        builder.m_type_state = make_builder_state(NonAssociativeReduceNodeBuilderState{child_template});
         builder.m_uses_scheduler = true;
         builder.m_has_explicit_scheduler = true;
         return builder;

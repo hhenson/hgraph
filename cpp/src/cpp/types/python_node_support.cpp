@@ -1,6 +1,7 @@
 #include <hgraph/types/python_node_support.h>
 
 #include <hgraph/types/constants.h>
+#include <hgraph/types/time_series/time_series_state.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_output_builder.h>
@@ -159,6 +160,7 @@ namespace hgraph
                 context.owning_output,
                 context.output_view_ops,
                 context.notification_state,
+                context.pending_dict_child,
             }};
             return TSOutputView{
                 view_context,
@@ -167,16 +169,6 @@ namespace hgraph
                 context.owning_output,
                 context.output_view_ops != nullptr ? context.output_view_ops : &::hgraph::detail::default_output_view_ops(),
             };
-        }
-
-        [[nodiscard]] const RefLinkState *switching_ref_state(const TSViewContext &context) noexcept {
-            const BaseState *state = context.ts_state;
-            while (state != nullptr && state->storage_kind == TSStorageKind::TargetLink) {
-                const LinkedTSContext *target = state->linked_target();
-                state                         = target != nullptr ? target->ts_state : nullptr;
-            }
-            return state != nullptr && state->storage_kind == TSStorageKind::RefLink ? static_cast<const RefLinkState *>(state)
-                                                                                     : nullptr;
         }
 
         [[nodiscard]] const BaseState *parent_collection_state(const BaseState *state) noexcept {
@@ -200,6 +192,53 @@ namespace hgraph
                 if (state->last_modified_time != MIN_DT) { return state->last_modified_time; }
             }
             return MIN_DT;
+        }
+
+        [[nodiscard]] bool sampled_this_tick(const TSViewContext &context, engine_time_t evaluation_time) noexcept
+        {
+            const auto snapshot = detail::transition_snapshot(context);
+            return snapshot.active() && snapshot.modified_time == evaluation_time;
+        }
+
+        template <typename TView>
+        [[nodiscard]] const Value *transition_previous_value(const TView &view) noexcept
+        {
+            const auto snapshot = detail::transition_snapshot(view.context_ref());
+            return snapshot.active() && snapshot.modified_time == view.evaluation_time() ? snapshot.previous_value : nullptr;
+        }
+
+        template <typename TView>
+        [[nodiscard]] const Value *transition_previous_map_value(const TView &view) noexcept
+        {
+            const Value *previous = transition_previous_value(view);
+            if (previous == nullptr || !previous->has_value() || previous->view().schema() == nullptr ||
+                previous->view().schema()->kind != value::TypeKind::Map) {
+                return nullptr;
+            }
+            return previous;
+        }
+
+        [[nodiscard]] bool sampled_input_context(const TSViewContext &context) noexcept
+        {
+            const BaseState *state = context.ts_state;
+            while (state != nullptr && state->storage_kind == TSStorageKind::OutputLink) {
+                const LinkedTSContext *target = state->linked_target();
+                state = target != nullptr ? target->ts_state : nullptr;
+            }
+
+            if (state == nullptr) { return false; }
+
+            switch (state->storage_kind) {
+                case TSStorageKind::TargetLink:
+                    return static_cast<const TargetLinkState *>(state)->is_sampled();
+                case TSStorageKind::RefLink:
+                    return static_cast<const RefLinkState *>(state)->is_sampled();
+                case TSStorageKind::Native:
+                case TSStorageKind::OutputLink:
+                    return false;
+            }
+
+            return false;
         }
 
         [[nodiscard]] Value ts_nested_value_from_python(const value::TypeMeta &schema, const nb::handle &value) {
@@ -437,13 +476,24 @@ namespace hgraph
             }
 
             [[nodiscard]] bool modified() const {
-                if (has_live_bound_output()) { return output_view().modified(); }
+                if (has_live_bound_output()) {
+                    TSOutputView view = output_view();
+                    return view.modified() || sampled_this_tick(view.context_ref(), evaluation_time());
+                }
                 if (has_detached_bound_value()) {
                     const engine_time_t when = effective_modified_time(*m_bound_output);
                     return when != MIN_DT ? when == m_fixed_evaluation_time : current_value().has_value();
                 }
 
-                const bool modified = m_input != nullptr ? input_view().modified() : output_view().modified();
+                const bool modified = [this]() {
+                    if (m_input != nullptr) {
+                        TSInputView view = input_view();
+                        return view.modified() || sampled_this_tick(view.context_ref(), evaluation_time());
+                    }
+
+                    TSOutputView view = output_view();
+                    return view.modified() || sampled_this_tick(view.context_ref(), evaluation_time());
+                }();
                 return modified;
             }
 
@@ -705,7 +755,11 @@ namespace hgraph
 
                 nb::set result;
                 if (m_input != nullptr) {
-                    for (const View &item : input_view().as_set().added_values()) { result.add(item.to_python()); }
+                    const TSInputView view = input_view();
+                    for (const View &item : view.as_set().added_values()) { result.add(item.to_python()); }
+                    if (result.empty() && sampled_this_tick(view.context_ref(), view.evaluation_time()) && view.valid()) {
+                        for (const View &item : view.as_set().values()) { result.add(item.to_python()); }
+                    }
                 } else {
                     for (const View &item : output_view().as_set().added_values()) { result.add(item.to_python()); }
                 }
@@ -717,7 +771,8 @@ namespace hgraph
 
                 nb::set result;
                 if (m_input != nullptr) {
-                    for (const View &item : input_view().as_set().removed_values()) { result.add(item.to_python()); }
+                    const TSInputView view = input_view();
+                    for (const View &item : view.as_set().removed_values()) { result.add(item.to_python()); }
                 } else {
                     for (const View &item : output_view().as_set().removed_values()) { result.add(item.to_python()); }
                 }
@@ -766,11 +821,9 @@ namespace hgraph
                 const auto build_keys = [](const auto &view) {
                     nb::list result;
 
-                    if (const auto *ref_state = switching_ref_state(view.context_ref());
-                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
-                        ref_state->previous_target_value.has_value()) {
+                    if (const Value *previous_value = transition_previous_map_value(view); previous_value != nullptr) {
                         const auto       current  = view.value().as_map();
-                        const auto       previous = ref_state->previous_target_value.view().as_map();
+                        const auto       previous = previous_value->view().as_map();
                         constexpr size_t no_slot  = static_cast<size_t>(-1);
 
                         for (size_t slot = current.first_live_slot(); slot != no_slot; slot = current.next_live_slot(slot)) {
@@ -797,11 +850,9 @@ namespace hgraph
                 const auto build_keys = [](const auto &view) {
                     nb::list result;
 
-                    if (const auto *ref_state = switching_ref_state(view.context_ref());
-                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
-                        ref_state->previous_target_value.has_value()) {
+                    if (const Value *previous_value = transition_previous_map_value(view); previous_value != nullptr) {
                         const auto       current  = view.value().as_map();
-                        const auto       previous = ref_state->previous_target_value.view().as_map();
+                        const auto       previous = previous_value->view().as_map();
                         constexpr size_t no_slot  = static_cast<size_t>(-1);
 
                         for (size_t slot = previous.first_live_slot(); slot != no_slot; slot = previous.next_live_slot(slot)) {
@@ -828,11 +879,9 @@ namespace hgraph
                 const auto build_values = [this](const auto &view) {
                     nb::list result;
 
-                    if (const auto *ref_state = switching_ref_state(view.context_ref());
-                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
-                        ref_state->previous_target_value.has_value()) {
+                    if (const Value *previous_value = transition_previous_map_value(view); previous_value != nullptr) {
                         const auto       current  = view.value().as_map();
-                        const auto       previous = ref_state->previous_target_value.view().as_map();
+                        const auto       previous = previous_value->view().as_map();
                         constexpr size_t no_slot  = static_cast<size_t>(-1);
 
                         for (size_t slot = current.first_live_slot(); slot != no_slot; slot = current.next_live_slot(slot)) {
@@ -859,11 +908,9 @@ namespace hgraph
                 const auto build_values = [this](const auto &view) {
                     nb::list result;
 
-                    if (const auto *ref_state = switching_ref_state(view.context_ref());
-                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
-                        ref_state->previous_target_value.has_value()) {
+                    if (const Value *previous_value = transition_previous_map_value(view); previous_value != nullptr) {
                         const auto       current  = view.value().as_map();
-                        const auto       previous = ref_state->previous_target_value.view().as_map();
+                        const auto       previous = previous_value->view().as_map();
                         constexpr size_t no_slot  = static_cast<size_t>(-1);
 
                         for (size_t slot = previous.first_live_slot(); slot != no_slot; slot = previous.next_live_slot(slot)) {
@@ -892,11 +939,9 @@ namespace hgraph
                 const auto build_items = [this](const auto &view) {
                     nb::list result;
 
-                    if (const auto *ref_state = switching_ref_state(view.context_ref());
-                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
-                        ref_state->previous_target_value.has_value()) {
+                    if (const Value *previous_value = transition_previous_map_value(view); previous_value != nullptr) {
                         const auto       current  = view.value().as_map();
-                        const auto       previous = ref_state->previous_target_value.view().as_map();
+                        const auto       previous = previous_value->view().as_map();
                         constexpr size_t no_slot  = static_cast<size_t>(-1);
 
                         for (size_t slot = current.first_live_slot(); slot != no_slot; slot = current.next_live_slot(slot)) {
@@ -926,11 +971,9 @@ namespace hgraph
                 const auto build_items = [this](const auto &view) {
                     nb::list result;
 
-                    if (const auto *ref_state = switching_ref_state(view.context_ref());
-                        ref_state != nullptr && ref_state->switch_modified_time == view.last_modified_time() &&
-                        ref_state->previous_target_value.has_value()) {
+                    if (const Value *previous_value = transition_previous_map_value(view); previous_value != nullptr) {
                         const auto       current  = view.value().as_map();
-                        const auto       previous = ref_state->previous_target_value.view().as_map();
+                        const auto       previous = previous_value->view().as_map();
                         constexpr size_t no_slot  = static_cast<size_t>(-1);
 
                         for (size_t slot = previous.first_live_slot(); slot != no_slot; slot = previous.next_live_slot(slot)) {
@@ -1004,27 +1047,29 @@ namespace hgraph
             [[nodiscard]] nb::list modified_items() const {
                 nb::list result;
                 if (is_bundle()) {
-                    for (size_t i = 0; i < m_schema->data.tsb.field_count; ++i) {
-                        const auto child = field(m_schema->data.tsb.fields[i].name);
-                        if (child.modified()) {
-                            result.append(nb::make_tuple(nb::str(m_schema->data.tsb.fields[i].name), nb::cast(child)));
+                    const auto append_modified_items = [this, &result](const auto &bundle) {
+                        for (const auto &[name, child] : bundle.modified_items()) {
+                            result.append(
+                                nb::make_tuple(nb::str(name.data(), name.size()), nb::cast(handle_from_context(child.context_ref()))));
                         }
+                    };
+                    if (m_input != nullptr) {
+                        append_modified_items(input_view().as_bundle());
+                    } else {
+                        append_modified_items(output_view().as_bundle());
                     }
                     return result;
                 }
                 if (is_list()) {
+                    const auto append_modified_items = [this, &result](const auto &list) {
+                        for (const auto &[index, child] : list.modified_items()) {
+                            result.append(nb::make_tuple(nb::int_(index), nb::cast(handle_from_context(child.context_ref()))));
+                        }
+                    };
                     if (m_input != nullptr) {
-                        const auto list = input_view().as_list();
-                        for (size_t i = 0; i < list.size(); ++i) {
-                            const auto child = index(i);
-                            if (child.modified()) { result.append(nb::make_tuple(nb::int_(i), nb::cast(child))); }
-                        }
+                        append_modified_items(input_view().as_list());
                     } else {
-                        const auto list = output_view().as_list();
-                        for (size_t i = 0; i < list.size(); ++i) {
-                            const auto child = index(i);
-                            if (child.modified()) { result.append(nb::make_tuple(nb::int_(i), nb::cast(child))); }
-                        }
+                        append_modified_items(output_view().as_list());
                     }
                     return result;
                 }
@@ -1312,6 +1357,7 @@ namespace hgraph
                 LinkedTSContext linked{
                     context.schema,   context.value_dispatch, context.ts_dispatch,     context.value_data,
                     context.ts_state, context.owning_output,  context.output_view_ops, context.notification_state,
+                    context.pending_dict_child,
                 };
                 return PythonTimeSeriesHandle{linked, evaluation_time()};
             }
@@ -1453,7 +1499,25 @@ namespace hgraph
                     switch (step.kind) {
                         case PathStep::Kind::Field: view = view.as_bundle().field(step.field_name); break;
                         case PathStep::Kind::Index: view = view.as_list().at(step.index); break;
-                        case PathStep::Kind::Key: view = view.as_dict().at(step.key.view()); break;
+                        case PathStep::Kind::Key:
+                            {
+                                TSOutputView child = view.as_dict().at(step.key.view());
+                                if (child.context_ref().ts_state == nullptr && !child.context_ref().is_bound()) {
+                                    BaseState *state =
+                                        view.context_ref().ts_state != nullptr ? view.context_ref().ts_state->resolved_state()
+                                                                               : nullptr;
+                                    if (state != nullptr && state->storage_kind == TSStorageKind::Native) {
+                                        auto *dict_state = static_cast<TSDState *>(state);
+                                        const size_t slot = view.value().as_map().find_slot(step.key.view());
+                                        if (slot != static_cast<size_t>(-1)) {
+                                            dict_state->on_insert(slot);
+                                            child = view.as_dict().at(step.key.view());
+                                        }
+                                    }
+                                }
+                                view = child;
+                                break;
+                            }
                     }
                 }
                 return view;

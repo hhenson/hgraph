@@ -14,6 +14,16 @@ namespace hgraph
 
     namespace detail
     {
+        [[nodiscard]] static MutationTracking nested_value_tracking(const value::TypeMeta &schema,
+                                                                   MutationTracking       tracking) noexcept
+        {
+            if (tracking != MutationTracking::Delta) { return MutationTracking::Plain; }
+
+            switch (schema.kind) {
+                case value::TypeKind::Atomic: return MutationTracking::Plain;
+                default: return MutationTracking::Delta;
+            }
+        }
 
         struct FixedListState
         {
@@ -1108,7 +1118,8 @@ namespace hgraph
             }
 
             const ValueBuilder &element_builder =
-                ValueBuilderFactory::checked_builder_for(schema->element_type, MutationTracking::Plain);
+                ValueBuilderFactory::checked_builder_for(schema->element_type,
+                                                         nested_value_tracking(*schema->element_type, tracking));
             CachedBuilderEntry entry;
 
             if (schema->is_fixed_size()) {

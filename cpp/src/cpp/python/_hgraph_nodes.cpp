@@ -159,10 +159,46 @@ namespace
             return view.as_atomic().template try_as<TimeSeriesReference>();
         }
 
+        struct ValueKeyHash
+        {
+            [[nodiscard]] size_t operator()(const Value &value) const noexcept { return value.hash(); }
+        };
+
+        struct ValueKeyEqual
+        {
+            [[nodiscard]] bool operator()(const Value &lhs, const Value &rhs) const noexcept { return lhs.equals(rhs); }
+        };
+
+        [[nodiscard]] TimeSeriesReference refreshed_reference_from_input(const TSInputView &view)
+        {
+            if (!view.valid()) { return TimeSeriesReference::make(); }
+            if (const TSMeta *schema = view.ts_schema(); schema != nullptr && schema->kind == TSKind::REF) {
+                const auto *ref = try_view_ref(view.value());
+                if (ref == nullptr) { return TimeSeriesReference::make(view); }
+                if (!ref->is_peered()) { return *ref; }
+                TSOutputView target_view = ref->target_view(view.evaluation_time());
+                TimeSeriesReference refreshed = TimeSeriesReference::make(target_view);
+                return refreshed.is_empty() ? *ref : refreshed;
+            }
+            return TimeSeriesReference::make(view);
+        }
+
         [[nodiscard]] nb::object remove_if_exists_sentinel()
         {
             static nb::object value = nb::module_::import_("hgraph").attr("REMOVE_IF_EXISTS");
             return nb::borrow(value);
+        }
+
+        [[nodiscard]] size_t bundle_field_index_or_throw(const TSMeta *schema, std::string_view field_name)
+        {
+            if (schema == nullptr || schema->kind != TSKind::TSB) {
+                throw std::logic_error("tsd_get_bundle_item requires a bundle schema");
+            }
+
+            for (size_t i = 0; i < schema->field_count(); ++i) {
+                if (schema->fields()[i].name == field_name) { return i; }
+            }
+            throw std::logic_error(fmt::format("tsd_get_bundle_item unknown bundle field '{}'", field_name));
         }
 
         [[nodiscard]] TSOutputView output_view_from_input(const TSInputView &input)
@@ -170,16 +206,60 @@ namespace
             const TSViewContext resolved = input.context_ref().resolved();
             if (resolved.schema == nullptr || resolved.value_dispatch == nullptr || resolved.ts_dispatch == nullptr ||
                 resolved.ts_state == nullptr) {
+                if (const auto *target = input.linked_target(); target != nullptr && target->is_bound()) {
+                    return TSOutputView{
+                        TSViewContext{TSContext{
+                            target->schema,
+                            target->value_dispatch,
+                            target->ts_dispatch,
+                            target->value_data,
+                            target->ts_state,
+                            target->owning_output,
+                            target->output_view_ops,
+                            target->notification_state,
+                            target->pending_dict_child,
+                        }},
+                        TSViewContext::none(),
+                        input.evaluation_time(),
+                        target->owning_output,
+                        target->output_view_ops != nullptr ? target->output_view_ops : &hgraph::detail::default_output_view_ops(),
+                    };
+                }
                 return TSOutputView{TSViewContext::none(), TSViewContext::none(), input.evaluation_time(), nullptr};
             }
 
             return TSOutputView{
-                TSViewContext{resolved.schema, resolved.value_dispatch, resolved.ts_dispatch, resolved.value_data, resolved.ts_state},
+                TSViewContext{TSContext{
+                    resolved.schema,
+                    resolved.value_dispatch,
+                    resolved.ts_dispatch,
+                    resolved.value_data,
+                    resolved.ts_state,
+                    resolved.owning_output,
+                    resolved.output_view_ops,
+                    resolved.notification_state,
+                    resolved.pending_dict_child,
+                }},
                 TSViewContext::none(),
                 input.evaluation_time(),
                 resolved.owning_output,
                 resolved.output_view_ops != nullptr ? resolved.output_view_ops : &hgraph::detail::default_output_view_ops(),
             };
+        }
+
+        [[nodiscard]] TSOutputView materialize_dict_child_output(const TSOutputView &dict_view, const View &key)
+        {
+            TSOutputView child = dict_view.as_dict()[key];
+            if (child.context_ref().is_bound() || child.context_ref().ts_state != nullptr || child.value().has_value()) { return child; }
+
+            BaseState *state = dict_view.context_ref().ts_state != nullptr ? dict_view.context_ref().ts_state->resolved_state() : nullptr;
+            if (state == nullptr || state->storage_kind != TSStorageKind::Native || !dict_view.value().has_value()) { return child; }
+
+            const size_t slot = dict_view.value().as_map().find_slot(key);
+            if (slot == static_cast<size_t>(-1)) { return child; }
+
+            static_cast<TSDState *>(state)->on_insert(slot);
+            return dict_view.as_dict()[key];
         }
 
         void suppress_spurious_empty_dict_tick(const hgraph::TSDView<TSOutputView> &out, engine_time_t evaluation_time)
@@ -721,21 +801,47 @@ namespace
                          In<"_ref_ref", REF<V>, InputValidity::Unchecked> ref_ref,
                          Out<REF<V>> out)
         {
+            const bool debug = std::getenv("HGRAPH_DEBUG_TSD_GET_ITEM") != nullptr;
             if (ts.modified() || key.modified()) {
                 TSInputView ref_view = ref.view();
                 TSInputView ref_ref_view = ref_ref.view();
                 disconnect_input(ref_view);
                 disconnect_input(ref_ref_view);
 
+                if (debug) {
+                    std::fprintf(stderr,
+                                 "tsd_get_item ts.modified=%d key.modified=%d ts.valid=%d ts.empty=%d ts.peered=%d\n",
+                                 ts.modified(),
+                                 key.modified(),
+                                 ts.valid(),
+                                 ts.valid() ? ts.value().is_empty() : 1,
+                                 ts.valid() ? ts.value().is_peered() : 0);
+                }
+
                 if (ts.valid() && key.valid() && ts.value().is_peered()) {
                     const View key_value = key.view().value();
                     auto ts_ref = ts.value();
                     auto target_view = ts_ref.target_view(ref_view.evaluation_time());
                     auto source_dict = target_view.as_dict();
-                    auto source_child = source_dict[key_value];
+                    auto source_child = materialize_dict_child_output(target_view, key_value);
+                    if (debug) {
+                        std::fprintf(stderr,
+                                     "  source_child bound=%d ts_state=%p valid=%d modified=%d\n",
+                                     source_child.context_ref().is_bound(),
+                                     static_cast<void *>(source_child.context_ref().ts_state),
+                                     source_child.valid(),
+                                     source_child.modified());
+                    }
                     if (source_child.context_ref().is_bound()) {
                         ref_view.bind_output(source_child);
                         ref_view.make_active();
+                        if (debug) {
+                            std::fprintf(stderr,
+                                         "  ref_view after bind valid=%d modified=%d linked=%p\n",
+                                         ref_view.valid(),
+                                         ref_view.modified(),
+                                         static_cast<const void *>(ref_view.linked_target()));
+                        }
                     }
                 }
             }
@@ -754,10 +860,24 @@ namespace
             TimeSeriesReference result = TimeSeriesReference::make();
             if (ts.valid() && !ts.value().is_empty()) {
                 if (input_has_binding(ref_ref_view) && ref_ref_view.valid()) {
-                    if (const auto *inner_ref = try_view_ref(ref_ref_view.value()); inner_ref != nullptr) { result = *inner_ref; }
+                    result = refreshed_reference_from_input(ref_ref_view);
                 } else if (ref_view.valid()) {
-                    if (const auto *outer_ref = try_view_ref(ref_view.value()); outer_ref != nullptr) { result = *outer_ref; }
+                    result = refreshed_reference_from_input(ref_view);
                 }
+            }
+
+            if (debug) {
+                std::fprintf(stderr,
+                             "  result empty=%d peered=%d valid=%d ref.valid=%d ref_ref.valid=%d out_changed=%d\n",
+                             result.is_empty(),
+                             result.is_peered(),
+                             result.is_valid(),
+                             ref_view.valid(),
+                             ref_ref_view.valid(),
+                             [&] {
+                                 const auto *current = out.try_value();
+                                 return current == nullptr || !(*current == result);
+                             }());
             }
 
             const bool out_changed = [&] {
@@ -784,7 +904,6 @@ namespace
         {
             const engine_time_t evaluation_time = out.evaluation_time();
             auto out_dict = out.view();
-
             std::vector<Value> tracked_keys;
             for (const View &tracked : out_dict.keys()) { tracked_keys.emplace_back(tracked); }
             nb::dict delta;
@@ -807,19 +926,13 @@ namespace
                 if (!source_dict.value().has_value() || !source_dict.value().as_map().contains(selected)) { continue; }
 
                 desired_keys.emplace_back(selected);
-                TSOutputView source_child = source_dict[selected];
+                TSOutputView source_child = materialize_dict_child_output(source_root, selected);
                 TimeSeriesReference result = TimeSeriesReference::make(source_child);
                 if (const TSMeta *source_schema = source_child.ts_schema(); source_schema != nullptr && source_schema->kind == TSKind::REF) {
                     const auto *outer_ref = source_child.valid() ? try_view_ref(source_child.value()) : nullptr;
                     result = outer_ref != nullptr ? *outer_ref : TimeSeriesReference::make();
                 }
-
-                const TSOutputView current_child = out_dict[selected];
-                const auto *current_ref =
-                    current_child.value().has_value() ? current_child.value().as_atomic().template try_as<TimeSeriesReference>() : nullptr;
-                const bool needs_emit =
-                    !current_child.context_ref().is_bound() || current_ref == nullptr || !(*current_ref == result) || source_child.modified();
-                if (needs_emit) { delta[selected.to_python()] = nb::cast(result); }
+                delta[selected.to_python()] = nb::cast(result);
             }
 
             for (const Value &tracked_key : tracked_keys) {
@@ -832,6 +945,316 @@ namespace
                 out_dict.view().apply_result(delta);
             } else if (tracked_keys.empty()) {
                 suppress_spurious_empty_dict_tick(out_dict, evaluation_time);
+            }
+        }
+    };
+
+    struct TsdGetBundleItemNode
+    {
+        TsdGetBundleItemNode() = delete;
+        ~TsdGetBundleItemNode() = delete;
+
+        static constexpr auto name = "tsd_get_bundle_item";
+
+        using K = ScalarVar<"K">;
+        using B = TsVar<"B">;
+        using V = TsVar<"V">;
+
+        static void eval(In<"tsd", TSD<K, REF<B>>, InputValidity::Unchecked> tsd,
+                         ScalarArg<"key", std::string> key,
+                         Out<TSD<K, REF<V>>> out)
+        {
+            auto out_dict = out.view();
+            const std::string_view field_name = key.value();
+            std::vector<Value> tracked_keys;
+            for (const View &tracked : out_dict.keys()) { tracked_keys.emplace_back(tracked); }
+
+            TSOutputView source_root = output_view_from_input(tsd.view().view());
+            size_t removed_count = 0;
+            size_t live_count = 0;
+            if (source_root.value().has_value()) {
+                const auto map = source_root.value().as_map();
+                constexpr size_t no_slot = static_cast<size_t>(-1);
+                for (size_t slot = map.first_live_slot(); slot != no_slot; slot = map.next_live_slot(slot)) { ++live_count; }
+                for (size_t slot = map.delta().first_removed_slot(); slot != no_slot; slot = map.delta().next_removed_slot(slot)) {
+                    ++removed_count;
+                }
+            }
+            const bool emptied_without_delta =
+                source_root.modified() && !tracked_keys.empty() && source_root.value().has_value() && live_count == 0 && removed_count == 0;
+            if (!(tsd.valid() && source_root.context_ref().is_bound() && source_root.value().has_value()) || emptied_without_delta) {
+                if (!tracked_keys.empty()) {
+                    auto mutation = out_dict.value().as_map().begin_mutation(out.evaluation_time());
+                    bool removed = false;
+                    for (const Value &tracked_key : tracked_keys) {
+                        removed = mutation.remove(tracked_key.view()) || removed;
+                    }
+                    if (removed) { mark_output_view_modified(out_dict.view(), out.evaluation_time()); }
+                }
+                return;
+            }
+
+            bool structural_changed = false;
+            const bool sampled_root_tick =
+                sampled_transition_this_tick(source_root.context_ref(), out.evaluation_time());
+            const bool replay_all_live =
+                sampled_root_tick || (tracked_keys.empty() && source_root.modified() && live_count != 0);
+            const auto *out_schema = out_dict.view().ts_schema();
+            const auto *ref_value_type =
+                out_schema != nullptr && out_schema->element_ts() != nullptr ? out_schema->element_ts()->value_type : nullptr;
+            auto map_mutation = out_dict.value().as_map().begin_mutation(out.evaluation_time());
+
+            auto emit_child = [&](const View &dict_key, auto child, bool child_modified) {
+                TimeSeriesReference result = TimeSeriesReference::make();
+                const bool child_live =
+                    child.valid() || (replay_all_live && (child.context_ref().is_bound() || child.value().has_value()));
+                if (child_live) {
+                    const auto *ref = try_view_ref(child.value());
+                    if (ref == nullptr) {
+                        throw std::logic_error("tsd_get_bundle_item requires REF bundle values");
+                    }
+
+                    if (!ref->is_empty()) {
+                        if (ref->is_peered()) {
+                            TSOutputView bundle_view = ref->target_view(out.evaluation_time());
+                            result = TimeSeriesReference::make(bundle_view.as_bundle().field(field_name));
+                        } else {
+                            const TSMeta *bundle_schema = child.ts_schema() != nullptr ? child.ts_schema()->element_ts() : nullptr;
+                            const size_t field_index = bundle_field_index_or_throw(bundle_schema, field_name);
+                            const auto &items = ref->items();
+                            result = field_index < items.size() ? items[field_index] : TimeSeriesReference::make();
+                        }
+                    }
+                }
+
+                TSOutputView current_child = out_dict[dict_key];
+                const auto *current_ref =
+                    current_child.value().has_value() ? current_child.value().as_atomic().template try_as<TimeSeriesReference>() : nullptr;
+                const bool needs_emit =
+                    !current_child.context_ref().is_bound() || current_ref == nullptr || !(*current_ref == result) || child_modified;
+                if (!needs_emit) { return; }
+
+                if (!current_child.context_ref().is_bound()) {
+                    if (ref_value_type == nullptr) {
+                        throw std::logic_error("tsd_get_bundle_item requires a REF-valued output schema");
+                    }
+                    Value inserted{*ref_value_type, MutationTracking::Plain};
+                    inserted.view().as_atomic().set(result);
+                    map_mutation.set(dict_key, inserted.view());
+                    structural_changed = true;
+                    return;
+                }
+
+                TSOutputView target_child = materialize_dict_child_output(out_dict.view(), dict_key);
+                if (!target_child.context_ref().is_bound() && target_child.context_ref().ts_state == nullptr) {
+                    throw std::logic_error("tsd_get_bundle_item failed to materialize target REF child");
+                }
+                target_child.value().as_atomic().set(result);
+                if (BaseState *state = target_child.context_ref().ts_state;
+                    state != nullptr && state->last_modified_time != out.evaluation_time()) {
+                    state->mark_modified(out.evaluation_time());
+                }
+            };
+
+            if (replay_all_live) {
+                for (const auto &[dict_key, child] : source_root.as_dict().items()) {
+                    emit_child(dict_key, child, true);
+                }
+            } else {
+                for (const auto &[dict_key, child] : source_root.as_dict().modified_items()) {
+                    emit_child(dict_key, child, child.modified());
+                }
+            }
+
+            for (const View &removed_key : source_root.value().as_map().delta().removed_keys()) {
+                structural_changed = map_mutation.remove(removed_key) || structural_changed;
+            }
+
+            if (structural_changed) { mark_output_view_modified(out_dict.view(), out.evaluation_time()); }
+        }
+    };
+
+    struct KeysTsdAsTssNode
+    {
+        KeysTsdAsTssNode() = delete;
+        ~KeysTsdAsTssNode() = delete;
+
+        static constexpr auto name = "keys_tsd_as_tss";
+
+        using K = ScalarVar<"K">;
+        using V = TsVar<"V">;
+
+        static void eval(In<"tsd", REF<TSD<K, V>>, InputValidity::Unchecked> tsd, Out<REF<TSS<K>>> out)
+        {
+            TimeSeriesReference result = TimeSeriesReference::make();
+            bool key_set_modified = false;
+            if (tsd.valid() && tsd.value().is_peered()) {
+                TSOutputView target_view = tsd.value().target_view(out.evaluation_time());
+                const TSMeta *target_schema = target_view.ts_schema();
+                if (target_schema == nullptr || target_schema->kind != TSKind::TSD || target_schema->key_type() == nullptr) {
+                    const TSMeta *input_schema = tsd.view().ts_schema();
+                    const LinkedTSContext *linked_target = tsd.view().linked_target();
+                    const TSViewContext resolved_input = tsd.view().context_ref().resolved();
+                    Node *target_owner = tsd.value().is_peered() ? owner_node_from_linked_context(tsd.value().target()) : nullptr;
+                    TSOutputView linked_target_view{};
+                    const TSMeta *linked_target_view_schema = nullptr;
+                    std::string linked_target_ref = "<unset>";
+                    std::string target_owner_label = "<none>";
+                    std::string target_owner_id = "<none>";
+                    if (linked_target != nullptr && linked_target->is_bound() && linked_target->owning_output != nullptr) {
+                        linked_target_view = TSOutputView{
+                            TSViewContext{TSContext{
+                                linked_target->schema,
+                                linked_target->value_dispatch,
+                                linked_target->ts_dispatch,
+                                linked_target->value_data,
+                                linked_target->ts_state,
+                                linked_target->owning_output,
+                                linked_target->output_view_ops,
+                                linked_target->notification_state != nullptr ? linked_target->notification_state
+                                                                             : linked_target->ts_state,
+                            }},
+                            TSViewContext::none(),
+                            out.evaluation_time(),
+                            linked_target->owning_output,
+                            linked_target->output_view_ops != nullptr ? linked_target->output_view_ops
+                                                                      : &detail::default_output_view_ops(),
+                        };
+                        linked_target_view_schema = linked_target_view.ts_schema();
+                        if (linked_target_view.valid()) {
+                            if (const auto *ref = linked_target_view.value().as_atomic().template try_as<TimeSeriesReference>();
+                                ref != nullptr) {
+                                linked_target_ref = ref->to_string();
+                            }
+                        }
+                    }
+                    if (target_owner != nullptr) {
+                        target_owner_label = std::string{target_owner->runtime_label()};
+                        target_owner_id = fmt::format("{}", fmt::join(target_owner->node_id(), "."));
+                    }
+                    throw std::logic_error(
+                        fmt::format("keys_tsd_as_tss requires a TSD reference target (input_kind={}, target_kind={}, linked_target_kind={}, resolved_input_kind={}, input_ref={}, linked_output_kind={}, linked_output_ref={}, target_owner_label={}, target_owner_id={})",
+                                    input_schema != nullptr ? static_cast<int>(input_schema->kind) : -1,
+                                    target_schema != nullptr ? static_cast<int>(target_schema->kind) : -1,
+                                    linked_target != nullptr && linked_target->schema != nullptr
+                                        ? static_cast<int>(linked_target->schema->kind)
+                                        : -1,
+                                    resolved_input.schema != nullptr ? static_cast<int>(resolved_input.schema->kind) : -1,
+                                    tsd.value().to_string(),
+                                    linked_target_view_schema != nullptr ? static_cast<int>(linked_target_view_schema->kind) : -1,
+                                    linked_target_ref,
+                                    target_owner_label,
+                                    target_owner_id));
+                }
+                TSOutputView key_set_view = target_view.as_dict().key_set().view();
+                key_set_modified = key_set_view.modified();
+                result = TimeSeriesReference::make(key_set_view);
+            }
+
+            const auto *current = out.try_value();
+            if (key_set_modified || tsd.modified() || current == nullptr || !(*current == result)) { out.set(result); }
+        }
+    };
+
+    struct DefaultRefNode
+    {
+        DefaultRefNode() = delete;
+        ~DefaultRefNode() = delete;
+
+        static constexpr auto name = "_default";
+
+        using V = TsVar<"V">;
+
+        static void eval(In<"ts_ref", REF<V>, InputValidity::Unchecked, InputActivity::Passive> ts_ref,
+                         In<"ts", V, InputValidity::Unchecked> ts,
+                         In<"default_value", REF<V>, InputValidity::Unchecked> default_value,
+                         Out<REF<V>> out)
+        {
+            TSInputView ts_ref_view = ts_ref.view();
+            TSInputView ts_view = ts.view();
+            TSInputView default_view = default_value.view();
+            TimeSeriesReference result = TimeSeriesReference::make();
+
+            if (!ts.valid()) {
+                ts_view.make_active();
+                if (default_value.valid()) { result = default_value.value(); }
+            } else {
+                ts_view.make_passive();
+                result = ts_ref.value();
+            }
+
+            if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                bool ts_ref_value_has_value = false;
+                bool ts_ref_target_valid = false;
+                bool ts_ref_target_bound = false;
+                if (ts_ref_view.valid()) {
+                    const View ref_value = ts_ref_view.value();
+                    ts_ref_value_has_value = ref_value.has_value();
+                    if (ref_value.has_value()) {
+                        const auto *ref = try_view_ref(ref_value);
+                        if (ref != nullptr && ref->is_peered()) {
+                            TSOutputView target_view = ref->target_view(out.evaluation_time());
+                            ts_ref_target_bound = target_view.context_ref().is_bound();
+                            ts_ref_target_valid = target_view.valid();
+                        }
+                    }
+                }
+                std::fprintf(stderr,
+                             "default_ref eval when=%lld ts_valid=%d ts_ref_valid=%d ts_ref_kind=%d ts_ref_value=%d ts_ref_target_bound=%d ts_ref_target_valid=%d default_kind=%d result_empty=%d result_peered=%d result_valid=%d\n",
+                             static_cast<long long>(out.evaluation_time().time_since_epoch().count()),
+                             ts.valid(),
+                             ts_ref_view.valid(),
+                             ts_ref_view.ts_schema() != nullptr ? static_cast<int>(ts_ref_view.ts_schema()->kind) : -1,
+                             ts_ref_value_has_value,
+                             ts_ref_target_bound,
+                             ts_ref_target_valid,
+                             default_view.ts_schema() != nullptr ? static_cast<int>(default_view.ts_schema()->kind) : -1,
+                             result.is_empty(),
+                             result.is_peered(),
+                             result.is_valid());
+            }
+
+            const auto *current = out.try_value();
+            if (current == nullptr || !(*current == result)) { out.set(result); }
+        }
+    };
+
+    struct UnionMultipleTssNode
+    {
+        UnionMultipleTssNode() = delete;
+        ~UnionMultipleTssNode() = delete;
+
+        static constexpr auto name = "union_multiple_tss";
+
+        using K = ScalarVar<"KEYABLE_SCALAR">;
+
+        static void eval(In<"tsl", TSL<TSS<K>>, InputValidity::Unchecked> tsl, Out<TSS<K>> out)
+        {
+            auto input_list = tsl.view();
+            std::unordered_set<Value, ValueKeyHash, ValueKeyEqual> desired;
+
+            for (size_t i = 0; i < input_list.size(); ++i) {
+                auto item = input_list[i];
+                if (!item.valid()) { continue; }
+
+                for (const View &value : item.as_set().values()) {
+                    desired.emplace(value.clone());
+                }
+            }
+
+            auto output_view = out.view();
+            auto output_set = output_view.output_view().value().as_set();
+            auto mutable_output = output_view.output_view().as_mutable_set();
+
+            std::vector<Value> to_remove;
+            for (const View &value : output_set.values()) {
+                if (desired.find(value.clone()) == desired.end()) { to_remove.emplace_back(value.clone()); }
+            }
+
+            for (const Value &value : to_remove) { mutable_output.remove(value.view()); }
+
+            for (const Value &value : desired) {
+                if (!output_view.output_view().value().as_set().contains(value.view())) { mutable_output.add(value.view()); }
             }
         }
     };
@@ -989,11 +1412,19 @@ namespace
         return current;
     }
 
-    [[nodiscard]] InputBindingMode infer_nested_input_binding_mode(const TSMeta *source_schema)
+    [[nodiscard]] InputBindingMode infer_nested_input_binding_mode(const TSMeta *source_schema, const TSMeta *child_schema)
     {
-        return source_schema != nullptr && source_schema->kind == TSKind::REF
+        return (source_schema != nullptr && source_schema->kind == TSKind::REF) ||
+                       (child_schema != nullptr && child_schema->kind == TSKind::REF)
                    ? InputBindingMode::CLONE_REF_BINDING
                    : InputBindingMode::BIND_DIRECT;
+    }
+
+    [[nodiscard]] const TSMeta *edge_child_input_schema(const GraphBuilder &graph, const Edge &edge)
+    {
+        if (edge.dst_node < 0 || static_cast<size_t>(edge.dst_node) >= graph.node_builder_count()) { return nullptr; }
+        const TSMeta *child_input_schema = graph.node_builder_at(static_cast<size_t>(edge.dst_node)).input_schema();
+        return child_input_schema != nullptr ? navigate_bound_source_schema(child_input_schema, edge.input_path) : nullptr;
     }
 
     [[nodiscard]] Path output_parent_path_from_stub_input(PathView stub_input_path)
@@ -1263,6 +1694,15 @@ namespace
             if (stub_indices.contains(old_index_i64)) { continue; }
 
             NodeBuilder builder = nested_graph.node_builder_at(old_index);
+            if (std::getenv("HGRAPH_DEBUG_REDUCE_BUILDER") != nullptr) {
+                std::fprintf(stderr,
+                             "reduce_builder clean node old=%lld new=%lld impl=%s output_kind=%d input_kind=%d\n",
+                             static_cast<long long>(old_index_i64),
+                             static_cast<long long>(new_index),
+                             builder.implementation_name().c_str(),
+                             builder.output_schema() != nullptr ? static_cast<int>(builder.output_schema()->kind) : -1,
+                             builder.input_schema() != nullptr ? static_cast<int>(builder.input_schema()->kind) : -1);
+            }
             builder.public_node_index(old_index_i64);
             clean_builders.push_back(std::move(builder));
             old_to_new.emplace(old_index_i64, new_index++);
@@ -1289,9 +1729,10 @@ namespace
             for (const auto &edge : nested_graph.edges()) {
                 if (edge.src_node == stub_idx && old_to_new.contains(edge.dst_node)) {
                     const TSMeta *source_schema = navigate_bound_source_schema(arg_schema, edge.output_path);
+                    const TSMeta *child_schema = edge_child_input_schema(nested_graph, edge);
                     plan.inputs.push_back(InputBindingSpec{
                         .arg_name         = arg_name,
-                        .mode             = infer_nested_input_binding_mode(source_schema),
+                        .mode             = infer_nested_input_binding_mode(source_schema, child_schema),
                         .child_node_index = old_to_new.at(edge.dst_node),
                         .parent_input_path = edge.output_path,
                         .child_input_path = edge.input_path,
@@ -1435,6 +1876,15 @@ namespace
             if (stub_indices.contains(old_index_i64)) { continue; }
 
             NodeBuilder builder = nested_graph.node_builder_at(old_index);
+            if (std::getenv("HGRAPH_DEBUG_REDUCE_BUILDER") != nullptr) {
+                std::fprintf(stderr,
+                             "reduce_builder clean node old=%lld new=%lld impl=%s output_kind=%d input_kind=%d\n",
+                             static_cast<long long>(old_index_i64),
+                             static_cast<long long>(new_index),
+                             builder.implementation_name().c_str(),
+                             builder.output_schema() != nullptr ? static_cast<int>(builder.output_schema()->kind) : -1,
+                             builder.input_schema() != nullptr ? static_cast<int>(builder.input_schema()->kind) : -1);
+            }
             builder.public_node_index(old_index_i64);
             clean_builders.push_back(std::move(builder));
             old_to_new.emplace(old_index_i64, new_index++);
@@ -1461,10 +1911,11 @@ namespace
                 if (edge.src_node != stub_idx || !old_to_new.contains(edge.dst_node)) { continue; }
 
                 const TSMeta *source_schema = is_key_input ? nullptr : navigate_bound_source_schema(arg_schema, edge.output_path);
+                const TSMeta *child_schema = edge_child_input_schema(nested_graph, edge);
                 const InputBindingMode mode =
                     is_key_input ? InputBindingMode::BIND_KEY_VALUE
                                  : (multiplexed_args.contains(arg_name) ? InputBindingMode::BIND_MULTIPLEXED_ELEMENT
-                                                                       : infer_nested_input_binding_mode(source_schema));
+                                                                       : infer_nested_input_binding_mode(source_schema, child_schema));
 
                 plan.inputs.push_back(InputBindingSpec{
                     .arg_name = arg_name,
@@ -1482,6 +1933,23 @@ namespace
                 if (edge.dst_node != output_node_id) { continue; }
 
                 if (old_to_new.contains(edge.src_node)) {
+                    if (std::getenv("HGRAPH_DEBUG_REDUCE_BUILDER") != nullptr) {
+                        const auto &source_builder = nested_graph.node_builder_at(static_cast<size_t>(edge.src_node));
+                        std::fprintf(stderr,
+                                     "reduce_builder output edge src=%lld dst=%lld impl=%s src_output_kind=%d output_path=[",
+                                     static_cast<long long>(edge.src_node),
+                                     static_cast<long long>(edge.dst_node),
+                                     source_builder.implementation_name().c_str(),
+                                     source_builder.output_schema() != nullptr ? static_cast<int>(source_builder.output_schema()->kind) : -1);
+                        for (size_t i = 0; i < edge.output_path.size(); ++i) {
+                            std::fprintf(stderr, "%s%lld", i == 0 ? "" : ",", static_cast<long long>(edge.output_path[i]));
+                        }
+                        std::fprintf(stderr, "] input_path=[");
+                        for (size_t i = 0; i < edge.input_path.size(); ++i) {
+                            std::fprintf(stderr, "%s%lld", i == 0 ? "" : ",", static_cast<long long>(edge.input_path[i]));
+                        }
+                        std::fprintf(stderr, "]\n");
+                    }
                     plan.outputs.push_back(OutputBindingSpec{
                         .mode = OutputBindingMode::ALIAS_CHILD_OUTPUT,
                         .child_node_index = old_to_new.at(edge.src_node),
@@ -1563,6 +2031,225 @@ namespace
         return builder;
     }
 
+    [[nodiscard]] NodeBuilder make_reduce_node_builder(nb::object signature,
+                                                       nb::handle scalars,
+                                                       nb::object input_builder,
+                                                       nb::object output_builder,
+                                                       nb::object error_builder,
+                                                       const GraphBuilder &nested_graph,
+                                                       nb::object input_node_ids_obj,
+                                                       nb::object output_node_id_obj,
+                                                       bool associative)
+    {
+        const nb::sequence input_node_ids = nb::cast<nb::sequence>(input_node_ids_obj);
+        if (nb::len(input_node_ids) != 2) {
+            throw std::invalid_argument("reduce requires exactly two child input stubs");
+        }
+
+        int64_t output_node_id = -1;
+        if (output_node_id_obj.is_valid() && !output_node_id_obj.is_none()) {
+            output_node_id = nb::cast<int64_t>(output_node_id_obj);
+        }
+
+        const int64_t lhs_stub_idx = nb::cast<int64_t>(nb::borrow(input_node_ids[0]));
+        const int64_t rhs_stub_idx = nb::cast<int64_t>(nb::borrow(input_node_ids[1]));
+
+        std::unordered_set<int64_t> stub_indices{lhs_stub_idx, rhs_stub_idx};
+        if (output_node_id >= 0) { stub_indices.insert(output_node_id); }
+
+        std::unordered_map<int64_t, int64_t> old_to_new;
+        std::vector<NodeBuilder> clean_builders;
+        clean_builders.reserve(nested_graph.node_builder_count());
+
+        int64_t new_index = 0;
+        for (size_t old_index = 0; old_index < nested_graph.node_builder_count(); ++old_index) {
+            const int64_t old_index_i64 = static_cast<int64_t>(old_index);
+            if (stub_indices.contains(old_index_i64)) { continue; }
+
+            NodeBuilder builder = nested_graph.node_builder_at(old_index);
+            builder.public_node_index(old_index_i64);
+            clean_builders.push_back(std::move(builder));
+            old_to_new.emplace(old_index_i64, new_index++);
+        }
+
+        std::vector<Edge> clean_edges;
+        clean_edges.reserve(nested_graph.edges().size());
+        for (const auto &edge : nested_graph.edges()) {
+            if (stub_indices.contains(edge.src_node) || stub_indices.contains(edge.dst_node)) { continue; }
+            clean_edges.emplace_back(old_to_new.at(edge.src_node), edge.output_path, old_to_new.at(edge.dst_node), edge.input_path);
+        }
+
+        const TSMeta *lhs_arg_schema = input_schema_for_arg(signature, "ts");
+        const TSMeta *rhs_arg_schema = input_schema_for_arg(signature, "zero");
+
+        BoundaryBindingPlan plan;
+        for (const auto &edge : nested_graph.edges()) {
+            if (edge.src_node == lhs_stub_idx && old_to_new.contains(edge.dst_node)) {
+                if (std::getenv("HGRAPH_DEBUG_REDUCE_BUILDER") != nullptr) {
+                    const auto &child_builder = nested_graph.node_builder_at(static_cast<size_t>(edge.dst_node));
+                    std::fprintf(stderr,
+                                 "reduce_builder input edge arg=lhs src=%lld dst=%lld child_impl=%s output_path=[",
+                                 static_cast<long long>(edge.src_node),
+                                 static_cast<long long>(edge.dst_node),
+                                 child_builder.implementation_name().c_str());
+                    for (size_t i = 0; i < edge.output_path.size(); ++i) {
+                        std::fprintf(stderr, "%s%lld", i == 0 ? "" : ",", static_cast<long long>(edge.output_path[i]));
+                    }
+                    std::fprintf(stderr, "] input_path=[");
+                    for (size_t i = 0; i < edge.input_path.size(); ++i) {
+                        std::fprintf(stderr, "%s%lld", i == 0 ? "" : ",", static_cast<long long>(edge.input_path[i]));
+                    }
+                    std::fprintf(stderr, "]\n");
+                }
+                const TSMeta *source_schema = navigate_bound_source_schema(lhs_arg_schema, edge.output_path);
+                const TSMeta *child_schema = edge_child_input_schema(nested_graph, edge);
+                plan.inputs.push_back(InputBindingSpec{
+                    .arg_name = "lhs",
+                    .mode = infer_nested_input_binding_mode(source_schema, child_schema),
+                    .child_node_index = old_to_new.at(edge.dst_node),
+                    .parent_input_path = edge.output_path,
+                    .child_input_path = edge.input_path,
+                    .ts_schema = source_schema,
+                });
+            } else if (edge.src_node == rhs_stub_idx && old_to_new.contains(edge.dst_node)) {
+                if (std::getenv("HGRAPH_DEBUG_REDUCE_BUILDER") != nullptr) {
+                    const auto &child_builder = nested_graph.node_builder_at(static_cast<size_t>(edge.dst_node));
+                    std::fprintf(stderr,
+                                 "reduce_builder input edge arg=rhs src=%lld dst=%lld child_impl=%s output_path=[",
+                                 static_cast<long long>(edge.src_node),
+                                 static_cast<long long>(edge.dst_node),
+                                 child_builder.implementation_name().c_str());
+                    for (size_t i = 0; i < edge.output_path.size(); ++i) {
+                        std::fprintf(stderr, "%s%lld", i == 0 ? "" : ",", static_cast<long long>(edge.output_path[i]));
+                    }
+                    std::fprintf(stderr, "] input_path=[");
+                    for (size_t i = 0; i < edge.input_path.size(); ++i) {
+                        std::fprintf(stderr, "%s%lld", i == 0 ? "" : ",", static_cast<long long>(edge.input_path[i]));
+                    }
+                    std::fprintf(stderr, "]\n");
+                }
+                const TSMeta *source_schema = navigate_bound_source_schema(rhs_arg_schema, edge.output_path);
+                const TSMeta *child_schema = edge_child_input_schema(nested_graph, edge);
+                plan.inputs.push_back(InputBindingSpec{
+                    .arg_name = "rhs",
+                    .mode = infer_nested_input_binding_mode(source_schema, child_schema),
+                    .child_node_index = old_to_new.at(edge.dst_node),
+                    .parent_input_path = edge.output_path,
+                    .child_input_path = edge.input_path,
+                    .ts_schema = source_schema,
+                });
+            }
+        }
+
+        if (output_node_id >= 0) {
+            for (const auto &edge : nested_graph.edges()) {
+                if (edge.dst_node != output_node_id) { continue; }
+
+                if (old_to_new.contains(edge.src_node)) {
+                    if (std::getenv("HGRAPH_DEBUG_REDUCE_BUILDER") != nullptr) {
+                        const auto &source_builder = nested_graph.node_builder_at(static_cast<size_t>(edge.src_node));
+                        std::fprintf(stderr,
+                                     "reduce_builder output edge src=%lld dst=%lld impl=%s src_output_kind=%d output_path=[",
+                                     static_cast<long long>(edge.src_node),
+                                     static_cast<long long>(edge.dst_node),
+                                     source_builder.implementation_name().c_str(),
+                                     source_builder.output_schema() != nullptr ? static_cast<int>(source_builder.output_schema()->kind) : -1);
+                        for (size_t i = 0; i < edge.output_path.size(); ++i) {
+                            std::fprintf(stderr, "%s%lld", i == 0 ? "" : ",", static_cast<long long>(edge.output_path[i]));
+                        }
+                        std::fprintf(stderr, "] input_path=[");
+                        for (size_t i = 0; i < edge.input_path.size(); ++i) {
+                            std::fprintf(stderr, "%s%lld", i == 0 ? "" : ",", static_cast<long long>(edge.input_path[i]));
+                        }
+                        std::fprintf(stderr, "]\n");
+                    }
+                    plan.outputs.push_back(OutputBindingSpec{
+                        .mode = OutputBindingMode::ALIAS_CHILD_OUTPUT,
+                        .child_node_index = old_to_new.at(edge.src_node),
+                        .child_output_path = edge.output_path,
+                        .parent_output_path = output_parent_path_from_stub_input(edge.input_path),
+                    });
+                } else if (edge.src_node == lhs_stub_idx) {
+                    if (std::getenv("HGRAPH_DEBUG_REDUCE_BUILDER") != nullptr) {
+                        std::fprintf(stderr,
+                                     "reduce_builder output edge from lhs stub output_path_size=%zu input_path_size=%zu\n",
+                                     edge.output_path.size(),
+                                     edge.input_path.size());
+                    }
+                    plan.outputs.push_back(OutputBindingSpec{
+                        .mode = OutputBindingMode::ALIAS_PARENT_INPUT,
+                        .parent_arg_name = "lhs",
+                        .child_node_index = -1,
+                        .child_output_path = edge.output_path,
+                        .parent_output_path = output_parent_path_from_stub_input(edge.input_path),
+                    });
+                } else if (edge.src_node == rhs_stub_idx) {
+                    if (std::getenv("HGRAPH_DEBUG_REDUCE_BUILDER") != nullptr) {
+                        std::fprintf(stderr,
+                                     "reduce_builder output edge from rhs stub output_path_size=%zu input_path_size=%zu\n",
+                                     edge.output_path.size(),
+                                     edge.input_path.size());
+                    }
+                    plan.outputs.push_back(OutputBindingSpec{
+                        .mode = OutputBindingMode::ALIAS_PARENT_INPUT,
+                        .parent_arg_name = "rhs",
+                        .child_node_index = -1,
+                        .child_output_path = edge.output_path,
+                        .parent_output_path = output_parent_path_from_stub_input(edge.input_path),
+                    });
+                }
+            }
+        }
+
+        const auto *tmpl = ChildGraphTemplate::create(
+            GraphBuilder{std::move(clean_builders), std::move(clean_edges)},
+            std::move(plan),
+            nb::cast<std::string>(signature.attr("name")),
+            ChildGraphTemplateFlags{.has_output = output_node_id >= 0});
+
+        nb::object unwrapped_signature = unwrap_nested_signature(signature);
+
+        nb::object unwrapped_input_builder = std::move(input_builder);
+        nb::object unwrapped_output_builder = std::move(output_builder);
+        nb::object unwrapped_error_builder = std::move(error_builder);
+
+        try {
+            nb::object create_builders =
+                nb::module_::import_("hgraph._wiring._wiring_node_class._wiring_node_class").attr("create_input_output_builders");
+            nb::tuple builders = nb::cast<nb::tuple>(create_builders(unwrapped_signature, nb::none()));
+            unwrapped_input_builder = nb::borrow(builders[0]);
+            unwrapped_output_builder = nb::borrow(builders[1]);
+            unwrapped_error_builder = nb::borrow(builders[2]);
+        } catch (const nb::python_error &) {}
+
+        const TSMeta *input_schema = input_schema_from_node_signature(unwrapped_signature);
+        const TSMeta *output_schema = TSTypeRegistry::instance().dereference(output_schema_from_node_signature(signature));
+        const TSMeta *error_output_schema = error_output_schema_from_node_signature(unwrapped_signature);
+
+        NodeBuilder builder;
+        builder.node_type(hgraph::NodeTypeEnum::COMPUTE_NODE)
+            .python_signature(nb::borrow(unwrapped_signature))
+            .python_scalars(dict_or_empty(nb::borrow(scalars)))
+            .python_input_builder(std::move(unwrapped_input_builder))
+            .python_output_builder(std::move(unwrapped_output_builder))
+            .python_error_builder(std::move(unwrapped_error_builder))
+            .implementation_name(nb::cast<std::string>(signature.attr("name")))
+            .requires_resolved_schemas(true);
+
+        if (input_schema != nullptr) { builder.input_schema(input_schema); }
+        if (output_schema != nullptr) { builder.output_schema(output_schema); }
+        if (error_output_schema != nullptr) { builder.error_output_schema(error_output_schema); }
+        apply_selector_policies(builder, unwrapped_signature, input_schema);
+        builder.set_valid_inputs({});
+        builder.set_all_valid_inputs({});
+        if (associative) {
+            hgraph::reduce_graph_implementation(builder, tmpl);
+        } else {
+            hgraph::non_associative_reduce_graph_implementation(builder, tmpl);
+        }
+        return builder;
+    }
+
     [[nodiscard]] NodeBuilder make_switch_node_builder(nb::object signature,
                                                        nb::handle scalars,
                                                        nb::object input_builder,
@@ -1637,9 +2324,10 @@ namespace
                     if (edge.src_node != stub_idx || !old_to_new.contains(edge.dst_node)) { continue; }
 
                     const TSMeta *source_schema = navigate_bound_source_schema(arg_schema, edge.output_path);
+                    const TSMeta *child_schema = edge_child_input_schema(nested_graph, edge);
                     plan.inputs.push_back(InputBindingSpec{
                         .arg_name = arg_name,
-                        .mode = infer_nested_input_binding_mode(source_schema),
+                        .mode = infer_nested_input_binding_mode(source_schema, child_schema),
                         .child_node_index = old_to_new.at(edge.dst_node),
                         .parent_input_path = edge.output_path,
                         .child_input_path = edge.input_path,
@@ -2095,6 +2783,18 @@ void export_nodes(nb::module_ &m) {
         "multiplexed_args"_a = nb::none(),
         "key_arg"_a = nb::none());
     m.def(
+        "build_reduce_node",
+        &make_reduce_node_builder,
+        "signature"_a,
+        "scalars"_a,
+        "input_builder"_a = nb::none(),
+        "output_builder"_a = nb::none(),
+        "error_builder"_a = nb::none(),
+        "nested_graph"_a,
+        "input_node_ids"_a,
+        "output_node_id"_a = nb::none(),
+        "associative"_a = true);
+    m.def(
         "build_switch_node",
         &make_switch_node_builder,
         "signature"_a,
@@ -2149,6 +2849,23 @@ void export_nodes(nb::module_ &m) {
         "tsd_get_items",
         "tsd_get_items",
         hgraph::StaticNodeSignature<TsdGetItemsNode>::wiring_signature("tsd_get_items"));
+    hgraph::export_compute_node_from_python_impl<TsdGetBundleItemNode>(
+        m, "hgraph._impl._operators._tsd_operators", "tsd_get_bundle_item", "tsd_get_bundle_item");
+    hgraph::export_compute_node_from_python_impl<KeysTsdAsTssNode>(
+        m,
+        "hgraph._impl._operators._tsd_operators",
+        "keys_tsd_as_tss",
+        "keys_tsd_as_tss");
+    hgraph::export_compute_node_from_python_impl<DefaultRefNode>(
+        m,
+        "hgraph._impl._operators._graph_operators",
+        "_default",
+        "_default");
+    hgraph::export_compute_node_from_python_impl<UnionMultipleTssNode>(
+        m,
+        "hgraph._impl._operators._tss_operators",
+        "union_multiple_tss",
+        "union_multiple_tss");
     hgraph::export_compute_node_from_python_impl<hgraph::nodes::ConstNode>(
         m, "hgraph._impl._operators._time_series_conversion", "const_default", "const");
     hgraph::export_compute_node_from_python_impl<hgraph::nodes::NothingNode>(

@@ -9,11 +9,14 @@
 #include <hgraph/types/ref.h>
 
 #include <algorithm>
+#include <cstdlib>
+#include <cstdio>
 #include <type_traits>
 
 namespace hgraph
 {
     TimeSeriesFeatureRegistry::~TimeSeriesFeatureRegistry() = default;
+    void TimeSeriesFeatureRegistry::rebind_link_source(const LinkedTSContext *, engine_time_t) {}
 
     namespace
     {
@@ -58,17 +61,6 @@ namespace hgraph
             return slot;
         }
 
-        [[nodiscard]] TSOutputView output_view_from_target(const LinkedTSContext &target) noexcept
-        {
-            return TSOutputView{
-                TSViewContext{target.schema, target.value_dispatch, target.ts_dispatch, target.value_data, target.ts_state},
-                TSViewContext::none(),
-                target.ts_state != nullptr ? target.ts_state->last_modified_time : MIN_DT,
-                target.owning_output,
-                target.output_view_ops != nullptr ? target.output_view_ops : &detail::default_output_view_ops(),
-            };
-        }
-
         [[nodiscard]] TSViewContext view_context_from_target(const LinkedTSContext &target) noexcept
         {
             return TSViewContext{TSContext{
@@ -80,13 +72,28 @@ namespace hgraph
                 target.owning_output,
                 target.output_view_ops,
                 target.notification_state,
+                target.pending_dict_child,
             }};
+        }
+
+        [[nodiscard]] TSOutputView output_view_from_target(const LinkedTSContext &target) noexcept
+        {
+            return TSOutputView{
+                view_context_from_target(target),
+                TSViewContext::none(),
+                target.notification_state != nullptr
+                    ? target.notification_state->last_modified_time
+                    : (target.ts_state != nullptr ? target.ts_state->last_modified_time : MIN_DT),
+                target.owning_output,
+                target.output_view_ops != nullptr ? target.output_view_ops : &detail::default_output_view_ops(),
+            };
         }
 
         [[nodiscard]] TSViewContext context_from_root_state(const TSViewContext &context) noexcept
         {
             BaseState *state = context.ts_state;
             if (state == nullptr) { return context; }
+            if (state->parent && state->parent.tag() >= TimeSeriesStateParentPtr::alternative_count) { return context; }
             bool is_root_output_state = false;
             hgraph::visit(state->parent, [&](TSOutput *) { is_root_output_state = true; }, [] {});
             if (state->linked_target() != nullptr && state->index == 0 && is_root_output_state) {
@@ -159,7 +166,8 @@ namespace hgraph
                     case RootNodePort::RecordableState: current = node->recordable_state_view(MIN_DT).context_ref(); break;
                 }
             } else if (root_output != nullptr) {
-                current = const_cast<TSOutput *>(root_output)->view(MIN_DT).context_ref();
+                TSOutput *output_root = const_cast<TSOutput *>(root_output);
+                current = output_root->view(MIN_DT).context_ref();
             } else if (root_input != nullptr) {
                 current = const_cast<TSInput *>(root_input)->view(nullptr, MIN_DT).context_ref();
             } else {
@@ -189,6 +197,7 @@ namespace hgraph
             refreshed.output_view_ops = current.output_view_ops != nullptr ? current.output_view_ops : refreshed.output_view_ops;
             refreshed.notification_state =
                 current.notification_state != nullptr ? current.notification_state : refreshed.notification_state;
+            refreshed.pending_dict_child = current.pending_dict_child;
             return refreshed;
         }
 
@@ -286,24 +295,77 @@ namespace hgraph
             if (state != nullptr) { std::forward<TFn>(fn)(state); }
         }
 
-        [[nodiscard]] LinkedTSContext dereferenced_target_from_source(const LinkedTSContext &source) noexcept
-        {
-            if (!source.is_bound() || source.schema == nullptr || source.schema->kind != TSKind::REF || source.value_dispatch == nullptr ||
-                source.value_data == nullptr) {
-                return LinkedTSContext::none();
-            }
+    } // namespace
 
-            const auto view = View{source.value_dispatch, source.value_data, source.schema->value_type}.as_atomic();
-            const auto *value = view.try_as<hgraph::TimeSeriesReference>();
-            return value != nullptr && value->is_peered() ? value->target() : LinkedTSContext::none();
+    namespace
+    {
+        [[nodiscard]] LinkedTSContext anchored_dereferenced_context(const LinkedTSContext &source,
+                                                                    const LinkedTSContext &target) noexcept
+        {
+            return LinkedTSContext{
+                target.schema,
+                target.value_dispatch,
+                target.ts_dispatch,
+                target.value_data,
+                target.ts_state,
+                source.owning_output != nullptr ? source.owning_output : target.owning_output,
+                source.output_view_ops != nullptr ? source.output_view_ops : target.output_view_ops,
+                source.notification_state != nullptr
+                    ? source.notification_state
+                    : (target.notification_state != nullptr ? target.notification_state : target.ts_state),
+                source.pending_dict_child.active() ? source.pending_dict_child : target.pending_dict_child,
+            };
+        }
+    }
+
+    LinkedTSContext detail::dereferenced_target_from_source(const LinkedTSContext &source) noexcept
+    {
+        if (!source.is_bound() || source.schema == nullptr || source.schema->kind != TSKind::REF) {
+            return LinkedTSContext::none();
         }
 
+        if (source.value_dispatch == nullptr || source.value_data == nullptr || source.schema->value_type == nullptr) {
+            if (source.ts_state != nullptr) {
+                if (const LinkedTSContext *target = source.ts_state->linked_target();
+                    target != nullptr && target->is_bound() && (target->schema == nullptr || target->schema->kind != TSKind::REF)) {
+                    return anchored_dereferenced_context(source, *target);
+                }
+            }
+            return LinkedTSContext::none();
+        }
+
+        const View source_value{source.value_dispatch, source.value_data, source.schema->value_type};
+        if (!source_value.has_value()) { return LinkedTSContext::none(); }
+
+        const auto *value = source_value.as_atomic().try_as<hgraph::TimeSeriesReference>();
+        if (value != nullptr && value->is_peered()) { return anchored_dereferenced_context(source, value->target()); }
+
+        if (source.ts_state != nullptr) {
+            if (const LinkedTSContext *target = source.ts_state->linked_target();
+                target != nullptr && target->is_bound() && (target->schema == nullptr || target->schema->kind != TSKind::REF)) {
+                return anchored_dereferenced_context(source, *target);
+            }
+        }
+        return LinkedTSContext::none();
+    }
+
+    namespace
+    {
         [[nodiscard]] bool linked_context_equal_impl(const LinkedTSContext &lhs, const LinkedTSContext &rhs) noexcept
         {
             return lhs.schema == rhs.schema && lhs.value_dispatch == rhs.value_dispatch && lhs.ts_dispatch == rhs.ts_dispatch &&
                    lhs.value_data == rhs.value_data && lhs.ts_state == rhs.ts_state &&
                    lhs.notification_state == rhs.notification_state &&
-                   lhs.owning_output == rhs.owning_output && lhs.output_view_ops == rhs.output_view_ops;
+                   lhs.owning_output == rhs.owning_output && lhs.output_view_ops == rhs.output_view_ops &&
+                   lhs.pending_dict_child.parent_schema == rhs.pending_dict_child.parent_schema &&
+                   lhs.pending_dict_child.parent_value_dispatch == rhs.pending_dict_child.parent_value_dispatch &&
+                   lhs.pending_dict_child.parent_ts_dispatch == rhs.pending_dict_child.parent_ts_dispatch &&
+                   lhs.pending_dict_child.parent_value_data == rhs.pending_dict_child.parent_value_data &&
+                   lhs.pending_dict_child.parent_ts_state == rhs.pending_dict_child.parent_ts_state &&
+                   lhs.pending_dict_child.parent_owning_output == rhs.pending_dict_child.parent_owning_output &&
+                   lhs.pending_dict_child.parent_output_view_ops == rhs.pending_dict_child.parent_output_view_ops &&
+                   lhs.pending_dict_child.parent_notification_state == rhs.pending_dict_child.parent_notification_state &&
+                   lhs.pending_dict_child.key.equals(rhs.pending_dict_child.key);
         }
 
         [[nodiscard]] bool retains_previous_target_value(const LinkedTSContext &target) noexcept
@@ -319,7 +381,7 @@ namespace hgraph
             }
 
             View current{target.value_dispatch, target.value_data, target.schema->value_type};
-            Value snapshot = current.clone(MutationTracking::Delta);
+            Value snapshot = current.clone(target.schema->kind == TSKind::TSD ? MutationTracking::Plain : MutationTracking::Delta);
 
             if (target.schema->kind == TSKind::TSS) {
                 auto current_set = current.as_set();
@@ -351,7 +413,86 @@ namespace hgraph
                 snapshot_set.clear_delta_tracking();
             }
 
+            if (target.schema->kind == TSKind::TSD) {
+                auto current_map = current.as_map();
+                BaseState *target_state = target.notification_state != nullptr ? target.notification_state : target.ts_state;
+                if (modified_time == MIN_DT || target_state == nullptr || target_state->last_modified_time != modified_time) {
+                    return snapshot;
+                }
+
+                const auto current_delta = current_map.delta();
+                bool has_delta = false;
+                for (size_t slot = 0; slot < current_delta.slot_capacity(); ++slot) {
+                    if (!current_delta.slot_occupied(slot)) { continue; }
+                    if (current_delta.slot_added(slot) || current_delta.slot_removed(slot) || current_delta.slot_updated(slot)) {
+                        has_delta = true;
+                        break;
+                    }
+                }
+                if (!has_delta) { return snapshot; }
+
+                auto snapshot_map = snapshot.view().as_map();
+                auto mutation = snapshot_map.begin_mutation(modified_time != MIN_DT ? modified_time : MIN_ST);
+
+                for (size_t slot = 0; slot < current_delta.slot_capacity(); ++slot) {
+                    if (!current_delta.slot_occupied(slot)) { continue; }
+
+                    const View key = current_delta.key_at_slot(slot);
+                    if (current_delta.slot_added(slot) && !current_delta.slot_removed(slot)) {
+                        static_cast<void>(mutation.remove(key));
+                    } else if (current_delta.slot_removed(slot)) {
+                        mutation.set(key, current_delta.value_at_slot(slot));
+                    }
+                }
+
+                snapshot_map.clear_delta_tracking();
+            }
+
             return snapshot;
+        }
+
+        [[nodiscard]] Value empty_target_value_impl(const LinkedTSContext &target)
+        {
+            if (!retains_previous_target_value(target) || !target.is_bound() || target.value_dispatch == nullptr ||
+                target.value_data == nullptr) {
+                return {};
+            }
+
+            View current{target.value_dispatch, target.value_data, target.schema->value_type};
+            if (!current.has_value()) { return {}; }
+
+            Value snapshot = current.clone(target.schema->kind == TSKind::TSD ? MutationTracking::Plain : MutationTracking::Delta);
+
+            switch (target.schema->kind) {
+                case TSKind::TSS:
+                    {
+                        const auto current_delta = current.as_set().delta();
+                        auto set = snapshot.view().as_set();
+                        auto mutation = set.begin_mutation(MIN_ST);
+                        for (size_t slot = 0; slot < current_delta.slot_capacity(); ++slot) {
+                            if (!current_delta.slot_occupied(slot) || current_delta.slot_removed(slot)) { continue; }
+                            static_cast<void>(mutation.remove(current_delta.at_slot(slot)));
+                        }
+                        set.clear_delta_tracking();
+                        return snapshot;
+                    }
+
+                case TSKind::TSD:
+                    {
+                        const auto current_delta = current.as_map().delta();
+                        auto map = snapshot.view().as_map();
+                        auto mutation = map.begin_mutation(MIN_ST);
+                        for (size_t slot = 0; slot < current_delta.slot_capacity(); ++slot) {
+                            if (!current_delta.slot_occupied(slot) || current_delta.slot_removed(slot)) { continue; }
+                            static_cast<void>(mutation.remove(current_delta.key_at_slot(slot)));
+                        }
+                        map.clear_delta_tracking();
+                        return snapshot;
+                    }
+
+                default:
+                    return {};
+            }
         }
 
         void replay_attachment_subtree(const LinkedTSContext &context,
@@ -398,8 +539,10 @@ namespace hgraph
 
     detail::LinkTransitionSnapshot detail::transition_snapshot(const TSViewContext &context) noexcept
     {
-        const BaseState *state = context.ts_state;
+        const BaseState *state = context.notification_state != nullptr ? context.notification_state : context.ts_state;
+        size_t steps = 0;
         while (state != nullptr) {
+            if (++steps > 256) { return {}; }
             switch (state->storage_kind) {
                 case TSStorageKind::OutputLink:
                     {
@@ -425,10 +568,6 @@ namespace hgraph
 
                 case TSStorageKind::RefLink:
                     {
-                        const auto &link = *static_cast<const RefLinkState *>(state);
-                        if (link.switch_modified_time != MIN_DT && link.previous_target_value.has_value()) {
-                            return {&link.previous_target_value, link.switch_modified_time};
-                        }
                         state = nullptr;
                         break;
                     }
@@ -444,12 +583,34 @@ namespace hgraph
 
     TSViewContext detail::refresh_native_context(const TSViewContext &context) noexcept
     {
+        if (context.ts_state == nullptr && context.output_view_ops != nullptr && context.owning_output != nullptr) {
+            LinkedTSContext current{
+                context.schema,
+                context.value_dispatch,
+                context.ts_dispatch,
+                context.value_data,
+                context.ts_state,
+                context.owning_output,
+                context.output_view_ops,
+                context.notification_state,
+                context.pending_dict_child,
+            };
+
+            LinkedTSContext refreshed = output_view_from_target(current).linked_context();
+            if (!linked_context_equal_impl(current, refreshed)) { return view_context_from_target(refreshed); }
+        }
+
         return context_from_root_state(context);
     }
 
     Value detail::snapshot_target_value(const LinkedTSContext &target, engine_time_t modified_time)
     {
         return snapshot_target_value_impl(target, modified_time);
+    }
+
+    Value detail::empty_target_value(const LinkedTSContext &target)
+    {
+        return empty_target_value_impl(target);
     }
 
     void BaseState::subscribe(Notifiable *subscriber) noexcept {
@@ -562,7 +723,8 @@ namespace hgraph
 
     bool detail::linked_context_valid(const LinkedTSContext &context) noexcept
     {
-        if (!context.is_bound() || context.ts_dispatch == nullptr) { return false; }
+        if (context.schema == nullptr || context.value_dispatch == nullptr || context.ts_dispatch == nullptr) { return false; }
+        if (context.ts_state == nullptr && context.notification_state == nullptr && context.output_view_ops == nullptr) { return false; }
 
         const TSViewContext target_context = view_context_from_target(context);
         return target_context.ts_dispatch != nullptr && target_context.ts_dispatch->valid(target_context);
@@ -570,7 +732,8 @@ namespace hgraph
 
     bool detail::linked_context_all_valid(const LinkedTSContext &context) noexcept
     {
-        if (!context.is_bound() || context.ts_dispatch == nullptr) { return false; }
+        if (context.schema == nullptr || context.value_dispatch == nullptr || context.ts_dispatch == nullptr) { return false; }
+        if (context.ts_state == nullptr && context.notification_state == nullptr && context.output_view_ops == nullptr) { return false; }
 
         const TSViewContext target_context = view_context_from_target(context);
         return target_context.ts_dispatch != nullptr && target_context.ts_dispatch->all_valid(target_context);
@@ -868,7 +1031,7 @@ namespace hgraph
         switch_modified_time = other.switch_modified_time;
         scheduling_notifier.set_target(other.scheduling_notifier.get_target());
 
-        if (other.target.is_bound()) {
+        if (other.target.schema != nullptr || other.target.ts_state != nullptr || other.target.output_view_ops != nullptr) {
             const LinkedTSContext bound_target = other.target;
             other.unregister_from_target();
             target = bound_target;
@@ -897,7 +1060,7 @@ namespace hgraph
         switch_modified_time = other.switch_modified_time;
         scheduling_notifier.set_target(other.scheduling_notifier.get_target());
 
-        if (other.target.is_bound()) {
+        if (other.target.schema != nullptr || other.target.ts_state != nullptr || other.target.output_view_ops != nullptr) {
             const LinkedTSContext bound_target = other.target;
             other.unregister_from_target();
             target = bound_target;
@@ -926,7 +1089,8 @@ namespace hgraph
         return target.is_bound();
     }
     engine_time_t TargetLinkState::last_target_modified_time() const noexcept {
-        return target.ts_state != nullptr ? target.ts_state->last_modified_time : MIN_DT;
+        BaseState *target_state = target.notification_state != nullptr ? target.notification_state : target.ts_state;
+        return target_state != nullptr ? target_state->last_modified_time : MIN_DT;
     }
 
     bool TargetLinkState::is_sampled() const noexcept {
@@ -1135,7 +1299,7 @@ namespace hgraph
         const LinkedTSContext previous_target = bound_link.target;
         replay_boundary_attachments(false);
         unregister_from_target();
-        bound_link.target = dereferenced_target_from_source(source);
+        bound_link.target = detail::dereferenced_target_from_source(source);
         bound_link.last_modified_time = bound_link.target.ts_state != nullptr ? bound_link.target.ts_state->last_modified_time : MIN_DT;
         register_with_target();
         replay_boundary_attachments(true);
@@ -1143,18 +1307,23 @@ namespace hgraph
         if (propagate) {
             const bool target_changed = !linked_context_equal_impl(previous_target, bound_link.target);
 
-            // Restrict sampled REF propagation for now: ordinary Python code
-            // mostly treats refs as opaque handles, so a source-side tick that
-            // resolves to the same target should not manufacture a fresh delta.
             if (target_changed) {
                 previous_target_value =
                     retain_transition_value ? snapshot_target_value_impl(previous_target, modified_time) : Value{};
                 switch_modified_time = previous_target_value.has_value() ? modified_time : MIN_DT;
                 mark_modified(modified_time);
             } else {
+                // A source-side REF tick that still resolves to the same
+                // target is a sampled update. Downstream nodes such as
+                // selector-driven REF views must still observe a modification
+                // this tick even though there is no transition delta.
                 previous_target_value = {};
                 switch_modified_time = MIN_DT;
-                last_modified_time = bound_link.last_modified_time;
+                if (modified_time != MIN_DT) {
+                    mark_modified(modified_time);
+                } else {
+                    last_modified_time = bound_link.last_modified_time;
+                }
             }
         } else {
             // Initial binding should inherit the current target time without

@@ -3,6 +3,9 @@
 #include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/types/value/type_meta_bindings.h>
+
+#include <fmt/format.h>
 
 #include <memory>
 #include <stdexcept>
@@ -15,6 +18,55 @@ namespace hgraph
     {
         namespace
         {
+            [[nodiscard]] const char *safe_type_name(const value::TypeMeta *schema) noexcept
+            {
+                return schema != nullptr && schema->name != nullptr ? schema->name : "?";
+            }
+
+            [[nodiscard]] std::string schema_debug_name(const TSMeta *schema)
+            {
+                if (schema == nullptr) { return "<null>"; }
+
+                switch (schema->kind) {
+                    case TSKind::TSValue: return fmt::format("TS[{}]", safe_type_name(schema->value_type));
+                    case TSKind::TSS:
+                        return fmt::format("TSS[{}]",
+                                           schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                    case TSKind::TSD:
+                        return fmt::format("TSD[{}, {}]",
+                                           safe_type_name(schema->key_type()),
+                                           schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                    case TSKind::TSL:
+                        return fmt::format("TSL[{}, {}]",
+                                           schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?",
+                                           schema->fixed_size());
+                    case TSKind::TSW: return "TSW[...]";
+                    case TSKind::TSB: return fmt::format("TSB[{}]", schema->bundle_name() != nullptr ? schema->bundle_name() : "?");
+                    case TSKind::REF:
+                        return fmt::format("REF[{}]",
+                                           schema->element_ts() != nullptr ? schema_debug_name(schema->element_ts()) : "?");
+                    case TSKind::SIGNAL: return "SIGNAL";
+                }
+                return "<?>";
+            }
+
+            [[nodiscard]] bool requires_bindable_output_cast(const TSMeta *source_schema, const TSMeta *target_schema) noexcept
+            {
+                if (source_schema == nullptr || target_schema == nullptr) { return false; }
+                if (equivalent_ts_schema(source_schema, target_schema)) { return false; }
+                if (!binding_compatible_ts_schema(source_schema, target_schema)) { return false; }
+                if (source_schema->kind != target_schema->kind) { return false; }
+
+                switch (source_schema->kind) {
+                    case TSKind::TSD:
+                    case TSKind::TSL:
+                    case TSKind::TSB:
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+
             [[nodiscard]] RefLinkState *ref_link_boundary(const TSInputView &view) noexcept
             {
                 BaseState *state = view.context_ref().ts_state;
@@ -189,18 +241,24 @@ namespace hgraph
 
                     TSOutputView bindable_output = output;
                     LinkedTSContext output_context = bindable_output.linked_context();
-                    if (output_context.schema != child_schema) {
+                    if (!binding_compatible_ts_schema(output_context.schema, child_schema) ||
+                        requires_bindable_output_cast(output_context.schema, child_schema)) {
                         TSOutput *owning_output = output.owning_output();
                         if (owning_output == nullptr) {
                             throw std::logic_error("TSInputView::bind_output requires an owning output endpoint for casts");
                         }
-
                         bindable_output = owning_output->bindable_view(output, child_schema);
                         output_context = bindable_output.linked_context();
                     }
 
-                    if (output_context.schema != child_schema) {
-                        throw std::invalid_argument("TSInputView::bind_output requires a bindable output matching the selected child schema");
+                    if (!binding_compatible_ts_schema(output_context.schema, child_schema)) {
+                        throw std::invalid_argument(
+                            fmt::format("TSInputView::bind_output requires a bindable output matching the selected child schema: "
+                                        "linked={} source_view={} bindable_view={} target={}",
+                                        schema_debug_name(output_context.schema),
+                                        schema_debug_name(output.ts_schema()),
+                                        schema_debug_name(bindable_output.ts_schema()),
+                                        schema_debug_name(child_schema)));
                     }
 
                     if (parent_is_ref) {
@@ -223,11 +281,20 @@ namespace hgraph
                     const LinkedTSContext previous_target = link_state.target;
                     const engine_time_t evaluation_time = view.evaluation_time();
                     link_state.set_target(output_context);
-                    link_state.last_modified_time = output_context.ts_state != nullptr ? output_context.ts_state->last_modified_time : MIN_DT;
+                    BaseState *output_state =
+                        output_context.notification_state != nullptr ? output_context.notification_state : output_context.ts_state;
+                    link_state.last_modified_time = output_state != nullptr ? output_state->last_modified_time : MIN_DT;
                     if (!detail::linked_context_equal(previous_target, link_state.target)) {
-                        link_state.previous_target_value = detail::snapshot_target_value(previous_target, evaluation_time);
-                        link_state.switch_modified_time =
-                            link_state.previous_target_value.has_value() ? evaluation_time : MIN_DT;
+                        if (evaluation_time != MIN_DT) {
+                            link_state.previous_target_value = previous_target.is_bound()
+                                                                   ? detail::snapshot_target_value(previous_target, evaluation_time)
+                                                                   : detail::empty_target_value(link_state.target);
+                            link_state.switch_modified_time =
+                                link_state.previous_target_value.has_value() ? evaluation_time : MIN_DT;
+                        } else {
+                            link_state.previous_target_value = {};
+                            link_state.switch_modified_time = MIN_DT;
+                        }
                     } else {
                         link_state.previous_target_value = {};
                         link_state.switch_modified_time = MIN_DT;
@@ -236,6 +303,10 @@ namespace hgraph
                     if (evaluation_time != MIN_DT &&
                         !detail::linked_context_equal(previous_target, link_state.target)) {
                         link_state.mark_modified(evaluation_time);
+                    }
+
+                    if (link_state.feature_registry != nullptr) {
+                        link_state.feature_registry->rebind_link_source(&output_context, evaluation_time);
                     }
                 }
 
@@ -248,13 +319,21 @@ namespace hgraph
                     auto &link_state = *static_cast<TargetLinkState *>(state);
                     if (!link_state.is_bound()) { return; }
                     const LinkedTSContext previous_target = link_state.target;
-                    const bool was_valid = view.valid();
-                    link_state.reset_target();
-                    link_state.previous_target_value = detail::snapshot_target_value(previous_target, view.evaluation_time());
-                    link_state.switch_modified_time = link_state.previous_target_value.has_value() ? view.evaluation_time() : MIN_DT;
-                    link_state.last_modified_time = link_state.previous_target_value.has_value() ? view.evaluation_time() : MIN_DT;
-
+                    const bool was_valid = previous_target.is_bound() && detail::linked_context_valid(previous_target);
                     const engine_time_t evaluation_time = view.evaluation_time();
+                    if (evaluation_time != MIN_DT && previous_target.is_bound()) {
+                        link_state.previous_target_value = detail::snapshot_target_value(previous_target, evaluation_time);
+                        link_state.switch_modified_time = link_state.previous_target_value.has_value() ? evaluation_time : MIN_DT;
+                    } else {
+                        link_state.previous_target_value = {};
+                        link_state.switch_modified_time = MIN_DT;
+                    }
+                    link_state.reset_target();
+                    link_state.last_modified_time = was_valid ? evaluation_time : MIN_DT;
+
+                    if (link_state.feature_registry != nullptr) {
+                        link_state.feature_registry->rebind_link_source(nullptr, evaluation_time);
+                    }
                     if (evaluation_time != MIN_DT && was_valid) { link_state.mark_modified(evaluation_time); }
                 }
 
@@ -321,6 +400,17 @@ namespace hgraph
                             // ever produced data. That lets operators such as valid() and
                             // modified() emit their initial False result instead of staying
                             // silent until the first real tick arrives.
+                            view.scheduling_notifier()->notify(view.evaluation_time());
+                            return;
+                        }
+                        if (context.ts_state->last_modified_time != view.evaluation_time() &&
+                            (resolved == nullptr || resolved->last_modified_time != view.evaluation_time()) &&
+                            view.valid()) {
+                            // A newly active input bound to an already-live upstream value
+                            // also needs one activation-time evaluation so the consuming
+                            // node observes the current sample immediately rather than
+                            // waiting for the next upstream tick.
+                            context.ts_state->last_modified_time = view.evaluation_time();
                             view.scheduling_notifier()->notify(view.evaluation_time());
                             return;
                         }

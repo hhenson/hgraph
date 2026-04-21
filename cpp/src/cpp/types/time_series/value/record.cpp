@@ -20,15 +20,20 @@ namespace hgraph
 
     namespace detail
     {
-        [[nodiscard]] MutationTracking record_field_tracking(const value::TypeMeta &schema, MutationTracking tracking) noexcept
+        [[nodiscard]] static MutationTracking nested_value_tracking(const value::TypeMeta &schema,
+                                                                   MutationTracking       tracking) noexcept
         {
             if (tracking != MutationTracking::Delta) { return MutationTracking::Plain; }
 
             switch (schema.kind) {
-                case value::TypeKind::CyclicBuffer:
-                case value::TypeKind::Queue: return MutationTracking::Delta;
-                default: return MutationTracking::Plain;
+                case value::TypeKind::Atomic: return MutationTracking::Plain;
+                default: return MutationTracking::Delta;
             }
+        }
+
+        [[nodiscard]] MutationTracking record_field_tracking(const value::TypeMeta &schema, MutationTracking tracking) noexcept
+        {
+            return nested_value_tracking(schema, tracking);
         }
 
         struct RecordStateHeader

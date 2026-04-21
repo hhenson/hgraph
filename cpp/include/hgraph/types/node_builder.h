@@ -186,6 +186,9 @@ namespace hgraph
                                                      std::string key_arg,
                                                      std::string keys_arg,
                                                      std::vector<std::string> multiplexed_args);
+        friend NodeBuilder &reduce_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
+        friend NodeBuilder &non_associative_reduce_graph_implementation(NodeBuilder &builder,
+                                                                        const ChildGraphTemplate *child_template);
         friend NodeBuilder &switch_graph_implementation(NodeBuilder &builder,
                                                         std::vector<SwitchBranchTemplate> branches,
                                                         bool reload_on_ticked);

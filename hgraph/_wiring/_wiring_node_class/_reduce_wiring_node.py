@@ -27,6 +27,12 @@ class ReduceWiringSignature(WiringNodeSignature):
 class TsdReduceWiringNodeClass(BaseWiringNodeClass):
     signature: ReduceWiringSignature
 
+    def _identity_eq_key(self) -> tuple:
+        return (self.signature.inner_graph,)
+
+    def _identity_hash_key(self) -> tuple:
+        return (id(self.signature.inner_graph),)
+
     def create_node_builder_instance(
         self,
         resolved_wiring_signature: "WiringNodeSignature",
@@ -61,6 +67,12 @@ class TsdReduceWiringNodeClass(BaseWiringNodeClass):
 
 class TsdNonAssociativeReduceWiringNodeClass(BaseWiringNodeClass):
     signature: ReduceWiringSignature
+
+    def _identity_eq_key(self) -> tuple:
+        return (self.signature.inner_graph,)
+
+    def _identity_hash_key(self) -> tuple:
+        return (id(self.signature.inner_graph),)
 
     def create_node_builder_instance(
         self,

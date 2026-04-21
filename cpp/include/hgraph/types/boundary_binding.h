@@ -119,6 +119,18 @@ namespace hgraph
                                engine_time_t eval_time);
 
         /**
+         * Bind a child input directly from an explicit output source.
+         *
+         * Used when nested operators already resolved the upstream source to a
+         * concrete output and still need normal boundary-binding semantics,
+         * especially for CLONE_REF_BINDING.
+         */
+        static void bind_from_output(TSInputView child_input,
+                                     TSOutputView source_output,
+                                     InputBindingMode mode,
+                                     engine_time_t eval_time);
+
+        /**
          * Unbind: detach child inputs and restore inert state.
          * Used when a child graph is being removed.
          */

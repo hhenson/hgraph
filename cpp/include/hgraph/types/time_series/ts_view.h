@@ -237,10 +237,11 @@ namespace hgraph
         {
             TSViewContext resolved_context = *this;
             const auto *state = ts_state;
-            if (state == nullptr) { return resolved_context; }
+            if (state == nullptr) { return detail::refresh_native_context(resolved_context); }
 
             const auto apply_target = [&resolved_context, state](LinkedTSContext target) noexcept {
                 if (!target.is_bound()) {
+                    resolved_context.pending_dict_child = target.pending_dict_child;
                     if (state->storage_kind == TSStorageKind::OutputLink) {
                         resolved_context.schema =
                             target.schema != nullptr ? target.schema : resolved_context.schema;
@@ -272,6 +273,7 @@ namespace hgraph
                             target.value_dispatch != nullptr ? target.value_dispatch : resolved_context.value_dispatch;
                         resolved_context.ts_dispatch = target.ts_dispatch != nullptr ? target.ts_dispatch : resolved_context.ts_dispatch;
                         resolved_context.value_data = nullptr;
+                        resolved_context.pending_dict_child = target.pending_dict_child;
                         return;
                     }
 
@@ -295,6 +297,7 @@ namespace hgraph
                 resolved_context.output_view_ops = target.output_view_ops != nullptr ? target.output_view_ops : resolved_context.output_view_ops;
                 resolved_context.notification_state =
                     target.notification_state != nullptr ? target.notification_state : resolved_context.notification_state;
+                resolved_context.pending_dict_child = target.pending_dict_child;
             };
 
             if (const LinkedTSContext *target = state->linked_target(); target != nullptr) { apply_target(*target); }
@@ -725,14 +728,15 @@ namespace hgraph
 
     inline engine_time_t detail::TSDispatch::last_modified_time(const TSViewContext &context) const noexcept
     {
-        return context.ts_state != nullptr ? context.ts_state->last_modified_time : MIN_DT;
+        BaseState *state = context.notification_state != nullptr ? context.notification_state : context.ts_state;
+        return state != nullptr ? state->last_modified_time : MIN_DT;
     }
 
     inline bool detail::TSDispatch::valid(const TSViewContext &context) const noexcept
     {
         if (context.schema != nullptr && context.schema->kind != TSKind::REF && context.ts_state != nullptr) {
             if (detail::materialized_target_link_value(context) != nullptr) {
-                return last_modified_time(context) != MIN_DT && context.value().has_value();
+                return last_modified_time(context) != MIN_DT;
             }
 
             const auto snapshot = detail::transition_snapshot(context);
@@ -743,7 +747,9 @@ namespace hgraph
             }
         }
 
-        return last_modified_time(context) != MIN_DT && context.value().has_value();
+        const View current_value = context.value();
+        if (!current_value.has_value()) { return false; }
+        return context.ts_state == nullptr || last_modified_time(context) != MIN_DT;
     }
 
     inline bool detail::TSDispatch::all_valid(const TSViewContext &context) const noexcept
@@ -757,6 +763,13 @@ namespace hgraph
         }
 
         return valid(context);
+    }
+
+    inline bool sampled_transition_this_tick(const TSViewContext &context, engine_time_t evaluation_time) noexcept
+    {
+        if (evaluation_time == MIN_DT) { return false; }
+        const auto snapshot = detail::transition_snapshot(context);
+        return snapshot.active() && snapshot.modified_time == evaluation_time;
     }
 
     template <typename TView>
@@ -817,6 +830,9 @@ namespace hgraph
         return Range<TView>{this, this->size(),
                             [](const void *context, size_t index) {
                                 const auto *self = static_cast<const TSLView *>(context);
+                                if (sampled_transition_this_tick(self->view_ref().context_ref(), self->view_ref().evaluation_time())) {
+                                    return self->at(index).valid();
+                                }
                                 const auto *dispatch = self->collection_dispatch();
                                 return dispatch != nullptr && dispatch->child_modified(self->view_ref().context_ref(), index);
                             },
@@ -852,6 +868,10 @@ namespace hgraph
         return KeyValueRange<size_t, TView>{this, this->size(),
                                             [](const void *context, size_t index) {
                                                 const auto *self = static_cast<const TSLView *>(context);
+                                                if (sampled_transition_this_tick(self->view_ref().context_ref(),
+                                                                                 self->view_ref().evaluation_time())) {
+                                                    return self->at(index).valid();
+                                                }
                                                 const auto *dispatch = self->collection_dispatch();
                                                 return dispatch != nullptr && dispatch->child_modified(self->view_ref().context_ref(), index);
                                             },
@@ -927,6 +947,10 @@ namespace hgraph
         return KeyValueRange<std::string_view, TView>{this, field_dispatch != nullptr ? this->size() : 0,
                                                       [](const void *context, size_t index) {
                                                           const auto *self = static_cast<const TSBView *>(context);
+                                                          if (sampled_transition_this_tick(self->view_ref().context_ref(),
+                                                                                           self->view_ref().evaluation_time())) {
+                                                              return self->at(index).valid();
+                                                          }
                                                           const auto *dispatch = self->collection_dispatch();
                                                           return dispatch != nullptr &&
                                                                  dispatch->child_modified(self->view_ref().context_ref(), index);
@@ -951,13 +975,18 @@ namespace hgraph
     TView TSDView<TView>::at(const View &key) const
     {
         const auto *key_dispatch = this->key_dispatch();
-        const View map_value = this->value();
-        if (key_dispatch == nullptr || !map_value.has_value() || !key.has_value()) {
+        if (key_dispatch == nullptr || !key.has_value()) {
             return this->view_ref().make_child_view(TSViewContext::none());
         }
 
-        const MapView map = map_value.as_map();
-        if (key.schema() != map.key_schema()) { return this->view_ref().make_child_view(TSViewContext::none()); }
+        const TSMeta *schema = this->view_ref().ts_schema();
+        const value::TypeMeta *expected_key_schema = schema != nullptr ? schema->key_type() : nullptr;
+        if (expected_key_schema == nullptr) {
+            const View map_value = this->value();
+            if (!map_value.has_value()) { return this->view_ref().make_child_view(TSViewContext::none()); }
+            expected_key_schema = map_value.as_map().key_schema();
+        }
+        if (key.schema() != expected_key_schema) { return this->view_ref().make_child_view(TSViewContext::none()); }
 
         const TSViewContext child = key_dispatch->child_key(this->view_ref().context_ref(), key);
         if constexpr (std::same_as<TView, TSOutputView>) {
@@ -1062,6 +1091,10 @@ namespace hgraph
                                                   return false;
                                               }
                                               const View key = dispatch->key_at_slot(self->view_ref().context_ref(), slot);
+                                              if (sampled_transition_this_tick(self->view_ref().context_ref(),
+                                                                               self->view_ref().evaluation_time())) {
+                                                  return self->at(key).valid();
+                                              }
                                               return self->at(key).modified();
                                           },
                                           [](const void *context, size_t slot) {

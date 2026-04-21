@@ -4,9 +4,12 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 
-#include <memory>
-
 namespace hgraph {
+
+namespace detail {
+[[nodiscard]] HGRAPH_EXPORT TSOutputView output_view_from_pending_dict_child(const PendingDictChildContext &context,
+                                                                             engine_time_t evaluation_time);
+}
 
 /**
  * Output-specialized instantiation of the generic time-series view surface.
@@ -20,12 +23,10 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
                  TSViewContext parent,
                  engine_time_t evaluation_time,
                  TSOutput *owning_output = nullptr,
-                 const detail::TSOutputViewOps *output_view_ops = nullptr,
-                 std::shared_ptr<const detail::TSOutputViewOps> output_view_ops_owner = {}) noexcept
+                 const detail::TSOutputViewOps *output_view_ops = nullptr) noexcept
         : TSView<TSOutputView>(context, parent, evaluation_time),
           m_owning_output(owning_output),
-          m_output_view_ops(output_view_ops != nullptr ? output_view_ops : output_view_ops_owner.get()),
-          m_output_view_ops_owner(std::move(output_view_ops_owner))
+          m_output_view_ops(output_view_ops)
     {
     }
 
@@ -34,17 +35,32 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
      */
     [[nodiscard]] LinkedTSContext linked_context() const noexcept
     {
+        if (this->m_context.pending_dict_child.active()) {
+            TSOutputView child = detail::output_view_from_pending_dict_child(this->m_context.pending_dict_child, this->evaluation_time());
+            child = detail::ensure_dict_child_output_view(child, this->m_context.pending_dict_child.key.view());
+            if (!child.context_ref().pending_dict_child.active() && child.context_ref().is_bound()) { return child.linked_context(); }
+
+            LinkedTSContext source = this->m_context;
+            source.owning_output = source.owning_output != nullptr ? source.owning_output : m_owning_output;
+            source.output_view_ops = source.output_view_ops != nullptr ? source.output_view_ops : m_output_view_ops;
+            source.notification_state = source.notification_state != nullptr ? source.notification_state : source.ts_state;
+            return source;
+        }
+
         if (m_output_view_ops != nullptr) { return m_output_view_ops->linked_context(*this); }
 
         const TSViewContext resolved = this->m_context.resolved();
+        const TSViewContext &source = this->m_context.is_bound() ? this->m_context : resolved;
         return LinkedTSContext{
-            resolved.schema,
-            resolved.value_dispatch,
-            resolved.ts_dispatch,
-            resolved.value_data,
-            this->m_context.ts_state,
-            m_owning_output,
-            m_output_view_ops,
+            source.schema,
+            source.value_dispatch,
+            source.ts_dispatch,
+            source.value_data,
+            source.ts_state,
+            source.owning_output != nullptr ? source.owning_output : m_owning_output,
+            source.output_view_ops != nullptr ? source.output_view_ops : m_output_view_ops,
+            source.notification_state != nullptr ? source.notification_state : source.ts_state,
+            source.pending_dict_child,
         };
     }
 
@@ -94,22 +110,26 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
      */
     [[nodiscard]] TSOutputView make_child_view_impl(TSViewContext context,
                                                     TSViewContext parent,
-                                                    engine_time_t evaluation_time,
-                                                    std::shared_ptr<const detail::TSOutputViewOps> output_view_ops_owner = {}) const noexcept
+                                                    engine_time_t evaluation_time) const noexcept
     {
+        if (context.owning_output == nullptr) { context.owning_output = m_owning_output; }
+        if (context.output_view_ops == nullptr) { context.output_view_ops = m_output_view_ops; }
+        if (context.notification_state == nullptr) {
+            const TSViewContext resolved_parent = parent.resolved();
+            context.notification_state =
+                resolved_parent.notification_state != nullptr ? resolved_parent.notification_state : resolved_parent.ts_state;
+        }
         return TSOutputView{
             std::move(context),
             parent,
             evaluation_time,
             m_owning_output,
-            output_view_ops_owner != nullptr ? output_view_ops_owner.get() : m_output_view_ops,
-            std::move(output_view_ops_owner)};
+            m_output_view_ops};
     }
 
   private:
     TSOutput *m_owning_output{nullptr};
     const detail::TSOutputViewOps *m_output_view_ops{nullptr};
-    std::shared_ptr<const detail::TSOutputViewOps> m_output_view_ops_owner;
 };
 
 struct TSSOutputView : TSSReadView<TSOutputView>
@@ -148,8 +168,11 @@ HGRAPH_EXPORT void add_set_item(const TSOutputView &view, const View &item);
 HGRAPH_EXPORT void remove_set_item(const TSOutputView &view, const View &item);
 HGRAPH_EXPORT void clear_set_items(const TSOutputView &view);
 [[nodiscard]] HGRAPH_EXPORT TSOutputView make_missing_dict_child_output_view(const TSOutputView &view, const View &key);
-[[nodiscard]] HGRAPH_EXPORT TSOutputView project_dict_key_set_output(const TSViewContext &source_context,
-                                                                     engine_time_t      evaluation_time);
+[[nodiscard]] HGRAPH_EXPORT TSOutputView register_dict_key_set_output(BaseState             &owner_state,
+                                                                      const LinkedTSContext &source_context,
+                                                                      engine_time_t          evaluation_time);
+[[nodiscard]] HGRAPH_EXPORT TSOutputView project_dict_key_set_output(const TSOutputView &source_view,
+                                                                     engine_time_t       evaluation_time);
 
 }  // namespace detail
 
@@ -173,11 +196,38 @@ inline void TSDView<TView>::from_python(nb::handle value) const
 template <typename TView>
 inline TSSetView<TView> TSDView<TView>::key_set() const
 {
-    TSOutputView projected_output =
-        detail::project_dict_key_set_output(this->view_ref().context_ref(), this->view_ref().evaluation_time());
     if constexpr (std::same_as<TView, TSInputView>) {
+        const LinkedTSContext *target = this->view_ref().linked_target();
+        if (target == nullptr || !target->is_bound() || target->owning_output == nullptr) {
+            throw std::logic_error("TSDView::key_set requires a bound dict input");
+        }
+
+        BaseState *feature_state = this->view_ref().context_ref().ts_state;
+        if (feature_state == nullptr) {
+            throw std::logic_error("TSDView::key_set requires a live input state");
+        }
+
+        TSOutputView projected_output =
+            detail::register_dict_key_set_output(*feature_state, *target, this->view_ref().evaluation_time());
         return TSSInputView{this->view_ref().make_child_view(projected_output.context_ref())};
     } else {
+        LinkedTSContext source_context = this->view_ref().linked_context();
+        if (!source_context.is_bound()) {
+            const TSMeta *source_schema = this->view_ref().ts_schema();
+            if (source_schema == nullptr || source_schema->kind != TSKind::TSD || source_schema->key_type() == nullptr) {
+                throw std::logic_error("TSDView<TSOutputView>::key_set requires a TSD source schema");
+            }
+            TSViewContext deferred_context;
+            deferred_context.schema = TSTypeRegistry::instance().tss(source_schema->key_type());
+            TSOutputView deferred_output{
+                deferred_context,
+                TSViewContext::none(),
+                this->view_ref().evaluation_time(),
+                this->view_ref().owning_output(),
+                &detail::default_output_view_ops()};
+            return TSSOutputView{std::move(deferred_output)};
+        }
+        TSOutputView projected_output = detail::project_dict_key_set_output(this->view_ref(), this->view_ref().evaluation_time());
         return TSSOutputView{std::move(projected_output)};
     }
 }

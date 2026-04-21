@@ -19,6 +19,20 @@ namespace hgraph
                                                                    nb::handle signature_override = nb::none())
         {
             nb::object wiring_node = nb::borrow(node);
+            nb::object wiring_node_module = nb::module_::import_("hgraph._wiring._wiring_node_class._wiring_node_class");
+            nb::object pre_resolved_wiring_node_cls = wiring_node_module.attr("PreResolvedWiringNodeWrapper");
+            if (nb::isinstance(wiring_node, pre_resolved_wiring_node_cls)) {
+                nb::object upgraded_underlying = upgrade_python_wiring_node(
+                    wiring_node.attr("underlying_node"),
+                    builder_factory,
+                    signature_override);
+                return pre_resolved_wiring_node_cls(
+                    upgraded_underlying.attr("signature"),
+                    upgraded_underlying.attr("fn"),
+                    upgraded_underlying,
+                    wiring_node.attr("resolved_types"));
+            }
+
             nb::object cpp_static_wiring_node_cls =
                 nb::module_::import_("hgraph._wiring._wiring_node_class._cpp_static_wiring_node_class").attr("CppStaticWiringNodeClass");
 

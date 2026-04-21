@@ -59,6 +59,7 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT bool has_local_reference_binding(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT bool linked_context_valid(const LinkedTSContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT bool linked_context_all_valid(const LinkedTSContext &context) noexcept;
+        [[nodiscard]] HGRAPH_EXPORT LinkedTSContext dereferenced_target_from_source(const LinkedTSContext &source) noexcept;
         [[nodiscard]] HGRAPH_EXPORT const Value *materialized_target_link_value(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT const Value *materialized_reference_value(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT bool reference_all_valid(const TSViewContext &context) noexcept;
@@ -67,7 +68,27 @@ namespace hgraph
         [[nodiscard]] HGRAPH_EXPORT TSViewContext refresh_native_context(const TSViewContext &context) noexcept;
         [[nodiscard]] HGRAPH_EXPORT Value snapshot_target_value(const LinkedTSContext &target,
                                                                engine_time_t modified_time = MIN_DT);
+        [[nodiscard]] HGRAPH_EXPORT Value empty_target_value(const LinkedTSContext &target);
     }  // namespace detail
+
+    struct HGRAPH_EXPORT PendingDictChildContext
+    {
+        const TSMeta                  *parent_schema{nullptr};
+        const detail::ViewDispatch    *parent_value_dispatch{nullptr};
+        const detail::TSDispatch      *parent_ts_dispatch{nullptr};
+        void                          *parent_value_data{nullptr};
+        BaseState                     *parent_ts_state{nullptr};
+        TSOutput                      *parent_owning_output{nullptr};
+        const detail::TSOutputViewOps *parent_output_view_ops{nullptr};
+        BaseState                     *parent_notification_state{nullptr};
+        Value                          key{};
+
+        [[nodiscard]] bool active() const noexcept
+        {
+            return parent_schema != nullptr && parent_value_dispatch != nullptr && parent_ts_dispatch != nullptr &&
+                   key.has_value();
+        }
+    };
 
     /**
      * Value variant covering the concrete time-series state structs currently
@@ -212,6 +233,7 @@ namespace hgraph
     struct HGRAPH_EXPORT TimeSeriesFeatureRegistry
     {
         virtual ~TimeSeriesFeatureRegistry();
+        virtual void rebind_link_source(const LinkedTSContext *source_context, engine_time_t evaluation_time);
     };
 
     /**
@@ -239,7 +261,8 @@ namespace hgraph
                             BaseState *ts_state_,
                             TSOutput *owning_output_ = nullptr,
                             const detail::TSOutputViewOps *output_view_ops_ = nullptr,
-                            BaseState *notification_state_ = nullptr) noexcept
+                            BaseState *notification_state_ = nullptr,
+                            PendingDictChildContext pending_dict_child_ = {}) noexcept
             : schema(schema_),
               value_dispatch(value_dispatch_),
               ts_dispatch(ts_dispatch_),
@@ -247,7 +270,8 @@ namespace hgraph
               ts_state(ts_state_),
               owning_output(owning_output_),
               output_view_ops(output_view_ops_),
-              notification_state(notification_state_ != nullptr ? notification_state_ : ts_state_)
+              notification_state(notification_state_ != nullptr ? notification_state_ : ts_state_),
+              pending_dict_child(std::move(pending_dict_child_))
         {
         }
 
@@ -275,6 +299,7 @@ namespace hgraph
          * follow some upstream source/root instead.
          */
         BaseState                  *notification_state{nullptr};
+        PendingDictChildContext     pending_dict_child{};
     };
 
     /**
@@ -329,7 +354,7 @@ namespace hgraph
         /**
          * Record the modified child and continue propagating the modification.
          */
-        virtual void child_modified(size_t child_index, engine_time_t modified_time) noexcept;
+        void child_modified(size_t child_index, engine_time_t modified_time) noexcept;
     };
 
     /**
@@ -341,25 +366,43 @@ namespace hgraph
     /**
      * State carried by a time-series dictionary.
      */
-    struct HGRAPH_EXPORT TSDState : BaseCollectionState, detail::SlotObserver
+    struct HGRAPH_EXPORT TSDState : BaseCollectionState
     {
+        struct SlotObserverAdapter final : detail::SlotObserver
+        {
+            explicit SlotObserverAdapter(TSDState *owner_ = nullptr) noexcept : owner(owner_) {}
+
+            void on_capacity(size_t old_capacity, size_t new_capacity) override;
+            void on_insert(size_t slot) override;
+            void on_remove(size_t slot) override;
+            void on_erase(size_t slot) override;
+            void on_clear() override;
+
+            TSDState *owner{nullptr};
+        };
+
+        TSDState() noexcept;
+        TSDState(TSDState &&other) noexcept;
+        TSDState &operator=(TSDState &&other) noexcept;
+        TSDState(const TSDState &) = delete;
+        TSDState &operator=(const TSDState &) = delete;
         ~TSDState();
 
         void bind_value_storage(const TSMeta &element_schema,
                                 const detail::MapViewDispatch &dispatch,
                                 void *value_data,
                                 bool current_storage_alive = true);
-        void child_modified(size_t child_index, engine_time_t modified_time) noexcept override;
+        void child_modified(size_t child_index, engine_time_t modified_time) noexcept;
         void unbind_value_storage() noexcept;
         void detach_value_storage() noexcept;
         void sync_with_value_storage();
         [[nodiscard]] bool publish_value_storage_delta(engine_time_t modified_time) noexcept;
 
-        void on_capacity(size_t old_capacity, size_t new_capacity) override;
-        void on_insert(size_t slot) override;
-        void on_remove(size_t slot) override;
-        void on_erase(size_t slot) override;
-        void on_clear() override;
+        void on_capacity(size_t old_capacity, size_t new_capacity);
+        void on_insert(size_t slot);
+        void on_remove(size_t slot);
+        void on_erase(size_t slot);
+        void on_clear();
 
         /**
          * Active trie nodes from bound inputs, keyed by scheduling notifier.
@@ -380,6 +423,7 @@ namespace hgraph
         const detail::MapViewDispatch *map_dispatch{nullptr};
         void                          *map_value_data{nullptr};
         bool                           slot_observer_registered{false};
+        SlotObserverAdapter            slot_observer;
     };
 
     /**

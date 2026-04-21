@@ -25,6 +25,17 @@ namespace hgraph
     {
         namespace
         {
+            [[nodiscard]] static MutationTracking nested_value_tracking(const value::TypeMeta &schema,
+                                                                       MutationTracking       tracking) noexcept
+            {
+                if (tracking != MutationTracking::Delta) { return MutationTracking::Plain; }
+
+                switch (schema.kind) {
+                    case value::TypeKind::Atomic: return MutationTracking::Plain;
+                    default: return MutationTracking::Delta;
+                }
+            }
+
             constexpr size_t no_slot = static_cast<size_t>(-1);
 
             template <typename TBitset>
@@ -653,7 +664,10 @@ namespace hgraph
 
             explicit SetDispatch(const value::TypeMeta &schema)
                 : m_schema(schema),
-                  m_element_builder(ValueBuilderFactory::checked_builder_for(schema.element_type, MutationTracking::Plain)),
+                  m_element_builder(ValueBuilderFactory::checked_builder_for(
+                      schema.element_type,
+                      schema.element_type != nullptr ? nested_value_tracking(*schema.element_type, tracking_mode)
+                                                   : MutationTracking::Plain)),
                   m_keys(m_element_builder.get().dispatch(), m_element_builder.get())
             {
                 if (schema.element_type == nullptr) {
@@ -1102,7 +1116,10 @@ namespace hgraph
             explicit MapDispatch(const value::TypeMeta &schema)
                 : m_schema(schema),
                   m_key_builder(ValueBuilderFactory::checked_builder_for(schema.key_type, MutationTracking::Plain)),
-                  m_value_builder(ValueBuilderFactory::checked_builder_for(schema.element_type, MutationTracking::Plain)),
+                  m_value_builder(ValueBuilderFactory::checked_builder_for(
+                      schema.element_type,
+                      schema.element_type != nullptr ? nested_value_tracking(*schema.element_type, tracking_mode)
+                                                   : MutationTracking::Plain)),
                   m_keys(m_key_builder.get().dispatch(), m_key_builder.get()),
                   m_value_stride(stride_for(m_value_builder.get())),
                   m_value_requires_destruct(m_value_builder.get().requires_destruct())

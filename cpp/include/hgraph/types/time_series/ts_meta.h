@@ -18,6 +18,7 @@
 #include <nanobind/nanobind.h>
 
 #include <cstddef>
+#include <cstring>
 #include <cstdint>
 #include <utility>
 
@@ -304,5 +305,93 @@ private:
         other.value_type = nullptr;
     }
 };
+
+[[nodiscard]] inline bool equivalent_ts_schema(const TSMeta* lhs, const TSMeta* rhs) noexcept
+{
+    if (lhs == rhs) { return true; }
+    if (lhs == nullptr || rhs == nullptr) { return false; }
+    if (lhs->kind != rhs->kind) { return false; }
+
+    switch (lhs->kind) {
+        case TSKind::TSValue:
+        case TSKind::TSS:
+            return lhs->value_type == rhs->value_type;
+
+        case TSKind::SIGNAL:
+            return true;
+
+        case TSKind::TSD:
+            return lhs->key_type() == rhs->key_type() && equivalent_ts_schema(lhs->element_ts(), rhs->element_ts());
+
+        case TSKind::TSL:
+            return lhs->fixed_size() == rhs->fixed_size() && equivalent_ts_schema(lhs->element_ts(), rhs->element_ts());
+
+        case TSKind::TSW:
+            if (lhs->value_type != rhs->value_type) { return false; }
+            if (lhs->is_duration_based() != rhs->is_duration_based()) { return false; }
+            if (lhs->is_duration_based()) {
+                return lhs->time_range() == rhs->time_range() && lhs->min_time_range() == rhs->min_time_range();
+            }
+            return lhs->period() == rhs->period() && lhs->min_period() == rhs->min_period();
+
+        case TSKind::TSB:
+            if (lhs->field_count() != rhs->field_count()) { return false; }
+            for (size_t i = 0; i < lhs->field_count(); ++i) {
+                const TSBFieldInfo &lhs_field = lhs->fields()[i];
+                const TSBFieldInfo &rhs_field = rhs->fields()[i];
+                if (lhs_field.index != rhs_field.index) { return false; }
+                if ((lhs_field.name == nullptr) != (rhs_field.name == nullptr)) { return false; }
+                if (lhs_field.name != nullptr && std::strcmp(lhs_field.name, rhs_field.name) != 0) { return false; }
+                if (!equivalent_ts_schema(lhs_field.ts_type, rhs_field.ts_type)) { return false; }
+            }
+            return true;
+
+        case TSKind::REF:
+            return equivalent_ts_schema(lhs->element_ts(), rhs->element_ts());
+    }
+
+    return false;
+}
+
+[[nodiscard]] inline bool binding_compatible_ts_schema(const TSMeta* lhs, const TSMeta* rhs) noexcept
+{
+    if (equivalent_ts_schema(lhs, rhs)) { return true; }
+    if (lhs == nullptr || rhs == nullptr) { return false; }
+
+    const auto compatible_element = [](const TSMeta* left, const TSMeta* right, auto&& self) noexcept -> bool {
+        if (equivalent_ts_schema(left, right)) { return true; }
+        if (left == nullptr || right == nullptr) { return false; }
+        if (left->kind == TSKind::REF) { return self(left->element_ts(), right, self); }
+        if (right->kind == TSKind::REF) { return self(left, right->element_ts(), self); }
+        return false;
+    };
+
+    if (lhs->kind != rhs->kind) { return false; }
+
+    switch (lhs->kind) {
+        case TSKind::TSD:
+            return lhs->key_type() == rhs->key_type() &&
+                   compatible_element(lhs->element_ts(), rhs->element_ts(), compatible_element);
+
+        case TSKind::TSL:
+            return lhs->fixed_size() == rhs->fixed_size() &&
+                   compatible_element(lhs->element_ts(), rhs->element_ts(), compatible_element);
+
+        case TSKind::TSB:
+            if (lhs->field_count() != rhs->field_count()) { return false; }
+            for (size_t i = 0; i < lhs->field_count(); ++i) {
+                const TSBFieldInfo &lhs_field = lhs->fields()[i];
+                const TSBFieldInfo &rhs_field = rhs->fields()[i];
+                if (lhs_field.index != rhs_field.index) { return false; }
+                if ((lhs_field.name == nullptr) != (rhs_field.name == nullptr)) { return false; }
+                if (lhs_field.name != nullptr && std::strcmp(lhs_field.name, rhs_field.name) != 0) { return false; }
+                if (!compatible_element(lhs_field.ts_type, rhs_field.ts_type, compatible_element)) { return false; }
+            }
+            return true;
+
+        default:
+            return false;
+    }
+}
 
 } // namespace hgraph

@@ -15,6 +15,16 @@ namespace hgraph
 {
     namespace detail
     {
+        [[nodiscard]] static MutationTracking nested_value_tracking(const value::TypeMeta &schema,
+                                                                   MutationTracking       tracking) noexcept
+        {
+            if (tracking != MutationTracking::Delta) { return MutationTracking::Plain; }
+
+            switch (schema.kind) {
+                case value::TypeKind::Atomic: return MutationTracking::Plain;
+                default: return MutationTracking::Delta;
+            }
+        }
 
         /**
          * Header for cyclic-buffer storage.
@@ -73,7 +83,11 @@ namespace hgraph
 
             explicit SequenceDispatchBase(const value::TypeMeta &schema)
                 : m_schema(schema),
-                  m_element_builder(ValueBuilderFactory::checked_builder_for(schema.element_type, MutationTracking::Plain))
+                  m_element_builder(
+                      ValueBuilderFactory::checked_builder_for(schema.element_type,
+                                                              schema.element_type != nullptr
+                                                                  ? nested_value_tracking(*schema.element_type, tracking_mode)
+                                                                  : MutationTracking::Plain))
             {
                 if (schema.element_type == nullptr) {
                     throw std::runtime_error("Sequence schema requires an element schema");

@@ -154,6 +154,9 @@ namespace hgraph
                               other.owns_storage() ? TSValue::StorageOwnership::Owned : TSValue::StorageOwnership::External);
         output.m_storage = other.m_storage;
         output.m_alternatives.clear();
+        if (BaseState *root_state = output.ts_root_state(); root_state != nullptr) {
+            root_state->parent = &output;
+        }
 
         other.m_builder = nullptr;
         other.m_alternatives.clear();

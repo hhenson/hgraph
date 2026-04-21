@@ -8,6 +8,11 @@ namespace hgraph
 {
     namespace
     {
+        constexpr std::string_view kNestedScheduleTag = "__nested__";
+    }
+
+    namespace
+    {
         /**
          * Minimal engine state for a nested child graph.
          *
@@ -244,6 +249,10 @@ namespace hgraph
         if (!m_graph.has_value()) { throw std::logic_error("ChildGraphInstance::start called before initialise"); }
         if (m_started) { return; }
 
+        // A stopped child graph can retain a previously requested wake-up.
+        // Reset the nested clock before restart so new scheduling requests are
+        // floored from the current parent tick rather than an old child tick.
+        m_clock_state.reset_next_scheduled();
         m_clock_state.evaluation_time = eval_time;
         m_graph->start();
         m_started = true;
@@ -268,6 +277,10 @@ namespace hgraph
         if (!m_started) { return; }
 
         m_graph->stop();
+        if (m_clock_state.parent_node != nullptr && m_clock_state.parent_node->has_scheduler()) {
+            m_clock_state.parent_node->scheduler().un_schedule(std::string{kNestedScheduleTag});
+        }
+        m_clock_state.reset_next_scheduled();
         m_started = false;
     }
 

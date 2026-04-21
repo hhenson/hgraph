@@ -155,13 +155,15 @@ namespace hgraph
                 if (current_schema == nullptr) { throw std::invalid_argument("v2 output navigation requires a schema"); }
 
                 if (slot == k_key_set_path) {
-                    const TSMeta *target_schema = navigable_child_schema_at(*current_schema, slot);
-                    TSOutput *owning_output = view.owning_output();
-                    if (owning_output == nullptr) {
-                        throw std::logic_error("v2 key_set output navigation requires an owning output endpoint");
+                    const TSMeta *collection_schema = current_schema;
+                    if (current_schema->kind == TSKind::REF && current_schema->element_ts() != nullptr) {
+                        collection_schema = current_schema->element_ts();
                     }
-                    view = owning_output->bindable_view(view, target_schema);
-                    current_schema = target_schema;
+                    if (collection_schema == nullptr || collection_schema->kind != TSKind::TSD) {
+                        throw std::logic_error("v2 key_set output navigation requires a dict schema");
+                    }
+                    view = view.as_dict().key_set().view();
+                    current_schema = view.ts_schema();
                     continue;
                 }
 
@@ -373,12 +375,45 @@ namespace hgraph
         auto cleanup_nodes = UnwindCleanupGuard([&] {
             for (size_t i = constructed_nodes; i > 0; --i) {
                 const size_t order_index = i - 1;
+                if (std::getenv("HGRAPH_DEBUG_GRAPH_BUILD") != nullptr) {
+                    const auto &builder = node_builder_at(order_index);
+                    std::fprintf(stderr,
+                                 "GraphBuilder::cleanup_nodes destruct index=%zu type=%d label=%.*s node=%p\n",
+                                 order_index,
+                                 static_cast<int>(builder.node_type()),
+                                 static_cast<int>(builder.label().size()),
+                                 builder.label().data(),
+                                 static_cast<void *>(entries[order_index].node));
+                    std::fflush(stderr);
+                }
                 node_builder_at(order_index).destruct_at(*entries[order_index].node);
             }
         });
 
         for (size_t i = 0; i < m_node_builders.size(); ++i) {
+            if (std::getenv("HGRAPH_DEBUG_GRAPH_BUILD") != nullptr) {
+                const auto &builder = node_builder_at(i);
+                std::fprintf(stderr,
+                             "GraphBuilder::construct_node begin index=%zu type=%d label=%.*s offset=%zu\n",
+                             i,
+                             static_cast<int>(builder.node_type()),
+                             static_cast<int>(builder.label().size()),
+                             builder.label().data(),
+                             layout.node_offsets[i]);
+                std::fflush(stderr);
+            }
             auto *node = node_builder_at(i).construct_at(base + layout.node_offsets[i], static_cast<int64_t>(i), inbound_edges[i]);
+            if (std::getenv("HGRAPH_DEBUG_GRAPH_BUILD") != nullptr) {
+                const auto &builder = node_builder_at(i);
+                std::fprintf(stderr,
+                             "GraphBuilder::construct_node done index=%zu type=%d label=%.*s node=%p\n",
+                             i,
+                             static_cast<int>(builder.node_type()),
+                             static_cast<int>(builder.label().size()),
+                             builder.label().data(),
+                             static_cast<void *>(node));
+                std::fflush(stderr);
+            }
             entries[i] = NodeEntry{MIN_DT, node};
             ++constructed_nodes;
         }
@@ -390,6 +425,7 @@ namespace hgraph
 
         graph.adopt_storage(storage, layout.alignment, m_node_builders.size(), push_source_nodes_end, true);
         cleanup_nodes.release();
+        cleanup_storage.release();
 
         for (const auto &edge : m_edges) {
             auto &src_node = graph.node_at(static_cast<size_t>(edge.src_node));
@@ -406,10 +442,33 @@ namespace hgraph
 
             TSOutputView output = traverse_output(source_view, source_schema, navigation_path);
             TSInputView input = traverse_input(dst_node.input_view(MIN_DT), dst_node.input_schema(), edge.input_path);
+            const TSMeta *input_schema = input.ts_schema();
+            if (output.ts_schema() != nullptr && input_schema != nullptr &&
+                !binding_compatible_ts_schema(output.ts_schema(), input_schema) &&
+                output.owning_output() != nullptr) {
+                output = output.owning_output()->bindable_view(output, input_schema);
+            }
+            if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
+                const TSViewContext resolved = output.context_ref().resolved();
+                std::fprintf(stderr,
+                             "GraphBuilder::bind_edge src=%lld(%.*s) dst=%lld(%.*s) output_path_len=%zu input_path_len=%zu output_state=%p output_resolved_state=%p output_kind=%d input_state=%p input_kind=%d\n",
+                             static_cast<long long>(edge.src_node),
+                             static_cast<int>(src_node.label().size()),
+                             src_node.label().data(),
+                             static_cast<long long>(edge.dst_node),
+                             static_cast<int>(dst_node.label().size()),
+                             dst_node.label().data(),
+                             edge.output_path.size(),
+                             edge.input_path.size(),
+                             static_cast<void *>(output.context_ref().ts_state),
+                             static_cast<void *>(resolved.ts_state),
+                             output.ts_schema() != nullptr ? static_cast<int>(output.ts_schema()->kind) : -1,
+                             static_cast<void *>(input.context_ref().ts_state),
+                             input.ts_schema() != nullptr ? static_cast<int>(input.ts_schema()->kind) : -1);
+            }
             input.bind_output(output);
         }
 
-        cleanup_storage.release();
         return graph;
     }
 
@@ -475,6 +534,30 @@ namespace hgraph
 
             TSOutputView output = traverse_output(source_view, source_schema, navigation_path);
             TSInputView input = traverse_input(dst_node.input_view(MIN_DT), dst_node.input_schema(), edge.input_path);
+            const TSMeta *input_schema = input.ts_schema();
+            if (output.ts_schema() != nullptr && input_schema != nullptr &&
+                !binding_compatible_ts_schema(output.ts_schema(), input_schema) &&
+                output.owning_output() != nullptr) {
+                output = output.owning_output()->bindable_view(output, input_schema);
+            }
+            if (std::getenv("HGRAPH_DEBUG_LINKS") != nullptr) {
+                const TSViewContext resolved = output.context_ref().resolved();
+                std::fprintf(stderr,
+                             "GraphBuilder::bind_edge src=%lld(%.*s) dst=%lld(%.*s) output_path_len=%zu input_path_len=%zu output_state=%p output_resolved_state=%p output_kind=%d input_state=%p input_kind=%d\n",
+                             static_cast<long long>(edge.src_node),
+                             static_cast<int>(src_node.label().size()),
+                             src_node.label().data(),
+                             static_cast<long long>(edge.dst_node),
+                             static_cast<int>(dst_node.label().size()),
+                             dst_node.label().data(),
+                             edge.output_path.size(),
+                             edge.input_path.size(),
+                             static_cast<void *>(output.context_ref().ts_state),
+                             static_cast<void *>(resolved.ts_state),
+                             output.ts_schema() != nullptr ? static_cast<int>(output.ts_schema()->kind) : -1,
+                             static_cast<void *>(input.context_ref().ts_state),
+                             input.ts_schema() != nullptr ? static_cast<int>(input.ts_schema()->kind) : -1);
+            }
             input.bind_output(output);
         }
 

@@ -26,6 +26,16 @@ namespace hgraph
         std::vector<std::string> multiplexed_args;
     };
 
+    struct ReduceNodeBuilderState
+    {
+        const ChildGraphTemplate *child_template{nullptr};
+    };
+
+    struct NonAssociativeReduceNodeBuilderState
+    {
+        const ChildGraphTemplate *child_template{nullptr};
+    };
+
     struct SwitchBranchTemplate
     {
         Value selector_value;
@@ -61,6 +71,7 @@ namespace hgraph
         std::string        keys_arg;
         std::vector<std::string> multiplexed_args;
         int64_t            next_child_graph_id{1};
+        bool               slot_store_initialized{false};
     };
 
     /**
@@ -97,6 +108,11 @@ namespace hgraph
                                                         std::string key_arg,
                                                         std::string keys_arg,
                                                         std::vector<std::string> multiplexed_args);
+
+    HGRAPH_EXPORT NodeBuilder &reduce_graph_implementation(NodeBuilder &builder, const ChildGraphTemplate *child_template);
+
+    HGRAPH_EXPORT NodeBuilder &non_associative_reduce_graph_implementation(NodeBuilder &builder,
+                                                                           const ChildGraphTemplate *child_template);
 
     HGRAPH_EXPORT NodeBuilder &switch_graph_implementation(NodeBuilder &builder,
                                                            std::vector<SwitchBranchTemplate> branches,
