@@ -302,6 +302,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/runtime/observers/evaluation_profiler.h
         include/hgraph/runtime/observers/evaluation_trace.h
         include/hgraph/runtime/observers/inspection_observer.h
+        include/hgraph/v2/runtime/evaluation_context.h
         include/hgraph/v2/runtime/evaluation_life_cycle_observer.h
         include/hgraph/v2/runtime/graph_executor.h
         include/hgraph/v2/runtime/graph_executor_builder.h

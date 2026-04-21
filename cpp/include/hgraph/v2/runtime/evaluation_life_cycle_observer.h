@@ -5,6 +5,8 @@
 #ifndef HGRAPH_CPP_ROOT_EVALUATION_LIFE_CYCLE_OBSERVER_H
 #define HGRAPH_CPP_ROOT_EVALUATION_LIFE_CYCLE_OBSERVER_H
 
+#include <memory>
+
 namespace hgraph::v2
 {
     struct Graph;
@@ -12,6 +14,10 @@ namespace hgraph::v2
 
     struct EvaluationLifeCycleObserver
     {
+        using s_ptr = std::shared_ptr<EvaluationLifeCycleObserver>;
+
+        virtual ~EvaluationLifeCycleObserver() = default;
+
         virtual void on_before_start_graph(const Graph &graph) {};
 
         virtual void on_after_start_graph(const Graph &graph) {};

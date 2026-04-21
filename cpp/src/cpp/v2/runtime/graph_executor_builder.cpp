@@ -26,13 +26,13 @@ namespace hgraph::v2
         return *this;
     }
 
-    GraphExecutorBuilder &GraphExecutorBuilder::observer(const EvaluationLifeCycleObserver &observer)
+    GraphExecutorBuilder &GraphExecutorBuilder::observer(ObserverSPtr observer)
     {
         static_cast<void>(observer);
         return *this;
     }
 
-    GraphExecutorBuilder &GraphExecutorBuilder::observers(std::initializer_list<ObserverRef> observers)
+    GraphExecutorBuilder &GraphExecutorBuilder::observers(std::initializer_list<ObserverSPtr> observers)
     {
         static_cast<void>(observers);
         return *this;
@@ -63,6 +63,7 @@ namespace hgraph::v2
         return *this;
     }
 
-    GraphExecutor GraphExecutorBuilder::build() const { return {}; }
+    GraphExecutor GraphExecutorBuilder::build() const { return {{},{}}; }
+
 }
 

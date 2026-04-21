@@ -28,7 +28,7 @@ namespace hgraph::v2
      */
     struct GraphExecutorBuilder
     {
-        using ObserverRef = std::reference_wrapper<const EvaluationLifeCycleObserver>;
+        using ObserverSPtr = EvaluationLifeCycleObserver::s_ptr;
         using NamedArg = std::pair<std::string_view, ValueView>;
 
         GraphExecutorBuilder &graph_builder(const GraphBuilder &graph_builder);
@@ -36,8 +36,8 @@ namespace hgraph::v2
         GraphExecutorBuilder &end_time(engine_date_t end_time);
         GraphExecutorBuilder &run_mode(EvaluationMode run_mode);
 
-        GraphExecutorBuilder &observer(const EvaluationLifeCycleObserver &observer);
-        GraphExecutorBuilder &observers(std::initializer_list<ObserverRef> observers);
+        GraphExecutorBuilder &observer(ObserverSPtr observer);
+        GraphExecutorBuilder &observers(std::initializer_list<ObserverSPtr> observers);
 
         /**
          * Add positional arg; once a string arg is provided, it is no longer possible to add positional args.
@@ -53,7 +53,7 @@ namespace hgraph::v2
          * Constructs an instance of the graph executor based on the current configuration.
          * @return The constructed GraphExecutor.
          */
-        GraphExecutor build() const;
+        [[nodiscard]] GraphExecutor build() const;
     };
 }  // namespace hgraph::v2
 
