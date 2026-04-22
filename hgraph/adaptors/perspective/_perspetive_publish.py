@@ -147,7 +147,7 @@ def _publish_table_from_tsd(
         state.manager.update_table(name, state.data, state.removed)
         if history:
             state.manager.update_table(name + "_history", state.history)
-        elif history is 0:
+        elif history == 0:
             state.manager.replace_table(name + "_history", state.history)
 
         state.data = []
@@ -277,7 +277,7 @@ def _publish_table_from_tsd_start(
             raise ValueError("Empty row is not supported for multi-row tables")
 
         table = manager.create_table(
-            {"_id": int, **state.key_schema, **{k: v for k, v in state.schema.items()}},
+            {"_id": int, **state.key_schema, **dict(state.schema.items())},
             index="_id",
             name=name,
             editable=editable,
@@ -293,7 +293,7 @@ def _publish_table_from_tsd_start(
     else:
         state.map_index = False
         table = manager.create_table(
-            {**state.key_schema, **{k: v for k, v in state.schema.items()}},
+            {**state.key_schema, **dict(state.schema.items())},
             index=state.index,
             name=name,
             editable=editable,
@@ -307,7 +307,7 @@ def _publish_table_from_tsd_start(
 
     if history is not None:
         history_table = manager.create_table(
-            {"time": datetime, **state.key_schema, **{k: v for k, v in state.schema.items()}},
+            {"time": datetime, **state.key_schema, **dict(state.schema.items())},
             limit=min(history, 4294967295) if history > 0 else None,
             name=name + "_history",
         )

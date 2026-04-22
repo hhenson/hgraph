@@ -146,7 +146,7 @@ def convert_mapping_to_tsd(
 def combine_tsd_from_tuple_and_tsl(
     keys: Tuple[SCALAR, ...], *tsl: TSL[REF[TIME_SERIES_TYPE], SIZE], __strict__: bool = True
 ) -> TSD[SCALAR, REF[TIME_SERIES_TYPE]]:
-    # Not the valid constraint only affects wheather or not this has a binding and not if the underlying value is valid!
+    # Note the valid constraint only affects whether or not this has a binding and not if the underlying value is valid!
     return {k: v.value for k, v in zip(keys, tsl) if v.valid and not v.value.is_empty}
 
 
@@ -227,7 +227,7 @@ def collect_tsd_from_tuples(
     _output: TSD_OUT[KEYABLE_SCALAR, TIME_SERIES_TYPE] = None,
 ) -> TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE]:
     remove = {k: REMOVE for k in _output.keys()} if reset.modified else {}
-    new = {k: v for k, v in zip(keys.value, ts.value)} if keys.modified or ts.modified else {}
+    new = dict(zip(keys.value, ts.value)) if keys.modified or ts.modified else {}
     return remove | new
 
 
@@ -269,7 +269,7 @@ def collect_tsd_from_mappings(
     _output: TSD_OUT[KEYABLE_SCALAR, TIME_SERIES_TYPE] = None,
 ) -> TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE]:
     remove = {k: REMOVE for k in _output.keys()} if reset.modified else {}
-    new = {k: v for k, v in ts.value.items()} if ts.modified else {}
+    new = dict(ts.value.items()) if ts.modified else {}
     return remove | new
 
 

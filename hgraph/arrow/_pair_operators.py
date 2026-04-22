@@ -75,7 +75,7 @@ def flatten_tsb(__schema__=None, **kwargs):
                 f"Expected {len(schema.__meta_data_schema__)} values, got {len(v)} for schema: "
                 f"{dict({k: str(v) for k, v in schema.__meta_data_schema__.items()})}"
             )
-        return TSB[schema].from_ts(**{k: v for k, v in zip(schema.__meta_data_schema__.keys(), v)})
+        return TSB[schema].from_ts(**dict(zip(schema.__meta_data_schema__.keys(), v)))
 
     return arrow(_wrapper)
 

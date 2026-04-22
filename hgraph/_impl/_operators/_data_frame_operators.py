@@ -192,7 +192,7 @@ def from_data_frame_tsd_k_v(
             dt_col, maintain_order=True
     ):
         dt = dt_converter(dt)
-        yield dt + offset, {k: v for k, v in df_.select(key_col, value_col).iter_rows()}
+        yield dt + offset, dict(df_.select(key_col, value_col).iter_rows())
 
 
 def _extract_tsd_key_value_bundle(mapping, df, dt_col, key_col) -> TS_SCHEMA:
@@ -258,7 +258,7 @@ def from_data_frame_tsd_k_tsb(
         dt = dt_converter(dt)
         key_df = df_[key_col]
         value_df = df_.select(*value_keys)
-        yield dt + offset, {k: v for k, v in zip(key_df, value_df.iter_rows(named=True))}
+        yield dt + offset, dict(zip(key_df, value_df.iter_rows(named=True)))
 
 
 #
