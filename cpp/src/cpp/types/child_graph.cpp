@@ -225,6 +225,7 @@ namespace hgraph
         m_clock_state.parent_node           = &parent_node;
         m_clock_state.nested_next_scheduled = MAX_DT;
         m_clock_state.evaluation_time       = MIN_DT;
+        m_clock_state.is_stopping          = false;
 
         // Create the nested evaluation engine state (heap-allocated, owned by the engine ops destruct)
         auto *engine_state        = new NestedEvaluationEngineState{};
@@ -253,6 +254,7 @@ namespace hgraph
         // Reset the nested clock before restart so new scheduling requests are
         // floored from the current parent tick rather than an old child tick.
         m_clock_state.reset_next_scheduled();
+        m_clock_state.is_stopping = false;
         m_clock_state.evaluation_time = eval_time;
         m_graph->start();
         m_started = true;
@@ -261,26 +263,21 @@ namespace hgraph
     void ChildGraphInstance::evaluate(engine_time_t eval_time) {
         if (!m_started) { throw std::logic_error("ChildGraphInstance::evaluate called on non-started instance"); }
 
-        while (true) {
-            m_clock_state.reset_next_scheduled();
-
-            // Graph::evaluate() calls set_evaluation_time(eval_time) at the top of the
-            // cycle, so m_clock_state.evaluation_time is updated before any child node
-            // runs.
-            m_graph->evaluate(eval_time);
-
-            if (!m_clock_state.consume_immediate_evaluation_request()) { break; }
-        }
+        m_clock_state.reset_next_scheduled();
+        m_graph->evaluate(eval_time);
+        m_clock_state.reset_next_scheduled();
     }
 
     void ChildGraphInstance::stop(engine_time_t /*eval_time*/) {
         if (!m_started) { return; }
 
+        m_clock_state.is_stopping = true;
         m_graph->stop();
         if (m_clock_state.parent_node != nullptr && m_clock_state.parent_node->has_scheduler()) {
             m_clock_state.parent_node->scheduler().un_schedule(std::string{kNestedScheduleTag});
         }
         m_clock_state.reset_next_scheduled();
+        m_clock_state.is_stopping = false;
         m_started = false;
     }
 

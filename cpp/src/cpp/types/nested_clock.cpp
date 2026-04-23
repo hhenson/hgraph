@@ -46,31 +46,16 @@ namespace hgraph
             return static_cast<const NestedClockState *>(impl)->nested_next_scheduled;
         }
 
-        /**
-         * Scheduling gate for the nested clock.
-         *
-         * evaluation_time plays double duty here: Graph::evaluate() sets it
-         * at the top of each cycle via set_evaluation_time(), so by the time
-         * any child node calls schedule(), evaluation_time already reflects
-         * the current tick. This lets us use it as both the "current time"
-         * and the "last evaluated time" without a separate field.
-         *
-         * Requests at-or-before evaluation_time ask for another pass in the
-         * same parent evaluation. That matches the Python nested runtime,
-         * which re-enters child evaluation immediately instead of forcing the
-         * work out to the next tick.
-         *
-         * Accepted requests are mirrored onto the owning parent node's
-         * scheduler under a stable tag. That keeps Graph wake-ups and
-         * Node::eval()'s scheduled-now gating in sync, including requests
-         * raised during the parent's start() call.
-         */
         void update_next_scheduled_evaluation_time_impl(void *impl, engine_time_t next_time)
         {
             auto *state = static_cast<NestedClockState *>(impl);
 
+            if (state->is_stopping) { return; }
+
+            // Match the Python nested clock: requests for the current nested
+            // evaluation_time or earlier are stale and are ignored rather than
+            // being reinterpreted as a future wake-up.
             if (state->evaluation_time != MIN_DT && next_time <= state->evaluation_time) {
-                state->request_immediate_evaluation();
                 return;
             }
 
@@ -82,12 +67,7 @@ namespace hgraph
                 if (state->parent_node != nullptr) {
                     Graph *parent_graph = state->parent_node->graph();
                     if (state->parent_node->has_scheduler()) {
-                        if (state->parent_node->started() && parent_graph != nullptr &&
-                            proposed == parent_graph->evaluation_time()) {
-                            state->parent_node->scheduler().schedule_immediate(std::string{kNestedScheduleTag});
-                        } else {
-                            state->parent_node->scheduler().schedule(proposed, std::string{kNestedScheduleTag});
-                        }
+                        state->parent_node->scheduler().schedule(proposed, std::string{kNestedScheduleTag});
                     } else if (state->parent_node->started() && parent_graph != nullptr) {
                         parent_graph->schedule_node(state->parent_node->node_index(), proposed);
                     }

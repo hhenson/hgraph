@@ -282,7 +282,7 @@ TEST_CASE("nested clock startup scheduling survives parent start", "[v2][nested]
     CHECK(parent_node.scheduler().next_scheduled_time() == tick(5));
 }
 
-TEST_CASE("nested clock preserves same-cycle wakeups through parent scheduler", "[v2][nested][clock]") {
+TEST_CASE("nested clock ignores same-cycle wakeups through parent scheduler", "[v2][nested][clock]") {
     using namespace hgraph;
     using namespace hgraph::nested_test;
 
@@ -303,16 +303,50 @@ TEST_CASE("nested clock preserves same-cycle wakeups through parent scheduler", 
 
     NestedClockState state;
     state.parent_node     = &parent_node;
-    state.evaluation_time = tick(4);
+    state.evaluation_time = tick(5);
 
     EngineEvaluationClock clock{&state, &nested_clock_ops()};
 
     clock.update_next_scheduled_evaluation_time(tick(5));
 
-    CHECK(state.nested_next_scheduled == tick(5));
-    CHECK(parent_node.scheduler().is_scheduled_now());
-    CHECK(parent_node.scheduler().next_scheduled_time() == tick(5));
-    CHECK(graph.scheduled_time(0) == tick(5));
+    CHECK(state.nested_next_scheduled == MAX_DT);
+    CHECK_FALSE(parent_node.scheduler().is_scheduled_now());
+    CHECK(parent_node.scheduler().next_scheduled_time() == MAX_DT);
+    CHECK(graph.scheduled_time(0) == MAX_DT);
+}
+
+TEST_CASE("nested clock ignores scheduling while stopping", "[v2][nested][clock]") {
+    using namespace hgraph;
+    using namespace hgraph::nested_test;
+
+    auto       &value_registry = hgraph::value::TypeRegistry::instance();
+    auto       &ts_registry    = hgraph::TSTypeRegistry::instance();
+    const auto *int_type       = value_registry.register_type<int>("int");
+    const auto *scalar_ts      = ts_registry.ts(int_type);
+
+    GraphBuilder builder;
+    builder.add_node(NodeBuilder{}.label("parent").output_schema(scalar_ts).uses_scheduler(true).implementation<NoopNode>());
+
+    auto engine = EvaluationEngineBuilder{}.graph_builder(std::move(builder)).start_time(tick(0)).build();
+
+    auto &graph       = engine.graph();
+    auto &parent_node = graph.node_at(0);
+    graph.start();
+    graph.evaluate(tick(5));
+
+    NestedClockState state;
+    state.parent_node     = &parent_node;
+    state.evaluation_time = tick(5);
+    state.is_stopping     = true;
+
+    EngineEvaluationClock clock{&state, &nested_clock_ops()};
+
+    clock.update_next_scheduled_evaluation_time(tick(6));
+
+    CHECK(state.nested_next_scheduled == MAX_DT);
+    CHECK_FALSE(parent_node.scheduler().is_scheduled_now());
+    CHECK(parent_node.scheduler().next_scheduled_time() == MAX_DT);
+    CHECK(graph.scheduled_time(0) == MAX_DT);
 }
 
 TEST_CASE("nested clock reset_next_scheduled resets to MAX_DT", "[v2][nested][clock]") {
