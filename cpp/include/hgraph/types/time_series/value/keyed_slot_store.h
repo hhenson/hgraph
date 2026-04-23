@@ -76,7 +76,6 @@ namespace hgraph::detail
         {
             if (observer == nullptr) { return; }
             const auto it = std::find(observers.begin(), observers.end(), observer);
-            assert(it != observers.end() && "removing unregistered slot observer");
             if (it == observers.end()) { return; }
             if (it != observers.end() - 1) { *it = observers.back(); }
             observers.pop_back();

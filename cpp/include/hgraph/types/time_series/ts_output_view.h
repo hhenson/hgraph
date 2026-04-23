@@ -50,7 +50,8 @@ struct HGRAPH_EXPORT TSOutputView : TSView<TSOutputView> {
         if (m_output_view_ops != nullptr) { return m_output_view_ops->linked_context(*this); }
 
         const TSViewContext resolved = this->m_context.resolved();
-        const TSViewContext &source = this->m_context.is_bound() ? this->m_context : resolved;
+        const TSViewContext &source =
+            this->m_context.is_bound() && this->m_context.value_data != nullptr ? this->m_context : resolved;
         return LinkedTSContext{
             source.schema,
             source.value_dispatch,

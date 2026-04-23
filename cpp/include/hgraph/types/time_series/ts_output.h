@@ -79,6 +79,29 @@ private:
 
     using AlternativePtr = std::unique_ptr<AlternativeOutput, AlternativeOutputDeleter>;
     using AlternativeMap = std::unordered_map<const TSMeta *, AlternativePtr>;
+    struct DetachedAlternativeKey
+    {
+        BaseState *source_state{nullptr};
+        const TSMeta *source_schema{nullptr};
+        const TSMeta *target_schema{nullptr};
+
+        [[nodiscard]] bool operator==(const DetachedAlternativeKey &other) const noexcept
+        {
+            return source_state == other.source_state && source_schema == other.source_schema && target_schema == other.target_schema;
+        }
+    };
+    struct DetachedAlternativeKeyHash
+    {
+        [[nodiscard]] size_t operator()(const DetachedAlternativeKey &key) const noexcept
+        {
+            const auto hash_ptr = [](const void *value) noexcept { return std::hash<const void *>{}(value); };
+            size_t seed = hash_ptr(key.source_state);
+            seed ^= hash_ptr(key.source_schema) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+            seed ^= hash_ptr(key.target_schema) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+            return seed;
+        }
+    };
+    using DetachedAlternativeMap = std::unordered_map<DetachedAlternativeKey, AlternativePtr, DetachedAlternativeKeyHash>;
 
     [[nodiscard]] const TSOutputBuilder &builder() const noexcept { return *m_builder; }
     void clear_storage() noexcept;
@@ -87,6 +110,7 @@ private:
 
     const TSOutputBuilder *m_builder{nullptr};
     AlternativeMap m_alternatives;
+    DetachedAlternativeMap m_detached_alternatives;
     std::vector<RefTargetSubscription> m_ref_target_subscriptions;
 };
 

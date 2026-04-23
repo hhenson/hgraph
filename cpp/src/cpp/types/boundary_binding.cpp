@@ -56,7 +56,7 @@ namespace hgraph
                         source_context.schema,
                         source_context.value_dispatch,
                         source_context.ts_dispatch,
-                        source_context.ts_state != nullptr ? nullptr : source_context.value_data,
+                        source_context.value_data,
                         source_context.ts_state,
                         source_context.owning_output,
                         source_context.output_view_ops,
@@ -265,6 +265,21 @@ namespace hgraph
 
         void bind_child_to_output(TSInputView child_input, const TSOutputView &upstream_output)
         {
+            if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                const LinkedTSContext source = upstream_output.linked_context();
+                std::fprintf(stderr,
+                             "bind_child_to_output child_kind=%d child_valid=%d child_bound=%d source_kind=%d source_valid=%d "
+                             "source_bound=%d source_ctx_bound=%d source_value_data=%p source_ts_state=%p\n",
+                             child_input.ts_schema() != nullptr ? static_cast<int>(child_input.ts_schema()->kind) : -1,
+                             child_input.valid(),
+                             child_input.context_ref().is_bound(),
+                             upstream_output.ts_schema() != nullptr ? static_cast<int>(upstream_output.ts_schema()->kind) : -1,
+                             upstream_output.valid(),
+                             detail::linked_context_valid(source),
+                             source.is_bound(),
+                             source.value_data,
+                             static_cast<void *>(source.ts_state));
+            }
             if (upstream_output.ts_schema() == nullptr) {
                 restore_blank_input(child_input);
                 return;
@@ -281,18 +296,19 @@ namespace hgraph
         [[nodiscard]] bool output_endpoint_available(const TSOutputView &view) noexcept
         {
             const LinkedTSContext context = view.linked_context();
-            return context.schema != nullptr && context.value_dispatch != nullptr && context.ts_dispatch != nullptr;
+            return context.is_bound() && context.schema != nullptr && context.value_dispatch != nullptr &&
+                   context.ts_dispatch != nullptr && detail::linked_context_valid(context);
         }
 
         void bind_direct_input(TSInputView child_input, TSInputView parent_field)
         {
-            bind_child_to_output(child_input, bound_output_of(parent_field, child_input.ts_schema()));
+            bind_child_to_output(child_input, bound_output_of(parent_field, child_input.context_ref().schema));
         }
 
         void bind_cloned_reference(TSInputView child_input, TSInputView parent_field, engine_time_t eval_time)
         {
-            const TSMeta *child_schema  = child_input.ts_schema();
-            const TSMeta *parent_schema = parent_field.ts_schema();
+            const TSMeta *child_schema  = child_input.context_ref().schema;
+            const TSMeta *parent_schema = parent_field.context_ref().schema;
             if (child_schema == nullptr) { throw std::logic_error("BoundaryBindingRuntime clone_ref_binding requires a child schema"); }
 
             const TimeSeriesReference reference = TimeSeriesReference::make(parent_field);
@@ -327,7 +343,7 @@ namespace hgraph
 
         [[nodiscard]] TSInputView select_multiplexed_parent_input(TSInputView parent_field, const value::View &key)
         {
-            const TSMeta *schema = unwrap_navigation_schema(parent_field.ts_schema());
+            const TSMeta *schema = unwrap_navigation_schema(parent_field.context_ref().schema);
             if (schema == nullptr) {
                 throw std::logic_error("BoundaryBindingRuntime multiplexed binding requires a collection schema");
             }
@@ -397,6 +413,10 @@ namespace hgraph
                 case InputBindingMode::BIND_MULTIPLEXED_ELEMENT:
                     {
                         TSInputView parent_source = resolve_parent_spec_arg(parent, spec, eval_time);
+                        if (!parent_source.valid() && !input_is_bound(parent_source)) {
+                            restore_blank_input(child_input);
+                            break;
+                        }
                         TSOutputView parent_output = bound_output_of(parent_source);
                         if (parent_output.ts_schema() != nullptr) {
                             const TSMeta *collection_schema = unwrap_navigation_schema(parent_output.ts_schema());
@@ -418,10 +438,20 @@ namespace hgraph
                             }
 
                             if (output_endpoint_available(parent_item_output)) {
+                                if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                                    std::fprintf(stderr,
+                                                 "bind_keyed key=%s route=output pre_path schema_kind=%d valid=%d bound=%d\n",
+                                                 key.to_string().c_str(),
+                                                 parent_item_output.ts_schema() != nullptr
+                                                     ? static_cast<int>(parent_item_output.ts_schema()->kind)
+                                                     : -1,
+                                                 parent_item_output.valid(),
+                                                 parent_item_output.context_ref().is_bound());
+                                }
                                 if (!spec.parent_input_path.empty()) { parent_item_output = navigate_output(parent_item_output, spec.parent_input_path); }
 
                                 if (output_endpoint_available(parent_item_output)) {
-                                    const TSMeta *child_schema = child_input.ts_schema();
+                                    const TSMeta *child_schema = child_input.context_ref().schema;
                                     if (child_schema != nullptr && child_schema->kind == TSKind::REF) {
                                         set_local_reference_value(child_input, TimeSeriesReference::make(parent_item_output), eval_time);
                                         child_input.make_active();
@@ -430,7 +460,7 @@ namespace hgraph
                                 }
 
                                 if (output_endpoint_available(parent_item_output)) {
-                                    const TSMeta *child_schema = child_input.ts_schema();
+                                    const TSMeta *child_schema = child_input.context_ref().schema;
                                     const TSMeta *parent_schema = parent_item_output.ts_schema();
                                     if (child_schema != nullptr && parent_schema != nullptr &&
                                         parent_schema->kind == TSKind::REF && child_schema->kind != TSKind::REF) {
@@ -442,20 +472,26 @@ namespace hgraph
                                                     dereferenced_context.schema,
                                                     dereferenced_context.value_dispatch,
                                                     dereferenced_context.ts_dispatch,
-                                                    nullptr,
-                                                    parent_item_output.context_ref().ts_state,
-                                                    parent_item_output.owning_output(),
-                                                    parent_item_output.output_view_ops(),
-                                                    parent_item_output.context_ref().notification_state != nullptr
-                                                        ? parent_item_output.context_ref().notification_state
-                                                        : parent_item_output.context_ref().ts_state,
-                                                    parent_item_output.context_ref().pending_dict_child,
+                                                    dereferenced_context.value_data,
+                                                    dereferenced_context.ts_state,
+                                                    dereferenced_context.owning_output != nullptr
+                                                        ? dereferenced_context.owning_output
+                                                        : parent_item_output.owning_output(),
+                                                    dereferenced_context.output_view_ops != nullptr
+                                                        ? dereferenced_context.output_view_ops
+                                                        : parent_item_output.output_view_ops(),
+                                                    dereferenced_context.notification_state != nullptr
+                                                        ? dereferenced_context.notification_state
+                                                        : dereferenced_context.ts_state,
+                                                    dereferenced_context.pending_dict_child,
                                                 }},
                                                 TSViewContext::none(),
                                                 eval_time,
-                                                parent_item_output.owning_output(),
-                                                parent_item_output.output_view_ops() != nullptr
-                                                    ? parent_item_output.output_view_ops()
+                                                dereferenced_context.owning_output != nullptr
+                                                    ? dereferenced_context.owning_output
+                                                    : parent_item_output.owning_output(),
+                                                dereferenced_context.output_view_ops != nullptr
+                                                    ? dereferenced_context.output_view_ops
                                                     : &hgraph::detail::default_output_view_ops(),
                                             };
                                             if (!binding_compatible_ts_schema(target_output.ts_schema(), child_schema) &&
@@ -477,8 +513,55 @@ namespace hgraph
                             }
                         }
 
+                        if (TSOutputView fallback_output = bound_output_of(parent_source); fallback_output.ts_schema() != nullptr) {
+                            const TSMeta *fallback_collection_schema = unwrap_navigation_schema(fallback_output.ts_schema());
+                            if (fallback_collection_schema != nullptr && fallback_collection_schema->kind == TSKind::TSD) {
+                                if (fallback_output.ts_schema() != fallback_collection_schema &&
+                                    fallback_output.owning_output() != nullptr) {
+                                    fallback_output =
+                                        fallback_output.owning_output()->bindable_view(fallback_output, fallback_collection_schema);
+                                }
+
+                                TSOutputView pending_item_output = detail::make_missing_dict_child_output_view(fallback_output, key);
+                                if (!spec.parent_input_path.empty()) {
+                                    pending_item_output = navigate_output(pending_item_output, spec.parent_input_path);
+                                }
+
+                                const TSMeta *child_schema = child_input.context_ref().schema;
+                                if (child_schema != nullptr && child_schema->kind == TSKind::REF) {
+                                    set_local_reference_value(child_input, TimeSeriesReference::make(pending_item_output), eval_time);
+                                    child_input.make_active();
+                                    break;
+                                }
+
+                                if (child_schema != nullptr &&
+                                    !binding_compatible_ts_schema(pending_item_output.ts_schema(), child_schema) &&
+                                    pending_item_output.owning_output() != nullptr) {
+                                    pending_item_output = pending_item_output.owning_output()->bindable_view(pending_item_output, child_schema);
+                                }
+
+                                if (output_endpoint_available(pending_item_output)) {
+                                    bind_child_to_output(child_input, pending_item_output);
+                                    break;
+                                }
+                            }
+                        }
+
                         TSInputView parent_item = select_multiplexed_parent_input(parent_source, key);
                         if (!spec.parent_input_path.empty()) { parent_item = navigate_input(parent_item, spec.parent_input_path); }
+                        if (std::getenv("HGRAPH_DEBUG_REDUCE_MAP") != nullptr) {
+                            std::fprintf(stderr,
+                                         "bind_keyed key=%s route=input schema_kind=%d valid=%d bound=%d linked=%d\n",
+                                         key.to_string().c_str(),
+                                         parent_item.ts_schema() != nullptr ? static_cast<int>(parent_item.ts_schema()->kind) : -1,
+                                         parent_item.valid(),
+                                         parent_item.context_ref().is_bound(),
+                                         parent_item.linked_target() != nullptr && parent_item.linked_target()->is_bound());
+                        }
+                        if (!parent_item.valid() && !input_is_bound(parent_item)) {
+                            restore_blank_input(child_input);
+                            break;
+                        }
                         bind_cloned_reference(child_input, parent_item, eval_time);
                         break;
                     }
@@ -486,10 +569,10 @@ namespace hgraph
                     {
                         if (key_source.ts_schema() != nullptr) {
                             TSOutputView source_output = key_source;
-                            if (child_input.ts_schema() != nullptr &&
-                                !binding_compatible_ts_schema(source_output.ts_schema(), child_input.ts_schema()) &&
+                            if (child_input.context_ref().schema != nullptr &&
+                                !binding_compatible_ts_schema(source_output.ts_schema(), child_input.context_ref().schema) &&
                                 source_output.owning_output() != nullptr) {
-                                source_output = source_output.owning_output()->bindable_view(source_output, child_input.ts_schema());
+                                source_output = source_output.owning_output()->bindable_view(source_output, child_input.context_ref().schema);
                             }
                             bind_child_to_output(child_input, source_output);
                         } else {
@@ -512,7 +595,7 @@ namespace hgraph
                                                   InputBindingMode mode,
                                                   engine_time_t eval_time)
     {
-        const TSMeta *child_schema = child_input.ts_schema();
+        const TSMeta *child_schema = child_input.context_ref().schema;
 
         switch (mode) {
             case InputBindingMode::BIND_DIRECT:

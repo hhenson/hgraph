@@ -253,9 +253,21 @@ namespace hgraph
             if (ref == nullptr) { return make(); }
             if (!ref->is_peered()) { return *ref; }
 
+            const TSMeta *declared_target_schema = schema->element_ts();
             TSOutputView target_view = ref->target_view(output.evaluation_time());
             TimeSeriesReference refreshed = make(target_view);
-            return refreshed.is_empty() ? *ref : refreshed;
+            if (refreshed.is_empty()) { return *ref; }
+
+            const bool original_matches_declared =
+                declared_target_schema == nullptr ||
+                equivalent_ts_schema(ref->target().schema, declared_target_schema);
+            const bool refreshed_matches_declared =
+                refreshed.is_peered() &&
+                (declared_target_schema == nullptr ||
+                 equivalent_ts_schema(refreshed.target().schema, declared_target_schema));
+
+            if (original_matches_declared && !refreshed_matches_declared) { return *ref; }
+            return refreshed;
         }
 
         LinkedTSContext context = reference_context_from_output(output);

@@ -302,19 +302,30 @@ namespace hgraph
         [[nodiscard]] LinkedTSContext anchored_dereferenced_context(const LinkedTSContext &source,
                                                                     const LinkedTSContext &target) noexcept
         {
+            const bool preserve_source_output_identity =
+                source.output_view_ops != nullptr && source.output_view_ops != &detail::default_output_view_ops();
             return LinkedTSContext{
                 target.schema,
                 target.value_dispatch,
                 target.ts_dispatch,
                 target.value_data,
                 target.ts_state,
-                source.owning_output != nullptr ? source.owning_output : target.owning_output,
-                source.output_view_ops != nullptr ? source.output_view_ops : target.output_view_ops,
-                source.notification_state != nullptr
-                    ? source.notification_state
-                    : (target.notification_state != nullptr ? target.notification_state : target.ts_state),
+                preserve_source_output_identity
+                    ? (source.owning_output != nullptr ? source.owning_output : target.owning_output)
+                    : (target.owning_output != nullptr ? target.owning_output : source.owning_output),
+                preserve_source_output_identity
+                    ? source.output_view_ops
+                    : (target.output_view_ops != nullptr ? target.output_view_ops : source.output_view_ops),
+                target.notification_state != nullptr ? target.notification_state : target.ts_state,
                 source.pending_dict_child.active() ? source.pending_dict_child : target.pending_dict_child,
             };
+        }
+
+        [[nodiscard]] LinkedTSContext normalized_target_context(const LinkedTSContext &target) noexcept
+        {
+            if (!target.is_bound()) { return target; }
+            LinkedTSContext normalized = output_view_from_target(target).linked_context();
+            return normalized.is_bound() ? normalized : target;
         }
     }
 
@@ -328,7 +339,7 @@ namespace hgraph
             if (source.ts_state != nullptr) {
                 if (const LinkedTSContext *target = source.ts_state->linked_target();
                     target != nullptr && target->is_bound() && (target->schema == nullptr || target->schema->kind != TSKind::REF)) {
-                    return anchored_dereferenced_context(source, *target);
+                    return anchored_dereferenced_context(source, normalized_target_context(*target));
                 }
             }
             return LinkedTSContext::none();
@@ -338,12 +349,14 @@ namespace hgraph
         if (!source_value.has_value()) { return LinkedTSContext::none(); }
 
         const auto *value = source_value.as_atomic().try_as<hgraph::TimeSeriesReference>();
-        if (value != nullptr && value->is_peered()) { return anchored_dereferenced_context(source, value->target()); }
+        if (value != nullptr && value->is_peered()) {
+            return anchored_dereferenced_context(source, normalized_target_context(value->target()));
+        }
 
         if (source.ts_state != nullptr) {
             if (const LinkedTSContext *target = source.ts_state->linked_target();
                 target != nullptr && target->is_bound() && (target->schema == nullptr || target->schema->kind != TSKind::REF)) {
-                return anchored_dereferenced_context(source, *target);
+                return anchored_dereferenced_context(source, normalized_target_context(*target));
             }
         }
         return LinkedTSContext::none();

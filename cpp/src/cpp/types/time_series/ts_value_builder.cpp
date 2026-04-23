@@ -1449,28 +1449,35 @@ namespace hgraph
 
             [[nodiscard]] TSViewContext child_key(const TSViewContext &context, const View &key) const override
             {
-                if (context.value().has_value()) {
-                    RawMapAccess map{context.value()};
+                TSViewContext source = context;
+                if (!source.value().has_value()) {
+                    const TSViewContext resolved = context.resolved();
+                    if (resolved.is_bound()) { source = resolved; }
+                }
+
+                TSDState *state = dict_state(source);
+                if (state != nullptr && state->storage_kind == TSStorageKind::Native && state->map_dispatch != nullptr &&
+                    state->map_value_data != nullptr) {
+                    const size_t slot = state->map_dispatch->find(state->map_value_data, RawViewAccess::data_of(key));
+                    if (slot == static_cast<size_t>(-1) || !state->map_dispatch->slot_occupied(state->map_value_data, slot) ||
+                        state->map_dispatch->slot_removed(state->map_value_data, slot)) {
+                        return TSViewContext::none();
+                    }
+                    return child_at_slot(source, *state, slot);
+                }
+
+                if (source.value().has_value()) {
+                    RawMapAccess map{source.value()};
                     const auto *dispatch = map.map_dispatch();
                     const size_t slot = dispatch->find(map.data(), RawMapAccess::data_of(key));
                     if (slot == static_cast<size_t>(-1)) { return TSViewContext::none(); }
 
                     MapDeltaView delta = map.delta();
                     if (!detail::dict_slot_is_live(delta, slot)) { return TSViewContext::none(); }
-                    return child_at_slot(context, delta, slot);
+                    return child_at_slot(source, delta, slot);
                 }
 
-                TSDState *state = dict_state(context);
-                if (state == nullptr || state->map_dispatch == nullptr || state->map_value_data == nullptr) {
-                    return TSViewContext::none();
-                }
-
-                const size_t slot = state->map_dispatch->find(state->map_value_data, RawViewAccess::data_of(key));
-                if (slot == static_cast<size_t>(-1) || !state->map_dispatch->slot_occupied(state->map_value_data, slot) ||
-                    state->map_dispatch->slot_removed(state->map_value_data, slot)) {
-                    return TSViewContext::none();
-                }
-                return child_at_slot(context, *state, slot);
+                return TSViewContext::none();
             }
 
             [[nodiscard]] size_t iteration_limit(const TSViewContext &context) const noexcept override
@@ -1523,6 +1530,7 @@ namespace hgraph
                                                       size_t slot) const
             {
                 TSDState *state = dict_state(context);
+                if (state != nullptr && state->storage_kind != TSStorageKind::Native) { state = nullptr; }
                 if (state != nullptr) {
                     if (state->child_states.size() <= slot || state->child_states[slot] == nullptr) {
                         state->on_insert(slot);

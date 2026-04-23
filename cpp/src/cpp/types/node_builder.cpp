@@ -125,19 +125,37 @@ namespace hgraph
             return snapshot.active() && snapshot.modified_time == evaluation_time;
         }
 
+        [[nodiscard]] bool context_modified_this_tick(const TSViewContext &context, engine_time_t evaluation_time) noexcept
+        {
+            if (evaluation_time == MIN_DT) { return false; }
+
+            const bool has_live_context =
+                context.is_bound() && context.schema != nullptr && context.value_dispatch != nullptr && context.ts_dispatch != nullptr;
+            const TSViewContext resolved = has_live_context ? TSViewContext{} : context.resolved();
+            const TSViewContext &source = has_live_context ? context : resolved;
+            const auto *dispatch = source.ts_dispatch;
+            const engine_time_t last_modified =
+                dispatch != nullptr ? dispatch->last_modified_time(source)
+                                    : (source.ts_state != nullptr ? source.ts_state->last_modified_time : MIN_DT);
+            return last_modified == evaluation_time;
+        }
+
         [[nodiscard]] bool input_changed(TSInputView view) noexcept
         {
-            return view.modified() || sampled_this_tick(view.context_ref(), view.evaluation_time());
+            return context_modified_this_tick(view.context_ref(), view.evaluation_time()) ||
+                   sampled_this_tick(view.context_ref(), view.evaluation_time());
         }
 
         [[nodiscard]] bool output_changed(TSOutputView view) noexcept
         {
-            return view.modified() || sampled_this_tick(view.context_ref(), view.evaluation_time());
+            return context_modified_this_tick(view.context_ref(), view.evaluation_time()) ||
+                   sampled_this_tick(view.context_ref(), view.evaluation_time());
         }
 
         [[nodiscard]] LinkedTSContext bound_output_context(const TSOutputView &view) noexcept
         {
-            return view.ts_schema() != nullptr ? view.linked_context() : LinkedTSContext{};
+            const LinkedTSContext context = view.linked_context();
+            return context.schema != nullptr ? context : LinkedTSContext{};
         }
 
         [[nodiscard]] const TSMeta *unwrap_navigation_schema(const TSMeta *schema);
@@ -2851,7 +2869,6 @@ namespace hgraph
                              static_cast<void *>(source_child.owning_output()));
             }
             if (const TSMeta *child_schema = source_child.ts_schema(); child_schema != nullptr && child_schema->kind == TSKind::REF) {
-                if (!source_child.valid()) { return detail::invalid_output_view(evaluation_time); }
                 const auto *ref = source_child.value().as_atomic().template try_as<TimeSeriesReference>();
                 if (ref != nullptr && ref->is_peered()) { return ref->target_view(evaluation_time); }
                 return detail::invalid_output_view(evaluation_time);
@@ -2941,7 +2958,8 @@ namespace hgraph
                 bool slot_live = true;
                 if (schema->element_ts() != nullptr && schema->element_ts()->kind == TSKind::REF) {
                     TSOutputView source_child = detail::ensure_dict_child_output_view(source_root, delta.key_at_slot(slot));
-                    slot_live = source_child.valid();
+                    const auto *ref = source_child.value().as_atomic().template try_as<TimeSeriesReference>();
+                    slot_live = ref != nullptr && ref->is_peered();
                 }
 
                 if (!slot_live) {
