@@ -18,6 +18,32 @@ namespace hgraph
     TimeSeriesFeatureRegistry::~TimeSeriesFeatureRegistry() = default;
     void TimeSeriesFeatureRegistry::rebind_link_source(const LinkedTSContext *, engine_time_t) {}
 
+    // Destructor poisons `storage_kind` so any use-after-free scan (e.g.
+    // `context_from_root_state`) can detect that the state has been torn down
+    // before walking its parent pointer into freed memory.
+    BaseState::BaseState(BaseState &&other) noexcept
+        : parent(other.parent),
+          index(other.index),
+          last_modified_time(other.last_modified_time),
+          storage_kind(other.storage_kind),
+          subscribers(std::move(other.subscribers)),
+          feature_registry(std::move(other.feature_registry))
+    {
+    }
+
+    BaseState &BaseState::operator=(BaseState &&other) noexcept
+    {
+        parent = other.parent;
+        index = other.index;
+        last_modified_time = other.last_modified_time;
+        storage_kind = other.storage_kind;
+        subscribers = std::move(other.subscribers);
+        feature_registry = std::move(other.feature_registry);
+        return *this;
+    }
+
+    BaseState::~BaseState() noexcept { storage_kind = TSStorageKind::Destroyed; }
+
     namespace
     {
         enum class RootNodePort : size_t
@@ -93,6 +119,11 @@ namespace hgraph
         {
             BaseState *state = context.ts_state;
             if (state == nullptr) { return context; }
+            // Detect states whose ~BaseState destructor has already run: their
+            // storage_kind is poisoned to TSStorageKind::Destroyed (0xFF).
+            // Without this guard we'd keep walking through freed memory via
+            // state->parent into a dangling TSInput/TSOutput.
+            if (state->storage_kind == TSStorageKind::Destroyed) { return context; }
             if (state->parent && state->parent.tag() >= TimeSeriesStateParentPtr::alternative_count) { return context; }
             bool is_root_output_state = false;
             hgraph::visit(state->parent, [&](TSOutput *) { is_root_output_state = true; }, [] {});

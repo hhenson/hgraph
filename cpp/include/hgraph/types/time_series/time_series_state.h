@@ -124,6 +124,11 @@ namespace hgraph
         OutputLink,
         TargetLink,
         RefLink,
+        // Sentinel written by ~BaseState() so stale readers of freed memory can
+        // cheaply detect that the state has been torn down (or at least that
+        // the memory has not yet been re-initialised). Not a valid runtime
+        // kind; nothing should ever see this value while a state is live.
+        Destroyed = 0xFF,
     };
 
     struct HGRAPH_EXPORT BaseState
@@ -143,6 +148,13 @@ namespace hgraph
         TSStorageKind                    storage_kind{TSStorageKind::Native};
         std::unordered_set<Notifiable *> subscribers;
         std::unique_ptr<TimeSeriesFeatureRegistry> feature_registry;
+
+        BaseState() = default;
+        BaseState(const BaseState &) = delete;
+        BaseState &operator=(const BaseState &) = delete;
+        BaseState(BaseState &&) noexcept;
+        BaseState &operator=(BaseState &&) noexcept;
+        ~BaseState() noexcept;
 
         /**
          * Register a subscriber for direct modification notifications from
