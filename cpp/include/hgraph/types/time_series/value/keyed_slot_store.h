@@ -130,6 +130,16 @@ namespace hgraph::detail
 
         void reserve_to(size_t capacity)
         {
+            // When shrinking, destroy any constructed payloads that fall outside
+            // the new capacity before truncating the bitset. Without this the
+            // T's destructor is skipped, leaking internal state (e.g. TSOutput
+            // subscribers) whose dangling pointers become use-after-free
+            // hazards when the store later grows back over the same memory.
+            for (size_t slot = capacity; slot < constructed.size(); ++slot) {
+                if (constructed.test(slot)) {
+                    std::destroy_at(std::launder(reinterpret_cast<T *>(storage.slot_data(slot))));
+                }
+            }
             storage.reserve_to(capacity, sizeof(T), alignof(T));
             constructed.resize(capacity);
         }
@@ -181,6 +191,13 @@ namespace hgraph::detail
 
         void reserve_to(size_t capacity)
         {
+            // Destroy constructed payloads beyond the new capacity; see the
+            // matching note on StablePayloadStore::reserve_to.
+            for (size_t slot = capacity; slot < constructed.size(); ++slot) {
+                if (constructed.test(slot)) {
+                    std::destroy_at(std::launder(reinterpret_cast<T *>(storage.value_memory(slot))));
+                }
+            }
             storage.reserve_to(capacity, sizeof(T), alignof(T));
             constructed.resize(capacity);
         }
