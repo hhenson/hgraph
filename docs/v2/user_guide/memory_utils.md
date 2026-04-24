@@ -226,16 +226,17 @@ You can release a handle early with:
 handle.reset();
 ```
 
-## Composite Plans
+## Structured Plans
 
-Composite plans describe structured payloads built from child plans.
+Structured plans describe payloads built from child plans.
 
-Two composite kinds are supported:
+Three structured kinds are supported:
 
 1. `tuple()`
 2. `named_tuple()`
+3. `array_plan(...)`
 
-Both support nesting through `add_plan(...)` or `add_field(..., plan)`.
+Tuples and named tuples support nesting through `add_plan(...)` or `add_field(..., plan)`. Arrays provide a homogeneous fixed-count shape.
 
 ### Tuple builder
 
@@ -270,6 +271,27 @@ Supported named-tuple-builder calls:
 2. `add_field(name, plan)`
 
 Field names must be unique and non-empty.
+
+### Fixed arrays
+
+Use `array_plan(...)` for homogeneous fixed-count storage:
+
+```cpp
+const auto& samples = MemoryUtils::array_plan<uint32_t>(4);
+```
+
+Or from an existing child plan:
+
+```cpp
+const auto& point = MemoryUtils::named_tuple()
+    .add_field<uint16_t>("x")
+    .add_field<uint16_t>("y")
+    .build();
+
+const auto& points = MemoryUtils::array_plan(point, 3);
+```
+
+Arrays are process-lifetime cached the same way as typed and tuple plans.
 
 ### Shorthand helpers
 
@@ -311,11 +333,11 @@ const auto& payload = MemoryUtils::tuple()
     .build();
 ```
 
-That is the intended model for nested tuple and named-tuple storage.
+That is the intended model for nested tuple, named-tuple, and fixed-array storage.
 
-## Inspecting Composite Metadata
+## Inspecting Structured Metadata
 
-Every composite plan exposes its child metadata:
+Tuple and named-tuple plans expose child metadata:
 
 ```cpp
 plan.is_composite();
@@ -348,9 +370,21 @@ size_t offset = field.offset;
 const auto* child_plan = field.plan;
 ```
 
-## Composite Lifecycle Semantics
+Array plans expose homogeneous metadata:
 
-Composite plans compose child lifecycle automatically:
+```cpp
+plan.is_array();
+plan.array_count();
+plan.array_stride();
+plan.array_element_plan();
+plan.element_offset(0);
+```
+
+`array_stride()` is the byte distance between adjacent elements, and `element_offset(i)` gives the byte offset for an element inside the array payload.
+
+## Structured Lifecycle Semantics
+
+Structured plans compose child lifecycle automatically:
 
 1. children default-construct in index order
 2. children destroy in reverse order
@@ -358,7 +392,7 @@ Composite plans compose child lifecycle automatically:
 4. move construction proceeds child-by-child in index order
 5. if construction fails partway through, already-constructed children are destroyed before the exception is rethrown
 
-Because composites are built from plans, nested composites inherit the same behavior recursively.
+For arrays, the same rules apply across the element count. Because structured plans are built from plans, nested shapes inherit the same behavior recursively.
 
 ## Addressing Child Storage
 
@@ -383,7 +417,7 @@ auto* x = MemoryUtils::cast<uint32_t>(
 For new erased-storage code, the intended pattern is:
 
 1. derive or cache a `StoragePlan` from a schema
-2. use `tuple()` or `named_tuple()` to build structured plans
+2. use `tuple()`, `named_tuple()`, or `array_plan(...)` to build structured plans
 3. use `add_plan(...)` and `add_field(...)` for nested composition
 4. use `StorageHandle` for live values
 5. use `AllocatorOps` when storage sourcing needs to be customized

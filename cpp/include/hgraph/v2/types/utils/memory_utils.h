@@ -11,6 +11,7 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <limits>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -43,11 +44,13 @@ namespace hgraph::v2
             None,
             Tuple,
             NamedTuple,
+            Array,
         };
 
         struct StoragePlan;
         struct CompositeComponent;
         struct CompositeState;
+        struct ArrayState;
         struct CompositePlanBuilder;
         struct AllocatorOps;
 
@@ -166,6 +169,13 @@ namespace hgraph::v2
             }
         };
 
+        struct ArrayState
+        {
+            const StoragePlan *element_plan{nullptr};
+            size_t element_count{0};
+            size_t element_stride{0};
+        };
+
         struct StoragePlan
         {
             StorageLayout layout{};
@@ -179,7 +189,7 @@ namespace hgraph::v2
             [[nodiscard]] bool valid() const noexcept
             {
                 return layout.valid() &&
-                       (layout.size > 0 || is_composite() || lifecycle.can_default_construct() ||
+                       (layout.size > 0 || composite_kind_tag != CompositeKind::None || lifecycle.can_default_construct() ||
                         lifecycle.can_copy_construct() || lifecycle.can_move_construct() || lifecycle.can_destroy());
             }
 
@@ -191,7 +201,10 @@ namespace hgraph::v2
                 return !trivially_destructible && lifecycle.can_destroy();
             }
 
-            [[nodiscard]] bool is_composite() const noexcept { return composite_kind_tag != CompositeKind::None; }
+            [[nodiscard]] bool is_composite() const noexcept
+            {
+                return composite_kind_tag == CompositeKind::Tuple || composite_kind_tag == CompositeKind::NamedTuple;
+            }
             [[nodiscard]] bool is_tuple() const noexcept
             {
                 return composite_kind_tag == CompositeKind::Tuple;
@@ -200,10 +213,14 @@ namespace hgraph::v2
             {
                 return composite_kind_tag == CompositeKind::NamedTuple;
             }
+            [[nodiscard]] bool is_array() const noexcept
+            {
+                return composite_kind_tag == CompositeKind::Array;
+            }
             [[nodiscard]] CompositeKind composite_kind() const
             {
-                if (!is_composite()) {
-                    throw std::logic_error("MemoryUtils::StoragePlan is not composite");
+                if (composite_kind_tag == CompositeKind::None) {
+                    throw std::logic_error("MemoryUtils::StoragePlan is not structured");
                 }
                 return composite_kind_tag;
             }
@@ -211,9 +228,37 @@ namespace hgraph::v2
             {
                 return is_composite() ? static_cast<const CompositeState *>(lifecycle_context) : nullptr;
             }
+            [[nodiscard]] const ArrayState *array_state() const noexcept
+            {
+                return is_array() ? static_cast<const ArrayState *>(lifecycle_context) : nullptr;
+            }
             [[nodiscard]] size_t component_count() const noexcept
             {
                 return composite_state() ? composite_state()->component_count : 0;
+            }
+            [[nodiscard]] size_t array_count() const noexcept
+            {
+                return array_state() ? array_state()->element_count : 0;
+            }
+            [[nodiscard]] size_t array_stride() const noexcept
+            {
+                return array_state() ? array_state()->element_stride : 0;
+            }
+            [[nodiscard]] const StoragePlan &array_element_plan() const
+            {
+                const ArrayState *state = array_state();
+                if (state == nullptr || state->element_plan == nullptr) {
+                    throw std::logic_error("MemoryUtils::StoragePlan is not an array");
+                }
+                return *state->element_plan;
+            }
+            [[nodiscard]] size_t element_offset(size_t index) const
+            {
+                const ArrayState *state = array_state();
+                if (state == nullptr || index >= state->element_count) {
+                    throw std::out_of_range("MemoryUtils::StoragePlan array index out of range");
+                }
+                return index * state->element_stride;
             }
             [[nodiscard]] const CompositeComponent &component(size_t index) const
             {
@@ -722,6 +767,20 @@ namespace hgraph::v2
             return tuple_plan(components);
         }
 
+        [[nodiscard]] static const StoragePlan &array_plan(const StoragePlan &element_plan, size_t count)
+        {
+            if (!element_plan.valid()) {
+                throw std::logic_error("MemoryUtils::array_plan requires a valid element plan");
+            }
+            return array_registry().intern(element_plan, count);
+        }
+
+        template <typename T>
+        [[nodiscard]] static const StoragePlan &array_plan(size_t count)
+        {
+            return array_plan(plan_for<T>(), count);
+        }
+
         template <typename T>
         [[nodiscard]] static const StoragePlan &plan_for() noexcept
         {
@@ -884,6 +943,93 @@ namespace hgraph::v2
             return registry;
         }
 
+        struct ArrayRegistry
+        {
+            struct Key
+            {
+                const StoragePlan *element_plan{nullptr};
+                size_t element_count{0};
+
+                [[nodiscard]] bool operator==(const Key &) const noexcept = default;
+            };
+
+            struct KeyHash
+            {
+                [[nodiscard]] size_t operator()(const Key &key) const noexcept
+                {
+                    size_t seed = std::hash<const StoragePlan *>{}(key.element_plan);
+                    const size_t count_hash = std::hash<size_t>{}(key.element_count);
+                    seed ^= count_hash + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+                    return seed;
+                }
+            };
+
+            std::mutex mutex;
+            std::unordered_map<Key, const StoragePlan *, KeyHash> cache;
+            std::vector<std::unique_ptr<StoragePlan>> plans;
+            std::vector<std::unique_ptr<ArrayState>> states;
+
+            [[nodiscard]] const StoragePlan &intern(const StoragePlan &element_plan, size_t count)
+            {
+                const Key key{
+                    .element_plan = &element_plan,
+                    .element_count = count,
+                };
+                std::lock_guard<std::mutex> lock(mutex);
+
+                if (const auto it = cache.find(key); it != cache.end()) {
+                    return *it->second;
+                }
+
+                const size_t stride = align_to(element_plan.layout.size, element_plan.layout.alignment);
+                if (stride != 0 && count > std::numeric_limits<size_t>::max() / stride) {
+                    throw std::overflow_error("MemoryUtils::array_plan storage size overflow");
+                }
+
+                auto state = std::make_unique<ArrayState>(ArrayState{
+                    .element_plan = &element_plan,
+                    .element_count = count,
+                    .element_stride = stride,
+                });
+
+                const bool can_default_construct = count == 0 || element_plan.can_default_construct();
+                const bool can_copy_construct = count == 0 || element_plan.can_copy_construct();
+                const bool can_move_construct = count == 0 || element_plan.can_move_construct();
+                const bool trivially_destructible = count == 0 || element_plan.trivially_destructible;
+                const bool trivially_copyable = count == 0 || element_plan.trivially_copyable;
+                const bool trivially_move_constructible = count == 0 || element_plan.trivially_move_constructible;
+
+                auto plan = std::make_unique<StoragePlan>();
+                plan->layout = {
+                    .size = stride * count,
+                    .alignment = element_plan.layout.alignment,
+                };
+                plan->lifecycle = {
+                    .construct = can_default_construct ? &MemoryUtils::array_default_construct : nullptr,
+                    .destroy = trivially_destructible ? nullptr : &MemoryUtils::array_destroy,
+                    .copy_construct = can_copy_construct ? &MemoryUtils::array_copy_construct : nullptr,
+                    .move_construct = can_move_construct ? &MemoryUtils::array_move_construct : nullptr,
+                };
+                plan->lifecycle_context = state.get();
+                plan->composite_kind_tag = CompositeKind::Array;
+                plan->trivially_destructible = trivially_destructible;
+                plan->trivially_copyable = trivially_copyable;
+                plan->trivially_move_constructible = trivially_move_constructible;
+
+                const StoragePlan *result = plan.get();
+                states.push_back(std::move(state));
+                plans.push_back(std::move(plan));
+                cache.emplace(key, result);
+                return *result;
+            }
+        };
+
+        [[nodiscard]] static ArrayRegistry &array_registry()
+        {
+            static ArrayRegistry registry;
+            return registry;
+        }
+
         [[nodiscard]] static constexpr size_t align_to(size_t offset, size_t alignment) noexcept
         {
             if (alignment <= 1) {
@@ -914,6 +1060,14 @@ namespace hgraph::v2
                 throw std::logic_error("MemoryUtils composite lifecycle requires context");
             }
             return *static_cast<const CompositeState *>(context);
+        }
+
+        [[nodiscard]] static const ArrayState &checked_array_state(const void *context)
+        {
+            if (context == nullptr) {
+                throw std::logic_error("MemoryUtils array lifecycle requires context");
+            }
+            return *static_cast<const ArrayState *>(context);
         }
 
         static void composite_default_construct(void *memory, const void *context)
@@ -976,6 +1130,65 @@ namespace hgraph::v2
             for (; constructed < state.component_count; ++constructed) {
                 const CompositeComponent &component = state.components()[constructed];
                 component.plan->move_construct(advance(dst, component.offset), advance(src, component.offset));
+            }
+            rollback.release();
+        }
+
+        static void array_default_construct(void *memory, const void *context)
+        {
+            const ArrayState &state = checked_array_state(context);
+            size_t constructed = 0;
+            auto rollback = ::hgraph::make_scope_exit([&]() noexcept {
+                for (size_t index = constructed; index > 0; --index) {
+                    state.element_plan->destroy(advance(memory, (index - 1) * state.element_stride));
+                }
+            });
+            for (; constructed < state.element_count; ++constructed) {
+                state.element_plan->default_construct(advance(memory, constructed * state.element_stride));
+            }
+            rollback.release();
+        }
+
+        static void array_destroy(void *memory, const void *context) noexcept
+        {
+            if (memory == nullptr || context == nullptr) {
+                return;
+            }
+
+            const ArrayState &state = *static_cast<const ArrayState *>(context);
+            for (size_t index = state.element_count; index > 0; --index) {
+                state.element_plan->destroy(advance(memory, (index - 1) * state.element_stride));
+            }
+        }
+
+        static void array_copy_construct(void *dst, const void *src, const void *context)
+        {
+            const ArrayState &state = checked_array_state(context);
+            size_t constructed = 0;
+            auto rollback = ::hgraph::make_scope_exit([&]() noexcept {
+                for (size_t index = constructed; index > 0; --index) {
+                    state.element_plan->destroy(advance(dst, (index - 1) * state.element_stride));
+                }
+            });
+            for (; constructed < state.element_count; ++constructed) {
+                const size_t offset = constructed * state.element_stride;
+                state.element_plan->copy_construct(advance(dst, offset), advance(src, offset));
+            }
+            rollback.release();
+        }
+
+        static void array_move_construct(void *dst, void *src, const void *context)
+        {
+            const ArrayState &state = checked_array_state(context);
+            size_t constructed = 0;
+            auto rollback = ::hgraph::make_scope_exit([&]() noexcept {
+                for (size_t index = constructed; index > 0; --index) {
+                    state.element_plan->destroy(advance(dst, (index - 1) * state.element_stride));
+                }
+            });
+            for (; constructed < state.element_count; ++constructed) {
+                const size_t offset = constructed * state.element_stride;
+                state.element_plan->move_construct(advance(dst, offset), advance(src, offset));
             }
             rollback.release();
         }

@@ -113,6 +113,34 @@ namespace
         }
     };
 
+    struct ThrowsOnThirdDefault
+    {
+        static inline int constructed{0};
+        static inline int destroyed{0};
+
+        ThrowsOnThirdDefault()
+        {
+            if (constructed == 2) {
+                throw std::runtime_error("boom");
+            }
+            ++constructed;
+        }
+
+        ThrowsOnThirdDefault(const ThrowsOnThirdDefault &) = default;
+        ThrowsOnThirdDefault(ThrowsOnThirdDefault &&) noexcept = default;
+
+        ~ThrowsOnThirdDefault()
+        {
+            ++destroyed;
+        }
+
+        static void reset()
+        {
+            constructed = 0;
+            destroyed = 0;
+        }
+    };
+
     struct AllocationProbe
     {
         static inline int allocations{0};
@@ -344,6 +372,38 @@ TEST_CASE("memory utils caches tuple and named tuple plans and supports nesting"
     REQUIRE(payload.component(2).plan->component("id").name != nullptr);
 }
 
+TEST_CASE("memory utils caches array plans and exposes homogeneous array metadata", "[memory utils]")
+{
+    const auto &point = MemoryUtils::named_tuple()
+                            .add_field<uint16_t>("x")
+                            .add_field<uint16_t>("y")
+                            .build();
+
+    const auto &points = MemoryUtils::array_plan(point, 3);
+    const auto &points_again = MemoryUtils::array_plan(point, 3);
+    const auto &empty_values = MemoryUtils::array_plan<uint32_t>(0);
+    const auto &payload = MemoryUtils::tuple().add_type<uint8_t>().add_plan(points).build();
+
+    REQUIRE(&points == &points_again);
+    REQUIRE(points.is_array());
+    REQUIRE_FALSE(points.is_composite());
+    REQUIRE(points.composite_kind() == MemoryUtils::CompositeKind::Array);
+    REQUIRE(points.array_count() == 3);
+    REQUIRE(points.array_stride() == point.layout.size);
+    REQUIRE(&points.array_element_plan() == &point);
+    REQUIRE(points.element_offset(0) == 0);
+    REQUIRE(points.element_offset(2) == point.layout.size * 2);
+    REQUIRE_THROWS_AS(points.element_offset(3), std::out_of_range);
+
+    REQUIRE(empty_values.valid());
+    REQUIRE(empty_values.is_array());
+    REQUIRE(empty_values.array_count() == 0);
+    REQUIRE(empty_values.layout.size == 0);
+
+    REQUIRE(payload.component(1).plan->is_array());
+    REQUIRE(payload.component(1).plan->array_count() == 3);
+}
+
 TEST_CASE("memory utils stores composite components in trailing composite-state storage", "[memory utils]")
 {
     const auto &point = MemoryUtils::named_tuple()
@@ -438,6 +498,42 @@ TEST_CASE("memory utils composite handles deep-copy nested child payloads", "[me
     REQUIRE(TrackedValue::destroyed == 2);
 }
 
+TEST_CASE("memory utils array handles deep-copy element payloads", "[memory utils]")
+{
+    TrackedValue::reset();
+
+    const auto &array = MemoryUtils::array_plan<TrackedValue>(3);
+
+    {
+        MemoryUtils::StorageHandle<> source(array);
+        REQUIRE(source.is_owning());
+        REQUIRE(source.stores_heap());
+        REQUIRE(TrackedValue::default_constructed == 3);
+
+        for (size_t index = 0; index < array.array_count(); ++index) {
+            auto *value =
+                MemoryUtils::cast<TrackedValue>(MemoryUtils::advance(source.data(), array.element_offset(index)));
+            value->value = static_cast<int>(index + 1) * 10;
+        }
+
+        MemoryUtils::StorageHandle<> copied = source;
+        REQUIRE(TrackedValue::copy_constructed == 3);
+
+        for (size_t index = 0; index < array.array_count(); ++index) {
+            auto *value =
+                MemoryUtils::cast<TrackedValue>(MemoryUtils::advance(copied.data(), array.element_offset(index)));
+            REQUIRE(value->value == static_cast<int>(index + 1) * 10);
+        }
+
+        auto *source_first = MemoryUtils::cast<TrackedValue>(MemoryUtils::advance(source.data(), array.element_offset(0)));
+        source_first->value = 99;
+        REQUIRE(MemoryUtils::cast<TrackedValue>(MemoryUtils::advance(copied.data(), array.element_offset(0)))->value ==
+                10);
+    }
+
+    REQUIRE(TrackedValue::destroyed == 6);
+}
+
 TEST_CASE("memory utils composite plans clean up partial construction on owning handle creation", "[memory utils]")
 {
     PartiallyConstructedValue::reset();
@@ -449,4 +545,15 @@ TEST_CASE("memory utils composite plans clean up partial construction on owning 
 
     REQUIRE_THROWS_AS(MemoryUtils::StorageHandle<>{composite}, std::runtime_error);
     REQUIRE(PartiallyConstructedValue::destroyed == 1);
+}
+
+TEST_CASE("memory utils array plans clean up partial construction on owning handle creation", "[memory utils]")
+{
+    ThrowsOnThirdDefault::reset();
+
+    const auto &array = MemoryUtils::array_plan<ThrowsOnThirdDefault>(4);
+
+    REQUIRE_THROWS_AS(MemoryUtils::StorageHandle<>{array}, std::runtime_error);
+    REQUIRE(ThrowsOnThirdDefault::constructed == 2);
+    REQUIRE(ThrowsOnThirdDefault::destroyed == 2);
 }
