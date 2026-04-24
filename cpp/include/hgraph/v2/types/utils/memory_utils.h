@@ -560,7 +560,7 @@ namespace hgraph::v2
                 }
             };
 
-            using allocator_state_ptr = ::hgraph::tagged_ptr<const AllocatorOps, 2>;
+            using allocator_state_ptr = ::hgraph::tagged_ptr<const AllocatorOps, 2, State>;
 
             const StoragePlan *m_plan{nullptr};
             allocator_state_ptr m_allocator_state{};
@@ -568,7 +568,7 @@ namespace hgraph::v2
 
             StorageHandle(const StoragePlan &plan, void *data, const AllocatorOps &allocator) noexcept
                 : m_plan(&plan)
-                , m_allocator_state(&allocator, static_cast<allocator_state_ptr::storage_type>(State::Borrowed))
+                , m_allocator_state(&allocator, State::Borrowed)
             {
                 m_storage.ptr = data;
             }
@@ -580,12 +580,12 @@ namespace hgraph::v2
 
             [[nodiscard]] State storage_state() const noexcept
             {
-                return static_cast<State>(m_allocator_state.tag());
+                return m_allocator_state.enum_value();
             }
 
             void set_allocator_state(const AllocatorOps *allocator, State state) noexcept
             {
-                m_allocator_state.set(allocator, static_cast<allocator_state_ptr::storage_type>(state));
+                m_allocator_state.set(allocator, state);
             }
 
             [[nodiscard]] static State owning_state_for(const StoragePlan &plan) noexcept

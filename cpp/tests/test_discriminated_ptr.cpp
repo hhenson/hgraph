@@ -4,6 +4,13 @@
 
 namespace
 {
+    enum class TaggedState
+    {
+        Empty = 0,
+        Borrowed = 1,
+        Owned = 2,
+    };
+
     struct alignas(8) AltA
     {
         int value{0};
@@ -34,6 +41,42 @@ namespace
         int value{0};
     };
 }  // namespace
+
+TEST_CASE("tagged_ptr supports typed enum tags", "[util][tagged_ptr]")
+{
+    using Ptr = hgraph::tagged_ptr<AltA, 2, TaggedState>;
+
+    static_assert(sizeof(Ptr) == sizeof(void *));
+
+    AltA value{};
+    Ptr ptr{&value, TaggedState::Owned};
+
+    CHECK(ptr.ptr() == &value);
+    CHECK(ptr.enum_value() == TaggedState::Owned);
+    CHECK(ptr.has_enum(TaggedState::Owned));
+    CHECK_FALSE(ptr.has_enum(TaggedState::Borrowed));
+
+    ptr.set_tag(TaggedState::Borrowed);
+    CHECK(ptr.enum_value() == TaggedState::Borrowed);
+
+    ptr.set(&value, TaggedState::Empty);
+    CHECK(ptr.enum_value() == TaggedState::Empty);
+}
+
+TEST_CASE("tagged_ptr can project raw tags to enums on demand", "[util][tagged_ptr]")
+{
+    using Ptr = hgraph::tagged_ptr<AltA, 2>;
+
+    AltA value{};
+    Ptr ptr{&value, 2};
+
+    CHECK(ptr.enum_value<TaggedState>() == TaggedState::Owned);
+    CHECK(ptr.has_enum(TaggedState::Owned));
+
+    ptr.set_tag(TaggedState::Borrowed);
+    CHECK(ptr.tag() == 1);
+    CHECK(ptr.enum_value<TaggedState>() == TaggedState::Borrowed);
+}
 
 TEST_CASE("discriminated_ptr stores and clears typed alternatives", "[util][discriminated_ptr]")
 {

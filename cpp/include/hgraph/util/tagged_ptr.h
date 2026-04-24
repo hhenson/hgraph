@@ -85,14 +85,17 @@ namespace hgraph
             }
         }
 
-        template <size_t Alignment, size_t TagBits = 1>
+        template <size_t Alignment, size_t TagBits = 1, typename TagEnum = void>
         class erased_tagged_ptr
         {
           public:
             using storage_type = std::uintptr_t;
+            using tag_enum_type = TagEnum;
 
             static_assert(Alignment != 0, "Alignment must be non-zero");
             static_assert(std::has_single_bit(static_cast<storage_type>(Alignment)), "Alignment must be a power of two");
+            static_assert(std::is_void_v<tag_enum_type> || std::is_enum_v<tag_enum_type>,
+                          "TagEnum must be void or an enum type");
 
             static constexpr size_t available_tag_bits = std::countr_zero(static_cast<storage_type>(Alignment));
             static_assert(TagBits <= available_tag_bits,
@@ -109,8 +112,22 @@ namespace hgraph
                 set(ptr, tag);
             }
 
+            template <typename Enum = tag_enum_type>
+                requires(std::is_enum_v<Enum>)
+            constexpr erased_tagged_ptr(void *ptr, Enum tag) noexcept
+            {
+                set(ptr, tag);
+            }
+
             template <typename T>
             constexpr erased_tagged_ptr(T *ptr, storage_type tag = 0) noexcept
+            {
+                set(ptr, tag);
+            }
+
+            template <typename T, typename Enum = tag_enum_type>
+                requires(std::is_enum_v<Enum>)
+            constexpr erased_tagged_ptr(T *ptr, Enum tag) noexcept
             {
                 set(ptr, tag);
             }
@@ -136,11 +153,32 @@ namespace hgraph
                 return tag() == tag_value;
             }
 
+            template <typename Enum = tag_enum_type>
+                requires(std::is_enum_v<Enum>)
+            [[nodiscard]] constexpr Enum enum_value() const noexcept
+            {
+                return static_cast<Enum>(tag());
+            }
+
+            template <typename Enum = tag_enum_type>
+                requires(std::is_enum_v<Enum>)
+            [[nodiscard]] constexpr bool has_enum(Enum tag_value) const noexcept
+            {
+                return tag() == enum_to_storage(tag_value);
+            }
+
             constexpr void set(void *ptr, storage_type tag_value = 0) noexcept
             {
                 assert((reinterpret_cast<storage_type>(ptr) & tag_mask) == 0);
                 assert((tag_value & ~tag_mask) == 0);
                 m_bits = reinterpret_cast<storage_type>(ptr) | tag_value;
+            }
+
+            template <typename Enum = tag_enum_type>
+                requires(std::is_enum_v<Enum>)
+            constexpr void set(void *ptr, Enum tag_value) noexcept
+            {
+                set(ptr, enum_to_storage(tag_value));
             }
 
             template <typename T>
@@ -150,6 +188,13 @@ namespace hgraph
                 assert((ptr_bits & tag_mask) == 0);
                 assert((tag_value & ~tag_mask) == 0);
                 m_bits = ptr_bits | tag_value;
+            }
+
+            template <typename T, typename Enum = tag_enum_type>
+                requires(std::is_enum_v<Enum>)
+            constexpr void set(T *ptr, Enum tag_value) noexcept
+            {
+                set(ptr, enum_to_storage(tag_value));
             }
 
             constexpr void set_ptr(void *ptr) noexcept
@@ -164,6 +209,13 @@ namespace hgraph
             }
 
             constexpr void set_tag(storage_type tag_value) noexcept
+            {
+                set(ptr(), tag_value);
+            }
+
+            template <typename Enum = tag_enum_type>
+                requires(std::is_enum_v<Enum>)
+            constexpr void set_tag(Enum tag_value) noexcept
             {
                 set(ptr(), tag_value);
             }
@@ -184,6 +236,13 @@ namespace hgraph
             }
 
           private:
+            template <typename Enum>
+                requires(std::is_enum_v<Enum>)
+            [[nodiscard]] static constexpr storage_type enum_to_storage(Enum value) noexcept
+            {
+                return static_cast<storage_type>(std::to_underlying(value));
+            }
+
             storage_type m_bits{0};
         };
 
@@ -327,24 +386,29 @@ namespace hgraph
         };
     }  // namespace detail
 
-    template <size_t Alignment, size_t TagBits = 1>
-    using erased_tagged_ptr = detail::erased_tagged_ptr<Alignment, TagBits>;
+    template <size_t Alignment, size_t TagBits = 1, typename TagEnum = void>
+    using erased_tagged_ptr = detail::erased_tagged_ptr<Alignment, TagBits, TagEnum>;
 
-    template <size_t TagBits = 1>
-    using tagged_void_ptr = erased_tagged_ptr<alignof(std::max_align_t), TagBits>;
+    template <size_t TagBits = 1, typename TagEnum = void>
+    using tagged_void_ptr = erased_tagged_ptr<alignof(std::max_align_t), TagBits, TagEnum>;
 
-    template <typename T, size_t TagBits = 1>
-    class tagged_ptr : public detail::erased_tagged_ptr<alignof(T), TagBits>
+    template <typename T, size_t TagBits = 1, typename TagEnum = void>
+    class tagged_ptr : public detail::erased_tagged_ptr<alignof(T), TagBits, TagEnum>
     {
       public:
         static_assert(std::is_object_v<T>, "tagged_ptr<T, TagBits> requires an object type");
 
-        using base_type = detail::erased_tagged_ptr<alignof(T), TagBits>;
+        using base_type = detail::erased_tagged_ptr<alignof(T), TagBits, TagEnum>;
         using typename base_type::storage_type;
+        using typename base_type::tag_enum_type;
 
         constexpr tagged_ptr() noexcept = default;
         constexpr tagged_ptr(std::nullptr_t) noexcept : base_type(nullptr) {}
         constexpr tagged_ptr(T *ptr, storage_type tag = 0) noexcept : base_type(ptr, tag) {}
+
+        template <typename Enum = tag_enum_type>
+            requires(std::is_enum_v<Enum>)
+        constexpr tagged_ptr(T *ptr, Enum tag) noexcept : base_type(ptr, tag) {}
 
         [[nodiscard]] constexpr T *ptr() const noexcept
         {
@@ -352,6 +416,13 @@ namespace hgraph
         }
 
         constexpr void set(T *ptr, storage_type tag_value = 0) noexcept
+        {
+            base_type::set(ptr, tag_value);
+        }
+
+        template <typename Enum = tag_enum_type>
+            requires(std::is_enum_v<Enum>)
+        constexpr void set(T *ptr, Enum tag_value) noexcept
         {
             base_type::set(ptr, tag_value);
         }
