@@ -247,6 +247,48 @@ target_compile_definitions(hgraph_v2_cpp_wiring_tests PRIVATE
 
 target_compile_features(hgraph_v2_cpp_wiring_tests PRIVATE cxx_std_23)
 
+add_executable(hgraph_v2_memory_utils_tests
+    test_v2_memory_utils.cpp
+)
+
+target_include_directories(hgraph_v2_memory_utils_tests PRIVATE
+    ../include
+)
+
+target_link_libraries(hgraph_v2_memory_utils_tests PRIVATE
+    Catch2::Catch2WithMain
+)
+
+target_compile_features(hgraph_v2_memory_utils_tests PRIVATE cxx_std_23)
+
+add_executable(hgraph_scope_tests
+    test_scope.cpp
+)
+
+target_include_directories(hgraph_scope_tests PRIVATE
+    ../include
+)
+
+target_link_libraries(hgraph_scope_tests PRIVATE
+    Catch2::Catch2WithMain
+)
+
+target_compile_features(hgraph_scope_tests PRIVATE cxx_std_23)
+
+add_executable(hgraph_tagged_ptr_tests
+    test_discriminated_ptr.cpp
+)
+
+target_include_directories(hgraph_tagged_ptr_tests PRIVATE
+    ../include
+)
+
+target_link_libraries(hgraph_tagged_ptr_tests PRIVATE
+    Catch2::Catch2WithMain
+)
+
+target_compile_features(hgraph_tagged_ptr_tests PRIVATE cxx_std_23)
+
 # Enable testing
 enable_testing()
 
@@ -256,6 +298,9 @@ include(Catch)
 catch_discover_tests(hgraph_visitor_tests)
 catch_discover_tests(hgraph_runtime_tests)
 catch_discover_tests(hgraph_v2_cpp_wiring_tests)
+catch_discover_tests(hgraph_v2_memory_utils_tests)
+catch_discover_tests(hgraph_scope_tests)
+catch_discover_tests(hgraph_tagged_ptr_tests)
 
 # Optional: Add custom target to run tests
 add_custom_target(run_visitor_tests
