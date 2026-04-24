@@ -337,6 +337,10 @@ set(HGRAPH_INCLUDES
         include/hgraph/v2/types/timeseries/ts_value_builder_ops.h
         include/hgraph/v2/types/timeseries/ts_value_ops.h
         include/hgraph/v2/types/timeseries/ts_view.h
+        include/hgraph/v2/types/utils/memory_utils.h
+        include/hgraph/v2/types/utils/slot_observer.h
+        include/hgraph/v2/types/utils/stable_slot_storage.h
+        include/hgraph/v2/types/utils/value_slot_store.h
         include/hgraph/v2/types/value/value.h
         include/hgraph/v2/types/value/value_builder.h
         include/hgraph/v2/types/value/value_builder_ops.h

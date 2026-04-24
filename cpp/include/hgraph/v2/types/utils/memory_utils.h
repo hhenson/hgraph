@@ -789,10 +789,10 @@ namespace hgraph::v2
                 .layout = layout_for<Type>(),
                 .lifecycle =
                     {
-                        .construct = std::is_default_constructible_v<Type> ? &default_construct<Type> : nullptr,
-                        .destroy = std::is_trivially_destructible_v<Type> ? nullptr : &destroy<Type>,
-                        .copy_construct = std::is_copy_constructible_v<Type> ? &copy_construct<Type> : nullptr,
-                        .move_construct = std::is_move_constructible_v<Type> ? &move_construct<Type> : nullptr,
+                        .construct = lifecycle_construct<Type>(),
+                        .destroy = lifecycle_destroy<Type>(),
+                        .copy_construct = lifecycle_copy_construct<Type>(),
+                        .move_construct = lifecycle_move_construct<Type>(),
                     },
                 .lifecycle_context = nullptr,
                 .composite_kind_tag = CompositeKind::None,
@@ -833,6 +833,46 @@ namespace hgraph::v2
         }
 
       private:
+        template <typename T>
+        [[nodiscard]] static constexpr LifecycleOps::construct_fn lifecycle_construct() noexcept
+        {
+            if constexpr (std::is_default_constructible_v<T>) {
+                return &default_construct<T>;
+            } else {
+                return nullptr;
+            }
+        }
+
+        template <typename T>
+        [[nodiscard]] static constexpr LifecycleOps::destroy_fn lifecycle_destroy() noexcept
+        {
+            if constexpr (std::is_trivially_destructible_v<T>) {
+                return nullptr;
+            } else {
+                return &destroy<T>;
+            }
+        }
+
+        template <typename T>
+        [[nodiscard]] static constexpr LifecycleOps::copy_construct_fn lifecycle_copy_construct() noexcept
+        {
+            if constexpr (std::is_copy_constructible_v<T>) {
+                return &copy_construct<T>;
+            } else {
+                return nullptr;
+            }
+        }
+
+        template <typename T>
+        [[nodiscard]] static constexpr LifecycleOps::move_construct_fn lifecycle_move_construct() noexcept
+        {
+            if constexpr (std::is_move_constructible_v<T>) {
+                return &move_construct<T>;
+            } else {
+                return nullptr;
+            }
+        }
+
         struct CompositeRegistry
         {
             using PendingComponent = typename CompositePlanBuilder::PendingComponent;
