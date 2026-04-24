@@ -596,7 +596,11 @@ namespace hgraph
 
     TSViewContext detail::refresh_native_context(const TSViewContext &context) noexcept
     {
-        if (context.ts_state == nullptr && context.output_view_ops != nullptr && context.owning_output != nullptr) {
+        // Only call through custom output_view_ops: the default ops would re-enter
+        // context.resolved() → refresh_native_context (has_live_context is false when
+        // ts_state is null), producing unbounded recursion with no new information.
+        if (context.ts_state == nullptr && context.output_view_ops != nullptr &&
+            context.output_view_ops != &detail::default_output_view_ops() && context.owning_output != nullptr) {
             LinkedTSContext current{
                 context.schema,
                 context.value_dispatch,
