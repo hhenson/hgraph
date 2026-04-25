@@ -131,6 +131,13 @@ namespace hgraph
         Destroyed = 0xFF,
     };
 
+    // Forward declaration; defined alongside TimeSeriesReference. Each peered
+    // ref owns one of these and registers it with the target state via
+    // BaseState::register_ref_invalidator. When the state is destroyed the
+    // invalidator is told to flip its owning ref to EMPTY so dangling
+    // LinkedTSContexts can never be dereferenced.
+    struct ReferenceInvalidator;
+
     struct HGRAPH_EXPORT BaseState
     {
         /**
@@ -147,6 +154,11 @@ namespace hgraph
         engine_time_t                    last_modified_time;
         TSStorageKind                    storage_kind{TSStorageKind::Native};
         std::unordered_set<Notifiable *> subscribers;
+        // Reverse subscription set: peered TimeSeriesReferences register their
+        // invalidator here so this state can sever them on destruction. Kept
+        // separate from `subscribers` because that set has subtler lifetime
+        // contracts (forward notification only) that we don't want to disturb.
+        std::unordered_set<ReferenceInvalidator *> ref_invalidators;
         std::unique_ptr<TimeSeriesFeatureRegistry> feature_registry;
 
         BaseState() = default;
@@ -155,6 +167,10 @@ namespace hgraph
         BaseState(BaseState &&) noexcept;
         BaseState &operator=(BaseState &&) noexcept;
         ~BaseState() noexcept;
+
+        // Reverse-subscription registration for peered TimeSeriesReferences.
+        void register_ref_invalidator(ReferenceInvalidator *invalidator) noexcept;
+        void unregister_ref_invalidator(ReferenceInvalidator *invalidator) noexcept;
 
         /**
          * Register a subscriber for direct modification notifications from

@@ -164,11 +164,101 @@ namespace hgraph
     TimeSeriesReference::TimeSeriesReference(LinkedTSContext target) noexcept
         : m_kind(Kind::PEERED), m_observed_time(MIN_DT), m_storage(std::move(target))
     {
+        register_invalidator();
     }
 
     TimeSeriesReference::TimeSeriesReference(std::vector<TimeSeriesReference> items)
         : m_kind(Kind::NON_PEERED), m_observed_time(MIN_DT), m_storage(std::move(items))
     {
+    }
+
+    TimeSeriesReference::TimeSeriesReference(const TimeSeriesReference &other)
+        : m_kind(other.m_kind), m_observed_time(other.m_observed_time), m_storage(other.m_storage)
+    {
+        // Copies need their own invalidator registered with the same target,
+        // because each TimeSeriesReference instance is severed independently
+        // when its target dies. The source's invalidator stays attached to
+        // the source.
+        register_invalidator();
+    }
+
+    TimeSeriesReference::TimeSeriesReference(TimeSeriesReference &&other) noexcept
+        : m_kind(other.m_kind),
+          m_observed_time(other.m_observed_time),
+          m_storage(std::move(other.m_storage)),
+          m_invalidator(std::move(other.m_invalidator))
+    {
+        // Re-seat the invalidator's owner pointer so future invalidate_ref
+        // calls land on us, not the moved-from husk.
+        if (m_invalidator) { m_invalidator->owner = this; }
+        other.m_kind = Kind::EMPTY;
+        other.m_observed_time = MIN_DT;
+    }
+
+    TimeSeriesReference &TimeSeriesReference::operator=(const TimeSeriesReference &other)
+    {
+        if (this == &other) { return *this; }
+        unregister_invalidator();
+        m_kind = other.m_kind;
+        m_observed_time = other.m_observed_time;
+        m_storage = other.m_storage;
+        register_invalidator();
+        return *this;
+    }
+
+    TimeSeriesReference &TimeSeriesReference::operator=(TimeSeriesReference &&other) noexcept
+    {
+        if (this == &other) { return *this; }
+        unregister_invalidator();
+        m_kind = other.m_kind;
+        m_observed_time = other.m_observed_time;
+        m_storage = std::move(other.m_storage);
+        m_invalidator = std::move(other.m_invalidator);
+        if (m_invalidator) { m_invalidator->owner = this; }
+        other.m_kind = Kind::EMPTY;
+        other.m_observed_time = MIN_DT;
+        return *this;
+    }
+
+    TimeSeriesReference::~TimeSeriesReference() noexcept
+    {
+        unregister_invalidator();
+    }
+
+    void TimeSeriesReference::register_invalidator() noexcept
+    {
+        if (m_kind != Kind::PEERED) { return; }
+        const auto *bound = std::get_if<LinkedTSContext>(&m_storage);
+        if (bound == nullptr || bound->ts_state == nullptr) { return; }
+        m_invalidator = std::make_unique<ReferenceInvalidator>();
+        m_invalidator->owner = this;
+        bound->ts_state->register_ref_invalidator(m_invalidator.get());
+    }
+
+    void TimeSeriesReference::unregister_invalidator() noexcept
+    {
+        if (!m_invalidator) { return; }
+        // If the target has already been destroyed, skip the unregister call
+        // — the BaseState whose set we'd be touching is gone.
+        if (!m_invalidator->target_destroyed) {
+            if (auto *bound = std::get_if<LinkedTSContext>(&m_storage); bound != nullptr && bound->ts_state != nullptr) {
+                bound->ts_state->unregister_ref_invalidator(m_invalidator.get());
+            }
+        }
+        m_invalidator.reset();
+    }
+
+    void invalidate_ref(ReferenceInvalidator &invalidator) noexcept
+    {
+        invalidator.target_destroyed = true;
+        if (TimeSeriesReference *owner = invalidator.owner; owner != nullptr) {
+            // Drop the LinkedTSContext (its ts_state is about to be freed) and
+            // flip the ref to EMPTY. The owning ref's destructor will see
+            // target_destroyed == true and skip the unregister call back into
+            // the now-defunct state.
+            owner->m_kind = TimeSeriesReference::Kind::EMPTY;
+            owner->m_storage = std::monostate{};
+        }
     }
 
     bool TimeSeriesReference::is_valid() const

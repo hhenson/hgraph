@@ -4391,7 +4391,14 @@ namespace hgraph
     {
         for (auto &subscription : m_ref_target_subscriptions) {
             if (subscription.state != nullptr && subscription.notifier) {
-                subscription.state->unsubscribe(subscription.notifier.get());
+                // Skip the unsubscribe call when the target state has already
+                // been torn down: ~BaseState() poisons `storage_kind` so we
+                // can detect that case and avoid dereferencing freed memory.
+                // The subscriber list inside the (gone) state no longer
+                // matters anyway.
+                if (subscription.state->storage_kind != TSStorageKind::Destroyed) {
+                    subscription.state->unsubscribe(subscription.notifier.get());
+                }
             }
         }
         m_ref_target_subscriptions.clear();

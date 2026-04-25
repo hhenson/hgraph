@@ -18,15 +18,13 @@ namespace hgraph
     TimeSeriesFeatureRegistry::~TimeSeriesFeatureRegistry() = default;
     void TimeSeriesFeatureRegistry::rebind_link_source(const LinkedTSContext *, engine_time_t) {}
 
-    // Destructor poisons `storage_kind` so any use-after-free scan (e.g.
-    // `context_from_root_state`) can detect that the state has been torn down
-    // before walking its parent pointer into freed memory.
     BaseState::BaseState(BaseState &&other) noexcept
         : parent(other.parent),
           index(other.index),
           last_modified_time(other.last_modified_time),
           storage_kind(other.storage_kind),
           subscribers(std::move(other.subscribers)),
+          ref_invalidators(std::move(other.ref_invalidators)),
           feature_registry(std::move(other.feature_registry))
     {
     }
@@ -38,11 +36,38 @@ namespace hgraph
         last_modified_time = other.last_modified_time;
         storage_kind = other.storage_kind;
         subscribers = std::move(other.subscribers);
+        ref_invalidators = std::move(other.ref_invalidators);
         feature_registry = std::move(other.feature_registry);
         return *this;
     }
 
-    BaseState::~BaseState() noexcept { storage_kind = TSStorageKind::Destroyed; }
+    // Destructor severs every peered REF that points at this state and then
+    // poisons `storage_kind` as a stale-memory sentinel. The poison is
+    // best-effort (the memory may be reused before any reader notices), but
+    // the invalidation sweep below is the authoritative fix: it switches
+    // every dangling ref to EMPTY before this state's storage goes away.
+    BaseState::~BaseState() noexcept
+    {
+        // Snapshot first because invalidate_ref will, in the normal flow,
+        // call back into unregister_ref_invalidator and mutate the set. By
+        // detaching the storage we keep iteration safe while still letting
+        // the invalidators clean up their owning references.
+        auto snapshot = std::move(ref_invalidators);
+        for (ReferenceInvalidator *invalidator : snapshot) {
+            if (invalidator != nullptr) { invalidate_ref(*invalidator); }
+        }
+        storage_kind = TSStorageKind::Destroyed;
+    }
+
+    void BaseState::register_ref_invalidator(ReferenceInvalidator *invalidator) noexcept
+    {
+        if (invalidator != nullptr) { ref_invalidators.insert(invalidator); }
+    }
+
+    void BaseState::unregister_ref_invalidator(ReferenceInvalidator *invalidator) noexcept
+    {
+        if (invalidator != nullptr) { ref_invalidators.erase(invalidator); }
+    }
 
     namespace
     {
@@ -323,7 +348,13 @@ namespace hgraph
         void with_target_state(const LinkedTSContext &target, TFn &&fn) noexcept
         {
             BaseState *state = target.notification_state != nullptr ? target.notification_state : target.ts_state;
-            if (state != nullptr) { std::forward<TFn>(fn)(state); }
+            // Skip when the target state has already been torn down: ~BaseState
+            // poisons storage_kind, which lets us bail before dereferencing
+            // freed memory (e.g. unsubscribe-on-RefLinkState-dtor when the
+            // target output was destroyed earlier in the teardown sequence).
+            if (state != nullptr && state->storage_kind != TSStorageKind::Destroyed) {
+                std::forward<TFn>(fn)(state);
+            }
         }
 
     } // namespace
