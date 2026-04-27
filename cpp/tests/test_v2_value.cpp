@@ -6,6 +6,7 @@
 #include <new>
 #include <ostream>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -388,4 +389,330 @@ TEST_CASE("cyclic buffer and queue views expose sequence semantics", "[v2 value]
     REQUIRE(queue_view.size() == 1);
     CHECK(queue_view.front().as<int>() == 7);
     CHECK(queue_value.to_string() == "Queue[7]");
+}
+
+TEST_CASE("value views expose kind predicates and specialized conversions", "[v2 value]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+
+    const auto *int_meta        = value::scalar_type_meta<int>();
+    const auto *string_meta     = value::scalar_type_meta<std::string>();
+    const auto *tuple_meta      = registry.tuple({int_meta, string_meta});
+    const auto *bundle_meta     = registry.bundle({{"count", int_meta}}, "Counter");
+    const auto *list_meta       = registry.list(int_meta);
+    const auto *set_meta        = registry.set(int_meta);
+    const auto *map_meta        = registry.map(string_meta, int_meta);
+    const auto *buffer_meta     = registry.cyclic_buffer(int_meta, 2);
+    const auto *queue_meta      = registry.queue(int_meta, 2);
+    const auto *invalid_binding = value::scalar_value_builder<int>().binding();
+
+    ValueView invalid_from_binding = ValueView::invalid_for(*invalid_binding);
+    ValueView invalid_from_builder = ValueView::invalid_for(value::scalar_value_builder<int>());
+    Value     scalar               = value::value_for(1);
+    Value     tuple_value(*tuple_meta);
+    Value     bundle_value(*bundle_meta);
+    Value     list_value(*list_meta);
+    Value     set_value(*set_meta);
+    Value     map_value(*map_meta);
+    Value     buffer_value(*buffer_meta);
+    Value     queue_value(*queue_meta);
+
+    REQUIRE_FALSE(invalid_from_binding.has_value());
+    REQUIRE_FALSE(invalid_from_builder.has_value());
+    REQUIRE_FALSE(invalid_from_binding.try_as_tuple().has_value());
+    REQUIRE_FALSE(invalid_from_binding.try_as_list().has_value());
+
+    CHECK(scalar.view().is_atomic());
+    CHECK(tuple_value.view().is_tuple());
+    CHECK(bundle_value.view().is_bundle());
+    CHECK(list_value.view().is_list());
+    CHECK(set_value.view().is_set());
+    CHECK(map_value.view().is_map());
+    CHECK(buffer_value.view().is_cyclic_buffer());
+    CHECK(queue_value.view().is_queue());
+
+    REQUIRE(tuple_value.view().try_as_tuple().has_value());
+    REQUIRE(bundle_value.view().try_as_bundle().has_value());
+    REQUIRE(list_value.view().try_as_list().has_value());
+    REQUIRE(set_value.view().try_as_set().has_value());
+    REQUIRE(map_value.view().try_as_map().has_value());
+    REQUIRE(buffer_value.view().try_as_cyclic_buffer().has_value());
+    REQUIRE(queue_value.view().try_as_queue().has_value());
+
+    REQUIRE_FALSE(scalar.view().try_as_tuple().has_value());
+    REQUIRE_FALSE(tuple_value.view().try_as_bundle().has_value());
+    REQUIRE_FALSE(tuple_value.view().try_as_list().has_value());
+    REQUIRE_FALSE(list_value.view().try_as_set().has_value());
+    REQUIRE_FALSE(set_value.view().try_as_map().has_value());
+    REQUIRE_FALSE(buffer_value.view().try_as_queue().has_value());
+
+    REQUIRE_THROWS_AS(static_cast<void>(scalar.view().as_tuple()), std::logic_error);
+    REQUIRE_THROWS_AS(static_cast<void>(tuple_value.view().as_bundle()), std::logic_error);
+    REQUIRE_THROWS_AS(static_cast<void>(tuple_value.view().as_list()), std::logic_error);
+    REQUIRE_THROWS_AS(static_cast<void>(list_value.view().as_set()), std::logic_error);
+    REQUIRE_THROWS_AS(static_cast<void>(set_value.view().as_map()), std::logic_error);
+    REQUIRE_THROWS_AS(static_cast<void>(buffer_value.view().as_queue()), std::logic_error);
+    REQUIRE_THROWS_AS(static_cast<void>(invalid_from_builder.hash()), std::logic_error);
+    REQUIRE_THROWS_AS(static_cast<void>(invalid_from_builder.to_string()), std::logic_error);
+}
+
+TEST_CASE("tuple and bundle views cover indexing iteration and field errors", "[v2 value]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+
+    const auto *int_meta    = value::scalar_type_meta<int>();
+    const auto *string_meta = value::scalar_type_meta<std::string>();
+    const auto *tuple_meta  = registry.tuple({int_meta, int_meta, int_meta});
+    const auto *bundle_meta = registry.bundle({{"count", int_meta}, {"label", string_meta}}, "Pair");
+
+    Value tuple_value(*tuple_meta);
+    auto  tuple_view = tuple_value.as_tuple();
+
+    tuple_view.set(0, value::value_for(10).view());
+    tuple_view.set(1, value::value_for(20).view());
+    tuple_view.set(2, value::value_for(30).view());
+
+    std::vector<int> tuple_values;
+    for (const ValueView element : tuple_view) { tuple_values.push_back(element.as<int>()); }
+
+    REQUIRE(tuple_values == std::vector<int>{10, 20, 30});
+    CHECK(tuple_view.at(1).as<int>() == 20);
+    REQUIRE_THROWS_AS(static_cast<void>(tuple_view.at(3)), std::out_of_range);
+
+    Value bundle_value(*bundle_meta);
+    auto  bundle_view = bundle_value.as_bundle();
+
+    bundle_view.set("count", value::value_for(7).view());
+    bundle_view.set("label", value::value_for(std::string("delta")).view());
+
+    REQUIRE(bundle_view.field_count() == 2);
+    REQUIRE(bundle_view.has_field("count"));
+    REQUIRE_FALSE(bundle_view.has_field("missing"));
+    CHECK(bundle_view.at("count").as<int>() == 7);
+    CHECK(bundle_view["label"].as<std::string>() == "delta");
+    REQUIRE_THROWS_AS(static_cast<void>(bundle_view.at("missing")), std::out_of_range);
+    REQUIRE_THROWS_AS(static_cast<void>(bundle_view["missing"]), std::out_of_range);
+    REQUIRE_THROWS_AS(bundle_view.set("missing", value::value_for(9).view()), std::out_of_range);
+    REQUIRE_THROWS_AS(bundle_view.set("count", value::value_for(std::string("bad")).view()), std::logic_error);
+}
+
+TEST_CASE("list views enforce fixed and dynamic contracts including errors", "[v2 value]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+    const auto   *int_meta = value::scalar_type_meta<int>();
+
+    const auto *fixed_list_meta = registry.list(int_meta, 2);
+    Value       fixed_list(*fixed_list_meta);
+    auto        fixed_view = fixed_list.as_list();
+
+    fixed_view.set(0, value::value_for(11).view());
+    fixed_view.set(1, value::value_for(12).view());
+
+    REQUIRE(fixed_view.element_type() == int_meta);
+    REQUIRE(fixed_view.is_fixed());
+    CHECK(fixed_view.front().as<int>() == 11);
+    CHECK(fixed_view.back().as<int>() == 12);
+    REQUIRE_THROWS_AS(fixed_view.push_back(value::value_for(13).view()), std::logic_error);
+    REQUIRE_THROWS_AS(fixed_view.pop_back(), std::logic_error);
+    REQUIRE_THROWS_AS(fixed_view.resize(3), std::logic_error);
+    REQUIRE_THROWS_AS(fixed_view.clear(), std::logic_error);
+
+    const auto *dynamic_list_meta = registry.list(int_meta);
+    Value       dynamic_list(*dynamic_list_meta);
+    auto        dynamic_view = dynamic_list.as_list();
+
+    REQUIRE(dynamic_view.element_type() == int_meta);
+    REQUIRE_FALSE(dynamic_view.is_fixed());
+    REQUIRE(dynamic_view.size() == 0);
+    REQUIRE_THROWS_AS(dynamic_view.pop_back(), std::out_of_range);
+    REQUIRE_THROWS_AS(dynamic_view.push_back(value::value_for(std::string("bad")).view()), std::logic_error);
+
+    dynamic_view.push_back(value::value_for(1).view());
+    dynamic_view.push_back(value::value_for(2).view());
+    dynamic_view.push_back(value::value_for(3).view());
+    dynamic_view.set(1, value::value_for(9).view());
+
+    std::vector<int> dynamic_values;
+    for (const ValueView element : dynamic_view) { dynamic_values.push_back(element.as<int>()); }
+
+    REQUIRE(dynamic_values == std::vector<int>{1, 9, 3});
+    REQUIRE_THROWS_AS(static_cast<void>(dynamic_view.at(3)), std::out_of_range);
+
+    dynamic_view.clear();
+    REQUIRE(dynamic_view.size() == 0);
+}
+
+TEST_CASE("set views cover iteration delayed erase clear and type safety", "[v2 value]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+
+    const auto *int_meta = value::scalar_type_meta<int>();
+    const auto *set_meta = registry.set(int_meta);
+
+    Value set_value(*set_meta);
+    auto  set_view = set_value.as_set();
+
+    REQUIRE(set_view.empty());
+    REQUIRE(set_view.add(value::value_for(1).view()));
+    REQUIRE(set_view.add(value::value_for(2).view()));
+    REQUIRE(set_view.size() == 2);
+    REQUIRE_FALSE(set_view.empty());
+
+    std::vector<int> initial_values;
+    for (const ValueView element : set_view) { initial_values.push_back(element.as<int>()); }
+    REQUIRE(initial_values == std::vector<int>{1, 2});
+
+    set_view.begin_mutation();
+    REQUIRE(set_view.remove(value::value_for(1).view()));
+    REQUIRE_FALSE(set_view.contains(value::value_for(1).view()));
+    REQUIRE(set_view.has_pending_erase());
+    set_view.end_mutation();
+
+    std::vector<int> live_values;
+    for (const ValueView element : set_view) { live_values.push_back(element.as<int>()); }
+    REQUIRE(live_values == std::vector<int>{2});
+
+    set_view.erase_pending();
+    REQUIRE_FALSE(set_view.has_pending_erase());
+    REQUIRE_FALSE(set_view.remove(value::value_for(9).view()));
+
+    Value wrong_type(std::string("bad"));
+    REQUIRE_THROWS_AS(set_view.contains(wrong_type.view()), std::logic_error);
+    REQUIRE_THROWS_AS(set_view.add(wrong_type.view()), std::logic_error);
+    REQUIRE_THROWS_AS(set_view.remove(wrong_type.view()), std::logic_error);
+
+    set_view.clear();
+    REQUIRE(set_view.empty());
+    REQUIRE(set_view.size() == 0);
+}
+
+TEST_CASE("map views cover iteration delayed erase clear and type safety", "[v2 value]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+
+    const auto *int_meta    = value::scalar_type_meta<int>();
+    const auto *string_meta = value::scalar_type_meta<std::string>();
+    const auto *map_meta    = registry.map(string_meta, int_meta);
+
+    Value map_value(*map_meta);
+    auto  map_view = map_value.as_map();
+
+    Value alpha(std::string("alpha"));
+    Value beta(std::string("beta"));
+    Value gamma(std::string("gamma"));
+
+    REQUIRE(map_view.empty());
+    REQUIRE(map_view.key_type() == string_meta);
+    REQUIRE(map_view.value_type() == int_meta);
+    REQUIRE(map_view.add(alpha.view(), value::value_for(1).view()));
+    REQUIRE(map_view.add(beta.view(), value::value_for(2).view()));
+    REQUIRE_FALSE(map_view.add(beta.view(), value::value_for(3).view()));
+    REQUIRE(map_view.size() == 2);
+    REQUIRE_FALSE(map_view.empty());
+
+    std::vector<std::string> entry_strings;
+    for (const auto entry : map_view) {
+        entry_strings.push_back(entry.key.as<std::string>() + "=" + std::to_string(entry.value.as<int>()));
+    }
+    REQUIRE(entry_strings == std::vector<std::string>{"alpha=1", "beta=2"});
+
+    CHECK(map_view.at(alpha.view()).as<int>() == 1);
+    REQUIRE_THROWS_AS(static_cast<void>(map_view.at(gamma.view())), std::out_of_range);
+
+    map_view.begin_mutation();
+    REQUIRE(map_view.remove(beta.view()));
+    REQUIRE(map_view.has_pending_erase());
+    REQUIRE_FALSE(map_view.contains(beta.view()));
+    map_view.end_mutation();
+
+    std::vector<std::string> live_entries;
+    for (const auto entry : map_view) {
+        live_entries.push_back(entry.key.as<std::string>() + "=" + std::to_string(entry.value.as<int>()));
+    }
+    REQUIRE(live_entries == std::vector<std::string>{"alpha=1"});
+
+    map_view.erase_pending();
+    REQUIRE_FALSE(map_view.has_pending_erase());
+    REQUIRE_FALSE(map_view.remove(gamma.view()));
+
+    Value wrong_key(1);
+    Value wrong_value(std::string("bad"));
+    REQUIRE_THROWS_AS(map_view.contains(wrong_key.view()), std::logic_error);
+    REQUIRE_THROWS_AS(static_cast<void>(map_view.at(wrong_key.view())), std::logic_error);
+    REQUIRE_THROWS_AS(map_view.set(wrong_key.view(), value::value_for(9).view()), std::logic_error);
+    REQUIRE_THROWS_AS(map_view.set(alpha.view(), wrong_value.view()), std::logic_error);
+    REQUIRE_THROWS_AS(map_view.add(wrong_key.view(), value::value_for(9).view()), std::logic_error);
+    REQUIRE_THROWS_AS(map_view.remove(wrong_key.view()), std::logic_error);
+
+    map_view.clear();
+    REQUIRE(map_view.empty());
+    REQUIRE(map_view.size() == 0);
+}
+
+TEST_CASE("cyclic buffer and queue views cover clear bounds and empty checks", "[v2 value]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+    const auto   *int_meta = value::scalar_type_meta<int>();
+
+    const auto *buffer_meta = registry.cyclic_buffer(int_meta, 2);
+    Value       buffer_value(*buffer_meta);
+    auto        buffer_view = buffer_value.as_cyclic_buffer();
+
+    REQUIRE(buffer_view.capacity() == 2);
+    REQUIRE_FALSE(buffer_view.full());
+    buffer_view.push(value::value_for(1).view());
+    buffer_view.push(value::value_for(2).view());
+    REQUIRE(buffer_view.full());
+    REQUIRE(buffer_view.size() == 2);
+
+    std::vector<int> buffer_values;
+    for (const ValueView element : buffer_view) { buffer_values.push_back(element.as<int>()); }
+    REQUIRE(buffer_values == std::vector<int>{1, 2});
+
+    buffer_view.clear();
+    REQUIRE(buffer_view.size() == 0);
+    REQUIRE_FALSE(buffer_view.full());
+    REQUIRE_THROWS_AS(static_cast<void>(buffer_view.front()), std::out_of_range);
+
+    const auto *queue_meta = registry.queue(int_meta, 2);
+    Value       queue_value(*queue_meta);
+    auto        queue_view = queue_value.as_queue();
+
+    REQUIRE(queue_view.max_capacity() == 2);
+    REQUIRE(queue_view.has_max_capacity());
+    queue_view.push(value::value_for(5).view());
+    queue_view.push(value::value_for(6).view());
+    REQUIRE(queue_view.size() == 2);
+
+    std::vector<int> queue_values;
+    for (const ValueView element : queue_view) { queue_values.push_back(element.as<int>()); }
+    REQUIRE(queue_values == std::vector<int>{5, 6});
+
+    queue_view.clear();
+    REQUIRE(queue_view.size() == 0);
+    REQUIRE_THROWS_AS(queue_view.pop(), std::out_of_range);
+    REQUIRE_THROWS_AS(static_cast<void>(queue_view.back()), std::out_of_range);
+}
+
+TEST_CASE("container values support copy assignment equality compare and reset", "[v2 value]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+    const auto   *int_meta = value::scalar_type_meta<int>();
+
+    const auto *list_meta = registry.list(int_meta);
+    Value       lhs(*list_meta);
+    auto        lhs_view = lhs.as_list();
+    lhs_view.push_back(value::value_for(1).view());
+    lhs_view.push_back(value::value_for(2).view());
+
+    Value copied(lhs.view());
+    REQUIRE(copied.equals(lhs));
+    CHECK(copied.hash() == lhs.hash());
+    CHECK((copied <=> lhs) == std::partial_ordering::equivalent);
+
+    Value assigned(*list_meta);
+    assigned = lhs;
+    REQUIRE(assigned.equals(lhs));
+    REQUIRE(assigned.to_string() == "[1, 2]");
+
+    copied.as_list().push_back(value::value_for(3).view());
+    CHECK(std::is_lt(lhs.compare(copied)));
+    CHECK_FALSE(lhs.equals(copied));
+
+    lhs.reset();
+    REQUIRE(lhs.as_list().size() == 0);
+    REQUIRE(lhs.to_string() == "[]");
 }
