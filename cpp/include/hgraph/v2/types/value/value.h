@@ -83,6 +83,22 @@ namespace hgraph::v2
 
         template <typename T> [[nodiscard]] const T &as() const { return view().template as<T>(); }
 
+        [[nodiscard]] TupleView        as_tuple() { return view().as_tuple(); }
+        [[nodiscard]] BundleView       as_bundle() { return view().as_bundle(); }
+        [[nodiscard]] ListView         as_list() { return view().as_list(); }
+        [[nodiscard]] SetView          as_set() { return view().as_set(); }
+        [[nodiscard]] MapView          as_map() { return view().as_map(); }
+        [[nodiscard]] CyclicBufferView as_cyclic_buffer() { return view().as_cyclic_buffer(); }
+        [[nodiscard]] QueueView        as_queue() { return view().as_queue(); }
+
+        [[nodiscard]] TupleView        as_tuple() const { return view().as_tuple(); }
+        [[nodiscard]] BundleView       as_bundle() const { return view().as_bundle(); }
+        [[nodiscard]] ListView         as_list() const { return view().as_list(); }
+        [[nodiscard]] SetView          as_set() const { return view().as_set(); }
+        [[nodiscard]] MapView          as_map() const { return view().as_map(); }
+        [[nodiscard]] CyclicBufferView as_cyclic_buffer() const { return view().as_cyclic_buffer(); }
+        [[nodiscard]] QueueView        as_queue() const { return view().as_queue(); }
+
         [[nodiscard]] size_t                hash() const { return view().hash(); }
         [[nodiscard]] bool                  equals(const Value &other) const { return view().equals(other.view()); }
         [[nodiscard]] bool                  equals(const ValueView &other) const { return view().equals(other); }

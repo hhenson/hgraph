@@ -9,8 +9,6 @@
 
 namespace hgraph::v2
 {
-    using ValueTypeBinding = TypeBinding<ValueTypeMetaData, ValueOps>;
-
     /**
      * Bound storage plan and interned schema behavior for one concrete value.
      *

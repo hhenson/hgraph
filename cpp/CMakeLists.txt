@@ -347,6 +347,8 @@ set(HGRAPH_INCLUDES
         include/hgraph/v2/types/value/value.h
         include/hgraph/v2/types/value/value_builder.h
         include/hgraph/v2/types/value/value_builder_ops.h
+        include/hgraph/v2/types/value/container_storage.h
+        include/hgraph/v2/types/value/specialized_views.h
         include/hgraph/v2/types/value/value_ops.h
         include/hgraph/v2/types/value/view.h
         include/hgraph/types/base_time_series.h

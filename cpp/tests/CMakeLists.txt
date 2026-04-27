@@ -311,6 +311,7 @@ add_executable(hgraph_v2_value_tests
 
 target_include_directories(hgraph_v2_value_tests PRIVATE
     ../include
+    ${HGRAPH_DYNAMIC_BITSET_INCLUDE_DIR}
 )
 
 target_link_libraries(hgraph_v2_value_tests PRIVATE

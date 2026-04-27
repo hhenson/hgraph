@@ -5,6 +5,7 @@
 
 #include <compare>
 #include <new>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -13,9 +14,16 @@
 namespace hgraph::v2
 {
     struct Value;
+    struct TupleView;
+    struct BundleView;
+    struct ListView;
+    struct SetView;
+    struct MapView;
+    struct CyclicBufferView;
+    struct QueueView;
 
     /**
-     * Data holder for a non-owning erased scalar value reference.
+     * Data holder for a non-owning erased value reference.
      */
     struct ValueViewContext
     {
@@ -24,15 +32,14 @@ namespace hgraph::v2
     };
 
     /**
-     * Non-owning erased handle over a live scalar payload.
+     * Non-owning erased handle over a live v2 value payload.
      *
      * `ValueView` carries:
      * - the schema/lifecycle/ops `ValueTypeBinding`
      * - a pointer to the underlying constructed object
      *
-     * The first scalar slice intentionally mirrors the older value/view model:
-     * a view is lightweight and copyable, and typed access is recovered by
-     * comparing the bound schema pointer against `value::scalar_type_meta<T>()`.
+     * Specialized adapters such as `ListView` and `MapView` are thin wrappers
+     * over this same two-word context.
      */
     struct ValueView
     {
@@ -41,12 +48,12 @@ namespace hgraph::v2
         ValueView() = default;
 
         ValueView(const ValueTypeBinding *binding, void *data) noexcept : context{binding, data} {}
+
         ValueView(const ValueBuilder *builder, void *data) noexcept : context{builder ? builder->binding() : nullptr, data} {}
 
         [[nodiscard]] static ValueView invalid_for(const ValueTypeBinding &binding) noexcept {
             return ValueView{&binding, nullptr};
         }
-
         [[nodiscard]] static ValueView invalid_for(const ValueBuilder &builder) noexcept {
             return ValueView{builder.binding(), nullptr};
         }
@@ -58,6 +65,9 @@ namespace hgraph::v2
         [[nodiscard]] const ValueTypeMetaData *type() const noexcept {
             return context.binding ? context.binding->type_meta : nullptr;
         }
+        [[nodiscard]] const MemoryUtils::StoragePlan *plan() const noexcept {
+            return context.binding ? context.binding->plan() : nullptr;
+        }
         [[nodiscard]] const MemoryUtils::LifecycleOps *lifecycle() const noexcept {
             return context.binding ? context.binding->lifecycle() : nullptr;
         }
@@ -67,6 +77,17 @@ namespace hgraph::v2
         [[nodiscard]] const ValueOps *ops() const noexcept { return context.binding ? context.binding->ops : nullptr; }
         [[nodiscard]] void           *data() noexcept { return context.data; }
         [[nodiscard]] const void     *data() const noexcept { return context.data; }
+
+        [[nodiscard]] bool is_atomic() const noexcept { return type() != nullptr && type()->kind == ValueTypeKind::Atomic; }
+        [[nodiscard]] bool is_tuple() const noexcept { return type() != nullptr && type()->kind == ValueTypeKind::Tuple; }
+        [[nodiscard]] bool is_bundle() const noexcept { return type() != nullptr && type()->kind == ValueTypeKind::Bundle; }
+        [[nodiscard]] bool is_list() const noexcept { return type() != nullptr && type()->kind == ValueTypeKind::List; }
+        [[nodiscard]] bool is_set() const noexcept { return type() != nullptr && type()->kind == ValueTypeKind::Set; }
+        [[nodiscard]] bool is_map() const noexcept { return type() != nullptr && type()->kind == ValueTypeKind::Map; }
+        [[nodiscard]] bool is_cyclic_buffer() const noexcept {
+            return type() != nullptr && type()->kind == ValueTypeKind::CyclicBuffer;
+        }
+        [[nodiscard]] bool is_queue() const noexcept { return type() != nullptr && type()->kind == ValueTypeKind::Queue; }
 
         template <typename T> [[nodiscard]] bool is_type() const noexcept {
             return type() == value::scalar_type_meta<std::remove_cv_t<std::remove_reference_t<T>>>();
@@ -86,22 +107,17 @@ namespace hgraph::v2
 
         template <typename T> [[nodiscard]] T &checked_as() {
             if (!has_value()) { throw std::logic_error("ValueView::checked_as<T>() on an empty view"); }
-
             if (T *result = try_as<T>(); result != nullptr) { return *result; }
-
             throw std::logic_error("ValueView::checked_as<T>() type mismatch");
         }
 
         template <typename T> [[nodiscard]] const T &checked_as() const {
             if (!has_value()) { throw std::logic_error("ValueView::checked_as<T>() on an empty view"); }
-
             if (const T *result = try_as<T>(); result != nullptr) { return *result; }
-
             throw std::logic_error("ValueView::checked_as<T>() type mismatch");
         }
 
-        template <typename T> [[nodiscard]] T &as() { return checked_as<T>(); }
-
+        template <typename T> [[nodiscard]] T       &as() { return checked_as<T>(); }
         template <typename T> [[nodiscard]] const T &as() const { return checked_as<T>(); }
 
         template <typename T>
@@ -130,13 +146,13 @@ namespace hgraph::v2
 
         [[nodiscard]] size_t hash() const {
             if (!has_value()) { throw std::logic_error("ValueView::hash() on an empty view"); }
-            return checked_ops().hash_of(context.data);
+            return checked_ops().hash_of(context.data, checked_binding());
         }
 
         [[nodiscard]] bool equals(const ValueView &other) const {
             if (binding() != other.binding()) { return false; }
             if (!has_value() || !other.has_value()) { return !has_value() && !other.has_value(); }
-            return checked_ops().equals_of(context.data, other.context.data);
+            return checked_ops().equals_of(context.data, other.context.data, checked_binding());
         }
 
         [[nodiscard]] std::partial_ordering compare(const ValueView &other) const {
@@ -144,13 +160,29 @@ namespace hgraph::v2
             if (!has_value() || !other.has_value()) {
                 return !has_value() && !other.has_value() ? std::partial_ordering::equivalent : std::partial_ordering::unordered;
             }
-            return checked_ops().compare_of(context.data, other.context.data);
+            return checked_ops().compare_of(context.data, other.context.data, checked_binding());
         }
 
         [[nodiscard]] std::string to_string() const {
             if (!has_value()) { throw std::logic_error("ValueView::to_string() on an empty view"); }
-            return checked_ops().to_string_of(context.data);
+            return checked_ops().to_string_of(context.data, checked_binding());
         }
+
+        [[nodiscard]] std::optional<TupleView>        try_as_tuple() const;
+        [[nodiscard]] std::optional<BundleView>       try_as_bundle() const;
+        [[nodiscard]] std::optional<ListView>         try_as_list() const;
+        [[nodiscard]] std::optional<SetView>          try_as_set() const;
+        [[nodiscard]] std::optional<MapView>          try_as_map() const;
+        [[nodiscard]] std::optional<CyclicBufferView> try_as_cyclic_buffer() const;
+        [[nodiscard]] std::optional<QueueView>        try_as_queue() const;
+
+        [[nodiscard]] TupleView        as_tuple() const;
+        [[nodiscard]] BundleView       as_bundle() const;
+        [[nodiscard]] ListView         as_list() const;
+        [[nodiscard]] SetView          as_set() const;
+        [[nodiscard]] MapView          as_map() const;
+        [[nodiscard]] CyclicBufferView as_cyclic_buffer() const;
+        [[nodiscard]] QueueView        as_queue() const;
 
         [[nodiscard]] bool                  operator==(const ValueView &other) const { return equals(other); }
         [[nodiscard]] std::partial_ordering operator<=>(const ValueView &other) const { return compare(other); }
@@ -158,12 +190,13 @@ namespace hgraph::v2
       private:
         [[nodiscard]] const ValueTypeBinding &checked_binding() const {
             if (const ValueTypeBinding *value_binding = binding(); value_binding != nullptr) { return *value_binding; }
-
             throw std::logic_error("ValueView is not bound to a type binding");
         }
 
         [[nodiscard]] const ValueOps &checked_ops() const { return checked_binding().checked_ops(); }
     };
 }  // namespace hgraph::v2
+
+#include <hgraph/v2/types/value/specialized_views.h>
 
 #endif  // HGRAPH_CPP_ROOT_VIEW_H

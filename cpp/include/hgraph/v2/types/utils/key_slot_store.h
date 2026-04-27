@@ -21,20 +21,21 @@ namespace hgraph::v2
 {
     struct KeySlotStoreOps
     {
-        using hash_fn  = size_t (*)(const void *);
-        using equal_fn = bool (*)(const void *, const void *);
+        using hash_fn  = size_t (*)(const void *, const void *);
+        using equal_fn = bool (*)(const void *, const void *, const void *);
 
-        hash_fn  hash{nullptr};
-        equal_fn equal{nullptr};
+        hash_fn     hash{nullptr};
+        equal_fn    equal{nullptr};
+        const void *context{nullptr};
 
         [[nodiscard]] size_t hash_key(const void *key) const {
             if (hash == nullptr) { throw std::logic_error("KeySlotStore requires a hash hook"); }
-            return hash(key);
+            return hash(key, context);
         }
 
         [[nodiscard]] bool equal_keys(const void *lhs, const void *rhs) const {
             if (equal == nullptr) { throw std::logic_error("KeySlotStore requires an equality hook"); }
-            return equal(lhs, rhs);
+            return equal(lhs, rhs, context);
         }
     };
 
@@ -50,11 +51,11 @@ namespace hgraph::v2
             { lhs == rhs } -> std::convertible_to<bool>;
         };
 
-        template <typename T> [[nodiscard]] size_t typed_key_hash(const void *key) {
+        template <typename T> [[nodiscard]] size_t typed_key_hash(const void *key, const void *) {
             return std::hash<T>{}(*MemoryUtils::cast<T>(key));
         }
 
-        template <typename T> [[nodiscard]] bool typed_key_equal(const void *lhs, const void *rhs) {
+        template <typename T> [[nodiscard]] bool typed_key_equal(const void *lhs, const void *rhs, const void *) {
             return *MemoryUtils::cast<T>(lhs) == *MemoryUtils::cast<T>(rhs);
         }
     }  // namespace detail

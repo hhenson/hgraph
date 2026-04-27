@@ -218,3 +218,174 @@ TEST_CASE("scalar views require copy-assign support for copy_from", "[v2 value]"
 
     REQUIRE_THROWS_AS(dst.view().copy_from(src.view()), std::logic_error);
 }
+
+TEST_CASE("tuple and bundle views expose structured child access", "[v2 value]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+
+    const auto *int_meta    = value::scalar_type_meta<int>();
+    const auto *string_meta = value::scalar_type_meta<std::string>();
+    const auto *tuple_meta  = registry.tuple({int_meta, string_meta});
+
+    REQUIRE(ValueBuilder::find(tuple_meta) == nullptr);
+
+    Value tuple_value(*tuple_meta);
+    auto  tuple_view = tuple_value.as_tuple();
+
+    tuple_view.set(0, value::value_for(42).view());
+    Value label(std::string("alpha"));
+    tuple_view.set(1, label.view());
+
+    REQUIRE(tuple_view.size() == 2);
+    CHECK(tuple_view[0].as<int>() == 42);
+    CHECK(tuple_view[1].as<std::string>() == "alpha");
+    CHECK(tuple_value.to_string() == "(42, alpha)");
+    REQUIRE(ValueBuilder::find(tuple_meta) != nullptr);
+
+    const auto *bundle_meta = registry.bundle({{"count", int_meta}, {"label", string_meta}}, "Pair");
+    Value       bundle_value(*bundle_meta);
+    auto        bundle_view = bundle_value.as_bundle();
+
+    bundle_view.set("count", value::value_for(3).view());
+    bundle_view.set("label", value::value_for(std::string("beta")).view());
+
+    REQUIRE(bundle_view.field_count() == 2);
+    CHECK(bundle_view.has_field("count"));
+    CHECK(bundle_view["count"].as<int>() == 3);
+    CHECK(bundle_view["label"].as<std::string>() == "beta");
+    CHECK(bundle_value.to_string() == "Pair{count: 3, label: beta}");
+}
+
+TEST_CASE("list views support fixed and dynamic schemas", "[v2 value]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+
+    const auto *int_meta        = value::scalar_type_meta<int>();
+    const auto *fixed_list_meta = registry.list(int_meta, 3);
+    Value       fixed_list(*fixed_list_meta);
+    auto        fixed_view = fixed_list.as_list();
+
+    REQUIRE(fixed_view.is_fixed());
+    REQUIRE(fixed_view.size() == 3);
+    fixed_view.set(1, value::value_for(9).view());
+    CHECK(fixed_view[1].as<int>() == 9);
+    REQUIRE_THROWS_AS(fixed_view.push_back(value::value_for(4).view()), std::logic_error);
+
+    const auto *dynamic_list_meta = registry.list(int_meta);
+    Value       dynamic_list(*dynamic_list_meta);
+    auto        dynamic_view = dynamic_list.as_list();
+
+    REQUIRE_FALSE(dynamic_view.is_fixed());
+    REQUIRE(dynamic_view.size() == 0);
+
+    dynamic_view.push_back(value::value_for(1).view());
+    dynamic_view.push_back(value::value_for(2).view());
+    REQUIRE(dynamic_view.size() == 2);
+    CHECK(dynamic_view.front().as<int>() == 1);
+    CHECK(dynamic_view.back().as<int>() == 2);
+
+    dynamic_view.pop_back();
+    REQUIRE(dynamic_view.size() == 1);
+    dynamic_view.resize(3);
+    REQUIRE(dynamic_view.size() == 3);
+    CHECK(dynamic_view[0].as<int>() == 1);
+    CHECK(dynamic_view[1].as<int>() == 0);
+    CHECK(dynamic_view[2].as<int>() == 0);
+    CHECK(dynamic_list.to_string() == "[1, 0, 0]");
+}
+
+TEST_CASE("set and map views use stable keyed storage semantics", "[v2 value]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+
+    const auto *int_meta    = value::scalar_type_meta<int>();
+    const auto *string_meta = value::scalar_type_meta<std::string>();
+
+    Value one   = value::value_for(1);
+    Value two   = value::value_for(2);
+    Value three = value::value_for(3);
+
+    const auto *set_meta = registry.set(int_meta);
+    Value       set_value(*set_meta);
+    auto        set_view = set_value.as_set();
+
+    REQUIRE(set_view.add(one.view()));
+    REQUIRE(set_view.add(two.view()));
+    REQUIRE_FALSE(set_view.add(two.view()));
+    REQUIRE(set_view.contains(one.view()));
+    REQUIRE(set_view.size() == 2);
+
+    set_view.begin_mutation();
+    REQUIRE(set_view.remove(one.view()));
+    REQUIRE_FALSE(set_view.contains(one.view()));
+    REQUIRE(set_view.has_pending_erase());
+    REQUIRE(set_view.add(one.view()));
+    set_view.end_mutation();
+
+    REQUIRE(set_view.contains(one.view()));
+    REQUIRE_FALSE(set_view.has_pending_erase());
+    CHECK(set_value.to_string() == "{1, 2}");
+
+    const auto *map_meta = registry.map(string_meta, int_meta);
+    Value       map_value(*map_meta);
+    auto        map_view = map_value.as_map();
+    Value       alpha(std::string("alpha"));
+    Value       beta(std::string("beta"));
+
+    map_view.set(alpha.view(), one.view());
+    map_view.set(beta.view(), two.view());
+    REQUIRE(map_view.size() == 2);
+    CHECK(map_view.at(alpha.view()).as<int>() == 1);
+
+    map_view.set(alpha.view(), three.view());
+    CHECK(map_view.at(alpha.view()).as<int>() == 3);
+
+    map_view.begin_mutation();
+    REQUIRE(map_view.remove(beta.view()));
+    REQUIRE_FALSE(map_view.contains(beta.view()));
+    REQUIRE(map_view.has_pending_erase());
+    map_view.end_mutation();
+    map_view.erase_pending();
+
+    REQUIRE(map_view.size() == 1);
+    CHECK(map_view.at(alpha.view()).as<int>() == 3);
+    CHECK(map_value.to_string() == "{alpha: 3}");
+}
+
+TEST_CASE("cyclic buffer and queue views expose sequence semantics", "[v2 value]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+    const auto   *int_meta = value::scalar_type_meta<int>();
+
+    const auto *buffer_meta = registry.cyclic_buffer(int_meta, 3);
+    Value       buffer_value(*buffer_meta);
+    auto        buffer_view = buffer_value.as_cyclic_buffer();
+
+    buffer_view.push(value::value_for(1).view());
+    buffer_view.push(value::value_for(2).view());
+    buffer_view.push(value::value_for(3).view());
+
+    REQUIRE(buffer_view.full());
+    CHECK(buffer_view.front().as<int>() == 1);
+    CHECK(buffer_view.back().as<int>() == 3);
+
+    buffer_view.push(value::value_for(4).view());
+    REQUIRE(buffer_view.size() == 3);
+    CHECK(buffer_view[0].as<int>() == 2);
+    CHECK(buffer_view[1].as<int>() == 3);
+    CHECK(buffer_view[2].as<int>() == 4);
+    CHECK(buffer_value.to_string() == "CyclicBuffer[2, 3, 4]");
+
+    const auto *queue_meta = registry.queue(int_meta, 2);
+    Value       queue_value(*queue_meta);
+    auto        queue_view = queue_value.as_queue();
+
+    queue_view.push(value::value_for(5).view());
+    queue_view.push(value::value_for(6).view());
+    queue_view.push(value::value_for(7).view());
+
+    REQUIRE(queue_view.size() == 2);
+    CHECK(queue_view.front().as<int>() == 6);
+    CHECK(queue_view.back().as<int>() == 7);
+
+    queue_view.pop();
+    REQUIRE(queue_view.size() == 1);
+    CHECK(queue_view.front().as<int>() == 7);
+    CHECK(queue_value.to_string() == "Queue[7]");
+}

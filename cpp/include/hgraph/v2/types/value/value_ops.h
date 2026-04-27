@@ -15,19 +15,23 @@
 
 namespace hgraph::v2
 {
+    template <typename TypeMeta, typename Ops> struct TypeBinding;
+    struct ValueOps;
+    using ValueTypeBinding = TypeBinding<ValueTypeMetaData, ValueOps>;
+
     /**
      * Behavior-only erased operations over a live value payload.
      *
      * `ValueOps` does not describe schema identity or storage layout. It only
      * knows how to operate on an already-constructed object at a raw memory
-     * address.
+     * address for one bound `ValueTypeBinding`.
      */
     struct ValueOps
     {
-        using hash_fn      = size_t (*)(const void *);
-        using equals_fn    = bool (*)(const void *, const void *);
-        using compare_fn   = std::partial_ordering (*)(const void *, const void *);
-        using to_string_fn = std::string (*)(const void *);
+        using hash_fn      = size_t (*)(const void *, const ValueTypeBinding &);
+        using equals_fn    = bool (*)(const void *, const void *, const ValueTypeBinding &);
+        using compare_fn   = std::partial_ordering (*)(const void *, const void *, const ValueTypeBinding &);
+        using to_string_fn = std::string (*)(const void *, const ValueTypeBinding &);
 
         hash_fn      hash{nullptr};
         equals_fn    equals{nullptr};
@@ -39,24 +43,24 @@ namespace hgraph::v2
         [[nodiscard]] constexpr bool can_compare() const noexcept { return compare != nullptr; }
         [[nodiscard]] constexpr bool can_to_string() const noexcept { return to_string != nullptr; }
 
-        [[nodiscard]] size_t hash_of(const void *data) const {
+        [[nodiscard]] size_t hash_of(const void *data, const ValueTypeBinding &binding) const {
             if (hash == nullptr) { throw std::logic_error("ValueOps is missing a hash hook"); }
-            return hash(data);
+            return hash(data, binding);
         }
 
-        [[nodiscard]] bool equals_of(const void *lhs, const void *rhs) const {
+        [[nodiscard]] bool equals_of(const void *lhs, const void *rhs, const ValueTypeBinding &binding) const {
             if (equals == nullptr) { throw std::logic_error("ValueOps is missing an equality hook"); }
-            return equals(lhs, rhs);
+            return equals(lhs, rhs, binding);
         }
 
-        [[nodiscard]] std::partial_ordering compare_of(const void *lhs, const void *rhs) const {
+        [[nodiscard]] std::partial_ordering compare_of(const void *lhs, const void *rhs, const ValueTypeBinding &binding) const {
             if (compare == nullptr) { throw std::logic_error("ValueOps is missing a comparison hook"); }
-            return compare(lhs, rhs);
+            return compare(lhs, rhs, binding);
         }
 
-        [[nodiscard]] std::string to_string_of(const void *data) const {
+        [[nodiscard]] std::string to_string_of(const void *data, const ValueTypeBinding &binding) const {
             if (to_string == nullptr) { throw std::logic_error("ValueOps is missing a string conversion hook"); }
-            return to_string(data);
+            return to_string(data, binding);
         }
     };
 
@@ -119,13 +123,16 @@ namespace hgraph::v2
             }
         }
 
-        template <typename T> [[nodiscard]] size_t scalar_hash(const void *data) { return std::hash<T>{}(*typed_value<T>(data)); }
+        template <typename T> [[nodiscard]] size_t scalar_hash(const void *data, const ValueTypeBinding &) {
+            return std::hash<T>{}(*typed_value<T>(data));
+        }
 
-        template <typename T> [[nodiscard]] bool scalar_equals(const void *lhs, const void *rhs) {
+        template <typename T> [[nodiscard]] bool scalar_equals(const void *lhs, const void *rhs, const ValueTypeBinding &) {
             return *typed_value<T>(lhs) == *typed_value<T>(rhs);
         }
 
-        template <typename T> [[nodiscard]] std::partial_ordering scalar_compare(const void *lhs, const void *rhs) {
+        template <typename T>
+        [[nodiscard]] std::partial_ordering scalar_compare(const void *lhs, const void *rhs, const ValueTypeBinding &) {
             if constexpr (ValueThreeWayComparable<T>) {
                 return *typed_value<T>(lhs) <=> *typed_value<T>(rhs);
             } else if constexpr (ValueEquatable<T> && ValueLessThanComparable<T>) {
@@ -139,7 +146,7 @@ namespace hgraph::v2
             }
         }
 
-        template <typename T> [[nodiscard]] std::string scalar_to_string(const void *data) {
+        template <typename T> [[nodiscard]] std::string scalar_to_string(const void *data, const ValueTypeBinding &) {
             return value_to_string(*typed_value<T>(data));
         }
 
