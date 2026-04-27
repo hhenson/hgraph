@@ -2256,6 +2256,15 @@ namespace hgraph
             ReduceAggregateRef right_source{};
             LinkedTSContext    left_bound_context{};
             LinkedTSContext    right_bound_context{};
+            // Generation counter that bumps every time this op rebinds its
+            // child inputs. Parents observe via left/right_source_generation
+            // to detect when a descendant restructured even though the
+            // descendant's published_output address is stable across the
+            // recycle/rebind cycle. This is the missing propagation that
+            // `linked_context_equal` cannot provide.
+            uint64_t my_generation{0};
+            uint64_t left_source_generation{0};
+            uint64_t right_source_generation{0};
             engine_time_t      next_scheduled{MAX_DT};
             bool               bound{false};
         };
@@ -2481,6 +2490,34 @@ namespace hgraph
         {
             if (required_leaf_count == 0) { return; }
             while (runtime.leaf_capacity < required_leaf_count) { runtime.leaf_capacity *= 2; }
+        }
+
+        // Walks an aggregate ref through pass-through internals (where
+        // internal_refs[i] = Node(j) is a transparent forward) until it
+        // reaches the live op that actually produces the output. Returns
+        // that op's `my_generation`, or 0 for refs that don't resolve to a
+        // live op (Empty / Zero / Leaf). Capped at internal_count steps so a
+        // malformed chain can never spin.
+        [[nodiscard]] uint64_t peer_generation_of(const ReduceNodeRuntimeData &runtime,
+                                                  const std::vector<ReduceAggregateRef> &internal_refs,
+                                                  ReduceAggregateRef ref) noexcept
+        {
+            const size_t max_steps = internal_refs.size() + 1;
+            for (size_t step = 0; step < max_steps; ++step) {
+                if (ref.kind != ReduceAggregateRef::Kind::Node) { return 0; }
+                if (ref.index >= internal_refs.size()) { return 0; }
+                const ReduceOpStore &op_store = reduce_op_store(const_cast<ReduceNodeRuntimeData &>(runtime));
+                const ReduceOpRuntime *op = op_store.try_slot(ref.index);
+                if (op != nullptr && op->bound) { return op->my_generation; }
+                // Not a live op at this position — must be a pass-through.
+                // Follow the redirect.
+                const ReduceAggregateRef &next = internal_refs[ref.index];
+                if (next.kind == ReduceAggregateRef::Kind::Node && next.index == ref.index) {
+                    return 0;
+                }
+                ref = next;
+            }
+            return 0;
         }
 
         [[nodiscard]] TSOutputView reduce_resolve_aggregate_output(Node                            &node,
@@ -3036,10 +3073,23 @@ namespace hgraph
                 TSOutputView right_output = reduce_resolve_aggregate_output(node, runtime, internal_refs, right_ref, evaluation_time);
                 const LinkedTSContext left_context = bound_output_context(left_output);
                 const LinkedTSContext right_context = bound_output_context(right_output);
+                // Pull each child's current generation. For a Kind::Node ref
+                // that goes through a pass-through chain we resolve to the
+                // live op underneath. This is what `linked_context_equal`
+                // can't see: when a leaf-parent rebinds, its published_output
+                // address stays the same but its data is fresh — the
+                // generation bump is the signal.
+                const uint64_t left_peer_generation = peer_generation_of(runtime, internal_refs, left_ref);
+                const uint64_t right_peer_generation = peer_generation_of(runtime, internal_refs, right_ref);
+                const bool source_generation_changed =
+                    op != nullptr && op->bound &&
+                    (op->left_source_generation != left_peer_generation ||
+                     op->right_source_generation != right_peer_generation);
                 const bool binding_changed =
                     op == nullptr || !op->bound || op->left_source != left_ref || op->right_source != right_ref ||
                     !detail::linked_context_equal(op->left_bound_context, left_context) ||
-                    !detail::linked_context_equal(op->right_bound_context, right_context);
+                    !detail::linked_context_equal(op->right_bound_context, right_context) ||
+                    source_generation_changed;
                 const bool force_recompute = runtime.structure_changed;
                 const bool effective_binding_changed = binding_changed || force_recompute;
                 if (op == nullptr) { op = &op_store.emplace_at(index); }
@@ -3094,7 +3144,12 @@ namespace hgraph
                     op->right_source = right_ref;
                     op->left_bound_context = left_context;
                     op->right_bound_context = right_context;
+                    op->left_source_generation = left_peer_generation;
+                    op->right_source_generation = right_peer_generation;
                     op->bound = true;
+                    // Bump our generation so any parent that observes us as a
+                    // source picks up the rebind on the next pass.
+                    ++op->my_generation;
                 }
 
                 if (effective_binding_changed || output_changed(left_output) || output_changed(right_output) || scheduled_now) {
@@ -3116,10 +3171,12 @@ namespace hgraph
                                                           rhs_changed,
                                                           evaluation_time);
                     }
+                    // Single evaluation. The earlier code did a second
+                    // evaluate when binding changed; with the source-
+                    // generation propagation in place, parents see fresh
+                    // child outputs via output_changed on their own pass and
+                    // the second evaluate is redundant.
                     op->child_instance.evaluate(evaluation_time);
-                    if (effective_binding_changed) {
-                        op->child_instance.evaluate(evaluation_time);
-                    }
                     TSOutputView published_output = ensure_reduce_op_published_output(runtime, *op, evaluation_time);
                     publish_reduce_op_output(node, runtime, internal_refs, *op, published_output, evaluation_time);
                     if (std::getenv("HGRAPH_DEBUG_REDUCE_VALUES") != nullptr) {
