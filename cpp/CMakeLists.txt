@@ -319,6 +319,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/v2/types/graph/node_builder_ops.h
         include/hgraph/v2/types/graph/node_ops.h
         include/hgraph/v2/types/metadata/ts_value_type_meta_data.h
+        include/hgraph/v2/types/metadata/type_binding.h
         include/hgraph/v2/types/metadata/type_meta_data.h
         include/hgraph/v2/types/metadata/type_registry.h
         include/hgraph/v2/types/metadata/value_type_meta_data.h
@@ -339,6 +340,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/v2/types/timeseries/ts_view.h
         include/hgraph/v2/types/utils/memory_utils.h
         include/hgraph/v2/types/utils/key_slot_store.h
+        include/hgraph/v2/types/utils/intern_table.h
         include/hgraph/v2/types/utils/slot_observer.h
         include/hgraph/v2/types/utils/stable_slot_storage.h
         include/hgraph/v2/types/utils/value_slot_store.h

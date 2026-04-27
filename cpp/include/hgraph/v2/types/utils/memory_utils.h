@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -306,6 +307,12 @@ namespace hgraph::v2
             }
         };
 
+        template <typename Binding>
+        static constexpr bool storage_binding = requires(const Binding &binding) {
+            { binding.plan() } -> std::same_as<const StoragePlan *>;
+            { binding.checked_plan() } -> std::same_as<const StoragePlan &>;
+        };
+
         struct CompositePlanBuilder
         {
             struct PendingComponent
@@ -369,17 +376,33 @@ namespace hgraph::v2
             }
         };
 
-        template <typename Policy = InlineStoragePolicy<>> class StorageHandle
+        template <typename Policy = InlineStoragePolicy<>, typename Binding = void>
+            requires(std::is_void_v<Binding> || storage_binding<Binding>)
+        class StorageHandle
         {
           public:
             StorageHandle() = default;
 
-            explicit StorageHandle(const StoragePlan &plan, const AllocatorOps &allocator = MemoryUtils::allocator()) {
+            explicit StorageHandle(const StoragePlan &plan, const AllocatorOps &allocator = MemoryUtils::allocator())
+                requires std::is_void_v<Binding>
+            {
                 construct_owned_default(plan, allocator);
             }
 
+            template <typename B = Binding>
+                requires(!std::is_void_v<B>)
+            explicit StorageHandle(const B &binding, const AllocatorOps &allocator = MemoryUtils::allocator()) {
+                construct_owned_default(binding, allocator);
+            }
+
             StorageHandle(const StorageHandle &other) {
-                if (other.has_value()) { construct_owned_copy(*other.m_plan, other.data(), *other.allocator()); }
+                if (!other.has_value()) { return; }
+
+                if constexpr (std::is_void_v<Binding>) {
+                    construct_owned_copy(*other.plan(), other.data(), *other.allocator());
+                } else {
+                    construct_owned_copy(*other.binding(), other.data(), *other.allocator());
+                }
             }
 
             StorageHandle(StorageHandle &&other) noexcept { move_from(std::move(other)); }
@@ -387,7 +410,13 @@ namespace hgraph::v2
             StorageHandle &operator=(const StorageHandle &other) {
                 if (this != &other) {
                     reset();
-                    if (other.has_value()) { construct_owned_copy(*other.m_plan, other.data(), *other.allocator()); }
+                    if (other.has_value()) {
+                        if constexpr (std::is_void_v<Binding>) {
+                            construct_owned_copy(*other.plan(), other.data(), *other.allocator());
+                        } else {
+                            construct_owned_copy(*other.binding(), other.data(), *other.allocator());
+                        }
+                    }
                 }
                 return *this;
             }
@@ -403,20 +432,48 @@ namespace hgraph::v2
             ~StorageHandle() { reset(); }
 
             [[nodiscard]] static StorageHandle owning(const StoragePlan  &plan,
-                                                      const AllocatorOps &allocator = MemoryUtils::allocator()) {
+                                                      const AllocatorOps &allocator = MemoryUtils::allocator())
+                requires std::is_void_v<Binding>
+            {
                 return StorageHandle(plan, allocator);
             }
 
+            template <typename B = Binding>
+                requires(!std::is_void_v<B>)
+            [[nodiscard]] static StorageHandle owning(const B &binding, const AllocatorOps &allocator = MemoryUtils::allocator()) {
+                return StorageHandle(binding, allocator);
+            }
+
             [[nodiscard]] static StorageHandle owning_copy(const StoragePlan &plan, const void *src,
-                                                           const AllocatorOps &allocator = MemoryUtils::allocator()) {
+                                                           const AllocatorOps &allocator = MemoryUtils::allocator())
+                requires std::is_void_v<Binding>
+            {
                 StorageHandle handle;
                 handle.construct_owned_copy(plan, src, allocator);
                 return handle;
             }
 
+            template <typename B = Binding>
+                requires(!std::is_void_v<B>)
+            [[nodiscard]] static StorageHandle owning_copy(const B &binding, const void *src,
+                                                           const AllocatorOps &allocator = MemoryUtils::allocator()) {
+                StorageHandle handle;
+                handle.construct_owned_copy(binding, src, allocator);
+                return handle;
+            }
+
             [[nodiscard]] static StorageHandle reference(const StoragePlan &plan, void *data,
-                                                         const AllocatorOps &allocator = MemoryUtils::allocator()) noexcept {
+                                                         const AllocatorOps &allocator = MemoryUtils::allocator()) noexcept
+                requires std::is_void_v<Binding>
+            {
                 return StorageHandle(plan, data, allocator);
+            }
+
+            template <typename B = Binding>
+                requires(!std::is_void_v<B>)
+            [[nodiscard]] static StorageHandle reference(const B &binding, void *data,
+                                                         const AllocatorOps &allocator = MemoryUtils::allocator()) noexcept {
+                return StorageHandle(binding, data, allocator);
             }
 
             [[nodiscard]] bool     has_value() const noexcept { return storage_state() != State::Empty; }
@@ -425,10 +482,21 @@ namespace hgraph::v2
                 const State state = storage_state();
                 return state == State::OwningInline || state == State::OwningHeap;
             }
-            [[nodiscard]] bool                is_reference() const noexcept { return storage_state() == State::Borrowed; }
-            [[nodiscard]] bool                stores_inline() const noexcept { return storage_state() == State::OwningInline; }
-            [[nodiscard]] bool                stores_heap() const noexcept { return storage_state() == State::OwningHeap; }
-            [[nodiscard]] const StoragePlan  *plan() const noexcept { return m_plan; }
+            [[nodiscard]] bool               is_reference() const noexcept { return storage_state() == State::Borrowed; }
+            [[nodiscard]] bool               stores_inline() const noexcept { return storage_state() == State::OwningInline; }
+            [[nodiscard]] bool               stores_heap() const noexcept { return storage_state() == State::OwningHeap; }
+            [[nodiscard]] const StoragePlan *plan() const noexcept {
+                if constexpr (std::is_void_v<Binding>) {
+                    return m_identity;
+                } else {
+                    return m_identity != nullptr ? m_identity->plan() : nullptr;
+                }
+            }
+            [[nodiscard]] const Binding *binding() const noexcept
+                requires(!std::is_void_v<Binding>)
+            {
+                return m_identity;
+            }
             [[nodiscard]] const AllocatorOps *allocator() const noexcept { return tagged_allocator(); }
 
             [[nodiscard]] void *data() noexcept {
@@ -454,7 +522,13 @@ namespace hgraph::v2
             template <typename T> [[nodiscard]] const T *as() const noexcept { return MemoryUtils::cast<T>(data()); }
 
             [[nodiscard]] StorageHandle clone() const {
-                return has_value() ? owning_copy(*m_plan, data(), *allocator()) : StorageHandle{};
+                if (!has_value()) { return StorageHandle{}; }
+
+                if constexpr (std::is_void_v<Binding>) {
+                    return owning_copy(*plan(), data(), *allocator());
+                } else {
+                    return owning_copy(*binding(), data(), *allocator());
+                }
             }
 
             /**
@@ -465,30 +539,37 @@ namespace hgraph::v2
              */
             void reset_to_default() {
                 const State state = storage_state();
-                if (m_plan == nullptr) {
+                if (plan() == nullptr) {
                     throw std::logic_error("MemoryUtils::StorageHandle::reset_to_default requires a bound plan");
                 }
                 if (state != State::OwningInline && state != State::OwningHeap) {
                     throw std::logic_error("MemoryUtils::StorageHandle::reset_to_default requires an owning handle");
                 }
 
-                StorageHandle replacement(*m_plan, *allocator());
+                StorageHandle replacement = [&]() {
+                    if constexpr (std::is_void_v<Binding>) {
+                        return StorageHandle(*plan(), *allocator());
+                    } else {
+                        return StorageHandle(*binding(), *allocator());
+                    }
+                }();
                 *this = std::move(replacement);
             }
 
             void reset() noexcept {
-                const State state = storage_state();
+                const State state        = storage_state();
+                const auto *storage_plan = plan();
                 if (state == State::OwningInline || state == State::OwningHeap) {
-                    m_plan->destroy(data());
+                    storage_plan->destroy(data());
                     if (state == State::OwningHeap) {
-                        allocator()->deallocate_storage(m_storage.ptr, m_plan->layout);
+                        allocator()->deallocate_storage(m_storage.ptr, storage_plan->layout);
                         m_storage.ptr = nullptr;
                     }
                 } else if (state == State::Borrowed) {
                     m_storage.ptr = nullptr;
                 }
 
-                m_plan = nullptr;
+                m_identity = nullptr;
                 m_allocator_state.clear();
             }
 
@@ -509,12 +590,22 @@ namespace hgraph::v2
 
             using allocator_state_ptr = ::hgraph::tagged_ptr<const AllocatorOps, 2, State>;
 
-            const StoragePlan  *m_plan{nullptr};
+            using identity_ptr = std::conditional_t<std::is_void_v<Binding>, const StoragePlan *, const Binding *>;
+
+            identity_ptr        m_identity{nullptr};
             allocator_state_ptr m_allocator_state{};
             Storage             m_storage{};
 
             StorageHandle(const StoragePlan &plan, void *data, const AllocatorOps &allocator) noexcept
-                : m_plan(&plan), m_allocator_state(&allocator, State::Borrowed) {
+                requires std::is_void_v<Binding>
+                : m_identity(&plan), m_allocator_state(&allocator, State::Borrowed) {
+                m_storage.ptr = data;
+            }
+
+            template <typename B = Binding>
+                requires(!std::is_void_v<B>)
+            StorageHandle(const B &binding, void *data, const AllocatorOps &allocator) noexcept
+                : m_identity(&binding), m_allocator_state(&allocator, State::Borrowed) {
                 m_storage.ptr = data;
             }
 
@@ -532,53 +623,97 @@ namespace hgraph::v2
 
             void abandon_failed_construction() noexcept {
                 if (storage_state() == State::OwningHeap) {
-                    tagged_allocator()->deallocate_storage(m_storage.ptr, m_plan->layout);
+                    tagged_allocator()->deallocate_storage(m_storage.ptr, plan()->layout);
                     m_storage.ptr = nullptr;
                 }
-                m_plan = nullptr;
+                m_identity = nullptr;
                 m_allocator_state.clear();
             }
 
             void construct_owned_default(const StoragePlan &plan, const AllocatorOps &allocator) {
                 if (!plan.valid()) { throw std::logic_error("MemoryUtils::StorageHandle requires a valid plan"); }
 
-                m_plan = &plan;
+                m_identity = &plan;
                 set_allocator_state(&allocator, owning_state_for(plan));
 
                 if (storage_state() == State::OwningHeap) {
-                    m_storage.ptr = tagged_allocator()->allocate_storage(m_plan->layout);
+                    m_storage.ptr = tagged_allocator()->allocate_storage(plan.layout);
                     auto rollback = ::hgraph::make_scope_exit([this]() noexcept { abandon_failed_construction(); });
-                    m_plan->default_construct(data());
+                    plan.default_construct(data());
                     rollback.release();
                     return;
                 }
 
                 auto rollback = ::hgraph::make_scope_exit([this]() noexcept { abandon_failed_construction(); });
-                m_plan->default_construct(data());
+                plan.default_construct(data());
+                rollback.release();
+            }
+
+            template <typename B = Binding>
+                requires(!std::is_void_v<B>)
+            void construct_owned_default(const B &binding, const AllocatorOps &allocator) {
+                const StoragePlan &plan = binding.checked_plan();
+                if (!plan.valid()) { throw std::logic_error("MemoryUtils::StorageHandle requires a valid plan"); }
+
+                m_identity = &binding;
+                set_allocator_state(&allocator, owning_state_for(plan));
+
+                if (storage_state() == State::OwningHeap) {
+                    m_storage.ptr = tagged_allocator()->allocate_storage(plan.layout);
+                    auto rollback = ::hgraph::make_scope_exit([this]() noexcept { abandon_failed_construction(); });
+                    binding.default_construct_at(data());
+                    rollback.release();
+                    return;
+                }
+
+                auto rollback = ::hgraph::make_scope_exit([this]() noexcept { abandon_failed_construction(); });
+                binding.default_construct_at(data());
                 rollback.release();
             }
 
             void construct_owned_copy(const StoragePlan &plan, const void *src, const AllocatorOps &allocator) {
                 if (!plan.valid()) { throw std::logic_error("MemoryUtils::StorageHandle requires a valid plan"); }
 
-                m_plan = &plan;
+                m_identity = &plan;
                 set_allocator_state(&allocator, owning_state_for(plan));
 
                 if (storage_state() == State::OwningHeap) {
-                    m_storage.ptr = tagged_allocator()->allocate_storage(m_plan->layout);
+                    m_storage.ptr = tagged_allocator()->allocate_storage(plan.layout);
                     auto rollback = ::hgraph::make_scope_exit([this]() noexcept { abandon_failed_construction(); });
-                    m_plan->copy_construct(data(), src);
+                    plan.copy_construct(data(), src);
                     rollback.release();
                     return;
                 }
 
                 auto rollback = ::hgraph::make_scope_exit([this]() noexcept { abandon_failed_construction(); });
-                m_plan->copy_construct(data(), src);
+                plan.copy_construct(data(), src);
+                rollback.release();
+            }
+
+            template <typename B = Binding>
+                requires(!std::is_void_v<B>)
+            void construct_owned_copy(const B &binding, const void *src, const AllocatorOps &allocator) {
+                const StoragePlan &plan = binding.checked_plan();
+                if (!plan.valid()) { throw std::logic_error("MemoryUtils::StorageHandle requires a valid plan"); }
+
+                m_identity = &binding;
+                set_allocator_state(&allocator, owning_state_for(plan));
+
+                if (storage_state() == State::OwningHeap) {
+                    m_storage.ptr = tagged_allocator()->allocate_storage(plan.layout);
+                    auto rollback = ::hgraph::make_scope_exit([this]() noexcept { abandon_failed_construction(); });
+                    binding.copy_construct_at(data(), src);
+                    rollback.release();
+                    return;
+                }
+
+                auto rollback = ::hgraph::make_scope_exit([this]() noexcept { abandon_failed_construction(); });
+                binding.copy_construct_at(data(), src);
                 rollback.release();
             }
 
             void move_from(StorageHandle &&other) noexcept {
-                m_plan            = std::exchange(other.m_plan, nullptr);
+                m_identity        = std::exchange(other.m_identity, nullptr);
                 m_allocator_state = std::exchange(other.m_allocator_state, allocator_state_ptr{});
 
                 switch (storage_state()) {
