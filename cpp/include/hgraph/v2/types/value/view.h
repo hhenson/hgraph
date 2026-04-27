@@ -3,6 +3,7 @@
 
 #include <hgraph/v2/types/value/value_builder.h>
 
+#include <compare>
 #include <new>
 #include <stdexcept>
 #include <string>
@@ -122,7 +123,7 @@ namespace hgraph::v2
         void copy_from(const ValueView &other) {
             if (!has_value()) { throw std::logic_error("ValueView::copy_from() on an empty destination"); }
             if (!other.has_value()) { throw std::logic_error("ValueView::copy_from() from an empty source"); }
-            if (type() != other.type()) { throw std::logic_error("ValueView::copy_from() requires matching scalar schemas"); }
+            if (binding() != other.binding()) { throw std::logic_error("ValueView::copy_from() requires matching bindings"); }
 
             checked_binding().copy_assign_at(context.data, other.context.data);
         }
@@ -133,9 +134,17 @@ namespace hgraph::v2
         }
 
         [[nodiscard]] bool equals(const ValueView &other) const {
+            if (binding() != other.binding()) { return false; }
             if (!has_value() || !other.has_value()) { return !has_value() && !other.has_value(); }
-            if (type() != other.type()) { return false; }
             return checked_ops().equals_of(context.data, other.context.data);
+        }
+
+        [[nodiscard]] std::partial_ordering compare(const ValueView &other) const {
+            if (binding() != other.binding()) { return std::partial_ordering::unordered; }
+            if (!has_value() || !other.has_value()) {
+                return !has_value() && !other.has_value() ? std::partial_ordering::equivalent : std::partial_ordering::unordered;
+            }
+            return checked_ops().compare_of(context.data, other.context.data);
         }
 
         [[nodiscard]] std::string to_string() const {
@@ -143,7 +152,8 @@ namespace hgraph::v2
             return checked_ops().to_string_of(context.data);
         }
 
-        [[nodiscard]] bool operator==(const ValueView &other) const { return equals(other); }
+        [[nodiscard]] bool                  operator==(const ValueView &other) const { return equals(other); }
+        [[nodiscard]] std::partial_ordering operator<=>(const ValueView &other) const { return compare(other); }
 
       private:
         [[nodiscard]] const ValueTypeBinding &checked_binding() const {

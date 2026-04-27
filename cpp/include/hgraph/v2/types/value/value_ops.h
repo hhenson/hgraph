@@ -3,6 +3,7 @@
 
 #include <hgraph/v2/types/metadata/value_type_meta_data.h>
 
+#include <compare>
 #include <concepts>
 #include <cstddef>
 #include <functional>
@@ -25,14 +26,17 @@ namespace hgraph::v2
     {
         using hash_fn      = size_t (*)(const void *);
         using equals_fn    = bool (*)(const void *, const void *);
+        using compare_fn   = std::partial_ordering (*)(const void *, const void *);
         using to_string_fn = std::string (*)(const void *);
 
         hash_fn      hash{nullptr};
         equals_fn    equals{nullptr};
+        compare_fn   compare{nullptr};
         to_string_fn to_string{nullptr};
 
         [[nodiscard]] constexpr bool can_hash() const noexcept { return hash != nullptr; }
         [[nodiscard]] constexpr bool can_equal() const noexcept { return equals != nullptr; }
+        [[nodiscard]] constexpr bool can_compare() const noexcept { return compare != nullptr; }
         [[nodiscard]] constexpr bool can_to_string() const noexcept { return to_string != nullptr; }
 
         [[nodiscard]] size_t hash_of(const void *data) const {
@@ -43,6 +47,11 @@ namespace hgraph::v2
         [[nodiscard]] bool equals_of(const void *lhs, const void *rhs) const {
             if (equals == nullptr) { throw std::logic_error("ValueOps is missing an equality hook"); }
             return equals(lhs, rhs);
+        }
+
+        [[nodiscard]] std::partial_ordering compare_of(const void *lhs, const void *rhs) const {
+            if (compare == nullptr) { throw std::logic_error("ValueOps is missing a comparison hook"); }
+            return compare(lhs, rhs);
         }
 
         [[nodiscard]] std::string to_string_of(const void *data) const {
@@ -78,6 +87,16 @@ namespace hgraph::v2
             { lhs == rhs } -> std::convertible_to<bool>;
         };
 
+        template <typename T>
+        concept ValueThreeWayComparable = requires(const T &lhs, const T &rhs) {
+            { lhs <=> rhs } -> std::convertible_to<std::partial_ordering>;
+        };
+
+        template <typename T>
+        concept ValueLessThanComparable = requires(const T &lhs, const T &rhs) {
+            { lhs < rhs } -> std::convertible_to<bool>;
+        };
+
         template <typename T> [[nodiscard]] T *typed_value(void *data) noexcept {
             return std::launder(reinterpret_cast<T *>(data));
         }
@@ -106,6 +125,20 @@ namespace hgraph::v2
             return *typed_value<T>(lhs) == *typed_value<T>(rhs);
         }
 
+        template <typename T> [[nodiscard]] std::partial_ordering scalar_compare(const void *lhs, const void *rhs) {
+            if constexpr (ValueThreeWayComparable<T>) {
+                return *typed_value<T>(lhs) <=> *typed_value<T>(rhs);
+            } else if constexpr (ValueEquatable<T> && ValueLessThanComparable<T>) {
+                if (*typed_value<T>(lhs) == *typed_value<T>(rhs)) { return std::partial_ordering::equivalent; }
+                return *typed_value<T>(lhs) < *typed_value<T>(rhs) ? std::partial_ordering::less : std::partial_ordering::greater;
+            } else if constexpr (ValueEquatable<T>) {
+                return *typed_value<T>(lhs) == *typed_value<T>(rhs) ? std::partial_ordering::equivalent
+                                                                    : std::partial_ordering::unordered;
+            } else {
+                throw std::logic_error("Value type does not support comparison");
+            }
+        }
+
         template <typename T> [[nodiscard]] std::string scalar_to_string(const void *data) {
             return value_to_string(*typed_value<T>(data));
         }
@@ -115,8 +148,10 @@ namespace hgraph::v2
     template <typename T> [[nodiscard]] const ValueOps &scalar_value_ops() noexcept {
         using Type = std::remove_cv_t<std::remove_reference_t<T>>;
         static const ValueOps ops{
-            .hash      = detail::ValueHashable<Type> ? &detail::scalar_hash<Type> : nullptr,
-            .equals    = detail::ValueEquatable<Type> ? &detail::scalar_equals<Type> : nullptr,
+            .hash   = detail::ValueHashable<Type> ? &detail::scalar_hash<Type> : nullptr,
+            .equals = detail::ValueEquatable<Type> ? &detail::scalar_equals<Type> : nullptr,
+            .compare =
+                (detail::ValueThreeWayComparable<Type> || detail::ValueEquatable<Type>) ? &detail::scalar_compare<Type> : nullptr,
             .to_string = (detail::HasAdlToString<Type> || detail::HasStdToString<Type> || detail::StreamInsertable<Type>)
                              ? &detail::scalar_to_string<Type>
                              : nullptr,
