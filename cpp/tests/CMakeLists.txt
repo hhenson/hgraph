@@ -118,7 +118,7 @@ if (EXISTS "${HGRAPH_ROOT_BUILD_DIR}/_deps/catch2-src")
     set(FETCHCONTENT_SOURCE_DIR_CATCH2 "${HGRAPH_ROOT_BUILD_DIR}/_deps/catch2-src")
 endif ()
 
-# Find Catch2
+#Find Catch2
 find_package(Catch2 3 QUIET)
 if (NOT Catch2_FOUND)
     message(STATUS "Catch2 not found via find_package, using FetchContent")
@@ -131,7 +131,7 @@ if (NOT Catch2_FOUND)
     FetchContent_MakeAvailable(Catch2)
 endif()
 
-# Find fmt
+#Find fmt
 find_package(fmt CONFIG QUIET)
 if (NOT fmt_FOUND)
     message(STATUS "fmt not found via find_package, using FetchContent")
@@ -140,7 +140,7 @@ if (NOT fmt_FOUND)
     FetchContent_MakeAvailable(fmt)
 endif()
 
-# Create test executable
+#Create test executable
 add_executable(hgraph_visitor_tests
     test_visitor_standalone.cpp
 )
@@ -150,7 +150,7 @@ target_link_libraries(hgraph_visitor_tests PRIVATE
     fmt::fmt
 )
 
-# Set C++ standard
+#Set C++ standard
 target_compile_features(hgraph_visitor_tests PRIVATE cxx_std_23)
 
 add_executable(hgraph_runtime_tests
@@ -304,10 +304,25 @@ target_link_libraries(hgraph_v2_slot_utils_tests PRIVATE
 
 target_compile_features(hgraph_v2_slot_utils_tests PRIVATE cxx_std_23)
 
-# Enable testing
+add_executable(hgraph_v2_value_tests
+    test_v2_value.cpp
+    ../src/cpp/v2/types/metadata/type_registry.cpp
+)
+
+target_include_directories(hgraph_v2_value_tests PRIVATE
+    ../include
+)
+
+target_link_libraries(hgraph_v2_value_tests PRIVATE
+    Catch2::Catch2WithMain
+)
+
+target_compile_features(hgraph_v2_value_tests PRIVATE cxx_std_23)
+
+#Enable testing
 enable_testing()
 
-# Register tests with CTest
+#Register tests with CTest
 include(CTest)
 include(Catch)
 catch_discover_tests(hgraph_visitor_tests)
@@ -317,8 +332,9 @@ catch_discover_tests(hgraph_v2_memory_utils_tests)
 catch_discover_tests(hgraph_scope_tests)
 catch_discover_tests(hgraph_tagged_ptr_tests)
 catch_discover_tests(hgraph_v2_slot_utils_tests)
+catch_discover_tests(hgraph_v2_value_tests)
 
-# Optional: Add custom target to run tests
+#Optional : Add custom target to run tests
 add_custom_target(run_visitor_tests
     COMMAND hgraph_visitor_tests
     DEPENDS hgraph_visitor_tests
