@@ -106,7 +106,7 @@ TEST_CASE("v2 TS input and output views expose root bind and read semantics", "[
     REQUIRE_FALSE(input_view.is_bound());
 }
 
-TEST_CASE("v2 TS views project bundle and list payloads through value()", "[v2 timeseries]") {
+TEST_CASE("v2 TS specialized views expose bundle and list child TS values", "[v2 timeseries]") {
     TypeRegistry &registry = TypeRegistry::instance();
 
     const ValueTypeMetaData   *int_meta    = value::scalar_type_meta<int>();
@@ -117,24 +117,86 @@ TEST_CASE("v2 TS views project bundle and list payloads through value()", "[v2 t
     const TSValueTypeMetaData *list_ts     = registry.tsl(int_ts, 2);
 
     TsOutput bundle_output(*bundle_ts);
-    auto     bundle_view = bundle_output.view();
+    auto     bundle_view = bundle_output.view().as_tsb();
 
-    bundle_view.value().as_bundle().set("count", value::value_for(3).view());
-    bundle_view.value().as_bundle().set("label", value::value_for(std::string("alpha")).view());
+    bundle_view.set("count", value::value_for(3).view());
+    bundle_view.set("label", value::value_for(std::string("alpha")).view());
 
-    CHECK(bundle_view.value().as_bundle()["count"].as<int>() == 3);
-    CHECK(bundle_view.value().as_bundle()["label"].as<std::string>() == "alpha");
+    CHECK(bundle_view["count"].type() == int_ts);
+    CHECK(bundle_view["count"].value().as<int>() == 3);
+    CHECK(bundle_view["label"].type() == string_ts);
+    CHECK(bundle_view["label"].value().as<std::string>() == "alpha");
     CHECK(bundle_view.value().to_string() == "Pair{count: 3, label: alpha}");
 
     TsOutput list_output(*list_ts);
-    auto     list_view = list_output.view();
+    auto     list_view = list_output.view().as_tsl();
 
-    list_view.value().as_list().set(0, value::value_for(11).view());
-    list_view.value().as_list().set(1, value::value_for(12).view());
+    list_view.set(0, value::value_for(11).view());
+    list_view.set(1, value::value_for(12).view());
 
-    CHECK(list_view.value().as_list()[0].as<int>() == 11);
-    CHECK(list_view.value().as_list()[1].as<int>() == 12);
+    CHECK(list_view[0].type() == int_ts);
+    CHECK(list_view[0].value().as<int>() == 11);
+    CHECK(list_view[1].value().as<int>() == 12);
     CHECK(list_view.value().to_string() == "[11, 12]");
+}
+
+TEST_CASE("v2 TS specialized views expose set and dict semantics", "[v2 timeseries]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+
+    const ValueTypeMetaData   *int_meta    = value::scalar_type_meta<int>();
+    const ValueTypeMetaData   *string_meta = value::scalar_type_meta<std::string>();
+    const TSValueTypeMetaData *string_ts   = registry.ts(string_meta);
+    const TSValueTypeMetaData *set_ts      = registry.tss(int_meta);
+    const TSValueTypeMetaData *dict_ts     = registry.tsd(int_meta, string_ts);
+
+    TsOutput set_output(*set_ts);
+    auto     set_view = set_output.view().as_tss();
+
+    const Value one   = value::value_for(1);
+    const Value three = value::value_for(3);
+    CHECK(set_view.add(one.view()));
+    CHECK(set_view.add(three.view()));
+    CHECK(set_view.contains(one.view()));
+    CHECK(set_view.size() == 2);
+
+    TsOutput dict_output(*dict_ts);
+    auto     dict_view = dict_output.view().as_tsd();
+
+    const Value key   = value::value_for(7);
+    const Value alpha = value::value_for(std::string("alpha"));
+    dict_view.set(key.view(), alpha.view());
+
+    CHECK(dict_view.contains(key.view()));
+    CHECK(dict_view.at(key.view()).type() == string_ts);
+    CHECK(dict_view.at(key.view()).value().as<std::string>() == "alpha");
+    CHECK(dict_view.size() == 1);
+}
+
+TEST_CASE("v2 TSW view exposes window metadata and current payload projection", "[v2 timeseries]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+
+    const ValueTypeMetaData   *int_meta    = value::scalar_type_meta<int>();
+    const TSValueTypeMetaData *tick_win_ts = registry.tsw(int_meta, 5, 3);
+    const TSValueTypeMetaData *time_win_ts = registry.tsw_duration(int_meta, engine_time_delta_t{10}, engine_time_delta_t{4});
+
+    TsOutput tick_output(*tick_win_ts);
+    tick_output.value().set(21);
+    auto tick_view = tick_output.view().as_tsw();
+
+    CHECK_FALSE(tick_view.is_duration_based());
+    CHECK(tick_view.period() == 5);
+    CHECK(tick_view.min_period() == 3);
+    CHECK(tick_view.element_type() == int_meta);
+    CHECK(tick_view.value().as<int>() == 21);
+
+    TsOutput time_output(*time_win_ts);
+    time_output.value().set(34);
+    auto time_view = time_output.view().as_tsw();
+
+    CHECK(time_view.is_duration_based());
+    CHECK(time_view.time_range() == engine_time_delta_t{10});
+    CHECK(time_view.min_time_range() == engine_time_delta_t{4});
+    CHECK(time_view.value().as<int>() == 34);
 }
 
 TEST_CASE("default constructed v2 TS inputs can adopt schema when bound", "[v2 timeseries]") {

@@ -18,9 +18,9 @@ if (UNIX)
     set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "-g -O3 -DNDEBUG")
     set(CMAKE_CXX_FLAGS_DEBUG "-g")
     set(CMAKE_CXX_FLAGS "-Wall")
-    # Sanitizers (Clang/GCC only)
+#Sanitizers(Clang / GCC only)
     if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-        # Do not allow mixing TSAN with other sanitizers
+#Do not allow mixing TSAN with other sanitizers
         if (HGRAPH_ENABLE_TSAN AND (HGRAPH_ENABLE_ASAN OR HGRAPH_ENABLE_UBSAN))
             message(FATAL_ERROR "HGRAPH_ENABLE_TSAN is mutually exclusive with ASAN/UBSAN. Disable ASAN/UBSAN or TSAN.")
         endif ()
@@ -28,8 +28,8 @@ if (UNIX)
         set(_sanitizers)
         if (HGRAPH_ENABLE_ASAN)
             list(APPEND _sanitizers address)
-            # Clang's ASan also supports leak sanitizer under the same flag on most platforms
-            # On Linux, leaks can be enabled via ASAN_OPTIONS; on macOS it is on by default.
+#Clang's ASan also supports leak sanitizer under the same flag on most platforms
+#On Linux, leaks can be enabled via ASAN_OPTIONS; on macOS it is on by default.
         endif ()
         if (HGRAPH_ENABLE_UBSAN)
             list(APPEND _sanitizers undefined)
@@ -56,36 +56,37 @@ elseif (MSVC)
 endif ()
 
 if (APPLE)
-    # Avoid forcing Homebrew include/lib paths which can break cross-arch builds under cibuildwheel.
-    # Toolchain and dependencies are discovered via CMake and FetchContent/Conan instead.
+#Avoid forcing Homebrew include / lib paths which can break cross - arch builds under cibuildwheel.
+#Toolchain and dependencies are discovered via CMake and FetchContent / Conan instead.
     message(STATUS "Apple platform detected. Not forcing Homebrew include/lib paths.")
 
-    # Surface effective macOS configuration for diagnostics
+#Surface effective macOS configuration for diagnostics
     message(STATUS "CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR}")
     message(STATUS "CMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}")
     message(STATUS "CMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}")
     message(STATUS "ENV{MACOSX_DEPLOYMENT_TARGET}=$ENV{MACOSX_DEPLOYMENT_TARGET}")
 
-    # If no deployment target is provided, set a sane default that enables libc++ floating-point to_chars
+#If no deployment target is provided, set a sane default that enables libc++ floating - point to_chars
     if (NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "")
         set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "macOS deployment target" FORCE)
-        set(ENV{MACOSX_DEPLOYMENT_TARGET} "15.0")
+        set(ENV{
+    MACOSX_DEPLOYMENT_TARGET} "15.0")
         message(STATUS "CMAKE_OSX_DEPLOYMENT_TARGET was unset. Defaulting to 15.0")
     endif ()
 endif ()
 
-# Python and nanobind
-# Normalize variables from callers and ALWAYS use FindPython (not FindPython3),
-# because nanobind-config.cmake requires that 'find_package(Python ...)' has been invoked.
+#Python and nanobind
+#Normalize variables from callers and ALWAYS use                                   FindPython(not FindPython3),
+#because nanobind - config.cmake requires that 'find_package(Python ...)' has been invoked.
 if (DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
     set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
 endif ()
-# Required: Python interpreter + development module. When scikit-build-core is
-# targeting the stable ABI, it exposes SKBUILD_SABI_COMPONENT=Development.SABIModule.
+#Required : Python interpreter + development module.When scikit - build - core is
+#targeting the stable ABI, it exposes SKBUILD_SABI_COMPONENT = Development.SABIModule.
 find_package(Python 3.12 COMPONENTS Interpreter Development.Module ${SKBUILD_SABI_COMPONENT} REQUIRED)
 include_directories(${Python_INCLUDE_DIRS})
 
-# Get Python SOABI to avoid double .so extension in nanobind
+#Get Python SOABI to avoid double.so extension in nanobind
 execute_process(
         COMMAND "${Python_EXECUTABLE}" -c "import sysconfig; print(sysconfig.get_config_var('SOABI'), end='')"
         OUTPUT_VARIABLE Python_SOABI
@@ -94,7 +95,7 @@ if (_result EQUAL 0 AND Python_SOABI)
     set(Python_SOABI "${Python_SOABI}" CACHE STRING "Python SOABI" FORCE)
 endif ()
 
-# Resolve nanobind via the chosen interpreter and help CMake find it
+#Resolve nanobind via the chosen interpreter and help CMake find it
 execute_process(
         COMMAND "${Python_EXECUTABLE}" -m nanobind --cmake_dir
         OUTPUT_STRIP_TRAILING_WHITESPACE OUTPUT_VARIABLE nanobind_ROOT)
@@ -110,8 +111,8 @@ find_package(nanobind CONFIG REQUIRED)
 include_directories(${NB_DIR}/include)
 message(STATUS "Nanobind DIR: ${NB_DIR}/include")
 
-# Provide tsl::robin_map target from nanobind's bundled headers if not already available.
-# This prevents nanobind_add_module from calling find_dependency(tsl-robin-map) and failing.
+#Provide tsl::robin_map target from             nanobind's bundled headers if not already available.
+#This prevents nanobind_add_module from calling find_dependency(tsl - robin - map) and failing.
 if (NOT TARGET tsl::robin_map)
     if (IS_DIRECTORY "${NB_DIR}/ext/robin_map/include")
         add_library(tsl::robin_map INTERFACE IMPORTED)
@@ -123,7 +124,7 @@ endif()
 
 find_package(Threads)
 
-# fmt via package or FetchContent
+#fmt via package or FetchContent
 message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
 find_package(fmt CONFIG QUIET)
 if (NOT fmt_FOUND)
@@ -135,7 +136,7 @@ else ()
     message(STATUS "Found fmt via Conan/system: ${fmt_DIR}")
 endif ()
 
-# sul::dynamic_bitset - header-only library for dynamic bitsets (used by KeySet)
+#sul::dynamic_bitset - header - only library for dynamic bitsets(used by KeySet)
 find_package(dynamic_bitset CONFIG QUIET)
 if (NOT dynamic_bitset_FOUND)
     message(STATUS "dynamic_bitset not found via find_package, using FetchContent")
@@ -150,7 +151,7 @@ else ()
     message(STATUS "Found dynamic_bitset via Conan/system: ${dynamic_bitset_DIR}")
 endif ()
 
-# nanoarrow - Arrow C Data Interface utilities (bitmap helpers, schema/array interop)
+#nanoarrow - Arrow C Data Interface utilities(bitmap helpers, schema / array interop)
 find_package(nanoarrow CONFIG QUIET)
 if (NOT TARGET nanoarrow::nanoarrow)
     message(STATUS "nanoarrow not found via find_package, using FetchContent")
@@ -181,7 +182,7 @@ else ()
 endif ()
 message(STATUS "Using nanoarrow target: ${HGRAPH_NANOARROW_TARGET}")
 
-# backward-cpp via package or FetchContent (optional)
+#backward - cpp via           package or FetchContent(optional)
 if (HGRAPH_WITH_BACKWARD)
     find_package(Backward CONFIG QUIET)
     if (NOT Backward_FOUND)
@@ -189,7 +190,7 @@ if (HGRAPH_WITH_BACKWARD)
         include(FetchContent)
         set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
         FetchContent_Declare(backward GIT_REPOSITORY https://github.com/bombela/backward-cpp.git GIT_TAG v1.6)
-        # On manylinux and constrained envs, disable non-portable features
+#On manylinux and constrained envs, disable non - portable features
         set(BACKWARD_ENABLE ON CACHE BOOL "Enable backward" FORCE)
         set(BACKWARD_HAS_BFD OFF CACHE BOOL "Disable BFD" FORCE)
         set(BACKWARD_HAS_DW OFF CACHE BOOL "Disable DW" FORCE)
@@ -206,22 +207,22 @@ else ()
     message(STATUS "HGRAPH_WITH_BACKWARD=OFF: Skipping backward-cpp integration")
 endif ()
 
-# tpack via package or FetchContent
+#tpack via package or FetchContent
 find_package(tpack CONFIG QUIET)
 if (NOT tpack_FOUND)
     message(STATUS "tpack not found via find_package, using FetchContent")
     include(FetchContent)
     FetchContent_Declare(tpack GIT_REPOSITORY https://github.com/uentity/tpack.git GIT_TAG v0.3.2)
     FetchContent_MakeAvailable(tpack)
-    # Export tpack to the package registry so ddvisitor can find it via find_package
+#Export tpack to the package registry so ddvisitor can find it via find_package
     set(tpack_DIR "${CMAKE_BINARY_DIR}/_deps/tpack-build" CACHE PATH "tpack build dir" FORCE)
 else ()
     message(STATUS "Found tpack via Conan/system: ${tpack_DIR}")
 endif ()
 
-# ddv via package or FetchContent
-# Note: ddvisitor v0.9.1 has a bug where it references cmake/ddvisitor-config.cmake.in
-# that doesn't exist. We work around this by manually including only what we need.
+#ddv via          package or FetchContent
+#Note : ddvisitor v0.9.1 has a bug where it references cmake / ddvisitor - config.cmake.in
+#that doesn't exist. We work around this by manually including only what we need.
 find_package(ddvisitor CONFIG QUIET)
 if (NOT ddvisitor_FOUND)
     message(STATUS "ddvisitor not found via find_package, using FetchContent")
@@ -232,7 +233,7 @@ else ()
     message(STATUS "Found ddvisitor via Conan/system: ${ddvisitor_DIR}")
 endif ()
 
-# Git version info is optional here (no .git necessarily inside this repo)
+#Git version info is optional here(no.git necessarily inside this repo)
 set(GIT_BRANCH "")
 set(GIT_COMMIT_HASH "")
 set(GIT_COMMIT_DATE "")
@@ -249,7 +250,7 @@ message(STATUS "Git current branch: ${GIT_BRANCH}")
 message(STATUS "Git commit hash: ${GIT_COMMIT_HASH}")
 message(STATUS "Git commit date: ${GIT_COMMIT_DATE}")
 
-# Generate version.h into the binary dir
+#Generate version.h into the binary dir
 configure_file(
         ${CMAKE_CURRENT_SOURCE_DIR}/include/hgraph/version.h.in
         ${CMAKE_CURRENT_BINARY_DIR}/generated/version.h
@@ -333,6 +334,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/v2/types/timeseries/ts_output_builder_ops.h
         include/hgraph/v2/types/timeseries/ts_output_ops.h
         include/hgraph/v2/types/timeseries/ts_output_view.h
+        include/hgraph/v2/types/timeseries/ts_specialized_views.h
         include/hgraph/v2/types/timeseries/ts_value.h
         include/hgraph/v2/types/timeseries/ts_value_builder.h
         include/hgraph/v2/types/timeseries/ts_value_builder_ops.h
@@ -387,13 +389,13 @@ set(HGRAPH_INCLUDES
 )
 list(TRANSFORM HGRAPH_INCLUDES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 
-# Expose includes var to src/cpp subdirectory
+#Expose includes var to src / cpp subdirectory
 set(HGRAPH_INCLUDES ${HGRAPH_INCLUDES} PARENT_SCOPE)
 
 add_subdirectory(src/cpp)
 
-# Optional: Build tests if enabled
-# Tests are independent and don't require Python bindings
+#Optional : Build          tests if enabled
+#Tests are independent and don't require Python bindings
 option(HGRAPH_BUILD_TESTS "Build hgraph C++ unit tests" OFF)
 if (HGRAPH_BUILD_TESTS AND NOT CMAKE_CROSSCOMPILING)
     message(STATUS "Building hgraph C++ tests")

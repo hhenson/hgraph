@@ -13,12 +13,15 @@ namespace hgraph::v2
      * evaluation time, and the underlying `ValueView` for the output-owned
      * payload.
      */
-    struct TsOutputView : TsView
+    struct TsOutputView : BasicTsView<TsOutputTypeBinding>
     {
+        using base_type    = BasicTsView<TsOutputTypeBinding>;
+        using context_type = typename base_type::context_type;
+
         TsOutputView() = default;
 
         TsOutputView(TsOutput *output, engine_time_t evaluation_time = MIN_DT) noexcept
-            : TsView(TsViewContext{
+            : base_type(context_type{
                   output != nullptr ? detail::ts_storage_view(output->binding(), output->data(), output->allocator())
                                     : TsOutputStorageHandle{},
                   evaluation_time,
