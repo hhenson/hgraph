@@ -69,6 +69,13 @@ namespace hgraph
         BaseTimeSeriesOutput::mark_child_modified(child, modified_time);
     }
 
+    const TimeSeriesDictOutputImpl::map_type &TimeSeriesDictOutputImpl::modified_items() const { 
+        if (!modified()) {
+            _modified_items.clear();
+        }
+        return _modified_items; 
+    }
+
     void TimeSeriesDictOutputImpl::remove_value(const value::View &key, bool raise_if_not_found) {
         auto it{_ts_values.find(key)};
         if (it == _ts_values.end()) {

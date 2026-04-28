@@ -266,11 +266,21 @@ def test_modified_values_method():
 def test_modified_items_method():
     """Test modified_items() returns recently modified key-value pairs."""
     @compute_node
-    def get_items(tsd: TSD[str, TS[int]]) -> TS[dict]:
-        return {k: v.delta_value for k, v in tsd.modified_items()}
+    def get_items(tsd: TSD[str, TS[int]], trigger: TS[bool]) -> TS[dict]:
+        return {k: v.delta_value for k, v in tsd.modified_items()} or None
 
-    result = eval_node(get_items, [{"a": 1, "b": 2}, {"a": 3}])
-    assert result == [{"a": 1, "b": 2}, {"a": 3}]
+    result = eval_node(get_items, [{"a": 1, "b": 2}, {"a": 3}, None], [True, True, True])
+    assert result == [{"a": 1, "b": 2}, {"a": 3}, None]
+
+
+def test_removed_items_method():
+    """Test removed_items() returns recently removed key-value pairs."""
+    @compute_node
+    def get_items(tsd: TSD[str, TS[int]], trigger: TS[bool]) -> TS[dict]:
+        return {k: v.value for k, v in tsd.removed_items()} or None
+
+    result = eval_node(get_items, [{"a": 1, "b": 2}, {"a": REMOVE}, None], [True, True, True])
+    assert result == [None, {"a": 1}, None]
 
 
 # =============================================================================
