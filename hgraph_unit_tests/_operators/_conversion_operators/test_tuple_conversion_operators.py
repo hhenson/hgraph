@@ -133,7 +133,7 @@ def test_combine_tuple_nonuniform():
     assert eval_node(g, [None, 1], "2") == [(None, "2"), (1, "2")]
 
 
-def test_collect_tuple():
+def test_collect_scalar_to_tuple():
     @graph
     def g(a: TS[int], b: TS[bool]) -> TIME_SERIES_TYPE:
         return collect[TS[Tuple]](a, reset=b)
@@ -145,6 +145,14 @@ def test_collect_tuple():
         return collect[TS[Tuple[int, ...]]](a, reset=b)
 
     assert eval_node(g, [None, 1, 2, 3], [None, None, None, True]) == [None, (1,), (1, 2), (3,)]
+
+
+def test_collect_tuple_to_tuple():
+    @graph
+    def g(a: TS[Tuple[int, ...]], b: TS[bool]) -> TIME_SERIES_TYPE:
+        return collect[TS[Tuple[int, ...]]](a, reset=b)
+
+    assert eval_node(g, [None, (1, 2), (3, 4), (5, 6)], [None, None, None, True]) == [None, (1, 2), (1, 2, 3, 4), (5, 6)]
 
 
 def test_emit_tuple():
