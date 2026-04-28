@@ -320,6 +320,22 @@ target_link_libraries(hgraph_v2_value_tests PRIVATE
 
 target_compile_features(hgraph_v2_value_tests PRIVATE cxx_std_23)
 
+add_executable(hgraph_v2_timeseries_tests
+    test_v2_timeseries.cpp
+    ../src/cpp/v2/types/metadata/type_registry.cpp
+)
+
+target_include_directories(hgraph_v2_timeseries_tests PRIVATE
+    ../include
+    ${HGRAPH_DYNAMIC_BITSET_INCLUDE_DIR}
+)
+
+target_link_libraries(hgraph_v2_timeseries_tests PRIVATE
+    Catch2::Catch2WithMain
+)
+
+target_compile_features(hgraph_v2_timeseries_tests PRIVATE cxx_std_23)
+
 #Enable testing
 enable_testing()
 
@@ -334,6 +350,7 @@ catch_discover_tests(hgraph_scope_tests)
 catch_discover_tests(hgraph_tagged_ptr_tests)
 catch_discover_tests(hgraph_v2_slot_utils_tests)
 catch_discover_tests(hgraph_v2_value_tests)
+catch_discover_tests(hgraph_v2_timeseries_tests)
 
 #Optional : Add custom target to run tests
 add_custom_target(run_visitor_tests
