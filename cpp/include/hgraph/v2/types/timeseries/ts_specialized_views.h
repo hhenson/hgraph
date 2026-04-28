@@ -15,9 +15,38 @@ namespace hgraph::v2
             return TsValueBuilder::checked(type).checked_binding();
         }
 
+        [[nodiscard]] inline const TsBundleOps &checked_bundle_ops(const TsValueOps *ops) {
+            if (ops != nullptr && ops->is_tsb()) { return ops->checked_bundle_ops(); }
+            throw std::logic_error("TsbView requires bundle operations");
+        }
+
+        [[nodiscard]] inline const TsListOps &checked_list_ops(const TsValueOps *ops) {
+            if (ops != nullptr && ops->is_tsl()) { return ops->checked_list_ops(); }
+            throw std::logic_error("TslView requires list operations");
+        }
+
+        [[nodiscard]] inline const TsSetOps &checked_set_ops(const TsValueOps *ops) {
+            if (ops != nullptr && ops->is_tss()) { return ops->checked_set_ops(); }
+            throw std::logic_error("TssView requires set operations");
+        }
+
+        [[nodiscard]] inline const TsDictOps &checked_dict_ops(const TsValueOps *ops) {
+            if (ops != nullptr && ops->is_tsd()) { return ops->checked_dict_ops(); }
+            throw std::logic_error("TsdView requires dict operations");
+        }
+
+        [[nodiscard]] inline const TsWindowOps &checked_window_ops(const TsValueOps *ops) {
+            if (ops != nullptr && ops->is_tsw()) { return ops->checked_window_ops(); }
+            throw std::logic_error("TswView requires window operations");
+        }
+
+        [[nodiscard]] inline TsView child_ts_view(const TsValueTypeBinding &binding, void *data, engine_time_t evaluation_time) {
+            return TsView{TsViewContext{ts_storage_view(&binding, data), evaluation_time}};
+        }
+
         [[nodiscard]] inline TsView child_ts_view(const TSValueTypeMetaData *type, void *data, engine_time_t evaluation_time) {
             const TsValueTypeBinding &binding = checked_ts_child_binding(type);
-            return TsView{TsViewContext{ts_storage_view(&binding, data), evaluation_time}};
+            return child_ts_view(binding, data, evaluation_time);
         }
     }  // namespace detail
 
@@ -25,37 +54,28 @@ namespace hgraph::v2
     {
         using TsView::TsView;
 
-        explicit TsbView(TsView view) noexcept : TsView(std::move(view)) {}
+        explicit TsbView(TsView view) : TsView(std::move(view)), m_bundle_ops(&detail::checked_bundle_ops(ops())) {}
 
         [[nodiscard]] size_t field_count() const {
             if (!has_value()) { throw std::logic_error("TsbView::field_count() on an empty view"); }
-            return type()->field_count();
+            return m_bundle_ops->field_count();
         }
 
-        [[nodiscard]] bool has_field(std::string_view name) const noexcept {
-            const auto *field = type()->fields();
-            for (size_t index = 0; index < type()->field_count(); ++index) {
-                if (field[index].name != nullptr && name == field[index].name) { return true; }
-            }
-            return false;
-        }
+        [[nodiscard]] bool has_field(std::string_view name) const noexcept { return m_bundle_ops->field(name) != nullptr; }
 
         [[nodiscard]] TsView at(size_t index) const {
             if (!has_value()) { throw std::logic_error("TsbView::at() on an empty view"); }
-            if (index >= type()->field_count()) { throw std::out_of_range("TsbView index out of range"); }
+            const TsBundleFieldOps &field = m_bundle_ops->checked_field(index);
 
             BundleView      bundle = value().as_bundle();
             const ValueView child  = bundle.IndexedValueView::at(index);
-            return detail::child_ts_view(type()->fields()[index].type, const_cast<void *>(child.data()), evaluation_time());
+            return detail::child_ts_view(field.checked_binding(), const_cast<void *>(child.data()), evaluation_time());
         }
 
         [[nodiscard]] TsView at(std::string_view name) const {
             if (!has_value()) { throw std::logic_error("TsbView::at() on an empty view"); }
 
-            const auto *field = type()->fields();
-            for (size_t index = 0; index < type()->field_count(); ++index) {
-                if (field[index].name != nullptr && name == field[index].name) { return at(index); }
-            }
+            if (const auto *field = m_bundle_ops->field(name); field != nullptr) { return at(field->index); }
             throw std::out_of_range("TsbView field not found");
         }
 
@@ -67,24 +87,26 @@ namespace hgraph::v2
             bundle.IndexedValueView::set(index, value_view);
         }
         void set(std::string_view name, const ValueView &value_view) { value().as_bundle().set(name, value_view); }
+
+      private:
+        const TsBundleOps *m_bundle_ops{nullptr};
     };
 
     struct TslView : TsView
     {
         using TsView::TsView;
 
-        explicit TslView(TsView view) noexcept : TsView(std::move(view)) {}
+        explicit TslView(TsView view) : TsView(std::move(view)), m_list_ops(&detail::checked_list_ops(ops())) {}
 
-        [[nodiscard]] const TSValueTypeMetaData *element_ts() const noexcept {
-            return type() != nullptr ? type()->element_ts() : nullptr;
-        }
-        [[nodiscard]] bool   is_fixed() const noexcept { return type() != nullptr && type()->fixed_size() != 0; }
-        [[nodiscard]] size_t fixed_size() const noexcept { return type() != nullptr ? type()->fixed_size() : 0; }
-        [[nodiscard]] size_t size() const { return value().as_list().size(); }
+        [[nodiscard]] const TsValueTypeBinding *element_binding() const noexcept { return m_list_ops->element_binding; }
+        [[nodiscard]] bool                      is_fixed() const noexcept { return m_list_ops->is_fixed(); }
+        [[nodiscard]] size_t                    fixed_size() const noexcept { return m_list_ops->fixed_size; }
+        [[nodiscard]] size_t                    size() const { return value().as_list().size(); }
 
         [[nodiscard]] TsView at(size_t index) const {
             const ValueView child = value().as_list().at(index);
-            return detail::child_ts_view(element_ts(), const_cast<void *>(child.data()), evaluation_time());
+            return detail::child_ts_view(m_list_ops->checked_element_binding(), const_cast<void *>(child.data()),
+                                         evaluation_time());
         }
 
         [[nodiscard]] TsView operator[](size_t index) const { return at(index); }
@@ -124,51 +146,51 @@ namespace hgraph::v2
 
         [[nodiscard]] iterator begin() const noexcept { return iterator(this, 0); }
         [[nodiscard]] iterator end() const noexcept { return iterator(this, size()); }
+
+      private:
+        const TsListOps *m_list_ops{nullptr};
     };
 
     struct TssView : TsView
     {
         using TsView::TsView;
 
-        explicit TssView(TsView view) noexcept : TsView(std::move(view)) {}
+        explicit TssView(TsView view) : TsView(std::move(view)), m_set_ops(&detail::checked_set_ops(ops())) {}
 
         [[nodiscard]] size_t                   size() const { return value().as_set().size(); }
         [[nodiscard]] bool                     empty() const { return value().as_set().empty(); }
-        [[nodiscard]] const ValueTypeMetaData *element_type() const noexcept {
-            return value().type() != nullptr ? value().type()->element_type : nullptr;
-        }
-        [[nodiscard]] bool              contains(const ValueView &entry) const { return value().as_set().contains(entry); }
-        [[nodiscard]] bool              add(const ValueView &entry) { return value().as_set().add(entry); }
-        [[nodiscard]] bool              remove(const ValueView &entry) { return value().as_set().remove(entry); }
-        void                            clear() { value().as_set().clear(); }
-        void                            begin_mutation() { value().as_set().begin_mutation(); }
-        void                            end_mutation() { value().as_set().end_mutation(); }
-        void                            erase_pending() { value().as_set().erase_pending(); }
-        [[nodiscard]] bool              has_pending_erase() const { return value().as_set().has_pending_erase(); }
-        [[nodiscard]] SetView::iterator begin() const { return value().as_set().begin(); }
-        [[nodiscard]] SetView::iterator end() const { return value().as_set().end(); }
+        [[nodiscard]] const ValueTypeMetaData *element_type() const noexcept { return m_set_ops->element_type; }
+        [[nodiscard]] bool                     contains(const ValueView &entry) const { return value().as_set().contains(entry); }
+        [[nodiscard]] bool                     add(const ValueView &entry) { return value().as_set().add(entry); }
+        [[nodiscard]] bool                     remove(const ValueView &entry) { return value().as_set().remove(entry); }
+        void                                   clear() { value().as_set().clear(); }
+        void                                   begin_mutation() { value().as_set().begin_mutation(); }
+        void                                   end_mutation() { value().as_set().end_mutation(); }
+        void                                   erase_pending() { value().as_set().erase_pending(); }
+        [[nodiscard]] bool                     has_pending_erase() const { return value().as_set().has_pending_erase(); }
+        [[nodiscard]] SetView::iterator        begin() const { return value().as_set().begin(); }
+        [[nodiscard]] SetView::iterator        end() const { return value().as_set().end(); }
+
+      private:
+        const TsSetOps *m_set_ops{nullptr};
     };
 
     struct TsdView : TsView
     {
         using TsView::TsView;
 
-        explicit TsdView(TsView view) noexcept : TsView(std::move(view)) {}
+        explicit TsdView(TsView view) : TsView(std::move(view)), m_dict_ops(&detail::checked_dict_ops(ops())) {}
 
-        [[nodiscard]] size_t                   size() const { return value().as_map().size(); }
-        [[nodiscard]] bool                     empty() const { return value().as_map().empty(); }
-        [[nodiscard]] const ValueTypeMetaData *key_type() const noexcept {
-            return type() != nullptr ? type()->key_type() : nullptr;
-        }
-        [[nodiscard]] const TSValueTypeMetaData *value_ts() const noexcept {
-            return type() != nullptr ? type()->element_ts() : nullptr;
-        }
+        [[nodiscard]] size_t                    size() const { return value().as_map().size(); }
+        [[nodiscard]] bool                      empty() const { return value().as_map().empty(); }
+        [[nodiscard]] const ValueTypeMetaData  *key_type() const noexcept { return m_dict_ops->key_type; }
+        [[nodiscard]] const TsValueTypeBinding *value_binding() const noexcept { return m_dict_ops->value_binding; }
 
         [[nodiscard]] bool contains(const ValueView &key) const { return value().as_map().contains(key); }
 
         [[nodiscard]] TsView at(const ValueView &key) const {
             const ValueView child = value().as_map().at(key);
-            return detail::child_ts_view(value_ts(), const_cast<void *>(child.data()), evaluation_time());
+            return detail::child_ts_view(m_dict_ops->checked_value_binding(), const_cast<void *>(child.data()), evaluation_time());
         }
 
         void               set(const ValueView &key, const ValueView &value_view) { value().as_map().set(key, value_view); }
@@ -191,14 +213,14 @@ namespace hgraph::v2
           public:
             iterator() = default;
 
-            iterator(MapView::iterator iterator, engine_time_t evaluation_time, const TSValueTypeMetaData *value_ts) noexcept
-                : m_iterator(iterator), m_evaluation_time(evaluation_time), m_value_ts(value_ts) {}
+            iterator(MapView::iterator iterator, engine_time_t evaluation_time, const TsValueTypeBinding *value_binding) noexcept
+                : m_iterator(iterator), m_evaluation_time(evaluation_time), m_value_binding(value_binding) {}
 
             [[nodiscard]] entry operator*() const {
                 const auto current = *m_iterator;
                 return entry{
                     .key   = current.key,
-                    .value = detail::child_ts_view(m_value_ts, const_cast<void *>(current.value.data()), m_evaluation_time),
+                    .value = detail::child_ts_view(*m_value_binding, const_cast<void *>(current.value.data()), m_evaluation_time),
                 };
             }
 
@@ -211,31 +233,33 @@ namespace hgraph::v2
             [[nodiscard]] bool operator!=(const iterator &other) const noexcept { return !(*this == other); }
 
           private:
-            MapView::iterator          m_iterator{};
-            engine_time_t              m_evaluation_time{MIN_DT};
-            const TSValueTypeMetaData *m_value_ts{nullptr};
+            MapView::iterator         m_iterator{};
+            engine_time_t             m_evaluation_time{MIN_DT};
+            const TsValueTypeBinding *m_value_binding{nullptr};
         };
 
-        [[nodiscard]] iterator begin() const { return iterator(value().as_map().begin(), evaluation_time(), value_ts()); }
-        [[nodiscard]] iterator end() const { return iterator(value().as_map().end(), evaluation_time(), value_ts()); }
+        [[nodiscard]] iterator begin() const { return iterator(value().as_map().begin(), evaluation_time(), value_binding()); }
+        [[nodiscard]] iterator end() const { return iterator(value().as_map().end(), evaluation_time(), value_binding()); }
+
+      private:
+        const TsDictOps *m_dict_ops{nullptr};
     };
 
     struct TswView : TsView
     {
         using TsView::TsView;
 
-        explicit TswView(TsView view) noexcept : TsView(std::move(view)) {}
+        explicit TswView(TsView view) : TsView(std::move(view)), m_window_ops(&detail::checked_window_ops(ops())) {}
 
-        [[nodiscard]] bool   is_duration_based() const noexcept { return type() != nullptr && type()->is_duration_based(); }
-        [[nodiscard]] size_t period() const noexcept { return type() != nullptr ? type()->period() : 0; }
-        [[nodiscard]] size_t min_period() const noexcept { return type() != nullptr ? type()->min_period() : 0; }
-        [[nodiscard]] engine_time_delta_t time_range() const noexcept {
-            return type() != nullptr ? type()->time_range() : engine_time_delta_t{0};
-        }
-        [[nodiscard]] engine_time_delta_t min_time_range() const noexcept {
-            return type() != nullptr ? type()->min_time_range() : engine_time_delta_t{0};
-        }
-        [[nodiscard]] const ValueTypeMetaData *element_type() const noexcept { return value_type(); }
+        [[nodiscard]] bool                     is_duration_based() const noexcept { return m_window_ops->is_duration_based; }
+        [[nodiscard]] size_t                   period() const noexcept { return m_window_ops->period; }
+        [[nodiscard]] size_t                   min_period() const noexcept { return m_window_ops->min_period; }
+        [[nodiscard]] engine_time_delta_t      time_range() const noexcept { return m_window_ops->time_range; }
+        [[nodiscard]] engine_time_delta_t      min_time_range() const noexcept { return m_window_ops->min_time_range; }
+        [[nodiscard]] const ValueTypeMetaData *element_type() const noexcept { return m_window_ops->element_type; }
+
+      private:
+        const TsWindowOps *m_window_ops{nullptr};
     };
 
     template <typename Binding>

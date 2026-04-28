@@ -15,20 +15,26 @@ namespace hgraph::v2
      * the handle identity model.
      */
     struct TsOutputOps : TsValueOps
-    {};
+    {
+        TsOutputOps() = default;
+        TsOutputOps(const TsValueOps &base) : TsValueOps(base) {}
+    };
 
     namespace detail
     {
-        [[nodiscard]] inline InternTable<const ValueTypeBinding *, TsOutputOps> &ts_output_ops_registry() noexcept {
-            static InternTable<const ValueTypeBinding *, TsOutputOps> registry;
+        [[nodiscard]] inline InternTable<TsValueOpsKey, TsOutputOps, TsValueOpsKeyHash> &ts_output_ops_registry() noexcept {
+            static InternTable<TsValueOpsKey, TsOutputOps, TsValueOpsKeyHash> registry;
             return registry;
         }
     }  // namespace detail
 
-    [[nodiscard]] inline const TsOutputOps &ts_output_ops(const ValueTypeBinding &value_binding) {
-        TsOutputOps ops;
-        ops.value_binding = &value_binding;
-        return detail::ts_output_ops_registry().emplace(&value_binding, ops);
+    [[nodiscard]] inline const TsOutputOps &ts_output_ops(const TSValueTypeMetaData &type, const ValueTypeBinding &value_binding) {
+        return detail::ts_output_ops_registry().intern(
+            detail::TsValueOpsKey{
+                .type          = &type,
+                .value_binding = &value_binding,
+            },
+            [&]() { return TsOutputOps{ts_value_ops(type, value_binding)}; });
     }
 }  // namespace hgraph::v2
 

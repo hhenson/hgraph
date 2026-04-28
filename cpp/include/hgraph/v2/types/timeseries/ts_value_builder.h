@@ -60,6 +60,10 @@ namespace hgraph::v2
 
     namespace detail
     {
+        [[nodiscard]] inline const TsValueTypeBinding &checked_ts_binding(const TSValueTypeMetaData *type) {
+            return TsValueBuilder::checked(type).checked_binding();
+        }
+
         class TsValueBuilderRegistry
         {
           public:
@@ -103,7 +107,7 @@ namespace hgraph::v2
             }
 
             const ValueBuilder       &value_builder = ValueBuilder::checked(type.value_type);
-            const TsValueOps         &ops           = ts_value_ops(value_builder.checked_binding());
+            const TsValueOps         &ops           = ts_value_ops(type, value_builder.checked_binding());
             const TsValueTypeBinding &binding       = TsValueTypeBinding::intern(type, value_builder.checked_plan(), ops);
             return ts_value_builder_registry().store_if_absent(type, TsValueBuilderOps{
                                                                          .binding = &binding,

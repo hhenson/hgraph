@@ -30,11 +30,16 @@ namespace hgraph::v2
         ~InternTable()                              = default;
 
         template <typename Factory> [[nodiscard]] const Value &intern(Key key, Factory &&factory) {
-            std::lock_guard<std::mutex> lock(m_mutex);
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                if (const auto it = m_cache.find(key); it != m_cache.end()) { return *it->second; }
+            }
 
+            auto value = std::make_unique<Value>(std::forward<Factory>(factory)());
+
+            std::lock_guard<std::mutex> lock(m_mutex);
             if (const auto it = m_cache.find(key); it != m_cache.end()) { return *it->second; }
 
-            auto         value  = std::make_unique<Value>(std::forward<Factory>(factory)());
             const Value *result = value.get();
             m_storage.push_back(std::move(value));
             m_cache.emplace(std::move(key), result);

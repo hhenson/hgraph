@@ -23,6 +23,32 @@ namespace hgraph::v2
             requires requires(const Binding &binding) {
                 { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
             }
+        [[nodiscard]] inline const TsValueOps *ts_ops(const Binding *binding) noexcept {
+            return binding != nullptr ? binding->ops : nullptr;
+        }
+
+        [[nodiscard]] inline const ValueTypeBinding *ts_value_binding(const TsValueOps *ops) noexcept {
+            return ops != nullptr ? ops->value_binding : nullptr;
+        }
+
+        [[nodiscard]] inline const ValueTypeBinding &checked_ts_value_binding(const TsValueOps *ops) {
+            if (const ValueTypeBinding *binding = ts_value_binding(ops); binding != nullptr) { return *binding; }
+            throw std::logic_error("TS view is missing an underlying value binding");
+        }
+
+        template <typename Binding>
+            requires requires(const Binding &binding) {
+                { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
+            }
+        [[nodiscard]] inline const TsValueOps &checked_ts_ops(const Binding *binding) {
+            if (const TsValueOps *ops = ts_ops(binding); ops != nullptr && ops->value_binding != nullptr) { return *ops; }
+            throw std::logic_error("TS view is missing runtime operations");
+        }
+
+        template <typename Binding>
+            requires requires(const Binding &binding) {
+                { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
+            }
         [[nodiscard]] inline TsTypedStorageHandle<Binding>
         ts_storage_view(const Binding *binding, void *data = nullptr,
                         const MemoryUtils::AllocatorOps &allocator = MemoryUtils::allocator()) noexcept {
@@ -35,7 +61,14 @@ namespace hgraph::v2
                 { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
             }
         [[nodiscard]] inline const ValueTypeBinding *ts_value_binding(const Binding *binding) noexcept {
-            return binding != nullptr && binding->ops != nullptr ? &binding->checked_ops().checked_value_binding() : nullptr;
+            return ts_value_binding(ts_ops(binding));
+        }
+
+        [[nodiscard]] inline ValueView ts_value_view(const ValueTypeBinding *value_binding, void *data) noexcept {
+            if (value_binding != nullptr) {
+                return data != nullptr ? ValueView{value_binding, data} : ValueView::invalid_for(*value_binding);
+            }
+            return {};
         }
 
         template <typename Binding>
@@ -43,10 +76,7 @@ namespace hgraph::v2
                 { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
             }
         [[nodiscard]] inline ValueView ts_value_view(const Binding *binding, void *data) noexcept {
-            if (const ValueTypeBinding *value_binding = ts_value_binding(binding); value_binding != nullptr) {
-                return data != nullptr ? ValueView{value_binding, data} : ValueView::invalid_for(*value_binding);
-            }
-            return {};
+            return ts_value_view(ts_value_binding(binding), data);
         }
     }  // namespace detail
 

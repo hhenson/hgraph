@@ -75,8 +75,8 @@ namespace hgraph::v2
             if (m_storage.plan() != nullptr) { m_storage.reset_to_default(); }
         }
 
-        [[nodiscard]] TsOutputView view(engine_time_t evaluation_time = MIN_DT) noexcept;
-        [[nodiscard]] TsOutputView view(engine_time_t evaluation_time = MIN_DT) const noexcept;
+        [[nodiscard]] TsOutputView view(engine_time_t evaluation_time = MIN_DT);
+        [[nodiscard]] TsOutputView view(engine_time_t evaluation_time = MIN_DT) const;
 
       private:
         storage_type m_storage{};

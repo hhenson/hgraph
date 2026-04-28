@@ -20,7 +20,7 @@ namespace hgraph::v2
 
         TsOutputView() = default;
 
-        TsOutputView(TsOutput *output, engine_time_t evaluation_time = MIN_DT) noexcept
+        TsOutputView(TsOutput *output, engine_time_t evaluation_time = MIN_DT)
             : base_type(context_type{
                   output != nullptr ? detail::ts_storage_view(output->binding(), output->data(), output->allocator())
                                     : TsOutputStorageHandle{},
@@ -30,9 +30,9 @@ namespace hgraph::v2
         [[nodiscard]] bool is_bound() const noexcept { return binding() != nullptr; }
     };
 
-    inline TsOutputView TsOutput::view(engine_time_t evaluation_time) noexcept { return TsOutputView{this, evaluation_time}; }
+    inline TsOutputView TsOutput::view(engine_time_t evaluation_time) { return TsOutputView{this, evaluation_time}; }
 
-    inline TsOutputView TsOutput::view(engine_time_t evaluation_time) const noexcept {
+    inline TsOutputView TsOutput::view(engine_time_t evaluation_time) const {
         return TsOutputView{const_cast<TsOutput *>(this), evaluation_time};
     }
 }  // namespace hgraph::v2

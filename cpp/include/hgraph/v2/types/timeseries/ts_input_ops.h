@@ -14,20 +14,26 @@ namespace hgraph::v2
      * binding that can grow input-specific schema behavior later.
      */
     struct TsInputOps : TsValueOps
-    {};
+    {
+        TsInputOps() = default;
+        TsInputOps(const TsValueOps &base) : TsValueOps(base) {}
+    };
 
     namespace detail
     {
-        [[nodiscard]] inline InternTable<const ValueTypeBinding *, TsInputOps> &ts_input_ops_registry() noexcept {
-            static InternTable<const ValueTypeBinding *, TsInputOps> registry;
+        [[nodiscard]] inline InternTable<TsValueOpsKey, TsInputOps, TsValueOpsKeyHash> &ts_input_ops_registry() noexcept {
+            static InternTable<TsValueOpsKey, TsInputOps, TsValueOpsKeyHash> registry;
             return registry;
         }
     }  // namespace detail
 
-    [[nodiscard]] inline const TsInputOps &ts_input_ops(const ValueTypeBinding &value_binding) {
-        TsInputOps ops;
-        ops.value_binding = &value_binding;
-        return detail::ts_input_ops_registry().emplace(&value_binding, ops);
+    [[nodiscard]] inline const TsInputOps &ts_input_ops(const TSValueTypeMetaData &type, const ValueTypeBinding &value_binding) {
+        return detail::ts_input_ops_registry().intern(
+            detail::TsValueOpsKey{
+                .type          = &type,
+                .value_binding = &value_binding,
+            },
+            [&]() { return TsInputOps{ts_value_ops(type, value_binding)}; });
     }
 }  // namespace hgraph::v2
 

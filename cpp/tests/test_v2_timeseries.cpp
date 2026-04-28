@@ -50,6 +50,58 @@ TEST_CASE("v2 TS builders bridge TS schemas to the underlying value builders", "
     REQUIRE(output_builder.ts_value_builder() == &ts_builder);
 }
 
+TEST_CASE("v2 TS ops intern specialized structure descriptors per TS schema", "[v2 timeseries]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+
+    const ValueTypeMetaData   *int_meta    = value::scalar_type_meta<int>();
+    const ValueTypeMetaData   *string_meta = value::scalar_type_meta<std::string>();
+    const TSValueTypeMetaData *int_ts      = registry.ts(int_meta);
+    const TSValueTypeMetaData *string_ts   = registry.ts(string_meta);
+    const TSValueTypeMetaData *bundle_ts   = registry.tsb({{"count", int_ts}, {"label", string_ts}}, "Pair");
+    const TSValueTypeMetaData *list_ts     = registry.tsl(int_ts, 2);
+    const TSValueTypeMetaData *set_ts      = registry.tss(int_meta);
+    const TSValueTypeMetaData *dict_ts     = registry.tsd(int_meta, string_ts);
+    const TSValueTypeMetaData *window_ts   = registry.tsw(int_meta, 5, 3);
+
+    const TsValueOps &scalar_ops = TsValueBuilder::checked(int_ts).checked_ops();
+    const TsValueOps &window_ops = TsValueBuilder::checked(window_ts).checked_ops();
+
+    REQUIRE(scalar_ops.value_binding == window_ops.value_binding);
+    CHECK_FALSE(scalar_ops.is_tsb());
+    CHECK_FALSE(scalar_ops.is_tsw());
+    REQUIRE(window_ops.is_tsw());
+    CHECK(window_ops.checked_window_ops().period == 5);
+    CHECK(window_ops.checked_window_ops().min_period == 3);
+    CHECK(window_ops.checked_window_ops().element_type == int_meta);
+
+    const TsValueOps &bundle_ops = TsValueBuilder::checked(bundle_ts).checked_ops();
+    REQUIRE(bundle_ops.is_tsb());
+    REQUIRE(bundle_ops.checked_bundle_ops().field_count() == 2);
+    REQUIRE(bundle_ops.checked_bundle_ops().field("count") != nullptr);
+    REQUIRE(bundle_ops.checked_bundle_ops().field("label") != nullptr);
+    CHECK(bundle_ops.checked_bundle_ops().field("count")->checked_binding().type_meta == int_ts);
+    CHECK(bundle_ops.checked_bundle_ops().field("label")->checked_binding().type_meta == string_ts);
+
+    const TsValueOps &list_ops = TsValueBuilder::checked(list_ts).checked_ops();
+    REQUIRE(list_ops.is_tsl());
+    CHECK(list_ops.checked_list_ops().checked_element_binding().type_meta == int_ts);
+    CHECK(list_ops.checked_list_ops().fixed_size == 2);
+
+    const TsValueOps &set_ops = TsValueBuilder::checked(set_ts).checked_ops();
+    REQUIRE(set_ops.is_tss());
+    CHECK(set_ops.checked_set_ops().element_type == int_meta);
+
+    const TsValueOps &dict_ops = TsValueBuilder::checked(dict_ts).checked_ops();
+    REQUIRE(dict_ops.is_tsd());
+    CHECK(dict_ops.checked_dict_ops().key_type == int_meta);
+    CHECK(dict_ops.checked_dict_ops().checked_value_binding().type_meta == string_ts);
+
+    const TsInputOps  &bundle_input_ops = TsInputBuilder::checked(bundle_ts).checked_binding().checked_ops();
+    const TsOutputOps &dict_output_ops  = TsOutputBuilder::checked(dict_ts).checked_binding().checked_ops();
+    REQUIRE(bundle_input_ops.checked_bundle_ops() == bundle_ops.checked_bundle_ops());
+    REQUIRE(dict_output_ops.checked_dict_ops() == dict_ops.checked_dict_ops());
+}
+
 TEST_CASE("v2 TS outputs own value storage and inputs bind by reference", "[v2 timeseries]") {
     const ValueTypeMetaData   *int_meta = value::scalar_type_meta<int>();
     const TSValueTypeMetaData *int_ts   = TypeRegistry::instance().ts(int_meta);

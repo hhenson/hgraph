@@ -100,8 +100,8 @@ namespace hgraph::v2
             }
         }
 
-        [[nodiscard]] TsInputView view(engine_time_t evaluation_time = MIN_DT) noexcept;
-        [[nodiscard]] TsInputView view(engine_time_t evaluation_time = MIN_DT) const noexcept;
+        [[nodiscard]] TsInputView view(engine_time_t evaluation_time = MIN_DT);
+        [[nodiscard]] TsInputView view(engine_time_t evaluation_time = MIN_DT) const;
 
       private:
         storage_type m_storage{};

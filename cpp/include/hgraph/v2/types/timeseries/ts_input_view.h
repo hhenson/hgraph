@@ -23,7 +23,7 @@ namespace hgraph::v2
 
         TsInputView() = default;
 
-        TsInputView(TsInput *input, engine_time_t evaluation_time = MIN_DT) noexcept
+        TsInputView(TsInput *input, engine_time_t evaluation_time = MIN_DT)
             : base_type(context_type{
                   input != nullptr ? detail::ts_storage_view(input->binding(), input->data(), input->allocator())
                                    : TsInputStorageHandle{},
@@ -79,9 +79,9 @@ namespace hgraph::v2
                                                              allocator_ops != nullptr ? *allocator_ops : MemoryUtils::allocator());
     }
 
-    inline TsInputView TsInput::view(engine_time_t evaluation_time) noexcept { return TsInputView{this, evaluation_time}; }
+    inline TsInputView TsInput::view(engine_time_t evaluation_time) { return TsInputView{this, evaluation_time}; }
 
-    inline TsInputView TsInput::view(engine_time_t evaluation_time) const noexcept {
+    inline TsInputView TsInput::view(engine_time_t evaluation_time) const {
         return TsInputView{const_cast<TsInput *>(this), evaluation_time};
     }
 }  // namespace hgraph::v2

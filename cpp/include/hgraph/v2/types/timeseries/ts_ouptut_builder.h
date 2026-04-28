@@ -93,7 +93,7 @@ namespace hgraph::v2
         if (const TsOutputBuilder *builder = find(type); builder != nullptr) { return *builder; }
 
         const TsValueBuilder      &ts_value_builder = TsValueBuilder::checked(type);
-        const TsOutputOps         &ops              = ts_output_ops(ts_value_builder.checked_value_binding());
+        const TsOutputOps         &ops              = ts_output_ops(*type, ts_value_builder.checked_value_binding());
         const TsOutputTypeBinding &binding = TsOutputTypeBinding::intern(*type, ts_value_builder.checked_value_plan(), ops);
         return detail::ts_output_builder_registry().store_if_absent(*type, TsOutputBuilderOps{
                                                                                .binding = &binding,

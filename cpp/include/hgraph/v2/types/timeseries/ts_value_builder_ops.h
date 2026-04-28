@@ -11,7 +11,6 @@
 
 namespace hgraph::v2
 {
-    using TsValueTypeBinding  = TypeBinding<TSValueTypeMetaData, TsValueOps>;
     using TsInputTypeBinding  = TypeBinding<TSValueTypeMetaData, TsInputOps>;
     using TsOutputTypeBinding = TypeBinding<TSValueTypeMetaData, TsOutputOps>;
 
