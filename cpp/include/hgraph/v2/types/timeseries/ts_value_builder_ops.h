@@ -3,13 +3,17 @@
 
 #include <hgraph/v2/types/metadata/ts_value_type_meta_data.h>
 #include <hgraph/v2/types/metadata/type_binding.h>
+#include <hgraph/v2/types/timeseries/ts_input_ops.h>
+#include <hgraph/v2/types/timeseries/ts_output_ops.h>
 #include <hgraph/v2/types/timeseries/ts_value_ops.h>
 
 #include <stdexcept>
 
 namespace hgraph::v2
 {
-    using TsValueTypeBinding = TypeBinding<TSValueTypeMetaData, TsValueOps>;
+    using TsValueTypeBinding  = TypeBinding<TSValueTypeMetaData, TsValueOps>;
+    using TsInputTypeBinding  = TypeBinding<TSValueTypeMetaData, TsInputOps>;
+    using TsOutputTypeBinding = TypeBinding<TSValueTypeMetaData, TsOutputOps>;
 
     struct TsValueBuilderOps
     {

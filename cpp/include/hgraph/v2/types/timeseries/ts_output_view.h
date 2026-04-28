@@ -20,7 +20,7 @@ namespace hgraph::v2
         TsOutputView(TsOutput *output, engine_time_t evaluation_time = MIN_DT) noexcept
             : TsView(TsViewContext{
                   output != nullptr ? detail::ts_storage_view(output->binding(), output->data(), output->allocator())
-                                    : TsStorageViewHandle{},
+                                    : TsOutputStorageHandle{},
                   evaluation_time,
               }) {}
 

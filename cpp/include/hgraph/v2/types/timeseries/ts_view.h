@@ -4,24 +4,29 @@
 #include <hgraph/util/date_time.h>
 #include <hgraph/v2/types/timeseries/ts_value.h>
 
+#include <concepts>
 #include <utility>
 
 namespace hgraph::v2
 {
-    struct TsViewContext
+    template <typename Binding>
+        requires requires(const Binding &binding) {
+            { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
+        }
+    struct TsViewContextT
     {
-        TsStorageViewHandle storage{};
-        engine_time_t       evaluation_time{MIN_DT};
+        TsTypedStorageHandle<Binding> storage{};
+        engine_time_t                 evaluation_time{MIN_DT};
 
-        TsViewContext() = default;
+        TsViewContextT() = default;
 
-        TsViewContext(TsStorageViewHandle storage, engine_time_t evaluation_time = MIN_DT) noexcept
+        TsViewContextT(TsTypedStorageHandle<Binding> storage, engine_time_t evaluation_time = MIN_DT) noexcept
             : storage(std::move(storage)), evaluation_time(evaluation_time) {}
 
-        TsViewContext(const TsViewContext &)                = delete;
-        TsViewContext &operator=(const TsViewContext &)     = delete;
-        TsViewContext(TsViewContext &&) noexcept            = default;
-        TsViewContext &operator=(TsViewContext &&) noexcept = default;
+        TsViewContextT(const TsViewContextT &)                = delete;
+        TsViewContextT &operator=(const TsViewContextT &)     = delete;
+        TsViewContextT(TsViewContextT &&) noexcept            = default;
+        TsViewContextT &operator=(TsViewContextT &&) noexcept = default;
     };
 
     /**
@@ -33,21 +38,29 @@ namespace hgraph::v2
      * projected through `value()`. TS-specific structural adapters can layer
      * on top later without making `TsView` pretend to be a generic `ValueView`.
      */
-    struct TsView
+    template <typename Binding>
+        requires requires(const Binding &binding) {
+            { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
+        }
+    struct BasicTsView
     {
-        TsView() = default;
+        using binding_type = Binding;
+        using storage_type = TsTypedStorageHandle<Binding>;
+        using context_type = TsViewContextT<Binding>;
 
-        explicit TsView(TsViewContext context) noexcept : m_context(std::move(context)) {}
+        BasicTsView() = default;
 
-        TsView(const TsView &)                = delete;
-        TsView &operator=(const TsView &)     = delete;
-        TsView(TsView &&) noexcept            = default;
-        TsView &operator=(TsView &&) noexcept = default;
+        explicit BasicTsView(context_type context) noexcept : m_context(std::move(context)) {}
 
-        [[nodiscard]] const TsViewContext       &context() const noexcept { return m_context; }
-        [[nodiscard]] const TsStorageViewHandle &storage() const noexcept { return m_context.storage; }
-        [[nodiscard]] const TsValueTypeBinding  *binding() const noexcept { return m_context.storage.binding(); }
-        [[nodiscard]] const TsValueBuilder      *builder() const noexcept {
+        BasicTsView(const BasicTsView &)                = delete;
+        BasicTsView &operator=(const BasicTsView &)     = delete;
+        BasicTsView(BasicTsView &&) noexcept            = default;
+        BasicTsView &operator=(BasicTsView &&) noexcept = default;
+
+        [[nodiscard]] const context_type   &context() const noexcept { return m_context; }
+        [[nodiscard]] const storage_type   &storage() const noexcept { return m_context.storage; }
+        [[nodiscard]] const Binding        *binding() const noexcept { return m_context.storage.binding(); }
+        [[nodiscard]] const TsValueBuilder *builder() const noexcept {
             return type() != nullptr ? TsValueBuilder::find(type()) : nullptr;
         }
         [[nodiscard]] const TSValueTypeMetaData *type() const noexcept {
@@ -65,10 +78,18 @@ namespace hgraph::v2
         }
 
       protected:
-        void refresh(TsStorageViewHandle storage) noexcept { m_context.storage = std::move(storage); }
+        void refresh(storage_type storage) noexcept { m_context.storage = std::move(storage); }
 
       private:
-        TsViewContext m_context{};
+        context_type m_context{};
+    };
+
+    using TsViewContext = TsViewContextT<TsOutputTypeBinding>;
+
+    struct TsView : BasicTsView<TsOutputTypeBinding>
+    {
+        using BasicTsView<TsOutputTypeBinding>::BasicTsView;
+        TsView() = default;
     };
 }  // namespace hgraph::v2
 

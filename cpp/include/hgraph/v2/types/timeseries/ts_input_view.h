@@ -16,14 +16,17 @@ namespace hgraph::v2
      * its cached root pointer in sync with the owning input when binding
      * changes, so `value()` reflects the currently linked output payload.
      */
-    struct TsInputView : TsView
+    struct TsInputView : BasicTsView<TsInputTypeBinding>
     {
+        using base_type    = BasicTsView<TsInputTypeBinding>;
+        using context_type = typename base_type::context_type;
+
         TsInputView() = default;
 
         TsInputView(TsInput *input, engine_time_t evaluation_time = MIN_DT) noexcept
-            : TsView(TsViewContext{
+            : base_type(context_type{
                   input != nullptr ? detail::ts_storage_view(input->binding(), input->data(), input->allocator())
-                                   : TsStorageViewHandle{},
+                                   : TsInputStorageHandle{},
                   evaluation_time,
               }),
               m_input(input) {}
@@ -53,22 +56,26 @@ namespace hgraph::v2
 
     inline void TsInput::bind_output(const TsOutput &output) {
         if (output.binding() == nullptr) { throw std::logic_error("TsInput::bind_output requires a bound output"); }
-        if (binding() != nullptr && binding() != output.binding()) {
+        if (type() != nullptr && type() != output.type()) {
             throw std::invalid_argument("TsInput::bind_output requires matching TS bindings");
         }
 
-        m_storage = storage_type::reference(*output.binding(), const_cast<void *>(output.data()), output.allocator());
+        const TsInputTypeBinding &input_binding =
+            binding() != nullptr ? *binding() : TsInputBuilder::checked(output.type()).checked_binding();
+        m_storage = storage_type::reference(input_binding, const_cast<void *>(output.data()), output.allocator());
     }
 
     inline void TsInput::bind_output(const TsOutputView &output) {
         if (output.binding() == nullptr) { throw std::logic_error("TsInput::bind_output requires a bound output view"); }
-        if (binding() != nullptr && binding() != output.binding()) {
+        if (type() != nullptr && type() != output.type()) {
             throw std::invalid_argument("TsInput::bind_output requires matching TS bindings");
         }
 
+        const TsInputTypeBinding &input_binding =
+            binding() != nullptr ? *binding() : TsInputBuilder::checked(output.type()).checked_binding();
         const auto &output_storage = output.storage();
         const auto *allocator_ops  = output_storage.allocator();
-        m_storage                  = storage_type::reference(*output.binding(), const_cast<void *>(output_storage.data()),
+        m_storage                  = storage_type::reference(input_binding, const_cast<void *>(output_storage.data()),
                                                              allocator_ops != nullptr ? *allocator_ops : MemoryUtils::allocator());
     }
 

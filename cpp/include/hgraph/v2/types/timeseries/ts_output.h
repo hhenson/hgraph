@@ -19,7 +19,7 @@ namespace hgraph::v2
      */
     struct TsOutput
     {
-        using storage_type = TsStorageHandle;
+        using storage_type = TsOutputStorageHandle;
 
         TsOutput() noexcept = default;
 
@@ -27,15 +27,18 @@ namespace hgraph::v2
             : TsOutput(TsValueBuilder::checked(&type), allocator) {}
 
         explicit TsOutput(const TsValueBuilder &builder, const MemoryUtils::AllocatorOps &allocator = MemoryUtils::allocator())
-            : m_storage(builder.checked_binding(), allocator) {}
+            : m_storage(TsOutputBuilder::checked(builder.type()).checked_binding(), allocator) {}
 
         explicit TsOutput(const TsOutputBuilder &builder, const MemoryUtils::AllocatorOps &allocator = MemoryUtils::allocator())
-            : TsOutput(builder.checked_ts_value_builder(), allocator) {}
+            : m_storage(builder.checked_binding(), allocator) {}
+
+        explicit TsOutput(const TsOutputTypeBinding &binding, const MemoryUtils::AllocatorOps &allocator = MemoryUtils::allocator())
+            : m_storage(binding, allocator) {}
 
         [[nodiscard]] bool     has_value() const noexcept { return m_storage.has_value(); }
         [[nodiscard]] explicit operator bool() const noexcept { return has_value(); }
 
-        [[nodiscard]] const TsValueTypeBinding  *binding() const noexcept { return m_storage.binding(); }
+        [[nodiscard]] const TsOutputTypeBinding *binding() const noexcept { return m_storage.binding(); }
         [[nodiscard]] const TSValueTypeMetaData *type() const noexcept {
             return binding() != nullptr ? binding()->type_meta : nullptr;
         }

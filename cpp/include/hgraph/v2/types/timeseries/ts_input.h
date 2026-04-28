@@ -21,17 +21,18 @@ namespace hgraph::v2
      */
     struct TsInput
     {
-        using storage_type = TsStorageHandle;
+        using storage_type = TsInputStorageHandle;
 
         TsInput() noexcept = default;
 
         explicit TsInput(const TSValueTypeMetaData &type) : TsInput(TsValueBuilder::checked(&type)) {}
 
-        explicit TsInput(const TsValueBuilder &builder) : m_storage(storage_type::reference(builder.checked_binding(), nullptr)) {}
+        explicit TsInput(const TsValueBuilder &builder)
+            : m_storage(storage_type::reference(TsInputBuilder::checked(builder.type()).checked_binding(), nullptr)) {}
 
-        explicit TsInput(const TsInputBuilder &builder) : TsInput(builder.checked_ts_value_builder()) {}
+        explicit TsInput(const TsInputBuilder &builder) : m_storage(storage_type::reference(builder.checked_binding(), nullptr)) {}
 
-        explicit TsInput(const TsValueTypeBinding &binding) : m_storage(storage_type::reference(binding, nullptr)) {}
+        explicit TsInput(const TsInputTypeBinding &binding) : m_storage(storage_type::reference(binding, nullptr)) {}
 
         TsInput(const TsInput &other) noexcept { bind_from_other(other); }
 
@@ -48,7 +49,7 @@ namespace hgraph::v2
         [[nodiscard]] explicit operator bool() const noexcept { return has_value(); }
         [[nodiscard]] bool     is_bound() const noexcept { return has_value(); }
 
-        [[nodiscard]] const TsValueTypeBinding  *binding() const noexcept { return m_storage.binding(); }
+        [[nodiscard]] const TsInputTypeBinding  *binding() const noexcept { return m_storage.binding(); }
         [[nodiscard]] const TSValueTypeMetaData *type() const noexcept {
             return binding() != nullptr ? binding()->type_meta : nullptr;
         }
@@ -92,7 +93,7 @@ namespace hgraph::v2
         }
 
         void unbind_output() noexcept {
-            if (const TsValueTypeBinding *ts_binding = binding(); ts_binding != nullptr) {
+            if (const TsInputTypeBinding *ts_binding = binding(); ts_binding != nullptr) {
                 m_storage = storage_type::reference(*ts_binding, nullptr, allocator());
             } else {
                 m_storage.reset();
@@ -107,7 +108,7 @@ namespace hgraph::v2
 
         void bind_from_other(const TsInput &other) noexcept {
             m_storage.reset();
-            if (const TsValueTypeBinding *ts_binding = other.binding(); ts_binding != nullptr) {
+            if (const TsInputTypeBinding *ts_binding = other.binding(); ts_binding != nullptr) {
                 m_storage = storage_type::reference(*ts_binding, const_cast<void *>(other.data()), other.allocator());
             }
         }

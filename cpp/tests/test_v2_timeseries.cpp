@@ -39,6 +39,13 @@ TEST_CASE("v2 TS builders bridge TS schemas to the underlying value builders", "
     REQUIRE(ts_builder.value_type() == int_meta);
     REQUIRE(ts_builder.value_builder() == &value::scalar_value_builder<int>());
     REQUIRE(ts_builder.value_binding() == value::scalar_value_builder<int>().binding());
+    REQUIRE(input_builder.binding() != nullptr);
+    REQUIRE(output_builder.binding() != nullptr);
+    REQUIRE(input_builder.binding()->type_meta == int_ts);
+    REQUIRE(output_builder.binding()->type_meta == int_ts);
+    REQUIRE(input_builder.checked_binding().checked_ops().checked_value_binding().type_meta == int_meta);
+    REQUIRE(output_builder.checked_binding().checked_ops().checked_value_binding().type_meta == int_meta);
+    CHECK(static_cast<const void *>(input_builder.binding()) != static_cast<const void *>(output_builder.binding()));
     REQUIRE(input_builder.ts_value_builder() == &ts_builder);
     REQUIRE(output_builder.ts_value_builder() == &ts_builder);
 }
@@ -51,6 +58,8 @@ TEST_CASE("v2 TS outputs own value storage and inputs bind by reference", "[v2 t
     output.value().set(42);
 
     TsInput input(*int_ts);
+    REQUIRE(input.binding() != nullptr);
+    REQUIRE(output.binding() != nullptr);
     REQUIRE_FALSE(input.has_value());
     REQUIRE_FALSE(input.is_bound());
     REQUIRE(input.value().binding() == output.value().binding());
