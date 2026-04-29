@@ -39,10 +39,17 @@ TEST_CASE("v2 TS builders bridge TS schemas to the underlying value builders", "
     REQUIRE(ts_builder.value_type() == int_meta);
     REQUIRE(ts_builder.value_builder() == &value::scalar_value_builder<int>());
     REQUIRE(ts_builder.value_binding() == value::scalar_value_builder<int>().binding());
+    REQUIRE(ts_builder.state_plan() != nullptr);
+    REQUIRE(ts_builder.value_plan() != nullptr);
+    CHECK(ts_builder.state_plan() != ts_builder.value_plan());
+    CHECK(ts_builder.checked_state_plan().is_named_tuple());
+    CHECK(ts_builder.checked_state_plan().component_count() == 2);
     REQUIRE(input_builder.binding() != nullptr);
     REQUIRE(output_builder.binding() != nullptr);
     REQUIRE(input_builder.binding()->type_meta == int_ts);
     REQUIRE(output_builder.binding()->type_meta == int_ts);
+    CHECK(input_builder.checked_binding().checked_plan().component_count() == 3);
+    CHECK(output_builder.checked_binding().checked_plan().component_count() == 3);
     REQUIRE(input_builder.checked_binding().checked_ops().checked_value_binding().type_meta == int_meta);
     REQUIRE(output_builder.checked_binding().checked_ops().checked_value_binding().type_meta == int_meta);
     CHECK(static_cast<const void *>(input_builder.binding()) != static_cast<const void *>(output_builder.binding()));
@@ -53,15 +60,16 @@ TEST_CASE("v2 TS builders bridge TS schemas to the underlying value builders", "
 TEST_CASE("v2 TS ops intern specialized structure descriptors per TS schema", "[v2 timeseries]") {
     TypeRegistry &registry = TypeRegistry::instance();
 
-    const ValueTypeMetaData   *int_meta    = value::scalar_type_meta<int>();
-    const ValueTypeMetaData   *string_meta = value::scalar_type_meta<std::string>();
-    const TSValueTypeMetaData *int_ts      = registry.ts(int_meta);
-    const TSValueTypeMetaData *string_ts   = registry.ts(string_meta);
-    const TSValueTypeMetaData *bundle_ts   = registry.tsb({{"count", int_ts}, {"label", string_ts}}, "Pair");
-    const TSValueTypeMetaData *list_ts     = registry.tsl(int_ts, 2);
-    const TSValueTypeMetaData *set_ts      = registry.tss(int_meta);
-    const TSValueTypeMetaData *dict_ts     = registry.tsd(int_meta, string_ts);
-    const TSValueTypeMetaData *window_ts   = registry.tsw(int_meta, 5, 3);
+    const ValueTypeMetaData   *int_meta        = value::scalar_type_meta<int>();
+    const ValueTypeMetaData   *string_meta     = value::scalar_type_meta<std::string>();
+    const TSValueTypeMetaData *int_ts          = registry.ts(int_meta);
+    const TSValueTypeMetaData *string_ts       = registry.ts(string_meta);
+    const TSValueTypeMetaData *bundle_ts       = registry.tsb({{"count", int_ts}, {"label", string_ts}}, "Pair");
+    const TSValueTypeMetaData *fixed_list_ts   = registry.tsl(int_ts, 2);
+    const TSValueTypeMetaData *dynamic_list_ts = registry.tsl(int_ts);
+    const TSValueTypeMetaData *set_ts          = registry.tss(int_meta);
+    const TSValueTypeMetaData *dict_ts         = registry.tsd(int_meta, string_ts);
+    const TSValueTypeMetaData *window_ts       = registry.tsw(int_meta, 5, 3);
 
     const TsValueOps &scalar_ops = TsValueBuilder::checked(int_ts).checked_ops();
     const TsValueOps &window_ops = TsValueBuilder::checked(window_ts).checked_ops();
@@ -82,10 +90,17 @@ TEST_CASE("v2 TS ops intern specialized structure descriptors per TS schema", "[
     CHECK(bundle_ops.checked_bundle_ops().field("count")->checked_binding().type_meta == int_ts);
     CHECK(bundle_ops.checked_bundle_ops().field("label")->checked_binding().type_meta == string_ts);
 
-    const TsValueOps &list_ops = TsValueBuilder::checked(list_ts).checked_ops();
-    REQUIRE(list_ops.is_tsl());
-    CHECK(list_ops.checked_list_ops().checked_element_binding().type_meta == int_ts);
-    CHECK(list_ops.checked_list_ops().fixed_size == 2);
+    const TsValueOps &fixed_list_ops = TsValueBuilder::checked(fixed_list_ts).checked_ops();
+    REQUIRE(fixed_list_ops.is_tsl());
+    CHECK(fixed_list_ops.checked_list_ops().checked_element_binding().type_meta == int_ts);
+    CHECK(fixed_list_ops.checked_list_ops().fixed_size == 2);
+    CHECK(fixed_list_ops.checked_list_ops().has_inline_child_states());
+
+    const TsValueOps &dynamic_list_ops = TsValueBuilder::checked(dynamic_list_ts).checked_ops();
+    REQUIRE(dynamic_list_ops.is_tsl());
+    CHECK(dynamic_list_ops.checked_list_ops().checked_element_binding().type_meta == int_ts);
+    CHECK(dynamic_list_ops.checked_list_ops().fixed_size == 0);
+    CHECK_FALSE(dynamic_list_ops.checked_list_ops().has_inline_child_states());
 
     const TsValueOps &set_ops = TsValueBuilder::checked(set_ts).checked_ops();
     REQUIRE(set_ops.is_tss());
@@ -114,6 +129,9 @@ TEST_CASE("v2 TS outputs own value storage and inputs bind by reference", "[v2 t
     REQUIRE(output.binding() != nullptr);
     REQUIRE_FALSE(input.has_value());
     REQUIRE_FALSE(input.is_bound());
+    CHECK(input.state_plan() != nullptr);
+    CHECK(output.state_plan() != nullptr);
+    CHECK(output.state_plan() != output.value_plan());
     REQUIRE(input.value().binding() == output.value().binding());
 
     input.bind_output(output);
@@ -161,12 +179,13 @@ TEST_CASE("v2 TS input and output views expose root bind and read semantics", "[
 TEST_CASE("v2 TS specialized views expose bundle and list child TS values", "[v2 timeseries]") {
     TypeRegistry &registry = TypeRegistry::instance();
 
-    const ValueTypeMetaData   *int_meta    = value::scalar_type_meta<int>();
-    const ValueTypeMetaData   *string_meta = value::scalar_type_meta<std::string>();
-    const TSValueTypeMetaData *int_ts      = registry.ts(int_meta);
-    const TSValueTypeMetaData *string_ts   = registry.ts(string_meta);
-    const TSValueTypeMetaData *bundle_ts   = registry.tsb({{"count", int_ts}, {"label", string_ts}}, "Pair");
-    const TSValueTypeMetaData *list_ts     = registry.tsl(int_ts, 2);
+    const ValueTypeMetaData   *int_meta        = value::scalar_type_meta<int>();
+    const ValueTypeMetaData   *string_meta     = value::scalar_type_meta<std::string>();
+    const TSValueTypeMetaData *int_ts          = registry.ts(int_meta);
+    const TSValueTypeMetaData *string_ts       = registry.ts(string_meta);
+    const TSValueTypeMetaData *bundle_ts       = registry.tsb({{"count", int_ts}, {"label", string_ts}}, "Pair");
+    const TSValueTypeMetaData *fixed_list_ts   = registry.tsl(int_ts, 2);
+    const TSValueTypeMetaData *dynamic_list_ts = registry.tsl(int_ts);
 
     TsOutput bundle_output(*bundle_ts);
     auto     bundle_view = bundle_output.view().as_tsb();
@@ -176,11 +195,13 @@ TEST_CASE("v2 TS specialized views expose bundle and list child TS values", "[v2
 
     CHECK(bundle_view["count"].type() == int_ts);
     CHECK(bundle_view["count"].value().as<int>() == 3);
+    CHECK(bundle_view["count"].state_data() != nullptr);
     CHECK(bundle_view["label"].type() == string_ts);
     CHECK(bundle_view["label"].value().as<std::string>() == "alpha");
+    CHECK(bundle_view["label"].state_data() != nullptr);
     CHECK(bundle_view.value().to_string() == "Pair{count: 3, label: alpha}");
 
-    TsOutput list_output(*list_ts);
+    TsOutput list_output(*fixed_list_ts);
     auto     list_view = list_output.view().as_tsl();
 
     list_view.set(0, value::value_for(11).view());
@@ -188,8 +209,30 @@ TEST_CASE("v2 TS specialized views expose bundle and list child TS values", "[v2
 
     CHECK(list_view[0].type() == int_ts);
     CHECK(list_view[0].value().as<int>() == 11);
+    CHECK(list_view[0].state_data() != nullptr);
     CHECK(list_view[1].value().as<int>() == 12);
+    CHECK(list_view[1].state_data() != nullptr);
     CHECK(list_view.value().to_string() == "[11, 12]");
+
+    TsOutput dynamic_list_output(*dynamic_list_ts);
+    auto     dynamic_list_view = dynamic_list_output.view().as_tsl();
+
+    dynamic_list_view.push_back(value::value_for(21).view());
+    dynamic_list_view.push_back(value::value_for(22).view());
+
+    CHECK(dynamic_list_view[0].type() == int_ts);
+    CHECK(dynamic_list_view[0].value().as<int>() == 21);
+    REQUIRE(dynamic_list_view[0].state_data() != nullptr);
+    CHECK(dynamic_list_view[1].value().as<int>() == 22);
+    REQUIRE(dynamic_list_view[1].state_data() != nullptr);
+
+    const void *first_state = dynamic_list_view[0].state_data();
+    dynamic_list_view.pop_back();
+    dynamic_list_view.push_back(value::value_for(23).view());
+
+    CHECK(dynamic_list_view[0].state_data() == first_state);
+    CHECK(dynamic_list_view[1].value().as<int>() == 23);
+    CHECK(dynamic_list_view[1].state_data() != nullptr);
 }
 
 TEST_CASE("v2 TS specialized views expose set and dict semantics", "[v2 timeseries]") {
@@ -221,7 +264,92 @@ TEST_CASE("v2 TS specialized views expose set and dict semantics", "[v2 timeseri
     CHECK(dict_view.contains(key.view()));
     CHECK(dict_view.at(key.view()).type() == string_ts);
     CHECK(dict_view.at(key.view()).value().as<std::string>() == "alpha");
+    REQUIRE(dict_view.at(key.view()).state_data() != nullptr);
     CHECK(dict_view.size() == 1);
+
+    const void *original_state = dict_view.at(key.view()).state_data();
+    REQUIRE(dict_view.remove(key.view()));
+    REQUIRE_FALSE(dict_view.contains(key.view()));
+
+    const Value beta = value::value_for(std::string("beta"));
+    dict_view.set(key.view(), beta.view());
+    CHECK(dict_view.at(key.view()).value().as<std::string>() == "beta");
+    CHECK(dict_view.at(key.view()).state_data() == original_state);
+}
+
+TEST_CASE("v2 TSD child state tracks map slot erase via slot observers", "[v2 timeseries]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+
+    const ValueTypeMetaData   *int_meta    = value::scalar_type_meta<int>();
+    const ValueTypeMetaData   *string_meta = value::scalar_type_meta<std::string>();
+    const TSValueTypeMetaData *string_ts   = registry.ts(string_meta);
+    const TSValueTypeMetaData *dict_ts     = registry.tsd(int_meta, string_ts);
+
+    TsOutput output(*dict_ts);
+    auto     dict_view = output.view().as_tsd();
+
+    const Value key   = value::value_for(7);
+    const Value alpha = value::value_for(std::string("alpha"));
+    dict_view.set(key.view(), alpha.view());
+
+    const size_t slot = output.value().as_map().find_slot(key.view());
+    REQUIRE(slot != KeySlotStore::npos);
+
+    const auto layout = hgraph::v2::detail::ts_state_layout(*output.state_plan());
+    auto      *state  = MemoryUtils::cast<TsDictState>(MemoryUtils::advance(output.state_data(), layout.kind_offset));
+    REQUIRE(state != nullptr);
+
+    const void *original_child_state = dict_view.at(key.view()).state_data();
+    REQUIRE(original_child_state != nullptr);
+    CHECK(state->child_state_memory(slot) == original_child_state);
+    CHECK(state->pending_erase_count == 0);
+
+    REQUIRE(dict_view.remove(key.view()));
+    CHECK(dict_view.has_pending_erase());
+    CHECK(state->pending_erase_count == 1);
+    CHECK(state->child_state_memory(slot) == original_child_state);
+
+    dict_view.erase_pending();
+    CHECK_FALSE(dict_view.has_pending_erase());
+    CHECK(state->pending_erase_count == 0);
+    CHECK(state->child_state_memory(slot) == nullptr);
+}
+
+TEST_CASE("v2 TSL child state tracks dynamic list slot changes via slot observers", "[v2 timeseries]") {
+    TypeRegistry &registry = TypeRegistry::instance();
+
+    const ValueTypeMetaData   *int_meta        = value::scalar_type_meta<int>();
+    const TSValueTypeMetaData *int_ts          = registry.ts(int_meta);
+    const TSValueTypeMetaData *dynamic_list_ts = registry.tsl(int_ts);
+
+    TsOutput output(*dynamic_list_ts);
+    auto     list_view = output.view().as_tsl();
+
+    list_view.push_back(value::value_for(21).view());
+    list_view.push_back(value::value_for(22).view());
+
+    const auto layout = hgraph::v2::detail::ts_state_layout(*output.state_plan());
+    auto      *state  = MemoryUtils::cast<TsDynamicListState>(MemoryUtils::advance(output.state_data(), layout.kind_offset));
+    REQUIRE(state != nullptr);
+
+    const void *state0 = list_view[0].state_data();
+    const void *state1 = list_view[1].state_data();
+    REQUIRE(state0 != nullptr);
+    REQUIRE(state1 != nullptr);
+    CHECK(state->logical_size == 2);
+    CHECK(state->child_state_memory(0) == state0);
+    CHECK(state->child_state_memory(1) == state1);
+
+    list_view.pop_back();
+    CHECK(state->logical_size == 1);
+    CHECK(state->child_state_memory(0) == state0);
+    CHECK(state->child_state_memory(1) == nullptr);
+
+    list_view.push_back(value::value_for(23).view());
+    CHECK(state->logical_size == 2);
+    CHECK(state->child_state_memory(0) == state0);
+    CHECK(state->child_state_memory(1) == state1);
+    CHECK(list_view[1].value().as<int>() == 23);
 }
 
 TEST_CASE("v2 TSW view exposes window metadata and current payload projection", "[v2 timeseries]") {

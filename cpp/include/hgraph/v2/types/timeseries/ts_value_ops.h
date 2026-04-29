@@ -2,6 +2,7 @@
 #define HGRAPH_CPP_ROOT_TS_VALUE_OPS_H
 
 #include <hgraph/v2/types/metadata/ts_value_type_meta_data.h>
+#include <hgraph/v2/types/timeseries/ts_state.h>
 #include <hgraph/v2/types/utils/intern_table.h>
 #include <hgraph/v2/types/value/value_ops.h>
 
@@ -20,6 +21,7 @@ namespace hgraph::v2
     {
         const char               *name{nullptr};
         size_t                    index{0};
+        size_t                    state_offset{0};
         const TsValueTypeBinding *binding{nullptr};
 
         [[nodiscard]] bool operator==(const TsBundleFieldOps &) const = default;
@@ -60,6 +62,7 @@ namespace hgraph::v2
     {
         const TsValueTypeBinding *element_binding{nullptr};
         size_t                    fixed_size{0};
+        size_t                    element_state_stride{0};
 
         [[nodiscard]] bool operator==(const TsListOps &) const = default;
 
@@ -69,6 +72,7 @@ namespace hgraph::v2
         }
 
         [[nodiscard]] bool is_fixed() const noexcept { return fixed_size != 0; }
+        [[nodiscard]] bool has_inline_child_states() const noexcept { return element_state_stride != 0; }
     };
 
     struct TsSetOps
@@ -277,15 +281,17 @@ namespace hgraph::v2
 
             static InternTable<const TSValueTypeMetaData *, TsBundleOps> registry;
             return &registry.intern(&type, [&]() {
-                TsBundleOps ops;
+                const MemoryUtils::StoragePlan &kind_plan = detail::ts_kind_state_plan(type);
+                TsBundleOps                     ops;
                 ops.bundle_name = type.bundle_name();
                 ops.fields.reserve(type.field_count());
                 const TSFieldMetaData *fields = type.fields();
                 for (size_t index = 0; index < type.field_count(); ++index) {
                     ops.fields.push_back(TsBundleFieldOps{
-                        .name    = fields[index].name,
-                        .index   = fields[index].index,
-                        .binding = &checked_ts_binding(fields[index].type),
+                        .name         = fields[index].name,
+                        .index        = fields[index].index,
+                        .state_offset = kind_plan.component(index).offset,
+                        .binding      = &checked_ts_binding(fields[index].type),
                     });
                 }
                 return ops;
@@ -297,9 +303,11 @@ namespace hgraph::v2
 
             static InternTable<const TSValueTypeMetaData *, TsListOps> registry;
             return &registry.intern(&type, [&]() {
+                const MemoryUtils::StoragePlan &kind_plan = detail::ts_kind_state_plan(type);
                 return TsListOps{
-                    .element_binding = &checked_ts_binding(type.element_ts()),
-                    .fixed_size      = type.fixed_size(),
+                    .element_binding      = &checked_ts_binding(type.element_ts()),
+                    .fixed_size           = type.fixed_size(),
+                    .element_state_stride = kind_plan.is_array() ? kind_plan.array_stride() : 0,
                 };
             });
         }

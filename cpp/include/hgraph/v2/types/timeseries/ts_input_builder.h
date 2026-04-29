@@ -2,6 +2,7 @@
 #define HGRAPH_CPP_ROOT_TS_INPUT_BUILDER_H
 
 #include <hgraph/v2/types/timeseries/ts_input_builder_ops.h>
+#include <hgraph/v2/types/timeseries/ts_state.h>
 #include <hgraph/v2/types/timeseries/ts_value_builder.h>
 
 #include <memory>
@@ -94,7 +95,7 @@ namespace hgraph::v2
 
         const TsValueBuilder     &ts_value_builder = TsValueBuilder::checked(type);
         const TsInputOps         &ops              = ts_input_ops(*type, ts_value_builder.checked_value_binding());
-        const TsInputTypeBinding &binding          = TsInputTypeBinding::intern(*type, ts_value_builder.checked_value_plan(), ops);
+        const TsInputTypeBinding &binding          = TsInputTypeBinding::intern(*type, ts_input_state_plan(*type), ops);
         return detail::ts_input_builder_registry().store_if_absent(*type, TsInputBuilderOps{
                                                                               .binding = &binding,
                                                                           });

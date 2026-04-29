@@ -22,8 +22,9 @@ namespace hgraph::v2
 
         TsOutputView(TsOutput *output, engine_time_t evaluation_time = MIN_DT)
             : base_type(context_type{
-                  output != nullptr ? detail::ts_storage_view(output->binding(), output->data(), output->allocator())
-                                    : TsOutputStorageHandle{},
+                  output != nullptr ? detail::ts_state_view(output->binding(), output->state_data(), output->allocator())
+                                    : TsOutputStateHandle{},
+                  output != nullptr ? output->data() : nullptr,
                   evaluation_time,
               }) {}
 

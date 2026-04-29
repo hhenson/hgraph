@@ -10,12 +10,12 @@
 
 namespace hgraph::v2
 {
-    template <typename Binding>
-    using TsTypedStorageHandle = MemoryUtils::StorageHandle<MemoryUtils::InlineStoragePolicy<>, Binding>;
+    template <typename Binding> using TsTypedStateHandle = MemoryUtils::StorageHandle<MemoryUtils::InlineStoragePolicy<>, Binding>;
 
-    using TsValueStorageHandle  = TsTypedStorageHandle<TsValueTypeBinding>;
-    using TsInputStorageHandle  = TsTypedStorageHandle<TsInputTypeBinding>;
-    using TsOutputStorageHandle = TsTypedStorageHandle<TsOutputTypeBinding>;
+    using TsValueStateHandle  = TsTypedStateHandle<TsValueTypeBinding>;
+    using TsInputStateHandle  = TsTypedStateHandle<TsInputTypeBinding>;
+    using TsOutputStateHandle = TsTypedStateHandle<TsOutputTypeBinding>;
+    using TsValueDataHandle   = MemoryUtils::StorageHandle<MemoryUtils::InlineStoragePolicy<>, ValueTypeBinding>;
 
     namespace detail
     {
@@ -49,11 +49,11 @@ namespace hgraph::v2
             requires requires(const Binding &binding) {
                 { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
             }
-        [[nodiscard]] inline TsTypedStorageHandle<Binding>
-        ts_storage_view(const Binding *binding, void *data = nullptr,
-                        const MemoryUtils::AllocatorOps &allocator = MemoryUtils::allocator()) noexcept {
-            return binding != nullptr ? TsTypedStorageHandle<Binding>::reference(*binding, data, allocator)
-                                      : TsTypedStorageHandle<Binding>{};
+        [[nodiscard]] inline TsTypedStateHandle<Binding>
+        ts_state_view(const Binding *binding, void *state_data = nullptr,
+                      const MemoryUtils::AllocatorOps &allocator = MemoryUtils::allocator()) noexcept {
+            return binding != nullptr ? TsTypedStateHandle<Binding>::reference(*binding, state_data, allocator)
+                                      : TsTypedStateHandle<Binding>{};
         }
 
         template <typename Binding>
@@ -64,9 +64,9 @@ namespace hgraph::v2
             return ts_value_binding(ts_ops(binding));
         }
 
-        [[nodiscard]] inline ValueView ts_value_view(const ValueTypeBinding *value_binding, void *data) noexcept {
+        [[nodiscard]] inline ValueView ts_value_view(const ValueTypeBinding *value_binding, void *value_data) noexcept {
             if (value_binding != nullptr) {
-                return data != nullptr ? ValueView{value_binding, data} : ValueView::invalid_for(*value_binding);
+                return value_data != nullptr ? ValueView{value_binding, value_data} : ValueView::invalid_for(*value_binding);
             }
             return {};
         }
@@ -75,8 +75,13 @@ namespace hgraph::v2
             requires requires(const Binding &binding) {
                 { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
             }
-        [[nodiscard]] inline ValueView ts_value_view(const Binding *binding, void *data) noexcept {
-            return ts_value_view(ts_value_binding(binding), data);
+        [[nodiscard]] inline ValueView ts_value_view(const Binding *binding, void *value_data) noexcept {
+            return ts_value_view(ts_value_binding(binding), value_data);
+        }
+
+        [[nodiscard]] inline const MemoryUtils::AllocatorOps &
+        checked_allocator(const MemoryUtils::AllocatorOps *allocator) noexcept {
+            return allocator != nullptr ? *allocator : MemoryUtils::allocator();
         }
     }  // namespace detail
 

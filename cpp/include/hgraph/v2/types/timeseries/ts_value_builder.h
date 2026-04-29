@@ -1,6 +1,7 @@
 #ifndef HGRAPH_CPP_ROOT_TS_VALUE_BUILDER_H
 #define HGRAPH_CPP_ROOT_TS_VALUE_BUILDER_H
 
+#include <hgraph/v2/types/timeseries/ts_state.h>
 #include <hgraph/v2/types/timeseries/ts_value_builder_ops.h>
 #include <hgraph/v2/types/value/value_builder.h>
 
@@ -39,16 +40,20 @@ namespace hgraph::v2
         [[nodiscard]] const ValueTypeBinding *value_binding() const noexcept {
             return m_ops.binding != nullptr ? m_ops.binding->checked_ops().value_binding : nullptr;
         }
-        [[nodiscard]] const MemoryUtils::StoragePlan *value_plan() const noexcept {
+        [[nodiscard]] const MemoryUtils::StoragePlan *state_plan() const noexcept {
             return m_ops.binding != nullptr ? m_ops.binding->plan() : nullptr;
         }
+        [[nodiscard]] const MemoryUtils::StoragePlan *value_plan() const noexcept {
+            return value_binding() != nullptr ? value_binding()->plan() : nullptr;
+        }
 
-        [[nodiscard]] const TsValueTypeBinding  &checked_binding() const { return m_ops.checked_binding(); }
-        [[nodiscard]] const TSValueTypeMetaData &checked_type() const { return checked_binding().checked_type(); }
-        [[nodiscard]] const TsValueOps          &checked_ops() const { return checked_binding().checked_ops(); }
-        [[nodiscard]] const ValueBuilder        &checked_value_builder() const { return ValueBuilder::checked(value_type()); }
-        [[nodiscard]] const ValueTypeBinding    &checked_value_binding() const { return checked_ops().checked_value_binding(); }
-        [[nodiscard]] const ValueTypeMetaData   &checked_value_type() const { return checked_value_binding().checked_type(); }
+        [[nodiscard]] const TsValueTypeBinding       &checked_binding() const { return m_ops.checked_binding(); }
+        [[nodiscard]] const TSValueTypeMetaData      &checked_type() const { return checked_binding().checked_type(); }
+        [[nodiscard]] const TsValueOps               &checked_ops() const { return checked_binding().checked_ops(); }
+        [[nodiscard]] const MemoryUtils::StoragePlan &checked_state_plan() const { return checked_binding().checked_plan(); }
+        [[nodiscard]] const ValueBuilder             &checked_value_builder() const { return ValueBuilder::checked(value_type()); }
+        [[nodiscard]] const ValueTypeBinding  &checked_value_binding() const { return checked_ops().checked_value_binding(); }
+        [[nodiscard]] const ValueTypeMetaData &checked_value_type() const { return checked_value_binding().checked_type(); }
         [[nodiscard]] const MemoryUtils::StoragePlan &checked_value_plan() const { return checked_value_binding().checked_plan(); }
 
         [[nodiscard]] static const TsValueBuilder *find(const TSValueTypeMetaData *type);
@@ -108,7 +113,7 @@ namespace hgraph::v2
 
             const ValueBuilder       &value_builder = ValueBuilder::checked(type.value_type);
             const TsValueOps         &ops           = ts_value_ops(type, value_builder.checked_binding());
-            const TsValueTypeBinding &binding       = TsValueTypeBinding::intern(type, value_builder.checked_plan(), ops);
+            const TsValueTypeBinding &binding       = TsValueTypeBinding::intern(type, ts_value_state_plan(type), ops);
             return ts_value_builder_registry().store_if_absent(type, TsValueBuilderOps{
                                                                          .binding = &binding,
                                                                      });

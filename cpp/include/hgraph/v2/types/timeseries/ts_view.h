@@ -10,10 +10,30 @@
 
 namespace hgraph::v2
 {
+    template <typename Binding = TsValueTypeBinding>
+        requires requires(const Binding &binding) {
+            { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
+        }
     struct TsbView;
+    template <typename Binding = TsValueTypeBinding>
+        requires requires(const Binding &binding) {
+            { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
+        }
     struct TslView;
+    template <typename Binding = TsValueTypeBinding>
+        requires requires(const Binding &binding) {
+            { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
+        }
     struct TssView;
+    template <typename Binding = TsValueTypeBinding>
+        requires requires(const Binding &binding) {
+            { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
+        }
     struct TsdView;
+    template <typename Binding = TsValueTypeBinding>
+        requires requires(const Binding &binding) {
+            { binding.checked_ops().checked_value_binding() } -> std::same_as<const ValueTypeBinding &>;
+        }
     struct TswView;
 
     template <typename Binding>
@@ -22,13 +42,14 @@ namespace hgraph::v2
         }
     struct TsViewContextT
     {
-        TsTypedStorageHandle<Binding> storage{};
-        engine_time_t                 evaluation_time{MIN_DT};
+        TsTypedStateHandle<Binding> state_storage{};
+        void                       *value_data{nullptr};
+        engine_time_t               evaluation_time{MIN_DT};
 
         TsViewContextT() = default;
 
-        TsViewContextT(TsTypedStorageHandle<Binding> storage, engine_time_t evaluation_time = MIN_DT) noexcept
-            : storage(std::move(storage)), evaluation_time(evaluation_time) {}
+        TsViewContextT(TsTypedStateHandle<Binding> state_storage, void *value_data, engine_time_t evaluation_time = MIN_DT) noexcept
+            : state_storage(std::move(state_storage)), value_data(value_data), evaluation_time(evaluation_time) {}
 
         TsViewContextT(const TsViewContextT &)                = delete;
         TsViewContextT &operator=(const TsViewContextT &)     = delete;
@@ -37,13 +58,13 @@ namespace hgraph::v2
     };
 
     /**
-     * Thin erased view over a time-series endpoint value position.
+     * Thin erased view over a logical time-series position.
      *
-     * The view is backed by a borrowed `StorageHandle` and is move-only.
-     * Future composite/path walking can therefore pass around non-owning
-     * `TsView` objects without copying endpoint state. The current payload is
-     * projected through `value()`. TS-specific structural adapters can layer
-     * on top later without making `TsView` pretend to be a generic `ValueView`.
+     * The TS runtime now treats state storage and value storage as two
+     * parallel regions. The view therefore carries a borrowed TS-state handle
+     * plus a raw value pointer. This keeps the cursor light while preserving
+     * the data-first value layout needed for zero-cost `ValueView`
+     * projection.
      */
     template <typename Binding>
         requires requires(const Binding &binding) {
@@ -52,7 +73,7 @@ namespace hgraph::v2
     struct BasicTsView
     {
         using binding_type = Binding;
-        using storage_type = TsTypedStorageHandle<Binding>;
+        using storage_type = TsTypedStateHandle<Binding>;
         using context_type = TsViewContextT<Binding>;
 
         BasicTsView() = default;
@@ -65,8 +86,9 @@ namespace hgraph::v2
         BasicTsView &operator=(BasicTsView &&) noexcept = default;
 
         [[nodiscard]] const context_type &context() const noexcept { return m_context; }
-        [[nodiscard]] const storage_type &storage() const noexcept { return m_context.storage; }
-        [[nodiscard]] const Binding      *binding() const noexcept { return m_context.storage.binding(); }
+        [[nodiscard]] const storage_type &state_storage() const noexcept { return m_context.state_storage; }
+        [[nodiscard]] const storage_type &storage() const noexcept { return state_storage(); }
+        [[nodiscard]] const Binding      *binding() const noexcept { return m_context.state_storage.binding(); }
         [[nodiscard]] const TsValueOps   *ops() const noexcept { return m_ops; }
         [[nodiscard]] const TsValueOps   &checked_ops() const {
             if (m_ops != nullptr) { return *m_ops; }
@@ -84,31 +106,45 @@ namespace hgraph::v2
             return binding() != nullptr ? binding()->type_meta : nullptr;
         }
         [[nodiscard]] const ValueTypeMetaData *value_type() const noexcept {
-            return type() != nullptr ? type()->value_type : nullptr;
+            return m_value_binding != nullptr ? m_value_binding->type_meta : nullptr;
         }
+        [[nodiscard]] const MemoryUtils::StoragePlan *state_plan() const noexcept { return state_storage().plan(); }
+        [[nodiscard]] void         *state_data() const noexcept { return const_cast<void *>(state_storage().data()); }
+        [[nodiscard]] void         *value_data() const noexcept { return m_context.value_data; }
         [[nodiscard]] bool          is_tsb() const noexcept { return ops() != nullptr && ops()->is_tsb(); }
         [[nodiscard]] bool          is_tsl() const noexcept { return ops() != nullptr && ops()->is_tsl(); }
         [[nodiscard]] bool          is_tss() const noexcept { return ops() != nullptr && ops()->is_tss(); }
         [[nodiscard]] bool          is_tsd() const noexcept { return ops() != nullptr && ops()->is_tsd(); }
         [[nodiscard]] bool          is_tsw() const noexcept { return ops() != nullptr && ops()->is_tsw(); }
         [[nodiscard]] engine_time_t evaluation_time() const noexcept { return m_context.evaluation_time; }
-        [[nodiscard]] bool          has_value() const noexcept { return m_context.storage.data() != nullptr; }
+        [[nodiscard]] bool          has_value() const noexcept { return m_context.value_data != nullptr; }
         [[nodiscard]] explicit      operator bool() const noexcept { return has_value(); }
 
-        [[nodiscard]] ValueView value() const noexcept {
-            return detail::ts_value_view(m_value_binding, const_cast<void *>(m_context.storage.data()));
-        }
+        [[nodiscard]] ValueView value() const noexcept { return detail::ts_value_view(m_value_binding, m_context.value_data); }
 
-        [[nodiscard]] TsbView as_tsb() const;
-        [[nodiscard]] TslView as_tsl() const;
-        [[nodiscard]] TssView as_tss() const;
-        [[nodiscard]] TsdView as_tsd() const;
-        [[nodiscard]] TswView as_tsw() const;
+        [[nodiscard]] TsbView<Binding> as_tsb() const;
+        [[nodiscard]] TslView<Binding> as_tsl() const;
+        [[nodiscard]] TssView<Binding> as_tss() const;
+        [[nodiscard]] TsdView<Binding> as_tsd() const;
+        [[nodiscard]] TswView<Binding> as_tsw() const;
 
       protected:
-        void refresh(storage_type storage) {
-            m_context.storage = std::move(storage);
+        void refresh(storage_type state_storage, void *value_data) {
+            m_context.state_storage = std::move(state_storage);
+            m_context.value_data    = value_data;
             refresh_cached_bindings();
+        }
+
+        [[nodiscard]] context_type cloned_context() const noexcept {
+            return context_type{
+                binding() != nullptr ? detail::ts_state_view(binding(), state_data(), state_allocator()) : storage_type{},
+                value_data(),
+                evaluation_time(),
+            };
+        }
+
+        [[nodiscard]] const MemoryUtils::AllocatorOps &state_allocator() const noexcept {
+            return detail::checked_allocator(state_storage().allocator());
         }
 
       private:

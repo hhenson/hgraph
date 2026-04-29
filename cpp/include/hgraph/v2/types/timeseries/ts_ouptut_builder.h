@@ -2,6 +2,7 @@
 #define HGRAPH_CPP_ROOT_TS_OUPTUT_BUILDER_H
 
 #include <hgraph/v2/types/timeseries/ts_output_builder_ops.h>
+#include <hgraph/v2/types/timeseries/ts_state.h>
 #include <hgraph/v2/types/timeseries/ts_value_builder.h>
 
 #include <memory>
@@ -94,7 +95,7 @@ namespace hgraph::v2
 
         const TsValueBuilder      &ts_value_builder = TsValueBuilder::checked(type);
         const TsOutputOps         &ops              = ts_output_ops(*type, ts_value_builder.checked_value_binding());
-        const TsOutputTypeBinding &binding = TsOutputTypeBinding::intern(*type, ts_value_builder.checked_value_plan(), ops);
+        const TsOutputTypeBinding &binding          = TsOutputTypeBinding::intern(*type, ts_output_state_plan(*type), ops);
         return detail::ts_output_builder_registry().store_if_absent(*type, TsOutputBuilderOps{
                                                                                .binding = &binding,
                                                                            });

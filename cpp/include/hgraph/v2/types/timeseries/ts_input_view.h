@@ -25,8 +25,9 @@ namespace hgraph::v2
 
         TsInputView(TsInput *input, engine_time_t evaluation_time = MIN_DT)
             : base_type(context_type{
-                  input != nullptr ? detail::ts_storage_view(input->binding(), input->data(), input->allocator())
-                                   : TsInputStorageHandle{},
+                  input != nullptr ? detail::ts_state_view(input->binding(), input->state_data(), input->allocator())
+                                   : TsInputStateHandle{},
+                  input != nullptr ? input->data() : nullptr,
                   evaluation_time,
               }),
               m_input(input) {}
@@ -38,7 +39,7 @@ namespace hgraph::v2
             if (m_input == nullptr) { throw std::logic_error("TsInputView::bind_output requires an owning input"); }
             if (output.binding() != nullptr) {
                 m_input->bind_output(output);
-                refresh(detail::ts_storage_view(m_input->binding(), m_input->data(), m_input->allocator()));
+                refresh(detail::ts_state_view(m_input->binding(), m_input->state_data(), m_input->allocator()), m_input->data());
                 return;
             }
             throw std::logic_error("TsInputView::bind_output requires a bound output view");
@@ -47,7 +48,7 @@ namespace hgraph::v2
         void unbind_output() noexcept {
             if (m_input == nullptr) { return; }
             m_input->unbind_output();
-            refresh(detail::ts_storage_view(m_input->binding(), nullptr, m_input->allocator()));
+            refresh(detail::ts_state_view(m_input->binding(), m_input->state_data(), m_input->allocator()), nullptr);
         }
 
       private:
@@ -56,27 +57,14 @@ namespace hgraph::v2
 
     inline void TsInput::bind_output(const TsOutput &output) {
         if (output.binding() == nullptr) { throw std::logic_error("TsInput::bind_output requires a bound output"); }
-        if (type() != nullptr && type() != output.type()) {
-            throw std::invalid_argument("TsInput::bind_output requires matching TS bindings");
-        }
-
-        const TsInputTypeBinding &input_binding =
-            binding() != nullptr ? *binding() : TsInputBuilder::checked(output.type()).checked_binding();
-        m_storage = storage_type::reference(input_binding, const_cast<void *>(output.data()), output.allocator());
+        ensure_state_binding_for(output.type());
+        m_value_data = const_cast<void *>(output.data());
     }
 
     inline void TsInput::bind_output(const TsOutputView &output) {
         if (output.binding() == nullptr) { throw std::logic_error("TsInput::bind_output requires a bound output view"); }
-        if (type() != nullptr && type() != output.type()) {
-            throw std::invalid_argument("TsInput::bind_output requires matching TS bindings");
-        }
-
-        const TsInputTypeBinding &input_binding =
-            binding() != nullptr ? *binding() : TsInputBuilder::checked(output.type()).checked_binding();
-        const auto &output_storage = output.storage();
-        const auto *allocator_ops  = output_storage.allocator();
-        m_storage                  = storage_type::reference(input_binding, const_cast<void *>(output_storage.data()),
-                                                             allocator_ops != nullptr ? *allocator_ops : MemoryUtils::allocator());
+        ensure_state_binding_for(output.type());
+        m_value_data = output.value_data();
     }
 
     inline TsInputView TsInput::view(engine_time_t evaluation_time) { return TsInputView{this, evaluation_time}; }

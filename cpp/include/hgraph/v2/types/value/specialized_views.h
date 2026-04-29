@@ -242,8 +242,7 @@ namespace hgraph::v2
             if (is_fixed()) { throw std::logic_error("ListView::pop_back() is only valid for dynamic lists"); }
             auto *storage = static_cast<detail::DynamicListStorage *>(data());
             if (storage->size == 0) { throw std::out_of_range("ListView::pop_back() on an empty list"); }
-            storage->values.destroy_at(storage->size - 1);
-            --storage->size;
+            storage->resize(storage->size - 1);
         }
 
         void resize(size_t new_size) {
@@ -387,6 +386,15 @@ namespace hgraph::v2
         [[nodiscard]] bool                     empty() const { return size() == 0; }
         [[nodiscard]] const ValueTypeMetaData *key_type() const noexcept { return type()->key_type; }
         [[nodiscard]] const ValueTypeMetaData *value_type() const noexcept { return type()->element_type; }
+        [[nodiscard]] size_t slot_capacity() const { return static_cast<const detail::MapStorage *>(data())->keys.slot_capacity(); }
+        [[nodiscard]] bool   slot_live(size_t slot) const {
+            return static_cast<const detail::MapStorage *>(data())->keys.slot_live(slot);
+        }
+
+        [[nodiscard]] size_t find_slot(const ValueView &key) const {
+            detail::require_child_value(key, key_type(), "MapView::find_slot()");
+            return static_cast<const detail::MapStorage *>(data())->keys.find_slot(key.data());
+        }
 
         [[nodiscard]] bool contains(const ValueView &key) const {
             detail::require_child_value(key, key_type(), "MapView::contains()");
@@ -398,6 +406,20 @@ namespace hgraph::v2
             auto *value_memory = static_cast<detail::MapStorage *>(const_cast<void *>(data()))->value_at(key.data());
             if (value_memory == nullptr) { throw std::out_of_range("MapView key not found"); }
             return detail::child_view(value_memory, value_type());
+        }
+
+        [[nodiscard]] ValueView key_at_slot(size_t slot) const {
+            const auto *storage = static_cast<const detail::MapStorage *>(data());
+            if (!storage->keys.slot_constructed(slot)) { throw std::out_of_range("MapView slot does not contain a key"); }
+            return detail::child_view(const_cast<void *>(storage->keys[slot]), key_type());
+        }
+
+        [[nodiscard]] ValueView value_at_slot(size_t slot) const {
+            const auto *storage = static_cast<const detail::MapStorage *>(data());
+            if (!storage->keys.slot_constructed(slot) || !storage->values.has_slot(slot)) {
+                throw std::out_of_range("MapView slot does not contain a value");
+            }
+            return detail::child_view(storage->values.value_memory(slot), value_type());
         }
 
         void set(const ValueView &key, const ValueView &value) {

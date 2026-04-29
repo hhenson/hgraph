@@ -85,18 +85,22 @@ namespace hgraph::v2::detail
         DynamicListStorage(DynamicListStorage &&) noexcept            = default;
         DynamicListStorage &operator=(DynamicListStorage &&) noexcept = default;
 
-        ValueSlotStore values;
-        size_t         size{0};
+        ValueSlotStore   values;
+        size_t           size{0};
+        SlotObserverList observers{};
 
         [[nodiscard]] bool empty() const noexcept { return size == 0; }
 
         void reserve_to(size_t capacity) {
             if (capacity > values.slot_capacity()) {
+                const size_t old_capacity = values.slot_capacity();
                 values.reserve_to(std::max<size_t>(capacity, std::max<size_t>(8, values.slot_capacity() * 2)));
+                observers.notify_capacity(old_capacity, values.slot_capacity());
             }
         }
 
         void clear() noexcept {
+            observers.notify_clear();
             for (size_t index = size; index > 0; --index) { values.destroy_at(index - 1); }
             size = 0;
         }
@@ -104,9 +108,15 @@ namespace hgraph::v2::detail
         void resize(size_t new_size) {
             if (new_size > size) {
                 reserve_to(new_size);
-                for (size_t index = size; index < new_size; ++index) { values.construct_at(index); }
+                for (size_t index = size; index < new_size; ++index) {
+                    values.construct_at(index);
+                    observers.notify_insert(index);
+                }
             } else {
-                for (size_t index = size; index > new_size; --index) { values.destroy_at(index - 1); }
+                for (size_t index = size; index > new_size; --index) {
+                    observers.notify_erase(index - 1);
+                    values.destroy_at(index - 1);
+                }
             }
             size = new_size;
         }
@@ -115,6 +125,7 @@ namespace hgraph::v2::detail
             reserve_to(size + 1);
             values.construct_at(size, src);
             values.mark_updated(size);
+            observers.notify_insert(size);
             ++size;
         }
 
@@ -126,9 +137,16 @@ namespace hgraph::v2::detail
         void copy_from(const DynamicListStorage &other) {
             clear();
             reserve_to(other.size);
-            for (size_t index = 0; index < other.size; ++index) { values.construct_at(index, other.values.value_memory(index)); }
+            for (size_t index = 0; index < other.size; ++index) {
+                values.construct_at(index, other.values.value_memory(index));
+                observers.notify_insert(index);
+            }
             size = other.size;
         }
+
+        void add_slot_observer(SlotObserver *observer) { observers.add(observer); }
+
+        void remove_slot_observer(SlotObserver *observer) { observers.remove(observer); }
     };
 
     struct SetStorage

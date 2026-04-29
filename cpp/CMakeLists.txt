@@ -334,6 +334,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/v2/types/timeseries/ts_output_builder_ops.h
         include/hgraph/v2/types/timeseries/ts_output_ops.h
         include/hgraph/v2/types/timeseries/ts_output_view.h
+        include/hgraph/v2/types/timeseries/ts_state.h
         include/hgraph/v2/types/timeseries/ts_specialized_views.h
         include/hgraph/v2/types/timeseries/ts_value.h
         include/hgraph/v2/types/timeseries/ts_value_builder.h
